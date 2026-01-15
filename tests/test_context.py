@@ -22,6 +22,7 @@ class TestGlobalConfig:
         """Test default global config."""
         config = GlobalConfig.default()
         assert config.projects_dir == Path.home() / "Projects"
+        assert config.open_command == "code"
 
     def test_from_dict_with_projects_dir(self):
         """Test creating from dict with projects_dir."""
@@ -37,6 +38,21 @@ class TestGlobalConfig:
         """Test creating from empty dict uses default."""
         config = GlobalConfig.from_dict({})
         assert config.projects_dir == Path.home() / "Projects"
+        assert config.open_command == "code"
+
+    def test_from_dict_with_open_command(self):
+        """Test creating from dict with custom open_command."""
+        config = GlobalConfig.from_dict({"open_command": "cursor"})
+        assert config.open_command == "cursor"
+
+    def test_from_dict_with_all_fields(self):
+        """Test creating from dict with all fields."""
+        config = GlobalConfig.from_dict({
+            "projects_dir": "/custom/path",
+            "open_command": "vim",
+        })
+        assert config.projects_dir == Path("/custom/path")
+        assert config.open_command == "vim"
 
 
 class TestResolvedContext:

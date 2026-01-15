@@ -6,6 +6,8 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
+from unittest.mock import patch
+
 from maelstrom.worktree import (
     WORKTREE_NAMES,
     WorktreeInfo,
@@ -14,6 +16,7 @@ from maelstrom.worktree import (
     get_next_worktree_name,
     has_root_worktree,
     list_worktrees,
+    open_worktree,
     read_env_file,
     remove_worktree,
     sanitize_branch_name,
@@ -147,6 +150,20 @@ class TestWriteEnvFile:
             env_file = worktree_path / ".env"
             content = env_file.read_text()
             assert "DATABASE_URL=postgres://localhost:1002/mydb" in content
+
+    def test_substitutes_worktree_variable(self):
+        """Test that $WORKTREE is substituted in existing vars."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            generated = {"WORKTREE": "alpha"}
+            existing = {"DATABASE_NAME": "myapp_$WORKTREE"}
+
+            write_env_file(worktree_path, generated, existing)
+
+            env_file = worktree_path / ".env"
+            content = env_file.read_text()
+            assert "DATABASE_NAME=myapp_alpha" in content
+            assert "WORKTREE=alpha" in content
 
 
 class TestReadEnvFile:
@@ -377,3 +394,34 @@ class TestWorktreeIntegration:
         # Cleanup - remove untracked file first so git worktree remove works without --force
         installed_marker.unlink()
         remove_worktree(git_repo, "feature/install-test")
+
+
+class TestOpenWorktree:
+    """Tests for open_worktree function."""
+
+    def test_open_worktree_success(self):
+        """Test opening a worktree with a valid command."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            with patch("maelstrom.worktree.subprocess.run") as mock_run:
+                mock_run.return_value = None
+                open_worktree(worktree_path, "code")
+                mock_run.assert_called_once_with(["code", str(worktree_path)], check=True)
+
+    def test_open_worktree_command_not_found(self):
+        """Test that FileNotFoundError is wrapped in RuntimeError."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            with patch("maelstrom.worktree.subprocess.run") as mock_run:
+                mock_run.side_effect = FileNotFoundError()
+                with pytest.raises(RuntimeError, match="Command not found"):
+                    open_worktree(worktree_path, "nonexistent-command")
+
+    def test_open_worktree_command_fails(self):
+        """Test that CalledProcessError is wrapped in RuntimeError."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            with patch("maelstrom.worktree.subprocess.run") as mock_run:
+                mock_run.side_effect = subprocess.CalledProcessError(1, "code")
+                with pytest.raises(RuntimeError, match="Failed to open worktree"):
+                    open_worktree(worktree_path, "code")

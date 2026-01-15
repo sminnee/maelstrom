@@ -1,10 +1,11 @@
 """Worktree management for maelstrom projects."""
 
+import json
 import os
 import re
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .config import load_config_or_default
@@ -17,6 +18,9 @@ WORKTREE_NAMES = [
     "quebec", "romeo", "sierra", "tango", "uniform", "victor", "whiskey",
     "xray", "yankee", "zulu",
 ]
+
+# Files managed by maelstrom that should be ignored when checking for dirty files
+MAELSTROM_MANAGED_FILES = {".env"}
 
 
 @dataclass
@@ -49,6 +53,42 @@ def run_cmd(cmd: list[str], cwd: Path | None = None, quiet: bool = False, check:
 def run_git(args: list[str], cwd: Path | None = None, quiet: bool = False) -> subprocess.CompletedProcess:
     """Run a git command and return the result."""
     return run_cmd(["git"] + args, cwd=cwd, quiet=quiet, check=True)
+
+
+def get_worktree_dirty_files(worktree_path: Path) -> list[str]:
+    """Get modified/untracked files in worktree, excluding maelstrom-managed files.
+
+    Args:
+        worktree_path: Path to the worktree directory.
+
+    Returns:
+        List of file paths that are modified or untracked (excluding maelstrom-managed files).
+    """
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=worktree_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return []
+
+    dirty_files = []
+    for line in result.stdout.strip().split("\n"):
+        if not line:
+            continue
+        # git status --porcelain format: XY filename
+        # where XY is the status code (2 chars) followed by a space
+        filename = line[3:].strip()
+        # Handle renamed files (format: "old -> new")
+        if " -> " in filename:
+            filename = filename.split(" -> ")[1]
+        # Skip maelstrom-managed files
+        if filename not in MAELSTROM_MANAGED_FILES:
+            dirty_files.append(filename)
+
+    return dirty_files
 
 
 def is_bare_repo(project_path: Path) -> bool:
@@ -450,12 +490,13 @@ def create_worktree(project_path: Path, branch: str) -> Path:
     # Read .env from project root if present (e.g., /Projects/myapp/.env)
     existing_env = read_env_file(project_path)
 
-    # Generate port variables if configured
+    # Generate environment variables
+    generated_vars = {"WORKTREE": worktree_name}
+
+    # Add port variables if configured
     if config.port_names:
         port_base = allocate_port_base(project_path, len(config.port_names))
-        generated_vars = generate_port_env_vars(port_base, config.port_names)
-    else:
-        generated_vars = {}
+        generated_vars.update(generate_port_env_vars(port_base, config.port_names))
 
     # Write .env if there's anything to write
     if existing_env or generated_vars:
@@ -577,8 +618,8 @@ def remove_worktree(project_path: Path, branch: str) -> None:
     if worktree_path is None:
         raise RuntimeError(f"No worktree found for branch: {branch}")
 
-    # Remove the worktree using git
-    run_git(["worktree", "remove", str(worktree_path)], cwd=project_path)
+    # Remove the worktree using git (--force needed for maelstrom-managed files like .env)
+    run_git(["worktree", "remove", "--force", str(worktree_path)], cwd=project_path)
 
 
 def remove_worktree_by_path(project_path: Path, worktree_name: str) -> None:
@@ -597,5 +638,438 @@ def remove_worktree_by_path(project_path: Path, worktree_name: str) -> None:
     if not worktree_path.exists():
         raise RuntimeError(f"Worktree does not exist: {worktree_path}")
 
-    # Remove the worktree using git
-    run_git(["worktree", "remove", str(worktree_path)], cwd=project_path)
+    # Remove the worktree using git (--force needed for maelstrom-managed files like .env)
+    run_git(["worktree", "remove", "--force", str(worktree_path)], cwd=project_path)
+
+
+def open_worktree(worktree_path: Path, command: str) -> None:
+    """Open a worktree using the configured command.
+
+    Args:
+        worktree_path: Path to the worktree directory.
+        command: Command to run (e.g., "code", "cursor").
+
+    Raises:
+        RuntimeError: If the command fails to execute.
+    """
+    try:
+        subprocess.run([command, str(worktree_path)], check=True)
+    except FileNotFoundError:
+        raise RuntimeError(f"Command not found: {command}")
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Failed to open worktree: {e}")
+
+
+# --- PR Reading Functions ---
+
+
+@dataclass
+class ReviewComment:
+    """A comment in a review thread."""
+
+    author: str
+    body: str
+    created_at: str
+
+
+@dataclass
+class ReviewThread:
+    """An unresolved review thread on a PR."""
+
+    id: str
+    path: str
+    line: int | None
+    comments: list[ReviewComment] = field(default_factory=list)
+
+
+@dataclass
+class CheckRun:
+    """A CI check run."""
+
+    name: str
+    state: str  # "SUCCESS", "FAILURE", "PENDING", etc.
+    run_id: str | None
+    link: str
+
+
+@dataclass
+class Artifact:
+    """A workflow run artifact."""
+
+    name: str
+    size: int  # bytes
+
+
+@dataclass
+class PRInfo:
+    """Information about a pull request."""
+
+    number: int
+    title: str
+    url: str
+    state: str  # "OPEN", "MERGED", "CLOSED"
+    merged: bool
+    head_ref: str
+    review_threads: list[ReviewThread] = field(default_factory=list)
+    checks: list[CheckRun] = field(default_factory=list)
+    artifacts: dict[str, list[Artifact]] = field(default_factory=dict)  # run_id -> artifacts
+
+
+def get_repo_info(cwd: Path) -> tuple[str, str]:
+    """Get the owner and repo name from the git remote.
+
+    Args:
+        cwd: Working directory (must be in a git repo).
+
+    Returns:
+        Tuple of (owner, repo).
+
+    Raises:
+        RuntimeError: If unable to determine repo info.
+    """
+    try:
+        result = run_cmd(
+            ["gh", "repo", "view", "--json", "owner,name", "-q", ".owner.login + \"/\" + .name"],
+            cwd=cwd,
+            quiet=True,
+            check=True,
+        )
+        parts = result.stdout.strip().split("/")
+        if len(parts) != 2:
+            raise RuntimeError(f"Unexpected repo format: {result.stdout.strip()}")
+        return parts[0], parts[1]
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Failed to get repo info: {e.stderr}")
+    except FileNotFoundError:
+        raise RuntimeError("GitHub CLI (gh) is not installed")
+
+
+def get_pr_info(cwd: Path) -> PRInfo:
+    """Get basic PR information.
+
+    Args:
+        cwd: Working directory (must be in a git repo with a PR).
+
+    Returns:
+        PRInfo with basic fields populated.
+
+    Raises:
+        RuntimeError: If no PR exists or gh command fails.
+    """
+    try:
+        result = run_cmd(
+            ["gh", "pr", "view", "--json", "number,title,url,state,mergedAt,headRefName"],
+            cwd=cwd,
+            quiet=True,
+            check=True,
+        )
+        data = json.loads(result.stdout)
+        return PRInfo(
+            number=data["number"],
+            title=data["title"],
+            url=data["url"],
+            state=data["state"],
+            merged=data.get("mergedAt") is not None,
+            head_ref=data["headRefName"],
+        )
+    except subprocess.CalledProcessError as e:
+        if "no pull requests found" in e.stderr.lower():
+            raise RuntimeError("No pull request found for current branch")
+        raise RuntimeError(f"Failed to get PR info: {e.stderr}")
+    except FileNotFoundError:
+        raise RuntimeError("GitHub CLI (gh) is not installed")
+
+
+def get_unresolved_review_threads(cwd: Path, owner: str, repo: str, pr_number: int) -> list[ReviewThread]:
+    """Get unresolved review threads from a PR using GraphQL.
+
+    Args:
+        cwd: Working directory.
+        owner: Repository owner.
+        repo: Repository name.
+        pr_number: Pull request number.
+
+    Returns:
+        List of unresolved ReviewThread objects.
+    """
+    query = """
+    query($owner: String!, $repo: String!, $pr: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $pr) {
+          reviewThreads(first: 100) {
+            nodes {
+              id
+              isResolved
+              path
+              line
+              comments(first: 10) {
+                nodes {
+                  body
+                  author { login }
+                  createdAt
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+
+    try:
+        result = run_cmd(
+            [
+                "gh", "api", "graphql",
+                "-f", f"query={query}",
+                "-f", f"owner={owner}",
+                "-f", f"repo={repo}",
+                "-F", f"pr={pr_number}",
+            ],
+            cwd=cwd,
+            quiet=True,
+            check=True,
+        )
+        data = json.loads(result.stdout)
+        threads = []
+
+        nodes = data.get("data", {}).get("repository", {}).get("pullRequest", {}).get("reviewThreads", {}).get("nodes", [])
+        for node in nodes:
+            if node.get("isResolved"):
+                continue
+
+            comments = []
+            for comment in node.get("comments", {}).get("nodes", []):
+                author = comment.get("author", {})
+                comments.append(ReviewComment(
+                    author=author.get("login", "unknown") if author else "unknown",
+                    body=comment.get("body", ""),
+                    created_at=comment.get("createdAt", ""),
+                ))
+
+            threads.append(ReviewThread(
+                id=node.get("id", ""),
+                path=node.get("path", ""),
+                line=node.get("line"),
+                comments=comments,
+            ))
+
+        return threads
+    except subprocess.CalledProcessError:
+        # GraphQL query failed - return empty list rather than failing
+        return []
+    except (json.JSONDecodeError, KeyError):
+        return []
+
+
+def get_pr_checks(cwd: Path) -> list[CheckRun]:
+    """Get CI check status for the current PR.
+
+    Args:
+        cwd: Working directory.
+
+    Returns:
+        List of CheckRun objects.
+    """
+    try:
+        result = run_cmd(
+            ["gh", "pr", "checks", "--json", "name,state,link"],
+            cwd=cwd,
+            quiet=True,
+            check=False,  # Don't fail if no checks
+        )
+        if result.returncode != 0:
+            return []
+
+        data = json.loads(result.stdout)
+        checks = []
+        for check in data:
+            # Extract run ID from link (e.g., https://github.com/owner/repo/actions/runs/12345678/job/...)
+            link = check.get("link", "")
+            run_id = None
+            if "/runs/" in link:
+                parts = link.split("/runs/")
+                if len(parts) > 1:
+                    run_id = parts[1].split("/")[0]
+
+            checks.append(CheckRun(
+                name=check.get("name", ""),
+                state=check.get("state", ""),
+                run_id=run_id,
+                link=link,
+            ))
+        return checks
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        return []
+
+
+def get_run_artifacts(cwd: Path, run_id: str) -> list[Artifact]:
+    """Get artifacts for a workflow run.
+
+    Args:
+        cwd: Working directory.
+        run_id: GitHub Actions run ID.
+
+    Returns:
+        List of Artifact objects.
+    """
+    try:
+        # Get artifacts via the API
+        result = run_cmd(
+            ["gh", "api", f"repos/{{owner}}/{{repo}}/actions/runs/{run_id}/artifacts", "-q", ".artifacts"],
+            cwd=cwd,
+            quiet=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return []
+
+        data = json.loads(result.stdout)
+        artifacts = []
+        for artifact in data:
+            artifacts.append(Artifact(
+                name=artifact.get("name", ""),
+                size=artifact.get("size_in_bytes", 0),
+            ))
+        return artifacts
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        return []
+
+
+def get_check_logs_truncated(cwd: Path, run_id: str, max_lines: int = 50) -> str:
+    """Get truncated log output for failed steps in a workflow run.
+
+    Args:
+        cwd: Working directory.
+        run_id: GitHub Actions run ID.
+        max_lines: Maximum lines to return.
+
+    Returns:
+        Truncated log output string.
+    """
+    try:
+        result = run_cmd(
+            ["gh", "run", "view", run_id, "--log-failed"],
+            cwd=cwd,
+            quiet=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return ""
+
+        lines = result.stdout.strip().split("\n")
+        if len(lines) > max_lines:
+            return "\n".join(lines[-max_lines:])
+        return result.stdout.strip()
+    except subprocess.CalledProcessError:
+        return ""
+
+
+def get_full_check_log(cwd: Path, run_id: str, failed_only: bool = False) -> str:
+    """Get full log output for a workflow run.
+
+    Args:
+        cwd: Working directory.
+        run_id: GitHub Actions run ID.
+        failed_only: If True, only show failed step logs.
+
+    Returns:
+        Full log output string.
+
+    Raises:
+        RuntimeError: If unable to fetch logs.
+    """
+    try:
+        cmd = ["gh", "run", "view", run_id]
+        if failed_only:
+            cmd.append("--log-failed")
+        else:
+            cmd.append("--log")
+
+        result = run_cmd(cmd, cwd=cwd, quiet=True, check=True)
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Failed to get logs for run {run_id}: {e.stderr}")
+    except FileNotFoundError:
+        raise RuntimeError("GitHub CLI (gh) is not installed")
+
+
+def download_artifact(cwd: Path, run_id: str, artifact_name: str, output_dir: Path | None = None) -> Path:
+    """Download an artifact from a workflow run.
+
+    Args:
+        cwd: Working directory.
+        run_id: GitHub Actions run ID.
+        artifact_name: Name of the artifact to download.
+        output_dir: Directory to download to (default: cwd).
+
+    Returns:
+        Path to the downloaded artifact directory.
+
+    Raises:
+        RuntimeError: If download fails.
+    """
+    if output_dir is None:
+        output_dir = cwd
+
+    try:
+        run_cmd(
+            ["gh", "run", "download", run_id, "-n", artifact_name, "-D", str(output_dir)],
+            cwd=cwd,
+            quiet=False,
+            check=True,
+        )
+        return output_dir / artifact_name
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Failed to download artifact '{artifact_name}': {e.stderr}")
+    except FileNotFoundError:
+        raise RuntimeError("GitHub CLI (gh) is not installed")
+
+
+def read_pr(cwd: Path | None = None) -> PRInfo:
+    """Read comprehensive PR information including comments, checks, and artifacts.
+
+    Args:
+        cwd: Working directory (default: actual cwd).
+
+    Returns:
+        PRInfo with all fields populated.
+
+    Raises:
+        RuntimeError: If no PR exists or gh command fails.
+    """
+    if cwd is None:
+        cwd = Path.cwd()
+
+    # Get basic PR info
+    pr_info = get_pr_info(cwd)
+
+    # If merged, no need to fetch more details
+    if pr_info.merged:
+        return pr_info
+
+    # Get repo info for GraphQL queries
+    try:
+        owner, repo = get_repo_info(cwd)
+    except RuntimeError:
+        # If we can't get repo info, continue without review threads
+        owner, repo = None, None
+
+    # Get unresolved review threads
+    if owner and repo:
+        pr_info.review_threads = get_unresolved_review_threads(cwd, owner, repo, pr_info.number)
+
+    # Get check status
+    pr_info.checks = get_pr_checks(cwd)
+
+    # Get artifacts for failed checks
+    failed_run_ids = set()
+    for check in pr_info.checks:
+        if check.state == "FAILURE" and check.run_id:
+            failed_run_ids.add(check.run_id)
+
+    for run_id in failed_run_ids:
+        artifacts = get_run_artifacts(cwd, run_id)
+        if artifacts:
+            pr_info.artifacts[run_id] = artifacts
+
+    return pr_info
