@@ -5,7 +5,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .worktree import run_cmd, run_git
+from .worktree import run_cmd, run_git, sync_worktree
 
 
 @dataclass
@@ -116,6 +116,8 @@ def get_pr_number_for_branch(cwd: Path, branch: str) -> int | None:
 def create_pr(cwd: Path | None = None, draft: bool = False) -> tuple[str, bool]:
     """Create a pull request for the current worktree branch, or push if PR exists.
 
+    Syncs (rebases onto origin/main) before pushing.
+
     Args:
         cwd: Current working directory (default: actual cwd).
         draft: Create as draft PR (only if creating new PR).
@@ -124,10 +126,23 @@ def create_pr(cwd: Path | None = None, draft: bool = False) -> tuple[str, bool]:
         Tuple of (PR URL, created) where created is True if new PR was created.
 
     Raises:
-        RuntimeError: If PR creation or push fails.
+        RuntimeError: If sync fails (conflicts) or PR creation/push fails.
     """
     if cwd is None:
         cwd = Path.cwd()
+
+    # Sync first (rebase onto origin/main)
+    sync_result = sync_worktree(cwd)
+    if not sync_result.success:
+        if sync_result.had_conflicts:
+            raise RuntimeError(
+                f"Sync failed due to conflicts. Resolve them first:\n"
+                f"  git status\n"
+                f"  # resolve conflicts\n"
+                f"  git add <files>\n"
+                f"  git rebase --continue"
+            )
+        raise RuntimeError(f"Sync failed: {sync_result.message}")
 
     # Check if PR already exists (and is open)
     pr_exists = False
@@ -149,7 +164,7 @@ def create_pr(cwd: Path | None = None, draft: bool = False) -> tuple[str, bool]:
     except FileNotFoundError:
         raise RuntimeError("GitHub CLI (gh) is not installed")
 
-    # Fetch to update tracking refs (needed for --force-with-lease)
+    # Fetch current branch's remote tracking ref for --force-with-lease
     run_cmd(["git", "fetch", "origin"], cwd=cwd, check=False, quiet=True)
 
     # Push the branch
