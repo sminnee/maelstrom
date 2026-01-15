@@ -1,13 +1,21 @@
 ---
 name: mael
-description: Manage Linear tasks and Sentry issues using the mael CLI. Use for task planning, debugging production errors, and tracking work across worktrees.
+description: Manage development workflow using the mael CLI. Covers Linear task management, Sentry error debugging, and git/GitHub operations (syncing, commits, pull requests).
 ---
 
 # Maelstrom CLI Skill
 
-This skill provides CLI commands for managing Linear tasks and querying Sentry issues directly from Claude Code.
+This skill provides CLI commands for managing Linear tasks, querying Sentry issues, and handling git/GitHub workflows directly from Claude Code.
 
 ## Prerequisites
+
+### GitHub CLI
+
+Install and authenticate the GitHub CLI (`gh`) for git/GitHub commands:
+```bash
+brew install gh
+gh auth login
+```
 
 ### Environment Variables
 
@@ -133,6 +141,110 @@ mael linear add-plan <issue-id> <plan-content>
 - Appends `## Implementation Plan` section to existing description
 - Does not overwrite existing content
 
+## Git & GitHub Commands
+
+### mael sync
+
+Rebase the current worktree against origin/main. Run this before starting work.
+
+```bash
+mael sync [target]
+```
+
+**Arguments:**
+- `target` (optional): Project/worktree identifier (uses current directory if omitted)
+
+**Behavior:**
+- Fetches latest from remote (`git fetch origin`)
+- Rebases current branch against `origin/main` using `--autostash`
+- On conflicts: displays helpful instructions with commands to resolve
+
+### mael gh create-pr
+
+Create a new pull request or push updates to an existing one.
+
+```bash
+mael gh create-pr [target] [--draft]
+```
+
+**Arguments:**
+- `target` (optional): Project/worktree identifier
+
+**Options:**
+- `--draft`: Create PR as a draft (only for new PRs)
+
+**Behavior:**
+- Pushes current branch to origin with `-u` flag
+- If no PR exists: creates one using first commit message as title
+- If PR exists: just pushes the latest changes
+- Returns the PR URL
+
+### mael gh read-pr
+
+Check PR status, review comments, and CI results.
+
+```bash
+mael gh read-pr [target]
+```
+
+**Arguments:**
+- `target` (optional): Project/worktree identifier
+
+**Output includes:**
+- PR number, title, URL, and merge status
+- Unresolved review comments (file, line, author, preview)
+- CI check status grouped by: Failed, Pending, Passing
+- For failed checks: truncated logs and available artifacts
+
+### mael gh check-log
+
+View full GitHub Actions logs for a workflow run.
+
+```bash
+mael gh check-log <run_id> [--failed-only]
+```
+
+**Arguments:**
+- `run_id`: GitHub Actions workflow run ID
+
+**Options:**
+- `--failed-only`: Show only failed step logs
+
+### mael gh download-artifact
+
+Download artifacts from a workflow run.
+
+```bash
+mael gh download-artifact <run_id> <artifact_name> [-o OUTPUT_DIR]
+```
+
+**Arguments:**
+- `run_id`: GitHub Actions run ID
+- `artifact_name`: Name of artifact to download
+
+**Options:**
+- `-o, --output`: Output directory (defaults to current directory)
+
+### mael gh show-code
+
+Show committed and/or uncommitted changes in the worktree.
+
+```bash
+mael gh show-code [target] [--committed] [--uncommitted]
+```
+
+**Arguments:**
+- `target` (optional): Project/worktree identifier
+
+**Options:**
+- `--committed`: Show only commits since branching from main
+- `--uncommitted`: Show only working directory changes
+- Default (no flags): Show both
+
+**Output includes:**
+- Commits since diverging from `origin/main` with full diffs
+- Working directory diff (`git diff HEAD`)
+
 ## Sentry Commands
 
 ### mael sentry list-issues
@@ -183,6 +295,59 @@ mael sentry get-issue <issue-id>
 ### Standalone Tasks (no parent, no subtasks)
 - **Starting work**: Set to "In Progress"
 - **Completing work**: Set to "Unreleased"
+
+## Workflow: Git & Pull Requests
+
+1. **Before starting work**, sync with main:
+   ```bash
+   mael sync
+   ```
+
+2. **During work**, commit changes regularly:
+   ```bash
+   git add .
+   git commit -m "Description of changes"
+   ```
+
+3. **When ready for review**, create or update PR:
+   ```bash
+   mael gh create-pr
+   ```
+
+## Workflow: Checking PR Status
+
+1. **Check if PR was merged** or has issues:
+   ```bash
+   mael gh read-pr
+   ```
+   This shows: merge status, unresolved comments, and CI check results.
+
+2. **For failed CI checks**, view full logs:
+   ```bash
+   mael gh check-log <run_id>
+   ```
+
+3. **Download artifacts** (test results, screenshots, etc.):
+   ```bash
+   mael gh download-artifact <run_id> <artifact_name>
+   ```
+
+## Workflow: Code Review
+
+1. **Review all changes** in the worktree:
+   ```bash
+   mael gh show-code
+   ```
+
+2. **Review only committed changes** (since branching from main):
+   ```bash
+   mael gh show-code --committed
+   ```
+
+3. **Review only uncommitted changes** (working directory):
+   ```bash
+   mael gh show-code --uncommitted
+   ```
 
 ## Workflow: Planning a Task
 
