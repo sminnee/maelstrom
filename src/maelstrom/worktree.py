@@ -27,6 +27,8 @@ class WorktreeInfo:
     path: Path
     branch: str
     commit: str
+    is_dirty: bool = False
+    commits_ahead: int = 0
 
 
 def sanitize_branch_name(branch: str) -> str:
@@ -86,6 +88,31 @@ def get_worktree_dirty_files(worktree_path: Path) -> list[str]:
             dirty_files.append(filename)
 
     return dirty_files
+
+
+def get_commits_ahead(worktree_path: Path, base_branch: str = "origin/main") -> int:
+    """Get the number of commits ahead of the base branch.
+
+    Args:
+        worktree_path: Path to the worktree directory.
+        base_branch: Base branch to compare against.
+
+    Returns:
+        Number of commits ahead, or 0 if unable to determine.
+    """
+    result = subprocess.run(
+        ["git", "rev-list", "--count", f"{base_branch}..HEAD"],
+        cwd=worktree_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return 0
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return 0
 
 
 def is_bare_repo(project_path: Path) -> bool:

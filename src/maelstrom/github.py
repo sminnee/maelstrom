@@ -89,6 +89,30 @@ def get_repo_info(cwd: Path) -> tuple[str, str]:
         raise RuntimeError("GitHub CLI (gh) is not installed")
 
 
+def get_pr_number_for_branch(cwd: Path, branch: str) -> int | None:
+    """Get the PR number for a given branch, if one exists.
+
+    Args:
+        cwd: Working directory (must be in a git repo).
+        branch: Branch name to look up.
+
+    Returns:
+        PR number if found, None otherwise.
+    """
+    try:
+        result = run_cmd(
+            ["gh", "pr", "list", "--head", branch, "--json", "number", "-q", ".[0].number"],
+            cwd=cwd,
+            quiet=True,
+            check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        return int(result.stdout.strip())
+    except (ValueError, FileNotFoundError):
+        return None
+
+
 def create_pr(cwd: Path | None = None, draft: bool = False) -> tuple[str, bool]:
     """Create a pull request for the current worktree branch, or push if PR exists.
 

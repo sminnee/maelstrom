@@ -12,12 +12,14 @@ from .github import (
     download_artifact,
     get_check_logs_truncated,
     get_full_check_log,
+    get_pr_number_for_branch,
     get_worktree_code,
     read_pr,
 )
 from .worktree import (
     add_project,
     create_worktree,
+    get_commits_ahead,
     get_worktree_dirty_files,
     list_worktrees,
     open_worktree,
@@ -150,7 +152,7 @@ cli.add_command(cmd_remove, name="rm")
 @cli.command("list")
 @click.argument("project", required=False, default=None)
 def cmd_list(project):
-    """List all worktrees."""
+    """List all worktrees with status information."""
     try:
         ctx = resolve_context(
             project,
@@ -167,14 +169,29 @@ def cmd_list(project):
 
     worktrees = list_worktrees(project_path)
 
+    # Filter out bare/detached worktrees (typically the project root)
+    worktrees = [wt for wt in worktrees if wt.branch and wt.path != project_path]
+
     if not worktrees:
         click.echo("No worktrees found.")
         return
 
-    click.echo(f"Worktrees in {ctx.project}:")
+    # Gather extended info for each worktree
+    rows = []
     for wt in worktrees:
-        branch_display = wt.branch or "(detached)"
-        click.echo(f"  {wt.path.name:30} {branch_display:30} {wt.commit[:8]}")
+        dirty = "Y" if get_worktree_dirty_files(wt.path) else ""
+        commits = get_commits_ahead(wt.path)
+        pr_num = get_pr_number_for_branch(project_path, wt.branch)
+        pr_display = f"#{pr_num}" if pr_num else ""
+        rows.append((wt.path.name, wt.branch, dirty, commits, pr_display))
+
+    # Print header
+    click.echo(f"{'WORKTREE':<12} {'BRANCH':<30} {'DIRTY':<6} {'AHEAD':<6} {'PR':<8}")
+    click.echo("-" * 70)
+
+    for name, branch, dirty, commits, pr_display in rows:
+        commits_display = str(commits) if commits > 0 else ""
+        click.echo(f"{name:<12} {branch:<30} {dirty:<6} {commits_display:<6} {pr_display:<8}")
 
 
 @cli.command("open")
