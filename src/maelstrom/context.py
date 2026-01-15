@@ -57,7 +57,9 @@ class ResolvedContext:
     def worktree_path(self) -> Path | None:
         """Full path to worktree directory."""
         if self.project and self.worktree:
-            return self.projects_dir / self.project / self.worktree
+            from .worktree import get_worktree_folder_name
+            folder_name = get_worktree_folder_name(self.project, self.worktree)
+            return self.projects_dir / self.project / folder_name
         return None
 
 
@@ -184,7 +186,17 @@ def detect_context_from_cwd(
         # cwd is at project level
         return (project, None)
 
-    worktree = parts[1]
+    folder_name = parts[1]
+
+    # Try to extract worktree name from folder (handles "project-alpha" format)
+    from .worktree import extract_worktree_name_from_folder, WORKTREE_NAMES
+    worktree = extract_worktree_name_from_folder(project, folder_name)
+
+    # Fall back to checking if folder_name itself is a valid worktree name
+    # (for backwards compatibility with old format)
+    if worktree is None and folder_name in WORKTREE_NAMES:
+        worktree = folder_name
+
     return (project, worktree)
 
 

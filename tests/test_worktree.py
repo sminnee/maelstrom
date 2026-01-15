@@ -13,7 +13,9 @@ from maelstrom.worktree import (
     WorktreeInfo,
     create_worktree,
     extract_project_name,
+    extract_worktree_name_from_folder,
     get_next_worktree_name,
+    get_worktree_folder_name,
     has_root_worktree,
     list_worktrees,
     open_worktree,
@@ -41,6 +43,37 @@ class TestSanitizeBranchName:
     def test_multiple_slashes(self):
         """Test branch name with multiple slashes."""
         assert sanitize_branch_name("a/b/c/d") == "a-b-c-d"
+
+
+class TestWorktreeFolderNaming:
+    """Tests for worktree folder naming helper functions."""
+
+    def test_get_worktree_folder_name(self):
+        """Test generating folder names from project and worktree."""
+        assert get_worktree_folder_name("askastro", "alpha") == "askastro-alpha"
+        assert get_worktree_folder_name("askastro", "bravo") == "askastro-bravo"
+        assert get_worktree_folder_name("my-project", "charlie") == "my-project-charlie"
+
+    def test_extract_worktree_name_from_folder(self):
+        """Test extracting worktree name from folder name."""
+        assert extract_worktree_name_from_folder("askastro", "askastro-alpha") == "alpha"
+        assert extract_worktree_name_from_folder("askastro", "askastro-bravo") == "bravo"
+        assert extract_worktree_name_from_folder("my-project", "my-project-charlie") == "charlie"
+
+    def test_extract_worktree_name_from_folder_invalid(self):
+        """Test that invalid folder names return None."""
+        # Wrong project prefix
+        assert extract_worktree_name_from_folder("askastro", "other-alpha") is None
+        # Not a valid worktree name
+        assert extract_worktree_name_from_folder("askastro", "askastro-invalid") is None
+        # No prefix
+        assert extract_worktree_name_from_folder("askastro", "alpha") is None
+
+    def test_extract_worktree_name_project_with_dashes(self):
+        """Test extracting worktree name when project has dashes."""
+        # Project name has dashes, folder should still work correctly
+        assert extract_worktree_name_from_folder("ask-astro", "ask-astro-alpha") == "alpha"
+        assert extract_worktree_name_from_folder("ask-astro", "ask-astro-bravo") == "bravo"
 
 
 class TestExtractProjectName:
@@ -314,10 +347,10 @@ class TestWorktreeIntegration:
 
     def test_create_and_remove_worktree(self, git_repo):
         """Test creating and removing a worktree."""
-        # Create worktree - should use first fixed name "alpha"
+        # Create worktree - should use first fixed name "alpha" with project prefix
         worktree_path = create_worktree(git_repo, "feature/test")
         assert worktree_path.exists()
-        assert worktree_path.name == "alpha"
+        assert worktree_path.name == "test-repo-alpha"
 
         # Verify it's in the list with correct branch
         worktrees = list_worktrees(git_repo)
@@ -331,15 +364,15 @@ class TestWorktreeIntegration:
         """Test that multiple worktrees get sequential fixed names."""
         # Create first worktree
         path1 = create_worktree(git_repo, "feature/one")
-        assert path1.name == "alpha"
+        assert path1.name == "test-repo-alpha"
 
         # Create second worktree
         path2 = create_worktree(git_repo, "feature/two")
-        assert path2.name == "bravo"
+        assert path2.name == "test-repo-bravo"
 
         # Create third worktree
         path3 = create_worktree(git_repo, "feature/three")
-        assert path3.name == "charlie"
+        assert path3.name == "test-repo-charlie"
 
         # Cleanup
         remove_worktree(git_repo, "feature/three")
@@ -351,14 +384,14 @@ class TestWorktreeIntegration:
         # Create two worktrees
         create_worktree(git_repo, "feature/one")
         path2 = create_worktree(git_repo, "feature/two")
-        assert path2.name == "bravo"
+        assert path2.name == "test-repo-bravo"
 
         # Remove the first one (alpha)
         remove_worktree(git_repo, "feature/one")
 
         # Create another - should reuse "alpha"
         path3 = create_worktree(git_repo, "feature/three")
-        assert path3.name == "alpha"
+        assert path3.name == "test-repo-alpha"
 
         # Cleanup
         remove_worktree(git_repo, "feature/three")

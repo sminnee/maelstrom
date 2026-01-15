@@ -81,9 +81,10 @@ class TestResolvedContext:
         ctx = ResolvedContext(
             projects_dir=Path("/Projects"),
             project="myproject",
-            worktree="feature-branch",
+            worktree="alpha",
         )
-        assert ctx.worktree_path == Path("/Projects/myproject/feature-branch")
+        # Folder name is now <project>-<worktree>
+        assert ctx.worktree_path == Path("/Projects/myproject/myproject-alpha")
 
     def test_worktree_path_without_project(self):
         """Test worktree_path when project is None."""
@@ -218,24 +219,28 @@ class TestDetectContextFromCwd:
         assert worktree is None
 
     def test_in_worktree(self, tmp_path):
-        """Test when cwd is in a worktree directory."""
+        """Test when cwd is in a worktree directory with new naming format."""
         projects_dir = tmp_path / "Projects"
-        worktree_dir = projects_dir / "myproject" / "feature-branch"
+        # Folder is now named <project>-<worktree>
+        worktree_dir = projects_dir / "myproject" / "myproject-alpha"
         worktree_dir.mkdir(parents=True)
 
         project, worktree = detect_context_from_cwd(projects_dir, worktree_dir)
         assert project == "myproject"
-        assert worktree == "feature-branch"
+        # Should extract the worktree name from folder
+        assert worktree == "alpha"
 
     def test_in_worktree_subdir(self, tmp_path):
         """Test when cwd is in a subdirectory of worktree."""
         projects_dir = tmp_path / "Projects"
-        subdir = projects_dir / "myproject" / "feature-branch" / "src" / "components"
+        # Folder is now named <project>-<worktree>
+        subdir = projects_dir / "myproject" / "myproject-bravo" / "src" / "components"
         subdir.mkdir(parents=True)
 
         project, worktree = detect_context_from_cwd(projects_dir, subdir)
         assert project == "myproject"
-        assert worktree == "feature-branch"
+        # Should extract the worktree name from folder
+        assert worktree == "bravo"
 
 
 class TestLoadGlobalConfig:
@@ -286,11 +291,12 @@ class TestResolveContext:
         config_file = tmp_path / ".maelstrom.yaml"
         config_file.write_text(f"projects_dir: {tmp_path}/Projects")
 
-        ctx = resolve_context("myproject.feature-branch")
+        ctx = resolve_context("myproject.alpha")
         assert ctx.project == "myproject"
-        assert ctx.worktree == "feature-branch"
+        assert ctx.worktree == "alpha"
         assert ctx.project_path == tmp_path / "Projects" / "myproject"
-        assert ctx.worktree_path == tmp_path / "Projects" / "myproject" / "feature-branch"
+        # Folder name is now <project>-<worktree>
+        assert ctx.worktree_path == tmp_path / "Projects" / "myproject" / "myproject-alpha"
 
     def test_explicit_project_only(self, tmp_path, monkeypatch):
         """Test project-only argument when not in project dir."""
@@ -323,7 +329,8 @@ class TestResolveContext:
         """Test both project and worktree detected from cwd."""
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         projects_dir = tmp_path / "Projects"
-        worktree_dir = projects_dir / "myproject" / "alpha"
+        # Folder is now named <project>-<worktree>
+        worktree_dir = projects_dir / "myproject" / "myproject-alpha"
         worktree_dir.mkdir(parents=True)
 
         config_file = tmp_path / ".maelstrom.yaml"
@@ -331,6 +338,7 @@ class TestResolveContext:
 
         ctx = resolve_context(None, cwd=worktree_dir)
         assert ctx.project == "myproject"
+        # Should extract the worktree name from folder
         assert ctx.worktree == "alpha"
 
     def test_require_project_fails_when_missing(self, tmp_path, monkeypatch):

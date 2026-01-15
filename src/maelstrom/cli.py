@@ -23,7 +23,10 @@ from .claude_sessions import get_active_ide_sessions
 from .worktree import (
     add_project,
     create_worktree,
+    extract_project_name,
+    extract_worktree_name_from_folder,
     get_commits_ahead,
+    get_worktree_folder_name,
     get_worktree_dirty_files,
     list_worktrees,
     open_worktree,
@@ -66,8 +69,10 @@ def cmd_add_project(git_url, projects_dir):
     click.echo(f"Cloning {git_url}...")
     try:
         project_path = add_project(git_url, projects_dir_path)
+        project_name = extract_project_name(git_url)
+        alpha_folder = get_worktree_folder_name(project_name, "alpha")
         click.echo(f"Project created at: {project_path}")
-        click.echo(f"Alpha worktree at: {project_path / 'alpha'}")
+        click.echo(f"Alpha worktree at: {project_path / alpha_folder}")
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -131,12 +136,13 @@ def cmd_remove(target, force):
         raise click.ClickException(str(e))
 
     project_path = ctx.project_path
-    worktree_name = ctx.worktree  # This is the directory name (already sanitized)
+    worktree_name = ctx.worktree  # The NATO name (e.g., "alpha")
 
     if not project_path.exists():
         raise click.ClickException(f"Project '{ctx.project}' not found at {project_path}")
 
-    worktree_path = project_path / worktree_name
+    folder_name = get_worktree_folder_name(ctx.project, worktree_name)
+    worktree_path = project_path / folder_name
     if not worktree_path.exists():
         raise click.ClickException(f"Worktree '{worktree_name}' not found in project '{ctx.project}'")
 
@@ -152,7 +158,7 @@ def cmd_remove(target, force):
 
     click.echo(f"Removing worktree '{worktree_name}'...")
     try:
-        remove_worktree_by_path(project_path, worktree_name)
+        remove_worktree_by_path(project_path, folder_name)
         click.echo("Worktree removed successfully.")
     except Exception as e:
         raise click.ClickException(f"Error removing worktree: {e}")
@@ -200,7 +206,9 @@ def cmd_list(project):
         pr_num = get_pr_number_for_branch(project_path, wt.branch)
         pr_display = f"#{pr_num}" if pr_num else ""
         agents = active_sessions.get(wt.path, 0)
-        rows.append((wt.path.name, wt.branch, dirty, commits, pr_display, agents))
+        # Extract worktree name from folder for display (e.g., "myproject-alpha" -> "alpha")
+        display_name = extract_worktree_name_from_folder(ctx.project, wt.path.name) or wt.path.name
+        rows.append((display_name, wt.branch, dirty, commits, pr_display, agents))
 
     # Print header
     click.echo(f"{'WORKTREE':<12} {'BRANCH':<30} {'DIRTY':<6} {'AHEAD':<6} {'PR':<8} {'AGENTS':<6}")
@@ -331,7 +339,9 @@ def cmd_sync_all(project):
     click.echo()
 
     for wt in worktrees:
-        click.echo(f"Syncing {wt.path.name} ({wt.branch})...")
+        # Extract worktree name from folder for display (e.g., "myproject-alpha" -> "alpha")
+        display_name = extract_worktree_name_from_folder(ctx.project, wt.path.name) or wt.path.name
+        click.echo(f"Syncing {display_name} ({wt.branch})...")
         result = sync_worktree(wt.path, skip_fetch=True)
 
         if result.success:
@@ -343,7 +353,7 @@ def cmd_sync_all(project):
 
         # Handle failure - stop immediately
         if result.had_conflicts:
-            click.echo(f"  Rebase encountered conflicts in {wt.path.name}.", err=True)
+            click.echo(f"  Rebase encountered conflicts in {display_name}.", err=True)
             click.echo()
             if result.merge_base and result.upstream_head:
                 click.echo("To see what changed upstream:")
