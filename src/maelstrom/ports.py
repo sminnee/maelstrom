@@ -5,14 +5,16 @@ from pathlib import Path
 
 
 def is_port_free(port: int) -> bool:
-    """Check if a single port is available for binding."""
+    """Check if a port is available by attempting to connect to it."""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind(("127.0.0.1", port))
-            return True
+            s.settimeout(0.1)  # Short timeout
+            result = s.connect_ex(("127.0.0.1", port))
+            # 0 = connection succeeded = something is listening = port NOT free
+            # Non-zero (e.g., ECONNREFUSED) = nothing listening = port is free
+            return result != 0
     except OSError:
-        return False
+        return True  # Error connecting means port is likely free
 
 
 def check_ports_free(port_base: int, num_ports: int = 10) -> bool:
