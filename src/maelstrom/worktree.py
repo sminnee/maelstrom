@@ -36,6 +36,37 @@ def sanitize_branch_name(branch: str) -> str:
     return branch.replace("/", "-")
 
 
+def get_worktree_folder_name(project_name: str, worktree_name: str) -> str:
+    """Get the folder name for a worktree.
+
+    Args:
+        project_name: The project name (e.g., 'askastro').
+        worktree_name: The NATO phonetic worktree name (e.g., 'alpha').
+
+    Returns:
+        The folder name (e.g., 'askastro-alpha').
+    """
+    return f"{project_name}-{worktree_name}"
+
+
+def extract_worktree_name_from_folder(project_name: str, folder_name: str) -> str | None:
+    """Extract the worktree name from a folder name.
+
+    Args:
+        project_name: The project name (e.g., 'askastro').
+        folder_name: The folder name (e.g., 'askastro-alpha').
+
+    Returns:
+        The worktree name (e.g., 'alpha') or None if not a valid worktree folder.
+    """
+    prefix = f"{project_name}-"
+    if folder_name.startswith(prefix):
+        potential_name = folder_name[len(prefix):]
+        if potential_name in WORKTREE_NAMES:
+            return potential_name
+    return None
+
+
 def run_cmd(cmd: list[str], cwd: Path | None = None, quiet: bool = False, check: bool = True) -> subprocess.CompletedProcess:
     """Run a shell command and return the result."""
     if not quiet:
@@ -354,9 +385,18 @@ def get_next_worktree_name(project_path: Path) -> str:
     Raises:
         RuntimeError: If all 26 worktree names are in use.
     """
-    existing = {wt.path.name for wt in list_worktrees(project_path)}
+    project_name = project_path.name
+    existing_folders = {wt.path.name for wt in list_worktrees(project_path)}
+
+    # Extract worktree names from folder names (e.g., "myproject-alpha" -> "alpha")
+    existing_names = set()
+    for folder in existing_folders:
+        wt_name = extract_worktree_name_from_folder(project_name, folder)
+        if wt_name:
+            existing_names.add(wt_name)
+
     for name in WORKTREE_NAMES:
-        if name not in existing:
+        if name not in existing_names:
             return name
     raise RuntimeError("All worktree names are in use (max 26)")
 
@@ -432,8 +472,12 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
     default_branch = result.stdout.strip()
 
     # Create the alpha worktree
-    alpha_path = project_path / "alpha"
+    alpha_folder = get_worktree_folder_name(project_name, "alpha")
+    alpha_path = project_path / alpha_folder
     run_git(["worktree", "add", str(alpha_path), default_branch], cwd=project_path)
+
+    # Generate .env for the initial worktree
+    write_env_file(alpha_path, {"WORKTREE": "alpha"})
 
     return project_path
 
@@ -497,7 +541,8 @@ def create_worktree(project_path: Path, branch: str) -> Path:
     """
     project_path = project_path.resolve()
     worktree_name = get_next_worktree_name(project_path)
-    worktree_path = project_path / worktree_name
+    folder_name = get_worktree_folder_name(project_path.name, worktree_name)
+    worktree_path = project_path / folder_name
 
     # Ensure fetch refspec is configured (for repos created before this was added)
     try:
