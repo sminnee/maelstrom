@@ -600,3 +600,21 @@ def remove_worktree_by_path(project_path: Path, worktree_name: str) -> None:
 
     # Remove the worktree using git
     run_git(["worktree", "remove", str(worktree_path)], cwd=project_path)
+
+
+def open_worktree(worktree_path: Path, command: str) -> None:
+    """Open a worktree using the configured command.
+
+    Args:
+        worktree_path: Path to the worktree directory.
+        command: Command to run (e.g., "code", "cursor").
+
+    Raises:
+        RuntimeError: If the command fails to execute.
+    """
+    try:
+        subprocess.run([command, str(worktree_path)], check=True)
+    except FileNotFoundError:
+        raise RuntimeError(f"Command not found: {command}")
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Failed to open worktree: {e}")

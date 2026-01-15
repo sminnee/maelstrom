@@ -11,6 +11,7 @@ from .worktree import (
     create_pr,
     create_worktree,
     list_worktrees,
+    open_worktree,
     remove_worktree_by_path,
 )
 
@@ -69,6 +70,7 @@ def cmd_create_pr(args: argparse.Namespace) -> int:
 def cmd_add_worktree(args: argparse.Namespace) -> int:
     """Add a new worktree."""
     branch = args.branch
+    no_open = getattr(args, "no_open", False)
 
     # Get project context (branch is separate, not from context)
     try:
@@ -99,6 +101,14 @@ def cmd_add_worktree(args: argparse.Namespace) -> int:
             print("Port assignments:")
             for line in env_file.read_text().strip().split("\n"):
                 print(f"  {line}")
+
+        # Open the worktree unless --no-open was specified
+        if not no_open:
+            global_config = load_global_config()
+            try:
+                open_worktree(worktree_path, global_config.open_command)
+            except RuntimeError as e:
+                print(f"Warning: Could not open worktree: {e}", file=sys.stderr)
 
         return 0
     except Exception as e:
@@ -172,6 +182,33 @@ def cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_open(args: argparse.Namespace) -> int:
+    """Open a worktree in the configured editor."""
+    try:
+        ctx = resolve_context(
+            args.target,
+            require_project=True,
+            require_worktree=True,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    worktree_path = ctx.worktree_path
+
+    if not worktree_path.exists():
+        print(f"Error: Worktree not found at {worktree_path}", file=sys.stderr)
+        return 1
+
+    global_config = load_global_config()
+    try:
+        open_worktree(worktree_path, global_config.open_command)
+        return 0
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(
@@ -236,6 +273,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Project name (default: detect from cwd)",
     )
+    add_wt_parser.add_argument(
+        "--no-open",
+        dest="no_open",
+        action="store_true",
+        help="Don't open the worktree after creation",
+    )
     add_wt_parser.set_defaults(func=cmd_add_worktree)
 
     # rm-worktree command (with "rm" alias)
@@ -262,6 +305,19 @@ def main(argv: list[str] | None = None) -> int:
         help="Project name (default: detect from cwd)",
     )
     list_parser.set_defaults(func=cmd_list)
+
+    # open command
+    open_parser = subparsers.add_parser(
+        "open",
+        help="Open a worktree in the configured editor",
+    )
+    open_parser.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="Worktree to open as [project.]worktree (default: detect from cwd)",
+    )
+    open_parser.set_defaults(func=cmd_open)
 
     args = parser.parse_args(argv)
 

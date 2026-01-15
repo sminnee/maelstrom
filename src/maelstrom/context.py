@@ -20,6 +20,7 @@ class GlobalConfig:
     """Global maelstrom configuration from ~/.maelstrom.yaml."""
 
     projects_dir: Path
+    open_command: str = "code"
 
     @classmethod
     def default(cls) -> "GlobalConfig":
@@ -30,7 +31,11 @@ class GlobalConfig:
     def from_dict(cls, data: dict) -> "GlobalConfig":
         """Create from dictionary."""
         projects_dir = data.get("projects_dir", "~/Projects")
-        return cls(projects_dir=Path(projects_dir).expanduser())
+        open_command = data.get("open_command", "code")
+        return cls(
+            projects_dir=Path(projects_dir).expanduser(),
+            open_command=open_command,
+        )
 
 
 @dataclass
