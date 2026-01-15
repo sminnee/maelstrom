@@ -13,6 +13,7 @@ from .worktree import (
     download_artifact,
     get_check_logs_truncated,
     get_full_check_log,
+    get_worktree_code,
     get_worktree_dirty_files,
     list_worktrees,
     open_worktree,
@@ -373,6 +374,50 @@ def cmd_check_log(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_show_code(args: argparse.Namespace) -> int:
+    """Show commits and uncommitted changes for a worktree."""
+    target = getattr(args, "target", None)
+    committed_only = getattr(args, "committed", False)
+    uncommitted_only = getattr(args, "uncommitted", False)
+
+    try:
+        ctx = resolve_context(target, require_project=False, require_worktree=False)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    # Determine working directory
+    if ctx.worktree_path and ctx.worktree_path.exists():
+        cwd = ctx.worktree_path
+    else:
+        cwd = Path.cwd()
+
+    try:
+        commits_output, uncommitted_output = get_worktree_code(cwd)
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    # Determine what to show based on flags
+    show_committed = not uncommitted_only
+    show_uncommitted = not committed_only
+
+    if show_committed and commits_output:
+        print("=== Commits ===")
+        print(commits_output)
+
+    if show_uncommitted and uncommitted_output:
+        if show_committed and commits_output:
+            print()  # Separator between sections
+        print("=== Uncommitted Changes ===")
+        print(uncommitted_output)
+
+    if not commits_output and not uncommitted_output:
+        print("No commits or uncommitted changes found.")
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(
@@ -538,6 +583,29 @@ def main(argv: list[str] | None = None) -> int:
         help="Show only failed step logs",
     )
     check_log_parser.set_defaults(func=cmd_check_log)
+
+    # show-code command
+    show_code_parser = subparsers.add_parser(
+        "show-code",
+        help="Show commits and uncommitted changes for a worktree",
+    )
+    show_code_parser.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="Target worktree as [project.]worktree (default: detect from cwd)",
+    )
+    show_code_parser.add_argument(
+        "--committed",
+        action="store_true",
+        help="Show only committed changes",
+    )
+    show_code_parser.add_argument(
+        "--uncommitted",
+        action="store_true",
+        help="Show only uncommitted changes",
+    )
+    show_code_parser.set_defaults(func=cmd_show_code)
 
     args = parser.parse_args(argv)
 

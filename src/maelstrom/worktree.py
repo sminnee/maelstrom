@@ -1025,6 +1025,106 @@ def download_artifact(cwd: Path, run_id: str, artifact_name: str, output_dir: Pa
         raise RuntimeError("GitHub CLI (gh) is not installed")
 
 
+def get_worktree_code(cwd: Path) -> tuple[str, str]:
+    """Get commits and uncommitted changes for a worktree.
+
+    Returns the commits since the branch diverged from the main branch,
+    and any uncommitted changes (staged + unstaged).
+
+    Args:
+        cwd: Working directory (must be in a git worktree).
+
+    Returns:
+        Tuple of (commits_output, uncommitted_output).
+        Each may be empty string if there's nothing to show.
+
+    Raises:
+        RuntimeError: If not in a git repository.
+    """
+    # Find the merge base with main/master
+    try:
+        # Try main first, fall back to master
+        result = run_cmd(
+            ["git", "rev-parse", "--verify", "origin/main"],
+            cwd=cwd,
+            quiet=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            base_branch = "origin/main"
+        else:
+            result = run_cmd(
+                ["git", "rev-parse", "--verify", "origin/master"],
+                cwd=cwd,
+                quiet=True,
+                check=False,
+            )
+            if result.returncode == 0:
+                base_branch = "origin/master"
+            else:
+                base_branch = "HEAD~10"  # Fallback: show last 10 commits
+    except Exception:
+        base_branch = "HEAD~10"
+
+    # Get commits since divergence
+    commits_output = ""
+    try:
+        # Get merge base
+        merge_base_result = run_cmd(
+            ["git", "merge-base", base_branch, "HEAD"],
+            cwd=cwd,
+            quiet=True,
+            check=False,
+        )
+        if merge_base_result.returncode == 0:
+            merge_base = merge_base_result.stdout.strip()
+            # Get log with diff for each commit
+            log_result = run_cmd(
+                ["git", "log", "--patch", "--reverse", f"{merge_base}..HEAD"],
+                cwd=cwd,
+                quiet=True,
+                check=False,
+            )
+            if log_result.returncode == 0:
+                commits_output = log_result.stdout
+    except Exception:
+        pass
+
+    # Get uncommitted changes (staged + unstaged)
+    uncommitted_output = ""
+    try:
+        diff_result = run_cmd(
+            ["git", "diff", "HEAD"],
+            cwd=cwd,
+            quiet=True,
+            check=False,
+        )
+        if diff_result.returncode == 0 and diff_result.stdout.strip():
+            uncommitted_output = diff_result.stdout
+
+        # Also include untracked files
+        status_result = run_cmd(
+            ["git", "status", "--porcelain"],
+            cwd=cwd,
+            quiet=True,
+            check=False,
+        )
+        if status_result.returncode == 0:
+            untracked_files = []
+            for line in status_result.stdout.strip().split("\n"):
+                if line.startswith("??"):
+                    untracked_files.append(line[3:])
+            if untracked_files:
+                untracked_section = "\n--- Untracked files ---\n"
+                for f in untracked_files:
+                    untracked_section += f"  {f}\n"
+                uncommitted_output += untracked_section
+    except Exception:
+        pass
+
+    return commits_output, uncommitted_output
+
+
 def read_pr(cwd: Path | None = None) -> PRInfo:
     """Read comprehensive PR information including comments, checks, and artifacts.
 
