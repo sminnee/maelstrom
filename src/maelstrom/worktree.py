@@ -183,13 +183,17 @@ class SyncResult:
     had_conflicts: bool = False
     merge_base: str | None = None  # SHA of merge-base before rebase
     upstream_head: str | None = None  # SHA of origin/main
+    pushed: bool = False  # Whether the branch was pushed to remote
+    push_message: str | None = None  # Push status message
 
 
-def sync_worktree(worktree_path: Path) -> SyncResult:
+def sync_worktree(worktree_path: Path, skip_fetch: bool = False) -> SyncResult:
     """Sync a worktree by rebasing against origin/main.
 
     Args:
         worktree_path: Path to the worktree directory.
+        skip_fetch: If True, skip the fetch step (useful when syncing multiple
+            worktrees that share the same repo, where fetch was already done).
 
     Returns:
         SyncResult with status and message.
@@ -199,15 +203,16 @@ def sync_worktree(worktree_path: Path) -> SyncResult:
     # Get current branch
     branch = get_current_branch(worktree_path)
 
-    # Fetch from origin
-    try:
-        run_git(["fetch", "origin"], cwd=worktree_path)
-    except subprocess.CalledProcessError as e:
-        return SyncResult(
-            success=False,
-            branch=branch,
-            message=f"Failed to fetch from origin: {e.stderr}",
-        )
+    # Fetch from origin (unless skipped)
+    if not skip_fetch:
+        try:
+            run_git(["fetch", "origin"], cwd=worktree_path)
+        except subprocess.CalledProcessError as e:
+            return SyncResult(
+                success=False,
+                branch=branch,
+                message=f"Failed to fetch from origin: {e.stderr}",
+            )
 
     # Get merge-base and origin/main SHA before rebasing (for conflict instructions)
     merge_base: str | None = None
@@ -242,21 +247,49 @@ def sync_worktree(worktree_path: Path) -> SyncResult:
         check=False,
     )
 
-    if result.returncode == 0:
+    if result.returncode != 0:
+        # Rebase failed - likely conflicts
         return SyncResult(
-            success=True,
+            success=False,
             branch=branch,
-            message=f"Successfully rebased {branch} onto origin/main",
+            message=result.stderr or result.stdout,
+            had_conflicts=True,
+            merge_base=merge_base,
+            upstream_head=upstream_head,
         )
 
-    # Rebase failed - likely conflicts
+    # Rebase succeeded - check if remote branch exists and push
+    pushed = False
+    push_message = None
+
+    # Check if remote branch exists
+    remote_branch = f"origin/{branch}"
+    remote_check = run_cmd(
+        ["git", "rev-parse", "--verify", remote_branch],
+        cwd=worktree_path,
+        quiet=True,
+        check=False,
+    )
+
+    if remote_check.returncode == 0:
+        # Remote branch exists - push with force-with-lease
+        push_result = run_cmd(
+            ["git", "push", "--force-with-lease", "origin", branch],
+            cwd=worktree_path,
+            check=False,
+        )
+        if push_result.returncode == 0:
+            pushed = True
+            push_message = f"Pushed {branch} to origin"
+        else:
+            push_message = f"Push failed: {push_result.stderr or push_result.stdout}"
+
     return SyncResult(
-        success=False,
+        success=True,
         branch=branch,
-        message=result.stderr or result.stdout,
-        had_conflicts=True,
-        merge_base=merge_base,
-        upstream_head=upstream_head,
+        message=f"Successfully rebased {branch} onto origin/main",
+        pushed=pushed,
+        push_message=push_message,
     )
 
 

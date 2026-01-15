@@ -27,6 +27,7 @@ from .worktree import (
     list_worktrees,
     open_worktree,
     remove_worktree_by_path,
+    run_git,
     sync_worktree,
 )
 
@@ -253,6 +254,8 @@ def cmd_sync(target):
 
     if result.success:
         click.echo(result.message)
+        if result.push_message:
+            click.echo(result.push_message)
         return
 
     # Handle conflicts
@@ -282,6 +285,80 @@ def cmd_sync(target):
         raise SystemExit(1)
 
     raise click.ClickException(result.message)
+
+
+@cli.command("sync-all")
+@click.argument("project", required=False, default=None)
+def cmd_sync_all(project):
+    """Sync all worktrees in a project against origin/main."""
+    try:
+        ctx = resolve_context(
+            project,
+            require_project=True,
+            require_worktree=False,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    project_path = ctx.project_path
+
+    if not project_path.exists():
+        raise click.ClickException(f"Project '{ctx.project}' not found at {project_path}")
+
+    worktrees = list_worktrees(project_path)
+
+    # Filter out bare/detached worktrees (the project root)
+    worktrees = [wt for wt in worktrees if wt.branch and wt.path != project_path]
+
+    if not worktrees:
+        click.echo("No worktrees found to sync.")
+        return
+
+    # Fetch once for all worktrees (they share the same repo)
+    click.echo("Fetching from origin...")
+    try:
+        run_git(["fetch", "origin"], cwd=project_path)
+    except Exception as e:
+        raise click.ClickException(f"Failed to fetch from origin: {e}")
+
+    click.echo(f"Syncing {len(worktrees)} worktree(s) with origin/main...")
+    click.echo()
+
+    for wt in worktrees:
+        click.echo(f"Syncing {wt.path.name} ({wt.branch})...")
+        result = sync_worktree(wt.path, skip_fetch=True)
+
+        if result.success:
+            click.echo(f"  {result.message}")
+            if result.push_message:
+                click.echo(f"  {result.push_message}")
+            click.echo()
+            continue
+
+        # Handle failure - stop immediately
+        if result.had_conflicts:
+            click.echo(f"  Rebase encountered conflicts in {wt.path.name}.", err=True)
+            click.echo()
+            if result.merge_base and result.upstream_head:
+                click.echo("To see what changed upstream:")
+                click.echo(f"  cd {wt.path}")
+                click.echo(f"  git log {result.merge_base}..{result.upstream_head} --oneline")
+            click.echo()
+            click.echo("To resolve conflicts:")
+            click.echo(f"  cd {wt.path}")
+            click.echo("  git status")
+            click.echo("  # edit files to resolve conflicts")
+            click.echo("  git add <resolved-files>")
+            click.echo("  git rebase --continue")
+            click.echo()
+            click.echo("To abort the rebase:")
+            click.echo("  git rebase --abort")
+        else:
+            click.echo(f"  Failed: {result.message}", err=True)
+
+        raise SystemExit(1)
+
+    click.echo("All worktrees synced successfully.")
 
 
 # --- GitHub subcommand group ---
