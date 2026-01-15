@@ -32,3 +32,8 @@ packages = ["src/maelstrom"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=9.0.2",
+]

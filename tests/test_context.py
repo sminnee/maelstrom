@@ -382,3 +382,38 @@ class TestResolveContext:
         ctx = resolve_context("explicit.worktree", cwd=worktree_dir)
         assert ctx.project == "explicit"
         assert ctx.worktree == "worktree"
+
+    def test_arg_is_project_prevents_reinterpretation(self, tmp_path, monkeypatch):
+        """Test that arg_is_project=True keeps arg as project name."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        projects_dir = tmp_path / "Projects"
+        # Create two projects
+        project_a = projects_dir / "project-a"
+        project_b = projects_dir / "project-b"
+        project_a.mkdir(parents=True)
+        project_b.mkdir(parents=True)
+
+        config_file = tmp_path / ".maelstrom.yaml"
+        config_file.write_text(f"projects_dir: {projects_dir}")
+
+        # When inside project-a, passing "project-b" with arg_is_project=True
+        # should treat it as a project name, not a worktree name
+        ctx = resolve_context("project-b", cwd=project_a, arg_is_project=True)
+        assert ctx.project == "project-b"
+        assert ctx.worktree is None
+
+    def test_arg_without_arg_is_project_is_reinterpreted(self, tmp_path, monkeypatch):
+        """Test that without arg_is_project, arg becomes worktree when in project."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        projects_dir = tmp_path / "Projects"
+        project_a = projects_dir / "project-a"
+        project_a.mkdir(parents=True)
+
+        config_file = tmp_path / ".maelstrom.yaml"
+        config_file.write_text(f"projects_dir: {projects_dir}")
+
+        # When inside project-a, passing "alpha" without arg_is_project
+        # should treat it as a worktree name (existing behavior)
+        ctx = resolve_context("alpha", cwd=project_a, arg_is_project=False)
+        assert ctx.project == "project-a"
+        assert ctx.worktree == "alpha"
