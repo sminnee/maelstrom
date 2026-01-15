@@ -174,7 +174,8 @@ mael gh create-pr [target] [--draft]
 - `--draft`: Create PR as a draft (only for new PRs)
 
 **Behavior:**
-- Pushes current branch to origin with `-u` flag
+- Fetches from origin to update tracking refs
+- Force-pushes current branch to origin (`--force-with-lease -u`)
 - If no PR exists: creates one using first commit message as title
 - If PR exists: just pushes the latest changes
 - Returns the PR URL
