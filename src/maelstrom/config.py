@@ -16,6 +16,12 @@ class MaelstromConfig:
     port_names: list[str] = field(default_factory=list)
     start_cmd: str = ""
     install_cmd: str = ""
+    # Linear integration
+    linear_team_id: str | None = None
+    linear_workspace_labels: list[str] | None = None
+    # Sentry integration
+    sentry_org: str | None = None
+    sentry_project: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "MaelstromConfig":
@@ -24,6 +30,10 @@ class MaelstromConfig:
             port_names=data.get("port_names", []),
             start_cmd=data.get("start_cmd", ""),
             install_cmd=data.get("install_cmd", ""),
+            linear_team_id=data.get("linear_team_id"),
+            linear_workspace_labels=data.get("linear_workspace_labels"),
+            sentry_org=data.get("sentry_org"),
+            sentry_project=data.get("sentry_project"),
         )
 
 

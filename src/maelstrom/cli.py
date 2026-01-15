@@ -16,6 +16,8 @@ from .github import (
     get_worktree_code,
     read_pr,
 )
+from .linear import linear
+from .sentry import sentry
 from .worktree import (
     add_project,
     create_worktree,
@@ -484,6 +486,12 @@ def gh_show_code(target, committed, uncommitted):
 
     if not commits_output and not uncommitted_output:
         click.echo("No commits or uncommitted changes found.")
+
+
+# --- Linear and Sentry subcommand groups ---
+
+cli.add_command(linear)
+cli.add_command(sentry)
 
 
 def main(argv: list[str] | None = None) -> int:
