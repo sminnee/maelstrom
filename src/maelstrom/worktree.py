@@ -146,38 +146,6 @@ def get_commits_ahead(worktree_path: Path, base_branch: str = "origin/main") -> 
         return 0
 
 
-def is_bare_repo(project_path: Path) -> bool:
-    """Check if the repository is a bare repository.
-
-    A bare repo has no worktree at the root level. We check this by:
-    1. Looking for .git directory (indicates non-bare with worktree)
-    2. Or checking git config core.bare
-
-    Args:
-        project_path: Path to the project root.
-
-    Returns:
-        True if the repo is bare (no root worktree).
-    """
-    git_dir = project_path / ".git"
-
-    # If .git is a file, it's a worktree pointer, not a bare repo
-    if git_dir.is_file():
-        return False
-
-    # If .git is a directory, check if there are tracked files in root
-    if git_dir.is_dir():
-        try:
-            result = run_git(["ls-files"], cwd=project_path, quiet=True)
-            # If there are files listed, this is a non-bare repo with root worktree
-            return result.stdout.strip() == ""
-        except subprocess.CalledProcessError:
-            return False
-
-    # No .git at all - not a git repo
-    return False
-
-
 def has_root_worktree(project_path: Path) -> bool:
     """Check if the project has files checked out at the root level.
 
@@ -373,6 +341,28 @@ def list_worktrees(project_path: Path) -> list[WorktreeInfo]:
     return worktrees
 
 
+def find_all_projects(projects_dir: Path) -> list[Path]:
+    """Find all Maelstrom-managed projects in projects_dir.
+
+    A valid project has a .mael marker file.
+
+    Args:
+        projects_dir: Path to the projects directory (e.g., ~/Projects).
+
+    Returns:
+        Sorted list of paths to valid Maelstrom projects.
+    """
+    projects = []
+    if not projects_dir.is_dir():
+        return projects
+
+    for entry in sorted(projects_dir.iterdir()):
+        if entry.is_dir() and (entry / ".mael").exists():
+            projects.append(entry)
+
+    return projects
+
+
 def get_next_worktree_name(project_path: Path) -> str:
     """Get the first unused worktree name from the fixed list.
 
@@ -478,6 +468,9 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
 
     # Generate .env for the initial worktree
     write_env_file(alpha_path, {"WORKTREE": "alpha"})
+
+    # Create .mael marker file to identify this as a Maelstrom project
+    (project_path / ".mael").touch()
 
     return project_path
 

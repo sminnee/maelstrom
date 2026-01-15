@@ -25,6 +25,7 @@ from .worktree import (
     create_worktree,
     extract_project_name,
     extract_worktree_name_from_folder,
+    find_all_projects,
     get_commits_ahead,
     get_worktree_folder_name,
     get_worktree_dirty_files,
@@ -220,6 +221,52 @@ def cmd_list(project):
         commits_display = str(commits) if commits > 0 else ""
         agents_display = str(agents) if agents > 0 else ""
         click.echo(f"{name:<12} {branch:<30} {dirty:<6} {commits_display:<6} {pr_display:<8} {agents_display:<6}")
+
+
+@cli.command("list-all")
+def cmd_list_all():
+    """List all worktrees across all projects."""
+    global_config = load_global_config()
+    projects_dir = global_config.projects_dir
+
+    projects = find_all_projects(projects_dir)
+    if not projects:
+        click.echo("No projects found.")
+        return
+
+    # Get active IDE sessions once for all projects
+    active_sessions = get_active_ide_sessions()
+
+    # Collect all worktrees with project info
+    rows = []
+    for project_path in projects:
+        project_name = project_path.name
+        worktrees = list_worktrees(project_path)
+
+        for wt in worktrees:
+            # Skip bare/detached worktrees (typically the project root)
+            if not wt.branch or wt.path == project_path:
+                continue
+
+            dirty = "Y" if get_worktree_dirty_files(wt.path) else ""
+            commits = get_commits_ahead(wt.path)
+            pr_num = get_pr_number_for_branch(project_path, wt.branch)
+            pr_display = f"#{pr_num}" if pr_num else ""
+            agents = active_sessions.get(wt.path, 0)
+            rows.append((project_name, wt.path.name, wt.branch, dirty, commits, pr_display, agents))
+
+    if not rows:
+        click.echo("No worktrees found.")
+        return
+
+    # Print header with PROJECT column
+    click.echo(f"{'PROJECT':<12} {'WORKTREE':<12} {'BRANCH':<30} {'DIRTY':<6} {'AHEAD':<6} {'PR':<8} {'AGENTS':<6}")
+    click.echo("-" * 88)
+
+    for project_name, name, branch, dirty, commits, pr_display, agents in rows:
+        commits_display = str(commits) if commits > 0 else ""
+        agents_display = str(agents) if agents > 0 else ""
+        click.echo(f"{project_name:<12} {name:<12} {branch:<30} {dirty:<6} {commits_display:<6} {pr_display:<8} {agents_display:<6}")
 
 
 @cli.command("open")
