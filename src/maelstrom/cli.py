@@ -18,6 +18,7 @@ from .github import (
 )
 from .linear import linear
 from .sentry import sentry
+from .claude_integration import install_claude_integration
 from .worktree import (
     add_project,
     create_worktree,
@@ -38,6 +39,14 @@ def cli():
 
 
 # --- Core worktree commands ---
+
+
+@cli.command("install")
+def cmd_install():
+    """Install maelstrom's Claude Code skills and hooks."""
+    messages = install_claude_integration()
+    for msg in messages:
+        click.echo(msg)
 
 
 @cli.command("add-project")
