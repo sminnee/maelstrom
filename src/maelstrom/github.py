@@ -149,10 +149,13 @@ def create_pr(cwd: Path | None = None, draft: bool = False) -> tuple[str, bool]:
     except FileNotFoundError:
         raise RuntimeError("GitHub CLI (gh) is not installed")
 
+    # Fetch to update tracking refs (needed for --force-with-lease)
+    run_cmd(["git", "fetch", "origin"], cwd=cwd, check=False, quiet=True)
+
     # Push the branch
     try:
         result = run_cmd(
-            ["git", "push", "-u", "origin", "HEAD"],
+            ["git", "push", "--force-with-lease", "-u", "origin", "HEAD"],
             cwd=cwd,
             check=False,
         )
