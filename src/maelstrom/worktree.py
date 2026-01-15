@@ -19,6 +19,9 @@ WORKTREE_NAMES = [
     "xray", "yankee", "zulu",
 ]
 
+# Files managed by maelstrom that should be ignored when checking for dirty files
+MAELSTROM_MANAGED_FILES = {".env"}
+
 
 @dataclass
 class WorktreeInfo:
@@ -50,6 +53,42 @@ def run_cmd(cmd: list[str], cwd: Path | None = None, quiet: bool = False, check:
 def run_git(args: list[str], cwd: Path | None = None, quiet: bool = False) -> subprocess.CompletedProcess:
     """Run a git command and return the result."""
     return run_cmd(["git"] + args, cwd=cwd, quiet=quiet, check=True)
+
+
+def get_worktree_dirty_files(worktree_path: Path) -> list[str]:
+    """Get modified/untracked files in worktree, excluding maelstrom-managed files.
+
+    Args:
+        worktree_path: Path to the worktree directory.
+
+    Returns:
+        List of file paths that are modified or untracked (excluding maelstrom-managed files).
+    """
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=worktree_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return []
+
+    dirty_files = []
+    for line in result.stdout.strip().split("\n"):
+        if not line:
+            continue
+        # git status --porcelain format: XY filename
+        # where XY is the status code (2 chars) followed by a space
+        filename = line[3:].strip()
+        # Handle renamed files (format: "old -> new")
+        if " -> " in filename:
+            filename = filename.split(" -> ")[1]
+        # Skip maelstrom-managed files
+        if filename not in MAELSTROM_MANAGED_FILES:
+            dirty_files.append(filename)
+
+    return dirty_files
 
 
 def is_bare_repo(project_path: Path) -> bool:
@@ -579,8 +618,8 @@ def remove_worktree(project_path: Path, branch: str) -> None:
     if worktree_path is None:
         raise RuntimeError(f"No worktree found for branch: {branch}")
 
-    # Remove the worktree using git
-    run_git(["worktree", "remove", str(worktree_path)], cwd=project_path)
+    # Remove the worktree using git (--force needed for maelstrom-managed files like .env)
+    run_git(["worktree", "remove", "--force", str(worktree_path)], cwd=project_path)
 
 
 def remove_worktree_by_path(project_path: Path, worktree_name: str) -> None:
@@ -599,8 +638,8 @@ def remove_worktree_by_path(project_path: Path, worktree_name: str) -> None:
     if not worktree_path.exists():
         raise RuntimeError(f"Worktree does not exist: {worktree_path}")
 
-    # Remove the worktree using git
-    run_git(["worktree", "remove", str(worktree_path)], cwd=project_path)
+    # Remove the worktree using git (--force needed for maelstrom-managed files like .env)
+    run_git(["worktree", "remove", "--force", str(worktree_path)], cwd=project_path)
 
 
 def open_worktree(worktree_path: Path, command: str) -> None:

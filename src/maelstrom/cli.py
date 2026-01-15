@@ -13,6 +13,7 @@ from .worktree import (
     download_artifact,
     get_check_logs_truncated,
     get_full_check_log,
+    get_worktree_dirty_files,
     list_worktrees,
     open_worktree,
     read_pr,
@@ -143,6 +144,21 @@ def cmd_rm_worktree(args: argparse.Namespace) -> int:
     if not worktree_path.exists():
         print(f"Error: Worktree '{worktree_name}' not found in project '{ctx.project}'", file=sys.stderr)
         return 1
+
+    # Check for modified/untracked files (excluding maelstrom-managed files)
+    dirty_files = get_worktree_dirty_files(worktree_path)
+    if dirty_files and not args.force:
+        print("The following modified/untracked files will be lost:")
+        for f in dirty_files:
+            print(f"  {f}")
+        try:
+            response = input("Continue? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 1
+        if response != "y":
+            print("Aborted.")
+            return 1
 
     print(f"Removing worktree '{worktree_name}'...")
     try:
@@ -438,6 +454,11 @@ def main(argv: list[str] | None = None) -> int:
     rm_parser.add_argument(
         "target",
         help="Worktree to remove as [project.]worktree-dir (project defaults from cwd)",
+    )
+    rm_parser.add_argument(
+        "-f", "--force",
+        action="store_true",
+        help="Skip confirmation prompt for modified/untracked files",
     )
     rm_parser.set_defaults(func=cmd_rm_worktree)
 
