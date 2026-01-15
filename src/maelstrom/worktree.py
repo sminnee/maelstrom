@@ -450,12 +450,13 @@ def create_worktree(project_path: Path, branch: str) -> Path:
     # Read .env from project root if present (e.g., /Projects/myapp/.env)
     existing_env = read_env_file(project_path)
 
-    # Generate port variables if configured
+    # Generate environment variables
+    generated_vars = {"WORKTREE": worktree_name}
+
+    # Add port variables if configured
     if config.port_names:
         port_base = allocate_port_base(project_path, len(config.port_names))
-        generated_vars = generate_port_env_vars(port_base, config.port_names)
-    else:
-        generated_vars = {}
+        generated_vars.update(generate_port_env_vars(port_base, config.port_names))
 
     # Write .env if there's anything to write
     if existing_env or generated_vars:

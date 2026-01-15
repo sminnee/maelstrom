@@ -148,6 +148,20 @@ class TestWriteEnvFile:
             content = env_file.read_text()
             assert "DATABASE_URL=postgres://localhost:1002/mydb" in content
 
+    def test_substitutes_worktree_variable(self):
+        """Test that $WORKTREE is substituted in existing vars."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            generated = {"WORKTREE": "alpha"}
+            existing = {"DATABASE_NAME": "myapp_$WORKTREE"}
+
+            write_env_file(worktree_path, generated, existing)
+
+            env_file = worktree_path / ".env"
+            content = env_file.read_text()
+            assert "DATABASE_NAME=myapp_alpha" in content
+            assert "WORKTREE=alpha" in content
+
 
 class TestReadEnvFile:
     """Tests for read_env_file function."""
