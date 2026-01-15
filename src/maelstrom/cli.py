@@ -1,59 +1,279 @@
 """Command-line interface for maelstrom."""
 
-import argparse
 import sys
 from pathlib import Path
 
+import click
+
 from . import __version__
 from .context import load_global_config, resolve_context
-from .worktree import (
-    add_project,
+from .github import (
     create_pr,
-    create_worktree,
     download_artifact,
     get_check_logs_truncated,
     get_full_check_log,
     get_worktree_code,
+    read_pr,
+)
+from .worktree import (
+    add_project,
+    create_worktree,
     get_worktree_dirty_files,
     list_worktrees,
     open_worktree,
-    read_pr,
     remove_worktree_by_path,
+    sync_worktree,
 )
 
 
-def cmd_add_project(args: argparse.Namespace) -> int:
-    """Clone a git repository for use with maelstrom."""
-    git_url = args.git_url
+@click.group()
+@click.version_option(version=__version__, prog_name="mael")
+def cli():
+    """Maelstrom - Parallel development environment manager."""
+    pass
 
+
+# --- Core worktree commands ---
+
+
+@cli.command("add-project")
+@click.argument("git_url")
+@click.option("--projects-dir", help="Base directory for projects (default from ~/.maelstrom.yaml or ~/Projects)")
+def cmd_add_project(git_url, projects_dir):
+    """Clone a git repository for use with maelstrom."""
     # Use explicit --projects-dir or fall back to global config
-    if args.projects_dir:
-        projects_dir = Path(args.projects_dir).expanduser()
+    if projects_dir:
+        projects_dir_path = Path(projects_dir).expanduser()
     else:
         global_config = load_global_config()
-        projects_dir = global_config.projects_dir
+        projects_dir_path = global_config.projects_dir
 
-    print(f"Cloning {git_url}...")
+    click.echo(f"Cloning {git_url}...")
     try:
-        project_path = add_project(git_url, projects_dir)
-        print(f"Project created at: {project_path}")
-        print(f"Alpha worktree at: {project_path / 'alpha'}")
-        return 0
+        project_path = add_project(git_url, projects_dir_path)
+        click.echo(f"Project created at: {project_path}")
+        click.echo(f"Alpha worktree at: {project_path / 'alpha'}")
     except Exception as e:
-        print(f"Error adding project: {e}", file=sys.stderr)
-        return 1
+        raise click.ClickException(str(e))
 
 
-def cmd_create_pr(args: argparse.Namespace) -> int:
-    """Create a PR for the current worktree, or push if PR exists."""
-    draft = getattr(args, "draft", False)
-    target = getattr(args, "target", None)
+@cli.command("add")
+@click.argument("branch")
+@click.option("-p", "--project", default=None, help="Project name (default: detect from cwd)")
+@click.option("--no-open", is_flag=True, help="Don't open the worktree after creation")
+def cmd_add(branch, project, no_open):
+    """Add a new worktree for a branch."""
+    try:
+        ctx = resolve_context(
+            project,
+            require_project=True,
+            require_worktree=False,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
 
+    project_path = ctx.project_path
+
+    if not project_path.exists():
+        raise click.ClickException(f"Project '{ctx.project}' not found at {project_path}")
+
+    click.echo(f"Creating worktree for branch '{branch}'...")
+    try:
+        worktree_path = create_worktree(project_path, branch)
+        click.echo(f"Worktree created at: {worktree_path}")
+
+        # Check if .env was created
+        env_file = worktree_path / ".env"
+        if env_file.exists():
+            click.echo(f"Environment file created: {env_file}")
+            click.echo("Port assignments:")
+            for line in env_file.read_text().strip().split("\n"):
+                click.echo(f"  {line}")
+
+        # Open the worktree unless --no-open was specified
+        if not no_open:
+            global_config = load_global_config()
+            try:
+                open_worktree(worktree_path, global_config.open_command)
+            except RuntimeError as e:
+                click.echo(f"Warning: Could not open worktree: {e}", err=True)
+    except Exception as e:
+        raise click.ClickException(f"Error creating worktree: {e}")
+
+
+@cli.command("remove")
+@click.argument("target")
+@click.option("-f", "--force", is_flag=True, help="Skip confirmation prompt for modified/untracked files")
+def cmd_remove(target, force):
+    """Remove a worktree."""
+    try:
+        ctx = resolve_context(
+            target,
+            require_project=True,
+            require_worktree=True,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    project_path = ctx.project_path
+    worktree_name = ctx.worktree  # This is the directory name (already sanitized)
+
+    if not project_path.exists():
+        raise click.ClickException(f"Project '{ctx.project}' not found at {project_path}")
+
+    worktree_path = project_path / worktree_name
+    if not worktree_path.exists():
+        raise click.ClickException(f"Worktree '{worktree_name}' not found in project '{ctx.project}'")
+
+    # Check for modified/untracked files (excluding maelstrom-managed files)
+    dirty_files = get_worktree_dirty_files(worktree_path)
+    if dirty_files and not force:
+        click.echo("The following modified/untracked files will be lost:")
+        for f in dirty_files:
+            click.echo(f"  {f}")
+        if not click.confirm("Continue?"):
+            click.echo("Aborted.")
+            raise SystemExit(1)
+
+    click.echo(f"Removing worktree '{worktree_name}'...")
+    try:
+        remove_worktree_by_path(project_path, worktree_name)
+        click.echo("Worktree removed successfully.")
+    except Exception as e:
+        raise click.ClickException(f"Error removing worktree: {e}")
+
+
+# Register alias for remove
+cli.add_command(cmd_remove, name="rm")
+
+
+@cli.command("list")
+@click.argument("project", required=False, default=None)
+def cmd_list(project):
+    """List all worktrees."""
+    try:
+        ctx = resolve_context(
+            project,
+            require_project=True,
+            require_worktree=False,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    project_path = ctx.project_path
+
+    if not project_path.exists():
+        raise click.ClickException(f"Project '{ctx.project}' not found at {project_path}")
+
+    worktrees = list_worktrees(project_path)
+
+    if not worktrees:
+        click.echo("No worktrees found.")
+        return
+
+    click.echo(f"Worktrees in {ctx.project}:")
+    for wt in worktrees:
+        branch_display = wt.branch or "(detached)"
+        click.echo(f"  {wt.path.name:30} {branch_display:30} {wt.commit[:8]}")
+
+
+@cli.command("open")
+@click.argument("target", required=False, default=None)
+def cmd_open(target):
+    """Open a worktree in the configured editor."""
+    try:
+        ctx = resolve_context(
+            target,
+            require_project=True,
+            require_worktree=True,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    worktree_path = ctx.worktree_path
+
+    if not worktree_path.exists():
+        raise click.ClickException(f"Worktree not found at {worktree_path}")
+
+    global_config = load_global_config()
+    try:
+        open_worktree(worktree_path, global_config.open_command)
+    except RuntimeError as e:
+        raise click.ClickException(str(e))
+
+
+@cli.command("sync")
+@click.argument("target", required=False, default=None)
+def cmd_sync(target):
+    """Rebase worktree against origin/main."""
+    try:
+        ctx = resolve_context(
+            target,
+            require_project=True,
+            require_worktree=True,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    worktree_path = ctx.worktree_path
+
+    if not worktree_path.exists():
+        raise click.ClickException(f"Worktree not found at {worktree_path}")
+
+    click.echo(f"Syncing {ctx.worktree} with origin/main...")
+    result = sync_worktree(worktree_path)
+
+    if result.success:
+        click.echo(result.message)
+        return
+
+    # Handle conflicts
+    if result.had_conflicts:
+        click.echo("Rebase encountered conflicts.", err=True)
+        click.echo()
+
+        # Show commands with specific SHAs if available
+        if result.merge_base and result.upstream_head:
+            click.echo("To see what changed upstream:")
+            click.echo(f"  git log {result.merge_base}..{result.upstream_head} --oneline")
+            click.echo(f"  git diff {result.merge_base}...{result.upstream_head}")
+        else:
+            click.echo("To see what changed upstream:")
+            click.echo("  git log HEAD..origin/main --oneline")
+            click.echo("  git diff HEAD...origin/main")
+
+        click.echo()
+        click.echo("To resolve conflicts:")
+        click.echo("  git status                  # see conflicted files")
+        click.echo("  # edit files to resolve conflicts")
+        click.echo("  git add <resolved-files>")
+        click.echo("  git rebase --continue")
+        click.echo()
+        click.echo("To abort the rebase:")
+        click.echo("  git rebase --abort")
+        raise SystemExit(1)
+
+    raise click.ClickException(result.message)
+
+
+# --- GitHub subcommand group ---
+
+
+@cli.group("gh")
+def gh():
+    """GitHub-related commands."""
+    pass
+
+
+@gh.command("create-pr")
+@click.argument("target", required=False, default=None)
+@click.option("--draft", is_flag=True, help="Create as draft PR")
+def gh_create_pr(target, draft):
+    """Create a PR for the current worktree (or push if PR exists)."""
     try:
         ctx = resolve_context(target, require_project=False, require_worktree=False)
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
+        raise click.ClickException(str(e))
 
     # Determine working directory for PR creation
     if ctx.worktree_path and ctx.worktree_path.exists():
@@ -64,170 +284,11 @@ def cmd_create_pr(args: argparse.Namespace) -> int:
     try:
         url, created = create_pr(cwd=cwd, draft=draft)
         if created:
-            print(f"PR created: {url}")
+            click.echo(f"PR created: {url}")
         else:
-            print(f"Pushed to existing PR: {url}")
-        return 0
+            click.echo(f"Pushed to existing PR: {url}")
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-
-def cmd_add_worktree(args: argparse.Namespace) -> int:
-    """Add a new worktree."""
-    branch = args.branch
-    no_open = getattr(args, "no_open", False)
-
-    # Get project context (branch is separate, not from context)
-    try:
-        ctx = resolve_context(
-            args.project,
-            require_project=True,
-            require_worktree=False,
-        )
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    project_path = ctx.project_path
-
-    if not project_path.exists():
-        print(f"Error: Project '{ctx.project}' not found at {project_path}", file=sys.stderr)
-        return 1
-
-    print(f"Creating worktree for branch '{branch}'...")
-    try:
-        worktree_path = create_worktree(project_path, branch)
-        print(f"Worktree created at: {worktree_path}")
-
-        # Check if .env was created
-        env_file = worktree_path / ".env"
-        if env_file.exists():
-            print(f"Environment file created: {env_file}")
-            print("Port assignments:")
-            for line in env_file.read_text().strip().split("\n"):
-                print(f"  {line}")
-
-        # Open the worktree unless --no-open was specified
-        if not no_open:
-            global_config = load_global_config()
-            try:
-                open_worktree(worktree_path, global_config.open_command)
-            except RuntimeError as e:
-                print(f"Warning: Could not open worktree: {e}", file=sys.stderr)
-
-        return 0
-    except Exception as e:
-        print(f"Error creating worktree: {e}", file=sys.stderr)
-        return 1
-
-
-def cmd_rm_worktree(args: argparse.Namespace) -> int:
-    """Remove a worktree."""
-    try:
-        ctx = resolve_context(
-            args.target,
-            require_project=True,
-            require_worktree=True,
-        )
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    project_path = ctx.project_path
-    worktree_name = ctx.worktree  # This is the directory name (already sanitized)
-
-    if not project_path.exists():
-        print(f"Error: Project '{ctx.project}' not found at {project_path}", file=sys.stderr)
-        return 1
-
-    worktree_path = project_path / worktree_name
-    if not worktree_path.exists():
-        print(f"Error: Worktree '{worktree_name}' not found in project '{ctx.project}'", file=sys.stderr)
-        return 1
-
-    # Check for modified/untracked files (excluding maelstrom-managed files)
-    dirty_files = get_worktree_dirty_files(worktree_path)
-    if dirty_files and not args.force:
-        print("The following modified/untracked files will be lost:")
-        for f in dirty_files:
-            print(f"  {f}")
-        try:
-            response = input("Continue? [y/N] ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return 1
-        if response != "y":
-            print("Aborted.")
-            return 1
-
-    print(f"Removing worktree '{worktree_name}'...")
-    try:
-        remove_worktree_by_path(project_path, worktree_name)
-        print("Worktree removed successfully.")
-        return 0
-    except Exception as e:
-        print(f"Error removing worktree: {e}", file=sys.stderr)
-        return 1
-
-
-def cmd_list(args: argparse.Namespace) -> int:
-    """List all worktrees."""
-    try:
-        ctx = resolve_context(
-            args.project,
-            require_project=True,
-            require_worktree=False,
-        )
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    project_path = ctx.project_path
-
-    if not project_path.exists():
-        print(f"Error: Project '{ctx.project}' not found at {project_path}", file=sys.stderr)
-        return 1
-
-    worktrees = list_worktrees(project_path)
-
-    if not worktrees:
-        print("No worktrees found.")
-        return 0
-
-    print(f"Worktrees in {ctx.project}:")
-    for wt in worktrees:
-        branch_display = wt.branch or "(detached)"
-        print(f"  {wt.path.name:30} {branch_display:30} {wt.commit[:8]}")
-
-    return 0
-
-
-def cmd_open(args: argparse.Namespace) -> int:
-    """Open a worktree in the configured editor."""
-    try:
-        ctx = resolve_context(
-            args.target,
-            require_project=True,
-            require_worktree=True,
-        )
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    worktree_path = ctx.worktree_path
-
-    if not worktree_path.exists():
-        print(f"Error: Worktree not found at {worktree_path}", file=sys.stderr)
-        return 1
-
-    global_config = load_global_config()
-    try:
-        open_worktree(worktree_path, global_config.open_command)
-        return 0
-    except RuntimeError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
+        raise click.ClickException(str(e))
 
 
 def _format_size(size_bytes: int) -> str:
@@ -240,15 +301,14 @@ def _format_size(size_bytes: int) -> str:
         return f"{size_bytes / (1024 * 1024):.1f} MB"
 
 
-def cmd_read_pr(args: argparse.Namespace) -> int:
+@gh.command("read-pr")
+@click.argument("target", required=False, default=None)
+def gh_read_pr(target):
     """Read PR status, unresolved comments, and check results."""
-    target = getattr(args, "target", None)
-
     try:
         ctx = resolve_context(target, require_project=False, require_worktree=False)
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
+        raise click.ClickException(str(e))
 
     # Determine working directory
     if ctx.worktree_path and ctx.worktree_path.exists():
@@ -259,34 +319,33 @@ def cmd_read_pr(args: argparse.Namespace) -> int:
     try:
         pr_info = read_pr(cwd=cwd)
     except RuntimeError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
+        raise click.ClickException(str(e))
 
     # Print header
-    print(f"PR #{pr_info.number}: {pr_info.title}")
-    print(f"URL: {pr_info.url}")
+    click.echo(f"PR #{pr_info.number}: {pr_info.title}")
+    click.echo(f"URL: {pr_info.url}")
 
     # If merged, show simple message and exit
     if pr_info.merged:
-        print()
-        print("PR has been merged - no further action necessary")
-        return 0
+        click.echo()
+        click.echo("PR has been merged - no further action necessary")
+        return
 
-    print(f"Status: {pr_info.state}")
+    click.echo(f"Status: {pr_info.state}")
 
     # Unresolved comments
     if pr_info.review_threads:
-        print()
-        print(f"--- Unresolved Comments ({len(pr_info.review_threads)}) ---")
+        click.echo()
+        click.echo(f"--- Unresolved Comments ({len(pr_info.review_threads)}) ---")
         for thread in pr_info.review_threads:
             line_info = f":{thread.line}" if thread.line else ""
-            print(f"  {thread.path}{line_info}")
+            click.echo(f"  {thread.path}{line_info}")
             for comment in thread.comments:
                 # Indent and truncate long comments
                 body_preview = comment.body.replace("\n", " ")[:100]
                 if len(comment.body) > 100:
                     body_preview += "..."
-                print(f"    @{comment.author}: {body_preview}")
+                click.echo(f"    @{comment.author}: {body_preview}")
 
     # Checks
     failed_checks = [c for c in pr_info.checks if c.state == "FAILURE"]
@@ -294,53 +353,53 @@ def cmd_read_pr(args: argparse.Namespace) -> int:
     pending_checks = [c for c in pr_info.checks if c.state not in ("FAILURE", "SUCCESS")]
 
     if failed_checks:
-        print()
-        print("--- Failed Checks ---")
+        click.echo()
+        click.echo("--- Failed Checks ---")
         for check in failed_checks:
             run_id_info = f" (run {check.run_id})" if check.run_id else ""
-            print(f"  X {check.name}{run_id_info}")
+            click.echo(f"  X {check.name}{run_id_info}")
 
             # Show truncated logs
             if check.run_id:
                 logs = get_check_logs_truncated(cwd, check.run_id, max_lines=30)
                 if logs:
-                    print()
+                    click.echo()
                     for line in logs.split("\n"):
-                        print(f"    {line}")
-                    print()
-                print(f"    -> Full log: mael check-log [--failed-only] {check.run_id}")
+                        click.echo(f"    {line}")
+                    click.echo()
+                click.echo(f"    -> Full log: mael gh check-log [--failed-only] {check.run_id}")
 
                 # Show artifacts for this run
                 if check.run_id in pr_info.artifacts:
-                    print()
-                    print("    Artifacts:")
+                    click.echo()
+                    click.echo("    Artifacts:")
                     for artifact in pr_info.artifacts[check.run_id]:
                         size_str = _format_size(artifact.size)
-                        print(f"      - {artifact.name} ({size_str})")
-                        print(f"        -> Download: mael download-artifact {check.run_id} {artifact.name}")
+                        click.echo(f"      - {artifact.name} ({size_str})")
+                        click.echo(f"        -> Download: mael gh download-artifact {check.run_id} {artifact.name}")
 
     if pending_checks:
-        print()
-        print("--- Pending Checks ---")
+        click.echo()
+        click.echo("--- Pending Checks ---")
         for check in pending_checks:
             run_id_info = f" (run {check.run_id})" if check.run_id else ""
-            print(f"  ... {check.name}{run_id_info}")
+            click.echo(f"  ... {check.name}{run_id_info}")
 
     if passing_checks:
-        print()
-        print("--- Passing Checks ---")
+        click.echo()
+        click.echo("--- Passing Checks ---")
         for check in passing_checks:
             run_id_info = f" (run {check.run_id})" if check.run_id else ""
-            print(f"  + {check.name}{run_id_info}")
-
-    return 0
+            click.echo(f"  + {check.name}{run_id_info}")
 
 
-def cmd_download_artifact(args: argparse.Namespace) -> int:
+@gh.command("download-artifact")
+@click.argument("run_id")
+@click.argument("artifact_name")
+@click.option("-o", "--output", default=None, help="Output directory (default: current directory)")
+def gh_download_artifact(run_id, artifact_name, output):
     """Download an artifact from a PR's workflow run."""
-    run_id = args.run_id
-    artifact_name = args.artifact_name
-    output_dir = Path(args.output).expanduser() if args.output else None
+    output_dir = Path(output).expanduser() if output else None
 
     try:
         artifact_path = download_artifact(
@@ -349,42 +408,37 @@ def cmd_download_artifact(args: argparse.Namespace) -> int:
             artifact_name=artifact_name,
             output_dir=output_dir,
         )
-        print(f"Artifact downloaded to: {artifact_path}")
-        return 0
+        click.echo(f"Artifact downloaded to: {artifact_path}")
     except RuntimeError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
+        raise click.ClickException(str(e))
 
 
-def cmd_check_log(args: argparse.Namespace) -> int:
+@gh.command("check-log")
+@click.argument("run_id")
+@click.option("--failed-only", is_flag=True, help="Show only failed step logs")
+def gh_check_log(run_id, failed_only):
     """Show full log output for a GitHub Actions run."""
-    run_id = args.run_id
-    failed_only = getattr(args, "failed_only", False)
-
     try:
         logs = get_full_check_log(
             cwd=Path.cwd(),
             run_id=run_id,
             failed_only=failed_only,
         )
-        print(logs)
-        return 0
+        click.echo(logs)
     except RuntimeError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
+        raise click.ClickException(str(e))
 
 
-def cmd_show_code(args: argparse.Namespace) -> int:
+@gh.command("show-code")
+@click.argument("target", required=False, default=None)
+@click.option("--committed", is_flag=True, help="Show only committed changes")
+@click.option("--uncommitted", is_flag=True, help="Show only uncommitted changes")
+def gh_show_code(target, committed, uncommitted):
     """Show commits and uncommitted changes for a worktree."""
-    target = getattr(args, "target", None)
-    committed_only = getattr(args, "committed", False)
-    uncommitted_only = getattr(args, "uncommitted", False)
-
     try:
         ctx = resolve_context(target, require_project=False, require_worktree=False)
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
+        raise click.ClickException(str(e))
 
     # Determine working directory
     if ctx.worktree_path and ctx.worktree_path.exists():
@@ -395,225 +449,36 @@ def cmd_show_code(args: argparse.Namespace) -> int:
     try:
         commits_output, uncommitted_output = get_worktree_code(cwd)
     except RuntimeError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
+        raise click.ClickException(str(e))
 
     # Determine what to show based on flags
-    show_committed = not uncommitted_only
-    show_uncommitted = not committed_only
+    show_committed = not uncommitted
+    show_uncommitted = not committed
 
     if show_committed and commits_output:
-        print("=== Commits ===")
-        print(commits_output)
+        click.echo("=== Commits ===")
+        click.echo(commits_output)
 
     if show_uncommitted and uncommitted_output:
         if show_committed and commits_output:
-            print()  # Separator between sections
-        print("=== Uncommitted Changes ===")
-        print(uncommitted_output)
+            click.echo()  # Separator between sections
+        click.echo("=== Uncommitted Changes ===")
+        click.echo(uncommitted_output)
 
     if not commits_output and not uncommitted_output:
-        print("No commits or uncommitted changes found.")
-
-    return 0
+        click.echo("No commits or uncommitted changes found.")
 
 
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for the CLI."""
-    parser = argparse.ArgumentParser(
-        prog="mael",
-        description="Maelstrom - Parallel development environment manager",
-    )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {__version__}",
-    )
-
-    subparsers = parser.add_subparsers(dest="command", help="Available commands")
-
-    # add-project command
-    add_parser = subparsers.add_parser(
-        "add-project",
-        help="Clone a git repository for use with maelstrom",
-    )
-    add_parser.add_argument(
-        "git_url",
-        help="Git URL to clone (e.g., git@github.com:user/repo.git)",
-    )
-    add_parser.add_argument(
-        "--projects-dir",
-        dest="projects_dir",
-        help="Base directory for projects (default from ~/.maelstrom.yaml or ~/Projects)",
-    )
-    add_parser.set_defaults(func=cmd_add_project)
-
-    # create-pr command
-    pr_parser = subparsers.add_parser(
-        "create-pr",
-        help="Create a PR for the current worktree (or push if PR exists)",
-    )
-    pr_parser.add_argument(
-        "target",
-        nargs="?",
-        default=None,
-        help="Target worktree as [project.]worktree (default: detect from cwd)",
-    )
-    pr_parser.add_argument(
-        "--draft",
-        action="store_true",
-        help="Create as draft PR",
-    )
-    pr_parser.set_defaults(func=cmd_create_pr)
-
-    # add-worktree command (with "add" alias)
-    add_wt_parser = subparsers.add_parser(
-        "add-worktree",
-        aliases=["add"],
-        help="Add a new worktree for a branch",
-    )
-    add_wt_parser.add_argument(
-        "branch",
-        help="Branch name to create worktree for",
-    )
-    add_wt_parser.add_argument(
-        "-p", "--project",
-        dest="project",
-        default=None,
-        help="Project name (default: detect from cwd)",
-    )
-    add_wt_parser.add_argument(
-        "--no-open",
-        dest="no_open",
-        action="store_true",
-        help="Don't open the worktree after creation",
-    )
-    add_wt_parser.set_defaults(func=cmd_add_worktree)
-
-    # rm-worktree command (with "rm" alias)
-    rm_parser = subparsers.add_parser(
-        "rm-worktree",
-        aliases=["rm"],
-        help="Remove a worktree",
-    )
-    rm_parser.add_argument(
-        "target",
-        help="Worktree to remove as [project.]worktree-dir (project defaults from cwd)",
-    )
-    rm_parser.add_argument(
-        "-f", "--force",
-        action="store_true",
-        help="Skip confirmation prompt for modified/untracked files",
-    )
-    rm_parser.set_defaults(func=cmd_rm_worktree)
-
-    # list command
-    list_parser = subparsers.add_parser(
-        "list",
-        help="List all worktrees",
-    )
-    list_parser.add_argument(
-        "project",
-        nargs="?",
-        default=None,
-        help="Project name (default: detect from cwd)",
-    )
-    list_parser.set_defaults(func=cmd_list)
-
-    # open command
-    open_parser = subparsers.add_parser(
-        "open",
-        help="Open a worktree in the configured editor",
-    )
-    open_parser.add_argument(
-        "target",
-        nargs="?",
-        default=None,
-        help="Worktree to open as [project.]worktree (default: detect from cwd)",
-    )
-    open_parser.set_defaults(func=cmd_open)
-
-    # read-pr command
-    read_pr_parser = subparsers.add_parser(
-        "read-pr",
-        help="Read PR status, unresolved comments, and check results",
-    )
-    read_pr_parser.add_argument(
-        "target",
-        nargs="?",
-        default=None,
-        help="Target worktree as [project.]worktree (default: detect from cwd)",
-    )
-    read_pr_parser.set_defaults(func=cmd_read_pr)
-
-    # download-artifact command
-    download_parser = subparsers.add_parser(
-        "download-artifact",
-        help="Download an artifact from a PR's workflow run",
-    )
-    download_parser.add_argument(
-        "run_id",
-        help="GitHub Actions run ID",
-    )
-    download_parser.add_argument(
-        "artifact_name",
-        help="Name of the artifact to download",
-    )
-    download_parser.add_argument(
-        "-o", "--output",
-        dest="output",
-        default=None,
-        help="Output directory (default: current directory)",
-    )
-    download_parser.set_defaults(func=cmd_download_artifact)
-
-    # check-log command
-    check_log_parser = subparsers.add_parser(
-        "check-log",
-        help="Show full log output for a GitHub Actions run",
-    )
-    check_log_parser.add_argument(
-        "run_id",
-        help="GitHub Actions run ID",
-    )
-    check_log_parser.add_argument(
-        "--failed-only",
-        dest="failed_only",
-        action="store_true",
-        help="Show only failed step logs",
-    )
-    check_log_parser.set_defaults(func=cmd_check_log)
-
-    # show-code command
-    show_code_parser = subparsers.add_parser(
-        "show-code",
-        help="Show commits and uncommitted changes for a worktree",
-    )
-    show_code_parser.add_argument(
-        "target",
-        nargs="?",
-        default=None,
-        help="Target worktree as [project.]worktree (default: detect from cwd)",
-    )
-    show_code_parser.add_argument(
-        "--committed",
-        action="store_true",
-        help="Show only committed changes",
-    )
-    show_code_parser.add_argument(
-        "--uncommitted",
-        action="store_true",
-        help="Show only uncommitted changes",
-    )
-    show_code_parser.set_defaults(func=cmd_show_code)
-
-    args = parser.parse_args(argv)
-
-    if not args.command:
-        parser.print_help()
+    try:
+        cli(args=argv, standalone_mode=False)
         return 0
-
-    return args.func(args)
+    except click.ClickException as e:
+        e.show()
+        return 1
+    except SystemExit as e:
+        return e.code if isinstance(e.code, int) else 0
 
 
 if __name__ == "__main__":
