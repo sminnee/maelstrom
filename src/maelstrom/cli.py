@@ -10,8 +10,12 @@ from .worktree import (
     add_project,
     create_pr,
     create_worktree,
+    download_artifact,
+    get_check_logs_truncated,
+    get_full_check_log,
     list_worktrees,
     open_worktree,
+    read_pr,
     remove_worktree_by_path,
 )
 
@@ -209,6 +213,150 @@ def cmd_open(args: argparse.Namespace) -> int:
         return 1
 
 
+def _format_size(size_bytes: int) -> str:
+    """Format a byte size as a human-readable string."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    else:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+
+
+def cmd_read_pr(args: argparse.Namespace) -> int:
+    """Read PR status, unresolved comments, and check results."""
+    target = getattr(args, "target", None)
+
+    try:
+        ctx = resolve_context(target, require_project=False, require_worktree=False)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    # Determine working directory
+    if ctx.worktree_path and ctx.worktree_path.exists():
+        cwd = ctx.worktree_path
+    else:
+        cwd = Path.cwd()
+
+    try:
+        pr_info = read_pr(cwd=cwd)
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    # Print header
+    print(f"PR #{pr_info.number}: {pr_info.title}")
+    print(f"URL: {pr_info.url}")
+
+    # If merged, show simple message and exit
+    if pr_info.merged:
+        print()
+        print("PR has been merged - no further action necessary")
+        return 0
+
+    print(f"Status: {pr_info.state}")
+
+    # Unresolved comments
+    if pr_info.review_threads:
+        print()
+        print(f"--- Unresolved Comments ({len(pr_info.review_threads)}) ---")
+        for thread in pr_info.review_threads:
+            line_info = f":{thread.line}" if thread.line else ""
+            print(f"  {thread.path}{line_info}")
+            for comment in thread.comments:
+                # Indent and truncate long comments
+                body_preview = comment.body.replace("\n", " ")[:100]
+                if len(comment.body) > 100:
+                    body_preview += "..."
+                print(f"    @{comment.author}: {body_preview}")
+
+    # Checks
+    failed_checks = [c for c in pr_info.checks if c.state == "FAILURE"]
+    passing_checks = [c for c in pr_info.checks if c.state == "SUCCESS"]
+    pending_checks = [c for c in pr_info.checks if c.state not in ("FAILURE", "SUCCESS")]
+
+    if failed_checks:
+        print()
+        print("--- Failed Checks ---")
+        for check in failed_checks:
+            run_id_info = f" (run {check.run_id})" if check.run_id else ""
+            print(f"  X {check.name}{run_id_info}")
+
+            # Show truncated logs
+            if check.run_id:
+                logs = get_check_logs_truncated(cwd, check.run_id, max_lines=30)
+                if logs:
+                    print()
+                    for line in logs.split("\n"):
+                        print(f"    {line}")
+                    print()
+                print(f"    -> Full log: mael check-log [--failed-only] {check.run_id}")
+
+                # Show artifacts for this run
+                if check.run_id in pr_info.artifacts:
+                    print()
+                    print("    Artifacts:")
+                    for artifact in pr_info.artifacts[check.run_id]:
+                        size_str = _format_size(artifact.size)
+                        print(f"      - {artifact.name} ({size_str})")
+                        print(f"        -> Download: mael download-artifact {check.run_id} {artifact.name}")
+
+    if pending_checks:
+        print()
+        print("--- Pending Checks ---")
+        for check in pending_checks:
+            run_id_info = f" (run {check.run_id})" if check.run_id else ""
+            print(f"  ... {check.name}{run_id_info}")
+
+    if passing_checks:
+        print()
+        print("--- Passing Checks ---")
+        for check in passing_checks:
+            run_id_info = f" (run {check.run_id})" if check.run_id else ""
+            print(f"  + {check.name}{run_id_info}")
+
+    return 0
+
+
+def cmd_download_artifact(args: argparse.Namespace) -> int:
+    """Download an artifact from a PR's workflow run."""
+    run_id = args.run_id
+    artifact_name = args.artifact_name
+    output_dir = Path(args.output).expanduser() if args.output else None
+
+    try:
+        artifact_path = download_artifact(
+            cwd=Path.cwd(),
+            run_id=run_id,
+            artifact_name=artifact_name,
+            output_dir=output_dir,
+        )
+        print(f"Artifact downloaded to: {artifact_path}")
+        return 0
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_check_log(args: argparse.Namespace) -> int:
+    """Show full log output for a GitHub Actions run."""
+    run_id = args.run_id
+    failed_only = getattr(args, "failed_only", False)
+
+    try:
+        logs = get_full_check_log(
+            cwd=Path.cwd(),
+            run_id=run_id,
+            failed_only=failed_only,
+        )
+        print(logs)
+        return 0
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(
@@ -318,6 +466,57 @@ def main(argv: list[str] | None = None) -> int:
         help="Worktree to open as [project.]worktree (default: detect from cwd)",
     )
     open_parser.set_defaults(func=cmd_open)
+
+    # read-pr command
+    read_pr_parser = subparsers.add_parser(
+        "read-pr",
+        help="Read PR status, unresolved comments, and check results",
+    )
+    read_pr_parser.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="Target worktree as [project.]worktree (default: detect from cwd)",
+    )
+    read_pr_parser.set_defaults(func=cmd_read_pr)
+
+    # download-artifact command
+    download_parser = subparsers.add_parser(
+        "download-artifact",
+        help="Download an artifact from a PR's workflow run",
+    )
+    download_parser.add_argument(
+        "run_id",
+        help="GitHub Actions run ID",
+    )
+    download_parser.add_argument(
+        "artifact_name",
+        help="Name of the artifact to download",
+    )
+    download_parser.add_argument(
+        "-o", "--output",
+        dest="output",
+        default=None,
+        help="Output directory (default: current directory)",
+    )
+    download_parser.set_defaults(func=cmd_download_artifact)
+
+    # check-log command
+    check_log_parser = subparsers.add_parser(
+        "check-log",
+        help="Show full log output for a GitHub Actions run",
+    )
+    check_log_parser.add_argument(
+        "run_id",
+        help="GitHub Actions run ID",
+    )
+    check_log_parser.add_argument(
+        "--failed-only",
+        dest="failed_only",
+        action="store_true",
+        help="Show only failed step logs",
+    )
+    check_log_parser.set_defaults(func=cmd_check_log)
 
     args = parser.parse_args(argv)
 
