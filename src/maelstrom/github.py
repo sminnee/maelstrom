@@ -105,19 +105,23 @@ def create_pr(cwd: Path | None = None, draft: bool = False) -> tuple[str, bool]:
     if cwd is None:
         cwd = Path.cwd()
 
-    # Check if PR already exists
+    # Check if PR already exists (and is open)
     pr_exists = False
     existing_url = ""
     try:
         result = run_cmd(
-            ["gh", "pr", "view", "--json", "url", "-q", ".url"],
+            ["gh", "pr", "view", "--json", "url,state", "-q", ".url + \" \" + .state"],
             cwd=cwd,
             quiet=True,
             check=False,
         )
         if result.returncode == 0 and result.stdout.strip():
-            pr_exists = True
-            existing_url = result.stdout.strip()
+            parts = result.stdout.strip().rsplit(" ", 1)
+            if len(parts) == 2:
+                url, state = parts
+                if state == "OPEN":
+                    pr_exists = True
+                    existing_url = url
     except FileNotFoundError:
         raise RuntimeError("GitHub CLI (gh) is not installed")
 
