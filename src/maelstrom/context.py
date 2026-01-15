@@ -193,6 +193,7 @@ def resolve_context(
     require_project: bool = False,
     require_worktree: bool = False,
     cwd: Path | None = None,
+    arg_is_project: bool = False,
 ) -> ResolvedContext:
     """Resolve project and worktree from argument and/or cwd context.
 
@@ -208,6 +209,8 @@ def resolve_context(
         require_project: If True, error if project cannot be determined.
         require_worktree: If True, error if worktree cannot be determined.
         cwd: Current working directory (default: Path.cwd()).
+        arg_is_project: If True, treat a single-name arg as a project name
+            even when inside a project directory (skips worktree reinterpretation).
 
     Returns:
         ResolvedContext with project and worktree information.
@@ -225,12 +228,12 @@ def resolve_context(
     detected_project, detected_worktree = detect_context_from_cwd(projects_dir, cwd)
 
     # If arg has no dot, it could be:
-    # - A project name (if we're not in a project dir)
-    # - A worktree name (if we're in a project dir)
+    # - A project name (if we're not in a project dir, or arg_is_project=True)
+    # - A worktree name (if we're in a project dir and arg_is_project=False)
     # We interpret based on context
     if explicit_project is not None and explicit_worktree is None:
         # Arg was a single name without dot
-        if detected_project is not None:
+        if detected_project is not None and not arg_is_project:
             # We're in a project dir, so arg is the worktree
             explicit_worktree = explicit_project
             explicit_project = None

@@ -83,6 +83,7 @@ def cmd_add(branch, project, no_open):
             project,
             require_project=True,
             require_worktree=False,
+            arg_is_project=True,
         )
     except ValueError as e:
         raise click.ClickException(str(e))
@@ -171,6 +172,7 @@ def cmd_list(project):
             project,
             require_project=True,
             require_worktree=False,
+            arg_is_project=True,
         )
     except ValueError as e:
         raise click.ClickException(str(e))
@@ -302,6 +304,7 @@ def cmd_sync_all(project):
             project,
             require_project=True,
             require_worktree=False,
+            arg_is_project=True,
         )
     except ValueError as e:
         raise click.ClickException(str(e))
