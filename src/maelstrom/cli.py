@@ -19,6 +19,7 @@ from .github import (
 from .linear import linear
 from .sentry import sentry
 from .claude_integration import install_claude_integration
+from .claude_sessions import get_active_ide_sessions
 from .worktree import (
     add_project,
     create_worktree,
@@ -188,6 +189,9 @@ def cmd_list(project):
         click.echo("No worktrees found.")
         return
 
+    # Get active IDE sessions
+    active_sessions = get_active_ide_sessions()
+
     # Gather extended info for each worktree
     rows = []
     for wt in worktrees:
@@ -195,15 +199,17 @@ def cmd_list(project):
         commits = get_commits_ahead(wt.path)
         pr_num = get_pr_number_for_branch(project_path, wt.branch)
         pr_display = f"#{pr_num}" if pr_num else ""
-        rows.append((wt.path.name, wt.branch, dirty, commits, pr_display))
+        agents = active_sessions.get(wt.path, 0)
+        rows.append((wt.path.name, wt.branch, dirty, commits, pr_display, agents))
 
     # Print header
-    click.echo(f"{'WORKTREE':<12} {'BRANCH':<30} {'DIRTY':<6} {'AHEAD':<6} {'PR':<8}")
-    click.echo("-" * 70)
+    click.echo(f"{'WORKTREE':<12} {'BRANCH':<30} {'DIRTY':<6} {'AHEAD':<6} {'PR':<8} {'AGENTS':<6}")
+    click.echo("-" * 76)
 
-    for name, branch, dirty, commits, pr_display in rows:
+    for name, branch, dirty, commits, pr_display, agents in rows:
         commits_display = str(commits) if commits > 0 else ""
-        click.echo(f"{name:<12} {branch:<30} {dirty:<6} {commits_display:<6} {pr_display:<8}")
+        agents_display = str(agents) if agents > 0 else ""
+        click.echo(f"{name:<12} {branch:<30} {dirty:<6} {commits_display:<6} {pr_display:<8} {agents_display:<6}")
 
 
 @cli.command("open")
