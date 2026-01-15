@@ -1,6 +1,6 @@
 ---
 name: mael
-description: Manage development workflow using the mael CLI. Covers Linear task management, Sentry error debugging, and git/GitHub operations (syncing, commits, pull requests).
+description: "REQUIRED for git/GitHub operations: Use `mael gh create-pr` for PRs, `mael sync` before work. Also covers Linear task management and Sentry debugging. Always invoke /mael before commits or PRs."
 ---
 
 # Maelstrom CLI Skill
