@@ -304,11 +304,7 @@ mael sentry get-issue <issue-id>
    mael sync
    ```
 
-2. **During work**, commit changes regularly:
-   ```bash
-   git add .
-   git commit -m "Description of changes"
-   ```
+2. **During work**, commit changes regularly (see "Workflow: Creating Commits" below)
 
 3. **When ready for review**, create or update PR:
    ```bash
@@ -349,6 +345,23 @@ mael sentry get-issue <issue-id>
    ```bash
    mael gh show-code --uncommitted
    ```
+
+## Workflow: Creating Commits
+
+Git commands run directly in the worktree directory (no `-C` flag needed).
+
+1. **Review uncommitted changes** before committing:
+   ```bash
+   mael gh show-code --uncommitted
+   ```
+
+2. **Stage and commit** with a descriptive message:
+   ```bash
+   git add <files>
+   git commit -m "Description of changes"
+   ```
+
+3. **For atomic commits**, stage related changes together. Use `git add -p` for partial file staging if needed.
 
 ## Workflow: Planning a Task
 
