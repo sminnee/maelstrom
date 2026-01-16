@@ -21,16 +21,21 @@ from .sentry import sentry
 from .claude_integration import install_claude_integration
 from .claude_sessions import get_active_ide_sessions
 from .worktree import (
+    MAIN_BRANCH,
     add_project,
+    close_worktree,
     create_worktree,
     extract_project_name,
     extract_worktree_name_from_folder,
     find_all_projects,
+    find_closed_worktree,
     get_commits_ahead,
     get_worktree_folder_name,
     get_worktree_dirty_files,
+    is_worktree_closed,
     list_worktrees,
     open_worktree,
+    recycle_worktree,
     remove_worktree_by_path,
     run_git,
     sync_worktree,
@@ -80,11 +85,23 @@ def cmd_add_project(git_url, projects_dir):
 
 
 @cli.command("add")
-@click.argument("branch")
+@click.argument("branch", required=False, default=None)
 @click.option("-p", "--project", default=None, help="Project name (default: detect from cwd)")
 @click.option("--no-open", is_flag=True, help="Don't open the worktree after creation")
-def cmd_add(branch, project, no_open):
-    """Add a new worktree for a branch."""
+@click.option("--no-recycle", is_flag=True, help="Don't recycle closed worktrees, always create new")
+def cmd_add(branch, project, no_open, no_recycle):
+    """Add a new worktree for a branch.
+
+    If BRANCH is provided:
+      - Tries to recycle a closed worktree (one on main branch) if available
+      - Otherwise creates a new worktree
+
+    If BRANCH is omitted:
+      - Creates a new worktree on the main branch
+      - Does NOT recycle (for when you just want a fresh workspace)
+
+    Use --no-recycle to always create a new worktree even when closed ones exist.
+    """
     try:
         ctx = resolve_context(
             project,
@@ -100,32 +117,63 @@ def cmd_add(branch, project, no_open):
     if not project_path.exists():
         raise click.ClickException(f"Project '{ctx.project}' not found at {project_path}")
 
-    click.echo(f"Creating worktree for branch '{branch}'...")
-    try:
-        worktree_path = create_worktree(project_path, branch)
+    # Determine the branch to use
+    detached = False
+    if branch is None:
+        # No branch specified - create fresh detached worktree at origin/main
+        detached = True
+        # Force no recycling when no branch specified
+        no_recycle = True
+        click.echo(f"Creating fresh worktree at origin/{MAIN_BRANCH}...")
+    else:
+        click.echo(f"Creating worktree for branch '{branch}'...")
+
+    # Try to recycle a closed worktree if allowed
+    worktree_path = None
+    recycled = False
+
+    if not no_recycle:
+        closed_wt = find_closed_worktree(project_path)
+        if closed_wt:
+            click.echo(f"Recycling closed worktree '{closed_wt.path.name}'...")
+            try:
+                worktree_path = recycle_worktree(closed_wt.path, branch)
+                recycled = True
+            except Exception as e:
+                click.echo(f"Warning: Could not recycle worktree: {e}", err=True)
+                click.echo("Creating new worktree instead...")
+
+    # Create new worktree if not recycled
+    if worktree_path is None:
+        try:
+            worktree_path = create_worktree(project_path, branch or MAIN_BRANCH, detached=detached)
+        except Exception as e:
+            raise click.ClickException(f"Error creating worktree: {e}")
+
+    if recycled:
+        click.echo(f"Worktree recycled at: {worktree_path}")
+    else:
         click.echo(f"Worktree created at: {worktree_path}")
 
-        # Update CLAUDE.md with maelstrom workflow instructions
-        if update_claude_md(worktree_path):
-            click.echo("CLAUDE.md updated with maelstrom workflow instructions")
+    # Update CLAUDE.md with maelstrom workflow instructions
+    if update_claude_md(worktree_path):
+        click.echo("CLAUDE.md updated with maelstrom workflow instructions")
 
-        # Check if .env was created
-        env_file = worktree_path / ".env"
-        if env_file.exists():
-            click.echo(f"Environment file created: {env_file}")
-            click.echo("Port assignments:")
-            for line in env_file.read_text().strip().split("\n"):
-                click.echo(f"  {line}")
+    # Check if .env was created/exists
+    env_file = worktree_path / ".env"
+    if env_file.exists():
+        click.echo(f"Environment file: {env_file}")
+        click.echo("Port assignments:")
+        for line in env_file.read_text().strip().split("\n"):
+            click.echo(f"  {line}")
 
-        # Open the worktree unless --no-open was specified
-        if not no_open:
-            global_config = load_global_config()
-            try:
-                open_worktree(worktree_path, global_config.open_command)
-            except RuntimeError as e:
-                click.echo(f"Warning: Could not open worktree: {e}", err=True)
-    except Exception as e:
-        raise click.ClickException(f"Error creating worktree: {e}")
+    # Open the worktree unless --no-open was specified
+    if not no_open:
+        global_config = load_global_config()
+        try:
+            open_worktree(worktree_path, global_config.open_command)
+        except RuntimeError as e:
+            click.echo(f"Warning: Could not open worktree: {e}", err=True)
 
 
 @cli.command("remove")
@@ -196,8 +244,8 @@ def cmd_list(project):
 
     worktrees = list_worktrees(project_path)
 
-    # Filter out bare/detached worktrees (typically the project root)
-    worktrees = [wt for wt in worktrees if wt.branch and wt.path != project_path]
+    # Filter out the project root (bare repo), but keep detached worktrees
+    worktrees = [wt for wt in worktrees if wt.path != project_path]
 
     if not worktrees:
         click.echo("No worktrees found.")
@@ -209,14 +257,17 @@ def cmd_list(project):
     # Gather extended info for each worktree
     rows = []
     for wt in worktrees:
+        # Check if worktree is closed (detached at origin/main)
+        closed = is_worktree_closed(wt)
+        branch_display = "(closed)" if closed else (wt.branch or "(detached)")
         dirty = "Y" if get_worktree_dirty_files(wt.path) else ""
-        commits = get_commits_ahead(wt.path)
-        pr_num = get_pr_number_for_branch(project_path, wt.branch)
+        commits = get_commits_ahead(wt.path) if not closed else 0
+        pr_num = get_pr_number_for_branch(project_path, wt.branch) if wt.branch else None
         pr_display = f"#{pr_num}" if pr_num else ""
         agents = active_sessions.get(wt.path, 0)
         # Extract worktree name from folder for display (e.g., "myproject-alpha" -> "alpha")
         display_name = extract_worktree_name_from_folder(ctx.project, wt.path.name) or wt.path.name
-        rows.append((display_name, wt.branch, dirty, commits, pr_display, agents))
+        rows.append((display_name, branch_display, dirty, commits, pr_display, agents))
 
     # Print header
     click.echo(f"{'WORKTREE':<12} {'BRANCH':<30} {'DIRTY':<6} {'AHEAD':<6} {'PR':<8} {'AGENTS':<6}")
@@ -249,16 +300,19 @@ def cmd_list_all():
         worktrees = list_worktrees(project_path)
 
         for wt in worktrees:
-            # Skip bare/detached worktrees (typically the project root)
-            if not wt.branch or wt.path == project_path:
+            # Skip the project root (bare repo)
+            if wt.path == project_path:
                 continue
 
+            # Check if worktree is closed (detached at origin/main)
+            closed = is_worktree_closed(wt)
+            branch_display = "(closed)" if closed else (wt.branch or "(detached)")
             dirty = "Y" if get_worktree_dirty_files(wt.path) else ""
-            commits = get_commits_ahead(wt.path)
-            pr_num = get_pr_number_for_branch(project_path, wt.branch)
+            commits = get_commits_ahead(wt.path) if not closed else 0
+            pr_num = get_pr_number_for_branch(project_path, wt.branch) if wt.branch else None
             pr_display = f"#{pr_num}" if pr_num else ""
             agents = active_sessions.get(wt.path, 0)
-            rows.append((project_name, wt.path.name, wt.branch, dirty, commits, pr_display, agents))
+            rows.append((project_name, wt.path.name, branch_display, dirty, commits, pr_display, agents))
 
     if not rows:
         click.echo("No worktrees found.")
@@ -350,6 +404,63 @@ def cmd_sync(target):
         click.echo()
         click.echo("To abort the rebase:")
         click.echo("  git rebase --abort")
+        raise SystemExit(1)
+
+    raise click.ClickException(result.message)
+
+
+@cli.command("close")
+@click.argument("target", required=False, default=None)
+def cmd_close(target):
+    """Close a worktree (sync, verify clean, checkout main).
+
+    Closes a worktree by:
+    1. Syncing against origin/main (rebase)
+    2. Verifying no uncommitted changes
+    3. Verifying no unmerged commits
+    4. Checking out the main branch
+
+    The worktree folder, NATO name, and .env file are preserved.
+    The worktree can later be recycled with 'mael add <branch>'.
+    """
+    try:
+        ctx = resolve_context(
+            target,
+            require_project=True,
+            require_worktree=True,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    worktree_path = ctx.worktree_path
+
+    if not worktree_path.exists():
+        raise click.ClickException(f"Worktree not found at {worktree_path}")
+
+    click.echo(f"Closing worktree '{ctx.worktree}'...")
+    result = close_worktree(worktree_path)
+
+    if result.success:
+        click.echo(result.message)
+        return
+
+    # Handle specific failure cases
+    if result.had_dirty_files:
+        click.echo("Error: Worktree has uncommitted changes.", err=True)
+        click.echo()
+        click.echo("Please commit or stash your changes before closing:")
+        click.echo("  git status          # See uncommitted changes")
+        click.echo("  git add . && git commit -m 'message'")
+        click.echo("  # OR")
+        click.echo("  git stash           # Temporarily stash changes")
+        raise SystemExit(1)
+
+    if result.had_unpushed_commits:
+        click.echo("Error: Worktree has commits not merged to main.", err=True)
+        click.echo()
+        click.echo("Please push your changes and merge the PR before closing:")
+        click.echo("  git push origin <branch>")
+        click.echo("  # Then create/merge a PR")
         raise SystemExit(1)
 
     raise click.ClickException(result.message)
