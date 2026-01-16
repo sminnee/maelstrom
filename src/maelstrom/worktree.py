@@ -72,14 +72,14 @@ def extract_worktree_name_from_folder(project_name: str, folder_name: str) -> st
     return None
 
 
-def run_cmd(cmd: list[str], cwd: Path | None = None, quiet: bool = False, check: bool = True) -> subprocess.CompletedProcess:
+def run_cmd(cmd: list[str], cwd: Path | None = None, quiet: bool = False, check: bool = True, stream: bool = False) -> subprocess.CompletedProcess:
     """Run a shell command and return the result."""
     if not quiet:
         print(f"$ {' '.join(cmd)}")
     return subprocess.run(
         cmd,
         cwd=cwd,
-        capture_output=True,
+        capture_output=not stream,
         text=True,
         check=check,
     )
@@ -616,7 +616,7 @@ def create_worktree(project_path: Path, branch: str) -> Path:
 
     # Run install command if configured
     if config.install_cmd:
-        run_cmd(["sh", "-c", config.install_cmd], cwd=worktree_path)
+        run_cmd(["sh", "-c", config.install_cmd], cwd=worktree_path, stream=True)
 
     return worktree_path
 
