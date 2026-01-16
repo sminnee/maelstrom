@@ -34,6 +34,7 @@ from .worktree import (
     remove_worktree_by_path,
     run_git,
     sync_worktree,
+    update_claude_md,
 )
 
 
@@ -103,6 +104,10 @@ def cmd_add(branch, project, no_open):
     try:
         worktree_path = create_worktree(project_path, branch)
         click.echo(f"Worktree created at: {worktree_path}")
+
+        # Update CLAUDE.md with maelstrom workflow instructions
+        if update_claude_md(worktree_path):
+            click.echo("CLAUDE.md updated with maelstrom workflow instructions")
 
         # Check if .env was created
         env_file = worktree_path / ".env"
