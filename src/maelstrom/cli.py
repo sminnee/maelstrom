@@ -39,6 +39,7 @@ from .worktree import (
     remove_worktree_by_path,
     run_git,
     sync_worktree,
+    tidy_branches,
     update_claude_md,
 )
 
@@ -541,6 +542,88 @@ def cmd_sync_all(project):
         raise SystemExit(1)
 
     click.echo("All worktrees synced successfully.")
+
+
+@cli.command("tidy-branches")
+@click.argument("project", required=False, default=None)
+def cmd_tidy_branches(project):
+    """Clean up feature branches by rebasing and removing merged ones.
+
+    For each feature branch (not main):
+
+    \b
+    - If checked out in a worktree: skip
+    - Pull remote changes if branch exists on origin
+    - Attempt rebase against origin/main
+    - If conflicts: abort and skip
+    - If merged (same as main): delete local and remote branch
+    - If not merged: force push to origin (if remote exists)
+    """
+    try:
+        ctx = resolve_context(
+            project,
+            require_project=True,
+            require_worktree=False,
+            arg_is_project=True,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    project_path = ctx.project_path
+
+    if not project_path or not project_path.exists():
+        raise click.ClickException(f"Project '{ctx.project}' not found")
+
+    click.echo(f"Tidying branches for {ctx.project}...")
+    click.echo()
+
+    results = tidy_branches(project_path)
+
+    if not results:
+        click.echo("No feature branches to tidy.")
+        return
+
+    # Categorize results
+    deleted = [r for r in results if r.action == "deleted"]
+    pushed = [r for r in results if r.action == "pushed"]
+    rebased = [r for r in results if r.action == "rebased"]
+    conflicts = [r for r in results if r.action == "skipped_conflicts"]
+    checked_out = [r for r in results if r.action == "skipped_checked_out"]
+    errors = [r for r in results if r.action == "skipped_error"]
+
+    click.echo("Results:")
+    click.echo()
+
+    if deleted:
+        click.echo(f"  Deleted ({len(deleted)}):")
+        for r in deleted:
+            remote_info = " (local + remote)" if r.deleted_remote else " (local only)"
+            click.echo(f"    - {r.branch}{remote_info}")
+
+    if pushed:
+        click.echo(f"  Rebased & pushed ({len(pushed)}):")
+        for r in pushed:
+            click.echo(f"    - {r.branch}")
+
+    if rebased:
+        click.echo(f"  Rebased (local only) ({len(rebased)}):")
+        for r in rebased:
+            click.echo(f"    - {r.branch}")
+
+    if conflicts:
+        click.echo(f"  Skipped (conflicts) ({len(conflicts)}):")
+        for r in conflicts:
+            click.echo(f"    - {r.branch}")
+
+    if checked_out:
+        click.echo(f"  Skipped (checked out) ({len(checked_out)}):")
+        for r in checked_out:
+            click.echo(f"    - {r.branch}")
+
+    if errors:
+        click.echo(f"  Errors ({len(errors)}):", err=True)
+        for r in errors:
+            click.echo(f"    - {r.branch}: {r.message}", err=True)
 
 
 # --- GitHub subcommand group ---
