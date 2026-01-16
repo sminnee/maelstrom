@@ -204,6 +204,18 @@ class CloseResult:
     had_unpushed_commits: bool = False
 
 
+@dataclass
+class TidyBranchResult:
+    """Result of tidying a single branch."""
+
+    branch: str
+    action: str  # "deleted", "pushed", "rebased", "skipped_conflicts", "skipped_checked_out", "skipped_error"
+    success: bool
+    message: str
+    deleted_local: bool = False
+    deleted_remote: bool = False
+
+
 def is_worktree_closed(worktree_info: WorktreeInfo) -> bool:
     """Check if a worktree is in 'closed' state (detached at origin/main, clean).
 
@@ -1073,3 +1085,302 @@ def update_claude_md(worktree_path: Path) -> bool:
         return True
 
     return False
+
+
+def list_local_branches(project_path: Path) -> list[str]:
+    """List all local branches in the repository.
+
+    Args:
+        project_path: Path to the project root.
+
+    Returns:
+        List of branch names.
+    """
+    result = run_cmd(
+        ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/"],
+        cwd=project_path,
+        quiet=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return []
+    return [b.strip() for b in result.stdout.strip().split("\n") if b.strip()]
+
+
+def branch_exists_on_remote(project_path: Path, branch: str) -> bool:
+    """Check if a branch exists on the remote.
+
+    Args:
+        project_path: Path to the project root.
+        branch: Branch name to check.
+
+    Returns:
+        True if branch exists on origin.
+    """
+    result = run_cmd(
+        ["git", "rev-parse", "--verify", f"origin/{branch}"],
+        cwd=project_path,
+        quiet=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def is_branch_merged(project_path: Path, branch: str, base: str = f"origin/{MAIN_BRANCH}") -> bool:
+    """Check if a branch is at the same commit as the base (fully merged).
+
+    Args:
+        project_path: Path to the project root.
+        branch: Branch name to check.
+        base: Base ref to compare against.
+
+    Returns:
+        True if branch points to the same commit as base.
+    """
+    branch_result = run_cmd(
+        ["git", "rev-parse", branch],
+        cwd=project_path,
+        quiet=True,
+        check=False,
+    )
+    base_result = run_cmd(
+        ["git", "rev-parse", base],
+        cwd=project_path,
+        quiet=True,
+        check=False,
+    )
+    if branch_result.returncode != 0 or base_result.returncode != 0:
+        return False
+    return branch_result.stdout.strip() == base_result.stdout.strip()
+
+
+def delete_branch(project_path: Path, branch: str, delete_remote: bool = False) -> tuple[bool, bool]:
+    """Delete a local branch and optionally its remote counterpart.
+
+    Args:
+        project_path: Path to the project root.
+        branch: Branch name to delete.
+        delete_remote: If True, also delete origin/<branch>.
+
+    Returns:
+        Tuple of (local_deleted, remote_deleted).
+    """
+    local_deleted = False
+    remote_deleted = False
+
+    # Delete local branch
+    result = run_cmd(
+        ["git", "branch", "-D", branch],
+        cwd=project_path,
+        quiet=True,
+        check=False,
+    )
+    local_deleted = result.returncode == 0
+
+    # Delete remote branch if requested
+    if delete_remote:
+        result = run_cmd(
+            ["git", "push", "origin", "--delete", branch],
+            cwd=project_path,
+            quiet=True,
+            check=False,
+        )
+        remote_deleted = result.returncode == 0
+
+    return local_deleted, remote_deleted
+
+
+def tidy_branch(
+    project_path: Path,
+    branch: str,
+    temp_worktree_path: Path,
+    checked_out_branches: set[str],
+) -> TidyBranchResult:
+    """Tidy a single branch: rebase, then delete if merged or push if not.
+
+    Args:
+        project_path: Path to the project root.
+        branch: Branch name to tidy.
+        temp_worktree_path: Path to temporary worktree for operations.
+        checked_out_branches: Set of branches currently checked out in worktrees.
+
+    Returns:
+        TidyBranchResult with outcome.
+    """
+    # Skip if checked out somewhere
+    if branch in checked_out_branches:
+        return TidyBranchResult(
+            branch=branch,
+            action="skipped_checked_out",
+            success=True,
+            message=f"Branch '{branch}' is checked out in a worktree",
+        )
+
+    # Check if remote branch exists (before we start modifying things)
+    has_remote = branch_exists_on_remote(project_path, branch)
+
+    # Checkout the branch in temp worktree
+    checkout_result = run_cmd(
+        ["git", "checkout", branch],
+        cwd=temp_worktree_path,
+        quiet=True,
+        check=False,
+    )
+    if checkout_result.returncode != 0:
+        return TidyBranchResult(
+            branch=branch,
+            action="skipped_error",
+            success=False,
+            message=f"Failed to checkout branch: {checkout_result.stderr}",
+        )
+
+    # If remote exists, reset to match remote (pull in any changes)
+    if has_remote:
+        run_cmd(
+            ["git", "reset", "--hard", f"origin/{branch}"],
+            cwd=temp_worktree_path,
+            quiet=True,
+            check=False,
+        )
+
+    # Attempt rebase against origin/main
+    rebase_result = run_cmd(
+        ["git", "rebase", f"origin/{MAIN_BRANCH}"],
+        cwd=temp_worktree_path,
+        quiet=True,
+        check=False,
+    )
+
+    if rebase_result.returncode != 0:
+        # Rebase failed - abort and skip
+        run_cmd(["git", "rebase", "--abort"], cwd=temp_worktree_path, quiet=True, check=False)
+        return TidyBranchResult(
+            branch=branch,
+            action="skipped_conflicts",
+            success=True,  # Not a failure, just conflicts
+            message=f"Branch '{branch}' has conflicts with origin/{MAIN_BRANCH}",
+        )
+
+    # Rebase succeeded - check if now merged (same as origin/main)
+    if is_branch_merged(temp_worktree_path, "HEAD", f"origin/{MAIN_BRANCH}"):
+        # Branch is fully merged - delete it
+        # First checkout detached to allow deleting the branch
+        run_cmd(
+            ["git", "checkout", "--detach", f"origin/{MAIN_BRANCH}"],
+            cwd=temp_worktree_path,
+            quiet=True,
+            check=False,
+        )
+        local_deleted, remote_deleted = delete_branch(project_path, branch, delete_remote=has_remote)
+        return TidyBranchResult(
+            branch=branch,
+            action="deleted",
+            success=True,
+            message=f"Deleted merged branch '{branch}'",
+            deleted_local=local_deleted,
+            deleted_remote=remote_deleted,
+        )
+
+    # Branch has unmerged work - push if it has a remote
+    if has_remote:
+        push_result = run_cmd(
+            ["git", "push", "--force-with-lease", "origin", branch],
+            cwd=temp_worktree_path,
+            quiet=True,
+            check=False,
+        )
+        if push_result.returncode == 0:
+            return TidyBranchResult(
+                branch=branch,
+                action="pushed",
+                success=True,
+                message=f"Rebased and pushed '{branch}'",
+            )
+        else:
+            return TidyBranchResult(
+                branch=branch,
+                action="skipped_error",
+                success=False,
+                message=f"Failed to push '{branch}': {push_result.stderr}",
+            )
+
+    # Local-only branch with unmerged work - leave it rebased
+    return TidyBranchResult(
+        branch=branch,
+        action="rebased",
+        success=True,
+        message=f"Rebased local branch '{branch}' (no remote)",
+    )
+
+
+def tidy_branches(project_path: Path) -> list[TidyBranchResult]:
+    """Tidy all feature branches in a project.
+
+    For each non-main branch:
+    1. Skip if checked out in a worktree
+    2. Pull remote changes if branch exists on origin
+    3. Rebase against origin/main
+    4. If conflicts, abort and skip
+    5. If merged (at same commit as main), delete local and remote
+    6. If not merged with remote, force push
+    7. If not merged local-only, leave rebased
+
+    Args:
+        project_path: Path to the project root.
+
+    Returns:
+        List of TidyBranchResult for each processed branch.
+    """
+    project_path = project_path.resolve()
+    results: list[TidyBranchResult] = []
+
+    # Fetch latest from origin with prune to remove stale remote refs
+    try:
+        run_git(["fetch", "origin", "--prune"], cwd=project_path)
+    except subprocess.CalledProcessError:
+        pass  # Continue even if fetch fails
+
+    # Get all local branches
+    branches = list_local_branches(project_path)
+    feature_branches = [b for b in branches if b != MAIN_BRANCH]
+
+    if not feature_branches:
+        return results
+
+    # Get branches currently checked out in worktrees
+    worktrees = list_worktrees(project_path)
+    checked_out_branches = {wt.branch for wt in worktrees if wt.branch}
+
+    # Create temporary worktree for operations
+    temp_name = "_tidy_temp"
+    temp_worktree_path = project_path / temp_name
+
+    try:
+        # Create detached worktree at origin/main
+        run_git(
+            ["worktree", "add", "--detach", str(temp_worktree_path), f"origin/{MAIN_BRANCH}"],
+            cwd=project_path,
+        )
+
+        # Process each branch
+        for branch in feature_branches:
+            result = tidy_branch(project_path, branch, temp_worktree_path, checked_out_branches)
+            results.append(result)
+
+            # Return to detached state before next branch
+            run_cmd(
+                ["git", "checkout", "--detach", f"origin/{MAIN_BRANCH}"],
+                cwd=temp_worktree_path,
+                quiet=True,
+                check=False,
+            )
+    finally:
+        # Clean up temporary worktree
+        run_cmd(
+            ["git", "worktree", "remove", "--force", str(temp_worktree_path)],
+            cwd=project_path,
+            quiet=True,
+            check=False,
+        )
+
+    return results
