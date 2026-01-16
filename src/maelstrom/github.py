@@ -113,6 +113,37 @@ def get_pr_number_for_branch(cwd: Path, branch: str) -> int | None:
         return None
 
 
+def get_pr_url(cwd: Path) -> str:
+    """Get the PR URL for the current branch.
+
+    Args:
+        cwd: Working directory (must be in a git repo with a PR).
+
+    Returns:
+        The PR URL.
+
+    Raises:
+        RuntimeError: If no PR exists or gh command fails.
+    """
+    try:
+        result = run_cmd(
+            ["gh", "pr", "view", "--json", "url", "-q", ".url"],
+            cwd=cwd,
+            quiet=True,
+            check=True,
+        )
+        url = result.stdout.strip()
+        if not url:
+            raise RuntimeError("No pull request found for current branch")
+        return url
+    except subprocess.CalledProcessError as e:
+        if "no pull requests found" in e.stderr.lower():
+            raise RuntimeError("No pull request found for current branch")
+        raise RuntimeError(f"Failed to get PR URL: {e.stderr}")
+    except FileNotFoundError:
+        raise RuntimeError("GitHub CLI (gh) is not installed")
+
+
 def create_pr(cwd: Path | None = None, draft: bool = False) -> tuple[str, bool]:
     """Create a pull request for the current worktree branch, or push if PR exists.
 

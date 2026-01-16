@@ -320,6 +320,47 @@ def create_issue(
     return result["issueCreate"]["issue"]
 
 
+def create_attachment(
+    issue_id: str, url: str, title: str, subtitle: str = ""
+) -> dict:
+    """Create an attachment on an issue.
+
+    Args:
+        issue_id: The issue's internal ID.
+        url: URL for the attachment.
+        title: Display title for the attachment.
+        subtitle: Optional subtitle text.
+
+    Returns:
+        Created attachment data with id.
+
+    Raises:
+        click.ClickException: If creation fails.
+    """
+    mutation = """
+    mutation CreateAttachment($input: AttachmentCreateInput!) {
+        attachmentCreate(input: $input) {
+            success
+            attachment {
+                id
+            }
+        }
+    }
+    """
+    input_data: dict[str, str] = {
+        "issueId": issue_id,
+        "url": url,
+        "title": title,
+    }
+    if subtitle:
+        input_data["subtitle"] = subtitle
+
+    result = graphql_request(mutation, {"input": input_data})
+    if not result["attachmentCreate"]["success"]:
+        raise click.ClickException("Failed to create attachment")
+    return result["attachmentCreate"]["attachment"]
+
+
 def detect_workspace_label() -> str | None:
     """Detect workspace label from current worktree name.
 
@@ -704,3 +745,62 @@ def cmd_add_plan(issue_id, plan_content):
     update_issue(issue["id"], description=new_description)
 
     click.echo(f"Added implementation plan to {issue['identifier']}: {issue['title']}")
+
+
+@linear.command("submit-pr")
+@click.argument("issue_id")
+def cmd_submit_pr(issue_id):
+    """Submit a PR for review: attach PR URL and set status to In Review.
+
+    This command:
+    1. Gets the PR URL from the current branch using `gh pr view`
+    2. Attaches the PR URL to the Linear task
+    3. Sets the task status to "In Review"
+    4. If this is a subtask, also updates the parent task to "In Review"
+    """
+    from pathlib import Path
+
+    from .github import get_pr_url
+
+    cwd = Path.cwd()
+    try:
+        pr_url = get_pr_url(cwd)
+    except RuntimeError as e:
+        raise click.ClickException(str(e))
+
+    issue = get_issue(issue_id)
+    states = get_workflow_states()
+
+    if "In Review" not in states:
+        raise click.ClickException("'In Review' state not found in workflow")
+
+    # Extract PR number for title
+    pr_number = pr_url.rstrip("/").split("/")[-1]
+
+    # Attach PR (warn if duplicate)
+    try:
+        create_attachment(
+            issue["id"], pr_url, f"Pull Request #{pr_number}", "Open"
+        )
+        click.echo(f"Attached PR to {issue['identifier']}: {pr_url}")
+    except click.ClickException as e:
+        click.echo(
+            f"Warning: Could not attach PR (may already exist): {e.message}", err=True
+        )
+
+    # Update status to In Review
+    update_issue(issue["id"], stateId=states["In Review"])
+    click.echo(f"Updated {issue['identifier']} status to: In Review")
+
+    # Update parent if subtask and parent not in terminal state
+    if issue.get("parent"):
+        parent = get_issue(issue["parent"]["id"])
+        terminal_states = {"Done", "Unreleased", "Canceled", "Completed"}
+        if parent["state"]["name"] not in terminal_states:
+            update_issue(parent["id"], stateId=states["In Review"])
+            click.echo(f"Updated parent {parent['identifier']} status to: In Review")
+        else:
+            click.echo(
+                f"Parent {parent['identifier']} already in "
+                f"'{parent['state']['name']}' - not updating"
+            )
