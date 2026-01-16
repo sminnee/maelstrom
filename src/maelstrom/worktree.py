@@ -5,6 +5,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from .claude_integration import get_shared_dir
 from .config import load_config_or_default
 from .ports import allocate_port_base, generate_port_env_vars
 
@@ -18,6 +19,10 @@ WORKTREE_NAMES = [
 
 # Files managed by maelstrom that should be ignored when checking for dirty files
 MAELSTROM_MANAGED_FILES = {".env"}
+
+# Markers for maelstrom workflow section in CLAUDE.md
+CLAUDE_HEADER_START = "# Maelstrom-based workflow"
+CLAUDE_HEADER_END = "(maelstrom instructions end)"
 
 
 @dataclass
@@ -772,3 +777,74 @@ def open_worktree(worktree_path: Path, command: str) -> None:
         raise RuntimeError(f"Command not found: {command}")
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to open worktree: {e}")
+
+
+def update_claude_md(worktree_path: Path) -> bool:
+    """Update CLAUDE.md with maelstrom workflow instructions.
+
+    Checks the worktree's CLAUDE.md file and ensures it contains the
+    maelstrom workflow section. Handles three cases:
+    - File doesn't exist: creates new file with header content
+    - File exists without markers: appends header content
+    - File exists with markers: replaces content between markers if outdated
+
+    Args:
+        worktree_path: Path to the worktree directory.
+
+    Returns:
+        True if the file was created or modified, False if already up to date.
+    """
+    # Get the header template content
+    try:
+        shared_dir = get_shared_dir()
+        header_file = shared_dir / "claude-header.md"
+        if not header_file.exists():
+            return False
+        header_content = header_file.read_text()
+    except FileNotFoundError:
+        return False
+
+    claude_md_path = worktree_path / "CLAUDE.md"
+
+    # Case 1: File doesn't exist - create it with only the header
+    if not claude_md_path.exists():
+        claude_md_path.write_text(header_content)
+        return True
+
+    existing_content = claude_md_path.read_text()
+
+    # Check if markers are present
+    has_start = CLAUDE_HEADER_START in existing_content
+    has_end = CLAUDE_HEADER_END in existing_content
+
+    # Case 2: No markers - append to end
+    if not has_start and not has_end:
+        new_content = existing_content.rstrip() + "\n\n" + header_content
+        claude_md_path.write_text(new_content)
+        return True
+
+    # Case 3: Markers present - check if up to date and replace if needed
+    if has_start and has_end:
+        # Extract the existing section
+        start_idx = existing_content.find(CLAUDE_HEADER_START)
+        end_idx = existing_content.find(CLAUDE_HEADER_END) + len(CLAUDE_HEADER_END)
+
+        existing_section = existing_content[start_idx:end_idx]
+        new_section = header_content.strip()
+
+        # Check if content is already up to date
+        if existing_section.strip() == new_section:
+            return False
+
+        # Replace the section
+        new_content = existing_content[:start_idx] + new_section + existing_content[end_idx:]
+        claude_md_path.write_text(new_content)
+        return True
+
+    # Partial markers (unusual case) - append to be safe
+    if has_start != has_end:
+        new_content = existing_content.rstrip() + "\n\n" + header_content
+        claude_md_path.write_text(new_content)
+        return True
+
+    return False
