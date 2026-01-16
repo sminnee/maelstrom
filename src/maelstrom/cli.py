@@ -238,8 +238,9 @@ def cmd_add_project(git_url, projects_dir):
 @click.argument("branch", required=False, default=None)
 @click.option("-p", "--project", default=None, help="Project name (default: detect from cwd)")
 @click.option("--no-open", is_flag=True, help="Don't open the worktree after creation")
+@click.option("--no-chat", is_flag=True, help="Don't open Claude Code chat panel")
 @click.option("--no-recycle", is_flag=True, help="Don't recycle closed worktrees, always create new")
-def cmd_add(branch, project, no_open, no_recycle):
+def cmd_add(branch, project, no_open, no_chat, no_recycle):
     """Add a new worktree for a branch.
 
     If BRANCH is provided:
@@ -321,7 +322,9 @@ def cmd_add(branch, project, no_open, no_recycle):
     if not no_open:
         global_config = load_global_config()
         try:
-            open_worktree(worktree_path, global_config.open_command)
+            open_worktree(
+                worktree_path, global_config.open_command, open_chat=not no_chat
+            )
         except RuntimeError as e:
             click.echo(f"Warning: Could not open worktree: {e}", err=True)
 
@@ -553,7 +556,8 @@ def cmd_list_all():
 
 @cli.command("open")
 @click.argument("target", required=False, default=None)
-def cmd_open(target):
+@click.option("--no-chat", is_flag=True, help="Don't open Claude Code chat panel")
+def cmd_open(target, no_chat):
     """Open a worktree in the configured editor."""
     try:
         ctx = resolve_context(
@@ -571,7 +575,7 @@ def cmd_open(target):
 
     global_config = load_global_config()
     try:
-        open_worktree(worktree_path, global_config.open_command)
+        open_worktree(worktree_path, global_config.open_command, open_chat=not no_chat)
     except RuntimeError as e:
         raise click.ClickException(str(e))
 

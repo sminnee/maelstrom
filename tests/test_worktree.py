@@ -24,6 +24,7 @@ from maelstrom.worktree import (
     has_root_worktree,
     is_worktree_closed,
     list_worktrees,
+    open_claude_code,
     open_worktree,
     read_env_file,
     recycle_worktree,
@@ -442,12 +443,12 @@ class TestOpenWorktree:
     """Tests for open_worktree function."""
 
     def test_open_worktree_success(self):
-        """Test opening a worktree with a valid command."""
+        """Test opening a worktree with a valid command (no chat)."""
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
             with patch("maelstrom.worktree.subprocess.run") as mock_run:
                 mock_run.return_value = None
-                open_worktree(worktree_path, "code")
+                open_worktree(worktree_path, "code", open_chat=False)
                 mock_run.assert_called_once_with(["code", str(worktree_path)], check=True)
 
     def test_open_worktree_command_not_found(self):
@@ -457,7 +458,7 @@ class TestOpenWorktree:
             with patch("maelstrom.worktree.subprocess.run") as mock_run:
                 mock_run.side_effect = FileNotFoundError()
                 with pytest.raises(RuntimeError, match="Command not found"):
-                    open_worktree(worktree_path, "nonexistent-command")
+                    open_worktree(worktree_path, "nonexistent-command", open_chat=False)
 
     def test_open_worktree_command_fails(self):
         """Test that CalledProcessError is wrapped in RuntimeError."""
@@ -466,7 +467,7 @@ class TestOpenWorktree:
             with patch("maelstrom.worktree.subprocess.run") as mock_run:
                 mock_run.side_effect = subprocess.CalledProcessError(1, "code")
                 with pytest.raises(RuntimeError, match="Failed to open worktree"):
-                    open_worktree(worktree_path, "code")
+                    open_worktree(worktree_path, "code", open_chat=False)
 
 
 class TestIsWorktreeClosed:
@@ -912,3 +913,115 @@ More content after.
         content = claude_md.read_text()
         assert "# Maelstrom Workflow" in content
         assert "More content after." in content  # Content after marker preserved
+
+
+class TestOpenWorktreeWithChat:
+    """Tests for open_worktree function with Claude Code chat integration."""
+
+    def test_open_worktree_with_chat(self):
+        """Test opening a worktree with Claude Code chat enabled."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            with patch("maelstrom.worktree.subprocess.run") as mock_run:
+                mock_run.return_value = None
+                open_worktree(worktree_path, "code", open_chat=True)
+                # Should call: open editor, then claude code editor.open, then focus
+                assert mock_run.call_count == 3
+                mock_run.assert_any_call(["code", str(worktree_path)], check=True)
+                mock_run.assert_any_call(
+                    ["code", "--command", "claude-vscode.editor.open"], check=True
+                )
+                mock_run.assert_any_call(
+                    ["code", "--command", "claude-vscode.focus"], check=True
+                )
+
+    def test_open_worktree_chat_default_enabled(self):
+        """Test that open_chat defaults to True."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            with patch("maelstrom.worktree.subprocess.run") as mock_run:
+                mock_run.return_value = None
+                open_worktree(worktree_path, "code")  # open_chat defaults to True
+                # Should call: open editor, then claude code commands
+                assert mock_run.call_count == 3
+
+    def test_open_worktree_chat_skipped_for_non_vscode(self):
+        """Test that Claude Code is skipped for non-VS Code editors."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            with patch("maelstrom.worktree.subprocess.run") as mock_run:
+                mock_run.return_value = None
+                open_worktree(worktree_path, "cursor", open_chat=True)
+                # Should only call open editor, not claude code commands
+                assert mock_run.call_count == 1
+                mock_run.assert_called_once_with(
+                    ["cursor", str(worktree_path)], check=True
+                )
+
+    def test_open_worktree_chat_failure_warns_but_continues(self, capsys):
+        """Test that Claude Code failure doesn't fail the whole operation."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            with patch("maelstrom.worktree.subprocess.run") as mock_run:
+                # First call succeeds (open editor), subsequent calls fail (chat)
+                mock_run.side_effect = [
+                    None,  # editor opens successfully
+                    subprocess.CalledProcessError(1, "code --command"),  # chat fails
+                ]
+                # Should not raise, just warn
+                open_worktree(worktree_path, "code", open_chat=True)
+                captured = capsys.readouterr()
+                assert "Warning: Could not open Claude Code" in captured.err
+
+
+class TestOpenClaudeCode:
+    """Tests for open_claude_code function."""
+
+    def test_open_claude_code_vscode(self):
+        """Test opening Claude Code with VS Code."""
+        with patch("maelstrom.worktree.subprocess.run") as mock_run:
+            mock_run.return_value = None
+            open_claude_code("code")
+            assert mock_run.call_count == 2
+            mock_run.assert_any_call(
+                ["code", "--command", "claude-vscode.editor.open"], check=True
+            )
+            mock_run.assert_any_call(
+                ["code", "--command", "claude-vscode.focus"], check=True
+            )
+
+    def test_open_claude_code_vscode_insiders(self):
+        """Test opening Claude Code with VS Code Insiders."""
+        with patch("maelstrom.worktree.subprocess.run") as mock_run:
+            mock_run.return_value = None
+            open_claude_code("code-insiders")
+            assert mock_run.call_count == 2
+            mock_run.assert_any_call(
+                ["code-insiders", "--command", "claude-vscode.editor.open"], check=True
+            )
+
+    def test_open_claude_code_skipped_for_cursor(self):
+        """Test that Claude Code is skipped for Cursor editor."""
+        with patch("maelstrom.worktree.subprocess.run") as mock_run:
+            open_claude_code("cursor")
+            mock_run.assert_not_called()
+
+    def test_open_claude_code_skipped_for_other_editors(self):
+        """Test that Claude Code is skipped for other editors."""
+        with patch("maelstrom.worktree.subprocess.run") as mock_run:
+            open_claude_code("vim")
+            mock_run.assert_not_called()
+
+    def test_open_claude_code_command_not_found(self):
+        """Test that FileNotFoundError is wrapped in RuntimeError."""
+        with patch("maelstrom.worktree.subprocess.run") as mock_run:
+            mock_run.side_effect = FileNotFoundError()
+            with pytest.raises(RuntimeError, match="Command not found"):
+                open_claude_code("code")
+
+    def test_open_claude_code_command_fails(self):
+        """Test that CalledProcessError is wrapped in RuntimeError."""
+        with patch("maelstrom.worktree.subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.CalledProcessError(1, "code")
+            with pytest.raises(RuntimeError, match="Failed to open Claude Code"):
+                open_claude_code("code")
