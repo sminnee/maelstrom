@@ -14,6 +14,15 @@ uv run pytest --cov=maelstrom      # Run with coverage
 uv run python -m maelstrom         # Run the module
 ```
 
+# Maelstrom-based workflow
+
+- Always start with a plan. If an external plan hasn't been referenced, redirect the user to start
+  in plan mode
+- After completing the work getting all the tests passing, commit it to git (git add / git commit) &
+  create a PR for it (mael gh create-pr)
+
+(maelstrom instructions end)
+
 ## Architecture
 
 Maelstrom manages parallel development environments using git worktrees. It uses a bare-like repository structure where worktrees are named using NATO phonetic alphabet (alpha, bravo, charlie, etc.).
@@ -32,10 +41,3 @@ Maelstrom manages parallel development environments using git worktrees. It uses
 - **Worktrees** are subdirectories named alpha, bravo, etc. (not branch names)
 - **PORT_BASE** is a 3-digit number (100-999); each service port = PORT_BASE * 10 + index
 - When creating worktrees, existing `.env` from project root is merged with generated port vars, with `$VAR` substitution
-
-# Maelstrom-based workflow
-
-- Always start with a plan. If an external plan hasn't been referenced, redirect the user to start in plan mode
-- After completing the work getting all the tests passing, commit it to git (git add / git commit) & create a PR for it (mael gh create-pr)
-
-(maelstrom instructions end)
