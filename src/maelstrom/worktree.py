@@ -20,6 +20,9 @@ WORKTREE_NAMES = [
 # Files managed by maelstrom that should be ignored when checking for dirty files
 MAELSTROM_MANAGED_FILES = {".env"}
 
+# Main branch name (hardcoded - no master support)
+MAIN_BRANCH = "main"
+
 # Markers for maelstrom workflow section in CLAUDE.md
 CLAUDE_HEADER_START = "# Maelstrom-based workflow"
 CLAUDE_HEADER_END = "(maelstrom instructions end)"
@@ -191,6 +194,87 @@ class SyncResult:
     push_message: str | None = None  # Push status message
 
 
+@dataclass
+class CloseResult:
+    """Result of a close operation."""
+
+    success: bool
+    message: str
+    had_dirty_files: bool = False
+    had_unpushed_commits: bool = False
+
+
+def is_worktree_closed(worktree_info: WorktreeInfo) -> bool:
+    """Check if a worktree is in 'closed' state (detached at origin/main, clean).
+
+    A closed worktree is available for recycling when creating a new worktree.
+    A worktree is considered closed if:
+    - It is in detached HEAD state (no branch checked out)
+    - It has no dirty files
+    - It has no commits ahead of origin/main
+    - Its HEAD points to the same commit as origin/main
+
+    Args:
+        worktree_info: WorktreeInfo for the worktree.
+
+    Returns:
+        True if the worktree is closed and available for recycling.
+    """
+    # Must be in detached HEAD state (no branch)
+    if worktree_info.branch:
+        return False
+
+    if get_worktree_dirty_files(worktree_info.path):
+        return False
+
+    if get_commits_ahead(worktree_info.path) > 0:
+        return False
+
+    # Check if HEAD matches origin/main
+    try:
+        head_result = run_cmd(
+            ["git", "rev-parse", "HEAD"],
+            cwd=worktree_info.path,
+            quiet=True,
+            check=False,
+        )
+        main_result = run_cmd(
+            ["git", "rev-parse", f"origin/{MAIN_BRANCH}"],
+            cwd=worktree_info.path,
+            quiet=True,
+            check=False,
+        )
+        if head_result.returncode != 0 or main_result.returncode != 0:
+            return False
+        if head_result.stdout.strip() != main_result.stdout.strip():
+            return False
+    except Exception:
+        return False
+
+    return True
+
+
+def find_closed_worktree(project_path: Path) -> WorktreeInfo | None:
+    """Find a closed worktree available for recycling.
+
+    Args:
+        project_path: Path to the project root.
+
+    Returns:
+        WorktreeInfo for a closed worktree, or None if none available.
+    """
+    worktrees = list_worktrees(project_path)
+
+    for wt in worktrees:
+        # Skip the project root itself
+        if wt.path == project_path:
+            continue
+        if is_worktree_closed(wt):
+            return wt
+
+    return None
+
+
 def sync_worktree(worktree_path: Path, skip_fetch: bool = False) -> SyncResult:
     """Sync a worktree by rebasing against origin/main.
 
@@ -295,6 +379,126 @@ def sync_worktree(worktree_path: Path, skip_fetch: bool = False) -> SyncResult:
         pushed=pushed,
         push_message=push_message,
     )
+
+
+def close_worktree(worktree_path: Path) -> CloseResult:
+    """Close a worktree by syncing and resetting to origin/main.
+
+    This operation:
+    1. Syncs the worktree (rebase against origin/main)
+    2. Verifies no uncommitted changes
+    3. Verifies no unmerged commits
+    4. Resets HEAD to origin/main
+
+    After closing, the worktree's HEAD will point to the same commit as
+    origin/main, making it available for recycling via is_worktree_closed().
+
+    Args:
+        worktree_path: Path to the worktree directory.
+
+    Returns:
+        CloseResult with status and message.
+    """
+    worktree_path = worktree_path.resolve()
+
+    # First sync the worktree
+    sync_result = sync_worktree(worktree_path)
+    if not sync_result.success:
+        return CloseResult(
+            success=False,
+            message=f"Sync failed: {sync_result.message}",
+        )
+
+    # Check for dirty files
+    dirty_files = get_worktree_dirty_files(worktree_path)
+    if dirty_files:
+        return CloseResult(
+            success=False,
+            message="Worktree has uncommitted changes",
+            had_dirty_files=True,
+        )
+
+    # Check for unmerged commits
+    commits_ahead = get_commits_ahead(worktree_path)
+    if commits_ahead > 0:
+        return CloseResult(
+            success=False,
+            message=f"Worktree has {commits_ahead} commit(s) not merged to origin/main",
+            had_unpushed_commits=True,
+        )
+
+    # Detach HEAD at origin/main to mark as closed
+    # This avoids branch conflicts when the branch might be checked out elsewhere
+    try:
+        run_git(["checkout", "--detach", f"origin/{MAIN_BRANCH}"], cwd=worktree_path)
+    except subprocess.CalledProcessError as e:
+        return CloseResult(
+            success=False,
+            message=f"Failed to detach at origin/{MAIN_BRANCH}: {e.stderr}",
+        )
+
+    return CloseResult(
+        success=True,
+        message=f"Worktree closed (detached at origin/{MAIN_BRANCH})",
+    )
+
+
+def recycle_worktree(worktree_path: Path, branch: str) -> Path:
+    """Recycle a closed worktree for a new branch.
+
+    Assumes the worktree is already on main and clean.
+
+    Args:
+        worktree_path: Path to the closed worktree.
+        branch: Branch name to switch to.
+
+    Returns:
+        Path to the recycled worktree (same as input).
+
+    Raises:
+        RuntimeError: If recycling fails.
+    """
+    worktree_path = worktree_path.resolve()
+
+    # Fetch latest
+    try:
+        run_git(["fetch", "origin"], cwd=worktree_path)
+    except subprocess.CalledProcessError:
+        pass  # Continue even if fetch fails (might be offline)
+
+    # Check if branch exists on remote
+    remote_branch = f"origin/{branch}"
+    try:
+        run_git(["rev-parse", "--verify", remote_branch], cwd=worktree_path, quiet=True)
+        remote_exists = True
+    except subprocess.CalledProcessError:
+        remote_exists = False
+
+    # Check if branch exists locally
+    try:
+        run_git(["rev-parse", "--verify", branch], cwd=worktree_path, quiet=True)
+        local_exists = True
+    except subprocess.CalledProcessError:
+        local_exists = False
+
+    # Switch to the new branch
+    try:
+        if remote_exists:
+            # Reset local branch to match remote
+            run_git(["checkout", "-B", branch, remote_branch], cwd=worktree_path)
+        elif local_exists:
+            # Switch to existing local branch
+            run_git(["checkout", branch], cwd=worktree_path)
+        else:
+            # Create new branch from current position (main)
+            run_git(["checkout", "-b", branch], cwd=worktree_path)
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Failed to switch to branch {branch}: {e.stderr}")
+
+    # Update CLAUDE.md if needed
+    update_claude_md(worktree_path)
+
+    return worktree_path
 
 
 def list_worktrees(project_path: Path) -> list[WorktreeInfo]:
@@ -524,12 +728,53 @@ def get_current_worktree_info(cwd: Path | None = None) -> tuple[Path, str]:
     return project_path, branch
 
 
-def create_worktree(project_path: Path, branch: str) -> Path:
+def _finalize_worktree(project_path: Path, worktree_path: Path, worktree_name: str) -> Path:
+    """Finalize worktree setup after git worktree add.
+
+    Handles .env file creation and install command execution.
+
+    Args:
+        project_path: Path to the project root.
+        worktree_path: Path to the worktree.
+        worktree_name: NATO name of the worktree.
+
+    Returns:
+        Path to the worktree.
+    """
+    # Load config and handle .env file
+    config = load_config_or_default(worktree_path)
+
+    # Read .env from project root if present (e.g., /Projects/myapp/.env)
+    existing_env = read_env_file(project_path)
+
+    # Generate environment variables
+    generated_vars = {"WORKTREE": worktree_name}
+
+    # Add port variables if configured
+    if config.port_names:
+        port_base = allocate_port_base(project_path, len(config.port_names))
+        generated_vars.update(generate_port_env_vars(port_base, config.port_names))
+
+    # Write .env if there's anything to write
+    if existing_env or generated_vars:
+        write_env_file(worktree_path, generated_vars, existing_env)
+
+    # Run install command if configured
+    if config.install_cmd:
+        run_cmd(["sh", "-c", config.install_cmd], cwd=worktree_path, stream=True)
+
+    return worktree_path
+
+
+def create_worktree(project_path: Path, branch: str, *, detached: bool = False) -> Path:
     """Create a new worktree for the given branch.
 
     Args:
         project_path: Path to the project root (bare repo).
         branch: Branch name to create worktree for.
+        detached: If True, create a detached HEAD worktree at origin/main
+            instead of checking out the branch. Useful when the branch
+            (e.g., main) is already checked out elsewhere.
 
     Returns:
         Path to the created worktree.
@@ -557,6 +802,15 @@ def create_worktree(project_path: Path, branch: str) -> Path:
     except subprocess.CalledProcessError:
         # Fetch failed, but we can continue - might be offline or no remote
         pass
+
+    # Handle detached mode - create worktree at origin/main without checking out a branch
+    if detached:
+        run_git(
+            ["worktree", "add", "--detach", str(worktree_path), f"origin/{MAIN_BRANCH}"],
+            cwd=project_path,
+        )
+        # Skip to post-creation setup
+        return _finalize_worktree(project_path, worktree_path, worktree_name)
 
     # Check if branch exists locally
     try:
@@ -596,29 +850,7 @@ def create_worktree(project_path: Path, branch: str) -> Path:
                 base_ref = "HEAD"
         run_git(["worktree", "add", "-b", branch, str(worktree_path), base_ref], cwd=project_path)
 
-    # Load config and handle .env file
-    config = load_config_or_default(worktree_path)
-
-    # Read .env from project root if present (e.g., /Projects/myapp/.env)
-    existing_env = read_env_file(project_path)
-
-    # Generate environment variables
-    generated_vars = {"WORKTREE": worktree_name}
-
-    # Add port variables if configured
-    if config.port_names:
-        port_base = allocate_port_base(project_path, len(config.port_names))
-        generated_vars.update(generate_port_env_vars(port_base, config.port_names))
-
-    # Write .env if there's anything to write
-    if existing_env or generated_vars:
-        write_env_file(worktree_path, generated_vars, existing_env)
-
-    # Run install command if configured
-    if config.install_cmd:
-        run_cmd(["sh", "-c", config.install_cmd], cwd=worktree_path, stream=True)
-
-    return worktree_path
+    return _finalize_worktree(project_path, worktree_path, worktree_name)
 
 
 def substitute_env_vars(value: str, env_vars: dict[str, str]) -> str:

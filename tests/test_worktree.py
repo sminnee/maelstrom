@@ -9,18 +9,24 @@ import pytest
 from unittest.mock import patch
 
 from maelstrom.worktree import (
+    MAIN_BRANCH,
     WORKTREE_NAMES,
     WorktreeInfo,
+    close_worktree,
     create_worktree,
     extract_project_name,
     extract_worktree_name_from_folder,
+    find_closed_worktree,
     get_next_worktree_name,
     get_worktree_folder_name,
     has_root_worktree,
+    is_worktree_closed,
     list_worktrees,
     open_worktree,
     read_env_file,
+    recycle_worktree,
     remove_worktree,
+    remove_worktree_by_path,
     sanitize_branch_name,
     substitute_env_vars,
     write_env_file,
@@ -458,3 +464,392 @@ class TestOpenWorktree:
                 mock_run.side_effect = subprocess.CalledProcessError(1, "code")
                 with pytest.raises(RuntimeError, match="Failed to open worktree"):
                     open_worktree(worktree_path, "code")
+
+
+class TestIsWorktreeClosed:
+    """Tests for is_worktree_closed function."""
+
+    def test_returns_true_when_detached_at_origin_main(self):
+        """Test returns True for detached worktree synced to origin/main."""
+        # branch="" means detached HEAD
+        wt = WorktreeInfo(path=Path("/fake"), branch="", commit="abc123")
+        with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]):
+            with patch("maelstrom.worktree.get_commits_ahead", return_value=0):
+                # Mock run_cmd to return matching SHAs for HEAD and origin/main
+                def mock_run_cmd(cmd, **kwargs):
+                    class Result:
+                        returncode = 0
+                        stdout = "abc123\n"
+                    return Result()
+                with patch("maelstrom.worktree.run_cmd", mock_run_cmd):
+                    assert is_worktree_closed(wt) is True
+
+    def test_returns_false_when_on_branch(self):
+        """Test returns False for worktree on a branch (not detached)."""
+        wt = WorktreeInfo(path=Path("/fake"), branch="feature/test", commit="abc123")
+        # Should return False immediately because it's on a branch
+        assert is_worktree_closed(wt) is False
+
+    def test_returns_false_when_head_differs_from_origin_main(self):
+        """Test returns False when HEAD doesn't match origin/main."""
+        # branch="" means detached HEAD
+        wt = WorktreeInfo(path=Path("/fake"), branch="", commit="abc123")
+        with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]):
+            with patch("maelstrom.worktree.get_commits_ahead", return_value=0):
+                # Mock run_cmd to return different SHAs
+                call_count = [0]
+                def mock_run_cmd(cmd, **kwargs):
+                    call_count[0] += 1
+                    class Result:
+                        returncode = 0
+                        stdout = "abc123\n" if call_count[0] == 1 else "def456\n"
+                    return Result()
+                with patch("maelstrom.worktree.run_cmd", mock_run_cmd):
+                    assert is_worktree_closed(wt) is False
+
+    def test_returns_false_for_dirty_worktree(self):
+        """Test returns False for worktree with uncommitted changes."""
+        wt = WorktreeInfo(path=Path("/fake"), branch="feature/test", commit="abc123")
+        with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=["file.txt"]):
+            assert is_worktree_closed(wt) is False
+
+    def test_returns_false_for_worktree_with_unpushed_commits(self):
+        """Test returns False for worktree with commits ahead."""
+        wt = WorktreeInfo(path=Path("/fake"), branch="feature/test", commit="abc123")
+        with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]):
+            with patch("maelstrom.worktree.get_commits_ahead", return_value=2):
+                assert is_worktree_closed(wt) is False
+
+
+class TestFindClosedWorktree:
+    """Tests for find_closed_worktree function."""
+
+    def test_returns_none_when_no_worktrees(self):
+        """Test returns None when no worktrees exist."""
+        with patch("maelstrom.worktree.list_worktrees", return_value=[]):
+            result = find_closed_worktree(Path("/fake/project"))
+            assert result is None
+
+    def test_returns_none_when_no_closed_worktrees(self):
+        """Test returns None when no worktrees are closed."""
+        wt = WorktreeInfo(path=Path("/fake/project/alpha"), branch="feature/test", commit="abc")
+        with patch("maelstrom.worktree.list_worktrees", return_value=[wt]):
+            with patch("maelstrom.worktree.is_worktree_closed", return_value=False):
+                result = find_closed_worktree(Path("/fake/project"))
+                assert result is None
+
+    def test_returns_closed_worktree(self):
+        """Test returns a closed worktree when one exists."""
+        wt = WorktreeInfo(path=Path("/fake/project/alpha"), branch=MAIN_BRANCH, commit="abc")
+        with patch("maelstrom.worktree.list_worktrees", return_value=[wt]):
+            with patch("maelstrom.worktree.is_worktree_closed", return_value=True):
+                result = find_closed_worktree(Path("/fake/project"))
+                assert result == wt
+
+    def test_skips_project_root(self):
+        """Test that the project root is skipped."""
+        project_path = Path("/fake/project")
+        wt_root = WorktreeInfo(path=project_path, branch=MAIN_BRANCH, commit="abc")
+        wt_alpha = WorktreeInfo(path=project_path / "alpha", branch=MAIN_BRANCH, commit="abc")
+        with patch("maelstrom.worktree.list_worktrees", return_value=[wt_root, wt_alpha]):
+            with patch("maelstrom.worktree.is_worktree_closed", return_value=True):
+                result = find_closed_worktree(project_path)
+                assert result == wt_alpha
+
+
+class TestCloseWorktreeIntegration:
+    """Integration tests for close_worktree function."""
+
+    @pytest.fixture
+    def git_repo_with_remote(self):
+        """Create a bare git repository with a remote for testing close operations.
+
+        This mimics maelstrom's actual structure:
+        - Project root has a .git subdirectory (bare clone)
+        - Worktrees are created as subdirectories
+        - The project root itself isn't a worktree (no files checked out)
+        """
+        with TemporaryDirectory() as tmpdir:
+            # Create a "remote" bare repository with initial content
+            remote_path = Path(tmpdir) / "remote.git"
+            source_path = Path(tmpdir) / "source"
+            source_path.mkdir()
+
+            # Initialize source repo with a commit
+            subprocess.run(["git", "init"], cwd=source_path, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@test.com"],
+                cwd=source_path, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test"],
+                cwd=source_path, check=True, capture_output=True
+            )
+            (source_path / "README.md").write_text("# Test")
+            subprocess.run(["git", "add", "."], cwd=source_path, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "commit", "-m", "Initial commit"],
+                cwd=source_path, check=True, capture_output=True
+            )
+            # Ensure branch is named 'main' regardless of git's default
+            subprocess.run(
+                ["git", "branch", "-M", "main"],
+                cwd=source_path, check=True, capture_output=True
+            )
+
+            # Clone as bare to create the remote
+            subprocess.run(
+                ["git", "clone", "--bare", str(source_path), str(remote_path)],
+                check=True, capture_output=True
+            )
+
+            # Create project directory with bare clone structure (like maelstrom does)
+            project_path = Path(tmpdir) / "test-repo"
+            project_path.mkdir()
+
+            # Clone as bare into .git subdirectory
+            git_dir = project_path / ".git"
+            subprocess.run(
+                ["git", "clone", "--bare", str(remote_path), str(git_dir)],
+                check=True, capture_output=True
+            )
+
+            # Configure the bare repo to work with worktrees
+            subprocess.run(
+                ["git", "config", "core.bare", "false"],
+                cwd=project_path, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
+                cwd=project_path, check=True, capture_output=True
+            )
+            # Configure user settings for commits in worktrees
+            subprocess.run(
+                ["git", "config", "user.email", "test@test.com"],
+                cwd=project_path, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test"],
+                cwd=project_path, check=True, capture_output=True
+            )
+
+            # Fetch to get remote tracking refs
+            subprocess.run(
+                ["git", "fetch", "origin"],
+                cwd=project_path, check=True, capture_output=True
+            )
+
+            yield project_path
+
+    def test_close_fails_with_dirty_files(self, git_repo_with_remote):
+        """Test that close fails when worktree has uncommitted changes."""
+        # Create a worktree
+        worktree_path = create_worktree(git_repo_with_remote, "feature/test")
+
+        # Create a dirty file
+        (worktree_path / "dirty.txt").write_text("uncommitted")
+
+        result = close_worktree(worktree_path)
+
+        assert result.success is False
+        assert result.had_dirty_files is True
+
+        # Cleanup
+        (worktree_path / "dirty.txt").unlink()
+        remove_worktree(git_repo_with_remote, "feature/test")
+
+    def test_close_fails_with_unpushed_commits(self, git_repo_with_remote):
+        """Test that close fails when worktree has commits not merged to main."""
+        # Create a worktree
+        worktree_path = create_worktree(git_repo_with_remote, "feature/test")
+
+        # Make a commit that's ahead of origin/main
+        (worktree_path / "new_file.txt").write_text("new content")
+        subprocess.run(["git", "add", "."], cwd=worktree_path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "Unpushed commit"],
+            cwd=worktree_path, check=True, capture_output=True
+        )
+
+        result = close_worktree(worktree_path)
+
+        assert result.success is False
+        assert result.had_unpushed_commits is True
+
+        # Cleanup
+        remove_worktree(git_repo_with_remote, "feature/test")
+
+    def test_close_succeeds_when_clean(self, git_repo_with_remote):
+        """Test that close succeeds when worktree is clean and synced."""
+        # Create a worktree on a feature branch
+        worktree_path = create_worktree(git_repo_with_remote, "feature/clean")
+        worktree_folder = worktree_path.name  # Full folder name like "test-repo-alpha"
+
+        # The worktree is already clean (no changes, no commits ahead)
+        # close_worktree should sync, verify, and detach at origin/main
+        result = close_worktree(worktree_path)
+
+        assert result.success is True
+        assert "closed" in result.message.lower()
+
+        # Verify HEAD matches origin/main
+        head_result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=worktree_path, check=True, capture_output=True, text=True
+        )
+        main_result = subprocess.run(
+            ["git", "rev-parse", "origin/main"],
+            cwd=worktree_path, check=True, capture_output=True, text=True
+        )
+        assert head_result.stdout.strip() == main_result.stdout.strip()
+
+        # Verify HEAD is detached (not on a branch)
+        branch_result = subprocess.run(
+            ["git", "symbolic-ref", "-q", "HEAD"],
+            cwd=worktree_path, capture_output=True, text=True
+        )
+        assert branch_result.returncode != 0, "HEAD should be detached after close"
+
+        # Cleanup - use full folder name since branch is detached
+        remove_worktree_by_path(git_repo_with_remote, worktree_folder)
+
+
+class TestRecycleWorktreeIntegration:
+    """Integration tests for recycle_worktree function."""
+
+    @pytest.fixture
+    def git_repo_with_remote(self):
+        """Create a bare git repository with a remote for testing recycle operations.
+
+        This mimics maelstrom's actual structure:
+        - Project root has a .git subdirectory (bare clone)
+        - Worktrees are created as subdirectories
+        - The project root itself isn't a worktree (no files checked out)
+        """
+        with TemporaryDirectory() as tmpdir:
+            # Create a "remote" bare repository with initial content
+            remote_path = Path(tmpdir) / "remote.git"
+            source_path = Path(tmpdir) / "source"
+            source_path.mkdir()
+
+            # Initialize source repo with a commit
+            subprocess.run(["git", "init"], cwd=source_path, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@test.com"],
+                cwd=source_path, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test"],
+                cwd=source_path, check=True, capture_output=True
+            )
+            (source_path / "README.md").write_text("# Test")
+            subprocess.run(["git", "add", "."], cwd=source_path, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "commit", "-m", "Initial commit"],
+                cwd=source_path, check=True, capture_output=True
+            )
+            # Ensure branch is named 'main' regardless of git's default
+            subprocess.run(
+                ["git", "branch", "-M", "main"],
+                cwd=source_path, check=True, capture_output=True
+            )
+
+            # Clone as bare to create the remote
+            subprocess.run(
+                ["git", "clone", "--bare", str(source_path), str(remote_path)],
+                check=True, capture_output=True
+            )
+
+            # Create project directory with bare clone structure (like maelstrom does)
+            project_path = Path(tmpdir) / "test-repo"
+            project_path.mkdir()
+
+            # Clone as bare into .git subdirectory
+            git_dir = project_path / ".git"
+            subprocess.run(
+                ["git", "clone", "--bare", str(remote_path), str(git_dir)],
+                check=True, capture_output=True
+            )
+
+            # Configure the bare repo to work with worktrees
+            subprocess.run(
+                ["git", "config", "core.bare", "false"],
+                cwd=project_path, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
+                cwd=project_path, check=True, capture_output=True
+            )
+            # Configure user settings for commits in worktrees
+            subprocess.run(
+                ["git", "config", "user.email", "test@test.com"],
+                cwd=project_path, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test"],
+                cwd=project_path, check=True, capture_output=True
+            )
+
+            # Fetch to get remote tracking refs
+            subprocess.run(
+                ["git", "fetch", "origin"],
+                cwd=project_path, check=True, capture_output=True
+            )
+
+            yield project_path
+
+    def test_recycle_creates_new_branch(self, git_repo_with_remote):
+        """Test recycling a worktree for a new branch."""
+        # Create a worktree on a feature branch first
+        worktree_path = create_worktree(git_repo_with_remote, "feature/original")
+
+        # Close it (switches to main)
+        close_result = close_worktree(worktree_path)
+        assert close_result.success is True
+
+        # Now recycle it for a different new branch
+        result_path = recycle_worktree(worktree_path, "feature/recycled")
+
+        assert result_path == worktree_path
+
+        # Verify the branch was switched
+        result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=worktree_path, check=True, capture_output=True, text=True
+        )
+        assert result.stdout.strip() == "feature/recycled"
+
+        # Cleanup
+        remove_worktree(git_repo_with_remote, "feature/recycled")
+
+    def test_recycle_switches_to_existing_local_branch(self, git_repo_with_remote):
+        """Test recycling a worktree for an existing local branch."""
+        # Create two worktrees - one will create the branch, one will be closed
+        worktree_alpha = create_worktree(git_repo_with_remote, "feature/existing")
+        worktree_beta = create_worktree(git_repo_with_remote, "feature/beta")
+
+        # Close the beta worktree
+        close_result = close_worktree(worktree_beta)
+        assert close_result.success is True
+
+        # The branch feature/existing exists locally (checked out in alpha)
+        # but not on remote. Recycling beta to feature/existing should work.
+        # First, close alpha so the branch isn't checked out elsewhere
+        close_result = close_worktree(worktree_alpha)
+        assert close_result.success is True
+
+        # Now recycle beta to the existing local branch
+        result_path = recycle_worktree(worktree_beta, "feature/existing")
+
+        assert result_path == worktree_beta
+
+        # Verify the branch was switched
+        result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=worktree_beta, check=True, capture_output=True, text=True
+        )
+        assert result.stdout.strip() == "feature/existing"
+
+        # Cleanup
+        remove_worktree(git_repo_with_remote, "feature/existing")
+        remove_worktree_by_path(git_repo_with_remote, worktree_alpha.name)
