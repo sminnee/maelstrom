@@ -12,7 +12,7 @@ from pathlib import Path
 import click
 
 from .config import load_config_or_default
-from .context import resolve_context
+from .context import load_global_config, resolve_context
 
 LINEAR_API_URL = "https://api.linear.app/graphql"
 
@@ -48,8 +48,45 @@ def get_env_var(name: str) -> str:
 
 
 def get_linear_api_key() -> str:
-    """Get the Linear API key."""
-    return get_env_var("LINEAR_API_KEY")
+    """Get the Linear API key.
+
+    Checks in order:
+    1. LINEAR_API_KEY environment variable
+    2. LINEAR_API_KEY in .env file
+    3. linear.api_key in ~/.maelstrom.yaml
+
+    Raises:
+        click.ClickException: If the key is not found.
+    """
+    # Check env var and .env file
+    if value := os.environ.get("LINEAR_API_KEY"):
+        return value
+
+    # Check .env file
+    current = Path.cwd()
+    while current != current.parent:
+        env_path = current / ".env"
+        if env_path.exists():
+            content = env_path.read_text()
+            pattern = r"^LINEAR_API_KEY\s*=\s*[\"']?([^\"'\n]+)[\"']?"
+            if match := re.search(pattern, content, re.MULTILINE):
+                return match.group(1)
+            break
+        current = current.parent
+
+    # Check global config
+    global_config = load_global_config()
+    if global_config.linear_api_key:
+        return global_config.linear_api_key
+
+    raise click.ClickException(
+        "LINEAR_API_KEY not found. Set it via:\n"
+        "  - Environment variable: export LINEAR_API_KEY=lin_api_xxx\n"
+        "  - Project .env file: LINEAR_API_KEY=lin_api_xxx\n"
+        "  - Global config ~/.maelstrom.yaml:\n"
+        "      linear:\n"
+        "        api_key: lin_api_xxx"
+    )
 
 
 def get_team_id() -> str:
@@ -68,10 +105,37 @@ def get_team_id() -> str:
     if config.linear_team_id:
         return config.linear_team_id
 
+    # Fetch available teams to show in error message
+    teams_info = _fetch_teams_for_error()
     raise click.ClickException(
-        "linear_team_id not configured. Add to .maelstrom.yaml:\n"
-        "  linear_team_id: \"your-team-uuid\""
+        f"linear.team_id not configured. Add to .maelstrom.yaml:\n"
+        f"  linear:\n"
+        f"    team_id: \"<team-uuid>\"\n\n"
+        f"Available teams:\n{teams_info}"
     )
+
+
+def _fetch_teams_for_error() -> str:
+    """Fetch teams from Linear API for error message."""
+    try:
+        query = """
+        query {
+            teams {
+                nodes {
+                    id
+                    name
+                    key
+                }
+            }
+        }
+        """
+        result = graphql_request(query)
+        lines = []
+        for team in result["teams"]["nodes"]:
+            lines.append(f"  {team['key']}: {team['name']}\n    -> {team['id']}")
+        return "\n".join(lines) if lines else "  (no teams found)"
+    except Exception:
+        return "  (could not fetch teams - check your API key)"
 
 
 def graphql_request(query: str, variables: dict | None = None) -> dict:
@@ -411,46 +475,80 @@ def linear():
 @linear.command("list-tasks")
 @click.option("--status", default=None, help="Filter by status name (partial match)")
 def cmd_list_tasks(status):
-    """List tasks in the current cycle."""
-    cycle = get_current_cycle()
-    if not cycle:
-        raise click.ClickException("No active cycle found")
-
+    """List tasks in the current cycle, or all active tasks if no cycle."""
     team_id = get_team_id()
-    query = """
-    query ListIssues($teamId: ID!, $cycleId: ID!, $status: String) {
-        issues(
-            filter: {
-                team: { id: { eq: $teamId } }
-                cycle: { id: { eq: $cycleId } }
-                state: { name: { containsIgnoreCase: $status } }
-            }
-            orderBy: updatedAt
-        ) {
-            nodes {
-                identifier
-                title
-                state {
-                    name
-                    type
+    cycle = get_current_cycle()
+
+    if cycle:
+        # Query tasks in the current cycle
+        query = """
+        query ListIssues($teamId: ID!, $cycleId: ID!, $status: String) {
+            issues(
+                filter: {
+                    team: { id: { eq: $teamId } }
+                    cycle: { id: { eq: $cycleId } }
+                    state: { name: { containsIgnoreCase: $status } }
                 }
-                parent {
+                orderBy: updatedAt
+            ) {
+                nodes {
                     identifier
+                    title
+                    state {
+                        name
+                        type
+                    }
+                    parent {
+                        identifier
+                    }
                 }
             }
         }
-    }
-    """
-    variables = {
-        "teamId": team_id,
-        "cycleId": cycle["id"],
-        "status": status or "",
-    }
+        """
+        variables = {
+            "teamId": team_id,
+            "cycleId": cycle["id"],
+            "status": status or "",
+        }
+        header = f"# Tasks in Cycle {cycle['number']}: {cycle['name']}\n"
+    else:
+        # No active cycle - show all non-backlog, non-done tasks
+        query = """
+        query ListActiveIssues($teamId: ID!, $status: String) {
+            issues(
+                filter: {
+                    team: { id: { eq: $teamId } }
+                    state: {
+                        name: { containsIgnoreCase: $status }
+                        type: { nin: ["backlog", "completed", "canceled"] }
+                    }
+                }
+                orderBy: updatedAt
+            ) {
+                nodes {
+                    identifier
+                    title
+                    state {
+                        name
+                        type
+                    }
+                    parent {
+                        identifier
+                    }
+                }
+            }
+        }
+        """
+        variables = {
+            "teamId": team_id,
+            "status": status or "",
+        }
+        header = "# Active Tasks (no active cycle)\n"
 
     result = graphql_request(query, variables)
     issues = result["issues"]["nodes"]
 
-    click.echo(f"# Tasks in Cycle {cycle['number']}: {cycle['name']}\n")
+    click.echo(header)
 
     if not issues:
         click.echo("No tasks found.")
