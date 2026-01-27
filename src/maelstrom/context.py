@@ -21,6 +21,7 @@ class GlobalConfig:
 
     projects_dir: Path
     open_command: str = "code"
+    linear_api_key: str | None = None
 
     @classmethod
     def default(cls) -> "GlobalConfig":
@@ -32,9 +33,13 @@ class GlobalConfig:
         """Create from dictionary."""
         projects_dir = data.get("projects_dir", "~/Projects")
         open_command = data.get("open_command", "code")
+        # Support nested linear config: linear.api_key
+        linear_config = data.get("linear", {})
+        linear_api_key = linear_config.get("api_key") if isinstance(linear_config, dict) else None
         return cls(
             projects_dir=Path(projects_dir).expanduser(),
             open_command=open_command,
+            linear_api_key=linear_api_key,
         )
 
 

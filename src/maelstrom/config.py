@@ -26,12 +26,16 @@ class MaelstromConfig:
     @classmethod
     def from_dict(cls, data: dict) -> "MaelstromConfig":
         """Create a config from a dictionary."""
+        linear_config = data.get("linear", {})
+        if not isinstance(linear_config, dict):
+            linear_config = {}
+
         return cls(
             port_names=data.get("port_names", []),
             start_cmd=data.get("start_cmd", ""),
             install_cmd=data.get("install_cmd", ""),
-            linear_team_id=data.get("linear_team_id"),
-            linear_workspace_labels=data.get("linear_workspace_labels"),
+            linear_team_id=linear_config.get("team_id"),
+            linear_workspace_labels=linear_config.get("workspace_labels"),
             sentry_org=data.get("sentry_org"),
             sentry_project=data.get("sentry_project"),
         )
