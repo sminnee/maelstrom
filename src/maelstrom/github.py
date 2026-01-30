@@ -113,6 +113,38 @@ def get_pr_number_for_branch(cwd: Path, branch: str) -> int | None:
         return None
 
 
+def get_pr_number_and_commits(cwd: Path, branch: str) -> tuple[int | None, int | None]:
+    """Get PR number and commit count for a given branch.
+
+    Args:
+        cwd: Working directory (must be in a git repo).
+        branch: Branch name to look up.
+
+    Returns:
+        Tuple of (pr_number, commit_count). Both None if no PR exists.
+    """
+    try:
+        result = run_cmd(
+            [
+                "gh", "pr", "list", "--head", branch,
+                "--json", "number,commits",
+                "-q", ".[0] | [.number, (.commits | length)]"
+            ],
+            cwd=cwd,
+            quiet=True,
+            check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return (None, None)
+        # Parse the JSON array [number, commit_count]
+        data = json.loads(result.stdout.strip())
+        if isinstance(data, list) and len(data) == 2 and data[0] is not None:
+            return (int(data[0]), int(data[1]))
+        return (None, None)
+    except (ValueError, FileNotFoundError, json.JSONDecodeError):
+        return (None, None)
+
+
 def get_pr_url(cwd: Path) -> str:
     """Get the PR URL for the current branch.
 

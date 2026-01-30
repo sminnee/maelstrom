@@ -154,6 +154,90 @@ def get_commits_ahead(worktree_path: Path, base_branch: str = "origin/main") -> 
         return 0
 
 
+def get_local_only_commits(worktree_path: Path, branch: str | None) -> int:
+    """Get commits that are local but not pushed to the remote branch.
+
+    Args:
+        worktree_path: Path to the worktree directory.
+        branch: Branch name (or None if detached).
+
+    Returns:
+        Number of local-only commits.
+    """
+    if not branch:
+        return 0
+
+    # Check if remote branch exists
+    remote_branch = f"origin/{branch}"
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", remote_branch],
+        cwd=worktree_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 0:
+        # Remote exists, count commits not on remote
+        result = subprocess.run(
+            ["git", "rev-list", "--count", f"{remote_branch}..HEAD"],
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            try:
+                return int(result.stdout.strip())
+            except ValueError:
+                return 0
+        return 0
+    else:
+        # No remote branch - count all commits ahead of main
+        return get_commits_ahead(worktree_path)
+
+
+def get_pushed_commit_count(worktree_path: Path, branch: str) -> int | None:
+    """Get the number of commits on the remote branch (ahead of main).
+
+    Args:
+        worktree_path: Path to the worktree directory.
+        branch: Branch name.
+
+    Returns:
+        Number of pushed commits, or None if branch not pushed.
+    """
+    remote_branch = f"origin/{branch}"
+
+    # Check if remote branch exists
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", remote_branch],
+        cwd=worktree_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        return None  # Not pushed
+
+    # Count commits on remote branch ahead of main
+    result = subprocess.run(
+        ["git", "rev-list", "--count", f"origin/{MAIN_BRANCH}..{remote_branch}"],
+        cwd=worktree_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 0:
+        try:
+            return int(result.stdout.strip())
+        except ValueError:
+            return 0
+    return 0
+
+
 def has_root_worktree(project_path: Path) -> bool:
     """Check if the project has files checked out at the root level.
 
