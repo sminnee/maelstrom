@@ -7,6 +7,65 @@ description: "Git workflow, commits, PRs, branches. Also Linear tasks and Sentry
 
 This skill provides CLI commands for managing Linear tasks, querying Sentry issues, and handling git/GitHub workflows directly from Claude Code.
 
+## Core Workflows
+
+### Task-Based Development (with Linear)
+
+For large or new tasks, use plan mode to break down the work:
+
+1. `/plan-task PROJ-XXX` - Research and break down into subtasks (plan mode required)
+2. `/continue-task` - Pick up the first subtask and start implementation
+
+For standard tasks:
+
+| Step | Action | Command |
+|------|--------|---------|
+| 1 | Pick up task | `/continue-task PROJ-XXX` (plan mode required) |
+| 2 | Sync with main | `mael sync` |
+| 3 | Implement & test | (your work) |
+| 4 | Commit changes | `git add . && git commit -m "..."` |
+| 5 | Create PR | `mael gh create-pr` |
+| 6 | Submit for review | `mael linear submit-pr PROJ-XXX` |
+
+### Code Review Before PR
+
+Use `/review-branch` to review your changes before creating a PR:
+
+| Step | Action | Command |
+|------|--------|---------|
+| 1 | Review branch | `/review-branch` (plan mode required) |
+| 2 | Fix issues | Edit code, then `git commit --fixup=<sha>` |
+| 3 | Confirm fixes | User reviews fixup commits |
+| 4 | Squash commits | `mael review squash` |
+| 5 | Create PR | `mael gh create-pr` |
+
+### Git-Only Workflow (without Linear)
+
+For quick changes without task tracking:
+
+| Step | Action | Command |
+|------|--------|---------|
+| 1 | Sync with main | `mael sync` |
+| 2 | Make changes | (your work) |
+| 3 | Review changes | `mael gh show-code --uncommitted` |
+| 4 | Commit | `git add <files> && git commit -m "..."` |
+| 5 | Create/update PR | `mael gh create-pr` |
+| 6 | Check PR status | `mael gh read-pr` |
+
+### Quick Reference: Common Commands
+
+| Task | Command |
+|------|---------|
+| Sync branch with main | `mael sync` |
+| View uncommitted changes | `mael gh show-code --uncommitted` |
+| View all branch changes | `mael gh show-code --committed` |
+| Create or update PR | `mael gh create-pr` |
+| Check PR status & CI | `mael gh read-pr` |
+| List tasks in cycle | `mael linear list-tasks` |
+| Read task details | `mael linear read-task PROJ-XXX` |
+| Start working on task | `mael linear start-task PROJ-XXX` |
+| Mark task complete | `mael linear complete-task PROJ-XXX` |
+
 ## Prerequisites
 
 ### GitHub CLI
