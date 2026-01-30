@@ -44,7 +44,7 @@ def _symlink_items(source_dir: Path, target_dir: Path) -> list[str]:
 
 
 def install_claude_integration() -> list[str]:
-    """Install skills and hooks by symlinking to ~/.claude/."""
+    """Install skills, hooks, and commands by symlinking to ~/.claude/."""
     shared = get_shared_dir()
     claude_dir = Path.home() / ".claude"
 

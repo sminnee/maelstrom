@@ -1,6 +1,6 @@
 ---
 name: mael
-description: "REQUIRED for git/GitHub operations: Use `mael gh create-pr` for PRs, `mael sync` before work. Also covers Linear task management and Sentry debugging. Always invoke /mael before commits or PRs."
+description: "Git workflow, commits, PRs, branches. Also Linear tasks and Sentry debugging. Invoke /mael before any git operations."
 ---
 
 # Maelstrom CLI Skill
@@ -329,9 +329,64 @@ mael sentry get-issue <issue-id>
    mael gh download-artifact <run_id> <artifact_name>
    ```
 
-## Workflow: Code Review
+## Workflow: Code Review (Before Creating PR)
 
-1. **Review all changes** in the worktree:
+Use the `/review-branch` command to review your feature branch before creating a PR.
+This command requires plan mode and produces review findings as the implementation plan.
+
+1. **Enter plan mode** and run the review:
+   ```
+   /review-branch
+   ```
+   (Requires plan mode - the review findings become your plan)
+
+2. **Review the findings** and approve the plan
+
+3. **Fix issues**, committing each fix with:
+   ```bash
+   git add <fixed-files>
+   git commit --fixup=<original-sha>
+   ```
+
+4. **Squash fixup commits** into originals:
+   ```bash
+   mael review squash
+   ```
+
+5. **Create PR** after all fixes:
+   ```bash
+   mael gh create-pr
+   ```
+
+### Review CLI Commands
+
+#### mael review squash
+
+Squash all `fixup!` commits into their target commits using git's autosquash.
+
+```bash
+mael review squash
+```
+
+**Behavior:**
+- Finds all commits starting with "fixup! "
+- Runs non-interactive rebase with --autosquash
+- Combines fixup commits with their targets
+- Aborts on conflicts (manual resolution required)
+
+#### mael review status
+
+Show pending fixup commits that haven't been squashed.
+
+```bash
+mael review status
+```
+
+### Viewing Code Changes
+
+Use these commands to inspect changes in your worktree:
+
+1. **Review all changes** (committed + uncommitted):
    ```bash
    mael gh show-code
    ```
@@ -350,6 +405,20 @@ mael sentry get-issue <issue-id>
 
 Git commands run directly in the worktree directory (no `-C` flag needed).
 
+### Commit Message Format
+
+**Do not use heredocs** (`<<EOF` or `<<'EOF'`) for git commit messages — they fail in
+sandboxed environments because heredocs create temp files in `/tmp` which is not writable.
+
+Use `printf` piped to `git commit -F -` instead:
+
+```bash
+git add file1.py file2.py
+printf 'feat: add new feature\n\nDetailed description of the change.\n' | git commit -F -
+```
+
+### Commit Flow
+
 1. **Review uncommitted changes** before committing:
    ```bash
    mael gh show-code --uncommitted
@@ -358,7 +427,7 @@ Git commands run directly in the worktree directory (no `-C` flag needed).
 2. **Stage and commit** with a descriptive message:
    ```bash
    git add <files>
-   git commit -m "Description of changes"
+   printf 'Description of changes\n' | git commit -F -
    ```
 
 3. **For atomic commits**, stage related changes together. Use `git add -p` for partial file staging if needed.

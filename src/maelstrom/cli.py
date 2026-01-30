@@ -17,6 +17,7 @@ from .github import (
     read_pr,
 )
 from .linear import linear
+from .review import review
 from .sentry import sentry
 from .claude_integration import install_claude_integration
 from .claude_sessions import get_active_ide_sessions
@@ -839,9 +840,10 @@ def gh_show_code(target, committed, uncommitted):
         click.echo("No commits or uncommitted changes found.")
 
 
-# --- Linear and Sentry subcommand groups ---
+# --- Subcommand groups ---
 
 cli.add_command(linear)
+cli.add_command(review)
 cli.add_command(sentry)
 
 
