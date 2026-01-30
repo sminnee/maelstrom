@@ -60,4 +60,9 @@ def install_claude_integration() -> list[str]:
     if hooks_source.exists():
         messages.extend(_symlink_items(hooks_source, claude_dir / "hooks"))
 
+    # Symlink commands
+    commands_source = shared / "commands"
+    if commands_source.exists():
+        messages.extend(_symlink_items(commands_source, claude_dir / "commands"))
+
     return messages or ["Nothing to install"]
