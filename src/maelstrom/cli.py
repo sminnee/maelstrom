@@ -63,6 +63,42 @@ def cmd_install():
         click.echo(msg)
 
 
+@cli.command("self-update")
+def cmd_self_update():
+    """Update maelstrom to the latest version from git."""
+    import subprocess
+
+    # Get the maelstrom package root directory
+    module_dir = Path(__file__).parent
+    repo_root = module_dir.parent.parent
+    git_dir = repo_root / ".git"
+
+    # Check if it's a git checkout
+    if not git_dir.exists():
+        raise click.ClickException(
+            "Cannot self-update: maelstrom is not installed from a git checkout. "
+            "Please reinstall from git or use your package manager to update."
+        )
+
+    # Run git pull
+    click.echo(f"Updating maelstrom from {repo_root}...")
+    try:
+        result = subprocess.run(
+            ["git", "pull"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        if result.stdout.strip():
+            click.echo(result.stdout)
+        if result.stderr.strip():
+            click.echo(result.stderr, err=True)
+        click.echo("Update complete.")
+    except subprocess.CalledProcessError as e:
+        raise click.ClickException(f"Git pull failed: {e.stderr or e.stdout or str(e)}")
+
+
 @cli.command("add-project")
 @click.argument("git_url")
 @click.option("--projects-dir", help="Base directory for projects (default from ~/.maelstrom.yaml or ~/Projects)")
