@@ -12,7 +12,7 @@ from .github import (
     download_artifact,
     get_check_logs_truncated,
     get_full_check_log,
-    get_pr_number_for_branch,
+    get_pr_number_and_commits,
     get_worktree_code,
     read_pr,
 )
@@ -21,6 +21,7 @@ from .review import review
 from .sentry import sentry
 from .claude_integration import install_claude_integration
 from .claude_sessions import get_active_ide_sessions
+from .table import draw_table
 from .worktree import (
     MAIN_BRANCH,
     add_project,
@@ -30,7 +31,8 @@ from .worktree import (
     extract_worktree_name_from_folder,
     find_all_projects,
     find_closed_worktree,
-    get_commits_ahead,
+    get_local_only_commits,
+    get_pushed_commit_count,
     get_worktree_folder_name,
     get_worktree_dirty_files,
     is_worktree_closed,
@@ -298,23 +300,41 @@ def cmd_list(project):
         # Check if worktree is closed (detached at origin/main)
         closed = is_worktree_closed(wt)
         branch_display = "(closed)" if closed else (wt.branch or "(detached)")
-        dirty = "Y" if get_worktree_dirty_files(wt.path) else ""
-        commits = get_commits_ahead(wt.path) if not closed else 0
-        pr_num = get_pr_number_for_branch(project_path, wt.branch) if wt.branch else None
-        pr_display = f"#{pr_num}" if pr_num else ""
-        agents = active_sessions.get(wt.path, 0)
+
+        # Dirty files count
+        dirty_files = get_worktree_dirty_files(wt.path)
+        dirty_display = str(len(dirty_files)) if dirty_files else ""
+
+        # Local unpushed commits
+        local_commits = get_local_only_commits(wt.path, wt.branch) if not closed else 0
+        local_display = str(local_commits) if local_commits > 0 else ""
+
+        # PR info (number and commit count)
+        pr_num, pr_commits = get_pr_number_and_commits(project_path, wt.branch) if wt.branch else (None, None)
+        if pr_num:
+            pr_display = f"#{pr_num} ({pr_commits})"
+        elif wt.branch and not closed:
+            # Check for pushed commits without PR
+            pushed_commits = get_pushed_commit_count(wt.path, wt.branch)
+            pr_display = f"({pushed_commits})" if pushed_commits else ""
+        else:
+            pr_display = ""
+
+        # IDE session indicator
+        ide_display = "Y" if active_sessions.get(wt.path, 0) > 0 else ""
+
         # Extract worktree name from folder for display (e.g., "myproject-alpha" -> "alpha")
         display_name = extract_worktree_name_from_folder(ctx.project, wt.path.name) or wt.path.name
-        rows.append((display_name, branch_display, dirty, commits, pr_display, agents))
+        rows.append({
+            "WORKTREE": display_name,
+            "BRANCH": branch_display,
+            "DIRTY FILES": dirty_display,
+            "LOCAL COMMITS": local_display,
+            "PR (COMMITS)": pr_display,
+            "IDE": ide_display,
+        })
 
-    # Print header
-    click.echo(f"{'WORKTREE':<12} {'BRANCH':<30} {'DIRTY':<6} {'AHEAD':<6} {'PR':<8} {'AGENTS':<6}")
-    click.echo("-" * 76)
-
-    for name, branch, dirty, commits, pr_display, agents in rows:
-        commits_display = str(commits) if commits > 0 else ""
-        agents_display = str(agents) if agents > 0 else ""
-        click.echo(f"{name:<12} {branch:<30} {dirty:<6} {commits_display:<6} {pr_display:<8} {agents_display:<6}")
+    draw_table(rows, ["WORKTREE", "BRANCH", "DIRTY FILES", "LOCAL COMMITS", "PR (COMMITS)", "IDE"])
 
 
 @cli.command("list-all")
@@ -345,25 +365,44 @@ def cmd_list_all():
             # Check if worktree is closed (detached at origin/main)
             closed = is_worktree_closed(wt)
             branch_display = "(closed)" if closed else (wt.branch or "(detached)")
-            dirty = "Y" if get_worktree_dirty_files(wt.path) else ""
-            commits = get_commits_ahead(wt.path) if not closed else 0
-            pr_num = get_pr_number_for_branch(project_path, wt.branch) if wt.branch else None
-            pr_display = f"#{pr_num}" if pr_num else ""
-            agents = active_sessions.get(wt.path, 0)
-            rows.append((project_name, wt.path.name, branch_display, dirty, commits, pr_display, agents))
+
+            # Dirty files count
+            dirty_files = get_worktree_dirty_files(wt.path)
+            dirty_display = str(len(dirty_files)) if dirty_files else ""
+
+            # Local unpushed commits
+            local_commits = get_local_only_commits(wt.path, wt.branch) if not closed else 0
+            local_display = str(local_commits) if local_commits > 0 else ""
+
+            # PR info (number and commit count)
+            pr_num, pr_commits = get_pr_number_and_commits(project_path, wt.branch) if wt.branch else (None, None)
+            if pr_num:
+                pr_display = f"#{pr_num} ({pr_commits})"
+            elif wt.branch and not closed:
+                # Check for pushed commits without PR
+                pushed_commits = get_pushed_commit_count(wt.path, wt.branch)
+                pr_display = f"({pushed_commits})" if pushed_commits else ""
+            else:
+                pr_display = ""
+
+            # IDE session indicator
+            ide_display = "Y" if active_sessions.get(wt.path, 0) > 0 else ""
+
+            rows.append({
+                "PROJECT": project_name,
+                "WORKTREE": wt.path.name,
+                "BRANCH": branch_display,
+                "DIRTY FILES": dirty_display,
+                "LOCAL COMMITS": local_display,
+                "PR (COMMITS)": pr_display,
+                "IDE": ide_display,
+            })
 
     if not rows:
         click.echo("No worktrees found.")
         return
 
-    # Print header with PROJECT column
-    click.echo(f"{'PROJECT':<12} {'WORKTREE':<12} {'BRANCH':<30} {'DIRTY':<6} {'AHEAD':<6} {'PR':<8} {'AGENTS':<6}")
-    click.echo("-" * 88)
-
-    for project_name, name, branch, dirty, commits, pr_display, agents in rows:
-        commits_display = str(commits) if commits > 0 else ""
-        agents_display = str(agents) if agents > 0 else ""
-        click.echo(f"{project_name:<12} {name:<12} {branch:<30} {dirty:<6} {commits_display:<6} {pr_display:<8} {agents_display:<6}")
+    draw_table(rows, ["PROJECT", "WORKTREE", "BRANCH", "DIRTY FILES", "LOCAL COMMITS", "PR (COMMITS)", "IDE"])
 
 
 @cli.command("open")
