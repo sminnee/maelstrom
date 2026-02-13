@@ -9,6 +9,8 @@ import pytest
 from unittest.mock import patch
 
 from maelstrom.worktree import (
+    CLAUDE_HEADER_END,
+    CLAUDE_HEADER_STARTS,
     MAIN_BRANCH,
     WORKTREE_NAMES,
     WorktreeInfo,
@@ -29,6 +31,7 @@ from maelstrom.worktree import (
     remove_worktree_by_path,
     sanitize_branch_name,
     substitute_env_vars,
+    update_claude_md,
     write_env_file,
 )
 
@@ -853,3 +856,59 @@ class TestRecycleWorktreeIntegration:
         # Cleanup
         remove_worktree(git_repo_with_remote, "feature/existing")
         remove_worktree_by_path(git_repo_with_remote, worktree_alpha.name)
+
+
+class TestUpdateClaudeMd:
+    """Tests for update_claude_md function."""
+
+    def test_creates_claude_md_with_valid_snippet(self, tmp_path):
+        """Test that update_claude_md works with the real template.
+
+        This test will fail if shared/claude-header.md doesn't have valid markers.
+        The validation in update_claude_md checks that the snippet starts with
+        one of CLAUDE_HEADER_STARTS and ends with CLAUDE_HEADER_END.
+        """
+        # Call update_claude_md - it uses the real shared/claude-header.md
+        result = update_claude_md(tmp_path)
+
+        # Should return True (file was created)
+        assert result is True
+
+        # Verify the file was created
+        claude_md = tmp_path / "CLAUDE.md"
+        assert claude_md.exists()
+
+        # Verify content has the expected markers
+        content = claude_md.read_text()
+        has_valid_start = any(marker in content for marker in CLAUDE_HEADER_STARTS)
+        assert has_valid_start, "CLAUDE.md should contain a valid start marker"
+        assert CLAUDE_HEADER_END in content, "CLAUDE.md should contain the end marker"
+
+    def test_replaces_old_style_marker(self, tmp_path):
+        """Test that old-style '# Maelstrom-based workflow' marker is detected and replaced."""
+        # Create a CLAUDE.md with old-style marker
+        claude_md = tmp_path / "CLAUDE.md"
+        old_content = """# Project README
+
+Some existing content.
+
+# Maelstrom-based workflow
+
+Old workflow instructions here.
+
+(maelstrom instructions end)
+
+More content after.
+"""
+        claude_md.write_text(old_content)
+
+        # Call update_claude_md - should detect and replace the old section
+        result = update_claude_md(tmp_path)
+
+        # Should return True (file was modified)
+        assert result is True
+
+        # Verify the new content has the current style marker
+        content = claude_md.read_text()
+        assert "# Maelstrom Workflow" in content
+        assert "More content after." in content  # Content after marker preserved
