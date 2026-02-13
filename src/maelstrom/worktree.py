@@ -24,7 +24,8 @@ MAELSTROM_MANAGED_FILES = {".env"}
 MAIN_BRANCH = "main"
 
 # Markers for maelstrom workflow section in CLAUDE.md
-CLAUDE_HEADER_START = "# Maelstrom-based workflow"
+# Support both old and new style start markers for detection
+CLAUDE_HEADER_STARTS = ("# Maelstrom Workflow", "# Maelstrom-based workflow")
 CLAUDE_HEADER_END = "(maelstrom instructions end)"
 
 
@@ -1100,6 +1101,42 @@ def open_worktree(worktree_path: Path, command: str) -> None:
         raise RuntimeError(f"Failed to open worktree: {e}")
 
 
+def _find_claude_header_start(content: str) -> tuple[str, int] | None:
+    """Find the first occurrence of any valid header start marker.
+
+    Returns tuple of (marker, index) or None if not found.
+    """
+    for marker in CLAUDE_HEADER_STARTS:
+        idx = content.find(marker)
+        if idx != -1:
+            return (marker, idx)
+    return None
+
+
+def _validate_claude_snippet(content: str) -> None:
+    """Validate that the snippet has expected start and end markers.
+
+    Raises ValueError if the snippet doesn't start with one of the valid
+    start markers or doesn't end with the expected end marker.
+    """
+    trimmed = content.strip()
+
+    # Check start marker - must start with one of the valid markers
+    starts_valid = any(trimmed.startswith(marker) for marker in CLAUDE_HEADER_STARTS)
+    if not starts_valid:
+        raise ValueError(
+            f"Snippet must start with one of: {CLAUDE_HEADER_STARTS}, "
+            f"but starts with: {trimmed[:50]!r}"
+        )
+
+    # Check end marker
+    if not trimmed.endswith(CLAUDE_HEADER_END):
+        raise ValueError(
+            f"Snippet must end with {CLAUDE_HEADER_END!r}, "
+            f"but ends with: {trimmed[-50:]!r}"
+        )
+
+
 def update_claude_md(worktree_path: Path) -> bool:
     """Update CLAUDE.md with maelstrom workflow instructions.
 
@@ -1114,6 +1151,9 @@ def update_claude_md(worktree_path: Path) -> bool:
 
     Returns:
         True if the file was created or modified, False if already up to date.
+
+    Raises:
+        ValueError: If the header template doesn't have valid markers.
     """
     # Get the header template content
     try:
@@ -1125,6 +1165,9 @@ def update_claude_md(worktree_path: Path) -> bool:
     except FileNotFoundError:
         return False
 
+    # Validate the snippet has correct markers
+    _validate_claude_snippet(header_content)
+
     claude_md_path = worktree_path / "CLAUDE.md"
 
     # Case 1: File doesn't exist - create it with only the header
@@ -1135,7 +1178,8 @@ def update_claude_md(worktree_path: Path) -> bool:
     existing_content = claude_md_path.read_text()
 
     # Check if markers are present
-    has_start = CLAUDE_HEADER_START in existing_content
+    start_match = _find_claude_header_start(existing_content)
+    has_start = start_match is not None
     has_end = CLAUDE_HEADER_END in existing_content
 
     # Case 2: No markers - append to end
@@ -1147,7 +1191,7 @@ def update_claude_md(worktree_path: Path) -> bool:
     # Case 3: Markers present - check if up to date and replace if needed
     if has_start and has_end:
         # Extract the existing section
-        start_idx = existing_content.find(CLAUDE_HEADER_START)
+        _, start_idx = start_match
         end_idx = existing_content.find(CLAUDE_HEADER_END) + len(CLAUDE_HEADER_END)
 
         existing_section = existing_content[start_idx:end_idx]

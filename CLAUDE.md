@@ -40,3 +40,11 @@ Maelstrom manages parallel development environments using git worktrees. It uses
 - **Worktrees** are subdirectories named alpha, bravo, etc. (not branch names)
 - **PORT_BASE** is a 3-digit number (100-999); each service port = PORT_BASE * 10 + index
 - When creating worktrees, existing `.env` from project root is merged with generated port vars, with `$VAR` substitution
+
+# Maelstrom Workflow
+
+**Always load the `/mael` skill before beginning any work.** It provides essential instructions for git operations, commits, branches, PRs, Linear tasks, and development workflows.
+
+**Plan mode is required** for `/plan-task`, `/continue-task`, and `/review-branch` commands.
+
+(maelstrom instructions end)
