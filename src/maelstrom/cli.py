@@ -49,9 +49,12 @@ from .worktree import (
 
 @click.group()
 @click.version_option(version=__version__, prog_name="mael")
-def cli():
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON")
+@click.pass_context
+def cli(ctx, output_json):
     """Maelstrom - Parallel development environment manager."""
-    pass
+    ctx.ensure_object(dict)
+    ctx.obj["json"] = output_json
 
 
 # --- Core worktree commands ---
@@ -96,9 +99,70 @@ def cmd_self_update():
             click.echo(result.stdout)
         if result.stderr.strip():
             click.echo(result.stderr, err=True)
-        click.echo("Update complete.")
     except subprocess.CalledProcessError as e:
         raise click.ClickException(f"Git pull failed: {e.stderr or e.stdout or str(e)}")
+
+    # Build the Tauri app if app/ directory exists
+    app_dir = repo_root / "app"
+    if app_dir.exists():
+        click.echo("Building Tauri app...")
+        try:
+            subprocess.run(
+                ["pnpm", "install", "--frozen-lockfile"],
+                cwd=app_dir,
+                check=True,
+            )
+            subprocess.run(
+                ["pnpm", "tauri", "build"],
+                cwd=app_dir,
+                check=True,
+            )
+            click.echo("App build complete.")
+        except FileNotFoundError:
+            click.echo("Warning: pnpm not found, skipping app build.", err=True)
+        except subprocess.CalledProcessError as e:
+            click.echo(f"Warning: App build failed: {e}", err=True)
+
+    click.echo("Update complete.")
+
+
+@cli.command("ui")
+def cmd_ui():
+    """Launch the Maelstrom desktop UI."""
+    import platform
+    import subprocess
+
+    module_dir = Path(__file__).parent
+    repo_root = module_dir.parent.parent
+    app_dir = repo_root / "app"
+
+    if not app_dir.exists():
+        raise click.ClickException(
+            f"App directory not found at {app_dir}. "
+            "Make sure you are running from a git checkout of maelstrom."
+        )
+
+    system = platform.system()
+    if system == "Darwin":
+        app_bundle = app_dir / "src-tauri" / "target" / "release" / "bundle" / "macos" / "Maelstrom.app"
+    elif system == "Linux":
+        app_bundle = app_dir / "src-tauri" / "target" / "release" / "maelstrom-app"
+    elif system == "Windows":
+        app_bundle = app_dir / "src-tauri" / "target" / "release" / "maelstrom-app.exe"
+    else:
+        raise click.ClickException(f"Unsupported platform: {system}")
+
+    if not app_bundle.exists():
+        raise click.ClickException(
+            f"Maelstrom UI has not been built yet. Run 'mael self-update' to build it."
+        )
+
+    if system == "Darwin":
+        subprocess.Popen(["open", str(app_bundle)])
+    else:
+        subprocess.Popen([str(app_bundle)], start_new_session=True)
+
+    click.echo("Maelstrom UI launched.")
 
 
 @cli.command("add-project")
@@ -340,22 +404,28 @@ def cmd_list(project):
 @cli.command("list-all")
 def cmd_list_all():
     """List all worktrees across all projects."""
+    output_json = click.get_current_context().obj.get("json", False)
     global_config = load_global_config()
     projects_dir = global_config.projects_dir
 
     projects = find_all_projects(projects_dir)
     if not projects:
-        click.echo("No projects found.")
+        if output_json:
+            click.echo('{"projects": []}')
+        else:
+            click.echo("No projects found.")
         return
 
     # Get active IDE sessions once for all projects
     active_sessions = get_active_ide_sessions()
 
-    # Collect all worktrees with project info
+    # Collect structured data for all worktrees
+    projects_data = []
     rows = []
     for project_path in projects:
         project_name = project_path.name
         worktrees = list_worktrees(project_path)
+        worktree_data = []
 
         for wt in worktrees:
             # Skip the project root (bare repo)
@@ -368,7 +438,8 @@ def cmd_list_all():
 
             # Dirty files count
             dirty_files = get_worktree_dirty_files(wt.path)
-            dirty_display = str(len(dirty_files)) if dirty_files else ""
+            dirty_count = len(dirty_files)
+            dirty_display = str(dirty_count) if dirty_files else ""
 
             # Local unpushed commits
             local_commits = get_local_only_commits(wt.path, wt.branch) if not closed else 0
@@ -376,6 +447,7 @@ def cmd_list_all():
 
             # PR info (number and commit count)
             pr_num, pr_commits = get_pr_number_and_commits(project_path, wt.branch) if wt.branch else (None, None)
+            pushed_commits = None
             if pr_num:
                 pr_display = f"#{pr_num} ({pr_commits})"
             elif wt.branch and not closed:
@@ -386,7 +458,24 @@ def cmd_list_all():
                 pr_display = ""
 
             # IDE session indicator
-            ide_display = "Y" if active_sessions.get(wt.path, 0) > 0 else ""
+            ide_active = active_sessions.get(wt.path, 0) > 0
+            ide_display = "Y" if ide_active else ""
+
+            display_name = extract_worktree_name_from_folder(project_name, wt.path.name) or wt.path.name
+
+            worktree_data.append({
+                "name": display_name,
+                "folder": wt.path.name,
+                "path": str(wt.path),
+                "branch": wt.branch or None,
+                "is_closed": closed,
+                "dirty_files": dirty_count,
+                "local_commits": local_commits,
+                "pr_number": pr_num,
+                "pr_commits": pr_commits,
+                "pushed_commits": pushed_commits,
+                "ide_active": ide_active,
+            })
 
             rows.append({
                 "PROJECT": project_name,
@@ -397,6 +486,17 @@ def cmd_list_all():
                 "PR (COMMITS)": pr_display,
                 "IDE": ide_display,
             })
+
+        projects_data.append({
+            "name": project_name,
+            "path": str(project_path),
+            "worktrees": worktree_data,
+        })
+
+    if output_json:
+        import json as json_mod
+        click.echo(json_mod.dumps({"projects": projects_data}))
+        return
 
     if not rows:
         click.echo("No worktrees found.")

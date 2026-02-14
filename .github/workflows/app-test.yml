@@ -1,0 +1,40 @@
+name: App Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/**"
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm --filter maelstrom-app lint
+
+      - name: Type check
+        run: pnpm --filter maelstrom-app exec tsc --noEmit
+
+      - name: Unit tests
+        run: pnpm --filter maelstrom-app test
