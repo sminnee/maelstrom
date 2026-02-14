@@ -22,6 +22,12 @@ uv run python -m maelstrom         # Run the module
 
 (maelstrom instructions end)
 
+## Developer Documentation
+
+See `docs/dev/` for detailed architecture and design docs:
+
+- `docs/dev/architecture.md` - Communication architecture between the desktop app and agent-cli (IPC protocol, message types, sequence diagrams)
+
 ## Architecture
 
 Maelstrom manages parallel development environments using git worktrees. It uses a bare-like repository structure where worktrees are named using NATO phonetic alphabet (alpha, bravo, charlie, etc.).
