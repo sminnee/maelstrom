@@ -1,12 +1,13 @@
 """Tests for maelstrom.cli module."""
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from click.testing import CliRunner
 
-from maelstrom.cli import cli
+from maelstrom.cli import cli, _compute_app_build_hash, _should_rebuild_app, _store_build_hash
 from maelstrom.worktree import WorktreeInfo
 
 
@@ -107,3 +108,144 @@ class TestListAllJson:
                 result = runner.invoke(cli, ["list-all"])
                 assert result.exit_code == 0
                 assert "No projects found." in result.output
+
+
+class TestBuildHash:
+    """Tests for build hash computation and skip-rebuild logic."""
+
+    def test_compute_app_build_hash(self):
+        """Test that _compute_app_build_hash returns a hex digest."""
+        mock_result = MagicMock()
+        mock_result.stdout = "100644 blob abc123\tapp/main.ts\n"
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            h = _compute_app_build_hash(Path("/fake/repo"))
+
+        assert len(h) == 64  # SHA-256 hex digest
+        mock_run.assert_called_once()
+        args = mock_run.call_args
+        assert "git" in args[0][0]
+        assert "ls-tree" in args[0][0]
+
+    def test_should_rebuild_no_hash_file(self, tmp_path):
+        """Test that _should_rebuild_app returns True when no hash file exists."""
+        repo = tmp_path / "repo"
+        app_target = repo / "app" / "src-tauri" / "target"
+        app_target.mkdir(parents=True)
+
+        with patch("maelstrom.cli._compute_app_build_hash", return_value="abc123"):
+            should_rebuild, current_hash = _should_rebuild_app(repo)
+
+        assert should_rebuild is True
+        assert current_hash == "abc123"
+
+    def test_should_rebuild_hash_matches(self, tmp_path):
+        """Test that _should_rebuild_app returns False when hash matches."""
+        repo = tmp_path / "repo"
+        app_target = repo / "app" / "src-tauri" / "target"
+        app_target.mkdir(parents=True)
+        (app_target / ".build-hash").write_text("abc123\n")
+
+        with patch("maelstrom.cli._compute_app_build_hash", return_value="abc123"):
+            should_rebuild, current_hash = _should_rebuild_app(repo)
+
+        assert should_rebuild is False
+        assert current_hash == "abc123"
+
+    def test_should_rebuild_hash_differs(self, tmp_path):
+        """Test that _should_rebuild_app returns True when hash differs."""
+        repo = tmp_path / "repo"
+        app_target = repo / "app" / "src-tauri" / "target"
+        app_target.mkdir(parents=True)
+        (app_target / ".build-hash").write_text("old_hash\n")
+
+        with patch("maelstrom.cli._compute_app_build_hash", return_value="new_hash"):
+            should_rebuild, current_hash = _should_rebuild_app(repo)
+
+        assert should_rebuild is True
+        assert current_hash == "new_hash"
+
+    def test_store_build_hash(self, tmp_path):
+        """Test that _store_build_hash writes the hash file."""
+        repo = tmp_path / "repo"
+        app_target = repo / "app" / "src-tauri" / "target"
+        app_target.mkdir(parents=True)
+
+        _store_build_hash(repo, "my_hash_value")
+
+        hash_file = app_target / ".build-hash"
+        assert hash_file.exists()
+        assert hash_file.read_text().strip() == "my_hash_value"
+
+    def test_store_build_hash_creates_directory(self, tmp_path):
+        """Test that _store_build_hash creates target dir if missing."""
+        repo = tmp_path / "repo"
+
+        _store_build_hash(repo, "my_hash")
+
+        hash_file = repo / "app" / "src-tauri" / "target" / ".build-hash"
+        assert hash_file.exists()
+
+
+class TestStaleSymlinkCleanup:
+    """Tests for stale symlink cleanup in _symlink_items."""
+
+    def test_removes_stale_symlink_into_source(self, tmp_path):
+        """Stale symlinks pointing into source_dir are removed."""
+        from maelstrom.claude_integration import _symlink_items
+
+        source = tmp_path / "source"
+        source.mkdir()
+        target = tmp_path / "target"
+        target.mkdir()
+
+        # Create a symlink in target that points to a non-existent file in source
+        stale = target / "old_command"
+        stale.symlink_to(source / "removed_file")
+
+        messages = _symlink_items(source, target)
+
+        assert not stale.exists()
+        assert not stale.is_symlink()
+        assert any("Removed stale link old_command" in m for m in messages)
+
+    def test_preserves_foreign_symlinks(self, tmp_path):
+        """Symlinks pointing outside source_dir are not touched."""
+        from maelstrom.claude_integration import _symlink_items
+
+        source = tmp_path / "source"
+        source.mkdir()
+        target = tmp_path / "target"
+        target.mkdir()
+        other = tmp_path / "other"
+        other.mkdir()
+
+        # Create a foreign symlink (points outside source)
+        foreign_target = other / "some_file"
+        foreign_target.touch()
+        foreign = target / "foreign_link"
+        foreign.symlink_to(foreign_target)
+
+        messages = _symlink_items(source, target)
+
+        assert foreign.is_symlink()
+        assert not any("foreign_link" in m for m in messages)
+
+    def test_preserves_valid_symlinks(self, tmp_path):
+        """Valid symlinks into source_dir are preserved."""
+        from maelstrom.claude_integration import _symlink_items
+
+        source = tmp_path / "source"
+        source.mkdir()
+        target = tmp_path / "target"
+        target.mkdir()
+
+        # Create a file in source and a valid symlink to it
+        (source / "valid_file").touch()
+        valid = target / "valid_file"
+        valid.symlink_to(source / "valid_file")
+
+        messages = _symlink_items(source, target)
+
+        assert valid.is_symlink()
+        assert not any("Removed" in m for m in messages)
