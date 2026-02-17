@@ -11,16 +11,21 @@ This skill provides CLI commands for managing Linear tasks, querying Sentry issu
 
 ### Task-Based Development (with Linear)
 
-For large or new tasks, use plan mode to break down the work:
+For tasks that need planning first:
 
-1. `/plan-task PROJ-XXX` - Research and break down into subtasks (plan mode required)
+1. `/plan-task PROJ-XXX` - Research and create implementation plan (plan mode required)
+2. `/continue-task PROJ-XXX` - Read plan from Linear and implement
+
+For large tasks that need subtask breakdown:
+
+1. `/create-subtasks PROJ-XXX` - Research and break down into subtasks (plan mode required)
 2. `/continue-task` - Pick up the first subtask and start implementation
 
 For standard tasks:
 
 | Step | Action | Command |
 |------|--------|---------|
-| 1 | Pick up task | `/continue-task PROJ-XXX` (plan mode required) |
+| 1 | Pick up task | `/continue-task PROJ-XXX` |
 | 2 | Sync with main | `mael sync` |
 | 3 | Implement & test | (your work) |
 | 4 | Commit changes | `git add . && git commit -m "..."` |
@@ -63,6 +68,8 @@ For quick changes without task tracking:
 | Check PR status & CI | `mael gh read-pr` |
 | List tasks in cycle | `mael linear list-tasks` |
 | Read task details | `mael linear read-task PROJ-XXX` |
+| Write plan to task | `mael linear write-plan PROJ-XXX plan.md` |
+| Read plan from task | `mael linear read-plan PROJ-XXX` |
 | Start working on task | `mael linear start-task PROJ-XXX` |
 | Mark task complete | `mael linear complete-task PROJ-XXX` |
 
@@ -184,21 +191,38 @@ mael linear create-subtask <parent-id> <title> [description]
 - Creates subtask linked to parent
 - Inherits cycle from parent issue
 
-### mael linear add-plan
+### mael linear write-plan
 
-Add an implementation plan section to a task's description.
+Write an implementation plan to a Linear task's description.
 
 ```bash
-mael linear add-plan <issue-id> <plan-content>
+mael linear write-plan <issue-id> <plan-file>
 ```
 
 **Arguments:**
-- `issue-id`: Linear issue identifier
-- `plan-content`: Markdown content for the implementation plan
+- `issue-id`: Linear issue identifier (e.g., PROJ-123)
+- `plan-file`: Path to the markdown plan file
 
 **Behavior:**
-- Appends `## Implementation Plan` section to existing description
-- Does not overwrite existing content
+- Reads plan file content and stores it in the issue description between markers
+- Replaces any existing plan (idempotent for re-planning)
+- Updates status from "Todo" to "Planned" if applicable
+
+### mael linear read-plan
+
+Read the implementation plan from a Linear task's description.
+
+```bash
+mael linear read-plan <issue-id>
+```
+
+**Arguments:**
+- `issue-id`: Linear issue identifier (e.g., PROJ-123)
+
+**Behavior:**
+- Extracts plan content from between markers in the issue description
+- Outputs the plan markdown to stdout
+- Fails with helpful error if no plan is found
 
 ## Git & GitHub Commands
 
@@ -343,6 +367,13 @@ mael sentry get-issue <issue-id>
 - Full stacktrace with code context and variable values
 
 ## Status Transitions
+
+### Status Flow
+
+- **Todo** -> **Planned** (when plan is written via `write-plan`)
+- **Planned** / **Todo** -> **In Progress** (when `start-task` is called)
+- **In Progress** -> **In Review** (when `submit-pr` is called)
+- **In Review** -> **Done** / **Unreleased** (when completed)
 
 ### Subtasks (issues with a parent)
 - **Starting work**: Set to "In Progress"
@@ -500,14 +531,14 @@ printf 'feat: add new feature\n\nDetailed description of the change.\n' | git co
 
 2. **Research codebase**: Explore relevant code to understand context
 
-3. **Create subtasks** for each planned phase:
+3. **Write implementation plan** (stored in issue description):
    ```bash
-   mael linear create-subtask PROJ-123 "Phase 1: Core functionality" "Description here"
+   mael linear write-plan PROJ-123 plan.md
    ```
 
-4. **Add implementation plan** (optional):
+4. **For complex tasks, create subtasks** for each phase:
    ```bash
-   mael linear add-plan PROJ-123 "Overall plan summary..."
+   mael linear create-subtask PROJ-123 "Phase 1: Core functionality" "Description here"
    ```
 
 ## Workflow: Working on a Task
@@ -554,4 +585,4 @@ Commands exit with code 1 and display error messages for:
 - Missing configuration (`linear_team_id`, `sentry_org`, `sentry_project`)
 - Issue not found
 - API errors
-- Missing workflow states ("In Progress", "Done", "Unreleased")
+- Missing workflow states ("Planned", "In Progress", "Done", "Unreleased")
