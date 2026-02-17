@@ -845,8 +845,8 @@ def cmd_write_plan(issue_id, plan_file):
     issue = get_issue(issue_id)
     description = issue.get("description") or ""
 
-    # Build the plan section with markers
-    plan_section = f"# Implementation Plan\n\n{plan_content}\n\n(end of plan)"
+    # Build the plan section with markers and surrounding HRs for visual separation
+    plan_section = f"---\n\n# Implementation Plan\n\n{plan_content}\n\n(end of plan)\n\n---"
 
     # Replace existing plan or append
     start_marker = "# Implementation Plan"
@@ -855,14 +855,27 @@ def cmd_write_plan(issue_id, plan_file):
     end_idx = description.find(end_marker)
 
     if start_idx != -1 and end_idx != -1:
+        # Expand range to include surrounding HRs and whitespace
+        replace_start = start_idx
+        replace_end = end_idx + len(end_marker)
+        # Look backwards for a preceding HR
+        prefix = description[:replace_start].rstrip()
+        if prefix.endswith("---"):
+            replace_start = len(prefix) - 3
+        # Look forwards for a trailing HR
+        suffix = description[replace_end:].lstrip()
+        if suffix.startswith("---"):
+            replace_end = len(description) - len(suffix) + 3
         new_description = (
-            description[:start_idx]
+            description[:replace_start].rstrip()
+            + "\n\n"
             + plan_section
-            + description[end_idx + len(end_marker) :]
+            + "\n\n"
+            + description[replace_end:].lstrip()
         )
     elif start_idx != -1:
         # Malformed - has start but no end, replace from start onward
-        new_description = description[:start_idx] + plan_section
+        new_description = description[:start_idx].rstrip() + "\n\n" + plan_section
     else:
         new_description = description.rstrip() + "\n\n" + plan_section
 
