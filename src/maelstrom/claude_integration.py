@@ -1,5 +1,6 @@
 """Integration with Claude Code for skills and hooks."""
 
+import os
 import shutil
 from pathlib import Path
 
@@ -39,6 +40,22 @@ def _symlink_items(source_dir: Path, target_dir: Path) -> list[str]:
 
         target.symlink_to(item)
         messages.append(f"Linked {target} -> {item}")
+
+    # Clean up stale symlinks that point into source_dir but no longer exist
+    for entry in target_dir.iterdir():
+        if not entry.is_symlink():
+            continue
+        link_target = Path(os.readlink(entry))
+        # Resolve relative symlinks against the symlink's parent
+        if not link_target.is_absolute():
+            link_target = entry.parent / link_target
+        try:
+            link_target.resolve().relative_to(source_dir.resolve())
+        except ValueError:
+            continue  # Points elsewhere, leave it alone
+        if not link_target.exists():
+            entry.unlink()
+            messages.append(f"Removed stale link {entry.name}")
 
     return messages
 
