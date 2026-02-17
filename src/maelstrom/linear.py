@@ -827,22 +827,91 @@ def cmd_create_subtask(parent_id, title, description):
         click.echo(f"- Cycle: {parent['cycle']['number']} - {parent['cycle']['name']}")
 
 
-@linear.command("add-plan")
+@linear.command("write-plan")
 @click.argument("issue_id")
-@click.argument("plan_content")
-def cmd_add_plan(issue_id, plan_content):
-    """Add an implementation plan section to a task."""
+@click.argument("plan_file", type=click.Path(exists=True))
+def cmd_write_plan(issue_id, plan_file):
+    """Write an implementation plan to a Linear task's description.
+
+    Reads a markdown plan file and stores it in the issue description between
+    '# Implementation Plan' and '(end of plan)' markers. Updates status to
+    'Planned' if currently 'Todo'.
+    """
+    plan_path = Path(plan_file)
+    plan_content = plan_path.read_text().strip()
+    if not plan_content:
+        raise click.ClickException("Plan file is empty")
+
     issue = get_issue(issue_id)
+    description = issue.get("description") or ""
 
-    current_description = issue.get("description") or ""
+    # Build the plan section with markers
+    plan_section = f"# Implementation Plan\n\n{plan_content}\n\n(end of plan)"
 
-    # Append the implementation plan section
-    plan_section = f"\n\n## Implementation Plan\n\n{plan_content}"
-    new_description = current_description + plan_section
+    # Replace existing plan or append
+    start_marker = "# Implementation Plan"
+    end_marker = "(end of plan)"
+    start_idx = description.find(start_marker)
+    end_idx = description.find(end_marker)
+
+    if start_idx != -1 and end_idx != -1:
+        new_description = (
+            description[:start_idx]
+            + plan_section
+            + description[end_idx + len(end_marker) :]
+        )
+    elif start_idx != -1:
+        # Malformed - has start but no end, replace from start onward
+        new_description = description[:start_idx] + plan_section
+    else:
+        new_description = description.rstrip() + "\n\n" + plan_section
 
     update_issue(issue["id"], description=new_description)
+    click.echo(f"Wrote implementation plan to {issue['identifier']}: {issue['title']}")
 
-    click.echo(f"Added implementation plan to {issue['identifier']}: {issue['title']}")
+    # Update status to Planned if currently Todo
+    if issue["state"]["name"] == "Todo":
+        states = get_workflow_states()
+        if "Planned" in states:
+            update_issue(issue["id"], stateId=states["Planned"])
+            click.echo("Updated status: Todo -> Planned")
+        else:
+            click.echo(
+                "Warning: 'Planned' state not found in workflow. Status not updated.",
+                err=True,
+            )
+
+
+@linear.command("read-plan")
+@click.argument("issue_id")
+def cmd_read_plan(issue_id):
+    """Read the implementation plan from a Linear task's description.
+
+    Extracts content between '# Implementation Plan' and '(end of plan)'
+    markers in the issue description.
+    """
+    issue = get_issue(issue_id)
+    description = issue.get("description") or ""
+
+    start_marker = "# Implementation Plan"
+    end_marker = "(end of plan)"
+    start_idx = description.find(start_marker)
+    end_idx = description.find(end_marker)
+
+    if start_idx == -1:
+        raise click.ClickException(
+            f"No implementation plan found on {issue['identifier']}. "
+            f"Use 'mael linear write-plan' to add one."
+        )
+
+    # Extract content between markers (excluding the markers themselves)
+    content_start = start_idx + len(start_marker)
+    if end_idx != -1:
+        plan_content = description[content_start:end_idx].strip()
+    else:
+        plan_content = description[content_start:].strip()
+
+    click.echo(plan_content)
 
 
 @linear.command("submit-pr")

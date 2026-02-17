@@ -1,11 +1,7 @@
 # Continue Task Command
 
-⚠️ **PLAN MODE REQUIRED**: This command ONLY works in plan mode. You must stop with an error message
-immediately if not in plan mode.
-
-This command continues work on the next sub-task from in-progress Linear issues in the current
-cycle, planning in detail how to complete it. Review any applicable code and do any necessary
-research before confirming your plan.
+This command continues work on a Linear task by reading its implementation plan and executing it.
+It can also pick up the next sub-task from in-progress issues in the current cycle.
 
 ## Usage
 
@@ -16,41 +12,47 @@ research before confirming your plan.
 Examples:
 
 - `/continue-task` - Automatically finds next task from current cycle
-- `/continue-task NORT-489` - Continue specific issue
+- `/continue-task ME-32` - Continue specific issue
 - `/continue-task mixpanel instrumentation` - Find and continue matching issue
 
 ## Command Logic
 
-1. **MANDATORY Plan Mode Check**: MUST fail immediately if not in plan mode - do not proceed with
-   any other logic
-2. **Find the Task**: Use the Linear CLI to locate the task:
+1. **Find the Task**: Use the Linear CLI to locate the task:
 
    ```bash
    # If argument provided and looks like issue ID:
-   mael linear read-task NORT-489
+   mael linear read-task ME-32
 
    # If argument provided but not an ID, or no argument:
    mael linear list-tasks --status "In Progress"
    ```
 
-3. **Identify Next Subtask**: If the issue has subtasks, find the first incomplete one (status not
+2. **Identify Next Subtask**: If the issue has subtasks, find the first incomplete one (status not
    "Done" or "Canceled"). If all subtasks are complete, work on the parent issue itself.
-4. **Start Task in Linear**: Mark the task as started immediately after identifying it:
+
+3. **Start Task in Linear**: Mark the task as started immediately after identifying it:
    ```bash
    mael linear start-task <issue-id>
    ```
-5. **Task Planning**: Create a plan to complete the identified task/sub-task
-   - Use Task tool with Explore subagent(s) for codebase research
-   - Plan the task **thoroughly** doing necessary code review & research before presenting the plan
-   - **ALWAYS include these steps in the plan**:
-     - **Implementation steps**: The actual work to complete the task
-     - **Final step**: Create PR (`mael gh create-pr`) and submit to Linear
-       (`mael linear submit-pr`)
-6. **Write Plan to File**: Write the detailed plan to the plan file (path provided in system
-   context)
-7. **Present Plan**: Call ExitPlanMode with allowedPrompts:
-   - `{"tool": "Bash", "prompt": "run tests"}`
-   - `{"tool": "Bash", "prompt": "create PR and submit to Linear"}`
+
+4. **Read Implementation Plan**: Fetch the plan from Linear:
+   ```bash
+   mael linear read-plan <issue-id>
+   ```
+   - If the task is a subtask and has no plan, also try reading the plan from the parent task
+   - If no plan is found on either, fall back to researching the codebase using Task tool with
+     Explore subagent(s) and planning inline (for tasks that were not planned via `/plan-task`)
+
+5. **Execute the Plan**: Implement the changes described in the plan:
+   - Use TodoWrite to track progress through the plan steps
+   - Follow the implementation steps in order
+   - Run tests as appropriate
+
+6. **Final Steps**: Create PR and submit to Linear:
+   ```bash
+   mael gh create-pr
+   mael linear submit-pr <issue-id>
+   ```
 
 ## Examples
 
@@ -59,7 +61,7 @@ Examples:
 /continue-task
 
 # Continue specific issue
-/continue-task NORT-489
+/continue-task ME-32
 
 # Find and continue by description
 /continue-task mixpanel instrumentation
@@ -67,21 +69,19 @@ Examples:
 
 ## Error Cases
 
-- Not in plan mode: "Continue-task command requires plan mode. Please enter plan mode first before
-  using this command."
 - No active cycle found
 - No matching issue found
 - No in-progress tasks in current cycle
 
 ## Status Transitions
 
-When starting a task (`start-task`) - happens during planning:
+When starting a task (`start-task`):
 
 - Sets status to "In Progress"
-- Adds workspace label (astronort3/4/6) based on current directory
+- Adds workspace label (e.g., golf) based on current directory
 - Also updates parent task if working on a subtask
 
-When PR is submitted (`submit-pr`) - happens as final execution step:
+When PR is submitted (`submit-pr`) - happens as final step:
 
 - Attaches PR URL to Linear task (auto-detected from current branch)
 - Sets status to "In Review"
@@ -94,20 +94,23 @@ When PR is merged (manual or via `complete-task`):
 
 ## Implementation Notes
 
-- **Start task during planning**: Linear status and label updates happen during planning mode, after
-  identifying the task but before presenting the plan
-- **Split operations for planning and execution**:
-  - Planning phase: Locate task, start task in Linear, research codebase, present plan
-  - Execution phase: Implement, create PR, submit PR to Linear (final step)
+- **No plan mode required**: This command reads the plan from Linear and immediately begins
+  implementation. Planning has already been completed via `/plan-task`.
+- **Fallback for unplanned tasks**: If no plan is found on the task or its parent, the command
+  falls back to researching the codebase and implementing based on the task description alone.
+- **Split operations**:
+  - Start task in Linear (status + label updates)
+  - Read plan from Linear
+  - Implement changes
+  - Create PR and submit to Linear (final step)
 - **CLI tool handles**: Team ID, workspace labels, parent task updates, PR detection, and all Linear
   API usage
-- **Plan mode detection**: Check for `Plan mode is active` in system-reminder tags. If not present,
-  output error message and stop immediately.
-- **Progress tracking**: Use TodoWrite to track implementation progress during execution
+- **Progress tracking**: Use TodoWrite to track implementation progress
 
 ## Integration with Plan Task
 
-- Works with issues that have sub-tasks created by `/plan-task`
+- Works with tasks that have plans written by `/plan-task`
+- Also works with issues that have sub-tasks created by `/create-subtasks`
 - Automatically picks up next phase from Linear task breakdown
 - Workspace labels enable filtering by codebase in Linear
 - Status tracking happens in Linear, visible to entire team
