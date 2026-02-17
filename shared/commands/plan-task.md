@@ -24,7 +24,7 @@ Examples:
 3. **Researches the codebase** to understand the issue context
 4. **Creates a detailed implementation plan** through interactive discussion
 5. **Exits plan mode** with allowed prompt to write the plan to Linear
-6. **After approval**: writes the plan to Linear via `mael linear write-plan`
+6. **After approval**: writes the plan to Linear via `mael linear write-plan`, then **stops** (does NOT implement)
 
 ## Command Logic
 
@@ -70,11 +70,15 @@ Examples:
 7. **Present Plan**: Call ExitPlanMode with allowedPrompts:
    - `{"tool": "Bash", "prompt": "write plan to Linear"}`
 
-8. **After Plan Approval - Write to Linear**: Execute:
+8. **After Plan Approval - Write to Linear and STOP**: Execute:
    ```bash
    mael linear write-plan <issue-id> <plan-file-path>
    ```
    where `<plan-file-path>` is the plan file path from system context.
+
+   **IMPORTANT: After writing the plan to Linear, your work is DONE.** Do NOT begin implementing
+   the plan. Do NOT write code, edit files, or create branches. Simply confirm the plan was written
+   to Linear and stop. Implementation is handled separately via `/continue-task`.
 
 ## Error Cases
 
