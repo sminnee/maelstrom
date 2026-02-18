@@ -1083,12 +1083,13 @@ def remove_worktree_by_path(project_path: Path, worktree_name: str) -> None:
     run_git(["worktree", "remove", "--force", str(worktree_path)], cwd=project_path)
 
 
-def open_worktree(worktree_path: Path, command: str) -> None:
+def open_worktree(worktree_path: Path, command: str, open_chat: bool = True) -> None:
     """Open a worktree using the configured command.
 
     Args:
         worktree_path: Path to the worktree directory.
         command: Command to run (e.g., "code", "cursor").
+        open_chat: If True, also open Claude Code chat panel (VS Code only).
 
     Raises:
         RuntimeError: If the command fails to execute.
@@ -1099,6 +1100,42 @@ def open_worktree(worktree_path: Path, command: str) -> None:
         raise RuntimeError(f"Command not found: {command}")
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to open worktree: {e}")
+
+    # Open Claude Code chat if requested
+    if open_chat:
+        try:
+            open_claude_code(command)
+        except RuntimeError as e:
+            import sys
+
+            print(f"Warning: Could not open Claude Code: {e}", file=sys.stderr)
+
+
+def open_claude_code(command: str) -> None:
+    """Open Claude Code panel in VS Code.
+
+    Uses the claude-vscode extension commands to open and focus the chat panel.
+    Only works with VS Code (code, code-insiders). Silently skips for other editors.
+
+    Args:
+        command: The editor command (e.g., "code", "cursor").
+
+    Raises:
+        RuntimeError: If the VS Code command fails to execute.
+    """
+    # Only VS Code supports the claude-vscode extension
+    if command not in ("code", "code-insiders"):
+        return
+
+    try:
+        # Open the Claude Code editor panel
+        subprocess.run([command, "--command", "claude-vscode.editor.open"], check=True)
+        # Focus the input field
+        subprocess.run([command, "--command", "claude-vscode.focus"], check=True)
+    except FileNotFoundError:
+        raise RuntimeError(f"Command not found: {command}")
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Failed to open Claude Code: {e}")
 
 
 def _find_claude_header_start(content: str) -> tuple[str, int] | None:
