@@ -153,7 +153,7 @@ def cmd_self_update():
                     check=True,
                 )
                 subprocess.run(
-                    ["pnpm", "tauri", "build", "--bundles", "app"],
+                    ["pnpm", "tauri", "build"],
                     cwd=app_dir,
                     check=True,
                 )
