@@ -327,46 +327,59 @@ def cmd_add(branch, project, no_open, no_recycle):
 
 
 @cli.command("remove")
-@click.argument("target")
+@click.argument("targets", nargs=-1, required=True)
 @click.option("-f", "--force", is_flag=True, help="Skip confirmation prompt for modified/untracked files")
-def cmd_remove(target, force):
-    """Remove a worktree."""
-    try:
-        ctx = resolve_context(
-            target,
-            require_project=True,
-            require_worktree=True,
-        )
-    except ValueError as e:
-        raise click.ClickException(str(e))
+def cmd_remove(targets, force):
+    """Remove one or more worktrees."""
+    errors = []
+    for target in targets:
+        try:
+            ctx = resolve_context(
+                target,
+                require_project=True,
+                require_worktree=True,
+            )
+        except ValueError as e:
+            click.echo(f"Error ({target}): {e}", err=True)
+            errors.append(target)
+            continue
 
-    project_path = ctx.project_path
-    worktree_name = ctx.worktree  # The NATO name (e.g., "alpha")
+        project_path = ctx.project_path
+        worktree_name = ctx.worktree  # The NATO name (e.g., "alpha")
 
-    if not project_path.exists():
-        raise click.ClickException(f"Project '{ctx.project}' not found at {project_path}")
+        if not project_path.exists():
+            click.echo(f"Error: Project '{ctx.project}' not found at {project_path}", err=True)
+            errors.append(target)
+            continue
 
-    folder_name = get_worktree_folder_name(ctx.project, worktree_name)
-    worktree_path = project_path / folder_name
-    if not worktree_path.exists():
-        raise click.ClickException(f"Worktree '{worktree_name}' not found in project '{ctx.project}'")
+        folder_name = get_worktree_folder_name(ctx.project, worktree_name)
+        worktree_path = project_path / folder_name
+        if not worktree_path.exists():
+            click.echo(f"Error: Worktree '{worktree_name}' not found in project '{ctx.project}'", err=True)
+            errors.append(target)
+            continue
 
-    # Check for modified/untracked files (excluding maelstrom-managed files)
-    dirty_files = get_worktree_dirty_files(worktree_path)
-    if dirty_files and not force:
-        click.echo("The following modified/untracked files will be lost:")
-        for f in dirty_files:
-            click.echo(f"  {f}")
-        if not click.confirm("Continue?"):
-            click.echo("Aborted.")
-            raise SystemExit(1)
+        # Check for modified/untracked files (excluding maelstrom-managed files)
+        dirty_files = get_worktree_dirty_files(worktree_path)
+        if dirty_files and not force:
+            click.echo(f"The following modified/untracked files in '{worktree_name}' will be lost:")
+            for f in dirty_files:
+                click.echo(f"  {f}")
+            if not click.confirm("Continue?"):
+                click.echo("Aborted.")
+                errors.append(target)
+                continue
 
-    click.echo(f"Removing worktree '{worktree_name}'...")
-    try:
-        remove_worktree_by_path(project_path, folder_name)
-        click.echo("Worktree removed successfully.")
-    except Exception as e:
-        raise click.ClickException(f"Error removing worktree: {e}")
+        click.echo(f"Removing worktree '{worktree_name}'...")
+        try:
+            remove_worktree_by_path(project_path, folder_name)
+            click.echo("Worktree removed successfully.")
+        except Exception as e:
+            click.echo(f"Error removing worktree '{worktree_name}': {e}", err=True)
+            errors.append(target)
+
+    if errors:
+        raise SystemExit(1)
 
 
 # Register alias for remove
@@ -633,9 +646,9 @@ def cmd_sync(target):
 
 
 @cli.command("close")
-@click.argument("target", required=False, default=None)
-def cmd_close(target):
-    """Close a worktree (sync, verify clean, checkout main).
+@click.argument("targets", nargs=-1)
+def cmd_close(targets):
+    """Close one or more worktrees (sync, verify clean, checkout main).
 
     Closes a worktree by:
     1. Syncing against origin/main (rebase)
@@ -646,47 +659,63 @@ def cmd_close(target):
     The worktree folder, NATO name, and .env file are preserved.
     The worktree can later be recycled with 'mael add <branch>'.
     """
-    try:
-        ctx = resolve_context(
-            target,
-            require_project=True,
-            require_worktree=True,
-        )
-    except ValueError as e:
-        raise click.ClickException(str(e))
+    # If no targets given, use cwd detection (original behavior)
+    if not targets:
+        targets = (None,)
 
-    worktree_path = ctx.worktree_path
+    errors = []
+    for target in targets:
+        try:
+            ctx = resolve_context(
+                target,
+                require_project=True,
+                require_worktree=True,
+            )
+        except ValueError as e:
+            click.echo(f"Error ({target}): {e}", err=True)
+            errors.append(target)
+            continue
 
-    if not worktree_path.exists():
-        raise click.ClickException(f"Worktree not found at {worktree_path}")
+        worktree_path = ctx.worktree_path
 
-    click.echo(f"Closing worktree '{ctx.worktree}'...")
-    result = close_worktree(worktree_path)
+        if not worktree_path.exists():
+            click.echo(f"Error: Worktree not found at {worktree_path}", err=True)
+            errors.append(target)
+            continue
 
-    if result.success:
-        click.echo(result.message)
-        return
+        click.echo(f"Closing worktree '{ctx.worktree}'...")
+        result = close_worktree(worktree_path)
 
-    # Handle specific failure cases
-    if result.had_dirty_files:
-        click.echo("Error: Worktree has uncommitted changes.", err=True)
-        click.echo()
-        click.echo("Please commit or stash your changes before closing:")
-        click.echo("  git status          # See uncommitted changes")
-        click.echo("  git add . && git commit -m 'message'")
-        click.echo("  # OR")
-        click.echo("  git stash           # Temporarily stash changes")
+        if result.success:
+            click.echo(result.message)
+            continue
+
+        # Handle specific failure cases
+        if result.had_dirty_files:
+            click.echo(f"Error: Worktree '{ctx.worktree}' has uncommitted changes.", err=True)
+            click.echo()
+            click.echo("Please commit or stash your changes before closing:")
+            click.echo("  git status          # See uncommitted changes")
+            click.echo("  git add . && git commit -m 'message'")
+            click.echo("  # OR")
+            click.echo("  git stash           # Temporarily stash changes")
+            errors.append(target)
+            continue
+
+        if result.had_unpushed_commits:
+            click.echo(f"Error: Worktree '{ctx.worktree}' has commits not merged to main.", err=True)
+            click.echo()
+            click.echo("Please push your changes and merge the PR before closing:")
+            click.echo("  git push origin <branch>")
+            click.echo("  # Then create/merge a PR")
+            errors.append(target)
+            continue
+
+        click.echo(f"Error closing '{ctx.worktree}': {result.message}", err=True)
+        errors.append(target)
+
+    if errors:
         raise SystemExit(1)
-
-    if result.had_unpushed_commits:
-        click.echo("Error: Worktree has commits not merged to main.", err=True)
-        click.echo()
-        click.echo("Please push your changes and merge the PR before closing:")
-        click.echo("  git push origin <branch>")
-        click.echo("  # Then create/merge a PR")
-        raise SystemExit(1)
-
-    raise click.ClickException(result.message)
 
 
 @cli.command("sync-all")

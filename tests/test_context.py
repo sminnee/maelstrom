@@ -185,6 +185,25 @@ class TestParseTargetArg:
             parse_target_arg("project.")
 
 
+class TestParseTargetArgShortcodes:
+    """Tests for shortcode resolution in parse_target_arg."""
+
+    def test_single_letter_resolves_to_nato_name(self):
+        """Test that a single letter is resolved to full NATO name."""
+        assert parse_target_arg("a") == ("alpha", None)
+        assert parse_target_arg("b") == ("bravo", None)
+        assert parse_target_arg("z") == ("zulu", None)
+
+    def test_dotted_shortcode_resolves_worktree(self):
+        """Test that proj.a resolves to proj.alpha."""
+        assert parse_target_arg("proj.a") == ("proj", "alpha")
+        assert parse_target_arg("proj.b") == ("proj", "bravo")
+
+    def test_full_names_still_work(self):
+        """Test that full NATO names still work in dotted format."""
+        assert parse_target_arg("proj.alpha") == ("proj", "alpha")
+
+
 class TestDetectContextFromCwd:
     """Tests for detect_context_from_cwd function."""
 
@@ -416,4 +435,28 @@ class TestResolveContext:
         # should treat it as a worktree name (existing behavior)
         ctx = resolve_context("alpha", cwd=project_a, arg_is_project=False)
         assert ctx.project == "project-a"
+        assert ctx.worktree == "alpha"
+
+    def test_shortcode_resolves_to_worktree_in_project(self, tmp_path, monkeypatch):
+        """Test that shortcode 'b' resolves to worktree 'bravo' when in project dir."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        projects_dir = tmp_path / "Projects"
+        project_dir = projects_dir / "myproject"
+        project_dir.mkdir(parents=True)
+
+        config_file = tmp_path / ".maelstrom.yaml"
+        config_file.write_text(f"projects_dir: {projects_dir}")
+
+        ctx = resolve_context("b", cwd=project_dir)
+        assert ctx.project == "myproject"
+        assert ctx.worktree == "bravo"
+
+    def test_dotted_shortcode_resolves(self, tmp_path, monkeypatch):
+        """Test that 'proj.a' resolves to project=proj, worktree=alpha."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        config_file = tmp_path / ".maelstrom.yaml"
+        config_file.write_text(f"projects_dir: {tmp_path}/Projects")
+
+        ctx = resolve_context("myproject.a")
+        assert ctx.project == "myproject"
         assert ctx.worktree == "alpha"
