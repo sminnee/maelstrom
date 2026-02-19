@@ -13,6 +13,7 @@ from maelstrom.worktree import (
     CLAUDE_HEADER_STARTS,
     MAIN_BRANCH,
     WORKTREE_NAMES,
+    WORKTREE_SHORTCODES,
     WorktreeInfo,
     close_worktree,
     create_worktree,
@@ -29,6 +30,7 @@ from maelstrom.worktree import (
     recycle_worktree,
     remove_worktree,
     remove_worktree_by_path,
+    resolve_worktree_shortcode,
     sanitize_branch_name,
     substitute_env_vars,
     update_claude_md,
@@ -83,6 +85,44 @@ class TestWorktreeFolderNaming:
         # Project name has dashes, folder should still work correctly
         assert extract_worktree_name_from_folder("ask-astro", "ask-astro-alpha") == "alpha"
         assert extract_worktree_name_from_folder("ask-astro", "ask-astro-bravo") == "bravo"
+
+
+class TestWorktreeShortcodes:
+    """Tests for worktree shortcode mapping and resolution."""
+
+    def test_shortcodes_has_26_entries(self):
+        """Test that WORKTREE_SHORTCODES has all 26 letters."""
+        assert len(WORKTREE_SHORTCODES) == 26
+
+    def test_shortcodes_map_correctly(self):
+        """Test specific shortcode mappings."""
+        assert WORKTREE_SHORTCODES["a"] == "alpha"
+        assert WORKTREE_SHORTCODES["b"] == "bravo"
+        assert WORKTREE_SHORTCODES["z"] == "zulu"
+
+    def test_all_first_letters_unique(self):
+        """Test that all NATO names have unique first letters."""
+        first_letters = [name[0] for name in WORKTREE_NAMES]
+        assert len(first_letters) == len(set(first_letters))
+
+    def test_resolve_single_letter(self):
+        """Test resolving single-letter shortcodes."""
+        assert resolve_worktree_shortcode("a") == "alpha"
+        assert resolve_worktree_shortcode("b") == "bravo"
+        assert resolve_worktree_shortcode("d") == "delta"
+        assert resolve_worktree_shortcode("z") == "zulu"
+
+    def test_resolve_full_name_passthrough(self):
+        """Test that full NATO names pass through unchanged."""
+        assert resolve_worktree_shortcode("alpha") == "alpha"
+        assert resolve_worktree_shortcode("bravo") == "bravo"
+        assert resolve_worktree_shortcode("zulu") == "zulu"
+
+    def test_resolve_unknown_string_passthrough(self):
+        """Test that unknown strings pass through unchanged."""
+        assert resolve_worktree_shortcode("feature-branch") == "feature-branch"
+        assert resolve_worktree_shortcode("main") == "main"
+        assert resolve_worktree_shortcode("") == ""
 
 
 class TestExtractProjectName:

@@ -17,6 +17,23 @@ WORKTREE_NAMES = [
     "xray", "yankee", "zulu",
 ]
 
+# Single-letter shortcodes for worktree names (all 26 first letters are unique)
+WORKTREE_SHORTCODES = {name[0]: name for name in WORKTREE_NAMES}
+
+
+def resolve_worktree_shortcode(name: str) -> str:
+    """Resolve a single-letter shortcode to its full NATO worktree name.
+
+    Args:
+        name: A worktree name or single-letter shortcode.
+
+    Returns:
+        The full NATO name if input is a single letter, otherwise the input unchanged.
+    """
+    if len(name) == 1 and name in WORKTREE_SHORTCODES:
+        return WORKTREE_SHORTCODES[name]
+    return name
+
 # Files managed by maelstrom that should be ignored when checking for dirty files
 MAELSTROM_MANAGED_FILES = {".env"}
 

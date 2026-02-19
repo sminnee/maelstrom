@@ -142,10 +142,17 @@ def parse_target_arg(arg: str | None) -> tuple[str | None, str | None]:
             )
 
         validate_project_name(project)
+
+        # Resolve single-letter shortcodes (e.g., "proj.a" -> "proj.alpha")
+        from .worktree import resolve_worktree_shortcode
+        worktree = resolve_worktree_shortcode(worktree)
+
         return (project, worktree)
 
     # No dot - this is just a project or worktree name (determined by context)
-    return (arg, None)
+    # Resolve single-letter shortcodes (e.g., "a" -> "alpha")
+    from .worktree import resolve_worktree_shortcode
+    return (resolve_worktree_shortcode(arg), None)
 
 
 def detect_context_from_cwd(
