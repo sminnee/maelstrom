@@ -31,6 +31,7 @@ from maelstrom.worktree import (
     remove_worktree,
     remove_worktree_by_path,
     resolve_worktree_shortcode,
+    run_install_cmd,
     sanitize_branch_name,
     substitute_env_vars,
     update_claude_md,
@@ -451,8 +452,8 @@ class TestWorktreeIntegration:
         with pytest.raises(RuntimeError, match="No worktree found for branch"):
             remove_worktree(git_repo, "nonexistent-branch")
 
-    def test_create_worktree_runs_install_cmd(self, git_repo):
-        """Test that install_cmd is run after worktree creation."""
+    def test_run_install_cmd(self, git_repo):
+        """Test that run_install_cmd runs the configured install command."""
         # Create .maelstrom.yaml with install_cmd
         config_file = git_repo / ".maelstrom.yaml"
         config_file.write_text("install_cmd: touch .installed\n")
@@ -468,6 +469,9 @@ class TestWorktreeIntegration:
 
         # Create worktree
         worktree_path = create_worktree(git_repo, "feature/install-test")
+
+        # Run install command (now a separate step from create_worktree)
+        run_install_cmd(worktree_path)
 
         # Verify install_cmd was run
         installed_marker = worktree_path / ".installed"

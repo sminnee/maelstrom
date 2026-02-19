@@ -873,11 +873,14 @@ def _finalize_worktree(project_path: Path, worktree_path: Path, worktree_name: s
     if existing_env or generated_vars:
         write_env_file(worktree_path, generated_vars, existing_env)
 
-    # Run install command if configured
+    return worktree_path
+
+
+def run_install_cmd(worktree_path: Path) -> None:
+    """Run the project's install command if configured."""
+    config = load_config_or_default(worktree_path)
     if config.install_cmd:
         run_cmd(["sh", "-c", config.install_cmd], cwd=worktree_path, stream=True)
-
-    return worktree_path
 
 
 def create_worktree(project_path: Path, branch: str, *, detached: bool = False) -> Path:

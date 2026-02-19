@@ -41,6 +41,7 @@ from .worktree import (
     recycle_worktree,
     remove_worktree_by_path,
     run_git,
+    run_install_cmd,
     sync_worktree,
     tidy_branches,
     update_claude_md,
@@ -317,6 +318,9 @@ def cmd_add(branch, project, no_open, no_recycle):
         for line in env_file.read_text().strip().split("\n"):
             click.echo(f"  {line}")
 
+    # Run install command if configured
+    run_install_cmd(worktree_path)
+
     # Open the worktree unless --no-open was specified
     if not no_open:
         global_config = load_global_config()
@@ -581,6 +585,9 @@ def cmd_open(target):
 
     if not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
+
+    # Run install command if configured
+    run_install_cmd(worktree_path)
 
     global_config = load_global_config()
     try:
