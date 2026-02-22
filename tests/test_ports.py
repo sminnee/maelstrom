@@ -58,9 +58,9 @@ class TestAllocatePortBase:
 
         # Mock check_ports_free to return False for first few bases
         with patch("maelstrom.ports.check_ports_free") as mock_check:
-            mock_check.side_effect = lambda base, num: base >= 105
+            mock_check.side_effect = lambda base, num: base >= 305
             result = allocate_port_base(Path("/tmp"), num_ports=5)
-            assert result == 105
+            assert result == 305
 
     def test_no_available_ports(self):
         """Test that RuntimeError is raised when no ports available."""
@@ -77,27 +77,27 @@ class TestGeneratePortEnvVars:
     def test_generates_correct_vars(self):
         """Test that correct environment variables are generated."""
         port_names = ["FRONTEND", "SERVER", "DB"]
-        result = generate_port_env_vars(100, port_names)
+        result = generate_port_env_vars(300, port_names)
 
         assert result == {
-            "PORT_BASE": "100",
-            "FRONTEND_PORT": "1000",
-            "SERVER_PORT": "1001",
-            "DB_PORT": "1002",
+            "PORT_BASE": "300",
+            "FRONTEND_PORT": "3000",
+            "SERVER_PORT": "3001",
+            "DB_PORT": "3002",
         }
 
     def test_empty_port_names(self):
         """Test with empty port names list."""
-        result = generate_port_env_vars(100, [])
-        assert result == {"PORT_BASE": "100"}
+        result = generate_port_env_vars(300, [])
+        assert result == {"PORT_BASE": "300"}
 
     def test_different_port_base(self):
         """Test with a different port base."""
         port_names = ["WEB", "API"]
-        result = generate_port_env_vars(250, port_names)
+        result = generate_port_env_vars(350, port_names)
 
         assert result == {
-            "PORT_BASE": "250",
-            "WEB_PORT": "2500",
-            "API_PORT": "2501",
+            "PORT_BASE": "350",
+            "WEB_PORT": "3500",
+            "API_PORT": "3501",
         }
