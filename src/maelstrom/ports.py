@@ -21,7 +21,7 @@ def check_ports_free(port_base: int, num_ports: int = 10) -> bool:
     """Check if all ports in the range are free.
 
     Args:
-        port_base: The 3-digit base (100-999). Ports will be port_base * 10 + suffix.
+        port_base: The 3-digit base (300-999). Ports will be port_base * 10 + suffix.
         num_ports: Number of ports to check (default 10, for suffixes 0-9).
 
     Returns:
@@ -42,15 +42,15 @@ def allocate_port_base(project_path: Path, num_ports: int = 10) -> int:
         num_ports: Number of ports needed per worktree (default 10).
 
     Returns:
-        The first available PORT_BASE (100-999).
+        The first available PORT_BASE (300-999).
 
     Raises:
         RuntimeError: If no available port ranges are found.
     """
-    for base in range(100, 1000):
+    for base in range(300, 1000):
         if check_ports_free(base, num_ports):
             return base
-    raise RuntimeError("No available port ranges found (checked PORT_BASE 100-999)")
+    raise RuntimeError("No available port ranges found (checked PORT_BASE 300-999)")
 
 
 def generate_port_env_vars(port_base: int, port_names: list[str]) -> dict[str, str]:
