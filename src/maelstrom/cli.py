@@ -7,6 +7,7 @@ import click
 
 from . import __version__
 from .context import load_global_config, resolve_context
+from .ports import get_app_url
 from .github import (
     create_pr,
     download_artifact,
@@ -455,18 +456,27 @@ def cmd_list(project):
         # IDE session indicator
         ide_display = "Y" if active_sessions.get(wt.path, 0) > 0 else ""
 
-        # Extract worktree name from folder for display (e.g., "myproject-alpha" -> "alpha")
+        # App URL with running status
         display_name = extract_worktree_name_from_folder(ctx.project, wt.path.name) or wt.path.name
+        app_display = ""
+        if not closed:
+            app_info = get_app_url(project_path, display_name)
+            if app_info:
+                url, is_running = app_info
+                port = url.split(":")[-1]
+                app_display = url if is_running else f"*{port}"
+
         rows.append({
             "WORKTREE": display_name,
             "BRANCH": branch_display,
             "DIRTY FILES": dirty_display,
             "LOCAL COMMITS": local_display,
             "PR (COMMITS)": pr_display,
+            "APP": app_display,
             "IDE": ide_display,
         })
 
-    draw_table(rows, ["WORKTREE", "BRANCH", "DIRTY FILES", "LOCAL COMMITS", "PR (COMMITS)", "IDE"])
+    draw_table(rows, ["WORKTREE", "BRANCH", "DIRTY FILES", "LOCAL COMMITS", "PR (COMMITS)", "APP", "IDE"])
 
 
 @cli.command("list-all")
@@ -531,6 +541,19 @@ def cmd_list_all():
 
             display_name = extract_worktree_name_from_folder(project_name, wt.path.name) or wt.path.name
 
+            # App URL with running status
+            app_display = ""
+            app_url = None
+            app_running = False
+            if not closed:
+                app_info = get_app_url(project_path, display_name)
+                if app_info:
+                    url, is_running = app_info
+                    app_url = url
+                    app_running = is_running
+                    port = url.split(":")[-1]
+                    app_display = url if is_running else f"*{port}"
+
             worktree_data.append({
                 "name": display_name,
                 "folder": wt.path.name,
@@ -542,6 +565,8 @@ def cmd_list_all():
                 "pr_number": pr_num,
                 "pr_commits": pr_commits,
                 "pushed_commits": pushed_commits,
+                "app_url": app_url,
+                "app_running": app_running,
                 "ide_active": ide_active,
             })
 
@@ -552,6 +577,7 @@ def cmd_list_all():
                 "DIRTY FILES": dirty_display,
                 "LOCAL COMMITS": local_display,
                 "PR (COMMITS)": pr_display,
+                "APP": app_display,
                 "IDE": ide_display,
             })
 
@@ -570,7 +596,7 @@ def cmd_list_all():
         click.echo("No worktrees found.")
         return
 
-    draw_table(rows, ["PROJECT", "WORKTREE", "BRANCH", "DIRTY FILES", "LOCAL COMMITS", "PR (COMMITS)", "IDE"])
+    draw_table(rows, ["PROJECT", "WORKTREE", "BRANCH", "DIRTY FILES", "LOCAL COMMITS", "PR (COMMITS)", "APP", "IDE"])
 
 
 @cli.command("open")

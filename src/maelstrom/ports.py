@@ -135,6 +135,26 @@ def allocate_port_base(project_path: Path, num_ports: int = 10) -> int:
     raise RuntimeError("No available port ranges found (checked PORT_BASE 300-999)")
 
 
+def get_app_url(project_path: Path, worktree_name: str) -> tuple[str, bool] | None:
+    """Get the app URL and running status for a worktree.
+
+    Args:
+        project_path: Path to the project.
+        worktree_name: Name of the worktree (e.g., "alpha").
+
+    Returns:
+        Tuple of (url, is_running) e.g. ("http://localhost:3010", True),
+        or None if no port allocation exists.
+    """
+    port_base = get_port_allocation(project_path, worktree_name)
+    if port_base is None:
+        return None
+    port = port_base * 10
+    url = f"http://localhost:{port}"
+    is_running = not is_port_free(port)
+    return (url, is_running)
+
+
 def generate_port_env_vars(port_base: int, port_names: list[str]) -> dict[str, str]:
     """Generate environment variables for port assignments.
 
