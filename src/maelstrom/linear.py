@@ -53,7 +53,7 @@ def get_linear_api_key() -> str:
     Checks in order:
     1. LINEAR_API_KEY environment variable
     2. LINEAR_API_KEY in .env file
-    3. linear.api_key in ~/.maelstrom.yaml
+    3. linear.api_key in ~/.maelstrom/config.yaml
 
     Raises:
         click.ClickException: If the key is not found.
@@ -83,7 +83,7 @@ def get_linear_api_key() -> str:
         "LINEAR_API_KEY not found. Set it via:\n"
         "  - Environment variable: export LINEAR_API_KEY=lin_api_xxx\n"
         "  - Project .env file: LINEAR_API_KEY=lin_api_xxx\n"
-        "  - Global config ~/.maelstrom.yaml:\n"
+        "  - Global config ~/.maelstrom/config.yaml:\n"
         "      linear:\n"
         "        api_key: lin_api_xxx"
     )

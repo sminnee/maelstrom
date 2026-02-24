@@ -27,6 +27,7 @@ from maelstrom.worktree import (
     list_worktrees,
     open_worktree,
     read_env_file,
+    reclaim_or_allocate_ports,
     recycle_worktree,
     remove_worktree,
     remove_worktree_by_path,
@@ -36,6 +37,11 @@ from maelstrom.worktree import (
     substitute_env_vars,
     update_claude_md,
     write_env_file,
+)
+from maelstrom.ports import (
+    get_port_allocation,
+    load_port_allocations,
+    record_port_allocation,
 )
 
 
@@ -956,3 +962,249 @@ More content after.
         content = claude_md.read_text()
         assert "# Maelstrom Workflow" in content
         assert "More content after." in content  # Content after marker preserved
+
+
+class TestReclaimOrAllocatePorts:
+    """Tests for reclaim_or_allocate_ports function."""
+
+    def test_reclaims_old_ports_when_available(self, tmp_path, monkeypatch):
+        """Test that old ports from .env are reclaimed if not allocated elsewhere."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        project_path = tmp_path / "Projects" / "myproject"
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir(parents=True)
+
+        # Create a .maelstrom.yaml with port_names
+        config_file = worktree_path / ".maelstrom.yaml"
+        config_file.write_text("port_names:\n  - WEB\n  - API\n")
+
+        # Create an existing .env with an old PORT_BASE
+        env_file = worktree_path / ".env"
+        env_file.write_text("PORT_BASE=350\nWEB_PORT=3500\nAPI_PORT=3501\nWORKTREE=alpha\n")
+
+        # Reclaim ports - should succeed since 350 is not allocated
+        reclaim_or_allocate_ports(project_path, worktree_path, "alpha")
+
+        # Verify the old port_base was recorded
+        assert get_port_allocation(project_path, "alpha") == 350
+
+    def test_allocates_new_ports_when_old_taken(self, tmp_path, monkeypatch):
+        """Test that new ports are allocated when old ones are taken by another worktree."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        project_path = tmp_path / "Projects" / "myproject"
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir(parents=True)
+
+        # Create a .maelstrom.yaml with port_names
+        config_file = worktree_path / ".maelstrom.yaml"
+        config_file.write_text("port_names:\n  - WEB\n  - API\n")
+
+        # Create an existing .env with PORT_BASE=350
+        env_file = worktree_path / ".env"
+        env_file.write_text("PORT_BASE=350\nWEB_PORT=3500\nAPI_PORT=3501\nWORKTREE=alpha\n")
+
+        # Allocate 350 to bravo (making it unavailable for alpha)
+        record_port_allocation(project_path, "bravo", 350)
+
+        # Mock socket checking so we get a predictable result
+        with patch("maelstrom.ports.check_ports_free", return_value=True):
+            reclaim_or_allocate_ports(project_path, worktree_path, "alpha")
+
+        # Alpha should have gotten a new port_base (not 350)
+        allocation = get_port_allocation(project_path, "alpha")
+        assert allocation is not None
+        assert allocation != 350
+
+        # The .env should have been regenerated with new ports
+        new_env = read_env_file(worktree_path)
+        assert new_env["PORT_BASE"] != "350"
+
+    def test_allocates_when_no_env_file(self, tmp_path, monkeypatch):
+        """Test that ports are allocated fresh when no .env exists."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        project_path = tmp_path / "Projects" / "myproject"
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir(parents=True)
+
+        # Create a .maelstrom.yaml with port_names
+        config_file = worktree_path / ".maelstrom.yaml"
+        config_file.write_text("port_names:\n  - WEB\n  - API\n")
+
+        # No .env file exists
+
+        with patch("maelstrom.ports.check_ports_free", return_value=True):
+            reclaim_or_allocate_ports(project_path, worktree_path, "alpha")
+
+        # Should have allocated new ports
+        allocation = get_port_allocation(project_path, "alpha")
+        assert allocation is not None
+
+        # .env should have been created
+        new_env = read_env_file(worktree_path)
+        assert "PORT_BASE" in new_env
+
+    def test_noop_when_no_port_names_configured(self, tmp_path, monkeypatch):
+        """Test that nothing happens when port_names is not configured."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        project_path = tmp_path / "Projects" / "myproject"
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir(parents=True)
+
+        # Config without port_names
+        config_file = worktree_path / ".maelstrom.yaml"
+        config_file.write_text("start_cmd: npm start\n")
+
+        reclaim_or_allocate_ports(project_path, worktree_path, "alpha")
+
+        # No allocation should have been made
+        assert get_port_allocation(project_path, "alpha") is None
+
+
+class TestPortAllocationLifecycle:
+    """Tests for port allocation integration with worktree lifecycle."""
+
+    @pytest.fixture
+    def git_repo_with_remote(self, tmp_path, monkeypatch):
+        """Create a bare git repository with ports configured."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        # Create a "remote" bare repository with initial content
+        remote_path = tmp_path / "remote.git"
+        source_path = tmp_path / "source"
+        source_path.mkdir()
+
+        # Initialize source repo with a commit
+        subprocess.run(["git", "init"], cwd=source_path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@test.com"],
+            cwd=source_path, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"],
+            cwd=source_path, check=True, capture_output=True
+        )
+
+        # Create .maelstrom.yaml with port_names
+        (source_path / ".maelstrom.yaml").write_text(
+            "port_names:\n  - WEB\n  - API\n"
+        )
+        (source_path / "README.md").write_text("# Test")
+        subprocess.run(["git", "add", "."], cwd=source_path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "Initial commit"],
+            cwd=source_path, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "branch", "-M", "main"],
+            cwd=source_path, check=True, capture_output=True
+        )
+
+        # Clone as bare to create the remote
+        subprocess.run(
+            ["git", "clone", "--bare", str(source_path), str(remote_path)],
+            check=True, capture_output=True
+        )
+
+        # Create project directory with bare clone structure
+        project_path = tmp_path / "Projects" / "test-repo"
+        project_path.mkdir(parents=True)
+
+        git_dir = project_path / ".git"
+        subprocess.run(
+            ["git", "clone", "--bare", str(remote_path), str(git_dir)],
+            check=True, capture_output=True
+        )
+
+        subprocess.run(
+            ["git", "config", "core.bare", "false"],
+            cwd=project_path, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
+            cwd=project_path, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "test@test.com"],
+            cwd=project_path, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"],
+            cwd=project_path, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "fetch", "origin"],
+            cwd=project_path, check=True, capture_output=True
+        )
+
+        return project_path
+
+    def test_create_records_allocation(self, git_repo_with_remote):
+        """Test that creating a worktree records a port allocation."""
+        with patch("maelstrom.ports.check_ports_free", return_value=True):
+            worktree_path = create_worktree(git_repo_with_remote, "feature/test")
+
+        # Verify allocation was recorded
+        allocation = get_port_allocation(git_repo_with_remote, "alpha")
+        assert allocation is not None
+        assert 300 <= allocation <= 999
+
+        # Verify .env has matching PORT_BASE
+        env = read_env_file(worktree_path)
+        assert env["PORT_BASE"] == str(allocation)
+
+        # Cleanup
+        remove_worktree(git_repo_with_remote, "feature/test")
+
+    def test_remove_frees_allocation(self, git_repo_with_remote):
+        """Test that removing a worktree frees its port allocation."""
+        with patch("maelstrom.ports.check_ports_free", return_value=True):
+            create_worktree(git_repo_with_remote, "feature/test")
+
+        # Verify allocation exists
+        assert get_port_allocation(git_repo_with_remote, "alpha") is not None
+
+        # Remove worktree
+        remove_worktree(git_repo_with_remote, "feature/test")
+
+        # Allocation should be freed
+        assert get_port_allocation(git_repo_with_remote, "alpha") is None
+
+    def test_close_frees_allocation(self, git_repo_with_remote):
+        """Test that closing a worktree frees its port allocation."""
+        with patch("maelstrom.ports.check_ports_free", return_value=True):
+            worktree_path = create_worktree(git_repo_with_remote, "feature/test")
+
+        # Verify allocation exists
+        assert get_port_allocation(git_repo_with_remote, "alpha") is not None
+
+        # Close worktree
+        result = close_worktree(worktree_path)
+        assert result.success is True
+
+        # Allocation should be freed
+        assert get_port_allocation(git_repo_with_remote, "alpha") is None
+
+        # Cleanup
+        remove_worktree_by_path(git_repo_with_remote, worktree_path.name)
+
+    def test_create_avoids_allocated_ports(self, git_repo_with_remote):
+        """Test that creating worktrees avoids already-allocated port bases."""
+        with patch("maelstrom.ports.check_ports_free", return_value=True):
+            path1 = create_worktree(git_repo_with_remote, "feature/one")
+            path2 = create_worktree(git_repo_with_remote, "feature/two")
+
+        alloc1 = get_port_allocation(git_repo_with_remote, "alpha")
+        alloc2 = get_port_allocation(git_repo_with_remote, "bravo")
+
+        # Port bases should be different
+        assert alloc1 != alloc2
+        assert alloc1 is not None
+        assert alloc2 is not None
+
+        # Cleanup
+        remove_worktree(git_repo_with_remote, "feature/two")
+        remove_worktree(git_repo_with_remote, "feature/one")
