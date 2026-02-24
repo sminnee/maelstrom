@@ -11,6 +11,7 @@ from maelstrom.ports import (
     check_ports_free,
     generate_port_env_vars,
     get_allocated_port_bases,
+    get_app_url,
     get_port_allocation,
     is_port_free,
     load_port_allocations,
@@ -294,3 +295,47 @@ class TestPortAllocations:
         save_port_allocations(data)
         loaded = load_port_allocations()
         assert loaded == data
+
+
+class TestGetAppUrl:
+    """Tests for get_app_url function."""
+
+    def test_no_allocation(self, tmp_path, monkeypatch):
+        """Test that None is returned when no port allocation exists."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+
+        assert get_app_url(project_path, "alpha") is None
+
+    def test_with_allocation_port_free(self, tmp_path, monkeypatch):
+        """Test URL returned with is_running=False when port is free."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+
+        record_port_allocation(project_path, "alpha", 300)
+
+        with patch("maelstrom.ports.is_port_free", return_value=True):
+            result = get_app_url(project_path, "alpha")
+
+        assert result is not None
+        url, is_running = result
+        assert url == "http://localhost:3000"
+        assert is_running is False
+
+    def test_with_allocation_port_in_use(self, tmp_path, monkeypatch):
+        """Test URL returned with is_running=True when port is in use."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+
+        record_port_allocation(project_path, "bravo", 599)
+
+        with patch("maelstrom.ports.is_port_free", return_value=False):
+            result = get_app_url(project_path, "bravo")
+
+        assert result is not None
+        url, is_running = result
+        assert url == "http://localhost:5990"
+        assert is_running is True
