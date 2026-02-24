@@ -326,14 +326,13 @@ class TidyBranchResult:
 
 
 def is_worktree_closed(worktree_info: WorktreeInfo) -> bool:
-    """Check if a worktree is in 'closed' state (detached at origin/main, clean).
+    """Check if a worktree is in 'closed' state (detached, clean, at or behind origin/main).
 
     A closed worktree is available for recycling when creating a new worktree.
     A worktree is considered closed if:
     - It is in detached HEAD state (no branch checked out)
     - It has no dirty files
-    - It has no commits ahead of origin/main
-    - Its HEAD points to the same commit as origin/main
+    - It has no commits ahead of origin/main (HEAD is at or behind origin/main)
 
     Args:
         worktree_info: WorktreeInfo for the worktree.
@@ -349,27 +348,6 @@ def is_worktree_closed(worktree_info: WorktreeInfo) -> bool:
         return False
 
     if get_commits_ahead(worktree_info.path) > 0:
-        return False
-
-    # Check if HEAD matches origin/main
-    try:
-        head_result = run_cmd(
-            ["git", "rev-parse", "HEAD"],
-            cwd=worktree_info.path,
-            quiet=True,
-            check=False,
-        )
-        main_result = run_cmd(
-            ["git", "rev-parse", f"origin/{MAIN_BRANCH}"],
-            cwd=worktree_info.path,
-            quiet=True,
-            check=False,
-        )
-        if head_result.returncode != 0 or main_result.returncode != 0:
-            return False
-        if head_result.stdout.strip() != main_result.stdout.strip():
-            return False
-    except Exception:
         return False
 
     return True
@@ -618,8 +596,8 @@ def recycle_worktree(worktree_path: Path, branch: str) -> Path:
             # Switch to existing local branch
             run_git(["checkout", branch], cwd=worktree_path)
         else:
-            # Create new branch from current position (main)
-            run_git(["checkout", "-b", branch], cwd=worktree_path)
+            # Create new branch from origin/main (HEAD may be behind if recycled)
+            run_git(["checkout", "-b", branch, f"origin/{MAIN_BRANCH}"], cwd=worktree_path)
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to switch to branch {branch}: {e.stderr}")
 

@@ -523,19 +523,12 @@ class TestIsWorktreeClosed:
     """Tests for is_worktree_closed function."""
 
     def test_returns_true_when_detached_at_origin_main(self):
-        """Test returns True for detached worktree synced to origin/main."""
+        """Test returns True for detached worktree at origin/main."""
         # branch="" means detached HEAD
         wt = WorktreeInfo(path=Path("/fake"), branch="", commit="abc123")
         with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]):
             with patch("maelstrom.worktree.get_commits_ahead", return_value=0):
-                # Mock run_cmd to return matching SHAs for HEAD and origin/main
-                def mock_run_cmd(cmd, **kwargs):
-                    class Result:
-                        returncode = 0
-                        stdout = "abc123\n"
-                    return Result()
-                with patch("maelstrom.worktree.run_cmd", mock_run_cmd):
-                    assert is_worktree_closed(wt) is True
+                assert is_worktree_closed(wt) is True
 
     def test_returns_false_when_on_branch(self):
         """Test returns False for worktree on a branch (not detached)."""
@@ -543,22 +536,13 @@ class TestIsWorktreeClosed:
         # Should return False immediately because it's on a branch
         assert is_worktree_closed(wt) is False
 
-    def test_returns_false_when_head_differs_from_origin_main(self):
-        """Test returns False when HEAD doesn't match origin/main."""
+    def test_returns_true_when_behind_origin_main(self):
+        """Test returns True when HEAD is behind origin/main (closed but stale)."""
         # branch="" means detached HEAD
         wt = WorktreeInfo(path=Path("/fake"), branch="", commit="abc123")
         with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]):
             with patch("maelstrom.worktree.get_commits_ahead", return_value=0):
-                # Mock run_cmd to return different SHAs
-                call_count = [0]
-                def mock_run_cmd(cmd, **kwargs):
-                    call_count[0] += 1
-                    class Result:
-                        returncode = 0
-                        stdout = "abc123\n" if call_count[0] == 1 else "def456\n"
-                    return Result()
-                with patch("maelstrom.worktree.run_cmd", mock_run_cmd):
-                    assert is_worktree_closed(wt) is False
+                assert is_worktree_closed(wt) is True
 
     def test_returns_false_for_dirty_worktree(self):
         """Test returns False for worktree with uncommitted changes."""
