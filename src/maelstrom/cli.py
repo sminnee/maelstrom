@@ -38,6 +38,7 @@ from .worktree import (
     is_worktree_closed,
     list_worktrees,
     open_worktree,
+    reclaim_or_allocate_ports,
     recycle_worktree,
     remove_worktree_by_path,
     run_git,
@@ -214,7 +215,7 @@ def cmd_ui():
 
 @cli.command("add-project")
 @click.argument("git_url")
-@click.option("--projects-dir", help="Base directory for projects (default from ~/.maelstrom.yaml or ~/Projects)")
+@click.option("--projects-dir", help="Base directory for projects (default from ~/.maelstrom/config.yaml or ~/Projects)")
 def cmd_add_project(git_url, projects_dir):
     """Clone a git repository for use with maelstrom."""
     # Use explicit --projects-dir or fall back to global config
@@ -290,6 +291,10 @@ def cmd_add(branch, project, no_open, no_recycle):
             try:
                 worktree_path = recycle_worktree(closed_wt.path, branch)
                 recycled = True
+                # Reclaim old port allocation or allocate new ports
+                wt_name = extract_worktree_name_from_folder(ctx.project, closed_wt.path.name)
+                if wt_name:
+                    reclaim_or_allocate_ports(project_path, worktree_path, wt_name)
             except Exception as e:
                 click.echo(f"Warning: Could not recycle worktree: {e}", err=True)
                 click.echo("Creating new worktree instead...")

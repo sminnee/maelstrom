@@ -1,6 +1,7 @@
 """Tests for maelstrom.ports module."""
 
 import socket
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -9,7 +10,13 @@ from maelstrom.ports import (
     allocate_port_base,
     check_ports_free,
     generate_port_env_vars,
+    get_allocated_port_bases,
+    get_port_allocation,
     is_port_free,
+    load_port_allocations,
+    record_port_allocation,
+    remove_port_allocation,
+    save_port_allocations,
 )
 
 
@@ -52,9 +59,9 @@ class TestCheckPortsFree:
 class TestAllocatePortBase:
     """Tests for allocate_port_base function."""
 
-    def test_finds_first_available(self):
+    def test_finds_first_available(self, tmp_path, monkeypatch):
         """Test that it finds the first available port base."""
-        from pathlib import Path
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         # Mock check_ports_free to return False for first few bases
         with patch("maelstrom.ports.check_ports_free") as mock_check:
@@ -62,13 +69,44 @@ class TestAllocatePortBase:
             result = allocate_port_base(Path("/tmp"), num_ports=5)
             assert result == 305
 
-    def test_no_available_ports(self):
+    def test_no_available_ports(self, tmp_path, monkeypatch):
         """Test that RuntimeError is raised when no ports available."""
-        from pathlib import Path
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         with patch("maelstrom.ports.check_ports_free", return_value=False):
             with pytest.raises(RuntimeError, match="No available port ranges"):
                 allocate_port_base(Path("/tmp"))
+
+    def test_skips_allocated_bases(self, tmp_path, monkeypatch):
+        """Test that allocate_port_base skips already-allocated bases."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+
+        # Allocate port base 300 to another worktree
+        record_port_allocation(project_path, "alpha", 300)
+
+        # Mock all sockets as free
+        with patch("maelstrom.ports.check_ports_free", return_value=True):
+            result = allocate_port_base(project_path, num_ports=5)
+            # Should skip 300 (allocated) and return 301
+            assert result == 301
+
+    def test_skips_multiple_allocated_bases(self, tmp_path, monkeypatch):
+        """Test that multiple allocated bases are all skipped."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+
+        record_port_allocation(project_path, "alpha", 300)
+        record_port_allocation(project_path, "bravo", 301)
+        record_port_allocation(project_path, "charlie", 302)
+
+        with patch("maelstrom.ports.check_ports_free", return_value=True):
+            result = allocate_port_base(project_path, num_ports=5)
+            assert result == 303
 
 
 class TestGeneratePortEnvVars:
@@ -101,3 +139,158 @@ class TestGeneratePortEnvVars:
             "WEB_PORT": "3500",
             "API_PORT": "3501",
         }
+
+
+class TestPortAllocations:
+    """Tests for persistent port allocation tracking."""
+
+    def test_load_empty_allocations(self, tmp_path, monkeypatch):
+        """Test loading when no file exists."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        allocations = load_port_allocations()
+        assert allocations == {}
+
+    def test_record_and_load(self, tmp_path, monkeypatch):
+        """Test recording and loading a port allocation."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+
+        record_port_allocation(project_path, "alpha", 300)
+
+        allocations = load_port_allocations()
+        project_key = str(project_path.resolve())
+        assert allocations[project_key]["alpha"] == 300
+
+    def test_record_multiple_worktrees(self, tmp_path, monkeypatch):
+        """Test recording allocations for multiple worktrees."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+
+        record_port_allocation(project_path, "alpha", 300)
+        record_port_allocation(project_path, "bravo", 301)
+
+        allocations = load_port_allocations()
+        project_key = str(project_path.resolve())
+        assert allocations[project_key]["alpha"] == 300
+        assert allocations[project_key]["bravo"] == 301
+
+    def test_record_across_projects(self, tmp_path, monkeypatch):
+        """Test recording allocations for different projects."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_a = tmp_path / "Projects" / "project-a"
+        project_b = tmp_path / "Projects" / "project-b"
+        project_a.mkdir(parents=True)
+        project_b.mkdir(parents=True)
+
+        record_port_allocation(project_a, "alpha", 300)
+        record_port_allocation(project_b, "alpha", 301)
+
+        allocations = load_port_allocations()
+        assert allocations[str(project_a.resolve())]["alpha"] == 300
+        assert allocations[str(project_b.resolve())]["alpha"] == 301
+
+    def test_remove_allocation(self, tmp_path, monkeypatch):
+        """Test removing a port allocation."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+
+        record_port_allocation(project_path, "alpha", 300)
+        remove_port_allocation(project_path, "alpha")
+
+        allocations = load_port_allocations()
+        project_key = str(project_path.resolve())
+        # Empty project entry should be cleaned up
+        assert project_key not in allocations
+
+    def test_remove_one_of_multiple(self, tmp_path, monkeypatch):
+        """Test removing one allocation leaves others intact."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+
+        record_port_allocation(project_path, "alpha", 300)
+        record_port_allocation(project_path, "bravo", 301)
+        remove_port_allocation(project_path, "alpha")
+
+        allocations = load_port_allocations()
+        project_key = str(project_path.resolve())
+        assert "alpha" not in allocations[project_key]
+        assert allocations[project_key]["bravo"] == 301
+
+    def test_remove_nonexistent_is_noop(self, tmp_path, monkeypatch):
+        """Test removing a nonexistent allocation does nothing."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+
+        # Should not raise
+        remove_port_allocation(project_path, "alpha")
+        assert load_port_allocations() == {}
+
+    def test_get_allocated_port_bases(self, tmp_path, monkeypatch):
+        """Test extracting all allocated port bases."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_a = tmp_path / "Projects" / "project-a"
+        project_b = tmp_path / "Projects" / "project-b"
+        project_a.mkdir(parents=True)
+        project_b.mkdir(parents=True)
+
+        record_port_allocation(project_a, "alpha", 300)
+        record_port_allocation(project_a, "bravo", 301)
+        record_port_allocation(project_b, "alpha", 305)
+
+        allocations = load_port_allocations()
+        bases = get_allocated_port_bases(allocations)
+        assert bases == {300, 301, 305}
+
+    def test_get_port_allocation_exists(self, tmp_path, monkeypatch):
+        """Test getting an existing allocation."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+
+        record_port_allocation(project_path, "alpha", 300)
+        assert get_port_allocation(project_path, "alpha") == 300
+
+    def test_get_port_allocation_missing(self, tmp_path, monkeypatch):
+        """Test getting a nonexistent allocation returns None."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+
+        assert get_port_allocation(project_path, "alpha") is None
+
+    def test_corrupt_json_returns_empty(self, tmp_path, monkeypatch):
+        """Test that corrupt JSON file returns empty dict."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        alloc_dir = tmp_path / ".maelstrom"
+        alloc_dir.mkdir()
+        alloc_file = alloc_dir / "port_allocations.json"
+        alloc_file.write_text("{invalid json}")
+
+        allocations = load_port_allocations()
+        assert allocations == {}
+
+    def test_creates_maelstrom_dir(self, tmp_path, monkeypatch):
+        """Test that saving creates ~/.maelstrom/ directory if needed."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        assert not (tmp_path / ".maelstrom").exists()
+
+        save_port_allocations({"test": {"alpha": 300}})
+
+        assert (tmp_path / ".maelstrom").exists()
+        assert (tmp_path / ".maelstrom" / "port_allocations.json").exists()
+
+    def test_save_and_load_roundtrip(self, tmp_path, monkeypatch):
+        """Test that save and load produce identical data."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        data = {
+            "/path/to/project-a": {"alpha": 300, "bravo": 301},
+            "/path/to/project-b": {"charlie": 400},
+        }
+        save_port_allocations(data)
+        loaded = load_port_allocations()
+        assert loaded == data

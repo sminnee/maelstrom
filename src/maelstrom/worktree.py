@@ -7,7 +7,14 @@ from pathlib import Path
 
 from .claude_integration import get_shared_dir
 from .config import load_config_or_default
-from .ports import allocate_port_base, generate_port_env_vars
+from .ports import (
+    allocate_port_base,
+    generate_port_env_vars,
+    get_allocated_port_bases,
+    load_port_allocations,
+    record_port_allocation,
+    remove_port_allocation,
+)
 
 # Fixed worktree names (NATO phonetic alphabet)
 WORKTREE_NAMES = [
@@ -551,6 +558,13 @@ def close_worktree(worktree_path: Path) -> CloseResult:
             message=f"Failed to detach at origin/{MAIN_BRANCH}: {e.stderr}",
         )
 
+    # Free the port allocation so the ports can be reused
+    project_path = worktree_path.parent
+    project_name = project_path.name
+    nato_name = extract_worktree_name_from_folder(project_name, worktree_path.name)
+    if nato_name:
+        remove_port_allocation(project_path, nato_name)
+
     return CloseResult(
         success=True,
         message=f"Worktree closed (detached at origin/{MAIN_BRANCH})",
@@ -868,12 +882,54 @@ def _finalize_worktree(project_path: Path, worktree_path: Path, worktree_name: s
     if config.port_names:
         port_base = allocate_port_base(project_path, len(config.port_names))
         generated_vars.update(generate_port_env_vars(port_base, config.port_names))
+        record_port_allocation(project_path, worktree_name, port_base)
 
     # Write .env if there's anything to write
     if existing_env or generated_vars:
         write_env_file(worktree_path, generated_vars, existing_env)
 
     return worktree_path
+
+
+def reclaim_or_allocate_ports(project_path: Path, worktree_path: Path, worktree_name: str) -> None:
+    """Reclaim existing port allocation for a recycled worktree, or allocate new ports.
+
+    When a closed worktree is recycled, this function tries to reclaim the old
+    PORT_BASE from its .env file. If those ports have been allocated to another
+    worktree, it allocates new ports and regenerates the .env file.
+
+    Args:
+        project_path: Path to the project root.
+        worktree_path: Path to the recycled worktree.
+        worktree_name: NATO name of the worktree.
+    """
+    config = load_config_or_default(worktree_path)
+    if not config.port_names:
+        return
+
+    # Read old PORT_BASE from the worktree's existing .env
+    existing_env = read_env_file(worktree_path)
+    old_port_base_str = existing_env.get("PORT_BASE")
+
+    if old_port_base_str is not None:
+        try:
+            old_port_base = int(old_port_base_str)
+        except ValueError:
+            old_port_base = None
+    else:
+        old_port_base = None
+
+    if old_port_base is not None:
+        # Check if the old port_base is still available (not allocated to another worktree)
+        allocations = load_port_allocations()
+        allocated_bases = get_allocated_port_bases(allocations)
+        if old_port_base not in allocated_bases:
+            # Reclaim the old ports
+            record_port_allocation(project_path, worktree_name, old_port_base)
+            return
+
+    # Old ports are taken or unavailable - allocate new ports and regenerate .env
+    _finalize_worktree(project_path, worktree_path, worktree_name)
 
 
 def run_install_cmd(worktree_path: Path) -> None:
@@ -1079,8 +1135,16 @@ def remove_worktree(project_path: Path, branch: str) -> None:
     if worktree_path is None:
         raise RuntimeError(f"No worktree found for branch: {branch}")
 
+    # Extract NATO name before removal for port deallocation
+    project_name = project_path.name
+    nato_name = extract_worktree_name_from_folder(project_name, worktree_path.name)
+
     # Remove the worktree using git (--force needed for maelstrom-managed files like .env)
     run_git(["worktree", "remove", "--force", str(worktree_path)], cwd=project_path)
+
+    # Free the port allocation
+    if nato_name:
+        remove_port_allocation(project_path, nato_name)
 
 
 def remove_worktree_by_path(project_path: Path, worktree_name: str) -> None:
@@ -1099,8 +1163,16 @@ def remove_worktree_by_path(project_path: Path, worktree_name: str) -> None:
     if not worktree_path.exists():
         raise RuntimeError(f"Worktree does not exist: {worktree_path}")
 
+    # Extract NATO name before removal for port deallocation
+    project_name = project_path.name
+    nato_name = extract_worktree_name_from_folder(project_name, worktree_name)
+
     # Remove the worktree using git (--force needed for maelstrom-managed files like .env)
     run_git(["worktree", "remove", "--force", str(worktree_path)], cwd=project_path)
+
+    # Free the port allocation
+    if nato_name:
+        remove_port_allocation(project_path, nato_name)
 
 
 def open_worktree(worktree_path: Path, command: str) -> None:

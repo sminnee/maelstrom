@@ -266,26 +266,55 @@ class TestLoadGlobalConfig:
     """Tests for load_global_config function."""
 
     def test_default_when_no_file(self, tmp_path, monkeypatch):
-        """Test default config when ~/.maelstrom.yaml doesn't exist."""
+        """Test default config when no config file exists."""
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         config = load_global_config()
         assert config.projects_dir == tmp_path / "Projects"
 
-    def test_loads_from_file(self, tmp_path, monkeypatch):
-        """Test loading projects_dir from config file."""
+    def test_loads_from_new_location(self, tmp_path, monkeypatch):
+        """Test loading from ~/.maelstrom/config.yaml."""
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        config_file = tmp_path / ".maelstrom.yaml"
-        config_file.write_text("projects_dir: /custom/path")
+        config_dir = tmp_path / ".maelstrom"
+        config_dir.mkdir()
+        config_file = config_dir / "config.yaml"
+        config_file.write_text("projects_dir: /new/path")
 
         config = load_global_config()
-        assert config.projects_dir == Path("/custom/path")
+        assert config.projects_dir == Path("/new/path")
+
+    def test_falls_back_to_legacy(self, tmp_path, monkeypatch):
+        """Test fallback to ~/.maelstrom.yaml when new location doesn't exist."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        legacy_file = tmp_path / ".maelstrom.yaml"
+        legacy_file.write_text("projects_dir: /legacy/path")
+
+        config = load_global_config()
+        assert config.projects_dir == Path("/legacy/path")
+
+    def test_new_takes_precedence(self, tmp_path, monkeypatch):
+        """Test that ~/.maelstrom/config.yaml takes precedence over ~/.maelstrom.yaml."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        # Create both files
+        legacy_file = tmp_path / ".maelstrom.yaml"
+        legacy_file.write_text("projects_dir: /legacy/path")
+
+        config_dir = tmp_path / ".maelstrom"
+        config_dir.mkdir()
+        config_file = config_dir / "config.yaml"
+        config_file.write_text("projects_dir: /new/path")
+
+        config = load_global_config()
+        assert config.projects_dir == Path("/new/path")
 
     def test_expands_tilde(self, tmp_path, monkeypatch):
         """Test that ~ in projects_dir is expanded."""
         # Use HOME env var which expanduser() actually uses
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        config_file = tmp_path / ".maelstrom.yaml"
+        config_dir = tmp_path / ".maelstrom"
+        config_dir.mkdir()
+        config_file = config_dir / "config.yaml"
         config_file.write_text("projects_dir: ~/CustomProjects")
 
         config = load_global_config()
@@ -293,6 +322,17 @@ class TestLoadGlobalConfig:
 
     def test_invalid_yaml_returns_default(self, tmp_path, monkeypatch):
         """Test that invalid YAML returns default config."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        config_dir = tmp_path / ".maelstrom"
+        config_dir.mkdir()
+        config_file = config_dir / "config.yaml"
+        config_file.write_text("invalid: yaml: content: [")
+
+        config = load_global_config()
+        assert config.projects_dir == tmp_path / "Projects"
+
+    def test_invalid_legacy_yaml_returns_default(self, tmp_path, monkeypatch):
+        """Test that invalid legacy YAML returns default config."""
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         config_file = tmp_path / ".maelstrom.yaml"
         config_file.write_text("invalid: yaml: content: [")

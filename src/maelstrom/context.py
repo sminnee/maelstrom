@@ -3,7 +3,7 @@
 This module handles resolving project and worktree context from:
 - Explicit command-line arguments (project.worktree format)
 - Current working directory detection
-- Global configuration (~/.maelstrom.yaml)
+- Global configuration (~/.maelstrom/config.yaml)
 """
 
 from dataclasses import dataclass
@@ -12,12 +12,19 @@ from pathlib import Path
 import yaml
 
 
-GLOBAL_CONFIG_FILENAME = ".maelstrom.yaml"
+GLOBAL_CONFIG_DIR = ".maelstrom"
+GLOBAL_CONFIG_FILENAME = "config.yaml"
+GLOBAL_CONFIG_FILENAME_LEGACY = ".maelstrom.yaml"
+
+
+def get_maelstrom_dir() -> Path:
+    """Return the path to ~/.maelstrom/ directory."""
+    return Path.home() / GLOBAL_CONFIG_DIR
 
 
 @dataclass
 class GlobalConfig:
-    """Global maelstrom configuration from ~/.maelstrom.yaml."""
+    """Global maelstrom configuration from ~/.maelstrom/config.yaml."""
 
     projects_dir: Path
     open_command: str = "code"
@@ -69,21 +76,32 @@ class ResolvedContext:
 
 
 def load_global_config() -> GlobalConfig:
-    """Load global config from ~/.maelstrom.yaml.
+    """Load global config from ~/.maelstrom/config.yaml (or legacy ~/.maelstrom.yaml).
 
     Returns:
         GlobalConfig with projects_dir setting, or defaults if file doesn't exist.
     """
-    config_path = Path.home() / GLOBAL_CONFIG_FILENAME
-    if not config_path.exists():
-        return GlobalConfig.default()
+    # Try new location first
+    new_config_path = get_maelstrom_dir() / GLOBAL_CONFIG_FILENAME
+    if new_config_path.exists():
+        try:
+            with open(new_config_path) as f:
+                data = yaml.safe_load(f) or {}
+            return GlobalConfig.from_dict(data)
+        except (yaml.YAMLError, OSError):
+            return GlobalConfig.default()
 
-    try:
-        with open(config_path) as f:
-            data = yaml.safe_load(f) or {}
-        return GlobalConfig.from_dict(data)
-    except (yaml.YAMLError, OSError):
-        return GlobalConfig.default()
+    # Fall back to legacy location
+    legacy_config_path = Path.home() / GLOBAL_CONFIG_FILENAME_LEGACY
+    if legacy_config_path.exists():
+        try:
+            with open(legacy_config_path) as f:
+                data = yaml.safe_load(f) or {}
+            return GlobalConfig.from_dict(data)
+        except (yaml.YAMLError, OSError):
+            return GlobalConfig.default()
+
+    return GlobalConfig.default()
 
 
 def validate_project_name(name: str) -> None:
