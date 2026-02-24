@@ -424,29 +424,44 @@ def cmd_list(project):
         click.echo("No worktrees found.")
         return
 
+    # Partition worktrees into open and closed
+    closed_names = []
+    open_worktrees = []
+    for wt in worktrees:
+        display_name = extract_worktree_name_from_folder(ctx.project, wt.path.name) or wt.path.name
+        if is_worktree_closed(wt):
+            closed_names.append(display_name)
+        else:
+            open_worktrees.append((wt, display_name))
+
+    if not open_worktrees:
+        if closed_names:
+            click.echo(f"Closed environments: {', '.join(closed_names)}")
+        else:
+            click.echo("No worktrees found.")
+        return
+
     # Get active IDE sessions
     active_sessions = get_active_ide_sessions()
 
-    # Gather extended info for each worktree
+    # Gather extended info for each open worktree
     rows = []
-    for wt in worktrees:
-        # Check if worktree is closed (detached at origin/main)
-        closed = is_worktree_closed(wt)
-        branch_display = "(closed)" if closed else (wt.branch or "(detached)")
+    for wt, display_name in open_worktrees:
+        branch_display = wt.branch or "(detached)"
 
         # Dirty files count
         dirty_files = get_worktree_dirty_files(wt.path)
         dirty_display = str(len(dirty_files)) if dirty_files else ""
 
         # Local unpushed commits
-        local_commits = get_local_only_commits(wt.path, wt.branch) if not closed else 0
+        local_commits = get_local_only_commits(wt.path, wt.branch)
         local_display = str(local_commits) if local_commits > 0 else ""
 
         # PR info (number and commit count)
         pr_num, pr_commits = get_pr_number_and_commits(project_path, wt.branch) if wt.branch else (None, None)
         if pr_num:
             pr_display = f"#{pr_num} ({pr_commits})"
-        elif wt.branch and not closed:
+        elif wt.branch:
             # Check for pushed commits without PR
             pushed_commits = get_pushed_commit_count(wt.path, wt.branch)
             pr_display = f"({pushed_commits})" if pushed_commits else ""
@@ -457,14 +472,12 @@ def cmd_list(project):
         ide_display = "Y" if active_sessions.get(wt.path, 0) > 0 else ""
 
         # App URL with running status
-        display_name = extract_worktree_name_from_folder(ctx.project, wt.path.name) or wt.path.name
         app_display = ""
-        if not closed:
-            app_info = get_app_url(project_path, display_name)
-            if app_info:
-                url, is_running = app_info
-                port = url.split(":")[-1]
-                app_display = url if is_running else f"*{port}"
+        app_info = get_app_url(project_path, display_name)
+        if app_info:
+            url, is_running = app_info
+            port = url.split(":")[-1]
+            app_display = url if is_running else f"*{port}"
 
         rows.append({
             "WORKTREE": display_name,
@@ -477,6 +490,9 @@ def cmd_list(project):
         })
 
     draw_table(rows, ["WORKTREE", "BRANCH", "DIRTY FILES", "LOCAL COMMITS", "PR (COMMITS)", "APP", "IDE"])
+
+    if closed_names:
+        click.echo(f"\nClosed environments: {', '.join(closed_names)}")
 
 
 @cli.command("list-all")
@@ -500,6 +516,7 @@ def cmd_list_all():
     # Collect structured data for all worktrees
     projects_data = []
     rows = []
+    closed_by_project: dict[str, list[str]] = {}
     for project_path in projects:
         project_name = project_path.name
         worktrees = list_worktrees(project_path)
@@ -510,9 +527,32 @@ def cmd_list_all():
             if wt.path == project_path:
                 continue
 
+            display_name = extract_worktree_name_from_folder(project_name, wt.path.name) or wt.path.name
+
             # Check if worktree is closed (detached at origin/main)
             closed = is_worktree_closed(wt)
-            branch_display = "(closed)" if closed else (wt.branch or "(detached)")
+
+            if closed:
+                closed_by_project.setdefault(project_name, []).append(display_name)
+                # Still include in JSON data but skip table row
+                worktree_data.append({
+                    "name": display_name,
+                    "folder": wt.path.name,
+                    "path": str(wt.path),
+                    "branch": wt.branch or None,
+                    "is_closed": True,
+                    "dirty_files": 0,
+                    "local_commits": 0,
+                    "pr_number": None,
+                    "pr_commits": None,
+                    "pushed_commits": None,
+                    "app_url": None,
+                    "app_running": False,
+                    "ide_active": False,
+                })
+                continue
+
+            branch_display = wt.branch or "(detached)"
 
             # Dirty files count
             dirty_files = get_worktree_dirty_files(wt.path)
@@ -520,7 +560,7 @@ def cmd_list_all():
             dirty_display = str(dirty_count) if dirty_files else ""
 
             # Local unpushed commits
-            local_commits = get_local_only_commits(wt.path, wt.branch) if not closed else 0
+            local_commits = get_local_only_commits(wt.path, wt.branch)
             local_display = str(local_commits) if local_commits > 0 else ""
 
             # PR info (number and commit count)
@@ -528,7 +568,7 @@ def cmd_list_all():
             pushed_commits = None
             if pr_num:
                 pr_display = f"#{pr_num} ({pr_commits})"
-            elif wt.branch and not closed:
+            elif wt.branch:
                 # Check for pushed commits without PR
                 pushed_commits = get_pushed_commit_count(wt.path, wt.branch)
                 pr_display = f"({pushed_commits})" if pushed_commits else ""
@@ -539,27 +579,24 @@ def cmd_list_all():
             ide_active = active_sessions.get(wt.path, 0) > 0
             ide_display = "Y" if ide_active else ""
 
-            display_name = extract_worktree_name_from_folder(project_name, wt.path.name) or wt.path.name
-
             # App URL with running status
             app_display = ""
             app_url = None
             app_running = False
-            if not closed:
-                app_info = get_app_url(project_path, display_name)
-                if app_info:
-                    url, is_running = app_info
-                    app_url = url
-                    app_running = is_running
-                    port = url.split(":")[-1]
-                    app_display = url if is_running else f"*{port}"
+            app_info = get_app_url(project_path, display_name)
+            if app_info:
+                url, is_running = app_info
+                app_url = url
+                app_running = is_running
+                port = url.split(":")[-1]
+                app_display = url if is_running else f"*{port}"
 
             worktree_data.append({
                 "name": display_name,
                 "folder": wt.path.name,
                 "path": str(wt.path),
                 "branch": wt.branch or None,
-                "is_closed": closed,
+                "is_closed": False,
                 "dirty_files": dirty_count,
                 "local_commits": local_commits,
                 "pr_number": pr_num,
@@ -593,10 +630,20 @@ def cmd_list_all():
         return
 
     if not rows:
-        click.echo("No worktrees found.")
+        if closed_by_project:
+            click.echo("Closed environments:")
+            for proj, names in closed_by_project.items():
+                click.echo(f" - {proj}: {', '.join(names)}")
+        else:
+            click.echo("No worktrees found.")
         return
 
     draw_table(rows, ["PROJECT", "WORKTREE", "BRANCH", "DIRTY FILES", "LOCAL COMMITS", "PR (COMMITS)", "APP", "IDE"])
+
+    if closed_by_project:
+        click.echo("\nClosed environments:")
+        for proj, names in closed_by_project.items():
+            click.echo(f" - {proj}: {', '.join(names)}")
 
 
 @cli.command("open")
