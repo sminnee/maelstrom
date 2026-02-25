@@ -370,7 +370,7 @@ mael sentry get-issue <issue-id>
 
 ### Status Flow
 
-- **Todo** -> **Planned** (when plan is written via `write-plan`)
+- **Todo** -> **Planned** (when plan is written via `write-plan`, or subtasks are created)
 - **Planned** / **Todo** -> **In Progress** (when `start-task` is called)
 - **In Progress** -> **In Review** (when `submit-pr` is called)
 - **In Review** -> **Done** / **Unreleased** (when completed)
@@ -380,8 +380,11 @@ mael sentry get-issue <issue-id>
 - **Completing work**: Set to "Done"
 
 ### Parent Tasks (issues with subtasks)
-- **Starting work**: Set to "In Progress" (when first subtask starts)
+- **Creating subtasks**: Set to "Planned" (from Todo)
+- **Starting work**: Promoted to "In Progress" from early states (Todo/Planned/Backlog) when a subtask is started or a PR is raised
+- **Subtask in review**: Parent is left as-is (NOT set to "In Review")
 - **Completing work**: Set to "Unreleased" only when ALL subtasks are Done/Canceled
+- **Reviewing parent**: Manual activity — even when all subtasks are in review, the parent stays as-is
 
 ### Standalone Tasks (no parent, no subtasks)
 - **Starting work**: Set to "In Progress"
