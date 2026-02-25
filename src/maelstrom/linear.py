@@ -741,13 +741,16 @@ def cmd_start_task(issue_id):
             labels_map[label] for label in parent_new_labels if label in labels_map
         ]
 
-        update_issue(
-            parent["id"],
-            stateId=states["In Progress"],
-            labelIds=parent_label_ids,
-        )
+        # Only promote parent to In Progress from early states
+        early_states = {"Todo", "Planned", "Backlog"}
+        update_kwargs = {"labelIds": parent_label_ids}
+        if parent["state"]["name"] in early_states:
+            update_kwargs["stateId"] = states["In Progress"]
+
+        update_issue(parent["id"], **update_kwargs)
         click.echo(f"\nAlso updated parent {parent['identifier']}:")
-        click.echo("- Status: In Progress")
+        if parent["state"]["name"] in early_states:
+            click.echo("- Status: In Progress")
         if workspace_label:
             click.echo(f"- Workspace: {workspace_label}")
 
@@ -825,6 +828,13 @@ def cmd_create_subtask(parent_id, title, description):
     click.echo(f"- Parent: {parent['identifier']}")
     if cycle_id:
         click.echo(f"- Cycle: {parent['cycle']['number']} - {parent['cycle']['name']}")
+
+    # Transition parent to Planned if currently Todo
+    if parent["state"]["name"] == "Todo":
+        states = get_workflow_states()
+        if "Planned" in states:
+            update_issue(parent["id"], stateId=states["Planned"])
+            click.echo(f"Updated parent {parent['identifier']} status: Todo -> Planned")
 
 
 @linear.command("write-plan")
@@ -936,7 +946,7 @@ def cmd_submit_pr(issue_id):
     1. Gets the PR URL from the current branch using `gh pr view`
     2. Attaches the PR URL to the Linear task
     3. Sets the task status to "In Review"
-    4. If this is a subtask, also updates the parent task to "In Review"
+    4. If this is a subtask, promotes parent to "In Progress" if in an early state
     """
     from pathlib import Path
 
@@ -972,15 +982,12 @@ def cmd_submit_pr(issue_id):
     update_issue(issue["id"], stateId=states["In Review"])
     click.echo(f"Updated {issue['identifier']} status to: In Review")
 
-    # Update parent if subtask and parent not in terminal state
+    # Promote parent to In Progress if it's in an early state
     if issue.get("parent"):
         parent = get_issue(issue["parent"]["id"])
-        terminal_states = {"Done", "Unreleased", "Canceled", "Completed"}
-        if parent["state"]["name"] not in terminal_states:
-            update_issue(parent["id"], stateId=states["In Review"])
-            click.echo(f"Updated parent {parent['identifier']} status to: In Review")
-        else:
-            click.echo(
-                f"Parent {parent['identifier']} already in "
-                f"'{parent['state']['name']}' - not updating"
-            )
+        early_states = {"Todo", "Planned", "Backlog"}
+        if parent["state"]["name"] in early_states:
+            if "In Progress" not in states:
+                raise click.ClickException("'In Progress' state not found in workflow")
+            update_issue(parent["id"], stateId=states["In Progress"])
+            click.echo(f"Updated parent {parent['identifier']} status to: In Progress")
