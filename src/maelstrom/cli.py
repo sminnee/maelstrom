@@ -664,9 +664,6 @@ def cmd_open(target):
     if not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
-    # Run install command if configured
-    run_install_cmd(worktree_path)
-
     global_config = load_global_config()
     try:
         open_worktree(worktree_path, global_config.open_command)
