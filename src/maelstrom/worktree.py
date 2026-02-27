@@ -783,7 +783,7 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
     run_git(["worktree", "add", str(alpha_path), default_branch], cwd=project_path)
 
     # Generate .env for the initial worktree
-    write_env_file(alpha_path, {"WORKTREE": "alpha"})
+    write_env_file(alpha_path, {"WORKTREE": "alpha", "WORKTREE_NUM": "0"})
 
     # Create .mael marker file to identify this as a Maelstrom project
     (project_path / ".mael").touch()
@@ -855,7 +855,10 @@ def _finalize_worktree(project_path: Path, worktree_path: Path, worktree_name: s
     existing_env = read_env_file(project_path)
 
     # Generate environment variables
-    generated_vars = {"WORKTREE": worktree_name}
+    generated_vars = {
+        "WORKTREE": worktree_name,
+        "WORKTREE_NUM": str(WORKTREE_NAMES.index(worktree_name)),
+    }
 
     # Add port variables if configured
     if config.port_names:
