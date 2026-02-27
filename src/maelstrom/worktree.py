@@ -781,6 +781,11 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
     result = run_git(["symbolic-ref", "--short", "HEAD"], cwd=project_path, quiet=True)
     default_branch = result.stdout.strip()
 
+    # Detach HEAD so the default branch isn't "checked out" in the project root,
+    # which would prevent git worktree add from using it.
+    head_sha = run_git(["rev-parse", "HEAD"], cwd=project_path, quiet=True).stdout.strip()
+    run_git(["checkout", "--detach", head_sha], cwd=project_path, quiet=True)
+
     # Create the alpha worktree
     alpha_folder = get_worktree_folder_name(project_name, "alpha")
     alpha_path = project_path / alpha_folder
