@@ -74,7 +74,7 @@ class TestEnvStart:
         assert result.exit_code == 0
         assert "web" in result.output
         assert "running" in result.output
-        assert "Uptime:" in result.output
+        assert "UPTIME:" in result.output
         mock_start.assert_called_once_with(
             "proj", "bravo", ctx.worktree_path, skip_install=False,
         )
@@ -181,7 +181,7 @@ class TestEnvStatus:
         assert "worker" in result.output
         assert "running" in result.output
         assert "dead" in result.output
-        assert "Uptime:" in result.output
+        assert "UPTIME:" in result.output
 
     @patch("maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", False))
     @patch("maelstrom.env_cli.load_env_state")
@@ -471,3 +471,81 @@ class TestEnvLogs:
         result = runner.invoke(cli, ["env", "logs", "-f"])
         assert result.exit_code == 0
         mock_follow.assert_called_once_with("proj", "bravo", None, False)
+
+
+class TestEnvStatusShared:
+    """Tests for shared service display in env status."""
+
+    @patch("maelstrom.env_cli.get_shared_status")
+    @patch("maelstrom.env_cli.get_app_url", return_value=None)
+    @patch("maelstrom.env_cli.load_env_state")
+    @patch("maelstrom.env_cli.get_env_status")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_shows_shared_services(self, mock_ctx, mock_status, mock_load, mock_app, mock_shared):
+        """Shared services appear in status output with (shared) tag."""
+        mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
+        mock_load.return_value = _make_state()
+        mock_status.return_value = [_make_status("web", pid=100, alive=True)]
+        mock_shared.return_value = [
+            ServiceStatus(
+                name="db-shared", pid=200, alive=True,
+                command="postgres", log_file="/tmp/db.log",
+                started_at="2025-01-01T00:00:00+00:00",
+            ),
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "status"])
+        assert result.exit_code == 0
+        assert "web" in result.output
+        assert "db-shared (shared)" in result.output
+
+    @patch("maelstrom.env_cli.get_shared_status", return_value=None)
+    @patch("maelstrom.env_cli.get_app_url", return_value=None)
+    @patch("maelstrom.env_cli.load_env_state")
+    @patch("maelstrom.env_cli.get_env_status")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_no_shared_services(self, mock_ctx, mock_status, mock_load, mock_app, mock_shared):
+        """Works normally when no shared services exist."""
+        mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
+        mock_load.return_value = _make_state()
+        mock_status.return_value = [_make_status()]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "status"])
+        assert result.exit_code == 0
+        assert "shared" not in result.output
+
+
+class TestEnvStopShared:
+    """Tests for shared service messages in env stop."""
+
+    @patch("maelstrom.env_cli.stop_env")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_shows_shared_unsubscribe_message(self, mock_ctx, mock_stop):
+        """Shows message about shared services still in use."""
+        mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
+        mock_stop.return_value = [
+            "web (pid 100): stopped",
+            "Shared services still used by 1 other environment(s)",
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "stop"])
+        assert result.exit_code == 0
+        assert "Shared services still used by 1" in result.output
+
+    @patch("maelstrom.env_cli.stop_env")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_shows_shared_stop_messages(self, mock_ctx, mock_stop):
+        """Shows shared service stop messages when last subscriber."""
+        mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
+        mock_stop.return_value = [
+            "web (pid 100): stopped",
+            "db-shared (shared) (pid 200): stopped",
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "stop"])
+        assert result.exit_code == 0
+        assert "db-shared (shared)" in result.output

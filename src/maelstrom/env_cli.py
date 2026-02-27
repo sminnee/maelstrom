@@ -12,6 +12,7 @@ from .env import (
     format_uptime,
     get_env_status,
     get_log_files,
+    get_shared_status,
     list_all_envs,
     list_project_envs,
     load_env_state,
@@ -26,9 +27,13 @@ from .table import draw_table
 
 def _env_service_columns(state: EnvState) -> tuple[str, str]:
     """Return (running_services, stopped_services) as comma-separated names."""
-    statuses = get_env_status(state.project, state.worktree)
-    if statuses is None:
-        return "", ""
+    statuses = list(get_env_status(state.project, state.worktree) or [])
+
+    # Include shared services
+    shared_statuses = get_shared_status(state.project)
+    if shared_statuses:
+        statuses.extend(shared_statuses)
+
     running = [s.name for s in statuses if s.alive]
     stopped = [s.name for s in statuses if not s.alive]
     return ", ".join(running), ", ".join(stopped)
@@ -78,6 +83,18 @@ def _print_service_status(
             "STATUS": "running" if s.alive else "dead",
             "LOG": s.log_file,
         })
+
+    # Add shared services
+    shared_statuses = get_shared_status(project)
+    if shared_statuses:
+        for s in shared_statuses:
+            rows.append({
+                "SERVICE": f"{s.name} (shared)",
+                "PID": str(s.pid),
+                "STATUS": "running" if s.alive else "dead",
+                "LOG": s.log_file,
+            })
+
     draw_table(rows, ["SERVICE", "PID", "STATUS", "LOG"])
 
 
