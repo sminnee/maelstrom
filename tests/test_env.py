@@ -28,6 +28,7 @@ from maelstrom.env import (
     remove_env_state,
     save_env_state,
     start_env,
+    stop_all_envs,
     stop_env,
     tail_log_file,
 )
@@ -734,6 +735,51 @@ class TestListAllEnvs:
         """Returns empty list when no envs dir exists."""
         mock_dir.return_value = tmp_path
         assert list_all_envs() == []
+
+
+class TestStopAllEnvs:
+    """Tests for stop_all_envs function."""
+
+    @patch("maelstrom.env.stop_env")
+    @patch("maelstrom.env.list_all_envs")
+    def test_stops_all_envs(self, mock_list, mock_stop):
+        """Calls stop_env for each running environment."""
+        mock_list.return_value = [
+            EnvState(
+                project="projA", worktree="alpha",
+                worktree_path="/project/alpha",
+                started_at="2025-01-01T00:00:00+00:00",
+                services=[],
+            ),
+            EnvState(
+                project="projB", worktree="bravo",
+                worktree_path="/project/bravo",
+                started_at="2025-01-01T00:00:00+00:00",
+                services=[],
+            ),
+        ]
+        mock_stop.side_effect = [
+            ["web (pid 100): stopped"],
+            ["app (pid 200): stopped"],
+        ]
+
+        results = stop_all_envs()
+        assert len(results) == 2
+        assert results[0] == ("projA", "alpha", ["web (pid 100): stopped"])
+        assert results[1] == ("projB", "bravo", ["app (pid 200): stopped"])
+        assert mock_stop.call_args_list == [
+            call("projA", "alpha", timeout=10.0),
+            call("projB", "bravo", timeout=10.0),
+        ]
+
+    @patch("maelstrom.env.stop_env")
+    @patch("maelstrom.env.list_all_envs")
+    def test_no_envs(self, mock_list, mock_stop):
+        """Returns empty list when no environments running."""
+        mock_list.return_value = []
+        results = stop_all_envs()
+        assert results == []
+        mock_stop.assert_not_called()
 
 
 class TestFormatUptime:
