@@ -341,6 +341,37 @@ class TestEnvListAll:
         assert "No running environments" in result.output
 
 
+class TestEnvStopAll:
+    """Tests for mael env stop-all command."""
+
+    @patch("maelstrom.env_cli.stop_all_envs")
+    def test_success(self, mock_stop_all):
+        """Stops all envs and prints per-env messages."""
+        mock_stop_all.return_value = [
+            ("projA", "alpha", ["web (pid 100): stopped"]),
+            ("projB", "bravo", ["app (pid 200): stopped"]),
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "stop-all"])
+        assert result.exit_code == 0
+        assert "projA/alpha:" in result.output
+        assert "web (pid 100): stopped" in result.output
+        assert "projB/bravo:" in result.output
+        assert "app (pid 200): stopped" in result.output
+        assert "Stopped 2 environment(s)." in result.output
+
+    @patch("maelstrom.env_cli.stop_all_envs")
+    def test_empty(self, mock_stop_all):
+        """Shows message when no environments running."""
+        mock_stop_all.return_value = []
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "stop-all"])
+        assert result.exit_code == 0
+        assert "No running environments" in result.output
+
+
 class TestEnvLogs:
     """Tests for mael env logs command."""
 

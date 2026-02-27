@@ -402,6 +402,18 @@ def list_all_envs() -> list[EnvState]:
     return results
 
 
+def stop_all_envs(*, timeout: float = 10.0) -> list[tuple[str, str, list[str]]]:
+    """Stop all running environments across all projects.
+
+    Returns a list of (project, worktree, messages) tuples.
+    """
+    results = []
+    for state in list_all_envs():
+        messages = stop_env(state.project, state.worktree, timeout=timeout)
+        results.append((state.project, state.worktree, messages))
+    return results
+
+
 def get_log_files(project: str, worktree: str) -> dict[str, Path]:
     """Get log file paths for an environment's services.
 

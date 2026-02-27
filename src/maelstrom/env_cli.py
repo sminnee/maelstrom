@@ -17,6 +17,7 @@ from .env import (
     load_env_state,
     read_service_logs,
     start_env,
+    stop_all_envs,
     stop_env,
 )
 from .ports import get_app_url
@@ -203,6 +204,20 @@ def env_list_all():
             "UPTIME": uptime,
         })
     draw_table(rows, ["PROJECT", "WORKTREE", "APP", "RUNNING SERVICES", "STOPPED SERVICES", "UPTIME"])
+
+
+@env.command("stop-all")
+def env_stop_all():
+    """Stop all running environments across all projects."""
+    results = stop_all_envs()
+    if not results:
+        click.echo("No running environments.")
+        return
+    for project, worktree, messages in results:
+        click.echo(f"{project}/{worktree}:")
+        for msg in messages:
+            click.echo(f"  {msg}")
+    click.echo(f"Stopped {len(results)} environment(s).")
 
 
 def _follow_logs(

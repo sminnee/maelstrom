@@ -1,11 +1,11 @@
 ---
 name: mael
-description: "Git workflow, commits, PRs, branches. Also Linear tasks and Sentry debugging. Invoke /mael before any git operations."
+description: "Git workflow, commits, PRs, branches. Also Linear tasks, Sentry debugging, and dev environment management. Invoke /mael before any git operations."
 ---
 
 # Maelstrom CLI Skill
 
-This skill provides CLI commands for managing Linear tasks, querying Sentry issues, and handling git/GitHub workflows directly from Claude Code.
+This skill provides CLI commands for managing Linear tasks, querying Sentry issues, handling git/GitHub workflows, and managing dev environments directly from Claude Code.
 
 ## Core Workflows
 
@@ -70,6 +70,11 @@ For quick changes without task tracking:
 | Read task details | `mael linear read-task PROJ-XXX` |
 | Write plan to task | `mael linear write-plan PROJ-XXX plan.md` |
 | Read plan from task | `mael linear read-plan PROJ-XXX` |
+| Start environment | `mael env start` |
+| Check environment status | `mael env status` |
+| Stop environment | `mael env stop` |
+| List project environments | `mael env list` |
+| List all environments | `mael env list-all` |
 | Start working on task | `mael linear start-task PROJ-XXX` |
 | Mark task complete | `mael linear complete-task PROJ-XXX` |
 
@@ -366,6 +371,91 @@ mael sentry get-issue <issue-id>
 - Tags
 - Full stacktrace with code context and variable values
 
+## Environment Commands
+
+Manage dev environment services (start, stop, monitor) for worktrees. Services are defined via a `Procfile` in the worktree root, or fall back to `start_cmd` in `.maelstrom.yaml`.
+
+### mael env start
+
+Start services for a worktree environment.
+
+```bash
+mael env start [target] [--skip-install]
+```
+
+**Arguments:**
+- `target` (optional): Project/worktree identifier (uses current directory if omitted)
+
+**Options:**
+- `--skip-install`: Skip running `install_cmd` before starting services
+
+**Behavior:**
+- Runs `install_cmd` from `.maelstrom.yaml` first (unless `--skip-install`)
+- Starts all services defined in Procfile (or `start_cmd` fallback)
+- Each service runs as a background process with its own log file
+- Displays a status table with SERVICE, PID, STATUS, and LOG columns
+- Shows APP URL if `app_port` is configured
+- Fails if environment is already running (stop first)
+
+### mael env status
+
+Show current status of services for a worktree environment.
+
+```bash
+mael env status [target]
+```
+
+**Arguments:**
+- `target` (optional): Project/worktree identifier (uses current directory if omitted)
+
+**Output includes:**
+- App URL (if configured and running)
+- Uptime since environment was started
+- Per-service table: SERVICE, PID, STATUS (running/dead), LOG file path
+
+### mael env stop
+
+Stop all services for a worktree environment.
+
+```bash
+mael env stop [target]
+```
+
+**Arguments:**
+- `target` (optional): Project/worktree identifier (uses current directory if omitted)
+
+**Behavior:**
+- Sends SIGTERM to each service process group
+- Falls back to SIGKILL if processes don't terminate
+- Removes environment state file
+- Reports status of each service termination
+
+### mael env list
+
+List running environments for a project.
+
+```bash
+mael env list [project]
+```
+
+**Arguments:**
+- `project` (optional): Project name (uses current directory if omitted)
+
+**Output includes:**
+- Table with columns: WORKTREE, APP, RUNNING SERVICES, STOPPED SERVICES, UPTIME
+- APP column shows URL if running, `*port` if allocated but not running
+
+### mael env list-all
+
+List all running environments across all projects.
+
+```bash
+mael env list-all
+```
+
+**Output includes:**
+- Table with columns: PROJECT, WORKTREE, APP, RUNNING SERVICES, STOPPED SERVICES, UPTIME
+
 ## Status Transitions
 
 ### Status Flow
@@ -580,6 +670,38 @@ printf 'feat: add new feature\n\nDetailed description of the change.\n' | git co
    ```
 
 4. **Investigate the stacktrace** and fix the issue
+
+## Workflow: Managing Environments
+
+1. **Start services** for the current worktree:
+   ```bash
+   mael env start
+   ```
+
+2. **Check service status** at any time:
+   ```bash
+   mael env status
+   ```
+
+3. **Stop services** when done:
+   ```bash
+   mael env stop
+   ```
+
+4. **List all running environments** for the project:
+   ```bash
+   mael env list
+   ```
+
+### Resource Management
+
+**Stop environments during heavy editing.** Most dev servers use file watchers that trigger rebuilds on every file change. During multi-file refactors or large implementations, this causes constant reloads that waste CPU and memory. Stop the environment before editing and restart when you need to test:
+
+```bash
+mael env stop          # before heavy editing
+# ... make changes ...
+mael env start         # when ready to test
+```
 
 ## Error Handling
 
