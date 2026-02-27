@@ -11,6 +11,7 @@ from .ports import (
     allocate_port_base,
     generate_port_env_vars,
     get_allocated_port_bases,
+    get_port_allocation,
     load_port_allocations,
     record_port_allocation,
     remove_port_allocation,
@@ -861,6 +862,15 @@ def _finalize_worktree(project_path: Path, worktree_path: Path, worktree_name: s
         port_base = allocate_port_base(project_path, len(config.port_names))
         generated_vars.update(generate_port_env_vars(port_base, config.port_names))
         record_port_allocation(project_path, worktree_name, port_base)
+
+    # Add shared port variables if configured
+    if config.shared_port_names:
+        shared_base = get_port_allocation(project_path, "_shared")
+        if shared_base is None:
+            shared_base = allocate_port_base(project_path, len(config.shared_port_names))
+            record_port_allocation(project_path, "_shared", shared_base)
+        generated_vars["SHARED_PORT_BASE"] = str(shared_base)
+        generated_vars.update(generate_port_env_vars(shared_base, config.shared_port_names))
 
     # Write .env if there's anything to write
     if existing_env or generated_vars:

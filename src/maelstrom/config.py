@@ -14,6 +14,7 @@ class MaelstromConfig:
     """Configuration for a maelstrom-managed project."""
 
     port_names: list[str] = field(default_factory=list)
+    shared_port_names: list[str] = field(default_factory=list)
     start_cmd: str = ""
     install_cmd: str = ""
     # Linear integration
@@ -32,6 +33,7 @@ class MaelstromConfig:
 
         return cls(
             port_names=data.get("port_names", []),
+            shared_port_names=data.get("shared_port_names", []),
             start_cmd=data.get("start_cmd", ""),
             install_cmd=data.get("install_cmd", ""),
             linear_team_id=linear_config.get("team_id"),

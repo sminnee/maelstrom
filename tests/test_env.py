@@ -13,20 +13,27 @@ from maelstrom.env import (
     ProcfileEntry,
     ServiceState,
     ServiceStatus,
+    SharedEnvState,
     build_service_env,
     cleanup_stale_env,
+    cleanup_stale_shared,
     format_uptime,
     get_env_status,
     get_log_files,
     get_services,
+    get_shared_status,
     is_service_alive,
+    is_shared_service,
     list_all_envs,
     list_project_envs,
     load_env_state,
+    load_shared_state,
     parse_procfile,
     read_service_logs,
     remove_env_state,
+    remove_shared_state,
     save_env_state,
+    save_shared_state,
     start_env,
     stop_all_envs,
     stop_env,
@@ -994,3 +1001,445 @@ class TestReadServiceLogs:
         mock_files.return_value = {}
         with pytest.raises(ValueError, match="No logs found"):
             read_service_logs("proj", "bravo")
+
+
+# --- Shared Services Tests ---
+
+
+class TestIsSharedService:
+    """Tests for is_shared_service function."""
+
+    def test_shared_suffix(self):
+        """Returns True for names ending in -shared."""
+        assert is_shared_service("db-shared") is True
+        assert is_shared_service("redis-shared") is True
+
+    def test_non_shared(self):
+        """Returns False for regular service names."""
+        assert is_shared_service("web") is False
+        assert is_shared_service("worker") is False
+        assert is_shared_service("shared") is False
+
+    def test_edge_cases(self):
+        """Edge cases for shared service detection."""
+        assert is_shared_service("-shared") is True
+        assert is_shared_service("shared-web") is False
+
+
+class TestSharedEnvStateRoundTrip:
+    """Tests for shared state save/load/remove."""
+
+    def _make_shared_state(self):
+        return SharedEnvState(
+            project="myproject",
+            worktree_path="/home/user/myproject/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db-shared",
+                    command="postgres -p 5432",
+                    pid=12345,
+                    log_file="/tmp/db-shared.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+            subscribers=["alpha", "bravo"],
+        )
+
+    @patch("maelstrom.env.get_maelstrom_dir")
+    def test_save_and_load(self, mock_dir, tmp_path):
+        """Shared state round-trips through save/load."""
+        mock_dir.return_value = tmp_path
+        state = self._make_shared_state()
+        save_shared_state(state)
+        loaded = load_shared_state("myproject")
+        assert loaded is not None
+        assert loaded.project == state.project
+        assert loaded.worktree_path == state.worktree_path
+        assert loaded.started_at == state.started_at
+        assert len(loaded.services) == 1
+        assert loaded.services[0].name == "db-shared"
+        assert loaded.subscribers == ["alpha", "bravo"]
+
+    @patch("maelstrom.env.get_maelstrom_dir")
+    def test_load_missing(self, mock_dir, tmp_path):
+        """Returns None for missing shared state."""
+        mock_dir.return_value = tmp_path
+        assert load_shared_state("noproject") is None
+
+    @patch("maelstrom.env.get_maelstrom_dir")
+    def test_load_corrupt(self, mock_dir, tmp_path):
+        """Returns None for corrupt JSON."""
+        mock_dir.return_value = tmp_path
+        state_dir = tmp_path / "envs" / "myproject"
+        state_dir.mkdir(parents=True)
+        (state_dir / "_shared.json").write_text("not valid json{{{")
+        assert load_shared_state("myproject") is None
+
+    @patch("maelstrom.env.get_maelstrom_dir")
+    def test_remove(self, mock_dir, tmp_path):
+        """Shared state file is deleted by remove_shared_state."""
+        mock_dir.return_value = tmp_path
+        state = self._make_shared_state()
+        save_shared_state(state)
+        path = tmp_path / "envs" / "myproject" / "_shared.json"
+        assert path.exists()
+        remove_shared_state("myproject")
+        assert not path.exists()
+
+    @patch("maelstrom.env.get_maelstrom_dir")
+    def test_remove_nonexistent(self, mock_dir, tmp_path):
+        """remove_shared_state is a no-op if file doesn't exist."""
+        mock_dir.return_value = tmp_path
+        remove_shared_state("noproject")  # should not raise
+
+
+class TestGetSharedStatus:
+    """Tests for get_shared_status function."""
+
+    @patch("maelstrom.env.is_service_alive")
+    @patch("maelstrom.env.load_shared_state")
+    def test_returns_status(self, mock_load, mock_alive):
+        """Returns ServiceStatus for each shared service."""
+        mock_load.return_value = SharedEnvState(
+            project="proj",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db-shared", command="postgres", pid=100,
+                    log_file="/tmp/db.log", started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+            subscribers=["alpha"],
+        )
+        mock_alive.return_value = True
+
+        result = get_shared_status("proj")
+        assert result is not None
+        assert len(result) == 1
+        assert result[0].name == "db-shared"
+        assert result[0].alive is True
+
+    @patch("maelstrom.env.load_shared_state", return_value=None)
+    def test_none_when_no_state(self, mock_load):
+        """Returns None when no shared state exists."""
+        assert get_shared_status("proj") is None
+
+
+class TestCleanupStaleShared:
+    """Tests for cleanup_stale_shared function."""
+
+    @patch("maelstrom.env.remove_shared_state")
+    @patch("maelstrom.env.is_service_alive", return_value=False)
+    @patch("maelstrom.env.load_shared_state")
+    def test_cleans_dead(self, mock_load, mock_alive, mock_remove):
+        """Removes shared state when all services are dead."""
+        mock_load.return_value = SharedEnvState(
+            project="proj",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db-shared", command="postgres", pid=100,
+                    log_file="/tmp/db.log", started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+            subscribers=["alpha"],
+        )
+        assert cleanup_stale_shared("proj") is True
+        mock_remove.assert_called_once_with("proj")
+
+    @patch("maelstrom.env.remove_shared_state")
+    @patch("maelstrom.env.is_service_alive", return_value=True)
+    @patch("maelstrom.env.load_shared_state")
+    def test_preserves_alive(self, mock_load, mock_alive, mock_remove):
+        """Does not remove shared state when services are alive."""
+        mock_load.return_value = SharedEnvState(
+            project="proj",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db-shared", command="postgres", pid=100,
+                    log_file="/tmp/db.log", started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+            subscribers=["alpha"],
+        )
+        assert cleanup_stale_shared("proj") is False
+        mock_remove.assert_not_called()
+
+    @patch("maelstrom.env.load_shared_state", return_value=None)
+    def test_no_state(self, mock_load):
+        """Returns False when no shared state exists."""
+        assert cleanup_stale_shared("proj") is False
+
+
+class TestStartEnvShared:
+    """Tests for shared service handling in start_env."""
+
+    @patch("maelstrom.env.save_shared_state")
+    @patch("maelstrom.env.save_env_state")
+    @patch("maelstrom.env.Popen")
+    @patch("maelstrom.env.build_service_env", return_value={})
+    @patch("maelstrom.env.get_services")
+    @patch("maelstrom.env.run_install_cmd")
+    @patch("maelstrom.env.get_env_status", return_value=None)
+    @patch("maelstrom.env.cleanup_stale_env")
+    @patch("maelstrom.env.cleanup_stale_shared")
+    @patch("maelstrom.env.load_shared_state", return_value=None)
+    @patch("maelstrom.env._get_log_dir")
+    @patch("maelstrom.env._get_shared_log_dir")
+    def test_splits_shared_and_local(
+        self,
+        mock_shared_log_dir,
+        mock_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """Shared services are separated from local and started independently."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.return_value = [
+            ProcfileEntry(name="web", command="python app.py"),
+            ProcfileEntry(name="db-shared", command="postgres"),
+        ]
+        mock_proc = MagicMock()
+        mock_proc.pid = 42
+        mock_popen.return_value = mock_proc
+
+        state = start_env("proj", "bravo", Path("/project/bravo"))
+
+        # Local state should only contain non-shared services
+        assert len(state.services) == 1
+        assert state.services[0].name == "web"
+
+        # Shared state should have been saved with the shared service
+        mock_shared_save.assert_called_once()
+        shared_state = mock_shared_save.call_args[0][0]
+        assert len(shared_state.services) == 1
+        assert shared_state.services[0].name == "db-shared"
+        assert shared_state.subscribers == ["bravo"]
+
+    @patch("maelstrom.env.save_shared_state")
+    @patch("maelstrom.env.save_env_state")
+    @patch("maelstrom.env.Popen")
+    @patch("maelstrom.env.build_service_env", return_value={})
+    @patch("maelstrom.env.get_services")
+    @patch("maelstrom.env.run_install_cmd")
+    @patch("maelstrom.env.get_env_status", return_value=None)
+    @patch("maelstrom.env.cleanup_stale_env")
+    @patch("maelstrom.env.cleanup_stale_shared")
+    @patch("maelstrom.env.load_shared_state")
+    @patch("maelstrom.env._get_log_dir")
+    def test_subscribes_to_existing_shared(
+        self,
+        mock_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """Second worktree subscribes to existing shared services."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_services.return_value = [
+            ProcfileEntry(name="web", command="python app.py"),
+            ProcfileEntry(name="db-shared", command="postgres"),
+        ]
+        # Shared services already running with alpha as subscriber
+        existing_shared = SharedEnvState(
+            project="proj",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db-shared", command="postgres", pid=999,
+                    log_file="/tmp/db.log", started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+            subscribers=["alpha"],
+        )
+        mock_shared_load.return_value = existing_shared
+        mock_proc = MagicMock()
+        mock_proc.pid = 42
+        mock_popen.return_value = mock_proc
+
+        state = start_env("proj", "bravo", Path("/project/bravo"))
+
+        # Only local service should be spawned (1 Popen call for "web")
+        assert mock_popen.call_count == 1
+        assert state.services[0].name == "web"
+
+        # Shared state should be updated with bravo as subscriber
+        mock_shared_save.assert_called_once()
+        saved = mock_shared_save.call_args[0][0]
+        assert saved.subscribers == ["alpha", "bravo"]
+
+
+class TestStopEnvShared:
+    """Tests for shared service handling in stop_env."""
+
+    @patch("maelstrom.env.remove_shared_state")
+    @patch("maelstrom.env.remove_env_state")
+    @patch("maelstrom.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    @patch("maelstrom.env.load_shared_state")
+    @patch("maelstrom.env.load_env_state")
+    def test_unsubscribes_keeps_shared(
+        self, mock_load, mock_shared_load, mock_killpg, mock_alive,
+        mock_remove, mock_shared_remove,
+    ):
+        """Shared services stay running when other subscribers remain."""
+        mock_load.return_value = EnvState(
+            project="proj", worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web", command="python app.py", pid=100,
+                    log_file="/tmp/web.log", started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+        mock_shared_load.return_value = SharedEnvState(
+            project="proj",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db-shared", command="postgres", pid=200,
+                    log_file="/tmp/db.log", started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+            subscribers=["alpha", "bravo"],
+        )
+
+        messages = stop_env("proj", "bravo")
+        assert any("stopped" in m for m in messages)
+        assert any("still used by 1" in m for m in messages)
+        # Shared services should NOT be killed
+        mock_shared_remove.assert_not_called()
+
+    @patch("maelstrom.env.remove_shared_state")
+    @patch("maelstrom.env.remove_env_state")
+    @patch("maelstrom.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    @patch("maelstrom.env.load_shared_state")
+    @patch("maelstrom.env.load_env_state")
+    def test_last_subscriber_stops_shared(
+        self, mock_load, mock_shared_load, mock_killpg, mock_alive,
+        mock_remove, mock_shared_remove,
+    ):
+        """Shared services are stopped when last subscriber disconnects."""
+        mock_load.return_value = EnvState(
+            project="proj", worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web", command="python app.py", pid=100,
+                    log_file="/tmp/web.log", started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+        mock_shared_load.return_value = SharedEnvState(
+            project="proj",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db-shared", command="postgres", pid=200,
+                    log_file="/tmp/db.log", started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+            subscribers=["bravo"],
+        )
+
+        messages = stop_env("proj", "bravo")
+        # Both local and shared should be stopped
+        assert any("web" in m and "stopped" in m for m in messages)
+        assert any("db-shared" in m and "stopped" in m for m in messages)
+        mock_shared_remove.assert_called_once_with("proj")
+
+    @patch("maelstrom.env.load_shared_state", return_value=None)
+    @patch("maelstrom.env.remove_env_state")
+    @patch("maelstrom.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    @patch("maelstrom.env.load_env_state")
+    def test_no_shared_services(
+        self, mock_load, mock_killpg, mock_alive, mock_remove, mock_shared_load,
+    ):
+        """Works normally when no shared services exist."""
+        mock_load.return_value = EnvState(
+            project="proj", worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web", command="python app.py", pid=100,
+                    log_file="/tmp/web.log", started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+
+        messages = stop_env("proj", "bravo")
+        assert any("stopped" in m for m in messages)
+        assert not any("shared" in m for m in messages)
+
+
+class TestListProjectEnvsShared:
+    """Tests for list_project_envs skipping shared state."""
+
+    @patch("maelstrom.env.get_maelstrom_dir")
+    @patch("maelstrom.env.is_service_alive", return_value=True)
+    def test_skips_shared_state_file(self, mock_alive, mock_dir, tmp_path):
+        """_shared.json is not returned as a worktree env."""
+        mock_dir.return_value = tmp_path
+
+        # Save a regular env
+        save_env_state(EnvState(
+            project="proj", worktree="alpha",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web", command="x", pid=100,
+                    log_file="/tmp/web.log", started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        ))
+
+        # Save shared state
+        save_shared_state(SharedEnvState(
+            project="proj",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db-shared", command="postgres", pid=200,
+                    log_file="/tmp/db.log", started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+            subscribers=["alpha"],
+        ))
+
+        result = list_project_envs("proj")
+        assert len(result) == 1
+        assert result[0].worktree == "alpha"
