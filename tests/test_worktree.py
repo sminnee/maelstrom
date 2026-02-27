@@ -11,6 +11,8 @@ from unittest.mock import patch
 from maelstrom.worktree import (
     CLAUDE_HEADER_END,
     CLAUDE_HEADER_STARTS,
+    ENV_SECTION_END,
+    ENV_SECTION_START,
     MAIN_BRANCH,
     WORKTREE_NAMES,
     WORKTREE_SHORTCODES,
@@ -34,7 +36,6 @@ from maelstrom.worktree import (
     resolve_worktree_shortcode,
     run_install_cmd,
     sanitize_branch_name,
-    substitute_env_vars,
     update_claude_md,
     write_env_file,
 )
@@ -159,8 +160,8 @@ class TestExtractProjectName:
 class TestWriteEnvFile:
     """Tests for write_env_file function."""
 
-    def test_writes_env_vars(self):
-        """Test writing environment variables to .env file."""
+    def test_writes_env_vars_with_section_markers(self):
+        """Test writing environment variables with managed section markers."""
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
             env_vars = {
@@ -175,12 +176,14 @@ class TestWriteEnvFile:
             assert env_file.exists()
 
             content = env_file.read_text()
+            assert ENV_SECTION_START in content
+            assert ENV_SECTION_END in content
             assert "PORT_BASE=100" in content
             assert "FRONTEND_PORT=1000" in content
             assert "SERVER_PORT=1001" in content
 
-    def test_sorts_variables(self):
-        """Test that environment variables are sorted."""
+    def test_sorts_variables_within_section(self):
+        """Test that environment variables are sorted within the managed section."""
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
             env_vars = {
@@ -193,65 +196,98 @@ class TestWriteEnvFile:
 
             env_file = worktree_path / ".env"
             lines = env_file.read_text().strip().split("\n")
-            assert lines[0] == "A_VAR=a"
-            assert lines[1] == "M_VAR=m"
-            assert lines[2] == "Z_VAR=z"
+            assert lines[0] == ENV_SECTION_START
+            assert lines[1] == "A_VAR=a"
+            assert lines[2] == "M_VAR=m"
+            assert lines[3] == "Z_VAR=z"
+            assert lines[4] == ENV_SECTION_END
 
-    def test_merges_existing_vars(self):
-        """Test that existing variables are preserved and merged."""
+    def test_first_creation_with_template(self):
+        """Test first-time creation with template text from project root .env."""
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
             generated = {"PORT_BASE": "100", "DB_PORT": "1002"}
-            existing = {"DATABASE_URL": "postgres://localhost:5432/mydb", "API_KEY": "secret"}
+            template = "DATABASE_URL=postgres://localhost:$DB_PORT/mydb\nAPI_KEY=secret\n"
 
-            write_env_file(worktree_path, generated, existing)
+            write_env_file(worktree_path, generated, template)
 
             env_file = worktree_path / ".env"
             content = env_file.read_text()
+            # Managed section at top
+            assert content.startswith(ENV_SECTION_START)
             assert "PORT_BASE=100" in content
             assert "DB_PORT=1002" in content
-            assert "DATABASE_URL=postgres://localhost:5432/mydb" in content
+            # Template text below
+            assert "DATABASE_URL=postgres://localhost:$DB_PORT/mydb" in content
             assert "API_KEY=secret" in content
+            # Section ends before template
+            section_end_pos = content.index(ENV_SECTION_END)
+            template_pos = content.index("DATABASE_URL")
+            assert section_end_pos < template_pos
 
-    def test_generated_vars_override_existing(self):
-        """Test that generated variables override existing on conflict."""
+    def test_updates_managed_section_preserves_user_content(self):
+        """Test that updating replaces only the managed section."""
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
-            generated = {"PORT_BASE": "100"}
-            existing = {"PORT_BASE": "200"}  # Should be overwritten
-
-            write_env_file(worktree_path, generated, existing)
-
             env_file = worktree_path / ".env"
+
+            # Write initial .env with section + user content
+            initial = (
+                f"{ENV_SECTION_START}\n"
+                "PORT_BASE=100\n"
+                f"{ENV_SECTION_END}\n"
+                "\n"
+                "MY_CUSTOM_VAR=keep_me\n"
+            )
+            env_file.write_text(initial)
+
+            # Update with new port allocation
+            write_env_file(worktree_path, {"PORT_BASE": "200", "NEW_PORT": "2000"})
+
             content = env_file.read_text()
+            # New values in managed section
+            assert "PORT_BASE=200" in content
+            assert "NEW_PORT=2000" in content
+            # Old values gone
+            assert "PORT_BASE=100" not in content
+            # User content preserved
+            assert "MY_CUSTOM_VAR=keep_me" in content
+
+    def test_upgrade_path_no_existing_markers(self):
+        """Test that existing .env without markers gets section prepended."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            env_file = worktree_path / ".env"
+
+            # Pre-existing .env without markers
+            env_file.write_text("LEGACY_VAR=old_value\nANOTHER=thing\n")
+
+            write_env_file(worktree_path, {"PORT_BASE": "100"})
+
+            content = env_file.read_text()
+            # Managed section prepended
+            assert content.startswith(ENV_SECTION_START)
             assert "PORT_BASE=100" in content
-            assert "PORT_BASE=200" not in content
+            # Legacy content preserved after section
+            assert "LEGACY_VAR=old_value" in content
+            assert "ANOTHER=thing" in content
+            section_end_pos = content.index(ENV_SECTION_END)
+            legacy_pos = content.index("LEGACY_VAR")
+            assert section_end_pos < legacy_pos
 
-    def test_substitutes_variables_in_existing(self):
-        """Test that $VAR references are substituted in existing vars."""
-        with TemporaryDirectory() as tmpdir:
-            worktree_path = Path(tmpdir)
-            generated = {"DB_PORT": "1002", "PORT_BASE": "100"}
-            existing = {"DATABASE_URL": "postgres://localhost:$DB_PORT/mydb"}
-
-            write_env_file(worktree_path, generated, existing)
-
-            env_file = worktree_path / ".env"
-            content = env_file.read_text()
-            assert "DATABASE_URL=postgres://localhost:1002/mydb" in content
-
-    def test_substitutes_worktree_variable(self):
-        """Test that $WORKTREE is substituted in existing vars."""
+    def test_template_text_with_var_references_preserved(self):
+        """Test that $VAR references in template text are kept as-is."""
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
             generated = {"WORKTREE": "alpha", "WORKTREE_NUM": "0"}
-            existing = {"DATABASE_NAME": "myapp_$WORKTREE"}
+            template = "DATABASE_NAME=myapp_$WORKTREE\n"
 
-            write_env_file(worktree_path, generated, existing)
+            write_env_file(worktree_path, generated, template)
 
             env_file = worktree_path / ".env"
             content = env_file.read_text()
-            assert "DATABASE_NAME=myapp_alpha" in content
+            # $WORKTREE reference preserved (not substituted)
+            assert "DATABASE_NAME=myapp_$WORKTREE" in content
             assert "WORKTREE=alpha" in content
             assert "WORKTREE_NUM=0" in content
 
@@ -305,46 +341,6 @@ class TestReadEnvFile:
 
             result = read_env_file(worktree_path)
             assert result == {"DATABASE_URL": "postgres://user:pass=123@host/db"}
-
-
-class TestSubstituteEnvVars:
-    """Tests for substitute_env_vars function."""
-
-    def test_simple_var(self):
-        """Test substituting $VAR format."""
-        env_vars = {"DB_PORT": "1002"}
-        result = substitute_env_vars("postgres://localhost:$DB_PORT/mydb", env_vars)
-        assert result == "postgres://localhost:1002/mydb"
-
-    def test_braced_var(self):
-        """Test substituting ${VAR} format."""
-        env_vars = {"DB_PORT": "1002"}
-        result = substitute_env_vars("postgres://localhost:${DB_PORT}/mydb", env_vars)
-        assert result == "postgres://localhost:1002/mydb"
-
-    def test_multiple_vars(self):
-        """Test substituting multiple variables."""
-        env_vars = {"HOST": "localhost", "PORT": "1002"}
-        result = substitute_env_vars("http://$HOST:$PORT/api", env_vars)
-        assert result == "http://localhost:1002/api"
-
-    def test_missing_var_unchanged(self):
-        """Test that unknown variables are left unchanged."""
-        env_vars = {"DB_PORT": "1002"}
-        result = substitute_env_vars("$UNKNOWN_VAR and $DB_PORT", env_vars)
-        assert result == "$UNKNOWN_VAR and 1002"
-
-    def test_no_vars(self):
-        """Test string without variables."""
-        env_vars = {"DB_PORT": "1002"}
-        result = substitute_env_vars("just a plain string", env_vars)
-        assert result == "just a plain string"
-
-    def test_mixed_format(self):
-        """Test mixing $VAR and ${VAR} formats."""
-        env_vars = {"A": "1", "B": "2"}
-        result = substitute_env_vars("$A and ${B}", env_vars)
-        assert result == "1 and 2"
 
 
 class TestWorktreeIntegration:

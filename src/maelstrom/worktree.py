@@ -45,6 +45,10 @@ def resolve_worktree_shortcode(name: str) -> str:
 # Files managed by maelstrom that should be ignored when checking for dirty files
 MAELSTROM_MANAGED_FILES = {".env"}
 
+# Section markers for managed .env content
+ENV_SECTION_START = "# Maelstrom port allocations"
+ENV_SECTION_END = "# End Maelstrom port allocations"
+
 # Main branch name (hardcoded - no master support)
 MAIN_BRANCH = "main"
 
@@ -851,8 +855,9 @@ def _finalize_worktree(project_path: Path, worktree_path: Path, worktree_name: s
     # Load config and handle .env file
     config = load_config_or_default(worktree_path)
 
-    # Read .env from project root if present (e.g., /Projects/myapp/.env)
-    existing_env = read_env_file(project_path)
+    # Read .env from project root as raw text if present (e.g., /Projects/myapp/.env)
+    project_env_file = project_path / ".env"
+    template_text = project_env_file.read_text() if project_env_file.exists() else None
 
     # Generate environment variables
     generated_vars = {
@@ -876,8 +881,8 @@ def _finalize_worktree(project_path: Path, worktree_path: Path, worktree_name: s
         generated_vars.update(generate_port_env_vars(shared_base, config.shared_port_names))
 
     # Write .env if there's anything to write
-    if existing_env or generated_vars:
-        write_env_file(worktree_path, generated_vars, existing_env)
+    if template_text or generated_vars:
+        write_env_file(worktree_path, generated_vars, template_text)
 
     return worktree_path
 
@@ -1017,26 +1022,6 @@ def create_worktree(project_path: Path, branch: str, *, detached: bool = False) 
     return _finalize_worktree(project_path, worktree_path, worktree_name)
 
 
-def substitute_env_vars(value: str, env_vars: dict[str, str]) -> str:
-    """Substitute $VAR and ${VAR} references in a value.
-
-    Args:
-        value: The string containing variable references.
-        env_vars: Dictionary of environment variables to substitute.
-
-    Returns:
-        The value with all known variables substituted.
-    """
-    def replacer(match: re.Match) -> str:
-        # Group 1 is ${VAR}, group 2 is $VAR
-        var_name = match.group(1) or match.group(2)
-        return env_vars.get(var_name, match.group(0))
-
-    # Match ${VAR} or $VAR (where VAR is alphanumeric + underscore)
-    pattern = r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)"
-    return re.sub(pattern, replacer, value)
-
-
 def read_env_file(worktree_path: Path) -> dict[str, str]:
     """Read existing .env file if present.
 
@@ -1063,35 +1048,84 @@ def read_env_file(worktree_path: Path) -> dict[str, str]:
     return env_vars
 
 
+def _build_managed_section(generated_vars: dict[str, str]) -> str:
+    """Build the managed section text for a .env file.
+
+    Args:
+        generated_vars: Generated environment variables (e.g., ports).
+
+    Returns:
+        The managed section text including start/end markers.
+    """
+    lines = [ENV_SECTION_START]
+    for key, value in sorted(generated_vars.items()):
+        lines.append(f"{key}={value}")
+    lines.append(ENV_SECTION_END)
+    return "\n".join(lines)
+
+
 def write_env_file(
     worktree_path: Path,
     generated_vars: dict[str, str],
-    existing_vars: dict[str, str] | None = None,
+    template_text: str | None = None,
 ) -> None:
     """Write environment variables to .env file in worktree.
 
-    Merges existing variables with generated ones, substituting variable
-    references like $VAR and ${VAR} in existing values.
+    Generated variables are placed in a managed section at the top of the file,
+    delimited by marker comments. Content outside the section is preserved when
+    updating an existing file.
+
+    Since the managed section appears first, dotenv readers will natively expand
+    $VAR references in user content below.
 
     Args:
         worktree_path: Path to the worktree.
         generated_vars: Generated environment variables (e.g., ports).
-        existing_vars: Existing variables from user's .env file.
+        template_text: Raw text from project root .env, used only on first creation.
     """
-    # Start with existing vars, substitute references, then merge generated
-    merged = {}
-
-    if existing_vars:
-        for key, value in existing_vars.items():
-            # Substitute variable references using generated vars
-            merged[key] = substitute_env_vars(value, generated_vars)
-
-    # Generated vars override existing (in case of conflicts)
-    merged.update(generated_vars)
-
+    managed_section = _build_managed_section(generated_vars)
     env_file = worktree_path / ".env"
-    lines = [f"{key}={value}" for key, value in sorted(merged.items())]
-    env_file.write_text("\n".join(lines) + "\n")
+
+    if env_file.exists():
+        existing_content = env_file.read_text()
+
+        if ENV_SECTION_START in existing_content and ENV_SECTION_END in existing_content:
+            # Replace the managed section, preserve everything else
+            start_idx = existing_content.index(ENV_SECTION_START)
+            end_idx = existing_content.index(ENV_SECTION_END) + len(ENV_SECTION_END)
+            # Consume the newline after end marker if present
+            if end_idx < len(existing_content) and existing_content[end_idx] == "\n":
+                end_idx += 1
+            new_content = (
+                existing_content[:start_idx]
+                + managed_section + "\n"
+                + existing_content[end_idx:]
+            )
+        else:
+            # Upgrade path: no markers found, prepend managed section
+            # Strip keys from existing content that are now in the managed section
+            filtered_lines = []
+            for line in existing_content.splitlines():
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#") and "=" in stripped:
+                    key = stripped.split("=", 1)[0].strip()
+                    if key in generated_vars:
+                        continue
+                filtered_lines.append(line)
+            remaining = "\n".join(filtered_lines).strip()
+            if remaining:
+                new_content = managed_section + "\n\n" + remaining + "\n"
+            else:
+                new_content = managed_section + "\n"
+
+        env_file.write_text(new_content)
+    else:
+        # First-time creation
+        parts = [managed_section]
+        if template_text:
+            parts.append("")  # blank line separator
+            parts.append(template_text.rstrip("\n"))
+        env_file.write_text("\n".join(parts) + "\n")
 
 
 def find_worktree_by_branch(project_path: Path, branch: str) -> Path | None:
