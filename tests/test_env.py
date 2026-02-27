@@ -17,16 +17,19 @@ from maelstrom.env import (
     cleanup_stale_env,
     format_uptime,
     get_env_status,
+    get_log_files,
     get_services,
     is_service_alive,
     list_all_envs,
     list_project_envs,
     load_env_state,
     parse_procfile,
+    read_service_logs,
     remove_env_state,
     save_env_state,
     start_env,
     stop_env,
+    tail_log_file,
 )
 
 
@@ -791,3 +794,157 @@ class TestFormatUptime:
         mock_dt.fromisoformat = datetime.fromisoformat
         mock_dt.now.return_value = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         assert format_uptime("2025-01-01T00:00:00+00:00") == "0s"
+
+
+class TestGetLogFiles:
+    """Tests for get_log_files function."""
+
+    @patch("maelstrom.env.load_env_state")
+    def test_from_state(self, mock_load, tmp_path):
+        """Returns log paths from running env state."""
+        log_file = tmp_path / "web.log"
+        log_file.write_text("some logs")
+        mock_load.return_value = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web", command="python app.py", pid=100,
+                    log_file=str(log_file), started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+        result = get_log_files("proj", "bravo")
+        assert result == {"web": log_file}
+
+    @patch("maelstrom.env._get_log_dir")
+    @patch("maelstrom.env.load_env_state", return_value=None)
+    def test_fallback_to_dir_scan(self, mock_load, mock_log_dir, tmp_path):
+        """Falls back to scanning log directory when no state."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        (log_dir / "web.log").write_text("web logs")
+        (log_dir / "worker.log").write_text("worker logs")
+        mock_log_dir.return_value = log_dir
+
+        result = get_log_files("proj", "bravo")
+        assert set(result.keys()) == {"web", "worker"}
+
+    @patch("maelstrom.env._get_log_dir")
+    @patch("maelstrom.env.load_env_state", return_value=None)
+    def test_no_state_no_dir(self, mock_load, mock_log_dir, tmp_path):
+        """Returns empty dict when no state and no log dir."""
+        mock_log_dir.return_value = tmp_path / "nonexistent"
+        result = get_log_files("proj", "bravo")
+        assert result == {}
+
+    @patch("maelstrom.env._get_log_dir")
+    @patch("maelstrom.env.load_env_state", return_value=None)
+    def test_empty_dir(self, mock_load, mock_log_dir, tmp_path):
+        """Returns empty dict when log dir exists but has no .log files."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        mock_log_dir.return_value = log_dir
+        result = get_log_files("proj", "bravo")
+        assert result == {}
+
+    @patch("maelstrom.env._get_log_dir")
+    @patch("maelstrom.env.load_env_state")
+    def test_state_with_missing_files_falls_back(self, mock_load, mock_log_dir, tmp_path):
+        """Falls back to dir scan when state log files don't exist on disk."""
+        mock_load.return_value = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web", command="x", pid=100,
+                    log_file="/nonexistent/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        (log_dir / "web.log").write_text("fallback logs")
+        mock_log_dir.return_value = log_dir
+
+        result = get_log_files("proj", "bravo")
+        assert "web" in result
+
+
+class TestTailLogFile:
+    """Tests for tail_log_file function."""
+
+    def test_last_n_lines(self, tmp_path):
+        """Returns last N lines."""
+        log = tmp_path / "test.log"
+        log.write_text("\n".join(f"line {i}" for i in range(200)))
+        result = tail_log_file(log, n=5)
+        assert len(result) == 5
+        assert result[-1] == "line 199"
+
+    def test_fewer_than_n(self, tmp_path):
+        """Returns all lines when fewer than N exist."""
+        log = tmp_path / "test.log"
+        log.write_text("line 1\nline 2\n")
+        result = tail_log_file(log, n=100)
+        assert len(result) == 2
+
+    def test_missing_file(self, tmp_path):
+        """Returns empty list for missing file."""
+        result = tail_log_file(tmp_path / "missing.log")
+        assert result == []
+
+    def test_empty_file(self, tmp_path):
+        """Returns empty list for empty file."""
+        log = tmp_path / "empty.log"
+        log.write_text("")
+        result = tail_log_file(log)
+        assert result == []
+
+
+class TestReadServiceLogs:
+    """Tests for read_service_logs function."""
+
+    @patch("maelstrom.env.get_log_files")
+    def test_single_service(self, mock_files, tmp_path):
+        """Reads logs for a specific service."""
+        log = tmp_path / "web.log"
+        log.write_text("request 1\nrequest 2\n")
+        mock_files.return_value = {"web": log, "worker": tmp_path / "worker.log"}
+
+        result = read_service_logs("proj", "bravo", service="web")
+        assert all(name == "web" for name, _ in result)
+        assert len(result) == 2
+
+    @patch("maelstrom.env.get_log_files")
+    def test_all_services(self, mock_files, tmp_path):
+        """Reads logs for all services when no service specified."""
+        web_log = tmp_path / "web.log"
+        web_log.write_text("web line\n")
+        worker_log = tmp_path / "worker.log"
+        worker_log.write_text("worker line\n")
+        mock_files.return_value = {"web": web_log, "worker": worker_log}
+
+        result = read_service_logs("proj", "bravo")
+        names = [name for name, _ in result]
+        assert "web" in names
+        assert "worker" in names
+
+    @patch("maelstrom.env.get_log_files")
+    def test_service_not_found(self, mock_files, tmp_path):
+        """Raises ValueError for unknown service."""
+        mock_files.return_value = {"web": tmp_path / "web.log"}
+        with pytest.raises(ValueError, match="Service 'db' not found"):
+            read_service_logs("proj", "bravo", service="db")
+
+    @patch("maelstrom.env.get_log_files")
+    def test_no_logs(self, mock_files):
+        """Raises ValueError when no logs exist."""
+        mock_files.return_value = {}
+        with pytest.raises(ValueError, match="No logs found"):
+            read_service_logs("proj", "bravo")

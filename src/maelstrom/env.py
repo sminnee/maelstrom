@@ -239,7 +239,7 @@ def start_env(
 
     for svc in services:
         log_file = log_dir / f"{svc.name}.log"
-        log_fh = open(log_file, "a")  # noqa: SIM115
+        log_fh = open(log_file, "w")  # noqa: SIM115
         log_fh.write(f"\n=== Service started: {now} ===\n")
         log_fh.flush()
         proc = Popen(
@@ -400,6 +400,77 @@ def list_all_envs() -> list[EnvState]:
         if project_dir.is_dir():
             results.extend(list_project_envs(project_dir.name))
     return results
+
+
+def get_log_files(project: str, worktree: str) -> dict[str, Path]:
+    """Get log file paths for an environment's services.
+
+    First tries loading state to get paths from ServiceState.log_file,
+    then falls back to scanning the log directory for *.log files.
+    Returns {service_name: log_file_path}, empty dict if nothing found.
+    """
+    state = load_env_state(project, worktree)
+    if state is not None:
+        result = {}
+        for svc in state.services:
+            path = Path(svc.log_file)
+            if path.exists():
+                result[svc.name] = path
+        if result:
+            return result
+
+    # Fallback: scan log directory
+    log_dir = _get_log_dir(project, worktree)
+    if not log_dir.is_dir():
+        return {}
+    return {p.stem: p for p in sorted(log_dir.glob("*.log"))}
+
+
+def tail_log_file(log_path: Path, n: int = 100) -> list[str]:
+    """Read the last N lines from a log file.
+
+    Returns empty list if the file is missing, empty, or unreadable.
+    """
+    try:
+        lines = log_path.read_text().splitlines()
+        return lines[-n:] if lines else []
+    except OSError:
+        return []
+
+
+def read_service_logs(
+    project: str,
+    worktree: str,
+    service: str | None = None,
+    n: int = 100,
+) -> list[tuple[str, str]]:
+    """Read log lines for one or all services.
+
+    Returns list of (service_name, line) tuples.
+    If service is specified, reads only that service's log.
+    If service is None, reads all services grouped by service.
+
+    Raises:
+        ValueError: If no logs found or service not recognized.
+    """
+    log_files = get_log_files(project, worktree)
+    if not log_files:
+        raise ValueError(f"No logs found for {project}/{worktree}")
+
+    if service is not None:
+        if service not in log_files:
+            available = ", ".join(sorted(log_files.keys()))
+            raise ValueError(
+                f"Service '{service}' not found. Available: {available}"
+            )
+        lines = tail_log_file(log_files[service], n)
+        return [(service, line) for line in lines]
+
+    result: list[tuple[str, str]] = []
+    for svc_name, log_path in sorted(log_files.items()):
+        lines = tail_log_file(log_path, n)
+        result.extend((svc_name, line) for line in lines)
+    return result
 
 
 def format_uptime(started_at: str) -> str:
