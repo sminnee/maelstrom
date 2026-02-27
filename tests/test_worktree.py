@@ -244,7 +244,7 @@ class TestWriteEnvFile:
         """Test that $WORKTREE is substituted in existing vars."""
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
-            generated = {"WORKTREE": "alpha"}
+            generated = {"WORKTREE": "alpha", "WORKTREE_NUM": "0"}
             existing = {"DATABASE_NAME": "myapp_$WORKTREE"}
 
             write_env_file(worktree_path, generated, existing)
@@ -253,6 +253,7 @@ class TestWriteEnvFile:
             content = env_file.read_text()
             assert "DATABASE_NAME=myapp_alpha" in content
             assert "WORKTREE=alpha" in content
+            assert "WORKTREE_NUM=0" in content
 
 
 class TestReadEnvFile:
