@@ -339,3 +339,104 @@ class TestEnvListAll:
         result = runner.invoke(cli, ["env", "list-all"])
         assert result.exit_code == 0
         assert "No running environments" in result.output
+
+
+class TestEnvLogs:
+    """Tests for mael env logs command."""
+
+    @patch("maelstrom.env_cli.get_log_files")
+    @patch("maelstrom.env_cli.read_service_logs")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_single_service_no_prefix(self, mock_ctx, mock_read, mock_files):
+        """Single service output has no [service] prefix."""
+        mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
+        mock_read.return_value = [("web", "line 1"), ("web", "line 2")]
+        mock_files.return_value = {"web": Path("/tmp/web.log")}
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "logs"])
+        assert result.exit_code == 0
+        assert "line 1" in result.output
+        assert "line 2" in result.output
+        assert "[web]" not in result.output
+
+    @patch("maelstrom.env_cli.get_log_files")
+    @patch("maelstrom.env_cli.read_service_logs")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_multi_service_with_prefix(self, mock_ctx, mock_read, mock_files):
+        """Multi-service output has [service] prefix."""
+        mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
+        mock_read.return_value = [("web", "web line"), ("worker", "worker line")]
+        mock_files.return_value = {
+            "web": Path("/tmp/web.log"),
+            "worker": Path("/tmp/worker.log"),
+        }
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "logs"])
+        assert result.exit_code == 0
+        assert "[web] web line" in result.output
+        assert "[worker] worker line" in result.output
+
+    @patch("maelstrom.env_cli.get_log_files")
+    @patch("maelstrom.env_cli.read_service_logs")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_custom_n(self, mock_ctx, mock_read, mock_files):
+        """Passes -n value through to read_service_logs."""
+        mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
+        mock_read.return_value = []
+        mock_files.return_value = {"web": Path("/tmp/web.log")}
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "logs", "-n", "50"])
+        assert result.exit_code == 0
+        mock_read.assert_called_once_with("proj", "bravo", None, 50)
+
+    @patch("maelstrom.env_cli.read_service_logs")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_no_logs_error(self, mock_ctx, mock_read):
+        """Shows error when no logs exist."""
+        mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
+        mock_read.side_effect = ValueError("No logs found for proj/bravo")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "logs"])
+        assert result.exit_code != 0
+        assert "No logs found" in result.output
+
+    @patch("maelstrom.env_cli.read_service_logs")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_service_not_found_error(self, mock_ctx, mock_read):
+        """Shows error for unknown service."""
+        mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
+        mock_read.side_effect = ValueError("Service 'db' not found. Available: web")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "logs", "--", "bravo", "db"])
+        assert result.exit_code != 0
+        assert "Service 'db' not found" in result.output
+
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_context_error(self, mock_ctx):
+        """Shows error when context cannot be resolved."""
+        mock_ctx.side_effect = ValueError("Could not determine worktree.")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "logs"])
+        assert result.exit_code != 0
+        assert "Could not determine worktree" in result.output
+
+    @patch("maelstrom.env_cli._follow_logs")
+    @patch("maelstrom.env_cli.get_log_files")
+    @patch("maelstrom.env_cli.read_service_logs")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_follow_flag(self, mock_ctx, mock_read, mock_files, mock_follow):
+        """Follow flag invokes _follow_logs."""
+        mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
+        mock_read.return_value = [("web", "line 1")]
+        mock_files.return_value = {"web": Path("/tmp/web.log")}
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "logs", "-f"])
+        assert result.exit_code == 0
+        mock_follow.assert_called_once_with("proj", "bravo", None, False)

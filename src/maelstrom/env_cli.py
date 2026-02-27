@@ -1,5 +1,7 @@
 """CLI commands for managing dev environments."""
 
+import sys
+import time
 from pathlib import Path
 
 import click
@@ -9,9 +11,11 @@ from .env import (
     EnvState,
     format_uptime,
     get_env_status,
+    get_log_files,
     list_all_envs,
     list_project_envs,
     load_env_state,
+    read_service_logs,
     start_env,
     stop_env,
 )
@@ -199,3 +203,83 @@ def env_list_all():
             "UPTIME": uptime,
         })
     draw_table(rows, ["PROJECT", "WORKTREE", "APP", "RUNNING SERVICES", "STOPPED SERVICES", "UPTIME"])
+
+
+def _follow_logs(
+    project: str, worktree: str, service: str | None, multi: bool,
+) -> None:
+    """Poll log files and print new lines as they appear.
+
+    Polls every 0.5s using file size tracking. Handles file truncation
+    (resets position). Catches KeyboardInterrupt for clean Ctrl+C exit.
+    """
+    log_files = get_log_files(project, worktree)
+    if not log_files:
+        return
+
+    targets = {service: log_files[service]} if service else log_files
+    positions: dict[str, int] = {}
+    for name, path in targets.items():
+        try:
+            positions[name] = path.stat().st_size
+        except OSError:
+            positions[name] = 0
+
+    try:
+        while True:
+            time.sleep(0.5)
+            for name, path in targets.items():
+                try:
+                    size = path.stat().st_size
+                except OSError:
+                    continue
+
+                pos = positions.get(name, 0)
+                if size < pos:
+                    # File was truncated (restarted)
+                    pos = 0
+
+                if size > pos:
+                    with open(path) as f:
+                        f.seek(pos)
+                        new_data = f.read()
+                    for line in new_data.splitlines():
+                        if multi:
+                            click.echo(f"[{name}] {line}")
+                        else:
+                            click.echo(line)
+                    positions[name] = size
+    except KeyboardInterrupt:
+        pass
+
+
+@env.command("logs")
+@click.argument("target", required=False, default=None)
+@click.argument("service", required=False, default=None)
+@click.option("-n", "num_lines", default=100, type=int, help="Number of lines to show")
+@click.option("-f", "--follow", is_flag=True, help="Follow log output")
+def env_logs(target, service, num_lines, follow):
+    """Show logs for an environment's services."""
+    try:
+        ctx = resolve_context(
+            target,
+            require_project=True,
+            require_worktree=True,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    try:
+        lines = read_service_logs(ctx.project, ctx.worktree, service, num_lines)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    multi = service is None and len(get_log_files(ctx.project, ctx.worktree)) > 1
+    for svc_name, line in lines:
+        if multi:
+            click.echo(f"[{svc_name}] {line}")
+        else:
+            click.echo(line)
+
+    if follow:
+        _follow_logs(ctx.project, ctx.worktree, service, multi)
