@@ -17,6 +17,7 @@ from .github import (
     get_worktree_code,
     read_pr,
 )
+from .env_cli import env as env_cli
 from .linear import linear
 from .review import review
 from .sentry import sentry
@@ -1174,6 +1175,7 @@ def gh_show_code(target, committed, uncommitted):
 
 # --- Subcommand groups ---
 
+cli.add_command(env_cli)
 cli.add_command(linear)
 cli.add_command(review)
 cli.add_command(sentry)

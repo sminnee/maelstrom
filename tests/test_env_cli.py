@@ -1,0 +1,341 @@
+"""Tests for maelstrom.env_cli module."""
+
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+from click.testing import CliRunner
+
+from maelstrom.cli import cli
+from maelstrom.env import EnvState, ServiceState, ServiceStatus
+
+
+def _make_state(project="proj", worktree="bravo", pid=100):
+    return EnvState(
+        project=project,
+        worktree=worktree,
+        worktree_path=f"/project/{worktree}",
+        started_at="2025-01-01T00:00:00+00:00",
+        services=[
+            ServiceState(
+                name="web",
+                command="python app.py",
+                pid=pid,
+                log_file="/tmp/web.log",
+                started_at="2025-01-01T00:00:00+00:00",
+            )
+        ],
+    )
+
+
+def _make_status(name="web", pid=100, alive=True):
+    return ServiceStatus(
+        name=name,
+        pid=pid,
+        alive=alive,
+        command="python app.py",
+        log_file="/tmp/web.log",
+        started_at="2025-01-01T00:00:00+00:00",
+    )
+
+
+def _mock_ctx_with_path(tmp_path, project="proj", worktree="bravo"):
+    """Create a mock context with a real worktree_path that exists."""
+    wt_path = tmp_path / worktree
+    wt_path.mkdir(exist_ok=True)
+    project_path = tmp_path / project
+    project_path.mkdir(exist_ok=True)
+    return MagicMock(
+        project=project,
+        worktree=worktree,
+        worktree_path=wt_path,
+        project_path=project_path,
+    )
+
+
+class TestEnvStart:
+    """Tests for mael env start command."""
+
+    @patch("maelstrom.env_cli.get_app_url", return_value=None)
+    @patch("maelstrom.env_cli.load_env_state")
+    @patch("maelstrom.env_cli.get_env_status")
+    @patch("maelstrom.env_cli.start_env")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_success(self, mock_ctx, mock_start, mock_status, mock_load, mock_app, tmp_path):
+        """Starts env and prints status table with uptime."""
+        ctx = _mock_ctx_with_path(tmp_path)
+        mock_ctx.return_value = ctx
+        state = _make_state()
+        mock_start.return_value = state
+        mock_load.return_value = state
+        mock_status.return_value = [_make_status()]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "start"])
+        assert result.exit_code == 0
+        assert "web" in result.output
+        assert "running" in result.output
+        assert "Uptime:" in result.output
+        mock_start.assert_called_once_with(
+            "proj", "bravo", ctx.worktree_path, skip_install=False,
+        )
+
+    @patch("maelstrom.env_cli.get_app_url", return_value=None)
+    @patch("maelstrom.env_cli.load_env_state")
+    @patch("maelstrom.env_cli.get_env_status")
+    @patch("maelstrom.env_cli.start_env")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_skip_install_flag(self, mock_ctx, mock_start, mock_status, mock_load, mock_app, tmp_path):
+        """Passes skip_install flag through."""
+        ctx = _mock_ctx_with_path(tmp_path)
+        mock_ctx.return_value = ctx
+        state = _make_state()
+        mock_start.return_value = state
+        mock_load.return_value = state
+        mock_status.return_value = [_make_status()]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "start", "--skip-install"])
+        assert result.exit_code == 0
+        mock_start.assert_called_once_with(
+            "proj", "bravo", ctx.worktree_path, skip_install=True,
+        )
+
+    @patch("maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True))
+    @patch("maelstrom.env_cli.load_env_state")
+    @patch("maelstrom.env_cli.get_env_status")
+    @patch("maelstrom.env_cli.start_env")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_shows_app_url(self, mock_ctx, mock_start, mock_status, mock_load, mock_app, tmp_path):
+        """Shows App URL when port is allocated."""
+        ctx = _mock_ctx_with_path(tmp_path)
+        mock_ctx.return_value = ctx
+        state = _make_state()
+        mock_start.return_value = state
+        mock_load.return_value = state
+        mock_status.return_value = [_make_status()]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "start"])
+        assert result.exit_code == 0
+        assert "APP RUNNING AT: http://localhost:3000" in result.output
+
+    @patch("maelstrom.env_cli.start_env")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_already_running(self, mock_ctx, mock_start, tmp_path):
+        """Shows error when services are already running."""
+        mock_ctx.return_value = _mock_ctx_with_path(tmp_path)
+        mock_start.side_effect = RuntimeError("Services already running for proj/bravo: web")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "start"])
+        assert result.exit_code != 0
+        assert "already running" in result.output
+
+    @patch("maelstrom.env_cli.start_env")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_no_services(self, mock_ctx, mock_start, tmp_path):
+        """Shows error when no services are defined."""
+        mock_ctx.return_value = _mock_ctx_with_path(tmp_path)
+        mock_start.side_effect = RuntimeError("No Procfile found")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "start"])
+        assert result.exit_code != 0
+        assert "No Procfile" in result.output
+
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_worktree_not_found(self, mock_ctx):
+        """Shows error when worktree path doesn't exist."""
+        mock_ctx.return_value = MagicMock(
+            project="proj",
+            worktree="bravo",
+            worktree_path=Path("/nonexistent/path"),
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "start"])
+        assert result.exit_code != 0
+        assert "Worktree not found" in result.output
+
+
+class TestEnvStatus:
+    """Tests for mael env status command."""
+
+    @patch("maelstrom.env_cli.get_app_url", return_value=None)
+    @patch("maelstrom.env_cli.load_env_state")
+    @patch("maelstrom.env_cli.get_env_status")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_shows_service_table(self, mock_ctx, mock_status, mock_load, mock_app):
+        """Prints SERVICE/PID/STATUS/LOG table with uptime."""
+        mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
+        mock_load.return_value = _make_state()
+        mock_status.return_value = [
+            _make_status("web", pid=100, alive=True),
+            _make_status("worker", pid=200, alive=False),
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "status"])
+        assert result.exit_code == 0
+        assert "web" in result.output
+        assert "worker" in result.output
+        assert "running" in result.output
+        assert "dead" in result.output
+        assert "Uptime:" in result.output
+
+    @patch("maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", False))
+    @patch("maelstrom.env_cli.load_env_state")
+    @patch("maelstrom.env_cli.get_env_status")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_shows_app_url(self, mock_ctx, mock_status, mock_load, mock_app):
+        """Shows App line with port when allocated but not running."""
+        mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
+        mock_load.return_value = _make_state()
+        mock_status.return_value = [_make_status()]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "status"])
+        assert result.exit_code == 0
+        assert "APP RUNNING AT: *3000" in result.output
+
+    @patch("maelstrom.env_cli.load_env_state", return_value=None)
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_no_state(self, mock_ctx, mock_load):
+        """Shows message when no environment state exists."""
+        mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "status"])
+        assert result.exit_code == 0
+        assert "No environment state" in result.output
+
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_context_error(self, mock_ctx):
+        """Shows error when context cannot be resolved."""
+        mock_ctx.side_effect = ValueError("Could not determine worktree.")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "status"])
+        assert result.exit_code != 0
+        assert "Could not determine worktree" in result.output
+
+
+class TestEnvStop:
+    """Tests for mael env stop command."""
+
+    @patch("maelstrom.env_cli.stop_env")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_success(self, mock_ctx, mock_stop):
+        """Stops env and prints messages."""
+        mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
+        mock_stop.return_value = ["web (pid 100): stopped"]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "stop"])
+        assert result.exit_code == 0
+        assert "web (pid 100): stopped" in result.output
+        assert "Environment stopped" in result.output
+
+    @patch("maelstrom.env_cli.stop_env")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_not_running(self, mock_ctx, mock_stop):
+        """Shows message when nothing is running."""
+        mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
+        mock_stop.return_value = ["No running environment for proj/bravo"]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "stop"])
+        assert result.exit_code == 0
+        assert "No running environment" in result.output
+
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_context_error(self, mock_ctx):
+        """Shows error when context cannot be resolved."""
+        mock_ctx.side_effect = ValueError("Could not determine project.")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "stop"])
+        assert result.exit_code != 0
+        assert "Could not determine project" in result.output
+
+
+class TestEnvList:
+    """Tests for mael env list command."""
+
+    @patch("maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True))
+    @patch("maelstrom.env_cli.get_env_status")
+    @patch("maelstrom.env_cli.format_uptime", return_value="5m")
+    @patch("maelstrom.env_cli.list_project_envs")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_with_running_envs(self, mock_ctx, mock_list, mock_uptime, mock_status, mock_app):
+        """Prints table with running environments and APP column."""
+        mock_ctx.return_value = MagicMock(project="proj")
+        mock_list.return_value = [_make_state()]
+        mock_status.return_value = [_make_status()]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "list"])
+        assert result.exit_code == 0
+        assert "bravo" in result.output
+        assert "APP" in result.output
+        assert "http://localhost:3000" in result.output
+        assert "RUNNING SERVICES" in result.output
+        assert "web" in result.output
+        assert "5m" in result.output
+
+    @patch("maelstrom.env_cli.list_project_envs")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_no_envs(self, mock_ctx, mock_list):
+        """Shows message when no envs running."""
+        mock_ctx.return_value = MagicMock(project="proj")
+        mock_list.return_value = []
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "list"])
+        assert result.exit_code == 0
+        assert "No running environments" in result.output
+
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_context_error(self, mock_ctx):
+        """Shows error when context cannot be resolved."""
+        mock_ctx.side_effect = ValueError("Could not determine project.")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "list"])
+        assert result.exit_code != 0
+        assert "Could not determine project" in result.output
+
+
+class TestEnvListAll:
+    """Tests for mael env list-all command."""
+
+    @patch("maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True))
+    @patch("maelstrom.env_cli.get_env_status")
+    @patch("maelstrom.env_cli.format_uptime", return_value="2h")
+    @patch("maelstrom.env_cli.list_all_envs")
+    def test_with_envs(self, mock_list, mock_uptime, mock_status, mock_app):
+        """Prints table with all environments and APP column."""
+        mock_list.return_value = [
+            _make_state("projA", "alpha", pid=100),
+            _make_state("projB", "bravo", pid=200),
+        ]
+        mock_status.return_value = [_make_status()]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "list-all"])
+        assert result.exit_code == 0
+        assert "projA" in result.output
+        assert "projB" in result.output
+        assert "APP" in result.output
+        assert "RUNNING SERVICES" in result.output
+        assert "STOPPED SERVICES" in result.output
+
+    @patch("maelstrom.env_cli.list_all_envs")
+    def test_empty(self, mock_list):
+        """Shows message when no environments running."""
+        mock_list.return_value = []
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "list-all"])
+        assert result.exit_code == 0
+        assert "No running environments" in result.output

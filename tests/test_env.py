@@ -15,9 +15,12 @@ from maelstrom.env import (
     ServiceStatus,
     build_service_env,
     cleanup_stale_env,
+    format_uptime,
     get_env_status,
     get_services,
     is_service_alive,
+    list_all_envs,
+    list_project_envs,
     load_env_state,
     parse_procfile,
     remove_env_state,
@@ -631,3 +634,160 @@ class TestCleanupStaleEnv:
     def test_no_state(self, mock_status):
         """Returns False when no state file exists."""
         assert cleanup_stale_env("proj", "bravo") is False
+
+
+class TestListProjectEnvs:
+    """Tests for list_project_envs function."""
+
+    def _make_state(self, project, worktree, pid=100):
+        return EnvState(
+            project=project,
+            worktree=worktree,
+            worktree_path=f"/project/{worktree}",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web", command="python app.py", pid=pid,
+                    log_file="/tmp/web.log", started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+
+    @patch("maelstrom.env.get_maelstrom_dir")
+    @patch("maelstrom.env.is_service_alive", return_value=True)
+    def test_lists_running_envs(self, mock_alive, mock_dir, tmp_path):
+        """Returns states for running environments."""
+        mock_dir.return_value = tmp_path
+        state = self._make_state("proj", "alpha")
+        save_env_state(state)
+        state2 = self._make_state("proj", "bravo", pid=200)
+        save_env_state(state2)
+
+        result = list_project_envs("proj")
+        assert len(result) == 2
+        worktrees = [s.worktree for s in result]
+        assert "alpha" in worktrees
+        assert "bravo" in worktrees
+
+    @patch("maelstrom.env.get_maelstrom_dir")
+    def test_empty_project_dir(self, mock_dir, tmp_path):
+        """Returns empty list for project with no env files."""
+        mock_dir.return_value = tmp_path
+        (tmp_path / "envs" / "proj").mkdir(parents=True)
+        assert list_project_envs("proj") == []
+
+    @patch("maelstrom.env.get_maelstrom_dir")
+    def test_nonexistent_project(self, mock_dir, tmp_path):
+        """Returns empty list for nonexistent project dir."""
+        mock_dir.return_value = tmp_path
+        assert list_project_envs("noproject") == []
+
+    @patch("maelstrom.env.get_maelstrom_dir")
+    @patch("maelstrom.env.is_service_alive", return_value=False)
+    def test_stale_cleanup_during_listing(self, mock_alive, mock_dir, tmp_path):
+        """Stale envs are cleaned up and excluded from results."""
+        mock_dir.return_value = tmp_path
+        state = self._make_state("proj", "alpha")
+        save_env_state(state)
+
+        result = list_project_envs("proj")
+        assert result == []
+        # State file should have been cleaned up
+        assert not (tmp_path / "envs" / "proj" / "alpha.json").exists()
+
+
+class TestListAllEnvs:
+    """Tests for list_all_envs function."""
+
+    def _make_state(self, project, worktree, pid=100):
+        return EnvState(
+            project=project,
+            worktree=worktree,
+            worktree_path=f"/project/{worktree}",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web", command="python app.py", pid=pid,
+                    log_file="/tmp/web.log", started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+
+    @patch("maelstrom.env.get_maelstrom_dir")
+    @patch("maelstrom.env.is_service_alive", return_value=True)
+    def test_lists_across_projects(self, mock_alive, mock_dir, tmp_path):
+        """Returns states from multiple projects."""
+        mock_dir.return_value = tmp_path
+        save_env_state(self._make_state("projA", "alpha", pid=100))
+        save_env_state(self._make_state("projB", "bravo", pid=200))
+
+        result = list_all_envs()
+        assert len(result) == 2
+        projects = {s.project for s in result}
+        assert projects == {"projA", "projB"}
+
+    @patch("maelstrom.env.get_maelstrom_dir")
+    def test_empty_state_dir(self, mock_dir, tmp_path):
+        """Returns empty list when no envs dir exists."""
+        mock_dir.return_value = tmp_path
+        assert list_all_envs() == []
+
+
+class TestFormatUptime:
+    """Tests for format_uptime function."""
+
+    @patch("maelstrom.env.datetime")
+    def test_seconds(self, mock_dt):
+        """Shows seconds for very short uptime."""
+        from datetime import datetime, timezone
+        mock_dt.fromisoformat = datetime.fromisoformat
+        mock_dt.now.return_value = datetime(2025, 1, 1, 0, 0, 45, tzinfo=timezone.utc)
+        assert format_uptime("2025-01-01T00:00:00+00:00") == "45s"
+
+    @patch("maelstrom.env.datetime")
+    def test_minutes(self, mock_dt):
+        """Shows minutes for short uptime."""
+        from datetime import datetime, timezone
+        mock_dt.fromisoformat = datetime.fromisoformat
+        mock_dt.now.return_value = datetime(2025, 1, 1, 0, 5, 0, tzinfo=timezone.utc)
+        assert format_uptime("2025-01-01T00:00:00+00:00") == "5m"
+
+    @patch("maelstrom.env.datetime")
+    def test_hours_and_minutes(self, mock_dt):
+        """Shows hours and minutes."""
+        from datetime import datetime, timezone
+        mock_dt.fromisoformat = datetime.fromisoformat
+        mock_dt.now.return_value = datetime(2025, 1, 1, 2, 30, 0, tzinfo=timezone.utc)
+        assert format_uptime("2025-01-01T00:00:00+00:00") == "2h 30m"
+
+    @patch("maelstrom.env.datetime")
+    def test_days_and_hours(self, mock_dt):
+        """Shows days and hours."""
+        from datetime import datetime, timezone
+        mock_dt.fromisoformat = datetime.fromisoformat
+        mock_dt.now.return_value = datetime(2025, 1, 4, 5, 0, 0, tzinfo=timezone.utc)
+        assert format_uptime("2025-01-01T00:00:00+00:00") == "3d 5h"
+
+    @patch("maelstrom.env.datetime")
+    def test_days_only(self, mock_dt):
+        """Shows just days when hours are zero."""
+        from datetime import datetime, timezone
+        mock_dt.fromisoformat = datetime.fromisoformat
+        mock_dt.now.return_value = datetime(2025, 1, 4, 0, 0, 0, tzinfo=timezone.utc)
+        assert format_uptime("2025-01-01T00:00:00+00:00") == "3d"
+
+    @patch("maelstrom.env.datetime")
+    def test_hours_only(self, mock_dt):
+        """Shows just hours when minutes are zero."""
+        from datetime import datetime, timezone
+        mock_dt.fromisoformat = datetime.fromisoformat
+        mock_dt.now.return_value = datetime(2025, 1, 1, 2, 0, 0, tzinfo=timezone.utc)
+        assert format_uptime("2025-01-01T00:00:00+00:00") == "2h"
+
+    @patch("maelstrom.env.datetime")
+    def test_zero_seconds(self, mock_dt):
+        """Shows 0s for no elapsed time."""
+        from datetime import datetime, timezone
+        mock_dt.fromisoformat = datetime.fromisoformat
+        mock_dt.now.return_value = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        assert format_uptime("2025-01-01T00:00:00+00:00") == "0s"

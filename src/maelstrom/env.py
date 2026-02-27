@@ -114,14 +114,14 @@ def get_services(worktree_path: Path) -> list[ProcfileEntry]:
 # --- State File Persistence ---
 
 
-def _get_state_dir() -> Path:
+def get_state_dir() -> Path:
     """Return the directory for environment state files."""
     return get_maelstrom_dir() / "envs"
 
 
 def _get_state_path(project: str, worktree: str) -> Path:
     """Return the path to a specific environment state file."""
-    return _get_state_dir() / project / f"{worktree}.json"
+    return get_state_dir() / project / f"{worktree}.json"
 
 
 def _get_log_dir(project: str, worktree: str) -> Path:
@@ -240,6 +240,8 @@ def start_env(
     for svc in services:
         log_file = log_dir / f"{svc.name}.log"
         log_fh = open(log_file, "a")  # noqa: SIM115
+        log_fh.write(f"\n=== Service started: {now} ===\n")
+        log_fh.flush()
         proc = Popen(
             ["sh", "-c", svc.command],
             cwd=worktree_path,
@@ -285,6 +287,15 @@ def stop_env(
         return [f"No running environment for {project}/{worktree}"]
 
     messages = []
+    stop_time = datetime.now(timezone.utc).isoformat()
+
+    # Write stop marker to log files
+    for svc in state.services:
+        try:
+            with open(svc.log_file, "a") as f:
+                f.write(f"\n=== Service stopped: {stop_time} ===\n")
+        except OSError:
+            pass
 
     # Send SIGTERM to each process group
     for svc in state.services:
@@ -353,3 +364,69 @@ def cleanup_stale_env(project: str, worktree: str) -> bool:
         return True
 
     return False
+
+
+# --- Listing & Utilities ---
+
+
+def list_project_envs(project: str) -> list[EnvState]:
+    """List all running environments for a project.
+
+    Iterates state files in ~/.maelstrom/envs/<project>/, cleans up stale
+    entries, and returns the remaining live states.
+    """
+    project_dir = get_state_dir() / project
+    if not project_dir.is_dir():
+        return []
+
+    results = []
+    for state_file in sorted(project_dir.glob("*.json")):
+        worktree = state_file.stem
+        cleanup_stale_env(project, worktree)
+        state = load_env_state(project, worktree)
+        if state is not None:
+            results.append(state)
+    return results
+
+
+def list_all_envs() -> list[EnvState]:
+    """List all running environments across all projects."""
+    state_dir = get_state_dir()
+    if not state_dir.is_dir():
+        return []
+
+    results = []
+    for project_dir in sorted(state_dir.iterdir()):
+        if project_dir.is_dir():
+            results.extend(list_project_envs(project_dir.name))
+    return results
+
+
+def format_uptime(started_at: str) -> str:
+    """Format a human-readable uptime string from an ISO 8601 timestamp.
+
+    Examples: "5m", "2h 30m", "3d 5h".
+    """
+    start = datetime.fromisoformat(started_at)
+    now = datetime.now(timezone.utc)
+    delta = now - start
+    total_seconds = int(delta.total_seconds())
+
+    if total_seconds < 0:
+        return "0s"
+
+    days = total_seconds // 86400
+    hours = (total_seconds % 86400) // 3600
+    minutes = (total_seconds % 3600) // 60
+
+    if days > 0:
+        if hours > 0:
+            return f"{days}d {hours}h"
+        return f"{days}d"
+    if hours > 0:
+        if minutes > 0:
+            return f"{hours}h {minutes}m"
+        return f"{hours}h"
+    if minutes > 0:
+        return f"{minutes}m"
+    return f"{total_seconds}s"
