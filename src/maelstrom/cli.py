@@ -970,10 +970,15 @@ def gh():
 
 
 @gh.command("create-pr")
-@click.argument("target", required=False, default=None)
+@click.argument("issue_id", required=False, default=None)
 @click.option("--draft", is_flag=True, help="Create as draft PR")
-def gh_create_pr(target, draft):
-    """Create a PR for the current worktree (or push if PR exists)."""
+@click.option("--target", default=None, help="Project/worktree target for directory resolution")
+def gh_create_pr(issue_id, draft, target):
+    """Create a PR for the current worktree (or push if PR exists).
+
+    If ISSUE_ID is provided (e.g., ME-41), the PR title is prefixed with [ISSUE_ID]
+    for Linear auto-linking, and the task status is set to "In Review".
+    """
     try:
         ctx = resolve_context(target, require_project=False, require_worktree=False)
     except ValueError as e:
@@ -986,13 +991,63 @@ def gh_create_pr(target, draft):
         cwd = Path.cwd()
 
     try:
-        url, created = create_pr(cwd=cwd, draft=draft)
+        url, created = create_pr(cwd=cwd, draft=draft, issue_id=issue_id)
         if created:
             click.echo(f"PR created: {url}")
         else:
             click.echo(f"Pushed to existing PR: {url}")
     except Exception as e:
         raise click.ClickException(str(e))
+
+    # If issue_id provided, update Linear task status
+    if issue_id:
+        try:
+            from .linear import (
+                get_issue,
+                get_labels,
+                get_product_label,
+                get_workflow_states,
+                get_workspace_labels,
+                detect_workspace_label,
+                update_issue,
+                ensure_product_label,
+            )
+
+            issue = get_issue(issue_id)
+            states = get_workflow_states()
+
+            if "In Review" not in states:
+                click.echo("Warning: 'In Review' state not found in workflow", err=True)
+            else:
+                # Build label list with product label
+                labels_map = get_labels()
+                current_labels = [
+                    label["name"] for label in issue.get("labels", {}).get("nodes", [])
+                ]
+                product_label = get_product_label()
+                new_labels = list(current_labels)
+                if product_label and product_label not in new_labels and product_label in labels_map:
+                    new_labels.append(product_label)
+
+                label_ids = [labels_map[name] for name in new_labels if name in labels_map]
+
+                update_issue(
+                    issue["id"],
+                    stateId=states["In Review"],
+                    labelIds=label_ids,
+                )
+                click.echo(f"Updated {issue['identifier']} status to: In Review")
+
+            # Promote parent from early states to In Progress
+            if issue.get("parent"):
+                parent = get_issue(issue["parent"]["id"])
+                early_states = {"Todo", "Planned", "Backlog"}
+                if parent["state"]["name"] in early_states:
+                    if "In Progress" in states:
+                        update_issue(parent["id"], stateId=states["In Progress"])
+                        click.echo(f"Updated parent {parent['identifier']} status to: In Progress")
+        except Exception as e:
+            click.echo(f"Warning: Could not update Linear task: {e}", err=True)
 
 
 def _format_size(size_bytes: int) -> str:

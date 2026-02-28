@@ -20,6 +20,7 @@ class MaelstromConfig:
     # Linear integration
     linear_team_id: str | None = None
     linear_workspace_labels: list[str] | None = None
+    linear_product_label: str | None = None
     # Sentry integration
     sentry_org: str | None = None
     sentry_project: str | None = None
@@ -38,6 +39,7 @@ class MaelstromConfig:
             install_cmd=data.get("install_cmd", ""),
             linear_team_id=linear_config.get("team_id"),
             linear_workspace_labels=linear_config.get("workspace_labels"),
+            linear_product_label=linear_config.get("product_label"),
             sentry_org=data.get("sentry_org"),
             sentry_project=data.get("sentry_project"),
         )

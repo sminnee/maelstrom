@@ -50,8 +50,7 @@ Examples:
 
 6. **Final Steps**: Create PR and submit to Linear:
    ```bash
-   mael gh create-pr
-   mael linear submit-pr <issue-id>
+   mael gh create-pr <issue-id>
    ```
 
 ## Examples
@@ -81,11 +80,11 @@ When starting a task (`start-task`):
 - Adds workspace label (e.g., golf) based on current directory
 - Also updates parent task if working on a subtask
 
-When PR is submitted (`submit-pr`) - happens as final step:
+When PR is created (`create-pr <issue-id>`) - happens as final step:
 
-- Attaches PR URL to Linear task (auto-detected from current branch)
+- PR title is prefixed with `[ISSUE-ID]` for Linear auto-linking
 - Sets status to "In Review"
-- If all sibling subtasks are "In Review", parent is also set to "In Review"
+- Promotes parent from early states (Todo/Planned/Backlog) to "In Progress"
 
 When PR is merged (manual or via `complete-task`):
 
@@ -102,7 +101,7 @@ When PR is merged (manual or via `complete-task`):
   - Start task in Linear (status + label updates)
   - Read plan from Linear
   - Implement changes
-  - Create PR and submit to Linear (final step)
+  - Create PR with issue ID (final step — handles both GitHub PR and Linear status update)
 - **CLI tool handles**: Team ID, workspace labels, parent task updates, PR detection, and all Linear
   API usage
 - **Progress tracking**: Use TodoWrite to track implementation progress

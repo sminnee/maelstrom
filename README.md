@@ -118,6 +118,7 @@ start_cmd: "npm run dev"
 linear:
   team_id: "your-team-uuid"
   workspace_labels: [alpha, bravo, charlie]
+  product_label: "YourProduct"  # Auto-assigned to tasks; used by `mael linear release`
 
 # Sentry integration
 sentry_org: "your-org"
@@ -181,7 +182,7 @@ Services with names ending in `-shared` are shared across worktrees in the same 
 
 | Command | Description |
 |---------|-------------|
-| `mael gh create-pr [TARGET]` | Create or update a pull request. `--draft` for draft PRs |
+| `mael gh create-pr [ISSUE_ID]` | Create or update a pull request. `--draft` for draft PRs, `--target` for worktree |
 | `mael gh read-pr [TARGET]` | Show PR status, unresolved comments, and CI check results |
 | `mael gh show-code [TARGET]` | Show commits and diffs. `--committed` or `--uncommitted` |
 | `mael gh check-log RUN_ID` | View GitHub Actions logs. `--failed-only` for failures |
@@ -198,6 +199,7 @@ Services with names ending in `-shared` are shared across worktrees in the same 
 | `mael linear create-subtask PARENT TITLE [DESC]` | Create a subtask linked to a parent |
 | `mael linear write-plan ISSUE_ID FILE` | Write a plan file to the task description |
 | `mael linear read-plan ISSUE_ID` | Extract and display the plan from a task |
+| `mael linear release` | Promote all "Unreleased" tasks with product label to "Done" |
 
 ## Sentry Integration
 

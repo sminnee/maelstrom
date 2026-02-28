@@ -176,7 +176,7 @@ def get_pr_url(cwd: Path) -> str:
         raise RuntimeError("GitHub CLI (gh) is not installed")
 
 
-def create_pr(cwd: Path | None = None, draft: bool = False) -> tuple[str, bool]:
+def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None = None) -> tuple[str, bool]:
     """Create a pull request for the current worktree branch, or push if PR exists.
 
     Syncs (rebases onto origin/main) before pushing.
@@ -184,6 +184,7 @@ def create_pr(cwd: Path | None = None, draft: bool = False) -> tuple[str, bool]:
     Args:
         cwd: Current working directory (default: actual cwd).
         draft: Create as draft PR (only if creating new PR).
+        issue_id: Optional Linear issue ID to prepend to PR title (e.g., "ME-41").
 
     Returns:
         Tuple of (PR URL, created) where created is True if new PR was created.
@@ -259,6 +260,10 @@ def create_pr(cwd: Path | None = None, draft: bool = False) -> tuple[str, bool]:
         title = log_result.stdout.strip()
     except subprocess.CalledProcessError:
         title = branch_name
+
+    # Prepend issue ID to title if provided (enables Linear's GitHub auto-linking)
+    if issue_id:
+        title = f"[{issue_id.upper()}] {title}"
 
     # Create the PR with explicit title (--fill can fail if base branch not fetched)
     cmd = ["gh", "pr", "create", "--title", title, "--body", "", "--head", branch_name]

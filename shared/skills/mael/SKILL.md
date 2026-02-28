@@ -29,8 +29,7 @@ For standard tasks:
 | 2 | Sync with main | `mael sync` |
 | 3 | Implement & test | (your work) |
 | 4 | Commit changes | `git add . && git commit -m "..."` |
-| 5 | Create PR | `mael gh create-pr` |
-| 6 | Submit for review | `mael linear submit-pr PROJ-XXX` |
+| 5 | Create PR & submit | `mael gh create-pr PROJ-XXX` |
 
 ### Code Review Before PR
 
@@ -64,7 +63,7 @@ For quick changes without task tracking:
 | Sync branch with main | `mael sync` |
 | View uncommitted changes | `mael gh show-code --uncommitted` |
 | View all branch changes | `mael gh show-code --committed` |
-| Create or update PR | `mael gh create-pr` |
+| Create or update PR | `mael gh create-pr [ISSUE_ID]` |
 | Check PR status & CI | `mael gh read-pr` |
 | List tasks in cycle | `mael linear list-tasks` |
 | Read task details | `mael linear read-task PROJ-XXX` |
@@ -77,6 +76,7 @@ For quick changes without task tracking:
 | List all environments | `mael env list-all` |
 | Start working on task | `mael linear start-task PROJ-XXX` |
 | Mark task complete | `mael linear complete-task PROJ-XXX` |
+| Release all unreleased tasks | `mael linear release` |
 
 ## Prerequisites
 
@@ -101,11 +101,13 @@ Add integration settings to your project's `.maelstrom.yaml`:
 
 ```yaml
 # Linear integration
-linear_team_id: "your-team-uuid-here"
-linear_workspace_labels:  # Optional: custom labels for worktrees
-  - alpha
-  - bravo
-  - charlie
+linear:
+  team_id: "your-team-uuid-here"
+  workspace_labels:  # Optional: custom labels for worktrees
+    - alpha
+    - bravo
+    - charlie
+  product_label: "YourProduct"  # Optional: auto-assigned to tasks
 
 # Sentry integration
 sentry_org: "your-org-slug"
@@ -229,6 +231,30 @@ mael linear read-plan <issue-id>
 - Outputs the plan markdown to stdout
 - Fails with helpful error if no plan is found
 
+### mael linear release
+
+Promote all "Unreleased" tasks with the product label to "Done".
+
+```bash
+mael linear release
+```
+
+**Behavior:**
+- Requires `linear.product_label` to be configured in `.maelstrom.yaml`
+- Queries for all issues with status "Unreleased" and the configured product label
+- Transitions each to "Done"
+- Outputs a summary of transitioned tasks
+
+**GitHub Actions integration:**
+To automatically release tasks when deploying to production, add a workflow step:
+
+```yaml
+- name: Release Linear tasks
+  env:
+    LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+  run: mael linear release
+```
+
 ## Git & GitHub Commands
 
 ### mael sync
@@ -249,17 +275,18 @@ mael sync [target]
 
 ### mael gh create-pr
 
-Create a new pull request or push updates to an existing one.
+Create a new pull request or push updates to an existing one. Optionally links to a Linear task.
 
 ```bash
-mael gh create-pr [target] [--draft]
+mael gh create-pr [ISSUE_ID] [--draft] [--target TARGET]
 ```
 
 **Arguments:**
-- `target` (optional): Project/worktree identifier
+- `ISSUE_ID` (optional): Linear issue ID (e.g., ME-41). When provided, prefixes PR title with `[ISSUE_ID]` for Linear auto-linking and sets the task status to "In Review"
 
 **Options:**
 - `--draft`: Create PR as a draft (only for new PRs)
+- `--target`: Project/worktree identifier for directory resolution
 
 **Behavior:**
 - Fetches from origin to update tracking refs
@@ -267,6 +294,11 @@ mael gh create-pr [target] [--draft]
 - If no PR exists: creates one using first commit message as title
 - If PR exists: just pushes the latest changes
 - Returns the PR URL
+- When `ISSUE_ID` is provided:
+  - Prefixes PR title with `[ISSUE_ID]` (enables Linear's GitHub auto-linking)
+  - Sets task status to "In Review"
+  - Promotes parent task from early states (Todo/Planned/Backlog) to "In Progress"
+  - Adds product label if configured
 
 ### mael gh read-pr
 
@@ -462,8 +494,9 @@ mael env list-all
 
 - **Todo** -> **Planned** (when plan is written via `write-plan`, or subtasks are created)
 - **Planned** / **Todo** -> **In Progress** (when `start-task` is called)
-- **In Progress** -> **In Review** (when `submit-pr` is called)
+- **In Progress** -> **In Review** (when `create-pr ISSUE-ID` is called)
 - **In Review** -> **Done** / **Unreleased** (when completed)
+- **Unreleased** -> **Done** (when `release` is called)
 
 ### Subtasks (issues with a parent)
 - **Starting work**: Set to "In Progress"
