@@ -64,8 +64,7 @@ Examples:
    - Step-by-step implementation approach with specific file changes
    - Testing strategy
    - A final step: "Write plan to Linear and create PR"
-     (`mael linear write-plan <issue-id> <plan-file>`, then later `mael gh create-pr` and
-     `mael linear submit-pr`)
+     (`mael linear write-plan <issue-id> <plan-file>`, then later `mael gh create-pr <issue-id>`)
 
 7. **Present Plan**: Call ExitPlanMode with allowedPrompts:
    - `{"tool": "Bash", "prompt": "write plan to Linear"}`
@@ -107,8 +106,7 @@ Brief description of the problem and why this change is needed.
 ...
 
 ### Final Step: Create PR and submit to Linear
-- `mael gh create-pr`
-- `mael linear submit-pr <issue-id>`
+- `mael gh create-pr <issue-id>`
 
 ## Files to Modify
 | File | Change |

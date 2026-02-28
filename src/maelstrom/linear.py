@@ -438,6 +438,47 @@ def detect_workspace_label() -> str | None:
         return None
 
 
+def get_product_label() -> str | None:
+    """Get the configured product label from project config.
+
+    Returns:
+        Product label name or None if not configured.
+    """
+    try:
+        ctx = resolve_context(None, require_project=False, require_worktree=False)
+        if ctx.worktree_path:
+            config = load_config_or_default(ctx.worktree_path)
+            if config.linear_product_label:
+                return config.linear_product_label
+    except ValueError:
+        pass
+
+    config = load_config_or_default(Path.cwd())
+    return config.linear_product_label
+
+
+def ensure_product_label(issue_id: str, labels_map: dict[str, str], current_label_names: list[str]) -> list[str] | None:
+    """Add product label to an issue's label list if configured and not already present.
+
+    Args:
+        issue_id: The issue's internal ID (for update).
+        labels_map: Map of label name to ID.
+        current_label_names: Current label names on the issue.
+
+    Returns:
+        Updated label IDs list if product label was added, None if no change needed.
+    """
+    product_label = get_product_label()
+    if not product_label or product_label in current_label_names:
+        return None
+
+    if product_label not in labels_map:
+        return None
+
+    new_label_names = current_label_names + [product_label]
+    return [labels_map[name] for name in new_label_names if name in labels_map]
+
+
 def get_workspace_labels() -> list[str]:
     """Get configured workspace labels or default to common worktree names.
 
@@ -698,14 +739,17 @@ def cmd_start_task(issue_id):
     if "In Progress" not in states:
         raise click.ClickException("'In Progress' state not found")
 
-    # Build new label list: keep non-workspace labels, add current workspace
+    # Build new label list: keep non-workspace labels, add current workspace + product
     workspace_labels = get_workspace_labels()
+    product_label = get_product_label()
     current_labels = [
         label["name"] for label in issue.get("labels", {}).get("nodes", [])
     ]
     new_labels = [label for label in current_labels if label not in workspace_labels]
     if workspace_label:
         new_labels.append(workspace_label)
+    if product_label and product_label not in new_labels:
+        new_labels.append(product_label)
 
     # Convert to IDs
     label_ids = [
@@ -737,6 +781,8 @@ def cmd_start_task(issue_id):
         ]
         if workspace_label:
             parent_new_labels.append(workspace_label)
+        if product_label and product_label not in parent_new_labels:
+            parent_new_labels.append(product_label)
         parent_label_ids = [
             labels_map[label] for label in parent_new_labels if label in labels_map
         ]
@@ -829,6 +875,16 @@ def cmd_create_subtask(parent_id, title, description):
     if cycle_id:
         click.echo(f"- Cycle: {parent['cycle']['number']} - {parent['cycle']['name']}")
 
+    # Add product label to parent if configured
+    labels_map = get_labels()
+    parent_labels = [
+        label["name"] for label in parent.get("labels", {}).get("nodes", [])
+    ]
+    parent_label_ids = ensure_product_label(parent["id"], labels_map, parent_labels)
+    if parent_label_ids:
+        update_issue(parent["id"], labelIds=parent_label_ids)
+        click.echo(f"Added product label to parent: {get_product_label()}")
+
     # Transition parent to Planned if currently Todo
     if parent["state"]["name"] == "Todo":
         states = get_workflow_states()
@@ -892,6 +948,26 @@ def cmd_write_plan(issue_id, plan_file):
     update_issue(issue["id"], description=new_description)
     click.echo(f"Wrote implementation plan to {issue['identifier']}: {issue['title']}")
 
+    # Add product label if configured
+    labels_map = get_labels()
+    current_labels = [
+        label["name"] for label in issue.get("labels", {}).get("nodes", [])
+    ]
+    product_label_ids = ensure_product_label(issue["id"], labels_map, current_labels)
+    if product_label_ids:
+        update_issue(issue["id"], labelIds=product_label_ids)
+        click.echo(f"Added product label: {get_product_label()}")
+
+        # Also add to parent if this is a subtask
+        if issue.get("parent"):
+            parent = get_issue(issue["parent"]["id"])
+            parent_labels = [
+                label["name"] for label in parent.get("labels", {}).get("nodes", [])
+            ]
+            parent_label_ids = ensure_product_label(parent["id"], labels_map, parent_labels)
+            if parent_label_ids:
+                update_issue(parent["id"], labelIds=parent_label_ids)
+
     # Update status to Planned if currently Todo
     if issue["state"]["name"] == "Todo":
         states = get_workflow_states()
@@ -937,57 +1013,63 @@ def cmd_read_plan(issue_id):
     click.echo(plan_content)
 
 
-@linear.command("submit-pr")
-@click.argument("issue_id")
-def cmd_submit_pr(issue_id):
-    """Submit a PR for review: attach PR URL and set status to In Review.
+@linear.command("release")
+def cmd_release():
+    """Promote all 'Unreleased' tasks with the product label to 'Done'.
 
-    This command:
-    1. Gets the PR URL from the current branch using `gh pr view`
-    2. Attaches the PR URL to the Linear task
-    3. Sets the task status to "In Review"
-    4. If this is a subtask, promotes parent to "In Progress" if in an early state
+    Finds all issues with status "Unreleased" that have the configured product label,
+    and transitions them to "Done". Requires linear.product_label to be configured.
     """
-    from pathlib import Path
+    product_label = get_product_label()
+    if not product_label:
+        raise click.ClickException(
+            "linear.product_label not configured. Add to .maelstrom.yaml:\n"
+            "  linear:\n"
+            '    product_label: "YourProduct"'
+        )
 
-    from .github import get_pr_url
-
-    cwd = Path.cwd()
-    try:
-        pr_url = get_pr_url(cwd)
-    except RuntimeError as e:
-        raise click.ClickException(str(e))
-
-    issue = get_issue(issue_id)
+    team_id = get_team_id()
     states = get_workflow_states()
 
-    if "In Review" not in states:
-        raise click.ClickException("'In Review' state not found in workflow")
+    if "Unreleased" not in states:
+        raise click.ClickException("'Unreleased' state not found in workflow")
+    if "Done" not in states:
+        raise click.ClickException("'Done' state not found in workflow")
 
-    # Extract PR number for title
-    pr_number = pr_url.rstrip("/").split("/")[-1]
+    # Query for issues with "Unreleased" status and the product label
+    query = """
+    query GetUnreleasedIssues($teamId: ID!, $stateName: String!, $labelName: String!) {
+        issues(
+            filter: {
+                team: { id: { eq: $teamId } }
+                state: { name: { eq: $stateName } }
+                labels: { name: { eq: $labelName } }
+            }
+        ) {
+            nodes {
+                id
+                identifier
+                title
+            }
+        }
+    }
+    """
+    result = graphql_request(query, {
+        "teamId": team_id,
+        "stateName": "Unreleased",
+        "labelName": product_label,
+    })
+    issues = result["issues"]["nodes"]
 
-    # Attach PR (warn if duplicate)
-    try:
-        create_attachment(
-            issue["id"], pr_url, f"Pull Request #{pr_number}", "Open"
-        )
-        click.echo(f"Attached PR to {issue['identifier']}: {pr_url}")
-    except click.ClickException as e:
-        click.echo(
-            f"Warning: Could not attach PR (may already exist): {e.message}", err=True
-        )
+    if not issues:
+        click.echo(f"No unreleased tasks found with label '{product_label}'.")
+        return
 
-    # Update status to In Review
-    update_issue(issue["id"], stateId=states["In Review"])
-    click.echo(f"Updated {issue['identifier']} status to: In Review")
+    done_state_id = states["Done"]
+    click.echo(f"Releasing {len(issues)} task(s):\n")
 
-    # Promote parent to In Progress if it's in an early state
-    if issue.get("parent"):
-        parent = get_issue(issue["parent"]["id"])
-        early_states = {"Todo", "Planned", "Backlog"}
-        if parent["state"]["name"] in early_states:
-            if "In Progress" not in states:
-                raise click.ClickException("'In Progress' state not found in workflow")
-            update_issue(parent["id"], stateId=states["In Progress"])
-            click.echo(f"Updated parent {parent['identifier']} status to: In Progress")
+    for issue in issues:
+        update_issue(issue["id"], stateId=done_state_id)
+        click.echo(f"- {issue['identifier']}: {issue['title']} -> Done")
+
+    click.echo(f"\nReleased {len(issues)} task(s).")
