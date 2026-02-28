@@ -63,8 +63,8 @@ Examples:
    - Research findings (relevant files, patterns, dependencies)
    - Step-by-step implementation approach with specific file changes
    - Testing strategy
-   - A final step: "Write plan to Linear and create PR"
-     (`mael linear write-plan <issue-id> <plan-file>`, then later `mael gh create-pr <issue-id>`)
+   - A final step: "Write plan to Linear"
+     (`mael linear write-plan <issue-id> <plan-file>`)
 
 7. **Present Plan**: Call ExitPlanMode with allowedPrompts:
    - `{"tool": "Bash", "prompt": "write plan to Linear"}`

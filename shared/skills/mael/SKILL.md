@@ -7,6 +7,8 @@ description: "Git workflow, commits, PRs, branches. Also Linear tasks, Sentry de
 
 This skill provides CLI commands for managing Linear tasks, querying Sentry issues, handling git/GitHub workflows, and managing dev environments directly from Claude Code.
 
+**IMPORTANT: All `mael` and `git` commands must be run with the sandbox disabled** (`dangerouslyDisableSandbox: true`). These commands need network access (GitHub, Linear APIs) and write access to git internals that the sandbox blocks.
+
 ## Core Workflows
 
 ### Task-Based Development (with Linear)
