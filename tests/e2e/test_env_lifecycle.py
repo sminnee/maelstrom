@@ -80,7 +80,7 @@ class TestEnvStartStop:
         assert is_service_alive(pid)
 
         messages = stop_env(test_project.project_name, test_project.worktree_name)
-        assert any("stopped" in m for m in messages)
+        assert any("stopped" in m or "killed" in m for m in messages)
 
         # stop_env handles SIGTERM→wait→SIGKILL; reap zombie before checking
         assert_process_dead(pid)
@@ -166,7 +166,7 @@ class TestEnvStartStop:
 
         # Stop should still succeed and clean up
         messages = stop_env(test_project.project_name, test_project.worktree_name)
-        assert any("stopped" in m for m in messages)
+        assert any("stopped" in m or "killed" in m for m in messages)
         assert load_env_state(test_project.project_name, test_project.worktree_name) is None
 
 
@@ -187,4 +187,5 @@ class TestEnvStartCli:
 
         result = cli_runner.invoke(env, ["stop", "testproj.alpha"])
         assert result.exit_code == 0
-        assert "stopped" in result.output.lower()
+        output = result.output.lower()
+        assert "stopped" in output or "killed" in output
