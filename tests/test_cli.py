@@ -198,22 +198,23 @@ class TestRemoveMultiTarget:
         with patch("maelstrom.cli.resolve_context") as mock_resolve:
             with patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]):
                 with patch("maelstrom.cli.remove_worktree_by_path") as mock_remove:
-                    # Mock resolve_context for two different worktrees
-                    def make_ctx(worktree_name):
-                        ctx = MagicMock()
-                        ctx.project = "myproject"
-                        ctx.project_path = project_path
-                        ctx.worktree = worktree_name
-                        ctx.worktree_path = project_path / f"myproject-{worktree_name}"
-                        return ctx
+                    with patch("maelstrom.cli.get_env_status", return_value=None):
+                        # Mock resolve_context for two different worktrees
+                        def make_ctx(worktree_name):
+                            ctx = MagicMock()
+                            ctx.project = "myproject"
+                            ctx.project_path = project_path
+                            ctx.worktree = worktree_name
+                            ctx.worktree_path = project_path / f"myproject-{worktree_name}"
+                            return ctx
 
-                    mock_resolve.side_effect = [make_ctx("alpha"), make_ctx("bravo")]
+                        mock_resolve.side_effect = [make_ctx("alpha"), make_ctx("bravo")]
 
-                    # Mock worktree paths to exist
-                    with patch.object(Path, "exists", return_value=True):
-                        result = runner.invoke(cli, ["rm", "alpha", "bravo"])
+                        # Mock worktree paths to exist
+                        with patch.object(Path, "exists", return_value=True):
+                            result = runner.invoke(cli, ["rm", "alpha", "bravo"])
 
-                    assert mock_remove.call_count == 2
+                        assert mock_remove.call_count == 2
 
     def test_rm_continues_on_error(self):
         """Test that rm continues processing after an error."""
@@ -237,12 +238,59 @@ class TestRemoveMultiTarget:
 
             with patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]):
                 with patch("maelstrom.cli.remove_worktree_by_path"):
-                    with patch.object(Path, "exists", return_value=True):
-                        result = runner.invoke(cli, ["rm", "bad", "bravo"])
+                    with patch("maelstrom.cli.get_env_status", return_value=None):
+                        with patch.object(Path, "exists", return_value=True):
+                            result = runner.invoke(cli, ["rm", "bad", "bravo"])
 
             # Should exit with error (one target failed)
             assert result.exit_code == 1
             assert "bad target" in result.output
+
+    def test_rm_stops_running_env(self):
+        """Test that mael rm stops a running environment before removing."""
+        runner = CliRunner()
+        project_path = Path("/tmp/claude/projects/myproject")
+
+        with patch("maelstrom.cli.resolve_context") as mock_resolve:
+            ctx = MagicMock()
+            ctx.project = "myproject"
+            ctx.project_path = project_path
+            ctx.worktree = "alpha"
+            ctx.worktree_path = project_path / "myproject-alpha"
+            mock_resolve.return_value = ctx
+
+            alive_service = MagicMock(alive=True)
+            with patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]), \
+                 patch("maelstrom.cli.remove_worktree_by_path"), \
+                 patch("maelstrom.cli.get_env_status", return_value=[alive_service]), \
+                 patch("maelstrom.cli.stop_env", return_value=["web: stopped"]) as mock_stop, \
+                 patch.object(Path, "exists", return_value=True):
+                result = runner.invoke(cli, ["rm", "myproject.alpha"])
+
+            mock_stop.assert_called_once_with("myproject", "alpha")
+            assert "Stopping environment" in result.output
+
+    def test_rm_skips_stop_when_no_env(self):
+        """Test that mael rm does not call stop_env when no environment is running."""
+        runner = CliRunner()
+        project_path = Path("/tmp/claude/projects/myproject")
+
+        with patch("maelstrom.cli.resolve_context") as mock_resolve:
+            ctx = MagicMock()
+            ctx.project = "myproject"
+            ctx.project_path = project_path
+            ctx.worktree = "alpha"
+            ctx.worktree_path = project_path / "myproject-alpha"
+            mock_resolve.return_value = ctx
+
+            with patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]), \
+                 patch("maelstrom.cli.remove_worktree_by_path"), \
+                 patch("maelstrom.cli.get_env_status", return_value=None), \
+                 patch("maelstrom.cli.stop_env") as mock_stop, \
+                 patch.object(Path, "exists", return_value=True):
+                result = runner.invoke(cli, ["rm", "myproject.alpha"])
+
+            mock_stop.assert_not_called()
 
 
 class TestCloseMultiTarget:
@@ -255,11 +303,13 @@ class TestCloseMultiTarget:
         with patch("maelstrom.cli.resolve_context") as mock_resolve:
             mock_ctx = MagicMock()
             mock_ctx.worktree = "alpha"
+            mock_ctx.project = "myproject"
             mock_ctx.worktree_path = MagicMock()
             mock_ctx.worktree_path.exists.return_value = True
             mock_resolve.return_value = mock_ctx
 
-            with patch("maelstrom.cli.close_worktree") as mock_close:
+            with patch("maelstrom.cli.close_worktree") as mock_close, \
+                 patch("maelstrom.cli.get_env_status", return_value=None):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 result = runner.invoke(cli, ["close"])
 
@@ -278,18 +328,62 @@ class TestCloseMultiTarget:
             def make_ctx(*args, **kwargs):
                 ctx = MagicMock()
                 ctx.worktree = args[0]
+                ctx.project = "myproject"
                 ctx.worktree_path = MagicMock()
                 ctx.worktree_path.exists.return_value = True
                 return ctx
 
             mock_resolve.side_effect = [make_ctx("alpha"), make_ctx("bravo")]
 
-            with patch("maelstrom.cli.close_worktree") as mock_close:
+            with patch("maelstrom.cli.close_worktree") as mock_close, \
+                 patch("maelstrom.cli.get_env_status", return_value=None):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 result = runner.invoke(cli, ["close", "alpha", "bravo"])
 
             assert mock_close.call_count == 2
             assert result.exit_code == 0
+
+    def test_close_stops_running_env(self):
+        """Test that mael close stops a running environment before closing."""
+        runner = CliRunner()
+
+        with patch("maelstrom.cli.resolve_context") as mock_resolve:
+            mock_ctx = MagicMock()
+            mock_ctx.worktree = "alpha"
+            mock_ctx.project = "myproject"
+            mock_ctx.worktree_path = MagicMock()
+            mock_ctx.worktree_path.exists.return_value = True
+            mock_resolve.return_value = mock_ctx
+
+            alive_service = MagicMock(alive=True)
+            with patch("maelstrom.cli.close_worktree") as mock_close, \
+                 patch("maelstrom.cli.get_env_status", return_value=[alive_service]), \
+                 patch("maelstrom.cli.stop_env", return_value=["web: stopped"]) as mock_stop:
+                mock_close.return_value = MagicMock(success=True, message="Closed")
+                result = runner.invoke(cli, ["close", "myproject.alpha"])
+
+            mock_stop.assert_called_once_with("myproject", "alpha")
+            assert "Stopping environment" in result.output
+
+    def test_close_skips_stop_when_no_env(self):
+        """Test that mael close does not call stop_env when no environment is running."""
+        runner = CliRunner()
+
+        with patch("maelstrom.cli.resolve_context") as mock_resolve:
+            mock_ctx = MagicMock()
+            mock_ctx.worktree = "alpha"
+            mock_ctx.project = "myproject"
+            mock_ctx.worktree_path = MagicMock()
+            mock_ctx.worktree_path.exists.return_value = True
+            mock_resolve.return_value = mock_ctx
+
+            with patch("maelstrom.cli.close_worktree") as mock_close, \
+                 patch("maelstrom.cli.get_env_status", return_value=None), \
+                 patch("maelstrom.cli.stop_env") as mock_stop:
+                mock_close.return_value = MagicMock(success=True, message="Closed")
+                result = runner.invoke(cli, ["close", "myproject.alpha"])
+
+            mock_stop.assert_not_called()
 
 
 class TestStaleSymlinkCleanup:

@@ -17,6 +17,7 @@ from .github import (
     get_worktree_code,
     read_pr,
 )
+from .env import get_env_status, stop_env
 from .env_cli import env as env_cli
 from .linear import linear
 from .review import review
@@ -380,6 +381,13 @@ def cmd_remove(targets, force):
                 click.echo("Aborted.")
                 errors.append(target)
                 continue
+
+        # Stop running environment if any
+        env_status = get_env_status(ctx.project, ctx.worktree)
+        if env_status and any(s.alive for s in env_status):
+            click.echo(f"Stopping environment for '{worktree_name}'...")
+            for msg in stop_env(ctx.project, ctx.worktree):
+                click.echo(f"  {msg}")
 
         click.echo(f"Removing worktree '{worktree_name}'...")
         try:
@@ -765,6 +773,13 @@ def cmd_close(targets):
             click.echo(f"Error: Worktree not found at {worktree_path}", err=True)
             errors.append(target)
             continue
+
+        # Stop running environment if any
+        env_status = get_env_status(ctx.project, ctx.worktree)
+        if env_status and any(s.alive for s in env_status):
+            click.echo(f"Stopping environment for '{ctx.worktree}'...")
+            for msg in stop_env(ctx.project, ctx.worktree):
+                click.echo(f"  {msg}")
 
         click.echo(f"Closing worktree '{ctx.worktree}'...")
         result = close_worktree(worktree_path)
