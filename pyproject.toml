@@ -1,6 +1,6 @@
 [project]
-name = "maelstrom"
-version = "0.1.0"
+name = "sminnee-maelstrom"
+version = "0.1.1"
 description = "Parallel development environment manager using git worktrees"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -20,8 +20,12 @@ dev = [
     "ruff>=0.4",
 ]
 
+[project.urls]
+Repository = "https://github.com/sminnee/maelstrom"
+
 [project.scripts]
 mael = "maelstrom.cli:main"
+sminnee-maelstrom = "maelstrom.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -37,7 +41,7 @@ markers = [
     "e2e: end-to-end tests that spawn real processes or use real git repos",
 ]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest>=9.0.2",
 ]

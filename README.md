@@ -5,8 +5,11 @@ Parallel development environment manager using git worktrees. Run multiple isola
 ## Installation
 
 ```bash
-# Using uv (recommended)
-uv tool install git+https://github.com/sminnee/maelstrom.git
+# Install from PyPI (recommended)
+uv tool install sminnee-maelstrom
+
+# Or run without installing
+uvx sminnee-maelstrom <command>
 
 # Or install locally for development
 git clone https://github.com/sminnee/maelstrom.git
@@ -253,6 +256,26 @@ uv run pytest --cov=maelstrom
 ## Desktop UI & Agent-CLI (Incomplete)
 
 A Tauri desktop app (`app/`) and Node.js agent-CLI bridge (`agent-cli/`) are in development. These will provide a graphical interface for managing sessions and interacting with Claude Code via a Unix domain socket protocol. They are not yet functional.
+
+## Notes for Contributors
+
+### Publishing to PyPI
+
+The package is published to PyPI as `sminnee-maelstrom`. To publish a new version:
+
+```bash
+# Set your PyPI token (or add UV_PUBLISH_TOKEN to .env)
+export UV_PUBLISH_TOKEN=pypi-...
+
+# Publish with a patch version bump (0.1.0 → 0.1.1)
+./bin/publish
+
+# Or bump minor/major
+./bin/publish --minor
+./bin/publish --major
+```
+
+This bumps the version, builds, publishes to PyPI, commits the version change, and tags it. After publishing, run `git push && git push --tags`.
 
 ## License
 
