@@ -1,5 +1,6 @@
 """Worktree management for maelstrom projects."""
 
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -1221,6 +1222,15 @@ def open_worktree(worktree_path: Path, command: str) -> None:
         raise RuntimeError(f"Command not found: {command}")
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to open worktree: {e}")
+
+
+def start_claude_session(worktree_path: Path) -> None:
+    """Start an interactive Claude Code CLI session in a worktree.
+
+    Runs `claude` in the foreground, replacing the current process so the user
+    gets a clean interactive session.
+    """
+    os.execvp("claude", ["claude", "--cwd", str(worktree_path)])
 
 
 def _find_claude_header_start(content: str) -> tuple[str, int] | None:

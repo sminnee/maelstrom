@@ -28,6 +28,7 @@ from maelstrom.worktree import (
     is_worktree_closed,
     list_worktrees,
     open_worktree,
+    start_claude_session,
     read_env_file,
     reclaim_or_allocate_ports,
     recycle_worktree,
@@ -514,6 +515,20 @@ class TestOpenWorktree:
                 mock_run.side_effect = subprocess.CalledProcessError(1, "code")
                 with pytest.raises(RuntimeError, match="Failed to open worktree"):
                     open_worktree(worktree_path, "code")
+
+
+class TestStartClaudeSession:
+    """Tests for start_claude_session function."""
+
+    def test_start_claude_session_calls_execvp(self):
+        """Test that start_claude_session calls os.execvp with correct args."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            with patch("maelstrom.worktree.os.execvp") as mock_execvp:
+                start_claude_session(worktree_path)
+                mock_execvp.assert_called_once_with(
+                    "claude", ["claude", "--cwd", str(worktree_path)]
+                )
 
 
 class TestIsWorktreeClosed:

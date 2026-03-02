@@ -46,6 +46,7 @@ from .worktree import (
     remove_worktree_by_path,
     run_git,
     run_install_cmd,
+    start_claude_session,
     sync_worktree,
     tidy_branches,
     update_claude_md,
@@ -242,9 +243,9 @@ def cmd_add_project(git_url, projects_dir):
 @cli.command("add")
 @click.argument("branch", required=False, default=None)
 @click.option("-p", "--project", default=None, help="Project name (default: detect from cwd)")
-@click.option("--no-open", is_flag=True, help="Don't open the worktree after creation")
+@click.option("--open", is_flag=True, help="Open in configured editor instead of Claude CLI")
 @click.option("--no-recycle", is_flag=True, help="Don't recycle closed worktrees, always create new")
-def cmd_add(branch, project, no_open, no_recycle):
+def cmd_add(branch, project, open, no_recycle):
     """Add a new worktree for a branch.
 
     If BRANCH is provided:
@@ -329,13 +330,15 @@ def cmd_add(branch, project, no_open, no_recycle):
     # Run install command if configured
     run_install_cmd(worktree_path)
 
-    # Open the worktree unless --no-open was specified
-    if not no_open:
+    # Open in editor or start Claude session
+    if open:
         global_config = load_global_config()
         try:
             open_worktree(worktree_path, global_config.open_command)
         except RuntimeError as e:
             click.echo(f"Warning: Could not open worktree: {e}", err=True)
+    else:
+        start_claude_session(worktree_path)
 
 
 @cli.command("remove")
@@ -678,6 +681,27 @@ def cmd_open(target):
         open_worktree(worktree_path, global_config.open_command)
     except RuntimeError as e:
         raise click.ClickException(str(e))
+
+
+@cli.command("claude")
+@click.argument("target", required=False, default=None)
+def cmd_claude(target):
+    """Start a Claude Code CLI session in a worktree."""
+    try:
+        ctx = resolve_context(
+            target,
+            require_project=True,
+            require_worktree=True,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    worktree_path = ctx.worktree_path
+
+    if not worktree_path.exists():
+        raise click.ClickException(f"Worktree not found at {worktree_path}")
+
+    start_claude_session(worktree_path)
 
 
 @cli.command("sync")
