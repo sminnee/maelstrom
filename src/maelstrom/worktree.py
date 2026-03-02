@@ -1230,7 +1230,8 @@ def start_claude_session(worktree_path: Path) -> None:
     Runs `claude` in the foreground, replacing the current process so the user
     gets a clean interactive session.
     """
-    os.execvp("claude", ["claude", "--cwd", str(worktree_path)])
+    os.chdir(worktree_path)
+    os.execvp("claude", ["claude"])
 
 
 def _find_claude_header_start(content: str) -> tuple[str, int] | None:
