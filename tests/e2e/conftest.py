@@ -115,12 +115,12 @@ class GitProject:
     projects_dir: Path
 
 
-# --- Core isolation fixture ---
+# --- Core isolation fixtures ---
 
 
 @pytest.fixture
 def isolated_maelstrom(tmp_path, monkeypatch):
-    """Redirect ~/.maelstrom/ and ~/Projects/ to temp dirs."""
+    """Redirect ~/.maelstrom/ and ~/Projects/ to temp dirs (function-scoped)."""
     maelstrom_dir = tmp_path / ".maelstrom"
     maelstrom_dir.mkdir()
     projects_dir = tmp_path / "Projects"
@@ -137,6 +137,29 @@ def isolated_maelstrom(tmp_path, monkeypatch):
     )
 
     return IsolatedMaelstrom(maelstrom_dir=maelstrom_dir, projects_dir=projects_dir)
+
+
+@pytest.fixture(scope="module")
+def isolated_maelstrom_module(tmp_path_factory):
+    """Module-scoped isolation for tests sharing a git_project."""
+    tmp_path = tmp_path_factory.mktemp("maelstrom")
+    maelstrom_dir = tmp_path / ".maelstrom"
+    maelstrom_dir.mkdir()
+    projects_dir = tmp_path / "Projects"
+    projects_dir.mkdir()
+
+    mp = pytest.MonkeyPatch()
+    fake_get_dir = lambda: maelstrom_dir
+    mp.setattr("maelstrom.context.get_maelstrom_dir", fake_get_dir)
+    mp.setattr("maelstrom.env.get_maelstrom_dir", fake_get_dir)
+    mp.setattr(
+        "maelstrom.context.load_global_config",
+        lambda: GlobalConfig(projects_dir=projects_dir),
+    )
+
+    yield IsolatedMaelstrom(maelstrom_dir=maelstrom_dir, projects_dir=projects_dir)
+
+    mp.undo()
 
 
 # --- Non-git project fixture (for env tests) ---
@@ -188,18 +211,25 @@ def second_worktree(test_project):
     return worktree_path
 
 
-# --- Git project fixture (for worktree/review/tidy tests) ---
+# --- Git project fixtures ---
 
 
 @pytest.fixture
 def git_project(isolated_maelstrom):
-    """Create a project using add_project() against a local source repo.
+    """Create a project using add_project() against a local source repo (function-scoped)."""
+    return _create_git_project(isolated_maelstrom)
 
-    Sets up a source repo with .maelstrom.yaml committed, then uses
-    maelstrom's own add_project() to create the project structure.
-    """
-    base = isolated_maelstrom.projects_dir.parent
-    projects_dir = isolated_maelstrom.projects_dir
+
+@pytest.fixture(scope="module")
+def git_project_module(isolated_maelstrom_module):
+    """Module-scoped git project for workflow tests sharing a single repo."""
+    return _create_git_project(isolated_maelstrom_module)
+
+
+def _create_git_project(isolated):
+    """Shared implementation for creating a git project fixture."""
+    base = isolated.projects_dir.parent
+    projects_dir = isolated.projects_dir
 
     # 1. Create a local source repo (acts as the "remote")
     remote_path = base / "testproj-origin"
@@ -238,8 +268,8 @@ def git_project(isolated_maelstrom):
         remote_path=remote_path,
         worktree_name=worktree_name,
         worktree_path=worktree_path,
-        maelstrom_dir=isolated_maelstrom.maelstrom_dir,
-        projects_dir=isolated_maelstrom.projects_dir,
+        maelstrom_dir=isolated.maelstrom_dir,
+        projects_dir=isolated.projects_dir,
     )
 
 
