@@ -524,11 +524,11 @@ class TestStartClaudeSession:
         """Test that start_claude_session calls os.execvp with correct args."""
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
-            with patch("maelstrom.worktree.os.execvp") as mock_execvp:
+            with patch("maelstrom.worktree.os.chdir") as mock_chdir, \
+                 patch("maelstrom.worktree.os.execvp") as mock_execvp:
                 start_claude_session(worktree_path)
-                mock_execvp.assert_called_once_with(
-                    "claude", ["claude", "--cwd", str(worktree_path)]
-                )
+                mock_chdir.assert_called_once_with(worktree_path)
+                mock_execvp.assert_called_once_with("claude", ["claude"])
 
 
 class TestIsWorktreeClosed:
