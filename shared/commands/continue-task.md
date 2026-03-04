@@ -35,9 +35,9 @@ Examples:
    mael linear start-task <issue-id>
    ```
 
-4. **Set cmux status** (if running inside cmux):
+4. **Set status**:
    ```bash
-   cmux --socket "$CMUX_SOCKET_PATH" set-status task "<issue-id>" --icon hammer
+   mael status set "<issue-id>"
    ```
 
 5. **Read Implementation Plan**: Fetch the plan from Linear:

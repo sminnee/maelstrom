@@ -79,6 +79,8 @@ For quick changes without task tracking:
 | Start working on task | `mael linear start-task PROJ-XXX` |
 | Mark task complete | `mael linear complete-task PROJ-XXX` |
 | Release all unreleased tasks | `mael linear release` |
+| Set workspace status | `mael status set "TEXT"` |
+| Clear workspace status | `mael status clear` |
 
 ## Prerequisites
 
@@ -489,6 +491,29 @@ mael env list-all
 
 **Output includes:**
 - Table with columns: PROJECT, WORKTREE, APP, RUNNING SERVICES, STOPPED SERVICES, UPTIME
+
+## Status Commands
+
+Manage the workspace status display (shown in cmux status bar). These commands silently no-op when not running inside cmux.
+
+### mael status set
+
+Set the workspace status text.
+
+```bash
+mael status set "<text>"
+```
+
+**Arguments:**
+- `text`: Status text to display (e.g., issue ID or description)
+
+### mael status clear
+
+Clear the workspace status.
+
+```bash
+mael status clear
+```
 
 ## Status Transitions
 
