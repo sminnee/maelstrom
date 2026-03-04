@@ -1298,12 +1298,24 @@ def open_worktree(worktree_path: Path, command: str) -> None:
         raise RuntimeError(f"Failed to open worktree: {e}")
 
 
-def start_claude_session(worktree_path: Path) -> None:
+def start_claude_session(
+    worktree_path: Path,
+    project: str | None = None,
+    worktree: str | None = None,
+) -> None:
     """Start an interactive Claude Code CLI session in a worktree.
 
-    Runs `claude` in the foreground, replacing the current process so the user
-    gets a clean interactive session.
+    When running inside cmux and project/worktree are provided, creates a
+    cmux workspace instead of replacing the current process. Falls back to
+    os.execvp if cmux setup fails or is unavailable.
     """
+    from .cmux import create_cmux_workspace, is_cmux_mode
+
+    if is_cmux_mode() and project and worktree:
+        result = create_cmux_workspace(project, worktree, str(worktree_path))
+        if result is not None:
+            return
+
     os.chdir(worktree_path)
     os.execvp("claude", ["claude"])
 
