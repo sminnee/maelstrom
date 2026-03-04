@@ -1050,8 +1050,76 @@ def read_env_file(worktree_path: Path) -> dict[str, str]:
         # Parse KEY=value
         if "=" in line:
             key, value = line.split("=", 1)
-            env_vars[key.strip()] = value.strip()
+            value = value.strip()
+            # Strip trailing source comment (double-space + #) that isn't
+            # inside quotes.
+            if "  #" in value:
+                # Check if the value starts with a quote
+                if value and value[0] in ('"', "'"):
+                    quote = value[0]
+                    # Find the closing quote
+                    close = value.find(quote, 1)
+                    if close != -1:
+                        # Only strip comments after the closing quote
+                        rest = value[close + 1 :]
+                        pos = rest.find("  #")
+                        if pos != -1:
+                            value = value[: close + 1 + pos]
+                else:
+                    pos = value.find("  #")
+                    value = value[:pos]
+            # Strip surrounding quotes
+            value = value.strip()
+            if len(value) >= 2 and value[0] in ('"', "'") and value[-1] == value[0]:
+                value = value[1:-1]
+            env_vars[key.strip()] = value
     return env_vars
+
+
+_VAR_PATTERN = re.compile(r"\$\{(\w+)\}|\$(\w+)")
+_SOURCE_PATTERN = re.compile(r"  # source: \[(.+)\]$")
+
+
+def _resolve_env_line(line: str, generated_vars: dict[str, str]) -> str:
+    """Resolve variable references in a single .env line.
+
+    If the line has a ``# source: [...]`` suffix, the bracketed text is used as
+    the template instead of the visible value.  After substitution the source
+    comment is (re-)appended so that future rewrites can recover the template.
+    """
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#") or "=" not in stripped:
+        return line
+
+    # If a source comment already exists, use it as the template
+    source_match = _SOURCE_PATTERN.search(line)
+    if source_match:
+        template = source_match.group(1)
+    else:
+        template = line
+
+    def _replace(m: re.Match) -> str:
+        var = m.group(1) or m.group(2)
+        return generated_vars.get(var, m.group(0))
+
+    resolved = _VAR_PATTERN.sub(_replace, template)
+
+    if resolved != template:
+        # Substitution occurred – attach/update source comment
+        return f"{resolved}  # source: [{template}]"
+
+    # No substitution – return unchanged (strip old source comment if template
+    # had nothing to resolve any more)
+    if source_match:
+        return template
+    return line
+
+
+def _resolve_template_lines(text: str, generated_vars: dict[str, str]) -> str:
+    """Apply variable resolution to every line in *text*."""
+    lines = text.splitlines()
+    resolved = [_resolve_env_line(line, generated_vars) for line in lines]
+    return "\n".join(resolved)
 
 
 def _build_managed_section(generated_vars: dict[str, str]) -> str:
@@ -1102,10 +1170,13 @@ def write_env_file(
             # Consume the newline after end marker if present
             if end_idx < len(existing_content) and existing_content[end_idx] == "\n":
                 end_idx += 1
+            user_content = _resolve_template_lines(
+                existing_content[end_idx:], generated_vars
+            )
             new_content = (
                 existing_content[:start_idx]
                 + managed_section + "\n"
-                + existing_content[end_idx:]
+                + user_content
             )
         else:
             # Upgrade path: no markers found, prepend managed section
@@ -1120,6 +1191,7 @@ def write_env_file(
                 filtered_lines.append(line)
             remaining = "\n".join(filtered_lines).strip()
             if remaining:
+                remaining = _resolve_template_lines(remaining, generated_vars)
                 new_content = managed_section + "\n\n" + remaining + "\n"
             else:
                 new_content = managed_section + "\n"
@@ -1130,7 +1202,9 @@ def write_env_file(
         parts = [managed_section]
         if template_text:
             parts.append("")  # blank line separator
-            parts.append(template_text.rstrip("\n"))
+            parts.append(
+                _resolve_template_lines(template_text.rstrip("\n"), generated_vars)
+            )
         env_file.write_text("\n".join(parts) + "\n")
 
 
