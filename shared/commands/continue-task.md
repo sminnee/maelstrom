@@ -87,7 +87,7 @@ When starting a task (`start-task`):
 
 When PR is created (`create-pr <issue-id>`) - happens as final step:
 
-- PR title is prefixed with `[ISSUE-ID]` for Linear auto-linking
+- PR title has `(Fixes ISSUE-ID)` appended for Linear auto-linking
 - Sets status to "In Review"
 - Promotes parent from early states (Todo/Planned/Backlog) to "In Progress"
 
