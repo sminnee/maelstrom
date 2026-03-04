@@ -1016,7 +1016,7 @@ def gh():
 def gh_create_pr(issue_id, draft, target):
     """Create a PR for the current worktree (or push if PR exists).
 
-    If ISSUE_ID is provided (e.g., ME-41), the PR title is prefixed with [ISSUE_ID]
+    If ISSUE_ID is provided (e.g., ME-41), appends (Fixes ISSUE_ID) to the PR title
     for Linear auto-linking, and the task status is set to "In Review".
     """
     try:

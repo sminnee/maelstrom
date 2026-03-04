@@ -284,7 +284,7 @@ mael gh create-pr [ISSUE_ID] [--draft] [--target TARGET]
 ```
 
 **Arguments:**
-- `ISSUE_ID` (optional): Linear issue ID (e.g., ME-41). When provided, prefixes PR title with `[ISSUE_ID]` for Linear auto-linking and sets the task status to "In Review"
+- `ISSUE_ID` (optional): Linear issue ID (e.g., ME-41). When provided, appends `(Fixes ISSUE_ID)` to PR title for Linear auto-linking and sets the task status to "In Review"
 
 **Options:**
 - `--draft`: Create PR as a draft (only for new PRs)
@@ -297,7 +297,7 @@ mael gh create-pr [ISSUE_ID] [--draft] [--target TARGET]
 - If PR exists: just pushes the latest changes
 - Returns the PR URL
 - When `ISSUE_ID` is provided:
-  - Prefixes PR title with `[ISSUE_ID]` (enables Linear's GitHub auto-linking)
+  - Appends `(Fixes ISSUE_ID)` to PR title (enables Linear's GitHub auto-linking)
   - Sets task status to "In Review"
   - Promotes parent task from early states (Todo/Planned/Backlog) to "In Progress"
   - Adds product label if configured

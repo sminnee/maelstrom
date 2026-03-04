@@ -261,9 +261,9 @@ def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None
     except subprocess.CalledProcessError:
         title = branch_name
 
-    # Prepend issue ID to title if provided (enables Linear's GitHub auto-linking)
+    # Append issue ID to title if provided (enables Linear's GitHub auto-linking)
     if issue_id:
-        title = f"[{issue_id.upper()}] {title}"
+        title = f"{title} (Fixes {issue_id.upper()})"
 
     # Create the PR with explicit title (--fill can fail if base branch not fetched)
     cmd = ["gh", "pr", "create", "--title", title, "--body", "", "--head", branch_name]
