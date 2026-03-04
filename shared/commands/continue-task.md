@@ -35,7 +35,12 @@ Examples:
    mael linear start-task <issue-id>
    ```
 
-4. **Read Implementation Plan**: Fetch the plan from Linear:
+4. **Set cmux status** (if running inside cmux):
+   ```bash
+   cmux --socket "$CMUX_SOCKET_PATH" set-status task "<issue-id>" --icon hammer
+   ```
+
+5. **Read Implementation Plan**: Fetch the plan from Linear:
    ```bash
    mael linear read-plan <issue-id>
    ```
@@ -43,12 +48,12 @@ Examples:
    - If no plan is found on either, fall back to researching the codebase using Task tool with
      Explore subagent(s) and planning inline (for tasks that were not planned via `/plan-task`)
 
-5. **Execute the Plan**: Implement the changes described in the plan:
+6. **Execute the Plan**: Implement the changes described in the plan:
    - Use TodoWrite to track progress through the plan steps
    - Follow the implementation steps in order
    - Run tests as appropriate
 
-6. **Final Steps**: Create PR and submit to Linear:
+7. **Final Steps**: Create PR and submit to Linear:
    ```bash
    mael gh create-pr <issue-id>
    ```

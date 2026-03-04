@@ -40,24 +40,29 @@ Examples:
    - If argument looks like an issue ID (e.g., `ME-32`), use it directly
    - Otherwise, use `list-tasks` to find matching issues by title
 
-3. **Validate Task State**:
+3. **Set cmux status** (if running inside cmux):
+   ```bash
+   cmux --socket "$CMUX_SOCKET_PATH" set-status task "Planning <issue-id>" --icon sparkle
+   ```
+
+4. **Validate Task State**:
    - Task should be in "Todo" status (warn if not, but continue)
    - Check for existing "# Implementation Plan" in description (warn if found - plan will replace
      it)
 
-4. **Codebase Research**: Use Task tool with Explore subagent(s) to research the codebase:
+5. **Codebase Research**: Use Task tool with Explore subagent(s) to research the codebase:
    - Launch 1-3 Explore agents in parallel for efficient research
    - Examine relevant code files and subsystems mentioned in the issue
    - Review existing patterns and architecture in affected areas
    - Identify dependencies and integration points
    - Understand current implementation state
 
-5. **Interactive Planning**: Use AskUserQuestion tool to discuss the plan with the user:
+6. **Interactive Planning**: Use AskUserQuestion tool to discuss the plan with the user:
    - Present your understanding of the task based on research
    - Discuss approach and any trade-offs
    - Iterate on the plan until the user is satisfied
 
-6. **Write Plan to File**: Write the detailed implementation plan to the plan file (path provided
+7. **Write Plan to File**: Write the detailed implementation plan to the plan file (path provided
    in system context). The plan should include:
    - Context section: why this change is being made
    - Research findings (relevant files, patterns, dependencies)
@@ -66,10 +71,10 @@ Examples:
    - A final step: "Write plan to Linear"
      (`mael linear write-plan <issue-id> <plan-file>`)
 
-7. **Present Plan**: Call ExitPlanMode with allowedPrompts:
+8. **Present Plan**: Call ExitPlanMode with allowedPrompts:
    - `{"tool": "Bash", "prompt": "write plan to Linear"}`
 
-8. **After Plan Approval - Write to Linear and STOP**: Execute:
+9. **After Plan Approval - Write to Linear and STOP**: Execute:
    ```bash
    mael linear write-plan <issue-id> <plan-file-path>
    ```

@@ -49,6 +49,7 @@ class EnvState:
     worktree_path: str
     started_at: str  # ISO 8601
     services: list[ServiceState]
+    cmux_browser_surface: str | None = None
 
 
 @dataclass
@@ -165,6 +166,7 @@ def load_env_state(project: str, worktree: str) -> EnvState | None:
             worktree_path=data["worktree_path"],
             started_at=data["started_at"],
             services=[ServiceState(**s) for s in data["services"]],
+            cmux_browser_surface=data.get("cmux_browser_surface"),
         )
     except (json.JSONDecodeError, KeyError, TypeError, OSError):
         return None

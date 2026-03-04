@@ -338,7 +338,8 @@ def cmd_add(branch, project, open, no_recycle):
         except RuntimeError as e:
             click.echo(f"Warning: Could not open worktree: {e}", err=True)
     else:
-        start_claude_session(worktree_path)
+        wt_name = extract_worktree_name_from_folder(ctx.project, worktree_path.name)
+        start_claude_session(worktree_path, project=ctx.project, worktree=wt_name)
 
 
 @cli.command("remove")
@@ -701,7 +702,7 @@ def cmd_claude(target):
     if not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
-    start_claude_session(worktree_path)
+    start_claude_session(worktree_path, project=ctx.project, worktree=ctx.worktree)
 
 
 @cli.command("sync")
