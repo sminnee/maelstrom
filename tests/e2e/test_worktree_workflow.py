@@ -80,9 +80,13 @@ class TestWorktreeFullLifecycle:
         assert "APP_URL" in subst_env
         assert "FRONTEND_PORT" in subst_env
         assert int(subst_env["FRONTEND_PORT"]) > 0
+        # read_env_file returns the resolved value without source comment
+        assert subst_env["APP_URL"] == f"http://localhost:{subst_env['FRONTEND_PORT']}"
         raw_env = (subst_path / ".env").read_text()
         assert "APP_URL" in raw_env
         assert "FRONTEND_PORT=" in raw_env
+        # Raw env has source comment preserving the template
+        assert "# source: [APP_URL=http://localhost:${FRONTEND_PORT}]" in raw_env
         # Clean up .env template
         project_env.unlink()
 

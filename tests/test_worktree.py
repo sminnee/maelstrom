@@ -218,8 +218,8 @@ class TestWriteEnvFile:
             assert content.startswith(ENV_SECTION_START)
             assert "PORT_BASE=100" in content
             assert "DB_PORT=1002" in content
-            # Template text below
-            assert "DATABASE_URL=postgres://localhost:$DB_PORT/mydb" in content
+            # Template text below with resolved value + source comment
+            assert "DATABASE_URL=postgres://localhost:1002/mydb  # source: [DATABASE_URL=postgres://localhost:$DB_PORT/mydb]" in content
             assert "API_KEY=secret" in content
             # Section ends before template
             section_end_pos = content.index(ENV_SECTION_END)
@@ -276,8 +276,8 @@ class TestWriteEnvFile:
             legacy_pos = content.index("LEGACY_VAR")
             assert section_end_pos < legacy_pos
 
-    def test_template_text_with_var_references_preserved(self):
-        """Test that $VAR references in template text are kept as-is."""
+    def test_template_text_with_var_references_resolved(self):
+        """Test that $VAR references in template text are resolved with source comment."""
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
             generated = {"WORKTREE": "alpha", "WORKTREE_NUM": "0"}
@@ -287,10 +287,71 @@ class TestWriteEnvFile:
 
             env_file = worktree_path / ".env"
             content = env_file.read_text()
-            # $WORKTREE reference preserved (not substituted)
-            assert "DATABASE_NAME=myapp_$WORKTREE" in content
+            # $WORKTREE reference resolved with source comment
+            assert "DATABASE_NAME=myapp_alpha  # source: [DATABASE_NAME=myapp_$WORKTREE]" in content
             assert "WORKTREE=alpha" in content
             assert "WORKTREE_NUM=0" in content
+
+    def test_source_comment_added_on_substitution(self):
+        """Test that ${VAR} references get resolved with a source comment."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            generated = {"FRONTEND_PORT": "1000"}
+            template = "APP_URL=http://localhost:${FRONTEND_PORT}\n"
+
+            write_env_file(worktree_path, generated, template)
+
+            content = (worktree_path / ".env").read_text()
+            assert "APP_URL=http://localhost:1000  # source: [APP_URL=http://localhost:${FRONTEND_PORT}]" in content
+
+    def test_rewrite_resolves_from_source_comment(self):
+        """Test that updating managed section re-resolves user lines from source."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            env_file = worktree_path / ".env"
+
+            # Write initial .env with resolved line + source comment
+            initial = (
+                f"{ENV_SECTION_START}\n"
+                "FRONTEND_PORT=1000\n"
+                f"{ENV_SECTION_END}\n"
+                "\n"
+                "APP_URL=http://localhost:1000  # source: [APP_URL=http://localhost:${FRONTEND_PORT}]\n"
+            )
+            env_file.write_text(initial)
+
+            # Update with new port
+            write_env_file(worktree_path, {"FRONTEND_PORT": "2000"})
+
+            content = env_file.read_text()
+            assert "FRONTEND_PORT=2000" in content
+            assert "APP_URL=http://localhost:2000  # source: [APP_URL=http://localhost:${FRONTEND_PORT}]" in content
+
+    def test_lines_without_var_refs_unchanged(self):
+        """Test that lines without variable references get no source comment."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            generated = {"PORT_BASE": "100"}
+            template = "API_KEY=secret123\n"
+
+            write_env_file(worktree_path, generated, template)
+
+            content = (worktree_path / ".env").read_text()
+            assert "API_KEY=secret123" in content
+            assert "# source:" not in content
+
+    def test_partial_var_resolution(self):
+        """Test that only matching vars are resolved; unmatched pass through."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            generated = {"FRONTEND_PORT": "1000"}
+            template = "CONN=http://localhost:${FRONTEND_PORT}/${UNKNOWN_VAR}\n"
+
+            write_env_file(worktree_path, generated, template)
+
+            content = (worktree_path / ".env").read_text()
+            # FRONTEND_PORT resolved, UNKNOWN_VAR left as-is
+            assert "CONN=http://localhost:1000/${UNKNOWN_VAR}  # source: [CONN=http://localhost:${FRONTEND_PORT}/${UNKNOWN_VAR}]" in content
 
 
 class TestReadEnvFile:
@@ -342,6 +403,22 @@ class TestReadEnvFile:
 
             result = read_env_file(worktree_path)
             assert result == {"DATABASE_URL": "postgres://user:pass=123@host/db"}
+
+    def test_read_env_file_strips_source_comment(self):
+        """Test that read_env_file strips source comments and returns clean values."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            env_file = worktree_path / ".env"
+            env_file.write_text(
+                "APP_URL=http://localhost:1000  # source: [APP_URL=http://localhost:${FRONTEND_PORT}]\n"
+                "API_KEY=secret\n"
+                'QUOTED="value with # hash"  # source: [QUOTED="value with # hash"]\n'
+            )
+
+            result = read_env_file(worktree_path)
+            assert result["APP_URL"] == "http://localhost:1000"
+            assert result["API_KEY"] == "secret"
+            assert result["QUOTED"] == "value with # hash"
 
 
 class TestWorktreeIntegration:
