@@ -118,6 +118,24 @@ def open_browser_pane(url: str, workspace_ref: str | None = None) -> str | None:
     return cmux_cmd(*args)
 
 
+def set_status(text: str) -> bool:
+    """Set the cmux task status line.
+
+    Returns True if the command succeeded, False otherwise (including not in cmux mode).
+    """
+    result = cmux_cmd("set-status", "task", text, "--icon", "hammer")
+    return is_ok(result) is not None
+
+
+def clear_status() -> bool:
+    """Clear the cmux task status line.
+
+    Returns True if the command succeeded, False otherwise (including not in cmux mode).
+    """
+    result = cmux_cmd("clear-status", "task")
+    return is_ok(result) is not None
+
+
 def close_surface(surface_ref: str) -> bool:
     """Close a cmux surface by its ref.
 

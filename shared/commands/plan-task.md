@@ -40,9 +40,9 @@ Examples:
    - If argument looks like an issue ID (e.g., `ME-32`), use it directly
    - Otherwise, use `list-tasks` to find matching issues by title
 
-3. **Set cmux status** (if running inside cmux):
+3. **Set status**:
    ```bash
-   cmux --socket "$CMUX_SOCKET_PATH" set-status task "Planning <issue-id>" --icon sparkle
+   mael status set "Planning <issue-id>"
    ```
 
 4. **Validate Task State**:

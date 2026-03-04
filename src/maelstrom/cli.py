@@ -17,6 +17,7 @@ from .github import (
     get_worktree_code,
     read_pr,
 )
+from .cmux import is_cmux_mode, set_status, clear_status
 from .env import get_env_status, stop_env
 from .env_cli import env as env_cli
 from .linear import linear
@@ -1266,6 +1267,31 @@ def gh_show_code(target, committed, uncommitted):
 
     if not commits_output and not uncommitted_output:
         click.echo("No commits or uncommitted changes found.")
+
+
+# --- Status commands ---
+
+
+@cli.group()
+def status():
+    """Manage workspace status display."""
+
+
+@status.command("set")
+@click.argument("text")
+def status_set(text):
+    """Set the workspace status text."""
+    if not is_cmux_mode():
+        return
+    set_status(text)
+
+
+@status.command("clear")
+def status_clear():
+    """Clear the workspace status."""
+    if not is_cmux_mode():
+        return
+    clear_status()
 
 
 # --- Subcommand groups ---
