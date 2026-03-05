@@ -53,7 +53,6 @@ def cmux_cmd(*args: str) -> str | None:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         return result.stdout.strip()
-        return None
     except (FileNotFoundError, subprocess.CalledProcessError):
         return None
 
@@ -115,7 +114,16 @@ def open_browser_pane(url: str, workspace_ref: str | None = None) -> str | None:
     args = ["new-pane", "--type", "browser", "--url", url]
     if workspace_ref:
         args.extend(["--workspace", workspace_ref])
-    return cmux_cmd(*args)
+    return is_ok(cmux_cmd(*args))
+
+
+def browser_surface_exists(surface_ref: str) -> bool:
+    """Check if a cmux browser surface is still alive.
+
+    Returns True if the surface exists, False otherwise (including on any error).
+    """
+    result = cmux_cmd("browser", "get-url", "--surface", surface_ref)
+    return is_ok(result) is not None
 
 
 def set_status(text: str) -> bool:
