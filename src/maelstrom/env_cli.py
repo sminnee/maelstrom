@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from .cmux import close_surface, is_cmux_mode, open_browser_pane
+from .cmux import close_surface, is_cmux_mode, open_browser_pane, browser_surface_exists
 from .context import resolve_context
 from .env import (
     EnvState,
@@ -118,6 +118,13 @@ def env_start(target, skip_install):
     if not worktree_path or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
+    # Capture existing browser surface before start_env (which may clear state)
+    prev_browser_surface = None
+    if is_cmux_mode():
+        prev_state = load_env_state(ctx.project, ctx.worktree)
+        if prev_state and prev_state.cmux_browser_surface:
+            prev_browser_surface = prev_state.cmux_browser_surface
+
     try:
         state = start_env(
             ctx.project,
@@ -128,15 +135,19 @@ def env_start(target, skip_install):
     except RuntimeError as e:
         raise click.ClickException(str(e))
 
-    # Open browser pane in cmux if available
+    # Open browser pane in cmux if available (reuse existing if alive)
     if is_cmux_mode():
         app_info = get_app_url(ctx.project_path, ctx.worktree)
         if app_info:
             url, _is_running = app_info
-            surface_ref = open_browser_pane(url)
-            if surface_ref:
-                state.cmux_browser_surface = surface_ref
+            if prev_browser_surface and browser_surface_exists(prev_browser_surface):
+                state.cmux_browser_surface = prev_browser_surface
                 save_env_state(state)
+            else:
+                surface_ref = open_browser_pane(url)
+                if surface_ref:
+                    state.cmux_browser_surface = surface_ref
+                    save_env_state(state)
 
     _print_service_status(ctx.project, ctx.worktree, ctx.project_path)
 

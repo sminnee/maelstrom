@@ -13,6 +13,7 @@ from maelstrom.cmux import (
     is_cmux_mode,
     is_ok,
     open_browser_pane,
+    browser_surface_exists,
 )
 
 
@@ -207,7 +208,7 @@ class TestOpenBrowserPane:
     """Tests for open_browser_pane function."""
 
     def test_returns_surface_ref(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value="browser-789"):
+        with patch("maelstrom.cmux.cmux_cmd", return_value="OK browser-789"):
             result = open_browser_pane("http://localhost:3000")
             assert result == "browser-789"
 
@@ -215,6 +216,22 @@ class TestOpenBrowserPane:
         with patch("maelstrom.cmux.cmux_cmd", return_value=None):
             result = open_browser_pane("http://localhost:3000")
             assert result is None
+
+
+class TestSurfaceExists:
+    """Tests for browser_surface_exists function."""
+
+    def test_returns_true_when_surface_alive(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value="OK http://localhost:3000"):
+            assert browser_surface_exists("browser-789") is True
+
+    def test_returns_false_when_surface_dead(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
+            assert browser_surface_exists("browser-789") is False
+
+    def test_returns_false_on_error_response(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value="ERR not found"):
+            assert browser_surface_exists("browser-789") is False
 
 
 class TestCloseSurface:

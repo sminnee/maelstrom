@@ -158,6 +158,110 @@ class TestEnvStart:
         assert "Worktree not found" in result.output
 
 
+class TestEnvStartBrowserDedup:
+    """Tests for cmux browser deduplication in env start."""
+
+    @patch("maelstrom.env_cli.save_env_state")
+    @patch("maelstrom.env_cli.browser_surface_exists", return_value=True)
+    @patch("maelstrom.env_cli.open_browser_pane")
+    @patch("maelstrom.env_cli.is_cmux_mode", return_value=True)
+    @patch("maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True))
+    @patch("maelstrom.env_cli.load_env_state")
+    @patch("maelstrom.env_cli.get_env_status")
+    @patch("maelstrom.env_cli.start_env")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_reuses_existing_browser(
+        self, mock_ctx, mock_start, mock_status, mock_load, mock_app,
+        mock_cmux, mock_open, mock_exists, mock_save, tmp_path,
+    ):
+        """Reuses existing browser surface when it's still alive."""
+        ctx = _mock_ctx_with_path(tmp_path)
+        mock_ctx.return_value = ctx
+        state_with_browser = _make_state()
+        state_with_browser.cmux_browser_surface = "browser-old"
+        mock_load.return_value = state_with_browser
+        mock_start.return_value = _make_state()
+        mock_status.return_value = [_make_status()]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "start"])
+        assert result.exit_code == 0
+        mock_open.assert_not_called()
+        mock_exists.assert_called_once_with("browser-old")
+
+    @patch("maelstrom.env_cli.save_env_state")
+    @patch("maelstrom.env_cli.browser_surface_exists", return_value=False)
+    @patch("maelstrom.env_cli.open_browser_pane", return_value="browser-new")
+    @patch("maelstrom.env_cli.is_cmux_mode", return_value=True)
+    @patch("maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True))
+    @patch("maelstrom.env_cli.load_env_state")
+    @patch("maelstrom.env_cli.get_env_status")
+    @patch("maelstrom.env_cli.start_env")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_opens_new_when_existing_dead(
+        self, mock_ctx, mock_start, mock_status, mock_load, mock_app,
+        mock_cmux, mock_open, mock_exists, mock_save, tmp_path,
+    ):
+        """Opens new browser when existing surface is dead."""
+        ctx = _mock_ctx_with_path(tmp_path)
+        mock_ctx.return_value = ctx
+        state_with_browser = _make_state()
+        state_with_browser.cmux_browser_surface = "browser-old"
+        mock_load.return_value = state_with_browser
+        mock_start.return_value = _make_state()
+        mock_status.return_value = [_make_status()]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "start"])
+        assert result.exit_code == 0
+        mock_open.assert_called_once_with("http://localhost:3000")
+
+    @patch("maelstrom.env_cli.save_env_state")
+    @patch("maelstrom.env_cli.open_browser_pane", return_value="browser-new")
+    @patch("maelstrom.env_cli.is_cmux_mode", return_value=True)
+    @patch("maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True))
+    @patch("maelstrom.env_cli.load_env_state", return_value=None)
+    @patch("maelstrom.env_cli.get_env_status")
+    @patch("maelstrom.env_cli.start_env")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_opens_new_when_no_previous(
+        self, mock_ctx, mock_start, mock_status, mock_load, mock_app,
+        mock_cmux, mock_open, mock_save, tmp_path,
+    ):
+        """Opens new browser when no previous state exists."""
+        ctx = _mock_ctx_with_path(tmp_path)
+        mock_ctx.return_value = ctx
+        mock_start.return_value = _make_state()
+        mock_status.return_value = [_make_status()]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "start"])
+        assert result.exit_code == 0
+        mock_open.assert_called_once_with("http://localhost:3000")
+
+
+class TestEnvStopBrowser:
+    """Tests for browser close on env stop."""
+
+    @patch("maelstrom.env_cli.close_surface", return_value=True)
+    @patch("maelstrom.env_cli.is_cmux_mode", return_value=True)
+    @patch("maelstrom.env_cli.stop_env")
+    @patch("maelstrom.env_cli.load_env_state")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_closes_browser_on_stop(self, mock_ctx, mock_load, mock_stop, mock_cmux, mock_close):
+        """Closes browser surface when stopping env."""
+        mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
+        state = _make_state()
+        state.cmux_browser_surface = "browser-123"
+        mock_load.return_value = state
+        mock_stop.return_value = ["web (pid 100): stopped"]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "stop"])
+        assert result.exit_code == 0
+        mock_close.assert_called_once_with("browser-123")
+
+
 class TestEnvStatus:
     """Tests for mael env status command."""
 
