@@ -8,6 +8,7 @@ import pytest
 from maelstrom.cmux import (
     _find_cmux_cli,
     close_surface,
+    close_workspace,
     cmux_cmd,
     create_cmux_workspace,
     is_cmux_mode,
@@ -232,6 +233,40 @@ class TestSurfaceExists:
     def test_returns_false_on_error_response(self):
         with patch("maelstrom.cmux.cmux_cmd", return_value="ERR not found"):
             assert browser_surface_exists("browser-789") is False
+
+
+class TestCloseWorkspace:
+    """Tests for close_workspace function."""
+
+    def test_closes_matching_workspace(self):
+        list_output = (
+            "* workspace:13  maelstrom-bravo  [selected]\n"
+            "  workspace:14  other-project"
+        )
+        calls = []
+
+        def mock_cmux_cmd(*args):
+            calls.append(args)
+            if args[0] == "list-workspaces":
+                return list_output
+            if args[0] == "close-workspace":
+                return "OK"
+            return None
+
+        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
+            assert close_workspace("maelstrom-bravo") is True
+
+        assert ("close-workspace", "--workspace", "workspace:13") in calls
+
+    def test_returns_false_when_no_match(self):
+        list_output = "  workspace:14  other-project"
+
+        with patch("maelstrom.cmux.cmux_cmd", return_value=list_output):
+            assert close_workspace("maelstrom-bravo") is False
+
+    def test_returns_false_when_cmux_unavailable(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
+            assert close_workspace("maelstrom-bravo") is False
 
 
 class TestCloseSurface:
