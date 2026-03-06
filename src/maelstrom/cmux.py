@@ -144,6 +144,28 @@ def clear_status() -> bool:
     return is_ok(result) is not None
 
 
+def close_workspace(name: str) -> bool:
+    """Close cmux workspaces matching the given name.
+
+    Parses list-workspaces output to find workspaces by name, then closes them.
+    Returns True if any workspace was closed, False otherwise.
+    """
+    output = cmux_cmd("list-workspaces")
+    if not output:
+        return False
+
+    closed = False
+    for line in output.splitlines():
+        # Lines like: * workspace:13  maelstrom-bravo  [selected]
+        match = re.match(r'.*?(workspace:\d+)\s+(\S+)', line)
+        if match and match.group(2) == name:
+            result = cmux_cmd("close-workspace", "--workspace", match.group(1))
+            if is_ok(result) is not None:
+                closed = True
+
+    return closed
+
+
 def close_surface(surface_ref: str) -> bool:
     """Close a cmux surface by its ref.
 

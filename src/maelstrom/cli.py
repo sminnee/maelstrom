@@ -812,6 +812,11 @@ def cmd_close(targets):
 
         if result.success:
             click.echo(result.message)
+            # Close cmux workspace after successful worktree close
+            from maelstrom.cmux import close_workspace
+            workspace_name = f"{ctx.project}-{ctx.worktree}"
+            if close_workspace(workspace_name):
+                click.echo(f"Closed cmux workspace '{workspace_name}'.")
             continue
 
         # Handle specific failure cases

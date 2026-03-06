@@ -385,6 +385,31 @@ class TestCloseMultiTarget:
 
             mock_stop.assert_not_called()
 
+    def test_close_closes_cmux_workspace(self):
+        """Test that mael close closes the cmux workspace."""
+        runner = CliRunner()
+
+        with patch("maelstrom.cli.resolve_context") as mock_resolve:
+            mock_ctx = MagicMock()
+            mock_ctx.worktree = "alpha"
+            mock_ctx.project = "myproject"
+            mock_ctx.worktree_path = MagicMock()
+            mock_ctx.worktree_path.exists.return_value = True
+            mock_resolve.return_value = mock_ctx
+
+            with patch("maelstrom.cli.close_worktree") as mock_close, \
+                 patch("maelstrom.cli.get_env_status", return_value=None), \
+                 patch("maelstrom.cli.stop_env"), \
+                 patch("maelstrom.cmux.cmux_cmd") as mock_cmux:
+                mock_close.return_value = MagicMock(success=True, message="Closed")
+                mock_cmux.side_effect = lambda *args: (
+                    "* workspace:1  myproject-alpha  [selected]"
+                    if args[0] == "list-workspaces" else "OK"
+                )
+                result = runner.invoke(cli, ["close", "myproject.alpha"])
+
+            assert "Closed cmux workspace 'myproject-alpha'" in result.output
+
 
 class TestStaleSymlinkCleanup:
     """Tests for stale symlink cleanup in _symlink_items."""
