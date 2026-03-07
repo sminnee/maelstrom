@@ -11,7 +11,7 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from subprocess import STDOUT, Popen
+from subprocess import DEVNULL, STDOUT, Popen
 
 from maelstrom.config import load_config_or_default
 from maelstrom.context import get_maelstrom_dir
@@ -294,6 +294,7 @@ def _spawn_services(
             ["sh", "-c", svc.command],
             cwd=cwd,
             env=env,
+            stdin=DEVNULL,
             stdout=log_fh,
             stderr=STDOUT,
             start_new_session=True,
