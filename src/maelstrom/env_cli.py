@@ -23,7 +23,7 @@ from .env import (
     stop_all_envs,
     stop_env,
 )
-from .ports import get_app_url
+from .ports import get_app_url, get_port_allocation, wait_for_port
 from .table import draw_table
 from .worktree import regenerate_env_file
 
@@ -37,6 +37,9 @@ def _ensure_cmux_browser(state: EnvState, project_path: Path, worktree: str) -> 
     if not app_info:
         return
     url, _ = app_info
+    port_base = get_port_allocation(project_path, worktree)
+    if port_base is not None:
+        wait_for_port(port_base * 10)
     ref = ws.ensure_browser(url)
     if ref:
         state.cmux_browser_surface = ref
