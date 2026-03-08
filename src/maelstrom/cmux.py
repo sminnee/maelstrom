@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+from dataclasses import dataclass
 
 
 def is_cmux_mode() -> bool:
@@ -173,3 +174,110 @@ def close_surface(surface_ref: str) -> bool:
     """
     result = cmux_cmd("close-surface", "--surface", surface_ref)
     return is_ok(result) is not None
+
+
+@dataclass
+class CmuxPanel:
+    ref: str           # e.g. "surface:183"
+    panel_type: str    # "terminal" or "browser"
+    title: str         # surface title
+    focused: bool
+
+
+def _parse_panels(output: str) -> list[CmuxPanel]:
+    """Parse the output of cmux list-panels into CmuxPanel objects.
+
+    Expected format (one per line):
+      surface:103  terminal  "title"
+    * surface:104  terminal  [focused]  "title"
+      surface:183  browser  "title"
+    """
+    panels = []
+    for line in output.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        focused = line.startswith("*")
+        if focused:
+            line = line[1:].strip()
+        # Parse: ref  type  [focused]  "title"
+        match = re.match(
+            r'(surface:\d+)\s+(terminal|browser)\s+(?:\[focused\]\s+)?"(.*)"',
+            line,
+        )
+        if match:
+            panels.append(CmuxPanel(
+                ref=match.group(1),
+                panel_type=match.group(2),
+                title=match.group(3),
+                focused=focused,
+            ))
+    return panels
+
+
+class CmuxWorkspace:
+    """Queries and caches the panel state of the current cmux workspace."""
+
+    def __init__(self):
+        self._panels: list[CmuxPanel] | None = None  # lazy-loaded
+
+    @staticmethod
+    def current() -> "CmuxWorkspace | None":
+        """Return a CmuxWorkspace if in cmux mode, else None."""
+        if not is_cmux_mode():
+            return None
+        return CmuxWorkspace()
+
+    @property
+    def panels(self) -> list[CmuxPanel]:
+        if self._panels is None:
+            self._panels = _parse_panels(cmux_cmd("list-panels") or "")
+        return self._panels
+
+    def refresh(self):
+        self._panels = None
+
+    def browsers(self) -> list[CmuxPanel]:
+        """Return all browser panels."""
+        return [p for p in self.panels if p.panel_type == "browser"]
+
+    def _get_browser_url(self, panel: CmuxPanel) -> str | None:
+        """Get the current URL of a browser panel via `browser get-url`."""
+        result = cmux_cmd("browser", "get-url", "--surface", panel.ref)
+        ref = is_ok(result)
+        return ref if ref else None
+
+    def find_browser_by_url(self, url_prefix: str) -> CmuxPanel | None:
+        """Return the first browser panel whose URL starts with url_prefix, or None.
+
+        Uses `browser get-url` to query each browser panel's actual URL.
+        Other browser panels (docs, unrelated pages) are ignored.
+        """
+        for panel in self.browsers():
+            panel_url = self._get_browser_url(panel)
+            if panel_url and panel_url.startswith(url_prefix):
+                return panel
+        return None
+
+    def ensure_browser(self, url: str) -> str | None:
+        """Return ref of a browser already showing this app's URL, or open a new one.
+
+        Matches by URL prefix — e.g. url="http://localhost:3000" matches
+        "http://localhost:3000/dashboard". Ignores unrelated browser panels.
+        """
+        existing = self.find_browser_by_url(url)
+        if existing:
+            return existing.ref
+        ref = open_browser_pane(url)
+        if ref:
+            self.refresh()
+        return ref
+
+    def close_browser(self, url: str) -> bool:
+        """Close the browser panel matching the given URL prefix, if one exists."""
+        browser = self.find_browser_by_url(url)
+        if browser:
+            result = close_surface(browser.ref)
+            self.refresh()
+            return result
+        return False
