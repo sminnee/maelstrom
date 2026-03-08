@@ -6,7 +6,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from maelstrom.cmux import (
+    CmuxPanel,
+    CmuxWorkspace,
     _find_cmux_cli,
+    _parse_panels,
     close_surface,
     close_workspace,
     cmux_cmd,
@@ -279,3 +282,167 @@ class TestCloseSurface:
     def test_returns_false_on_failure(self):
         with patch("maelstrom.cmux.cmux_cmd", return_value=None):
             assert close_surface("surface-123") is False
+
+
+class TestParsePanels:
+    """Tests for _parse_panels function."""
+
+    def test_parses_terminal_and_browser(self):
+        output = (
+            '  surface:103  terminal  "Terminal"\n'
+            '  surface:183  browser  "My App"\n'
+        )
+        panels = _parse_panels(output)
+        assert len(panels) == 2
+        assert panels[0] == CmuxPanel(ref="surface:103", panel_type="terminal", title="Terminal", focused=False)
+        assert panels[1] == CmuxPanel(ref="surface:183", panel_type="browser", title="My App", focused=False)
+
+    def test_parses_focused_panel(self):
+        output = '* surface:104  terminal  [focused]  "Terminal"\n'
+        panels = _parse_panels(output)
+        assert len(panels) == 1
+        assert panels[0].focused is True
+        assert panels[0].ref == "surface:104"
+
+    def test_skips_empty_lines(self):
+        output = '\n  surface:103  terminal  "Terminal"\n\n'
+        panels = _parse_panels(output)
+        assert len(panels) == 1
+
+    def test_empty_output(self):
+        assert _parse_panels("") == []
+
+    def test_skips_malformed_lines(self):
+        output = (
+            '  surface:103  terminal  "Terminal"\n'
+            '  garbage line\n'
+            '  surface:104  browser  "App"\n'
+        )
+        panels = _parse_panels(output)
+        assert len(panels) == 2
+
+
+class TestCmuxWorkspace:
+    """Tests for CmuxWorkspace class."""
+
+    def test_current_returns_none_outside_cmux(self):
+        with patch.dict("os.environ", {}, clear=True):
+            assert CmuxWorkspace.current() is None
+
+    def test_current_returns_workspace_in_cmux(self):
+        with patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/cmux.sock"}):
+            ws = CmuxWorkspace.current()
+            assert ws is not None
+            assert isinstance(ws, CmuxWorkspace)
+
+    def test_panels_lazy_loads(self):
+        output = '  surface:103  terminal  "Terminal"\n  surface:183  browser  "App"\n'
+        with patch("maelstrom.cmux.cmux_cmd", return_value=output):
+            ws = CmuxWorkspace()
+            panels = ws.panels
+            assert len(panels) == 2
+
+    def test_browsers_filters(self):
+        output = (
+            '  surface:103  terminal  "Terminal"\n'
+            '  surface:183  browser  "App"\n'
+            '  surface:184  browser  "Docs"\n'
+        )
+        with patch("maelstrom.cmux.cmux_cmd", return_value=output):
+            ws = CmuxWorkspace()
+            browsers = ws.browsers()
+            assert len(browsers) == 2
+            assert all(b.panel_type == "browser" for b in browsers)
+
+    def test_find_browser_by_url_matches_prefix(self):
+        output = '  surface:183  browser  "App"\n  surface:184  browser  "Docs"\n'
+
+        def mock_cmux_cmd(*args):
+            if args[0] == "list-panels":
+                return output
+            if args[0] == "browser" and args[1] == "get-url":
+                surface = args[3]
+                if surface == "surface:183":
+                    return "OK http://localhost:3000/dashboard"
+                if surface == "surface:184":
+                    return "OK https://docs.example.com"
+            return None
+
+        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
+            ws = CmuxWorkspace()
+            panel = ws.find_browser_by_url("http://localhost:3000")
+            assert panel is not None
+            assert panel.ref == "surface:183"
+
+    def test_find_browser_by_url_returns_none_when_no_match(self):
+        output = '  surface:183  browser  "Docs"\n'
+
+        def mock_cmux_cmd(*args):
+            if args[0] == "list-panels":
+                return output
+            if args[0] == "browser":
+                return "OK https://docs.example.com"
+            return None
+
+        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
+            ws = CmuxWorkspace()
+            assert ws.find_browser_by_url("http://localhost:3000") is None
+
+    def test_ensure_browser_reuses_existing(self):
+        output = '  surface:183  browser  "App"\n'
+
+        def mock_cmux_cmd(*args):
+            if args[0] == "list-panels":
+                return output
+            if args[0] == "browser":
+                return "OK http://localhost:3000"
+            return None
+
+        with (
+            patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd),
+            patch("maelstrom.cmux.open_browser_pane") as mock_open,
+        ):
+            ws = CmuxWorkspace()
+            ref = ws.ensure_browser("http://localhost:3000")
+            assert ref == "surface:183"
+            mock_open.assert_not_called()
+
+    def test_ensure_browser_opens_new_when_none_match(self):
+        output = '  surface:103  terminal  "Terminal"\n'
+
+        def mock_cmux_cmd(*args):
+            if args[0] == "list-panels":
+                return output
+            return None
+
+        with (
+            patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd),
+            patch("maelstrom.cmux.open_browser_pane", return_value="surface:200") as mock_open,
+        ):
+            ws = CmuxWorkspace()
+            ref = ws.ensure_browser("http://localhost:3000")
+            assert ref == "surface:200"
+            mock_open.assert_called_once_with("http://localhost:3000")
+
+    def test_close_browser_closes_matching(self):
+        output = '  surface:183  browser  "App"\n'
+
+        def mock_cmux_cmd(*args):
+            if args[0] == "list-panels":
+                return output
+            if args[0] == "browser":
+                return "OK http://localhost:3000"
+            if args[0] == "close-surface":
+                return "OK"
+            return None
+
+        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
+            ws = CmuxWorkspace()
+            assert ws.close_browser("http://localhost:3000") is True
+
+    def test_close_browser_returns_false_no_match(self):
+        output = '  surface:103  terminal  "Terminal"\n'
+
+        with patch("maelstrom.cmux.cmux_cmd", return_value=output):
+            ws = CmuxWorkspace()
+            assert ws.close_browser("http://localhost:3000") is False

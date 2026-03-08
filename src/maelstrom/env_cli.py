@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from .cmux import close_surface, is_cmux_mode, open_browser_pane, browser_surface_exists
+from .cmux import CmuxWorkspace
 from .context import resolve_context
 from .env import (
     EnvState,
@@ -26,6 +26,21 @@ from .env import (
 from .ports import get_app_url
 from .table import draw_table
 from .worktree import regenerate_env_file
+
+
+def _ensure_cmux_browser(state: EnvState, project_path: Path, worktree: str) -> None:
+    """Ensure a cmux browser pane exists for this env's app URL."""
+    ws = CmuxWorkspace.current()
+    if not ws:
+        return
+    app_info = get_app_url(project_path, worktree)
+    if not app_info:
+        return
+    url, _ = app_info
+    ref = ws.ensure_browser(url)
+    if ref:
+        state.cmux_browser_surface = ref
+        save_env_state(state)
 
 
 def _env_service_columns(state: EnvState) -> tuple[str, str]:
@@ -119,13 +134,6 @@ def env_start(target, skip_install):
     if not worktree_path or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
-    # Capture existing browser surface before start_env (which may clear state)
-    prev_browser_surface = None
-    if is_cmux_mode():
-        prev_state = load_env_state(ctx.project, ctx.worktree)
-        if prev_state and prev_state.cmux_browser_surface:
-            prev_browser_surface = prev_state.cmux_browser_surface
-
     try:
         state = start_env(
             ctx.project,
@@ -136,19 +144,7 @@ def env_start(target, skip_install):
     except RuntimeError as e:
         raise click.ClickException(str(e))
 
-    # Open browser pane in cmux if available (reuse existing if alive)
-    if is_cmux_mode():
-        app_info = get_app_url(ctx.project_path, ctx.worktree)
-        if app_info:
-            url, _is_running = app_info
-            if prev_browser_surface and browser_surface_exists(prev_browser_surface):
-                state.cmux_browser_surface = prev_browser_surface
-                save_env_state(state)
-            else:
-                surface_ref = open_browser_pane(url)
-                if surface_ref:
-                    state.cmux_browser_surface = surface_ref
-                    save_env_state(state)
+    _ensure_cmux_browser(state, ctx.project_path, ctx.worktree)
 
     _print_service_status(ctx.project, ctx.worktree, ctx.project_path)
 
@@ -183,10 +179,11 @@ def env_stop(target):
         raise click.ClickException(str(e))
 
     # Close cmux browser pane if one was opened
-    if is_cmux_mode():
-        state = load_env_state(ctx.project, ctx.worktree)
-        if state and state.cmux_browser_surface:
-            close_surface(state.cmux_browser_surface)
+    ws = CmuxWorkspace.current()
+    if ws:
+        app_info = get_app_url(ctx.project_path, ctx.worktree)
+        if app_info:
+            ws.close_browser(app_info[0])
 
     messages = stop_env(ctx.project, ctx.worktree)
     for msg in messages:
@@ -218,10 +215,6 @@ def env_restart(target, install):
             f"No running environment for {ctx.project}/{ctx.worktree}."
         )
 
-    # Close cmux browser pane if one was opened
-    if is_cmux_mode() and state.cmux_browser_surface:
-        close_surface(state.cmux_browser_surface)
-
     messages = stop_env(ctx.project, ctx.worktree)
     for msg in messages:
         click.echo(msg)
@@ -237,14 +230,7 @@ def env_restart(target, install):
     except RuntimeError as e:
         raise click.ClickException(str(e))
 
-    if is_cmux_mode():
-        app_info = get_app_url(ctx.project_path, ctx.worktree)
-        if app_info:
-            url, _is_running = app_info
-            surface_ref = open_browser_pane(url)
-            if surface_ref:
-                state.cmux_browser_surface = surface_ref
-                save_env_state(state)
+    _ensure_cmux_browser(state, ctx.project_path, ctx.worktree)
 
     _print_service_status(ctx.project, ctx.worktree, ctx.project_path)
 
@@ -271,9 +257,6 @@ def env_reset(target):
     state = load_env_state(ctx.project, ctx.worktree)
     if state:
         was_running = True
-        # Close cmux browser pane if one was opened
-        if is_cmux_mode() and state.cmux_browser_surface:
-            close_surface(state.cmux_browser_surface)
         messages = stop_env(ctx.project, ctx.worktree)
         for msg in messages:
             click.echo(msg)
@@ -293,14 +276,7 @@ def env_reset(target):
         except RuntimeError as e:
             raise click.ClickException(str(e))
 
-        if is_cmux_mode():
-            app_info = get_app_url(ctx.project_path, ctx.worktree)
-            if app_info:
-                url, _is_running = app_info
-                surface_ref = open_browser_pane(url)
-                if surface_ref:
-                    state.cmux_browser_surface = surface_ref
-                    save_env_state(state)
+        _ensure_cmux_browser(state, ctx.project_path, ctx.worktree)
 
         _print_service_status(ctx.project, ctx.worktree, ctx.project_path)
 
