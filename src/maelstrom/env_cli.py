@@ -25,6 +25,7 @@ from .env import (
 )
 from .ports import get_app_url
 from .table import draw_table
+from .worktree import regenerate_env_file
 
 
 def _env_service_columns(state: EnvState) -> tuple[str, str]:
@@ -191,6 +192,62 @@ def env_stop(target):
     for msg in messages:
         click.echo(msg)
     click.echo(f"Environment stopped for {ctx.project}/{ctx.worktree}.")
+
+
+@env.command("reset")
+@click.argument("target", required=False, default=None)
+def env_reset(target):
+    """Regenerate .env file (e.g., after updating .maelstrom.yaml ports)."""
+    try:
+        ctx = resolve_context(
+            target,
+            require_project=True,
+            require_worktree=True,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    worktree_path = ctx.worktree_path
+    if not worktree_path or not worktree_path.exists():
+        raise click.ClickException(f"Worktree not found at {worktree_path}")
+
+    # Check if env is currently running
+    was_running = False
+    state = load_env_state(ctx.project, ctx.worktree)
+    if state:
+        was_running = True
+        # Close cmux browser pane if one was opened
+        if is_cmux_mode() and state.cmux_browser_surface:
+            close_surface(state.cmux_browser_surface)
+        messages = stop_env(ctx.project, ctx.worktree)
+        for msg in messages:
+            click.echo(msg)
+        click.echo(f"Environment stopped for {ctx.project}/{ctx.worktree}.")
+
+    regenerate_env_file(ctx.project_path, worktree_path, ctx.worktree)
+    click.echo(f"Regenerated .env for {ctx.project}/{ctx.worktree}.")
+
+    if was_running:
+        try:
+            state = start_env(
+                ctx.project,
+                ctx.worktree,
+                worktree_path,
+                skip_install=True,
+            )
+        except RuntimeError as e:
+            raise click.ClickException(str(e))
+
+        if is_cmux_mode():
+            app_info = get_app_url(ctx.project_path, ctx.worktree)
+            if app_info:
+                url, _is_running = app_info
+                surface_ref = open_browser_pane(url)
+                if surface_ref:
+                    state.cmux_browser_surface = surface_ref
+                    save_env_state(state)
+
+        _print_service_status(ctx.project, ctx.worktree, ctx.project_path)
 
 
 @env.command("list")

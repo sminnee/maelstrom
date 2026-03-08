@@ -845,20 +845,20 @@ def get_current_worktree_info(cwd: Path | None = None) -> tuple[Path, str]:
     return project_path, branch
 
 
-def _finalize_worktree(project_path: Path, worktree_path: Path, worktree_name: str) -> Path:
-    """Finalize worktree setup after git worktree add.
+def _build_env_file(
+    project_path: Path, worktree_path: Path, worktree_name: str,
+    *, reuse_ports: bool = False,
+) -> None:
+    """Build and write the .env file for a worktree.
 
-    Handles .env file creation and install command execution.
+    Shared logic for both initial worktree setup and env regeneration.
 
     Args:
         project_path: Path to the project root.
         worktree_path: Path to the worktree.
         worktree_name: NATO name of the worktree.
-
-    Returns:
-        Path to the worktree.
+        reuse_ports: If True, reuse existing port allocation before allocating new.
     """
-    # Load config and handle .env file
     config = load_config_or_default(worktree_path)
 
     # Read .env from project root as raw text if present (e.g., /Projects/myapp/.env)
@@ -873,9 +873,13 @@ def _finalize_worktree(project_path: Path, worktree_path: Path, worktree_name: s
 
     # Add port variables if configured
     if config.port_names:
-        port_base = allocate_port_base(project_path, len(config.port_names))
+        port_base = None
+        if reuse_ports:
+            port_base = get_port_allocation(project_path, worktree_name)
+        if port_base is None:
+            port_base = allocate_port_base(project_path, len(config.port_names))
+            record_port_allocation(project_path, worktree_name, port_base)
         generated_vars.update(generate_port_env_vars(port_base, config.port_names))
-        record_port_allocation(project_path, worktree_name, port_base)
 
     # Add shared port variables if configured
     if config.shared_port_names:
@@ -890,7 +894,36 @@ def _finalize_worktree(project_path: Path, worktree_path: Path, worktree_name: s
     if template_text or generated_vars:
         write_env_file(worktree_path, generated_vars, template_text)
 
+
+def _finalize_worktree(project_path: Path, worktree_path: Path, worktree_name: str) -> Path:
+    """Finalize worktree setup after git worktree add.
+
+    Handles .env file creation and install command execution.
+
+    Args:
+        project_path: Path to the project root.
+        worktree_path: Path to the worktree.
+        worktree_name: NATO name of the worktree.
+
+    Returns:
+        Path to the worktree.
+    """
+    _build_env_file(project_path, worktree_path, worktree_name)
     return worktree_path
+
+
+def regenerate_env_file(project_path: Path, worktree_path: Path, worktree_name: str) -> None:
+    """Regenerate the .env file for a worktree, reusing the existing PORT_BASE.
+
+    Used when .maelstrom.yaml has been updated (e.g., new port names added)
+    and the .env file needs to reflect the current config.
+
+    Args:
+        project_path: Path to the project root.
+        worktree_path: Path to the worktree.
+        worktree_name: NATO name of the worktree.
+    """
+    _build_env_file(project_path, worktree_path, worktree_name, reuse_ports=True)
 
 
 def reclaim_or_allocate_ports(project_path: Path, worktree_path: Path, worktree_name: str) -> None:
