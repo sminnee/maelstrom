@@ -2,6 +2,7 @@
 
 import json
 import socket
+import time
 from pathlib import Path
 
 
@@ -19,6 +20,16 @@ def is_port_free(port: int) -> bool:
             return result != 0
     except OSError:
         return True  # Error connecting means port is likely free
+
+
+def wait_for_port(port: int, timeout: float = 5.0, interval: float = 0.2) -> bool:
+    """Wait up to timeout seconds for a port to start listening. Returns True if port is listening."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not is_port_free(port):
+            return True
+        time.sleep(interval)
+    return False
 
 
 def check_ports_free(port_base: int, num_ports: int = 10) -> bool:
