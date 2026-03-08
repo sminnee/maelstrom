@@ -194,6 +194,61 @@ def env_stop(target):
     click.echo(f"Environment stopped for {ctx.project}/{ctx.worktree}.")
 
 
+@env.command("restart")
+@click.argument("target", required=False, default=None)
+@click.option("--install", is_flag=True, help="Run the install step before starting")
+def env_restart(target, install):
+    """Restart services for a worktree environment."""
+    try:
+        ctx = resolve_context(
+            target,
+            require_project=True,
+            require_worktree=True,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    worktree_path = ctx.worktree_path
+    if not worktree_path or not worktree_path.exists():
+        raise click.ClickException(f"Worktree not found at {worktree_path}")
+
+    state = load_env_state(ctx.project, ctx.worktree)
+    if not state:
+        raise click.ClickException(
+            f"No running environment for {ctx.project}/{ctx.worktree}."
+        )
+
+    # Close cmux browser pane if one was opened
+    if is_cmux_mode() and state.cmux_browser_surface:
+        close_surface(state.cmux_browser_surface)
+
+    messages = stop_env(ctx.project, ctx.worktree)
+    for msg in messages:
+        click.echo(msg)
+    click.echo(f"Environment stopped for {ctx.project}/{ctx.worktree}.")
+
+    try:
+        state = start_env(
+            ctx.project,
+            ctx.worktree,
+            worktree_path,
+            skip_install=not install,
+        )
+    except RuntimeError as e:
+        raise click.ClickException(str(e))
+
+    if is_cmux_mode():
+        app_info = get_app_url(ctx.project_path, ctx.worktree)
+        if app_info:
+            url, _is_running = app_info
+            surface_ref = open_browser_pane(url)
+            if surface_ref:
+                state.cmux_browser_surface = surface_ref
+                save_env_state(state)
+
+    _print_service_status(ctx.project, ctx.worktree, ctx.project_path)
+
+
 @env.command("reset")
 @click.argument("target", required=False, default=None)
 def env_reset(target):
