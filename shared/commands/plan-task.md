@@ -68,7 +68,7 @@ Examples:
    - Research findings (relevant files, patterns, dependencies)
    - Step-by-step implementation approach with specific file changes
    - Testing strategy
-   - A final step: "Write plan to Linear"
+   - A first step: "Write plan to Linear"
      (`mael linear write-plan <issue-id> <plan-file>`)
 
 8. **Present Plan**: Call ExitPlanMode with allowedPrompts:
@@ -103,11 +103,14 @@ Brief description of the problem and why this change is needed.
 
 ## Implementation Steps
 
-### Step 1: <Description>
+### Step 1: Write plan to Linear
+- `mael linear write-plan <issue-id> <plan-file-path>`
+
+### Step 2: <Description>
 - Files to modify: ...
 - Changes: ...
 
-### Step 2: <Description>
+### Step 3: <Description>
 ...
 
 ### Final Step: Create PR and submit to Linear

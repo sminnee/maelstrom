@@ -34,6 +34,7 @@ Examples:
    ```bash
    mael linear start-task <issue-id>
    ```
+   **IMPORTANT**: This step is MANDATORY — do not skip or defer it.
 
 4. **Set status**:
    ```bash
