@@ -363,9 +363,9 @@ class TestCmuxWorkspace:
             if args[0] == "browser" and args[1] == "get-url":
                 surface = args[3]
                 if surface == "surface:183":
-                    return "OK http://localhost:3000/dashboard"
+                    return "http://localhost:3000/dashboard"
                 if surface == "surface:184":
-                    return "OK https://docs.example.com"
+                    return "https://docs.example.com"
             return None
 
         with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
@@ -381,7 +381,7 @@ class TestCmuxWorkspace:
             if args[0] == "list-panels":
                 return output
             if args[0] == "browser":
-                return "OK https://docs.example.com"
+                return "https://docs.example.com"
             return None
 
         with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
@@ -395,7 +395,7 @@ class TestCmuxWorkspace:
             if args[0] == "list-panels":
                 return output
             if args[0] == "browser":
-                return "OK http://localhost:3000"
+                return "http://localhost:3000"
             return None
 
         with (
@@ -431,7 +431,7 @@ class TestCmuxWorkspace:
             if args[0] == "list-panels":
                 return output
             if args[0] == "browser":
-                return "OK http://localhost:3000"
+                return "http://localhost:3000"
             if args[0] == "close-surface":
                 return "OK"
             return None

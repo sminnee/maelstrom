@@ -243,9 +243,7 @@ class CmuxWorkspace:
 
     def _get_browser_url(self, panel: CmuxPanel) -> str | None:
         """Get the current URL of a browser panel via `browser get-url`."""
-        result = cmux_cmd("browser", "get-url", "--surface", panel.ref)
-        ref = is_ok(result)
-        return ref if ref else None
+        return cmux_cmd("browser", "get-url", "--surface", panel.ref)
 
     def find_browser_by_url(self, url_prefix: str) -> CmuxPanel | None:
         """Return the first browser panel whose URL starts with url_prefix, or None.
