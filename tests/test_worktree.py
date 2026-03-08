@@ -1281,3 +1281,59 @@ class TestPortAllocationLifecycle:
         # Cleanup
         remove_worktree(git_repo_with_remote, "feature/two")
         remove_worktree(git_repo_with_remote, "feature/one")
+
+
+class TestRegenerateEnvFile:
+    """Tests for regenerate_env_file function."""
+
+    @patch("maelstrom.worktree.write_env_file")
+    @patch("maelstrom.worktree.generate_port_env_vars", return_value={"PORT_BASE": "300", "APP_PORT": "3000"})
+    @patch("maelstrom.worktree.allocate_port_base")
+    @patch("maelstrom.worktree.get_port_allocation", return_value=300)
+    @patch("maelstrom.worktree.load_config_or_default")
+    def test_reuses_existing_port_base(
+        self, mock_config, mock_get_alloc, mock_alloc, mock_gen, mock_write, tmp_path,
+    ):
+        """Uses get_port_allocation and does NOT call allocate_port_base."""
+        from maelstrom.config import MaelstromConfig
+        mock_config.return_value = MaelstromConfig(port_names=["APP"])
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        worktree_path = tmp_path / "bravo"
+        worktree_path.mkdir()
+
+        from maelstrom.worktree import regenerate_env_file
+        regenerate_env_file(project_path, worktree_path, "bravo")
+
+        mock_get_alloc.assert_called_once_with(project_path, "bravo")
+        mock_alloc.assert_not_called()
+        mock_gen.assert_called_once_with(300, ["APP"])
+        mock_write.assert_called_once()
+
+    @patch("maelstrom.worktree.write_env_file")
+    @patch("maelstrom.worktree.record_port_allocation")
+    @patch("maelstrom.worktree.generate_port_env_vars", return_value={"PORT_BASE": "300", "APP_PORT": "3000"})
+    @patch("maelstrom.worktree.allocate_port_base", return_value=300)
+    @patch("maelstrom.worktree.get_port_allocation", return_value=None)
+    @patch("maelstrom.worktree.load_config_or_default")
+    def test_allocates_if_no_existing_ports(
+        self, mock_config, mock_get_alloc, mock_alloc, mock_gen,
+        mock_record, mock_write, tmp_path,
+    ):
+        """Falls back to allocate_port_base when no existing allocation."""
+        from maelstrom.config import MaelstromConfig
+        mock_config.return_value = MaelstromConfig(port_names=["APP"])
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        worktree_path = tmp_path / "bravo"
+        worktree_path.mkdir()
+
+        from maelstrom.worktree import regenerate_env_file
+        regenerate_env_file(project_path, worktree_path, "bravo")
+
+        mock_get_alloc.assert_called_once_with(project_path, "bravo")
+        mock_alloc.assert_called_once_with(project_path, 1)
+        mock_record.assert_called_once_with(project_path, "bravo", 300)
+        mock_write.assert_called_once()
