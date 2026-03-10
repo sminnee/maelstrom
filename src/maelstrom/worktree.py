@@ -610,6 +610,8 @@ def recycle_worktree(worktree_path: Path, branch: str) -> Path:
     # Update CLAUDE.md if needed
     update_claude_md(worktree_path)
 
+    _setup_claude_settings_symlink(worktree_path)
+
     return worktree_path
 
 
@@ -895,6 +897,37 @@ def _build_env_file(
         write_env_file(worktree_path, generated_vars, template_text)
 
 
+def _setup_claude_settings_symlink(worktree_path: Path) -> None:
+    """Create a symlink from .claude/settings.local.json to settings.json.
+
+    This ensures tool-use approvals saved to settings.local.json land in the
+    tracked settings.json, making them available across worktrees.
+
+    Args:
+        worktree_path: Path to the worktree.
+    """
+    claude_dir = worktree_path / ".claude"
+    settings_json = claude_dir / "settings.json"
+    settings_local = claude_dir / "settings.local.json"
+
+    # If .claude/settings.json doesn't exist, nothing to do
+    if not settings_json.exists():
+        return
+
+    # If settings.local.json exists and is not a symlink, skip
+    if settings_local.exists() and not settings_local.is_symlink():
+        print(
+            "Warning: .claude/settings.local.json already exists and is not a symlink, skipping"
+        )
+        return
+
+    # Remove existing symlink (idempotent) and create new one
+    if settings_local.is_symlink():
+        settings_local.unlink()
+
+    settings_local.symlink_to("settings.json")
+
+
 def _finalize_worktree(project_path: Path, worktree_path: Path, worktree_name: str) -> Path:
     """Finalize worktree setup after git worktree add.
 
@@ -909,6 +942,7 @@ def _finalize_worktree(project_path: Path, worktree_path: Path, worktree_name: s
         Path to the worktree.
     """
     _build_env_file(project_path, worktree_path, worktree_name)
+    _setup_claude_settings_symlink(worktree_path)
     return worktree_path
 
 
