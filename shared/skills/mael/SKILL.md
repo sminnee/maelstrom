@@ -18,6 +18,12 @@ For tasks that need planning first:
 1. `/plan-task PROJ-XXX` - Research and create implementation plan (plan mode required)
 2. `/continue-task PROJ-XXX` - Read plan from Linear and implement
 
+For large tasks that need multiple sessions:
+
+1. `/plan-task PROJ-XXX` - Creates a multi-session plan with overall goal and first iteration
+2. `/continue-task PROJ-XXX` - Executes one iteration, writes progress report, creates/updates PR
+3. `/continue-task PROJ-XXX` - Reads progress, plans next iteration (repeat until complete)
+
 For large tasks that need subtask breakdown:
 
 1. `/create-subtasks PROJ-XXX` - Research and break down into subtasks (plan mode required)
@@ -78,6 +84,7 @@ For quick changes without task tracking:
 | List all environments | `mael env list-all` |
 | Start working on task | `mael linear start-task PROJ-XXX` |
 | Mark task complete | `mael linear complete-task PROJ-XXX` |
+| Add comment to task | `mael linear add-comment PROJ-XXX file.md` |
 | Release all unreleased tasks | `mael linear release` |
 | Set workspace status | `mael status set "TEXT"` |
 | Clear workspace status | `mael status clear` |
@@ -234,6 +241,23 @@ mael linear read-plan <issue-id>
 - Extracts plan content from between markers in the issue description
 - Outputs the plan markdown to stdout
 - Fails with helpful error if no plan is found
+
+### mael linear add-comment
+
+Add a comment to a Linear issue from a markdown file.
+
+```bash
+mael linear add-comment <issue-id> <comment-file>
+```
+
+**Arguments:**
+- `issue-id`: Linear issue identifier (e.g., PROJ-123)
+- `comment-file`: Path to a markdown file containing the comment body
+
+**Behavior:**
+- Reads markdown content from the file
+- Creates a comment on the specified issue
+- Resolves issue identifier to internal ID first
 
 ### mael linear release
 
@@ -650,6 +674,21 @@ Git commands run directly in the worktree directory (no `-C` flag needed).
 
 ### Commit Message Format
 
+Use conventional commits with these prefixes:
+
+- `feat:` — new behaviour visible to the end user
+- `fix:` — bug fix visible to the end user
+- `refactor:` — code structure change with no behaviour change
+- `chore:` — everything else: docs, config, tooling, tests, CI, etc.
+
+When working on a Linear task, append the issue ID in square brackets:
+
+```
+feat: add multi-session plan support [ME-32]
+fix: prevent duplicate browser panes on env start [ME-45]
+refactor: extract port allocation into helper [ME-32]
+```
+
 **Do not use heredocs** (`<<EOF` or `<<'EOF'`) for git commit messages — they fail in
 sandboxed environments because heredocs create temp files in `/tmp` which is not writable.
 
@@ -657,7 +696,7 @@ Use `printf` piped to `git commit -F -` instead:
 
 ```bash
 git add file1.py file2.py
-printf 'feat: add new feature\n\nDetailed description of the change.\n' | git commit -F -
+printf 'feat: add new feature [ME-32]\n\nDetailed description of the change.\n' | git commit -F -
 ```
 
 ### Commit Flow

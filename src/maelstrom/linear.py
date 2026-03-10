@@ -425,6 +425,40 @@ def create_attachment(
     return result["attachmentCreate"]["attachment"]
 
 
+def create_comment(issue_id: str, body: str) -> dict:
+    """Create a comment on an issue.
+
+    Args:
+        issue_id: The issue's internal ID.
+        body: Markdown body of the comment.
+
+    Returns:
+        Created comment data with id.
+
+    Raises:
+        click.ClickException: If creation fails.
+    """
+    mutation = """
+    mutation CreateComment($input: CommentCreateInput!) {
+        commentCreate(input: $input) {
+            success
+            comment {
+                id
+            }
+        }
+    }
+    """
+    input_data = {
+        "issueId": issue_id,
+        "body": body,
+    }
+
+    result = graphql_request(mutation, {"input": input_data})
+    if not result["commentCreate"]["success"]:
+        raise click.ClickException("Failed to create comment")
+    return result["commentCreate"]["comment"]
+
+
 def detect_workspace_label() -> str | None:
     """Detect workspace label from current worktree name.
 
@@ -1011,6 +1045,24 @@ def cmd_read_plan(issue_id):
         plan_content = description[content_start:].strip()
 
     click.echo(plan_content)
+
+
+@linear.command("add-comment")
+@click.argument("issue_id")
+@click.argument("comment_file", type=click.Path(exists=True))
+def cmd_add_comment(issue_id, comment_file):
+    """Add a comment to a Linear issue from a markdown file.
+
+    Reads markdown content from the file and creates a comment on the issue.
+    """
+    comment_path = Path(comment_file)
+    body = comment_path.read_text().strip()
+    if not body:
+        raise click.ClickException("Comment file is empty")
+
+    issue = get_issue(issue_id)
+    create_comment(issue["id"], body)
+    click.echo(f"Added comment to {issue['identifier']}: {issue['title']}")
 
 
 @linear.command("release")

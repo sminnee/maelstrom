@@ -57,24 +57,33 @@ Examples:
    - Identify dependencies and integration points
    - Understand current implementation state
 
-6. **Interactive Planning**: Use AskUserQuestion tool to discuss the plan with the user:
+6. **Classify Session Type**: Determine whether this task is single-session or multi-session:
+   - **Single-session**: Less than ~500 lines of new code, can be completed in one session
+   - **Multi-session**: Larger scope, or mechanical transformation where only the mechanical piece
+     should be done first
+   - Use AskUserQuestion to discuss the classification with the user
+
+7. **Interactive Planning**: Use AskUserQuestion tool to discuss the plan with the user:
    - Present your understanding of the task based on research
    - Discuss approach and any trade-offs
    - Iterate on the plan until the user is satisfied
 
-7. **Write Plan to File**: Write the detailed implementation plan to the plan file (path provided
+8. **Write Plan to File**: Write the detailed implementation plan to the plan file (path provided
    in system context). The plan should include:
+   - `**Session type: single**` or `**Session type: multi**` marker line after `# Implementation Plan`
    - Context section: why this change is being made
    - Research findings (relevant files, patterns, dependencies)
-   - Step-by-step implementation approach with specific file changes
+   - For **single-session**: step-by-step implementation approach with specific file changes
+   - For **multi-session**: overall goal, detailed first iteration, and brief notes on remaining
+     iterations (see template below)
    - Testing strategy
    - A first step: "Write plan to Linear"
      (`mael linear write-plan <issue-id> <plan-file>`)
 
-8. **Present Plan**: Call ExitPlanMode with allowedPrompts:
+9. **Present Plan**: Call ExitPlanMode with allowedPrompts:
    - `{"tool": "Bash", "prompt": "write plan to Linear"}`
 
-9. **After Plan Approval - Write to Linear and STOP**: Execute:
+10. **After Plan Approval - Write to Linear and STOP**: Execute:
    ```bash
    mael linear write-plan <issue-id> <plan-file-path>
    ```
@@ -93,10 +102,14 @@ Examples:
 
 ## Plan Structure
 
-The implementation plan should follow this structure:
+### Single-Session Plan
+
+For tasks that can be completed in one session (~500 lines or less):
 
 ```markdown
 # <ISSUE-ID>: <Title>
+
+**Session type: single**
 
 ## Context
 Brief description of the problem and why this change is needed.
@@ -125,6 +138,44 @@ Brief description of the problem and why this change is needed.
 - How to test the changes
 - Expected outcomes
 ```
+
+### Multi-Session Plan
+
+For larger tasks that require multiple sessions. Describes overall goal but only details the
+first iteration:
+
+```markdown
+# <ISSUE-ID>: <Title>
+
+**Session type: multi**
+
+## Context
+Why this change is needed.
+
+## Overall Goal
+The full end state we're working toward.
+
+## First Iteration
+Concrete, actionable work for the first continue-task session.
+
+### Files to Modify
+| File | Change |
+|------|--------|
+
+### Verification
+How to test the first iteration.
+
+## Remaining Iterations
+Brief notes on what subsequent iterations will likely tackle. NOT a detailed plan.
+```
+
+Each iteration of a multi-session plan should:
+- Be independently testable and pass CI when merged
+- Not break existing functionality
+- Not necessarily deliver end-user functionality -- e.g., a back-end API before the front-end,
+  or a refactoring that makes it easy to implement the feature, are valid iterations
+- For mechanical transformations: describe the mechanism clearly and note that confidence in
+  test/type coverage is needed
 
 ## Implementation Notes
 
