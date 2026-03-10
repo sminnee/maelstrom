@@ -349,6 +349,10 @@ class TestGetAppUrl:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         project_path = tmp_path / "Projects" / "myproject"
         project_path.mkdir(parents=True)
+        # Create worktree dir with config containing a web port name
+        worktree_path = project_path / "alpha"
+        worktree_path.mkdir()
+        (worktree_path / ".maelstrom.yaml").write_text("port_names: [APP, SERVER]")
 
         record_port_allocation(project_path, "alpha", 300)
 
@@ -365,6 +369,10 @@ class TestGetAppUrl:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         project_path = tmp_path / "Projects" / "myproject"
         project_path.mkdir(parents=True)
+        # Create worktree dir with config containing a web port name
+        worktree_path = project_path / "bravo"
+        worktree_path.mkdir()
+        (worktree_path / ".maelstrom.yaml").write_text("port_names: [APP, DB]")
 
         record_port_allocation(project_path, "bravo", 599)
 
@@ -375,3 +383,35 @@ class TestGetAppUrl:
         url, is_running = result
         assert url == "http://localhost:5990"
         assert is_running is True
+
+    def test_no_web_port_name(self, tmp_path, monkeypatch):
+        """Test None returned when config has no web-facing port name."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+        worktree_path = project_path / "alpha"
+        worktree_path.mkdir()
+        (worktree_path / ".maelstrom.yaml").write_text("port_names: [SERVER, DB]")
+
+        record_port_allocation(project_path, "alpha", 300)
+        assert get_app_url(project_path, "alpha") is None
+
+    def test_frontend_port_name(self, tmp_path, monkeypatch):
+        """Test URL returned when FRONTEND port name is used."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+        worktree_path = project_path / "alpha"
+        worktree_path.mkdir()
+        (worktree_path / ".maelstrom.yaml").write_text("port_names: [SERVER, FRONTEND]")
+
+        record_port_allocation(project_path, "alpha", 300)
+
+        with patch("maelstrom.ports.is_port_free", return_value=True):
+            result = get_app_url(project_path, "alpha")
+
+        assert result is not None
+        url, is_running = result
+        # FRONTEND is at index 1, so port = 300 * 10 + 1 = 3001
+        assert url == "http://localhost:3001"
+        assert is_running is False

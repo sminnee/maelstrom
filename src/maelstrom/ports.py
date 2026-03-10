@@ -146,8 +146,15 @@ def allocate_port_base(project_path: Path, num_ports: int = 10) -> int:
     raise RuntimeError("No available port ranges found (checked PORT_BASE 300-999)")
 
 
+WEB_PORT_NAMES = {"APP", "FRONTEND"}
+
+
 def get_app_url(project_path: Path, worktree_name: str) -> tuple[str, bool] | None:
     """Get the app URL and running status for a worktree.
+
+    Only returns a URL if the project config has a port name matching a web
+    convention (APP or FRONTEND). Returns None if the project has no web-facing
+    port or no port allocation exists.
 
     Args:
         project_path: Path to the project.
@@ -155,12 +162,28 @@ def get_app_url(project_path: Path, worktree_name: str) -> tuple[str, bool] | No
 
     Returns:
         Tuple of (url, is_running) e.g. ("http://localhost:3010", True),
-        or None if no port allocation exists.
+        or None if no port allocation or no web port name exists.
     """
+    from .config import load_config_or_default
+
     port_base = get_port_allocation(project_path, worktree_name)
     if port_base is None:
         return None
-    port = port_base * 10
+
+    worktree_path = project_path / worktree_name
+    config = load_config_or_default(worktree_path)
+
+    # Find the first web-facing port name
+    web_index = None
+    for idx, name in enumerate(config.port_names):
+        if name in WEB_PORT_NAMES:
+            web_index = idx
+            break
+
+    if web_index is None:
+        return None
+
+    port = port_base * 10 + web_index
     url = f"http://localhost:{port}"
     is_running = not is_port_free(port)
     return (url, is_running)
