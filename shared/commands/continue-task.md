@@ -49,15 +49,108 @@ Examples:
    - If no plan is found on either, fall back to researching the codebase using Task tool with
      Explore subagent(s) and planning inline (for tasks that were not planned via `/plan-task`)
 
-6. **Execute the Plan**: Implement the changes described in the plan:
-   - Use TodoWrite to track progress through the plan steps
-   - Follow the implementation steps in order
-   - Run tests as appropriate
+6. **Determine Session Flow**: Check the plan for session type and existing progress:
 
-7. **Final Steps**: Create PR and submit to Linear:
+   **If single-session plan (or no session type marker) AND no progress report comments**: execute
+   as current behavior (step 7a).
+
+   **If multi-session plan OR progress report comments exist**: follow the multi-session flow
+   (step 7b).
+
+### 7a. Single-Session Flow
+
+Execute the plan directly:
+- Use TodoWrite to track progress through the plan steps
+- Follow the implementation steps in order
+- Run tests as appropriate
+- **Commit changes** with the issue ID in the message (see "Commit Messages" below):
+  ```bash
+  git add <files>
+  printf 'feat: <description> [<issue-id>]\n' | git commit -F -
+  ```
+- **Create PR** and submit to Linear:
+  ```bash
+  mael gh create-pr <issue-id>
+  ```
+
+### 7b. Multi-Session Flow
+
+a. **Read progress**: Review any progress report comments (from `read-task` output) chronologically
+   to understand what has been done in previous sessions.
+
+b. **Enter plan mode**: Call **EnterPlanMode** to switch into plan mode for session planning.
+
+c. **Research current state**: Examine the codebase to understand what's changed:
+   - `git log --all --grep='<issue-id>' --oneline` to find previous commits for this ticket
+   - `git diff origin/main` to see changes already made
+   - Inspect relevant files to understand current implementation state
+
+d. **Decide strategy**: Choose between a **progress step** or **finishing step**:
+   - **Finishing step** if remaining work can fit in this session (~500 lines or less)
+   - **Progress step** otherwise
+   - **Strong bias toward finishing**: if it's close, attempt to finish rather than creating
+     another increment. Each progress step must leave less work than it found.
+
+e. **Write session plan** to the plan file:
+   - For **progress step**: plan substantial, testable, mergeable progress toward overall goal.
+     Must pass CI and not break anything. Doesn't have to deliver end-user functionality --
+     e.g., back-end API before front-end, or refactoring to enable the feature.
+   - For **finishing step**: plan to complete ALL remaining work.
+
+f. **Exit plan mode**: Call **ExitPlanMode** with allowed prompts for implementation.
+
+g. **Implement**: After approval, execute the session plan.
+
+h. **Commit changes** with the issue ID in the message (see "Commit Messages" below):
+   ```bash
+   git add <files>
+   printf 'feat: <description> [<issue-id>]\n' | git commit -F -
+   ```
+
+i. **Create/update PR**: Always create or update the PR:
    ```bash
    mael gh create-pr <issue-id>
    ```
+   Each increment should be mergeable and pass CI, even if it doesn't deliver the whole feature.
+
+j. **Write progress report** (progress step only, NOT for finishing step):
+   Write a progress report to a temporary file, then add it as a comment on the Linear issue:
+   ```bash
+   mael linear add-comment <issue-id> <progress-report-file>
+   ```
+
+   **Progress report format**:
+   ```markdown
+   ## Progress Report
+
+   **Session**: [n] ([date])
+   **Strategy**: [Making progress / Finishing]
+
+   ### Completed This Session
+   - [bullets]
+
+   ### Current State
+   - [where things stand, decisions made]
+
+   ### Remaining Work
+   - [high-level bullets]
+   ```
+
+## Commit Messages
+
+All commits made by continue-task **must include the issue ID** in square brackets at the end, using
+conventional commit prefixes. This enables searching git history by ticket number to review progress
+across sessions.
+
+**Format**: `<prefix>: <description> [<issue-id>]`
+
+**Examples**:
+- `feat: add comment creation API and CLI command [ME-32]`
+- `chore: update plan-task to support multi-session classification [ME-32]`
+- `fix: prevent duplicate browser panes on env start [ME-45]`
+
+For multi-session tasks, each session's commit message should describe what that session accomplished.
+Multiple commits per session are fine — each should have the issue ID suffix.
 
 ## Examples
 
@@ -99,15 +192,20 @@ When PR is merged (manual or via `complete-task`):
 
 ## Implementation Notes
 
-- **No plan mode required**: This command reads the plan from Linear and immediately begins
-  implementation. Planning has already been completed via `/plan-task`.
+- **No plan mode required for single-session**: Single-session plans are read from Linear and
+  immediately implemented. Planning has already been completed via `/plan-task`.
+- **Plan mode used for multi-session**: Multi-session tasks enter plan mode to create a session
+  plan before implementation. This allows the user to review and approve the session scope.
 - **Fallback for unplanned tasks**: If no plan is found on the task or its parent, the command
   falls back to researching the codebase and implementing based on the task description alone.
 - **Split operations**:
   - Start task in Linear (status + label updates)
   - Read plan from Linear
+  - Determine session flow (single vs multi)
+  - For multi-session: enter plan mode, plan session, exit plan mode
   - Implement changes
-  - Create PR with issue ID (final step — handles both GitHub PR and Linear status update)
+  - Create PR with issue ID (handles both GitHub PR and Linear status update)
+  - For multi-session progress steps: write progress report comment
 - **CLI tool handles**: Team ID, workspace labels, parent task updates, PR detection, and all Linear
   API usage
 - **Progress tracking**: Use TodoWrite to track implementation progress
@@ -119,3 +217,4 @@ When PR is merged (manual or via `complete-task`):
 - Automatically picks up next phase from Linear task breakdown
 - Workspace labels enable filtering by codebase in Linear
 - Status tracking happens in Linear, visible to entire team
+- Multi-session plans track progress via Linear comments, enabling incremental delivery
