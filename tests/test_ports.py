@@ -350,7 +350,7 @@ class TestGetAppUrl:
         project_path = tmp_path / "Projects" / "myproject"
         project_path.mkdir(parents=True)
         # Create worktree dir with config containing a web port name
-        worktree_path = project_path / "alpha"
+        worktree_path = project_path / "myproject-alpha"
         worktree_path.mkdir()
         (worktree_path / ".maelstrom.yaml").write_text("port_names: [APP, SERVER]")
 
@@ -370,7 +370,7 @@ class TestGetAppUrl:
         project_path = tmp_path / "Projects" / "myproject"
         project_path.mkdir(parents=True)
         # Create worktree dir with config containing a web port name
-        worktree_path = project_path / "bravo"
+        worktree_path = project_path / "myproject-bravo"
         worktree_path.mkdir()
         (worktree_path / ".maelstrom.yaml").write_text("port_names: [APP, DB]")
 
@@ -389,7 +389,7 @@ class TestGetAppUrl:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         project_path = tmp_path / "Projects" / "myproject"
         project_path.mkdir(parents=True)
-        worktree_path = project_path / "alpha"
+        worktree_path = project_path / "myproject-alpha"
         worktree_path.mkdir()
         (worktree_path / ".maelstrom.yaml").write_text("port_names: [SERVER, DB]")
 
@@ -401,7 +401,7 @@ class TestGetAppUrl:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         project_path = tmp_path / "Projects" / "myproject"
         project_path.mkdir(parents=True)
-        worktree_path = project_path / "alpha"
+        worktree_path = project_path / "myproject-alpha"
         worktree_path.mkdir()
         (worktree_path / ".maelstrom.yaml").write_text("port_names: [SERVER, FRONTEND]")
 

@@ -165,12 +165,14 @@ def get_app_url(project_path: Path, worktree_name: str) -> tuple[str, bool] | No
         or None if no port allocation or no web port name exists.
     """
     from .config import load_config_or_default
+    from .worktree import get_worktree_folder_name
 
     port_base = get_port_allocation(project_path, worktree_name)
     if port_base is None:
         return None
 
-    worktree_path = project_path / worktree_name
+    folder_name = get_worktree_folder_name(project_path.name, worktree_name)
+    worktree_path = project_path / folder_name
     config = load_config_or_default(worktree_path)
 
     # Find the first web-facing port name
