@@ -68,6 +68,7 @@ For quick changes without task tracking:
 
 | Task | Command |
 |------|---------|
+| Quick git status summary | `mael git status` |
 | Sync branch with main | `mael sync` |
 | View uncommitted changes | `mael gh show-code --uncommitted` |
 | View all branch changes | `mael gh show-code --committed` |
@@ -284,6 +285,24 @@ To automatically release tasks when deploying to production, add a workflow step
 ```
 
 ## Git & GitHub Commands
+
+### mael git status
+
+Show a compact git status summary optimized for AI consumption. Includes branch info, file status categories, diff stats, and recent commits.
+
+```bash
+mael git status [target]
+```
+
+**Arguments:**
+- `target` (optional): Project/worktree identifier (uses current directory if omitted)
+
+**Output sections** (separated by `---`):
+- **Branch**: branch name, commits ahead of main, unpushed commits
+- **Working Tree**: staged, modified, and untracked files with diff stat summary
+- **Commits**: recent commit log (short hash + message)
+
+Supports `--json` flag via `mael --json git status`.
 
 ### mael sync
 
@@ -654,17 +673,22 @@ mael review status
 
 Use these commands to inspect changes in your worktree:
 
-1. **Review all changes** (committed + uncommitted):
+1. **Quick status overview** (branch, files, diff stats, recent commits):
+   ```bash
+   mael git status
+   ```
+
+2. **Review all changes** (committed + uncommitted):
    ```bash
    mael gh show-code
    ```
 
-2. **Review only committed changes** (since branching from main):
+3. **Review only committed changes** (since branching from main):
    ```bash
    mael gh show-code --committed
    ```
 
-3. **Review only uncommitted changes** (working directory):
+4. **Review only uncommitted changes** (working directory):
    ```bash
    mael gh show-code --uncommitted
    ```
