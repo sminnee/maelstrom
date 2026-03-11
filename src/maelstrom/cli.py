@@ -1018,12 +1018,16 @@ def gh():
 @gh.command("create-pr")
 @click.argument("issue_id", required=False, default=None)
 @click.option("--draft", is_flag=True, help="Create as draft PR")
+@click.option("--progress", is_flag=True, help="Mark as progress (not final). Uses 'Progresses' instead of 'Fixes' and skips setting status to 'In Review'")
 @click.option("--target", default=None, help="Project/worktree target for directory resolution")
-def gh_create_pr(issue_id, draft, target):
+def gh_create_pr(issue_id, draft, progress, target):
     """Create a PR for the current worktree (or push if PR exists).
 
     If ISSUE_ID is provided (e.g., ME-41), appends (Fixes ISSUE_ID) to the PR title
     for Linear auto-linking, and the task status is set to "In Review".
+
+    With --progress, uses (Progresses ISSUE_ID) instead and does not change the task
+    status to "In Review" (for multi-session tasks with remaining work).
     """
     try:
         ctx = resolve_context(target, require_project=False, require_worktree=False)
@@ -1037,7 +1041,7 @@ def gh_create_pr(issue_id, draft, target):
         cwd = Path.cwd()
 
     try:
-        url, created = create_pr(cwd=cwd, draft=draft, issue_id=issue_id)
+        url, created = create_pr(cwd=cwd, draft=draft, issue_id=issue_id, progress=progress)
         if created:
             click.echo(f"PR created: {url}")
         else:
@@ -1062,27 +1066,29 @@ def gh_create_pr(issue_id, draft, target):
             issue = get_issue(issue_id)
             states = get_workflow_states()
 
-            if "In Review" not in states:
-                click.echo("Warning: 'In Review' state not found in workflow", err=True)
-            else:
-                # Build label list with product label
-                labels_map = get_labels()
-                current_labels = [
-                    label["name"] for label in issue.get("labels", {}).get("nodes", [])
-                ]
-                product_label = get_product_label()
-                new_labels = list(current_labels)
-                if product_label and product_label not in new_labels and product_label in labels_map:
-                    new_labels.append(product_label)
+            if not progress:
+                # Final PR: set status to "In Review"
+                if "In Review" not in states:
+                    click.echo("Warning: 'In Review' state not found in workflow", err=True)
+                else:
+                    # Build label list with product label
+                    labels_map = get_labels()
+                    current_labels = [
+                        label["name"] for label in issue.get("labels", {}).get("nodes", [])
+                    ]
+                    product_label = get_product_label()
+                    new_labels = list(current_labels)
+                    if product_label and product_label not in new_labels and product_label in labels_map:
+                        new_labels.append(product_label)
 
-                label_ids = [labels_map[name] for name in new_labels if name in labels_map]
+                    label_ids = [labels_map[name] for name in new_labels if name in labels_map]
 
-                update_issue(
-                    issue["id"],
-                    stateId=states["In Review"],
-                    labelIds=label_ids,
-                )
-                click.echo(f"Updated {issue['identifier']} status to: In Review")
+                    update_issue(
+                        issue["id"],
+                        stateId=states["In Review"],
+                        labelIds=label_ids,
+                    )
+                    click.echo(f"Updated {issue['identifier']} status to: In Review")
 
             # Promote parent from early states to In Progress
             if issue.get("parent"):
