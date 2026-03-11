@@ -74,8 +74,8 @@ Examples:
    - Context section: why this change is being made
    - Research findings (relevant files, patterns, dependencies)
    - For **single-session**: step-by-step implementation approach with specific file changes
-   - For **multi-session**: overall goal, detailed first iteration, and brief notes on remaining
-     iterations (see template below)
+   - For **multi-session**: overall goal, detailed architecture & design for the whole task,
+     bullet-point first iteration scope, and remaining work notes (see template below)
    - Testing strategy
    - A first step: "Write plan to Linear"
      (`mael linear write-plan <issue-id> <plan-file>`)
@@ -141,13 +141,18 @@ Brief description of the problem and why this change is needed.
 
 ### Multi-Session Plan
 
-For larger tasks that require multiple sessions. Describes overall goal but only details the
-first iteration:
+For larger tasks that require multiple sessions. Provides detailed architectural design
+for the whole task, with the first iteration as a bullet-point scope (continue-task will
+elaborate it further in its own planning step):
 
 ```markdown
 # <ISSUE-ID>: <Title>
 
 **Session type: multi**
+
+## Step 1: Write plan to Linear
+- `mael linear write-plan <issue-id> <plan-file-path>`
+- Then STOP. Use `/continue-task` to begin implementation.
 
 ## Context
 Why this change is needed.
@@ -155,18 +160,28 @@ Why this change is needed.
 ## Overall Goal
 The full end state we're working toward.
 
-## First Iteration
-Concrete, actionable work for the first continue-task session.
+## Architecture & Design
+Detailed architectural changes needed across the whole task:
+- Key design decisions and trade-offs
+- New components/modules and their responsibilities
+- Changes to existing interfaces or data flow
+- Integration points and dependencies
 
-### Files to Modify
+## Files to Modify
 | File | Change |
 |------|--------|
 
-### Verification
-How to test the first iteration.
+## First Iteration
+Bullet-point list of what the first session will tackle. This will be further
+elaborated by continue-task's own planning step.
+- ...
 
-## Remaining Iterations
-Brief notes on what subsequent iterations will likely tackle. NOT a detailed plan.
+## Remaining Work
+Brief notes on what subsequent iterations will tackle.
+- ...
+
+## Verification
+How to test the overall feature end-to-end.
 ```
 
 Each iteration of a multi-session plan should:
@@ -174,6 +189,7 @@ Each iteration of a multi-session plan should:
 - Not break existing functionality
 - Not necessarily deliver end-user functionality -- e.g., a back-end API before the front-end,
   or a refactoring that makes it easy to implement the feature, are valid iterations
+- Be described as a bullet-point scope — continue-task handles detailed planning for each iteration
 - For mechanical transformations: describe the mechanism clearly and note that confidence in
   test/type coverage is needed
 
