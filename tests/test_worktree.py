@@ -22,7 +22,9 @@ from maelstrom.worktree import (
     extract_project_name,
     extract_worktree_name_from_folder,
     find_closed_worktree,
+    get_commits_ahead,
     get_next_worktree_name,
+    get_worktree_dirty_files,
     get_worktree_folder_name,
     has_root_worktree,
     is_worktree_closed,
@@ -1337,3 +1339,48 @@ class TestRegenerateEnvFile:
         mock_alloc.assert_called_once_with(project_path, 1)
         mock_record.assert_called_once_with(project_path, "bravo", 300)
         mock_write.assert_called_once()
+
+
+class TestStaleWorktreeHandling:
+    """Tests for handling worktrees whose directories no longer exist."""
+
+    def test_get_worktree_dirty_files_nonexistent_path(self):
+        """get_worktree_dirty_files returns [] for a non-existent path."""
+        result = get_worktree_dirty_files(Path("/nonexistent/worktree/path"))
+        assert result == []
+
+    def test_get_commits_ahead_nonexistent_path(self):
+        """get_commits_ahead returns 0 for a non-existent path."""
+        result = get_commits_ahead(Path("/nonexistent/worktree/path"))
+        assert result == 0
+
+    def test_list_worktrees_filters_stale_entries(self, tmp_path, capsys):
+        """list_worktrees filters out worktrees whose directories are missing."""
+        existing_dir = tmp_path / "myproject-alpha"
+        existing_dir.mkdir()
+        missing_dir = tmp_path / "myproject-bravo"  # deliberately not created
+
+        porcelain_output = (
+            f"worktree {existing_dir}\n"
+            f"HEAD abc123\n"
+            f"branch refs/heads/main\n"
+            f"\n"
+            f"worktree {missing_dir}\n"
+            f"HEAD def456\n"
+            f"branch refs/heads/feature\n"
+            f"\n"
+        )
+
+        with patch("maelstrom.worktree.run_git") as mock_run_git:
+            mock_run_git.return_value = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout=porcelain_output, stderr=""
+            )
+            result = list_worktrees(tmp_path)
+
+        assert len(result) == 1
+        assert result[0].path == existing_dir
+        assert result[0].branch == "main"
+
+        captured = capsys.readouterr()
+        assert "directory is missing" in captured.err
+        assert "git worktree prune" in captured.err
