@@ -108,9 +108,9 @@ h. **Commit changes** with the issue ID in the message (see "Commit Messages" be
    ```
 
 i. **Create/update PR**: Always create or update the PR:
-   ```bash
-   mael gh create-pr <issue-id>
-   ```
+   - For **progress step**: `mael gh create-pr --progress <issue-id>` (uses "Progresses" in title, keeps status as "In Progress")
+   - For **finishing step**: `mael gh create-pr <issue-id>` (uses "Fixes" in title, sets status to "In Review")
+
    Each increment should be mergeable and pass CI, even if it doesn't deliver the whole feature.
 
 j. **Write progress report** (progress step only, NOT for finishing step):
@@ -181,8 +181,8 @@ When starting a task (`start-task`):
 
 When PR is created (`create-pr <issue-id>`) - happens as final step:
 
-- PR title has `(Fixes ISSUE-ID)` appended for Linear auto-linking
-- Sets status to "In Review"
+- **Without `--progress`**: PR title has `(Fixes ISSUE-ID)`, sets status to "In Review"
+- **With `--progress`**: PR title has `(Progresses ISSUE-ID)`, keeps status as "In Progress"
 - Promotes parent from early states (Todo/Planned/Backlog) to "In Progress"
 
 When PR is merged (manual or via `complete-task`):

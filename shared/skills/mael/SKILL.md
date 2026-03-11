@@ -306,7 +306,7 @@ mael sync [target]
 Create a new pull request or push updates to an existing one. Optionally links to a Linear task.
 
 ```bash
-mael gh create-pr [ISSUE_ID] [--draft] [--target TARGET]
+mael gh create-pr [ISSUE_ID] [--draft] [--progress] [--target TARGET]
 ```
 
 **Arguments:**
@@ -314,6 +314,7 @@ mael gh create-pr [ISSUE_ID] [--draft] [--target TARGET]
 
 **Options:**
 - `--draft`: Create PR as a draft (only for new PRs)
+- `--progress`: Use `(Progresses ISSUE_ID)` instead of `(Fixes ISSUE_ID)` in PR title, and skip setting status to "In Review". Use for multi-session tasks with remaining work.
 - `--target`: Project/worktree identifier for directory resolution
 
 **Behavior:**
@@ -323,8 +324,8 @@ mael gh create-pr [ISSUE_ID] [--draft] [--target TARGET]
 - If PR exists: just pushes the latest changes
 - Returns the PR URL
 - When `ISSUE_ID` is provided:
-  - Appends `(Fixes ISSUE_ID)` to PR title (enables Linear's GitHub auto-linking)
-  - Sets task status to "In Review"
+  - Appends `(Fixes ISSUE_ID)` to PR title (or `(Progresses ISSUE_ID)` with `--progress`)
+  - Sets task status to "In Review" (skipped with `--progress`)
   - Promotes parent task from early states (Todo/Planned/Backlog) to "In Progress"
   - Adds product label if configured
 
