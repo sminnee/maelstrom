@@ -3,6 +3,7 @@
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -133,6 +134,9 @@ def get_worktree_dirty_files(worktree_path: Path) -> list[str]:
     Returns:
         List of file paths that are modified or untracked (excluding maelstrom-managed files).
     """
+    if not worktree_path.is_dir():
+        return []
+
     result = subprocess.run(
         ["git", "status", "--porcelain"],
         cwd=worktree_path,
@@ -170,6 +174,9 @@ def get_commits_ahead(worktree_path: Path, base_branch: str = "origin/main") -> 
     Returns:
         Number of commits ahead, or 0 if unable to determine.
     """
+    if not worktree_path.is_dir():
+        return 0
+
     result = subprocess.run(
         ["git", "rev-list", "--count", f"{base_branch}..HEAD"],
         cwd=worktree_path,
@@ -661,7 +668,20 @@ def list_worktrees(project_path: Path) -> list[WorktreeInfo]:
             )
         )
 
-    return worktrees
+    # Filter out stale worktrees whose directories no longer exist
+    valid_worktrees = []
+    for wt in worktrees:
+        if wt.path.is_dir():
+            valid_worktrees.append(wt)
+        else:
+            print(
+                f"Warning: worktree '{wt.path}' is registered in git but its "
+                f"directory is missing. Run 'git worktree prune' in "
+                f"{project_path} to clean up.",
+                file=sys.stderr,
+            )
+
+    return valid_worktrees
 
 
 def find_all_projects(projects_dir: Path) -> list[Path]:
