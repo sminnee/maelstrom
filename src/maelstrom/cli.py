@@ -1153,11 +1153,9 @@ def gh_read_pr(target):
             line_info = f":{thread.line}" if thread.line else ""
             click.echo(f"  {thread.path}{line_info}")
             for comment in thread.comments:
-                # Indent and truncate long comments
-                body_preview = comment.body.replace("\n", " ")[:100]
-                if len(comment.body) > 100:
-                    body_preview += "..."
-                click.echo(f"    @{comment.author}: {body_preview}")
+                click.echo(f"    @{comment.author}:")
+                for line in comment.body.splitlines():
+                    click.echo(f"      {line}")
 
     # Checks
     failed_checks = [c for c in pr_info.checks if c.state == "FAILURE"]
