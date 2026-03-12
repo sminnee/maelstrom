@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -610,6 +611,60 @@ def read_pr(cwd: Path | None = None) -> PRInfo:
             pr_info.artifacts[run_id] = artifacts
 
     return pr_info
+
+
+TERMINAL_STATES = {
+    "SUCCESS", "FAILURE", "STARTUP_FAILURE", "CANCELLED", "SKIPPED",
+    "NEUTRAL", "TIMED_OUT", "STALE", "ACTION_REQUIRED",
+}
+PASSING_STATES = {"SUCCESS", "SKIPPED", "NEUTRAL"}
+
+
+def wait_for_checks(
+    cwd: Path,
+    timeout: int = 1800,
+    poll_interval: int = 30,
+) -> tuple[bool, list[CheckRun]]:
+    """Poll PR checks until all reach a terminal state.
+
+    Args:
+        cwd: Working directory (must be in a git repo with a PR).
+        timeout: Maximum seconds to wait (default 1800 = 30 min).
+        poll_interval: Seconds between polls (default 30).
+
+    Returns:
+        Tuple of (passed, checks) where passed is True only if all checks
+        are SUCCESS, SKIPPED, or NEUTRAL.
+
+    Raises:
+        TimeoutError: If timeout exceeded before all checks complete.
+        RuntimeError: If no PR or checks found.
+    """
+    start = time.monotonic()
+
+    while True:
+        checks = get_pr_checks(cwd)
+        if not checks:
+            elapsed = time.monotonic() - start
+            if elapsed > poll_interval * 2:
+                raise RuntimeError("No checks found for this PR")
+
+        complete = sum(1 for c in checks if c.state in TERMINAL_STATES)
+        total = len(checks)
+
+        if total > 0 and complete == total:
+            passed = all(c.state in PASSING_STATES for c in checks)
+            return passed, checks
+
+        elapsed = time.monotonic() - start
+        if elapsed >= timeout:
+            raise TimeoutError(
+                f"Timed out after {timeout}s waiting for checks "
+                f"({complete}/{total} complete)"
+            )
+
+        print(f"Waiting... {complete}/{total} checks complete")
+        time.sleep(poll_interval)
 
 
 def get_worktree_code(cwd: Path) -> tuple[str, str]:

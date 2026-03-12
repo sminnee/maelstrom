@@ -108,10 +108,11 @@ h. **Commit changes** with the issue ID in the message (see "Commit Messages" be
    ```
 
 i. **Create/update PR**: Always create or update the PR:
-   - For **progress step**: `mael gh create-pr --progress <issue-id>` (uses "Progresses" in title, keeps status as "In Progress")
-   - For **finishing step**: `mael gh create-pr <issue-id>` (uses "Fixes" in title, sets status to "In Review")
+   - For **progress step**: `mael gh create-pr --wait --progress <issue-id>` (uses "Progresses" in title, keeps status as "In Progress")
+   - For **finishing step**: `mael gh create-pr --wait <issue-id>` (uses "Fixes" in title, sets status to "In Review")
 
    Each increment should be mergeable and pass CI, even if it doesn't deliver the whole feature.
+   Run this as a background task so you can continue other work while waiting for CI.
 
 j. **Write progress report** (progress step only, NOT for finishing step):
    Write a progress report to a temporary file, then add it as a comment on the Linear issue:

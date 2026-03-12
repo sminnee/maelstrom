@@ -16,6 +16,7 @@ from .github import (
     get_pr_number_and_commits,
     get_worktree_code,
     read_pr,
+    wait_for_checks,
 )
 from .cmux import is_cmux_mode, set_status, clear_status
 from .env import get_env_status, stop_env
@@ -1020,8 +1021,9 @@ def gh():
 @click.argument("issue_id", required=False, default=None)
 @click.option("--draft", is_flag=True, help="Create as draft PR")
 @click.option("--progress", is_flag=True, help="Mark as progress (not final). Uses 'Progresses' instead of 'Fixes' and skips setting status to 'In Review'")
+@click.option("--wait", is_flag=True, help="Wait for CI checks to complete after creating PR")
 @click.option("--target", default=None, help="Project/worktree target for directory resolution")
-def gh_create_pr(issue_id, draft, progress, target):
+def gh_create_pr(issue_id, draft, progress, wait, target):
     """Create a PR for the current worktree (or push if PR exists).
 
     If ISSUE_ID is provided (e.g., ME-41), appends (Fixes ISSUE_ID) to the PR title
@@ -1101,6 +1103,61 @@ def gh_create_pr(issue_id, draft, progress, target):
                         click.echo(f"Updated parent {parent['identifier']} status to: In Progress")
         except Exception as e:
             click.echo(f"Warning: Could not update Linear task: {e}", err=True)
+
+    # Wait for CI checks if requested
+    if wait:
+        try:
+            passed, checks = wait_for_checks(cwd)
+            for check in checks:
+                click.echo(f"  {check.state}: {check.name}")
+            if passed:
+                click.echo("Build passed")
+            else:
+                click.echo("Build failed")
+                sys.exit(1)
+        except TimeoutError as e:
+            click.echo(str(e), err=True)
+            sys.exit(2)
+        except RuntimeError as e:
+            raise click.ClickException(str(e))
+
+
+@gh.command("wait-for-pr")
+@click.argument("target", required=False, default=None)
+@click.option("--timeout", default=1800, help="Timeout in seconds (default: 1800)")
+@click.option("--interval", default=30, help="Poll interval in seconds (default: 30)")
+def gh_wait_for_pr(target, timeout, interval):
+    """Wait for CI checks to complete on the current PR.
+
+    Polls GitHub checks every INTERVAL seconds until all checks reach a
+    terminal state, then reports the results.
+
+    Exit codes: 0 = passed, 1 = failed, 2 = timeout.
+    """
+    try:
+        ctx = resolve_context(target, require_project=False, require_worktree=False)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    if ctx.worktree_path and ctx.worktree_path.exists():
+        cwd = ctx.worktree_path
+    else:
+        cwd = Path.cwd()
+
+    try:
+        passed, checks = wait_for_checks(cwd, timeout=timeout, poll_interval=interval)
+        for check in checks:
+            click.echo(f"  {check.state}: {check.name}")
+        if passed:
+            click.echo("Build passed")
+        else:
+            click.echo("Build failed")
+            sys.exit(1)
+    except TimeoutError as e:
+        click.echo(str(e), err=True)
+        sys.exit(2)
+    except RuntimeError as e:
+        raise click.ClickException(str(e))
 
 
 def _format_size(size_bytes: int) -> str:

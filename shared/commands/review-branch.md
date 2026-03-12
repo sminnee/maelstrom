@@ -171,7 +171,7 @@ Structure the plan so that executing it will fix the issues:
 1. Each fix should be committed with `git commit --fixup=<sha>`
 2. Ask user to confirm the fixup commits are acceptable
 3. If approved, run `mael review squash` to combine fixups with originals
-4. Create PR with `mael gh create-pr`
+4. Create PR with `mael gh create-pr --wait`
 ```
 
 ### 8. Exit Plan Mode
@@ -183,7 +183,7 @@ Call ExitPlanMode with allowedPrompts:
   { "tool": "Bash", "prompt": "create fixup commit" },
   { "tool": "Bash", "prompt": "run tests" },
   { "tool": "Bash", "prompt": "squash fixup commits" },
-  { "tool": "Bash", "prompt": "create PR" }
+  { "tool": "Bash", "prompt": "create PR and wait for checks" }
 ]
 ```
 
@@ -281,7 +281,7 @@ This squashes all fixup commits into their target commits.
 1. Each fix should be committed with `git commit --fixup=<sha>`
 2. Ask user to confirm the fixup commits are acceptable
 3. If approved, run `mael review squash` to combine fixups with originals
-4. Create PR with `mael gh create-pr`
+4. Create PR with `mael gh create-pr --wait`
 ```
 
 ## Implementation Notes
