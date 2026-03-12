@@ -665,6 +665,27 @@ def cmd_list_all():
 @cli.command("open")
 @click.argument("target", required=False, default=None)
 def cmd_open(target):
+    """Start a Claude Code CLI session in a worktree."""
+    try:
+        ctx = resolve_context(
+            target,
+            require_project=True,
+            require_worktree=True,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    worktree_path = ctx.worktree_path
+
+    if not worktree_path.exists():
+        raise click.ClickException(f"Worktree not found at {worktree_path}")
+
+    start_claude_session(worktree_path, project=ctx.project, worktree=ctx.worktree)
+
+
+@cli.command("ide")
+@click.argument("target", required=False, default=None)
+def cmd_ide(target):
     """Open a worktree in the configured editor."""
     try:
         ctx = resolve_context(

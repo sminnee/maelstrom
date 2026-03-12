@@ -119,6 +119,28 @@ def _print_service_status(
     draw_table(rows, ["SERVICE", "PID", "STATUS", "LOG"])
 
 
+@env.command("open")
+@click.argument("target", required=False, default=None)
+def env_open(target):
+    """Open the browser pane for a running environment."""
+    try:
+        ctx = resolve_context(
+            target,
+            require_project=True,
+            require_worktree=True,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    state = load_env_state(ctx.project, ctx.worktree)
+    if not state:
+        raise click.ClickException(
+            f"No running environment for {ctx.project}/{ctx.worktree}."
+        )
+
+    _ensure_cmux_browser(state, ctx.project_path, ctx.worktree)
+
+
 @env.command("start")
 @click.argument("target", required=False, default=None)
 @click.option("--skip-install", is_flag=True, help="Skip the install step before starting")
