@@ -354,11 +354,14 @@ mael gh create-pr [ISSUE_ID] [--draft] [--progress] [--wait] [--target TARGET]
 Check PR status, review comments, and CI results.
 
 ```bash
-mael gh read-pr [target]
+mael gh read-pr [--wait] [target]
 ```
 
 **Arguments:**
 - `target` (optional): Project/worktree identifier
+
+**Options:**
+- `--wait`: Wait for CI checks to complete. Returns exit code 0 on success, 1 on failure, 2 on timeout. Use with Bash tool's `run_in_background: true`.
 
 **Output includes:**
 - PR number, title, URL, and merge status
@@ -585,6 +588,28 @@ mael status clear
 - **Starting work**: Set to "In Progress"
 - **Completing work**: Set to "Unreleased"
 
+## Workflow: Completing Work
+
+After implementation is done, follow these steps to commit and submit:
+
+1. **Run local checks** (tests, linting, typecheck — whatever the project defines in CLAUDE.md):
+   ```bash
+   # Example: uv run pytest, pnpm test, bin/ci-check, etc.
+   ```
+
+2. **Review and commit changes**:
+   ```bash
+   mael gh show-code --uncommitted
+   git add <files>
+   printf 'feat: description of changes\n' | git commit -F -
+   ```
+
+3. **Create/update PR and wait for CI** (run in background):
+   ```bash
+   mael gh create-pr --wait
+   ```
+   Run this using the Bash tool with `run_in_background: true` so you can continue other work while CI runs.
+
 ## Workflow: Git & Pull Requests
 
 1. **Before starting work**, sync with main:
@@ -596,8 +621,9 @@ mael status clear
 
 3. **When ready for review**, create or update PR:
    ```bash
-   mael gh create-pr
+   mael gh create-pr --wait
    ```
+   Run this using the Bash tool with `run_in_background: true` so you can continue other work while CI runs.
 
 ## Workflow: Checking PR Status
 
