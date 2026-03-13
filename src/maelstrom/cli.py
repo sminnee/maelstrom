@@ -273,8 +273,9 @@ def cmd_add(branch, project, open, no_recycle):
 
     project_path = ctx.project_path
 
-    if not project_path.exists():
+    if project_path is None or not project_path.exists():
         raise click.ClickException(f"Project '{ctx.project}' not found at {project_path}")
+    assert ctx.project is not None
 
     # Determine the branch to use
     detached = False
@@ -366,10 +367,12 @@ def cmd_remove(targets, force):
         project_path = ctx.project_path
         worktree_name = ctx.worktree  # The NATO name (e.g., "alpha")
 
-        if not project_path.exists():
+        if project_path is None or not project_path.exists():
             click.echo(f"Error: Project '{ctx.project}' not found at {project_path}", err=True)
             errors.append(target)
             continue
+        assert ctx.project is not None
+        assert worktree_name is not None
 
         folder_name = get_worktree_folder_name(ctx.project, worktree_name)
         worktree_path = project_path / folder_name
@@ -390,10 +393,12 @@ def cmd_remove(targets, force):
                 continue
 
         # Stop running environment if any
-        env_status = get_env_status(ctx.project, ctx.worktree)
+        project_name = ctx.project
+        assert project_name is not None
+        env_status = get_env_status(project_name, worktree_name)
         if env_status and any(s.alive for s in env_status):
             click.echo(f"Stopping environment for '{worktree_name}'...")
-            for msg in stop_env(ctx.project, ctx.worktree):
+            for msg in stop_env(project_name, worktree_name):
                 click.echo(f"  {msg}")
 
         click.echo(f"Removing worktree '{worktree_name}'...")
@@ -428,8 +433,10 @@ def cmd_list(project):
 
     project_path = ctx.project_path
 
-    if not project_path.exists():
+    if project_path is None or not project_path.exists():
         raise click.ClickException(f"Project '{ctx.project}' not found at {project_path}")
+    project_name = ctx.project
+    assert project_name is not None
 
     worktrees = list_worktrees(project_path)
 
@@ -444,7 +451,7 @@ def cmd_list(project):
     closed_names = []
     open_worktrees = []
     for wt in worktrees:
-        display_name = extract_worktree_name_from_folder(ctx.project, wt.path.name) or wt.path.name
+        display_name = extract_worktree_name_from_folder(project_name, wt.path.name) or wt.path.name
         if is_worktree_closed(wt):
             closed_names.append(display_name)
         else:
@@ -677,7 +684,7 @@ def cmd_open(target):
 
     worktree_path = ctx.worktree_path
 
-    if not worktree_path.exists():
+    if worktree_path is None or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
     start_claude_session(worktree_path, project=ctx.project, worktree=ctx.worktree)
@@ -698,7 +705,7 @@ def cmd_ide(target):
 
     worktree_path = ctx.worktree_path
 
-    if not worktree_path.exists():
+    if worktree_path is None or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
     global_config = load_global_config()
@@ -723,7 +730,7 @@ def cmd_claude(target):
 
     worktree_path = ctx.worktree_path
 
-    if not worktree_path.exists():
+    if worktree_path is None or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
     start_claude_session(worktree_path, project=ctx.project, worktree=ctx.worktree)
@@ -744,7 +751,7 @@ def cmd_sync(target):
 
     worktree_path = ctx.worktree_path
 
-    if not worktree_path.exists():
+    if worktree_path is None or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
     click.echo(f"Syncing {ctx.worktree} with origin/main...")
@@ -818,10 +825,12 @@ def cmd_close(targets):
 
         worktree_path = ctx.worktree_path
 
-        if not worktree_path.exists():
+        if worktree_path is None or not worktree_path.exists():
             click.echo(f"Error: Worktree not found at {worktree_path}", err=True)
             errors.append(target)
             continue
+        assert ctx.project is not None
+        assert ctx.worktree is not None
 
         # Stop running environment if any
         env_status = get_env_status(ctx.project, ctx.worktree)
@@ -886,8 +895,10 @@ def cmd_sync_all(project):
 
     project_path = ctx.project_path
 
-    if not project_path.exists():
+    if project_path is None or not project_path.exists():
         raise click.ClickException(f"Project '{ctx.project}' not found at {project_path}")
+    project_name = ctx.project
+    assert project_name is not None
 
     worktrees = list_worktrees(project_path)
 
@@ -910,7 +921,7 @@ def cmd_sync_all(project):
 
     for wt in worktrees:
         # Extract worktree name from folder for display (e.g., "myproject-alpha" -> "alpha")
-        display_name = extract_worktree_name_from_folder(ctx.project, wt.path.name) or wt.path.name
+        display_name = extract_worktree_name_from_folder(project_name, wt.path.name) or wt.path.name
         click.echo(f"Syncing {display_name} ({wt.branch})...")
         result = sync_worktree(wt.path, skip_fetch=True)
 
