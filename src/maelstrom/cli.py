@@ -1193,7 +1193,8 @@ def _format_size(size_bytes: int) -> str:
 
 @gh.command("read-pr")
 @click.argument("target", required=False, default=None)
-def gh_read_pr(target):
+@click.option("--wait", is_flag=True, help="Wait for CI checks to complete (exit 0=pass, 1=fail, 2=timeout)")
+def gh_read_pr(target, wait):
     """Read PR status, unresolved comments, and check results."""
     try:
         ctx = resolve_context(target, require_project=False, require_worktree=False)
@@ -1279,6 +1280,23 @@ def gh_read_pr(target):
         for check in passing_checks:
             run_id_info = f" (run {check.run_id})" if check.run_id else ""
             click.echo(f"  + {check.name}{run_id_info}")
+
+    # Wait for CI checks if requested
+    if wait:
+        try:
+            passed, checks = wait_for_checks(cwd)
+            for check in checks:
+                click.echo(f"  {check.state}: {check.name}")
+            if passed:
+                click.echo("Build passed")
+            else:
+                click.echo("Build failed")
+                sys.exit(1)
+        except TimeoutError as e:
+            click.echo(str(e), err=True)
+            sys.exit(2)
+        except RuntimeError as e:
+            raise click.ClickException(str(e))
 
 
 @gh.command("download-artifact")
