@@ -112,7 +112,7 @@ i. **Create/update PR**: Always create or update the PR:
    - For **finishing step**: `mael gh create-pr --wait <issue-id>` (uses "Fixes" in title, sets status to "In Review")
 
    Each increment should be mergeable and pass CI, even if it doesn't deliver the whole feature.
-   Run this as a background task so you can continue other work while waiting for CI.
+   Run this using the Bash tool with `run_in_background: true` so you can continue other work while waiting for CI.
 
 j. **Write progress report** (progress step only, NOT for finishing step):
    Write a progress report to a temporary file, then add it as a comment on the Linear issue:

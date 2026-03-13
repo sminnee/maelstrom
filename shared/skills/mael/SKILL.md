@@ -325,7 +325,7 @@ mael sync [target]
 Create a new pull request or push updates to an existing one. Optionally links to a Linear task.
 
 ```bash
-mael gh create-pr [ISSUE_ID] [--draft] [--progress] [--target TARGET]
+mael gh create-pr [ISSUE_ID] [--draft] [--progress] [--wait] [--target TARGET]
 ```
 
 **Arguments:**
@@ -334,6 +334,7 @@ mael gh create-pr [ISSUE_ID] [--draft] [--progress] [--target TARGET]
 **Options:**
 - `--draft`: Create PR as a draft (only for new PRs)
 - `--progress`: Use `(Progresses ISSUE_ID)` instead of `(Fixes ISSUE_ID)` in PR title, and skip setting status to "In Review". Use for multi-session tasks with remaining work.
+- `--wait`: Wait for CI checks to complete after creating/updating the PR. Returns exit code 0 on success, 1 on failure, 2 on timeout. Use with Bash tool's `run_in_background: true` to continue working while CI runs.
 - `--target`: Project/worktree identifier for directory resolution
 
 **Behavior:**
