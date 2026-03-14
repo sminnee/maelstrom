@@ -1092,10 +1092,7 @@ def gh_create_pr(issue_id, draft, progress, wait, target):
                 get_labels,
                 get_product_label,
                 get_workflow_states,
-                get_workspace_labels,
-                detect_workspace_label,
                 update_issue,
-                ensure_product_label,
             )
 
             issue = get_issue(issue_id)

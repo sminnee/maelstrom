@@ -1185,8 +1185,8 @@ def _resolve_env_line(line: str, generated_vars: dict[str, str]) -> str:
     else:
         template = line
 
-    def _replace(m: re.Match) -> str:
-        var = m.group(1) or m.group(2)
+    def _replace(m: re.Match[str]) -> str:
+        var = m.group(1) or m.group(2) or m.group(0)
         return generated_vars.get(var, m.group(0))
 
     resolved = _VAR_PATTERN.sub(_replace, template)

@@ -12,6 +12,7 @@ uv run pytest tests/test_ports.py  # Run a single test file
 uv run pytest -k "test_name"       # Run tests matching a pattern
 uv run pytest --cov=maelstrom      # Run with coverage
 uv run python -m maelstrom         # Run the module
+bin/lint                           # Run pyright type checking (gate before commit)
 ```
 
 # Maelstrom Workflow

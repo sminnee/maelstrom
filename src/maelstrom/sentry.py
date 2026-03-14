@@ -262,17 +262,17 @@ def format_stacktrace(exception: dict) -> str:
 
             if suspect_idx is not None:
                 # Pre-context lines
-                for _line_num, code in context[:suspect_idx]:
+                for _, code in context[:suspect_idx]:
                     lines.append(f"    {code}")
                 # Suspect line
                 _, suspect_code = context[suspect_idx]
                 lines.append(f"    {suspect_code}  <-- SUSPECT LINE")
                 # Post-context lines
-                for _line_num, code in context[suspect_idx + 1 :]:
+                for _, code in context[suspect_idx + 1 :]:
                     lines.append(f"    {code}")
             else:
                 # No suspect line found, just show all context
-                for _line_num, code in context:
+                for _, code in context:
                     lines.append(f"    {code}")
         lines.append("---")
 
@@ -299,7 +299,7 @@ def sentry():
     pass
 
 
-@sentry.command("list-issues")
+@sentry.command("list-issues")  # type: ignore[attr-defined]
 @click.option("--env", "environment", default="prod", help="Environment filter (default: prod)")
 def cmd_list_issues(environment):
     """List unresolved issues for the project."""
@@ -355,7 +355,7 @@ def cmd_list_issues(environment):
         click.echo(data_row)
 
 
-@sentry.command("get-issue")
+@sentry.command("get-issue")  # type: ignore[attr-defined]
 @click.argument("issue_id")
 def cmd_get_issue(issue_id):
     """Get issue details as markdown."""

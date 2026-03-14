@@ -19,6 +19,7 @@ dev = [
     "pytest-cov>=4.0",
     "pytest-xdist>=3.0",
     "ruff>=0.4",
+    "pyright>=1.1",
 ]
 
 [project.urls]
@@ -46,4 +47,15 @@ markers = [
 dev = [
     "pytest>=9.0.2",
     "pytest-xdist>=3.0",
+    "pyright>=1.1",
 ]
+
+[tool.pyright]
+include = ["src"]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+useLibraryCodeForTypes = true
+reportUnusedImport = true
+reportUnusedVariable = true
+reportDuplicateImport = true
+reportMissingTypeStubs = false

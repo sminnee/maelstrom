@@ -8,6 +8,7 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -823,7 +824,7 @@ def cmd_start_task(issue_id):
 
         # Only promote parent to In Progress from early states
         early_states = {"Todo", "Planned", "Backlog"}
-        update_kwargs = {"labelIds": parent_label_ids}
+        update_kwargs: dict[str, Any] = {"labelIds": parent_label_ids}
         if parent["state"]["name"] in early_states:
             update_kwargs["stateId"] = states["In Progress"]
 

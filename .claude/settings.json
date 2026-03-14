@@ -5,7 +5,8 @@
       "Bash(uv run:*)",
       "Bash(pnpm lint:*)",
       "Bash(pnpm test:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(bin/lint:*)"
     ]
   }
 }
