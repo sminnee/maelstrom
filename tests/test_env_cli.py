@@ -170,7 +170,7 @@ class TestEnvStartBrowserDedup:
     @patch("maelstrom.env_cli.resolve_context")
     def test_reuses_existing_browser(
         self, mock_ctx, mock_start, mock_status, mock_load, mock_app,
-        mock_ws_current, mock_save, tmp_path,
+        mock_ws_current, mock_save, tmp_path, mock_cmux_workspace,
     ):
         """Reuses existing browser surface when one matches the URL."""
         ctx = _mock_ctx_with_path(tmp_path)
@@ -179,14 +179,13 @@ class TestEnvStartBrowserDedup:
         mock_start.return_value = _make_state()
         mock_status.return_value = [_make_status()]
 
-        mock_ws = MagicMock()
-        mock_ws.ensure_browser.return_value = "surface:183"
-        mock_ws_current.return_value = mock_ws
+        mock_cmux_workspace.ensure_browser.return_value = "surface:183"
+        mock_ws_current.return_value = mock_cmux_workspace
 
         runner = CliRunner()
         result = runner.invoke(cli, ["env", "start"])
         assert result.exit_code == 0
-        mock_ws.ensure_browser.assert_called_once_with("http://localhost:3000")
+        mock_cmux_workspace.ensure_browser.assert_called_once_with("http://localhost:3000")
 
     @patch("maelstrom.env_cli.save_env_state")
     @patch("maelstrom.env_cli.CmuxWorkspace.current")
@@ -197,7 +196,7 @@ class TestEnvStartBrowserDedup:
     @patch("maelstrom.env_cli.resolve_context")
     def test_opens_new_when_no_existing(
         self, mock_ctx, mock_start, mock_status, mock_load, mock_app,
-        mock_ws_current, mock_save, tmp_path,
+        mock_ws_current, mock_save, tmp_path, mock_cmux_workspace,
     ):
         """Opens new browser when no existing browser matches."""
         ctx = _mock_ctx_with_path(tmp_path)
@@ -205,14 +204,13 @@ class TestEnvStartBrowserDedup:
         mock_start.return_value = _make_state()
         mock_status.return_value = [_make_status()]
 
-        mock_ws = MagicMock()
-        mock_ws.ensure_browser.return_value = "surface:200"
-        mock_ws_current.return_value = mock_ws
+        mock_cmux_workspace.ensure_browser.return_value = "surface:200"
+        mock_ws_current.return_value = mock_cmux_workspace
 
         runner = CliRunner()
         result = runner.invoke(cli, ["env", "start"])
         assert result.exit_code == 0
-        mock_ws.ensure_browser.assert_called_once_with("http://localhost:3000")
+        mock_cmux_workspace.ensure_browser.assert_called_once_with("http://localhost:3000")
 
     @patch("maelstrom.env_cli.CmuxWorkspace.current", return_value=None)
     @patch("maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True))
@@ -242,18 +240,19 @@ class TestEnvStopBrowser:
     @patch("maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True))
     @patch("maelstrom.env_cli.stop_env")
     @patch("maelstrom.env_cli.resolve_context")
-    def test_closes_browser_on_stop(self, mock_ctx, mock_stop, mock_app, mock_ws_current):
+    def test_closes_browser_on_stop(
+        self, mock_ctx, mock_stop, mock_app, mock_ws_current, mock_cmux_workspace,
+    ):
         """Closes browser surface matching URL when stopping env."""
         mock_ctx.return_value = MagicMock(project="proj", worktree="bravo", project_path=Path("/proj"))
         mock_stop.return_value = ["web (pid 100): stopped"]
 
-        mock_ws = MagicMock()
-        mock_ws_current.return_value = mock_ws
+        mock_ws_current.return_value = mock_cmux_workspace
 
         runner = CliRunner()
         result = runner.invoke(cli, ["env", "stop"])
         assert result.exit_code == 0
-        mock_ws.close_browser.assert_called_once_with("http://localhost:3000")
+        mock_cmux_workspace.close_browser.assert_called_once_with("http://localhost:3000")
 
 
 class TestEnvStatus:
