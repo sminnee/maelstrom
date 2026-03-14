@@ -49,8 +49,34 @@ def get_env_var(name: str) -> str:
 
 
 def get_sentry_api_key() -> str:
-    """Get the Sentry API key."""
-    return get_env_var("SENTRY_API_KEY")
+    """Get the Sentry API key from env var, .env file, or global config."""
+    if value := os.environ.get("SENTRY_API_KEY"):
+        return value
+
+    # Find .env file in current directory or parents
+    current = Path.cwd()
+    while current != current.parent:
+        env_path = current / ".env"
+        if env_path.exists():
+            content = env_path.read_text()
+            pattern = r"^SENTRY_API_KEY\s*=\s*[\"']?([^\"'\n]+)[\"']?"
+            if match := re.search(pattern, content, re.MULTILINE):
+                return match.group(1)
+            break
+        current = current.parent
+
+    # Fall back to global config
+    from .context import load_global_config
+
+    global_config = load_global_config()
+    if global_config.sentry_api_key:
+        return global_config.sentry_api_key
+
+    raise click.ClickException(
+        "Sentry API key not found. Set SENTRY_API_KEY env var or add to ~/.maelstrom/config.yaml:\n"
+        "  sentry:\n"
+        '    api_key: "your-api-key"'
+    )
 
 
 def get_sentry_config() -> tuple[str, str]:
@@ -78,8 +104,9 @@ def get_sentry_config() -> tuple[str, str]:
 
     raise click.ClickException(
         "Sentry not configured. Add to .maelstrom.yaml:\n"
-        '  sentry_org: "your-org"\n'
-        '  sentry_project: "your-project-id"'
+        "  sentry:\n"
+        '    org: "your-org"\n'
+        '    project_id: "your-project-id"'
     )
 
 
