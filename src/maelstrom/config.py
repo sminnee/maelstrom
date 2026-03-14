@@ -32,6 +32,10 @@ class MaelstromConfig:
         if not isinstance(linear_config, dict):
             linear_config = {}
 
+        sentry_config = data.get("sentry", {})
+        if not isinstance(sentry_config, dict):
+            sentry_config = {}
+
         return cls(
             port_names=data.get("port_names", []),
             shared_port_names=data.get("shared_port_names", []),
@@ -40,8 +44,8 @@ class MaelstromConfig:
             linear_team_id=linear_config.get("team_id"),
             linear_workspace_labels=linear_config.get("workspace_labels"),
             linear_product_label=linear_config.get("product_label"),
-            sentry_org=data.get("sentry_org"),
-            sentry_project=data.get("sentry_project"),
+            sentry_org=sentry_config.get("org"),
+            sentry_project=sentry_config.get("project_id"),
         )
 
 
