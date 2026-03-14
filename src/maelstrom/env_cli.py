@@ -1,6 +1,5 @@
 """CLI commands for managing dev environments."""
 
-import sys
 import time
 from pathlib import Path
 
@@ -132,6 +131,10 @@ def env_open(target):
     except ValueError as e:
         raise click.ClickException(str(e))
 
+    assert ctx.project is not None
+    assert ctx.worktree is not None
+    assert ctx.project_path is not None
+
     state = load_env_state(ctx.project, ctx.worktree)
     if not state:
         raise click.ClickException(
@@ -154,6 +157,10 @@ def env_start(target, skip_install):
         )
     except ValueError as e:
         raise click.ClickException(str(e))
+
+    assert ctx.project is not None
+    assert ctx.worktree is not None
+    assert ctx.project_path is not None
 
     worktree_path = ctx.worktree_path
     if not worktree_path or not worktree_path.exists():
@@ -187,6 +194,10 @@ def env_status(target):
     except ValueError as e:
         raise click.ClickException(str(e))
 
+    assert ctx.project is not None
+    assert ctx.worktree is not None
+    assert ctx.project_path is not None
+
     _print_service_status(ctx.project, ctx.worktree, ctx.project_path)
 
 
@@ -202,6 +213,10 @@ def env_stop(target):
         )
     except ValueError as e:
         raise click.ClickException(str(e))
+
+    assert ctx.project is not None
+    assert ctx.worktree is not None
+    assert ctx.project_path is not None
 
     # Close cmux browser pane if one was opened
     ws = CmuxWorkspace.current()
@@ -229,6 +244,10 @@ def env_restart(target, install):
         )
     except ValueError as e:
         raise click.ClickException(str(e))
+
+    assert ctx.project is not None
+    assert ctx.worktree is not None
+    assert ctx.project_path is not None
 
     worktree_path = ctx.worktree_path
     if not worktree_path or not worktree_path.exists():
@@ -272,6 +291,10 @@ def env_reset(target):
         )
     except ValueError as e:
         raise click.ClickException(str(e))
+
+    assert ctx.project is not None
+    assert ctx.worktree is not None
+    assert ctx.project_path is not None
 
     worktree_path = ctx.worktree_path
     if not worktree_path or not worktree_path.exists():
@@ -319,6 +342,9 @@ def env_list(project):
         )
     except ValueError as e:
         raise click.ClickException(str(e))
+
+    assert ctx.project is not None
+    assert ctx.project_path is not None
 
     envs = list_project_envs(ctx.project)
     if not envs:
@@ -442,6 +468,9 @@ def env_logs(target, service, num_lines, follow):
         )
     except ValueError as e:
         raise click.ClickException(str(e))
+
+    assert ctx.project is not None
+    assert ctx.worktree is not None
 
     try:
         lines = read_service_logs(ctx.project, ctx.worktree, service, num_lines)
