@@ -340,15 +340,22 @@ def update_issue(issue_id: str, **kwargs) -> None:
 
 
 def create_issue(
-    title: str, parent_id: str, description: str = "", cycle_id: str | None = None
+    title: str,
+    parent_id: str | None = None,
+    description: str = "",
+    cycle_id: str | None = None,
+    state_id: str | None = None,
+    label_ids: list[str] | None = None,
 ) -> dict:
-    """Create a new issue as a subtask.
+    """Create a new issue, optionally as a subtask.
 
     Args:
-        title: Subtask title.
-        parent_id: Parent issue's internal ID.
+        title: Issue title.
+        parent_id: Optional parent issue's internal ID (makes it a subtask).
         description: Optional description.
         cycle_id: Optional cycle ID (inherits from parent if not specified).
+        state_id: Optional workflow state ID.
+        label_ids: Optional list of label IDs to apply.
 
     Returns:
         Created issue data with id, identifier, and title.
@@ -369,15 +376,20 @@ def create_issue(
         }
     }
     """
-    input_data = {
+    input_data: dict[str, str | list[str]] = {
         "title": title,
         "teamId": team_id,
-        "parentId": parent_id,
     }
+    if parent_id:
+        input_data["parentId"] = parent_id
     if description:
         input_data["description"] = description
     if cycle_id:
         input_data["cycleId"] = cycle_id
+    if state_id:
+        input_data["stateId"] = state_id
+    if label_ids:
+        input_data["labelIds"] = label_ids
 
     result = graphql_request(mutation, {"input": input_data})
     if not result["issueCreate"]["success"]:
@@ -926,6 +938,37 @@ def cmd_create_subtask(parent_id, title, description):
         if "Planned" in states:
             update_issue(parent["id"], stateId=states["Planned"])
             click.echo(f"Updated parent {parent['identifier']} status: Todo -> Planned")
+
+
+@linear.command("create-task")
+@click.argument("title")
+@click.argument("description", default="", required=False)
+def cmd_create_task(title: str, description: str) -> None:
+    """Create a new task in the project backlog."""
+    states = get_workflow_states()
+    if "Backlog" not in states:
+        raise click.ClickException("Backlog state not found in workflow states")
+
+    state_id = states["Backlog"]
+    label_ids: list[str] | None = None
+    product_label = get_product_label()
+
+    if product_label:
+        labels_map = get_labels()
+        if product_label in labels_map:
+            label_ids = [labels_map[product_label]]
+
+    new_issue = create_issue(
+        title=title,
+        description=description,
+        state_id=state_id,
+        label_ids=label_ids,
+    )
+
+    click.echo(f"Created task {new_issue['identifier']}: {new_issue['title']}")
+    click.echo(f"- Status: Backlog")
+    if product_label and label_ids:
+        click.echo(f"- Label: {product_label}")
 
 
 @linear.command("write-plan")

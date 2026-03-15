@@ -5,7 +5,9 @@ from unittest.mock import patch
 import click
 import pytest
 
-from maelstrom.linear import create_comment
+from click.testing import CliRunner
+
+from maelstrom.linear import create_comment, linear
 
 
 class TestCreateComment:
@@ -61,3 +63,78 @@ class TestCreateComment:
         mutation = mock_graphql.call_args[0][0]
         assert "commentCreate" in mutation
         assert "CommentCreateInput" in mutation
+
+
+class TestCmdCreateTask:
+    """Tests for cmd_create_task command."""
+
+    @patch("maelstrom.linear.get_product_label")
+    @patch("maelstrom.linear.get_labels")
+    @patch("maelstrom.linear.get_workflow_states")
+    @patch("maelstrom.linear.create_issue")
+    def test_create_task_with_product_label(
+        self, mock_create, mock_states, mock_labels, mock_product_label
+    ):
+        """Test successful task creation with product label."""
+        mock_states.return_value = {"Backlog": "state-1", "Todo": "state-2"}
+        mock_product_label.return_value = "MyProduct"
+        mock_labels.return_value = {"MyProduct": "label-1", "Bug": "label-2"}
+        mock_create.return_value = {
+            "id": "issue-1",
+            "identifier": "PROJ-42",
+            "title": "New task",
+        }
+
+        runner = CliRunner()
+        result = runner.invoke(linear, ["create-task", "New task"])
+
+        assert result.exit_code == 0
+        assert "PROJ-42" in result.output
+        assert "New task" in result.output
+        assert "Backlog" in result.output
+        assert "MyProduct" in result.output
+        mock_create.assert_called_once_with(
+            title="New task",
+            description="",
+            state_id="state-1",
+            label_ids=["label-1"],
+        )
+
+    @patch("maelstrom.linear.get_product_label")
+    @patch("maelstrom.linear.get_workflow_states")
+    @patch("maelstrom.linear.create_issue")
+    def test_create_task_no_product_label(
+        self, mock_create, mock_states, mock_product_label
+    ):
+        """Test task creation when no product label is configured."""
+        mock_states.return_value = {"Backlog": "state-1"}
+        mock_product_label.return_value = None
+        mock_create.return_value = {
+            "id": "issue-1",
+            "identifier": "PROJ-43",
+            "title": "Another task",
+        }
+
+        runner = CliRunner()
+        result = runner.invoke(linear, ["create-task", "Another task"])
+
+        assert result.exit_code == 0
+        assert "PROJ-43" in result.output
+        assert "Label" not in result.output
+        mock_create.assert_called_once_with(
+            title="Another task",
+            description="",
+            state_id="state-1",
+            label_ids=None,
+        )
+
+    @patch("maelstrom.linear.get_workflow_states")
+    def test_create_task_no_backlog_state(self, mock_states):
+        """Test error when Backlog state is not found."""
+        mock_states.return_value = {"Todo": "state-2", "Done": "state-3"}
+
+        runner = CliRunner()
+        result = runner.invoke(linear, ["create-task", "Some task"])
+
+        assert result.exit_code != 0
+        assert "Backlog state not found" in result.output
