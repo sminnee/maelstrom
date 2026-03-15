@@ -250,8 +250,6 @@ bin/dev to start, bin/test to test, bin/lint to lint, bin/ci-check for full CI c
 git operations, commits, branches, PRs, Linear tasks, and development workflows.
 
 **Plan mode is required** for `/plan-task`, `/create-subtasks`, and `/review-branch` commands.
-
-(maelstrom instructions end)
 ```
 
 #### .claude/settings.json Generation

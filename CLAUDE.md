@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+@.claude/CLAUDE.local.md
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Running Commands
@@ -15,15 +17,6 @@ uv run pytest --cov=maelstrom      # Run with coverage
 uv run python -m maelstrom         # Run the module
 bin/lint                           # Run pyright type checking (gate before commit)
 ```
-
-# Maelstrom Workflow
-
-**Always load the `/mael` skill before beginning any work.** It provides essential instructions for
-git operations, commits, branches, PRs, Linear tasks, and development workflows.
-
-**Plan mode is required** for `/plan-task`, `/continue-task`, and `/review-branch` commands.
-
-(maelstrom instructions end)
 
 ## Developer Documentation
 
@@ -49,11 +42,3 @@ Maelstrom manages parallel development environments using git worktrees. It uses
 - **Worktrees** are subdirectories named alpha, bravo, etc. (not branch names)
 - **PORT_BASE** is a 3-digit number (100-999); each service port = PORT_BASE * 10 + index
 - When creating worktrees, existing `.env` from project root is merged with generated port vars, with `$VAR` substitution
-
-# Maelstrom Workflow
-
-**Always load the `/mael` skill before beginning any work.** It provides essential instructions for git operations, commits, branches, PRs, Linear tasks, and development workflows.
-
-**Plan mode is required** for `/plan-task`, `/create-subtasks`, and `/review-branch` commands.
-
-(maelstrom instructions end)

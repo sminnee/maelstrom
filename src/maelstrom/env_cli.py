@@ -24,7 +24,7 @@ from .env import (
 )
 from .ports import get_app_url, get_port_allocation, wait_for_port
 from .table import draw_table
-from .worktree import regenerate_env_file
+from .worktree import regenerate_env_file, update_claude_local_md
 
 
 def _ensure_cmux_browser(state: EnvState, project_path: Path, worktree: str) -> None:
@@ -312,6 +312,8 @@ def env_reset(target):
 
     regenerate_env_file(ctx.project_path, worktree_path, ctx.worktree)
     click.echo(f"Regenerated .env for {ctx.project}/{ctx.worktree}.")
+
+    update_claude_local_md(ctx.project_path, worktree_path, ctx.worktree)
 
     if was_running:
         try:
