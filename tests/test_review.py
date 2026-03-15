@@ -1,6 +1,5 @@
 """Tests for maelstrom.review module."""
 
-import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -13,52 +12,7 @@ from maelstrom.review import (
     SquashResult,
 )
 
-
-def setup_git_repo(repo_path: Path) -> None:
-    """Initialize a git repo with basic config."""
-    subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@test.com"],
-        cwd=repo_path,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test"],
-        cwd=repo_path,
-        check=True,
-        capture_output=True,
-    )
-
-
-def create_commit(repo_path: Path, filename: str, content: str, message: str) -> str:
-    """Create a file and commit it, return the commit SHA."""
-    (repo_path / filename).write_text(content)
-    subprocess.run(["git", "add", filename], cwd=repo_path, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", message],
-        cwd=repo_path,
-        check=True,
-        capture_output=True,
-    )
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=repo_path,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout.strip()
-
-
-def setup_origin_main(repo_path: Path) -> None:
-    """Create refs/remotes/origin/main pointing to current HEAD."""
-    subprocess.run(
-        ["git", "update-ref", "refs/remotes/origin/main", "HEAD"],
-        cwd=repo_path,
-        check=True,
-        capture_output=True,
-    )
+from tests.git_helpers import create_commit, run_git, setup_git_repo, setup_origin_main
 
 
 class TestGetMergeBase:
@@ -72,23 +26,11 @@ class TestGetMergeBase:
 
             # Initial commit
             create_commit(repo_path, "README.md", "# Test", "Initial commit")
-            subprocess.run(
-                ["git", "branch", "-M", "main"],
-                cwd=repo_path,
-                check=True,
-                capture_output=True,
-            )
+            run_git(repo_path, "branch", "-M", "main")
             setup_origin_main(repo_path)
 
             # Get initial SHA
-            result = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=repo_path,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            base_sha = result.stdout.strip()
+            base_sha = run_git(repo_path, "rev-parse", "HEAD").stdout.strip()
 
             # Add more commits
             create_commit(repo_path, "feature.py", "def foo(): pass", "Add foo")
@@ -119,12 +61,7 @@ class TestFindFixupCommits:
 
             # Initial commit
             create_commit(repo_path, "README.md", "# Test", "Initial commit")
-            subprocess.run(
-                ["git", "branch", "-M", "main"],
-                cwd=repo_path,
-                check=True,
-                capture_output=True,
-            )
+            run_git(repo_path, "branch", "-M", "main")
             setup_origin_main(repo_path)
 
             # Feature commit
@@ -152,12 +89,7 @@ class TestFindFixupCommits:
             setup_git_repo(repo_path)
 
             create_commit(repo_path, "README.md", "# Test", "Initial commit")
-            subprocess.run(
-                ["git", "branch", "-M", "main"],
-                cwd=repo_path,
-                check=True,
-                capture_output=True,
-            )
+            run_git(repo_path, "branch", "-M", "main")
             setup_origin_main(repo_path)
 
             create_commit(repo_path, "feature.py", "def foo(): pass", "Add foo function")
@@ -182,12 +114,7 @@ class TestFindFixupCommits:
             setup_git_repo(repo_path)
 
             create_commit(repo_path, "README.md", "# Test", "Initial commit")
-            subprocess.run(
-                ["git", "branch", "-M", "main"],
-                cwd=repo_path,
-                check=True,
-                capture_output=True,
-            )
+            run_git(repo_path, "branch", "-M", "main")
             setup_origin_main(repo_path)
 
             # Two feature commits
@@ -215,12 +142,7 @@ class TestSquashFixups:
             setup_git_repo(repo_path)
 
             create_commit(repo_path, "README.md", "# Test", "Initial commit")
-            subprocess.run(
-                ["git", "branch", "-M", "main"],
-                cwd=repo_path,
-                check=True,
-                capture_output=True,
-            )
+            run_git(repo_path, "branch", "-M", "main")
             setup_origin_main(repo_path)
 
             # Feature commit
@@ -235,14 +157,7 @@ class TestSquashFixups:
             )
 
             # Count commits before
-            result = subprocess.run(
-                ["git", "rev-list", "--count", "refs/remotes/origin/main..HEAD"],
-                cwd=repo_path,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            commits_before = int(result.stdout.strip())
+            commits_before = int(run_git(repo_path, "rev-list", "--count", "refs/remotes/origin/main..HEAD").stdout.strip())
             assert commits_before == 2  # feature + fixup
 
             # Squash
@@ -253,14 +168,7 @@ class TestSquashFixups:
             assert result.commits_affected == 1
 
             # Count commits after
-            proc = subprocess.run(
-                ["git", "rev-list", "--count", "refs/remotes/origin/main..HEAD"],
-                cwd=repo_path,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            commits_after = int(proc.stdout.strip())
+            commits_after = int(run_git(repo_path, "rev-list", "--count", "refs/remotes/origin/main..HEAD").stdout.strip())
             assert commits_after == 1  # fixup squashed into feature
 
     def test_returns_success_when_no_fixups(self):
@@ -270,12 +178,7 @@ class TestSquashFixups:
             setup_git_repo(repo_path)
 
             create_commit(repo_path, "README.md", "# Test", "Initial commit")
-            subprocess.run(
-                ["git", "branch", "-M", "main"],
-                cwd=repo_path,
-                check=True,
-                capture_output=True,
-            )
+            run_git(repo_path, "branch", "-M", "main")
             setup_origin_main(repo_path)
 
             create_commit(repo_path, "feature.py", "def foo(): pass", "Add foo")
@@ -293,12 +196,7 @@ class TestSquashFixups:
             setup_git_repo(repo_path)
 
             create_commit(repo_path, "README.md", "# Test", "Initial commit")
-            subprocess.run(
-                ["git", "branch", "-M", "main"],
-                cwd=repo_path,
-                check=True,
-                capture_output=True,
-            )
+            run_git(repo_path, "branch", "-M", "main")
             setup_origin_main(repo_path)
 
             # Feature commit
@@ -317,14 +215,7 @@ class TestSquashFixups:
             assert result.commits_affected == 1  # Both target same commit
 
             # Should be only 1 commit after squash
-            proc = subprocess.run(
-                ["git", "rev-list", "--count", "refs/remotes/origin/main..HEAD"],
-                cwd=repo_path,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            assert int(proc.stdout.strip()) == 1
+            assert int(run_git(repo_path, "rev-list", "--count", "refs/remotes/origin/main..HEAD").stdout.strip()) == 1
 
 
 class TestSquashResult:

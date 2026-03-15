@@ -16,6 +16,8 @@ from maelstrom.worktree import (
     tidy_branches,
 )
 
+from tests.git_helpers import create_commit, run_git, setup_git_repo
+
 
 class TestListLocalBranches:
     """Tests for list_local_branches function."""
@@ -25,38 +27,13 @@ class TestListLocalBranches:
         with TemporaryDirectory() as tmpdir:
             project_path = Path(tmpdir)
 
-            # Initialize git repo
-            subprocess.run(["git", "init"], cwd=project_path, check=True, capture_output=True)
-            subprocess.run(
-                ["git", "config", "user.email", "test@test.com"],
-                cwd=project_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "Test"],
-                cwd=project_path, check=True, capture_output=True
-            )
-
-            # Create initial commit
-            (project_path / "README.md").write_text("# Test")
-            subprocess.run(["git", "add", "."], cwd=project_path, check=True, capture_output=True)
-            subprocess.run(
-                ["git", "commit", "-m", "Initial commit"],
-                cwd=project_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "branch", "-M", "main"],
-                cwd=project_path, check=True, capture_output=True
-            )
+            setup_git_repo(project_path)
+            create_commit(project_path, "README.md", "# Test", "Initial commit")
+            run_git(project_path, "branch", "-M", "main")
 
             # Create feature branches
-            subprocess.run(
-                ["git", "branch", "feature/one"],
-                cwd=project_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "branch", "feature/two"],
-                cwd=project_path, check=True, capture_output=True
-            )
+            run_git(project_path, "branch", "feature/one")
+            run_git(project_path, "branch", "feature/two")
 
             branches = list_local_branches(project_path)
 
@@ -78,25 +55,9 @@ class TestBranchExistsOnRemote:
             source_path = Path(tmpdir) / "source"
             source_path.mkdir()
 
-            subprocess.run(["git", "init"], cwd=source_path, check=True, capture_output=True)
-            subprocess.run(
-                ["git", "config", "user.email", "test@test.com"],
-                cwd=source_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "Test"],
-                cwd=source_path, check=True, capture_output=True
-            )
-            (source_path / "README.md").write_text("# Test")
-            subprocess.run(["git", "add", "."], cwd=source_path, check=True, capture_output=True)
-            subprocess.run(
-                ["git", "commit", "-m", "Initial commit"],
-                cwd=source_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "branch", "-M", "main"],
-                cwd=source_path, check=True, capture_output=True
-            )
+            setup_git_repo(source_path)
+            create_commit(source_path, "README.md", "# Test", "Initial commit")
+            run_git(source_path, "branch", "-M", "main")
 
             # Clone as bare
             subprocess.run(
@@ -110,14 +71,8 @@ class TestBranchExistsOnRemote:
                 ["git", "clone", str(remote_path), str(project_path)],
                 check=True, capture_output=True
             )
-            subprocess.run(
-                ["git", "config", "user.email", "test@test.com"],
-                cwd=project_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "Test"],
-                cwd=project_path, check=True, capture_output=True
-            )
+            run_git(project_path, "config", "user.email", "test@test.com")
+            run_git(project_path, "config", "user.name", "Test")
 
             yield project_path
 
@@ -138,31 +93,12 @@ class TestIsBranchMerged:
         with TemporaryDirectory() as tmpdir:
             project_path = Path(tmpdir)
 
-            subprocess.run(["git", "init"], cwd=project_path, check=True, capture_output=True)
-            subprocess.run(
-                ["git", "config", "user.email", "test@test.com"],
-                cwd=project_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "Test"],
-                cwd=project_path, check=True, capture_output=True
-            )
-            (project_path / "README.md").write_text("# Test")
-            subprocess.run(["git", "add", "."], cwd=project_path, check=True, capture_output=True)
-            subprocess.run(
-                ["git", "commit", "-m", "Initial commit"],
-                cwd=project_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "branch", "-M", "main"],
-                cwd=project_path, check=True, capture_output=True
-            )
+            setup_git_repo(project_path)
+            create_commit(project_path, "README.md", "# Test", "Initial commit")
+            run_git(project_path, "branch", "-M", "main")
 
             # Create branch at same commit
-            subprocess.run(
-                ["git", "branch", "feature/test"],
-                cwd=project_path, check=True, capture_output=True
-            )
+            run_git(project_path, "branch", "feature/test")
 
             assert is_branch_merged(project_path, "feature/test", "main") is True
 
@@ -171,37 +107,13 @@ class TestIsBranchMerged:
         with TemporaryDirectory() as tmpdir:
             project_path = Path(tmpdir)
 
-            subprocess.run(["git", "init"], cwd=project_path, check=True, capture_output=True)
-            subprocess.run(
-                ["git", "config", "user.email", "test@test.com"],
-                cwd=project_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "Test"],
-                cwd=project_path, check=True, capture_output=True
-            )
-            (project_path / "README.md").write_text("# Test")
-            subprocess.run(["git", "add", "."], cwd=project_path, check=True, capture_output=True)
-            subprocess.run(
-                ["git", "commit", "-m", "Initial commit"],
-                cwd=project_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "branch", "-M", "main"],
-                cwd=project_path, check=True, capture_output=True
-            )
+            setup_git_repo(project_path)
+            create_commit(project_path, "README.md", "# Test", "Initial commit")
+            run_git(project_path, "branch", "-M", "main")
 
             # Create branch and add commit
-            subprocess.run(
-                ["git", "checkout", "-b", "feature/test"],
-                cwd=project_path, check=True, capture_output=True
-            )
-            (project_path / "new.txt").write_text("new")
-            subprocess.run(["git", "add", "."], cwd=project_path, check=True, capture_output=True)
-            subprocess.run(
-                ["git", "commit", "-m", "New commit"],
-                cwd=project_path, check=True, capture_output=True
-            )
+            run_git(project_path, "checkout", "-b", "feature/test")
+            create_commit(project_path, "new.txt", "new", "New commit")
 
             assert is_branch_merged(project_path, "feature/test", "main") is False
 
@@ -214,29 +126,10 @@ class TestDeleteBranch:
         with TemporaryDirectory() as tmpdir:
             project_path = Path(tmpdir)
 
-            subprocess.run(["git", "init"], cwd=project_path, check=True, capture_output=True)
-            subprocess.run(
-                ["git", "config", "user.email", "test@test.com"],
-                cwd=project_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "Test"],
-                cwd=project_path, check=True, capture_output=True
-            )
-            (project_path / "README.md").write_text("# Test")
-            subprocess.run(["git", "add", "."], cwd=project_path, check=True, capture_output=True)
-            subprocess.run(
-                ["git", "commit", "-m", "Initial commit"],
-                cwd=project_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "branch", "-M", "main"],
-                cwd=project_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "branch", "feature/test"],
-                cwd=project_path, check=True, capture_output=True
-            )
+            setup_git_repo(project_path)
+            create_commit(project_path, "README.md", "# Test", "Initial commit")
+            run_git(project_path, "branch", "-M", "main")
+            run_git(project_path, "branch", "feature/test")
 
             local_deleted, remote_deleted = delete_branch(project_path, "feature/test")
 
@@ -263,25 +156,9 @@ class TestTidyBranchesIntegration:
             source_path.mkdir()
 
             # Initialize source repo with a commit
-            subprocess.run(["git", "init"], cwd=source_path, check=True, capture_output=True)
-            subprocess.run(
-                ["git", "config", "user.email", "test@test.com"],
-                cwd=source_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "Test"],
-                cwd=source_path, check=True, capture_output=True
-            )
-            (source_path / "README.md").write_text("# Test")
-            subprocess.run(["git", "add", "."], cwd=source_path, check=True, capture_output=True)
-            subprocess.run(
-                ["git", "commit", "-m", "Initial commit"],
-                cwd=source_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "branch", "-M", "main"],
-                cwd=source_path, check=True, capture_output=True
-            )
+            setup_git_repo(source_path)
+            create_commit(source_path, "README.md", "# Test", "Initial commit")
+            run_git(source_path, "branch", "-M", "main")
 
             # Clone as bare to create the remote
             subprocess.run(
@@ -301,38 +178,20 @@ class TestTidyBranchesIntegration:
             )
 
             # Configure the bare repo to work with worktrees
-            subprocess.run(
-                ["git", "config", "core.bare", "false"],
-                cwd=project_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
-                cwd=project_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "config", "user.email", "test@test.com"],
-                cwd=project_path, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "Test"],
-                cwd=project_path, check=True, capture_output=True
-            )
+            run_git(project_path, "config", "core.bare", "false")
+            run_git(project_path, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+            run_git(project_path, "config", "user.email", "test@test.com")
+            run_git(project_path, "config", "user.name", "Test")
 
             # Fetch to get remote tracking refs
-            subprocess.run(
-                ["git", "fetch", "origin"],
-                cwd=project_path, check=True, capture_output=True
-            )
+            run_git(project_path, "fetch", "origin")
 
             yield project_path
 
     def test_tidy_deletes_merged_branch(self, git_repo_with_remote):
         """Test that a branch at the same commit as main is deleted."""
         # Create a branch at the same commit as main (merged)
-        subprocess.run(
-            ["git", "branch", "feature/merged"],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
+        run_git(git_repo_with_remote, "branch", "feature/merged")
 
         # Verify branch exists
         branches_before = list_local_branches(git_repo_with_remote)
@@ -374,24 +233,10 @@ class TestTidyBranchesIntegration:
     def test_tidy_rebases_local_only_branch(self, git_repo_with_remote):
         """Test that a local-only branch with commits is rebased but not pushed."""
         # Create a branch with a commit
-        subprocess.run(
-            ["git", "checkout", "-b", "feature/local-only"],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
-        (git_repo_with_remote / "local.txt").write_text("local change")
-        subprocess.run(
-            ["git", "add", "."],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
-        subprocess.run(
-            ["git", "commit", "-m", "Local commit"],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
+        run_git(git_repo_with_remote, "checkout", "-b", "feature/local-only")
+        create_commit(git_repo_with_remote, "local.txt", "local change", "Local commit")
         # Checkout a detached state so we're not on the branch
-        subprocess.run(
-            ["git", "checkout", "--detach", "origin/main"],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
+        run_git(git_repo_with_remote, "checkout", "--detach", "origin/main")
 
         # Run tidy
         results = tidy_branches(git_repo_with_remote)
@@ -409,28 +254,11 @@ class TestTidyBranchesIntegration:
     def test_tidy_pushes_branch_with_remote(self, git_repo_with_remote):
         """Test that a branch with remote is rebased and pushed."""
         # Create a branch with a commit and push it
-        subprocess.run(
-            ["git", "checkout", "-b", "feature/with-remote"],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
-        (git_repo_with_remote / "remote.txt").write_text("remote change")
-        subprocess.run(
-            ["git", "add", "."],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
-        subprocess.run(
-            ["git", "commit", "-m", "Remote commit"],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
-        subprocess.run(
-            ["git", "push", "-u", "origin", "feature/with-remote"],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
+        run_git(git_repo_with_remote, "checkout", "-b", "feature/with-remote")
+        create_commit(git_repo_with_remote, "remote.txt", "remote change", "Remote commit")
+        run_git(git_repo_with_remote, "push", "-u", "origin", "feature/with-remote")
         # Checkout detached to not be on the branch
-        subprocess.run(
-            ["git", "checkout", "--detach", "origin/main"],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
+        run_git(git_repo_with_remote, "checkout", "--detach", "origin/main")
 
         # Run tidy
         results = tidy_branches(git_repo_with_remote)
@@ -448,43 +276,15 @@ class TestTidyBranchesIntegration:
     def test_tidy_skips_branch_with_conflicts(self, git_repo_with_remote):
         """Test that a branch with rebase conflicts is skipped."""
         # Create a commit on main first
-        subprocess.run(
-            ["git", "checkout", "main"],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
-        (git_repo_with_remote / "conflict.txt").write_text("main version")
-        subprocess.run(
-            ["git", "add", "."],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
-        subprocess.run(
-            ["git", "commit", "-m", "Main commit"],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
-        subprocess.run(
-            ["git", "push", "origin", "main"],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
+        run_git(git_repo_with_remote, "checkout", "main")
+        create_commit(git_repo_with_remote, "conflict.txt", "main version", "Main commit")
+        run_git(git_repo_with_remote, "push", "origin", "main")
 
         # Create a branch from before that commit with a conflicting change
-        subprocess.run(
-            ["git", "checkout", "-b", "feature/conflict", "origin/main~1"],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
-        (git_repo_with_remote / "conflict.txt").write_text("branch version")
-        subprocess.run(
-            ["git", "add", "."],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
-        subprocess.run(
-            ["git", "commit", "-m", "Conflicting commit"],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
+        run_git(git_repo_with_remote, "checkout", "-b", "feature/conflict", "origin/main~1")
+        create_commit(git_repo_with_remote, "conflict.txt", "branch version", "Conflicting commit")
         # Checkout detached
-        subprocess.run(
-            ["git", "checkout", "--detach", "origin/main"],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
+        run_git(git_repo_with_remote, "checkout", "--detach", "origin/main")
 
         # Run tidy
         results = tidy_branches(git_repo_with_remote)
@@ -502,14 +302,8 @@ class TestTidyBranchesIntegration:
     def test_tidy_deletes_remote_branch_when_merged(self, git_repo_with_remote):
         """Test that remote branch is also deleted when local is merged."""
         # Create and push a branch
-        subprocess.run(
-            ["git", "branch", "feature/merged-remote"],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
-        subprocess.run(
-            ["git", "push", "-u", "origin", "feature/merged-remote"],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
+        run_git(git_repo_with_remote, "branch", "feature/merged-remote")
+        run_git(git_repo_with_remote, "push", "-u", "origin", "feature/merged-remote")
 
         # Verify remote branch exists
         assert branch_exists_on_remote(git_repo_with_remote, "feature/merged-remote") is True
@@ -522,10 +316,7 @@ class TestTidyBranchesIntegration:
         assert "feature/merged-remote" not in branches
 
         # Refresh remote refs
-        subprocess.run(
-            ["git", "fetch", "origin", "--prune"],
-            cwd=git_repo_with_remote, check=True, capture_output=True
-        )
+        run_git(git_repo_with_remote, "fetch", "origin", "--prune")
         assert branch_exists_on_remote(git_repo_with_remote, "feature/merged-remote") is False
 
         # Verify result

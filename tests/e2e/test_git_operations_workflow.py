@@ -17,11 +17,7 @@ from maelstrom.worktree import (
 )
 
 from .conftest import create_commit, run_git, setup_git_repo
-
-
-def setup_origin_main(repo_path):
-    """Create refs/remotes/origin/main pointing to HEAD."""
-    run_git(repo_path, "update-ref", "refs/remotes/origin/main", "HEAD")
+from tests.git_helpers import setup_origin_main
 
 
 @pytest.mark.e2e

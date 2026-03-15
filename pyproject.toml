@@ -41,6 +41,7 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
     "e2e: end-to-end tests that spawn real processes or use real git repos",
+    "slow: tests that take >10s (skip with -m 'not slow')",
 ]
 
 [dependency-groups]
