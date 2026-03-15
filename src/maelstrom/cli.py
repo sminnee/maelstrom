@@ -52,7 +52,7 @@ from .worktree import (
     start_claude_session,
     sync_worktree,
     tidy_branches,
-    update_claude_md,
+    update_claude_local_md,
 )
 
 
@@ -319,9 +319,10 @@ def cmd_add(branch, project, open, no_recycle):
     else:
         click.echo(f"Worktree created at: {worktree_path}")
 
-    # Update CLAUDE.md with maelstrom workflow instructions
-    if update_claude_md(worktree_path):
-        click.echo("CLAUDE.md updated with maelstrom workflow instructions")
+    # Generate .claude/CLAUDE.local.md with maelstrom workflow instructions
+    wt_name = extract_worktree_name_from_folder(ctx.project, worktree_path.name)
+    if wt_name and update_claude_local_md(project_path, worktree_path, wt_name):
+        click.echo(".claude/CLAUDE.local.md generated with maelstrom workflow instructions")
 
     # Check if .env was created/exists
     env_file = worktree_path / ".env"

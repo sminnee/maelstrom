@@ -9,8 +9,6 @@ import pytest
 from unittest.mock import patch
 
 from maelstrom.worktree import (
-    CLAUDE_HEADER_END,
-    CLAUDE_HEADER_STARTS,
     ENV_SECTION_END,
     ENV_SECTION_START,
     MAIN_BRANCH,
@@ -39,7 +37,7 @@ from maelstrom.worktree import (
     resolve_worktree_shortcode,
     run_install_cmd,
     sanitize_branch_name,
-    update_claude_md,
+    update_claude_local_md,
     write_env_file,
 )
 from maelstrom.ports import (
@@ -983,60 +981,155 @@ class TestRecycleWorktreeIntegration:
         remove_worktree_by_path(git_repo_with_remote, worktree_alpha.name)
 
 
-class TestUpdateClaudeMd:
-    """Tests for update_claude_md function."""
+class TestUpdateClaudeLocalMd:
+    """Tests for update_claude_local_md function."""
 
-    def test_creates_claude_md_with_valid_snippet(self, tmp_path):
-        """Test that update_claude_md works with the real template.
+    def test_creates_claude_local_md(self, tmp_path, monkeypatch):
+        """Test that update_claude_local_md generates .claude/CLAUDE.local.md."""
+        # Set up project structure: project_path/projectname-alpha
+        project_path = tmp_path / "myproject"
+        project_path.mkdir()
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir()
 
-        This test will fail if shared/claude-header.md doesn't have valid markers.
-        The validation in update_claude_md checks that the snippet starts with
-        one of CLAUDE_HEADER_STARTS and ends with CLAUDE_HEADER_END.
-        """
-        # Call update_claude_md - it uses the real shared/claude-header.md
-        result = update_claude_md(tmp_path)
+        # Mock get_app_url to return None (no web port)
+        monkeypatch.setattr("maelstrom.ports.get_app_url", lambda *a: None)
 
-        # Should return True (file was created)
+        result = update_claude_local_md(project_path, worktree_path, "alpha")
+
         assert result is True
 
-        # Verify the file was created
-        claude_md = tmp_path / "CLAUDE.md"
-        assert claude_md.exists()
+        local_md = worktree_path / ".claude" / "CLAUDE.local.md"
+        assert local_md.exists()
 
-        # Verify content has the expected markers
-        content = claude_md.read_text()
-        has_valid_start = any(marker in content for marker in CLAUDE_HEADER_STARTS)
-        assert has_valid_start, "CLAUDE.md should contain a valid start marker"
-        assert CLAUDE_HEADER_END in content, "CLAUDE.md should contain the end marker"
+        content = local_md.read_text()
+        assert "Always load the `/mael` skill" in content
+        assert "## Environment" in content
+        assert str(worktree_path) in content
+        assert "app URL" not in content
 
-    def test_replaces_old_style_marker(self, tmp_path):
-        """Test that old-style '# Maelstrom-based workflow' marker is detected and replaced."""
-        # Create a CLAUDE.md with old-style marker
-        claude_md = tmp_path / "CLAUDE.md"
-        old_content = """# Project README
+    def test_includes_app_url_when_available(self, tmp_path, monkeypatch):
+        """Test that app URL is included when the project has a web port."""
+        project_path = tmp_path / "myproject"
+        project_path.mkdir()
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir()
 
-Some existing content.
+        monkeypatch.setattr(
+            "maelstrom.ports.get_app_url",
+            lambda *a: ("http://localhost:3010", False),
+        )
 
-# Maelstrom-based workflow
+        result = update_claude_local_md(project_path, worktree_path, "alpha")
 
-Old workflow instructions here.
-
-(maelstrom instructions end)
-
-More content after.
-"""
-        claude_md.write_text(old_content)
-
-        # Call update_claude_md - should detect and replace the old section
-        result = update_claude_md(tmp_path)
-
-        # Should return True (file was modified)
         assert result is True
 
-        # Verify the new content has the current style marker
-        content = claude_md.read_text()
-        assert "# Maelstrom Workflow" in content
-        assert "More content after." in content  # Content after marker preserved
+        content = (worktree_path / ".claude" / "CLAUDE.local.md").read_text()
+        assert "The app URL is http://localhost:3010" in content
+
+    def test_overwrites_existing_file(self, tmp_path, monkeypatch):
+        """Test that the file is regenerated on every call."""
+        project_path = tmp_path / "myproject"
+        project_path.mkdir()
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir()
+
+        monkeypatch.setattr("maelstrom.ports.get_app_url", lambda *a: None)
+
+        # Write an old file
+        claude_dir = worktree_path / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "CLAUDE.local.md").write_text("old content")
+
+        result = update_claude_local_md(project_path, worktree_path, "alpha")
+
+        assert result is True
+        content = (claude_dir / "CLAUDE.local.md").read_text()
+        assert "old content" not in content
+        assert "Always load the `/mael` skill" in content
+
+    def test_adds_import_to_existing_claude_md(self, tmp_path, monkeypatch):
+        """Test that @.claude/CLAUDE.local.md is prepended to CLAUDE.md."""
+        project_path = tmp_path / "myproject"
+        project_path.mkdir()
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir()
+
+        monkeypatch.setattr("maelstrom.ports.get_app_url", lambda *a: None)
+
+        # Create a CLAUDE.md without the import
+        (worktree_path / "CLAUDE.md").write_text("# My Project\n\nSome docs.\n")
+
+        update_claude_local_md(project_path, worktree_path, "alpha")
+
+        content = (worktree_path / "CLAUDE.md").read_text()
+        assert content.startswith("@.claude/CLAUDE.local.md\n")
+        assert "# My Project" in content
+
+    def test_does_not_duplicate_import(self, tmp_path, monkeypatch):
+        """Test that import line is not added if already present."""
+        project_path = tmp_path / "myproject"
+        project_path.mkdir()
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir()
+
+        monkeypatch.setattr("maelstrom.ports.get_app_url", lambda *a: None)
+
+        original = "@.claude/CLAUDE.local.md\n\n# My Project\n"
+        (worktree_path / "CLAUDE.md").write_text(original)
+
+        update_claude_local_md(project_path, worktree_path, "alpha")
+
+        content = (worktree_path / "CLAUDE.md").read_text()
+        assert content.count("@.claude/CLAUDE.local.md") == 1
+
+    def test_adds_gitignore_entry(self, tmp_path, monkeypatch):
+        """Test that .claude/CLAUDE.local.md is added to .gitignore."""
+        project_path = tmp_path / "myproject"
+        project_path.mkdir()
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir()
+
+        monkeypatch.setattr("maelstrom.ports.get_app_url", lambda *a: None)
+
+        # Create a .gitignore without the entry
+        (worktree_path / ".gitignore").write_text(".env\nnode_modules/\n")
+
+        update_claude_local_md(project_path, worktree_path, "alpha")
+
+        content = (worktree_path / ".gitignore").read_text()
+        assert ".claude/CLAUDE.local.md" in content.splitlines()
+
+    def test_does_not_duplicate_gitignore_entry(self, tmp_path, monkeypatch):
+        """Test that .gitignore entry is not duplicated."""
+        project_path = tmp_path / "myproject"
+        project_path.mkdir()
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir()
+
+        monkeypatch.setattr("maelstrom.ports.get_app_url", lambda *a: None)
+
+        (worktree_path / ".gitignore").write_text(".env\n.claude/CLAUDE.local.md\n")
+
+        update_claude_local_md(project_path, worktree_path, "alpha")
+
+        content = (worktree_path / ".gitignore").read_text()
+        assert content.count(".claude/CLAUDE.local.md") == 1
+
+    def test_creates_gitignore_if_missing(self, tmp_path, monkeypatch):
+        """Test that .gitignore is created if it doesn't exist."""
+        project_path = tmp_path / "myproject"
+        project_path.mkdir()
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir()
+
+        monkeypatch.setattr("maelstrom.ports.get_app_url", lambda *a: None)
+
+        update_claude_local_md(project_path, worktree_path, "alpha")
+
+        gitignore = worktree_path / ".gitignore"
+        assert gitignore.exists()
+        assert ".claude/CLAUDE.local.md" in gitignore.read_text().splitlines()
 
 
 class TestReclaimOrAllocatePorts:

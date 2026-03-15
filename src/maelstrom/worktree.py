@@ -54,10 +54,6 @@ ENV_SECTION_END = "# End Maelstrom port allocations"
 # Main branch name (hardcoded - no master support)
 MAIN_BRANCH = "main"
 
-# Markers for maelstrom workflow section in CLAUDE.md
-# Support both old and new style start markers for detection
-CLAUDE_HEADER_STARTS = ("# Maelstrom Workflow", "# Maelstrom-based workflow")
-CLAUDE_HEADER_END = "(maelstrom instructions end)"
 
 
 @dataclass
@@ -614,8 +610,11 @@ def recycle_worktree(worktree_path: Path, branch: str) -> Path:
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to switch to branch {branch}: {e.stderr}")
 
-    # Update CLAUDE.md if needed
-    update_claude_md(worktree_path)
+    # Update .claude/CLAUDE.local.md
+    project_path = worktree_path.parent
+    wt_name = extract_worktree_name_from_folder(project_path.name, worktree_path.name)
+    if wt_name:
+        update_claude_local_md(project_path, worktree_path, wt_name)
 
     _setup_claude_settings_symlink(worktree_path)
 
@@ -1407,118 +1406,102 @@ def start_claude_session(
     os.execvp("claude", ["claude"])
 
 
-def _find_claude_header_start(content: str) -> tuple[str, int] | None:
-    """Find the first occurrence of any valid header start marker.
+CLAUDE_LOCAL_IMPORT = "@.claude/CLAUDE.local.md"
 
-    Returns tuple of (marker, index) or None if not found.
+
+def _ensure_claude_md_import(worktree_path: Path) -> None:
+    """Ensure CLAUDE.md has an @.claude/CLAUDE.local.md import on its first line.
+
+    If CLAUDE.md doesn't exist, does nothing (the import only makes sense
+    when there's already a CLAUDE.md to add it to).
     """
-    for marker in CLAUDE_HEADER_STARTS:
-        idx = content.find(marker)
-        if idx != -1:
-            return (marker, idx)
-    return None
+    claude_md = worktree_path / "CLAUDE.md"
+    if not claude_md.exists():
+        return
+
+    content = claude_md.read_text()
+    if CLAUDE_LOCAL_IMPORT in content:
+        return
+
+    claude_md.write_text(CLAUDE_LOCAL_IMPORT + "\n\n" + content)
 
 
-def _validate_claude_snippet(content: str) -> None:
-    """Validate that the snippet has expected start and end markers.
+def _ensure_gitignore_entry(worktree_path: Path, entry: str) -> None:
+    """Ensure .gitignore contains the given entry.
 
-    Raises ValueError if the snippet doesn't start with one of the valid
-    start markers or doesn't end with the expected end marker.
+    Appends the entry if it's not already present. Creates .gitignore if needed.
     """
-    trimmed = content.strip()
-
-    # Check start marker - must start with one of the valid markers
-    starts_valid = any(trimmed.startswith(marker) for marker in CLAUDE_HEADER_STARTS)
-    if not starts_valid:
-        raise ValueError(
-            f"Snippet must start with one of: {CLAUDE_HEADER_STARTS}, "
-            f"but starts with: {trimmed[:50]!r}"
-        )
-
-    # Check end marker
-    if not trimmed.endswith(CLAUDE_HEADER_END):
-        raise ValueError(
-            f"Snippet must end with {CLAUDE_HEADER_END!r}, "
-            f"but ends with: {trimmed[-50:]!r}"
-        )
+    gitignore = worktree_path / ".gitignore"
+    if gitignore.exists():
+        content = gitignore.read_text()
+        if entry in content.splitlines():
+            return
+        # Ensure trailing newline before appending
+        if content and not content.endswith("\n"):
+            content += "\n"
+        gitignore.write_text(content + entry + "\n")
+    else:
+        gitignore.write_text(entry + "\n")
 
 
-def update_claude_md(worktree_path: Path) -> bool:
-    """Update CLAUDE.md with maelstrom workflow instructions.
+def update_claude_local_md(
+    project_path: Path, worktree_path: Path, worktree_name: str
+) -> bool:
+    """Generate .claude/CLAUDE.local.md with maelstrom workflow instructions.
 
-    Checks the worktree's CLAUDE.md file and ensures it contains the
-    maelstrom workflow section. Handles three cases:
-    - File doesn't exist: creates new file with header content
-    - File exists without markers: appends header content
-    - File exists with markers: replaces content between markers if outdated
+    Creates (or overwrites) a gitignored .claude/CLAUDE.local.md file containing
+    the maelstrom workflow header and environment information (worktree path,
+    app URL if applicable).
 
     Args:
+        project_path: Path to the project root (bare repo).
         worktree_path: Path to the worktree directory.
+        worktree_name: NATO phonetic name of the worktree (e.g., "alpha").
 
     Returns:
-        True if the file was created or modified, False if already up to date.
-
-    Raises:
-        ValueError: If the header template doesn't have valid markers.
+        True if the file was written, False if the header template is missing.
     """
+    from .ports import get_app_url
+
     # Get the header template content
     try:
         shared_dir = get_shared_dir()
         header_file = shared_dir / "claude-header.md"
         if not header_file.exists():
             return False
-        header_content = header_file.read_text()
+        header_content = header_file.read_text().rstrip()
     except FileNotFoundError:
         return False
 
-    # Validate the snippet has correct markers
-    _validate_claude_snippet(header_content)
+    # Build environment section
+    env_lines = [
+        "",
+        "## Environment",
+        "",
+        f"The current working directory is {worktree_path}",
+    ]
 
-    claude_md_path = worktree_path / "CLAUDE.md"
+    app_url_result = get_app_url(project_path, worktree_name)
+    if app_url_result is not None:
+        url, _ = app_url_result
+        env_lines.append("")
+        env_lines.append(f"The app URL is {url}")
 
-    # Case 1: File doesn't exist - create it with only the header
-    if not claude_md_path.exists():
-        claude_md_path.write_text(header_content)
-        return True
+    content = header_content + "\n" + "\n".join(env_lines) + "\n"
 
-    existing_content = claude_md_path.read_text()
+    # Write .claude/CLAUDE.local.md
+    claude_dir = worktree_path / ".claude"
+    claude_dir.mkdir(exist_ok=True)
+    local_md_path = claude_dir / "CLAUDE.local.md"
+    local_md_path.write_text(content)
 
-    # Check if markers are present
-    start_match = _find_claude_header_start(existing_content)
-    has_start = start_match is not None
-    has_end = CLAUDE_HEADER_END in existing_content
+    # Ensure CLAUDE.md imports the local file
+    _ensure_claude_md_import(worktree_path)
 
-    # Case 2: No markers - append to end
-    if not has_start and not has_end:
-        new_content = existing_content.rstrip() + "\n\n" + header_content
-        claude_md_path.write_text(new_content)
-        return True
+    # Ensure .gitignore excludes the generated file
+    _ensure_gitignore_entry(worktree_path, ".claude/CLAUDE.local.md")
 
-    # Case 3: Markers present - check if up to date and replace if needed
-    if has_start and has_end:
-        # Extract the existing section
-        _, start_idx = start_match
-        end_idx = existing_content.find(CLAUDE_HEADER_END) + len(CLAUDE_HEADER_END)
-
-        existing_section = existing_content[start_idx:end_idx]
-        new_section = header_content.strip()
-
-        # Check if content is already up to date
-        if existing_section.strip() == new_section:
-            return False
-
-        # Replace the section
-        new_content = existing_content[:start_idx] + new_section + existing_content[end_idx:]
-        claude_md_path.write_text(new_content)
-        return True
-
-    # Partial markers (unusual case) - append to be safe
-    if has_start != has_end:
-        new_content = existing_content.rstrip() + "\n\n" + header_content
-        claude_md_path.write_text(new_content)
-        return True
-
-    return False
+    return True
 
 
 def list_local_branches(project_path: Path) -> list[str]:
