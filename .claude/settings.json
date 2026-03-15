@@ -6,7 +6,8 @@
       "Bash(pnpm lint:*)",
       "Bash(pnpm test:*)",
       "Bash(git add:*)",
-      "Bash(bin/lint:*)"
+      "Bash(bin/lint:*)",
+      "Bash(printf:*)"
     ]
   }
 }
