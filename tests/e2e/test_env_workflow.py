@@ -23,6 +23,7 @@ from .conftest import assert_process_dead, wait_for, write_procfile
 
 
 @pytest.mark.e2e
+@pytest.mark.slow
 class TestSingleEnvWorkflow:
     """Full single-worktree workflow: start → status → logs → stop."""
 
@@ -188,6 +189,7 @@ class TestSingleEnvWorkflow:
 
 
 @pytest.mark.e2e
+@pytest.mark.slow
 class TestMultiEnvWorkflow:
     """Multi-worktree workflow: shared services, listing, stop-all."""
 

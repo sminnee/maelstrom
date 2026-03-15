@@ -3,7 +3,6 @@
 import json
 import os
 import signal
-import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +12,8 @@ from click.testing import CliRunner
 
 from maelstrom.context import GlobalConfig
 from maelstrom.worktree import add_project, get_worktree_folder_name
+
+from tests.git_helpers import create_commit, run_git, setup_git_repo
 
 
 # --- Helpers ---
@@ -48,33 +49,6 @@ def assert_process_dead(pid, timeout=5.0):
             return
         time.sleep(0.1)
     raise AssertionError(f"Process {pid} still alive after {timeout}s")
-
-
-def run_git(cwd, *args, check=True):
-    """Run a git command and return CompletedProcess."""
-    return subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        check=check,
-        capture_output=True,
-        text=True,
-    )
-
-
-def setup_git_repo(path):
-    """Initialize a git repo with user config."""
-    run_git(path, "init")
-    run_git(path, "config", "user.email", "test@test.com")
-    run_git(path, "config", "user.name", "Test")
-
-
-def create_commit(path, filename, content, message):
-    """Create a file, stage, and commit. Return SHA."""
-    (path / filename).write_text(content)
-    run_git(path, "add", filename)
-    run_git(path, "commit", "-m", message)
-    result = run_git(path, "rev-parse", "HEAD")
-    return result.stdout.strip()
 
 
 def write_procfile(worktree_path, services):

@@ -7,7 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Use `uv run` to execute commands in the project's virtual environment:
 
 ```bash
-uv run pytest                      # Run all tests
+uv run pytest -m 'not slow'        # Skip slow e2e tests (recommended for dev)
+uv run pytest                      # Run all tests including slow ones
 uv run pytest tests/test_ports.py  # Run a single test file
 uv run pytest -k "test_name"       # Run tests matching a pattern
 uv run pytest --cov=maelstrom      # Run with coverage
