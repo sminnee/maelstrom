@@ -5,860 +5,155 @@ description: "Git workflow, commits, PRs, branches. Also Linear tasks, Sentry de
 
 # Maelstrom CLI Skill
 
-This skill provides CLI commands for managing Linear tasks, querying Sentry issues, handling git/GitHub workflows, and managing dev environments directly from Claude Code.
+**All `mael` and `git` commands require `dangerouslyDisableSandbox: true`** — they need network access and git write access.
 
-**IMPORTANT: All `mael` and `git` commands must be run with the sandbox disabled** (`dangerouslyDisableSandbox: true`). These commands need network access (GitHub, Linear APIs) and write access to git internals that the sandbox blocks.
+**Prefer `mael` commands over raw `git`/`gh`** — they handle worktree context, Linear integration, and status transitions automatically. Use `mael git status` not `git status`, `mael sync` not `git pull --rebase`, `mael gh create-pr` not `gh pr create`, `mael gh read-pr` not `gh pr view`, etc.
 
-## Core Workflows
+## Planning Work
 
-### Task-Based Development (with Linear)
-
-For tasks that need planning first:
-
-1. `/plan-task PROJ-XXX` - Research and create implementation plan (plan mode required)
-2. `/continue-task PROJ-XXX` - Read plan from Linear and implement
-
-For large tasks that need multiple sessions:
-
-1. `/plan-task PROJ-XXX` - Creates a multi-session plan with overall goal and first iteration
-2. `/continue-task PROJ-XXX` - Executes one iteration, writes progress report, creates/updates PR
-3. `/continue-task PROJ-XXX` - Reads progress, plans next iteration (repeat until complete)
-
-For large tasks that need subtask breakdown:
-
-1. `/create-subtasks PROJ-XXX` - Research and break down into subtasks (plan mode required)
-2. `/continue-task` - Pick up the first subtask and start implementation
-
-For standard tasks:
-
-| Step | Action | Command |
-|------|--------|---------|
-| 1 | Pick up task | `/continue-task PROJ-XXX` |
-| 2 | Sync with main | `mael sync` |
-| 3 | Implement & test | (your work) |
-| 4 | Commit changes | `git add . && git commit -m "..."` |
-| 5 | Create PR & submit | `mael gh create-pr PROJ-XXX` |
-
-### Code Review Before PR
-
-Use `/review-branch` to review your changes before creating a PR:
-
-| Step | Action | Command |
-|------|--------|---------|
-| 1 | Review branch | `/review-branch` (plan mode required) |
-| 2 | Fix issues | Edit code, then `git commit --fixup=<sha>` |
-| 3 | Confirm fixes | User reviews fixup commits |
-| 4 | Squash commits | `mael review squash` |
-| 5 | Create PR | `mael gh create-pr` |
-
-### Git-Only Workflow (without Linear)
-
-For quick changes without task tracking:
-
-| Step | Action | Command |
-|------|--------|---------|
-| 1 | Sync with main | `mael sync` |
-| 2 | Make changes | (your work) |
-| 3 | Review changes | `mael gh show-code --uncommitted` |
-| 4 | Commit | `git add <files> && git commit -m "..."` |
-| 5 | Create/update PR | `mael gh create-pr` |
-| 6 | Check PR status | `mael gh read-pr` |
-
-### Quick Reference: Common Commands
-
-| Task | Command |
-|------|---------|
-| Quick git status summary | `mael git status` |
-| Sync branch with main | `mael sync` |
-| View uncommitted changes | `mael gh show-code --uncommitted` |
-| View all branch changes | `mael gh show-code --committed` |
-| Create or update PR | `mael gh create-pr [ISSUE_ID]` |
-| Check PR status & CI | `mael gh read-pr` |
-| List tasks in cycle | `mael linear list-tasks` |
-| Read task details | `mael linear read-task PROJ-XXX` |
-| Write plan to task | `mael linear write-plan PROJ-XXX plan.md` |
-| Read plan from task | `mael linear read-plan PROJ-XXX` |
-| Start environment | `mael env start` |
-| Check environment status | `mael env status` |
-| Stop environment | `mael env stop` |
-| List project environments | `mael env list` |
-| List all environments | `mael env list-all` |
-| Start working on task | `mael linear start-task PROJ-XXX` |
-| Mark task complete | `mael linear complete-task PROJ-XXX` |
-| Add comment to task | `mael linear add-comment PROJ-XXX file.md` |
-| Release all unreleased tasks | `mael linear release` |
-| Set workspace status | `mael status set "TEXT"` |
-| Clear workspace status | `mael status clear` |
-
-## Prerequisites
-
-### GitHub CLI
-
-Install and authenticate the GitHub CLI (`gh`) for git/GitHub commands:
-```bash
-brew install gh
-gh auth login
-```
-
-### Environment Variables
-
-Set these in your project's `.env` file:
-
-- `LINEAR_API_KEY` - Linear API key (required for Linear commands)
-- `SENTRY_API_KEY` - Sentry auth token with `event:read` scope (required for Sentry commands)
-
-### Configuration
-
-Add integration settings to your project's `.maelstrom.yaml`:
-
-```yaml
-# Linear integration
-linear:
-  team_id: "your-team-uuid-here"
-  workspace_labels:  # Optional: custom labels for worktrees
-    - alpha
-    - bravo
-    - charlie
-  product_label: "YourProduct"  # Optional: auto-assigned to tasks
-
-# Sentry integration
-sentry_org: "your-org-slug"
-sentry_project: "your-project-id"
-```
-
-## Linear Commands
-
-### mael linear list-tasks
-
-List tasks in the current cycle.
+Research the task, write a plan, and break it down if needed.
 
 ```bash
-mael linear list-tasks [--status STATUS]
+mael linear read-task PROJ-XXX                          # Read task details, subtasks, comments
+mael linear list-tasks [--status STATUS]                # List tasks in current cycle
 ```
 
-**Options:**
-- `--status`: Filter by status name (partial match, case-insensitive)
-
-**Examples:**
+**Write a plan** to the task description (replaces any existing plan, updates status to "Planned"):
 ```bash
-# List all tasks in current cycle
-mael linear list-tasks
-
-# List only in-progress tasks
-mael linear list-tasks --status "In Progress"
+mael linear write-plan PROJ-XXX plan.md
+mael linear read-plan PROJ-XXX                          # Read it back later
 ```
 
-### mael linear read-task
-
-Read task details as markdown, including subtasks and Sentry issues.
-
+**Break down large tasks** into subtasks (inherit parent's cycle):
 ```bash
-mael linear read-task <issue-id>
+mael linear create-subtask PROJ-XXX "Phase 1: title" "description"
 ```
 
-**Arguments:**
-- `issue-id`: Linear issue identifier (e.g., PROJ-123)
+**Create standalone tasks** (not linked to a parent):
+```bash
+mael linear create-task "title" "description"
+```
 
-**Output includes:**
-- Title, status, parent (if subtask), cycle, labels
-- Full description
-- List of subtasks with completion status
-- Comments
-- Attachments (Sentry links automatically fetch issue details)
+Slash commands for assisted planning:
+- `/plan-task PROJ-XXX` — research and create implementation plan (plan mode required)
+- `/create-subtasks PROJ-XXX` — research and break into subtasks (plan mode required)
 
-### mael linear start-task
-
-Start working on a task. Sets status to "In Progress" and adds worktree label.
+## Doing Work
 
 ```bash
-mael linear start-task <issue-id>
+mael sync                                # Rebase on origin/main before starting
+mael linear start-task PROJ-XXX          # Set "In Progress", add worktree label
 ```
 
-**Behavior:**
-- Sets task status to "In Progress"
-- Detects worktree from current directory (alpha, bravo, etc.)
-- Adds worktree name as label, removes other worktree labels
-- If task is a subtask, also updates parent task with same status/label
+Then implement. Run project checks from CLAUDE.md (tests, linting, typecheck).
 
-### mael linear complete-task
+For multi-session tasks, use `/continue-task PROJ-XXX` — it reads the plan/progress from Linear, executes one iteration, writes a progress report, and creates/updates the PR.
 
-Mark a task as complete.
+## Testing Work
+
+**Stop environments during heavy editing** — file watchers trigger constant rebuilds. Restart when ready to test.
 
 ```bash
-mael linear complete-task <issue-id>
+mael env stop                            # Stop before multi-file edits
+# ... make changes ...
+mael env start                           # Start services (runs install_cmd first)
+mael env start --skip-install            # Skip install_cmd
+mael env status                          # Check service status
+mael env list                            # Running environments for this project
+mael env list-all                        # All running environments
 ```
 
-**Behavior:**
-- Subtasks: Set status to "Done"
-- Parent/standalone tasks: Set status to "Unreleased"
-- If completing a subtask and all siblings are complete, parent is set to "Unreleased"
+Run the project's test suite and linting as defined in CLAUDE.md.
 
-### mael linear create-subtask
-
-Create a subtask on a parent issue.
+## Finalising Work
 
 ```bash
-mael linear create-subtask <parent-id> <title> [description]
+mael linear complete-task PROJ-XXX       # Subtask -> "Done", standalone -> "Unreleased"
+mael linear add-comment PROJ-XXX file.md # Add progress/completion notes
+mael linear release                      # Promote all "Unreleased" with product label to "Done"
 ```
 
-**Arguments:**
-- `parent-id`: Parent issue identifier (e.g., PROJ-123)
-- `title`: Subtask title
-- `description`: Optional subtask description
+When completing a subtask, if all siblings are Done/Canceled, the parent auto-transitions to "Unreleased".
 
-**Behavior:**
-- Creates subtask linked to parent
-- Inherits cycle from parent issue
+## Committing & Creating PRs
 
-### mael linear write-plan
+**Commit format** — use `printf` piped to `git commit -F -` (heredocs fail in sandbox):
+```bash
+mael gh show-code --uncommitted          # Review changes before committing
+git add file1.py file2.py
+printf 'feat: add new feature [PROJ-XXX]\n\nDetailed description.\n' | git commit -F -
+```
 
-Write an implementation plan to a Linear task's description.
+Prefixes: `feat:` (new behaviour), `fix:` (bug fix), `refactor:` (no behaviour change), `chore:` (everything else).
+Append Linear issue ID in brackets when applicable.
+
+**Check status before pushing:**
+```bash
+mael git status                          # Branch info, diff stats, recent commits
+mael gh show-code --committed            # All changes since branching from main
+```
+
+**Create or update PR:**
+```bash
+mael gh create-pr PROJ-XXX --wait        # Link Linear task, wait for CI
+```
+- Run with `run_in_background: true` so you can continue working while CI runs.
+- Force-pushes branch with `--force-with-lease`.
+- New PR: uses first commit as title. Existing PR: just pushes.
+- With `ISSUE_ID`: appends `(Fixes ISSUE_ID)` to title, sets task to "In Review".
+- `--progress`: uses `(Progresses ISSUE_ID)` instead, skips "In Review". Use for multi-session tasks with remaining work.
+- `--draft`: create as draft PR.
+- `--wait`: blocks until CI completes (exit 0=pass, 1=fail, 2=timeout).
+
+**Code review before PR** (optional):
+1. `/review-branch` (plan mode required) — produces review findings
+2. Fix issues: `git add <files> && git commit --fixup=<original-sha>`
+3. `mael review squash` — autosquash fixups into targets (aborts on conflicts)
+4. `mael review status` — check for unsquashed fixups
+5. `mael gh create-pr`
+
+## Working with PR Failures
 
 ```bash
-mael linear write-plan <issue-id> <plan-file>
+mael gh read-pr                          # Merge status, review comments, CI results
+mael gh read-pr --wait                   # Wait for CI to finish (use run_in_background)
+mael gh check-log <run_id>               # Full GitHub Actions logs
+mael gh check-log <run_id> --failed-only # Just failed steps
+mael gh download-artifact <run_id> <name> [-o DIR]  # Test results, screenshots, etc.
 ```
 
-**Arguments:**
-- `issue-id`: Linear issue identifier (e.g., PROJ-123)
-- `plan-file`: Path to the markdown plan file
+Fix issues, commit, then `mael gh create-pr --wait` again to push and re-check CI.
 
-**Behavior:**
-- Reads plan file content and stores it in the issue description between markers
-- Replaces any existing plan (idempotent for re-planning)
-- Updates status from "Todo" to "Planned" if applicable
-
-### mael linear read-plan
-
-Read the implementation plan from a Linear task's description.
+## Working with Sentry
 
 ```bash
-mael linear read-plan <issue-id>
+mael sentry list-issues [--env ENV]      # Unresolved issues (default: prod)
+mael sentry get-issue <issue-id>         # Full details with stacktrace and variables
 ```
 
-**Arguments:**
-- `issue-id`: Linear issue identifier (e.g., PROJ-123)
-
-**Behavior:**
-- Extracts plan content from between markers in the issue description
-- Outputs the plan markdown to stdout
-- Fails with helpful error if no plan is found
-
-### mael linear add-comment
-
-Add a comment to a Linear issue from a markdown file.
-
-```bash
-mael linear add-comment <issue-id> <comment-file>
-```
-
-**Arguments:**
-- `issue-id`: Linear issue identifier (e.g., PROJ-123)
-- `comment-file`: Path to a markdown file containing the comment body
-
-**Behavior:**
-- Reads markdown content from the file
-- Creates a comment on the specified issue
-- Resolves issue identifier to internal ID first
-
-### mael linear release
-
-Promote all "Unreleased" tasks with the product label to "Done".
-
-```bash
-mael linear release
-```
-
-**Behavior:**
-- Requires `linear.product_label` to be configured in `.maelstrom.yaml`
-- Queries for all issues with status "Unreleased" and the configured product label
-- Transitions each to "Done"
-- Outputs a summary of transitioned tasks
-
-**GitHub Actions integration:**
-To automatically release tasks when deploying to production, add a workflow step:
-
-```yaml
-- name: Release Linear tasks
-  env:
-    LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-  run: mael linear release
-```
-
-## Git & GitHub Commands
-
-### mael git status
-
-Show a compact git status summary optimized for AI consumption. Includes branch info, file status categories, diff stats, and recent commits.
-
-```bash
-mael git status [target]
-```
-
-**Arguments:**
-- `target` (optional): Project/worktree identifier (uses current directory if omitted)
-
-**Output sections** (separated by `---`):
-- **Branch**: branch name, commits ahead of main, unpushed commits
-- **Working Tree**: staged, modified, and untracked files with diff stat summary
-- **Commits**: recent commit log (short hash + message)
-
-Supports `--json` flag via `mael --json git status`.
-
-### mael sync
-
-Rebase the current worktree against origin/main. Run this before starting work.
-
-```bash
-mael sync [target]
-```
-
-**Arguments:**
-- `target` (optional): Project/worktree identifier (uses current directory if omitted)
-
-**Behavior:**
-- Fetches latest from remote (`git fetch origin`)
-- Rebases current branch against `origin/main` using `--autostash`
-- On conflicts: displays helpful instructions with commands to resolve
-
-### mael gh create-pr
-
-Create a new pull request or push updates to an existing one. Optionally links to a Linear task.
-
-```bash
-mael gh create-pr [ISSUE_ID] [--draft] [--progress] [--wait] [--target TARGET]
-```
-
-**Arguments:**
-- `ISSUE_ID` (optional): Linear issue ID (e.g., ME-41). When provided, appends `(Fixes ISSUE_ID)` to PR title for Linear auto-linking and sets the task status to "In Review"
-
-**Options:**
-- `--draft`: Create PR as a draft (only for new PRs)
-- `--progress`: Use `(Progresses ISSUE_ID)` instead of `(Fixes ISSUE_ID)` in PR title, and skip setting status to "In Review". Use for multi-session tasks with remaining work.
-- `--wait`: Wait for CI checks to complete after creating/updating the PR. Returns exit code 0 on success, 1 on failure, 2 on timeout. Use with Bash tool's `run_in_background: true` to continue working while CI runs.
-- `--target`: Project/worktree identifier for directory resolution
-
-**Behavior:**
-- Fetches from origin to update tracking refs
-- Force-pushes current branch to origin (`--force-with-lease -u`)
-- If no PR exists: creates one using first commit message as title
-- If PR exists: just pushes the latest changes
-- Returns the PR URL
-- When `ISSUE_ID` is provided:
-  - Appends `(Fixes ISSUE_ID)` to PR title (or `(Progresses ISSUE_ID)` with `--progress`)
-  - Sets task status to "In Review" (skipped with `--progress`)
-  - Promotes parent task from early states (Todo/Planned/Backlog) to "In Progress"
-  - Adds product label if configured
-
-### mael gh read-pr
-
-Check PR status, review comments, and CI results.
-
-```bash
-mael gh read-pr [--wait] [target]
-```
-
-**Arguments:**
-- `target` (optional): Project/worktree identifier
-
-**Options:**
-- `--wait`: Wait for CI checks to complete. Returns exit code 0 on success, 1 on failure, 2 on timeout. Use with Bash tool's `run_in_background: true`.
-
-**Output includes:**
-- PR number, title, URL, and merge status
-- Unresolved review comments (file, line, author, preview)
-- CI check status grouped by: Failed, Pending, Passing
-- For failed checks: truncated logs and available artifacts
-
-### mael gh check-log
-
-View full GitHub Actions logs for a workflow run.
-
-```bash
-mael gh check-log <run_id> [--failed-only]
-```
-
-**Arguments:**
-- `run_id`: GitHub Actions workflow run ID
-
-**Options:**
-- `--failed-only`: Show only failed step logs
-
-### mael gh download-artifact
-
-Download artifacts from a workflow run.
-
-```bash
-mael gh download-artifact <run_id> <artifact_name> [-o OUTPUT_DIR]
-```
-
-**Arguments:**
-- `run_id`: GitHub Actions run ID
-- `artifact_name`: Name of artifact to download
-
-**Options:**
-- `-o, --output`: Output directory (defaults to current directory)
-
-### mael gh show-code
-
-Show committed and/or uncommitted changes in the worktree.
-
-```bash
-mael gh show-code [target] [--committed] [--uncommitted]
-```
-
-**Arguments:**
-- `target` (optional): Project/worktree identifier
-
-**Options:**
-- `--committed`: Show only commits since branching from main
-- `--uncommitted`: Show only working directory changes
-- Default (no flags): Show both
-
-**Output includes:**
-- Commits since diverging from `origin/main` with full diffs
-- Working directory diff (`git diff HEAD`)
-
-## Sentry Commands
-
-### mael sentry list-issues
-
-List unresolved issues for the project.
-
-```bash
-mael sentry list-issues [--env ENV]
-```
-
-**Options:**
-- `--env`: Environment filter (default: `prod`)
-
-**Output includes:**
-- Short ID (e.g., PROJ-ABC)
-- Title
-- Last seen (relative time)
-- Count: Total events (all time)
-- Trend: Change in events over last 12h vs previous 12h
-
-### mael sentry get-issue
-
-Get issue details as markdown.
-
-```bash
-mael sentry get-issue <issue-id>
-```
-
-**Arguments:**
-- `issue-id`: Sentry issue ID (numeric)
-
-**Output includes:**
-- Exception type and message
-- Event metadata (ID, project, date)
-- Tags
-- Full stacktrace with code context and variable values
-
-## Environment Commands
-
-Manage dev environment services (start, stop, monitor) for worktrees. Services are defined via a `Procfile` in the worktree root, or fall back to `start_cmd` in `.maelstrom.yaml`.
-
-### mael env start
-
-Start services for a worktree environment.
-
-```bash
-mael env start [target] [--skip-install]
-```
-
-**Arguments:**
-- `target` (optional): Project/worktree identifier (uses current directory if omitted)
-
-**Options:**
-- `--skip-install`: Skip running `install_cmd` before starting services
-
-**Behavior:**
-- Runs `install_cmd` from `.maelstrom.yaml` first (unless `--skip-install`)
-- Starts all services defined in Procfile (or `start_cmd` fallback)
-- Each service runs as a background process with its own log file
-- Displays a status table with SERVICE, PID, STATUS, and LOG columns
-- Shows APP URL if `app_port` is configured
-- Fails if environment is already running (stop first)
-
-### mael env status
-
-Show current status of services for a worktree environment.
-
-```bash
-mael env status [target]
-```
-
-**Arguments:**
-- `target` (optional): Project/worktree identifier (uses current directory if omitted)
-
-**Output includes:**
-- App URL (if configured and running)
-- Uptime since environment was started
-- Per-service table: SERVICE, PID, STATUS (running/dead), LOG file path
-
-### mael env stop
-
-Stop all services for a worktree environment.
-
-```bash
-mael env stop [target]
-```
-
-**Arguments:**
-- `target` (optional): Project/worktree identifier (uses current directory if omitted)
-
-**Behavior:**
-- Sends SIGTERM to each service process group
-- Falls back to SIGKILL if processes don't terminate
-- Removes environment state file
-- Reports status of each service termination
-
-### mael env list
-
-List running environments for a project.
-
-```bash
-mael env list [project]
-```
-
-**Arguments:**
-- `project` (optional): Project name (uses current directory if omitted)
-
-**Output includes:**
-- Table with columns: WORKTREE, APP, RUNNING SERVICES, STOPPED SERVICES, UPTIME
-- APP column shows URL if running, `*port` if allocated but not running
-
-### mael env list-all
-
-List all running environments across all projects.
-
-```bash
-mael env list-all
-```
-
-**Output includes:**
-- Table with columns: PROJECT, WORKTREE, APP, RUNNING SERVICES, STOPPED SERVICES, UPTIME
-
-## Status Commands
-
-Manage the workspace status display (shown in cmux status bar). These commands silently no-op when not running inside cmux.
-
-### mael status set
-
-Set the workspace status text.
-
-```bash
-mael status set "<text>"
-```
-
-**Arguments:**
-- `text`: Status text to display (e.g., issue ID or description)
-
-### mael status clear
-
-Clear the workspace status.
-
-```bash
-mael status clear
-```
+Prioritize by: escalating trend > recency > frequency. Investigate the stacktrace and fix.
 
 ## Status Transitions
 
-### Status Flow
+```
+Todo -> Planned        (write-plan or create-subtask)
+Planned/Todo -> In Progress  (start-task)
+In Progress -> In Review     (create-pr ISSUE-ID)
+In Review -> Done/Unreleased (complete-task)
+Unreleased -> Done           (release)
+```
 
-- **Todo** -> **Planned** (when plan is written via `write-plan`, or subtasks are created)
-- **Planned** / **Todo** -> **In Progress** (when `start-task` is called)
-- **In Progress** -> **In Review** (when `create-pr ISSUE-ID` is called)
-- **In Review** -> **Done** / **Unreleased** (when completed)
-- **Unreleased** -> **Done** (when `release` is called)
+**Subtasks:** complete to "Done". **Parent tasks:** complete to "Unreleased" only when ALL subtasks are Done/Canceled. Parent is promoted to "In Progress" when subtask starts or PR is raised, but NOT set to "In Review" when subtask is.
 
-### Subtasks (issues with a parent)
-- **Starting work**: Set to "In Progress"
-- **Completing work**: Set to "Done"
-
-### Parent Tasks (issues with subtasks)
-- **Creating subtasks**: Set to "Planned" (from Todo)
-- **Starting work**: Promoted to "In Progress" from early states (Todo/Planned/Backlog) when a subtask is started or a PR is raised
-- **Subtask in review**: Parent is left as-is (NOT set to "In Review")
-- **Completing work**: Set to "Unreleased" only when ALL subtasks are Done/Canceled
-- **Reviewing parent**: Manual activity — even when all subtasks are in review, the parent stays as-is
-
-### Standalone Tasks (no parent, no subtasks)
-- **Starting work**: Set to "In Progress"
-- **Completing work**: Set to "Unreleased"
-
-## Workflow: Completing Work
-
-After implementation is done, follow these steps to commit and submit:
-
-1. **Run local checks** (tests, linting, typecheck — whatever the project defines in CLAUDE.md):
-   ```bash
-   # Example: uv run pytest, pnpm test, bin/ci-check, etc.
-   ```
-
-2. **Review and commit changes**:
-   ```bash
-   mael gh show-code --uncommitted
-   git add <files>
-   printf 'feat: description of changes\n' | git commit -F -
-   ```
-
-3. **Create/update PR and wait for CI** (run in background):
-   ```bash
-   mael gh create-pr --wait
-   ```
-   Run this using the Bash tool with `run_in_background: true` so you can continue other work while CI runs.
-
-## Workflow: Git & Pull Requests
-
-1. **Before starting work**, sync with main:
-   ```bash
-   mael sync
-   ```
-
-2. **During work**, commit changes regularly (see "Workflow: Creating Commits" below)
-
-3. **When ready for review**, create or update PR:
-   ```bash
-   mael gh create-pr --wait
-   ```
-   Run this using the Bash tool with `run_in_background: true` so you can continue other work while CI runs.
-
-## Workflow: Checking PR Status
-
-1. **Check if PR was merged** or has issues:
-   ```bash
-   mael gh read-pr
-   ```
-   This shows: merge status, unresolved comments, and CI check results.
-
-2. **For failed CI checks**, view full logs:
-   ```bash
-   mael gh check-log <run_id>
-   ```
-
-3. **Download artifacts** (test results, screenshots, etc.):
-   ```bash
-   mael gh download-artifact <run_id> <artifact_name>
-   ```
-
-## Workflow: Code Review (Before Creating PR)
-
-Use the `/review-branch` command to review your feature branch before creating a PR.
-This command requires plan mode and produces review findings as the implementation plan.
-
-1. **Enter plan mode** and run the review:
-   ```
-   /review-branch
-   ```
-   (Requires plan mode - the review findings become your plan)
-
-2. **Review the findings** and approve the plan
-
-3. **Fix issues**, committing each fix with:
-   ```bash
-   git add <fixed-files>
-   git commit --fixup=<original-sha>
-   ```
-
-4. **Squash fixup commits** into originals:
-   ```bash
-   mael review squash
-   ```
-
-5. **Create PR** after all fixes:
-   ```bash
-   mael gh create-pr
-   ```
-
-### Review CLI Commands
-
-#### mael review squash
-
-Squash all `fixup!` commits into their target commits using git's autosquash.
+## Workspace Status
 
 ```bash
-mael review squash
+mael status set "Working on PROJ-XXX"    # Shown in cmux status bar
+mael status clear
 ```
 
-**Behavior:**
-- Finds all commits starting with "fixup! "
-- Runs non-interactive rebase with --autosquash
-- Combines fixup commits with their targets
-- Aborts on conflicts (manual resolution required)
+## Prerequisites
 
-#### mael review status
-
-Show pending fixup commits that haven't been squashed.
-
-```bash
-mael review status
-```
-
-### Viewing Code Changes
-
-Use these commands to inspect changes in your worktree:
-
-1. **Quick status overview** (branch, files, diff stats, recent commits):
-   ```bash
-   mael git status
-   ```
-
-2. **Review all changes** (committed + uncommitted):
-   ```bash
-   mael gh show-code
-   ```
-
-3. **Review only committed changes** (since branching from main):
-   ```bash
-   mael gh show-code --committed
-   ```
-
-4. **Review only uncommitted changes** (working directory):
-   ```bash
-   mael gh show-code --uncommitted
-   ```
-
-## Workflow: Creating Commits
-
-Git commands run directly in the worktree directory (no `-C` flag needed).
-
-### Commit Message Format
-
-Use conventional commits with these prefixes:
-
-- `feat:` — new behaviour visible to the end user
-- `fix:` — bug fix visible to the end user
-- `refactor:` — code structure change with no behaviour change
-- `chore:` — everything else: docs, config, tooling, tests, CI, etc.
-
-When working on a Linear task, append the issue ID in square brackets:
-
-```
-feat: add multi-session plan support [ME-32]
-fix: prevent duplicate browser panes on env start [ME-45]
-refactor: extract port allocation into helper [ME-32]
-```
-
-**Do not use heredocs** (`<<EOF` or `<<'EOF'`) for git commit messages — they fail in
-sandboxed environments because heredocs create temp files in `/tmp` which is not writable.
-
-Use `printf` piped to `git commit -F -` instead:
-
-```bash
-git add file1.py file2.py
-printf 'feat: add new feature [ME-32]\n\nDetailed description of the change.\n' | git commit -F -
-```
-
-### Commit Flow
-
-1. **Review uncommitted changes** before committing:
-   ```bash
-   mael gh show-code --uncommitted
-   ```
-
-2. **Stage and commit** with a descriptive message:
-   ```bash
-   git add <files>
-   printf 'Description of changes\n' | git commit -F -
-   ```
-
-3. **For atomic commits**, stage related changes together. Use `git add -p` for partial file staging if needed.
-
-## Workflow: Planning a Task
-
-1. **Get issue details**:
-   ```bash
-   mael linear read-task PROJ-123
-   ```
-
-2. **Research codebase**: Explore relevant code to understand context
-
-3. **Write implementation plan** (stored in issue description):
-   ```bash
-   mael linear write-plan PROJ-123 plan.md
-   ```
-
-4. **For complex tasks, create subtasks** for each phase:
-   ```bash
-   mael linear create-subtask PROJ-123 "Phase 1: Core functionality" "Description here"
-   ```
-
-## Workflow: Working on a Task
-
-1. **Find next task**:
-   ```bash
-   mael linear list-tasks --status "In Progress"
-   # or
-   mael linear read-task PROJ-123
-   ```
-
-2. **Start the task** (marks In Progress, adds worktree label):
-   ```bash
-   mael linear start-task PROJ-124
-   ```
-
-3. **Do the implementation work**
-
-4. **Complete the task**:
-   ```bash
-   mael linear complete-task PROJ-124
-   ```
-
-## Workflow: Debugging Production Errors
-
-1. **List unresolved issues**:
-   ```bash
-   mael sentry list-issues
-   ```
-
-2. **Prioritize by**: escalating trend > recency > frequency
-
-3. **Get issue details**:
-   ```bash
-   mael sentry get-issue 12345678
-   ```
-
-4. **Investigate the stacktrace** and fix the issue
-
-## Workflow: Managing Environments
-
-1. **Start services** for the current worktree:
-   ```bash
-   mael env start
-   ```
-
-2. **Check service status** at any time:
-   ```bash
-   mael env status
-   ```
-
-3. **Stop services** when done:
-   ```bash
-   mael env stop
-   ```
-
-4. **List all running environments** for the project:
-   ```bash
-   mael env list
-   ```
-
-### Resource Management
-
-**Stop environments during heavy editing.** Most dev servers use file watchers that trigger rebuilds on every file change. During multi-file refactors or large implementations, this causes constant reloads that waste CPU and memory. Stop the environment before editing and restart when you need to test:
-
-```bash
-mael env stop          # before heavy editing
-# ... make changes ...
-mael env start         # when ready to test
-```
-
-## Error Handling
-
-Commands exit with code 1 and display error messages for:
-- Missing environment variables (`LINEAR_API_KEY`, `SENTRY_API_KEY`)
-- Missing configuration (`linear_team_id`, `sentry_org`, `sentry_project`)
-- Issue not found
-- API errors
-- Missing workflow states ("Planned", "In Progress", "Done", "Unreleased")
+- **GitHub CLI:** `brew install gh && gh auth login`
+- **Env vars** in `.env`: `LINEAR_API_KEY`, `SENTRY_API_KEY`
+- **Config** in `.maelstrom.yaml`: `linear.team_id`, `sentry_org`, `sentry_project`
