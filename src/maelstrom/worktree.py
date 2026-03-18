@@ -805,8 +805,9 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
 
     # Detach HEAD so the default branch isn't "checked out" in the project root,
     # which would prevent git worktree add from using it.
+    # Use update-ref --no-deref instead of checkout --detach to avoid touching the working tree.
     head_sha = run_git(["rev-parse", "HEAD"], cwd=project_path, quiet=True).stdout.strip()
-    run_git(["checkout", "--detach", head_sha], cwd=project_path, quiet=True)
+    run_git(["update-ref", "--no-deref", "HEAD", head_sha], cwd=project_path, quiet=True)
 
     # Create the alpha worktree
     alpha_folder = get_worktree_folder_name(project_name, "alpha")
