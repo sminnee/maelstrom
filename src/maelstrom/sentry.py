@@ -110,12 +110,19 @@ def get_sentry_config() -> tuple[str, str]:
     )
 
 
-def api_request(endpoint: str, params: dict | None = None) -> dict | list:
+def api_request(
+    endpoint: str,
+    params: dict | None = None,
+    method: str = "GET",
+    body: dict | None = None,
+) -> dict | list:
     """Make a REST API request to Sentry.
 
     Args:
         endpoint: API endpoint path.
         params: Optional query parameters.
+        method: HTTP method (default: GET).
+        body: Optional request body (will be JSON-encoded).
 
     Returns:
         The response data.
@@ -130,12 +137,12 @@ def api_request(endpoint: str, params: dict | None = None) -> dict | list:
         query_string = urllib.parse.urlencode(params)
         url = f"{url}?{query_string}"
 
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-        },
-    )
+    data = json.dumps(body).encode("utf-8") if body else None
+    headers: dict[str, str] = {"Authorization": f"Bearer {api_key}"}
+    if data:
+        headers["Content-Type"] = "application/json"
+
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
 
     try:
         with urllib.request.urlopen(req) as response:
@@ -428,3 +435,21 @@ def cmd_get_issue(issue_id):
                 click.echo("")
             click.echo(format_stacktrace(exc))
             click.echo("")
+
+
+@sentry.command("resolve-issue")  # type: ignore[attr-defined]
+@click.argument("issue_id")
+def cmd_resolve_issue(issue_id: str) -> None:
+    """Mark an issue as resolved in the next release."""
+    sentry_org, _ = get_sentry_config()
+
+    endpoint = f"/organizations/{sentry_org}/issues/{issue_id}/"
+    body = {"status": "resolved", "statusDetails": {"inNextRelease": True}}
+
+    result = api_request(endpoint, method="PUT", body=body)
+
+    assert isinstance(result, dict)
+    status = result.get("status", "unknown")
+    title = result.get("title", issue_id)
+    click.echo(f"Resolved: {title}")
+    click.echo(f"Status: {status}")
