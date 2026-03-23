@@ -121,6 +121,85 @@ def run_git(args: list[str], cwd: Path | None = None, quiet: bool = False) -> su
     return run_cmd(["git"] + args, cwd=cwd, quiet=quiet, check=True)
 
 
+class UpdateMainResult:
+    """Result of updating the local main branch."""
+
+    def __init__(self, status: str, message: str) -> None:
+        self.status = status  # "updated", "skipped", "warning"
+        self.message = message
+
+
+def update_local_main(project_path: Path) -> UpdateMainResult:
+    """Fast-forward local main to match origin/main after a fetch.
+
+    Uses ``git update-ref`` when main is not checked out in any worktree.
+    If main is checked out somewhere, skips silently (the worktree's own
+    rebase handles it).  If local main is ahead of origin/main, returns
+    a warning.
+
+    Args:
+        project_path: Path to the project root (bare-ish repo).
+
+    Returns:
+        UpdateMainResult with status and message.
+    """
+    # Check if local main exists
+    result = run_cmd(
+        ["git", "rev-parse", "--verify", f"refs/heads/{MAIN_BRANCH}"],
+        cwd=project_path, quiet=True, check=False,
+    )
+    if result.returncode != 0:
+        return UpdateMainResult("skipped", f"No local {MAIN_BRANCH} branch")
+
+    local_sha = result.stdout.strip()
+
+    # Check if origin/main exists
+    result = run_cmd(
+        ["git", "rev-parse", "--verify", f"refs/remotes/origin/{MAIN_BRANCH}"],
+        cwd=project_path, quiet=True, check=False,
+    )
+    if result.returncode != 0:
+        return UpdateMainResult("skipped", f"No origin/{MAIN_BRANCH}")
+
+    origin_sha = result.stdout.strip()
+
+    # Already in sync
+    if local_sha == origin_sha:
+        return UpdateMainResult("skipped", f"{MAIN_BRANCH} already up to date")
+
+    # Check if local main is ahead of origin/main
+    result = run_cmd(
+        ["git", "rev-list", "--count", f"origin/{MAIN_BRANCH}..{MAIN_BRANCH}"],
+        cwd=project_path, quiet=True, check=False,
+    )
+    if result.returncode == 0:
+        ahead = int(result.stdout.strip())
+        if ahead > 0:
+            return UpdateMainResult(
+                "warning",
+                f"Local {MAIN_BRANCH} is {ahead} commit(s) ahead of origin/{MAIN_BRANCH}",
+            )
+
+    # Check if main is checked out in any worktree
+    worktrees = list_worktrees(project_path)
+    for wt in worktrees:
+        if wt.branch == MAIN_BRANCH:
+            return UpdateMainResult(
+                "skipped",
+                f"{MAIN_BRANCH} is checked out in {wt.path.name}",
+            )
+
+    # Safe to fast-forward via update-ref
+    try:
+        run_git(
+            ["update-ref", f"refs/heads/{MAIN_BRANCH}", origin_sha, local_sha],
+            cwd=project_path,
+        )
+        return UpdateMainResult("updated", f"Fast-forwarded {MAIN_BRANCH} to origin/{MAIN_BRANCH}")
+    except subprocess.CalledProcessError:
+        return UpdateMainResult("skipped", f"Could not update {MAIN_BRANCH} ref")
+
+
 def get_worktree_dirty_files(worktree_path: Path) -> list[str]:
     """Get modified/untracked files in worktree, excluding maelstrom-managed files.
 
@@ -403,6 +482,8 @@ def sync_worktree(worktree_path: Path, skip_fetch: bool = False) -> SyncResult:
     if not skip_fetch:
         try:
             run_git(["fetch", "origin"], cwd=worktree_path)
+            # Fast-forward local main to match origin/main
+            update_local_main(worktree_path.parent)
         except subprocess.CalledProcessError as e:
             return SyncResult(
                 success=False,
@@ -578,6 +659,8 @@ def recycle_worktree(worktree_path: Path, branch: str) -> Path:
     # Fetch latest
     try:
         run_git(["fetch", "origin"], cwd=worktree_path)
+        # Fast-forward local main to match origin/main
+        update_local_main(worktree_path.parent)
     except subprocess.CalledProcessError:
         pass  # Continue even if fetch fails (might be offline)
 
@@ -1061,6 +1144,8 @@ def create_worktree(project_path: Path, branch: str, *, detached: bool = False) 
     # Fetch latest from origin
     try:
         run_git(["fetch", "origin"], cwd=project_path)
+        # Fast-forward local main to match origin/main
+        update_local_main(project_path)
     except subprocess.CalledProcessError:
         # Fetch failed, but we can continue - might be offline or no remote
         pass
@@ -1755,6 +1840,8 @@ def tidy_branches(project_path: Path) -> list[TidyBranchResult]:
     # Fetch latest from origin with prune to remove stale remote refs
     try:
         run_git(["fetch", "origin", "--prune"], cwd=project_path)
+        # Fast-forward local main to match origin/main
+        update_local_main(project_path)
     except subprocess.CalledProcessError:
         pass  # Continue even if fetch fails
 
