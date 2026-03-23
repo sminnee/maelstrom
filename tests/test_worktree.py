@@ -765,6 +765,16 @@ class TestCloseWorktreeIntegration:
                 cwd=project_path, check=True, capture_output=True
             )
 
+            # Detach HEAD so main isn't "checked out" in project root (like add_project does)
+            head_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=project_path, check=True, capture_output=True, text=True
+            ).stdout.strip()
+            subprocess.run(
+                ["git", "update-ref", "--no-deref", "HEAD", head_sha],
+                cwd=project_path, check=True, capture_output=True
+            )
+
             yield project_path
 
     def test_close_fails_with_dirty_files(self, git_repo_with_remote):
@@ -919,6 +929,16 @@ class TestRecycleWorktreeIntegration:
             # Fetch to get remote tracking refs
             subprocess.run(
                 ["git", "fetch", "origin"],
+                cwd=project_path, check=True, capture_output=True
+            )
+
+            # Detach HEAD so main isn't "checked out" in project root (like add_project does)
+            head_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=project_path, check=True, capture_output=True, text=True
+            ).stdout.strip()
+            subprocess.run(
+                ["git", "update-ref", "--no-deref", "HEAD", head_sha],
                 cwd=project_path, check=True, capture_output=True
             )
 
@@ -1305,6 +1325,16 @@ class TestPortAllocationLifecycle:
         )
         subprocess.run(
             ["git", "fetch", "origin"],
+            cwd=project_path, check=True, capture_output=True
+        )
+
+        # Detach HEAD so main isn't "checked out" in project root (like add_project does)
+        head_sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=project_path, check=True, capture_output=True, text=True
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "update-ref", "--no-deref", "HEAD", head_sha],
             cwd=project_path, check=True, capture_output=True
         )
 

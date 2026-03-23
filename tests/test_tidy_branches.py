@@ -186,6 +186,16 @@ class TestTidyBranchesIntegration:
             # Fetch to get remote tracking refs
             run_git(project_path, "fetch", "origin")
 
+            # Detach HEAD so main isn't "checked out" in project root (like add_project does)
+            head_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=project_path, check=True, capture_output=True, text=True
+            ).stdout.strip()
+            subprocess.run(
+                ["git", "update-ref", "--no-deref", "HEAD", head_sha],
+                cwd=project_path, check=True, capture_output=True
+            )
+
             yield project_path
 
     def test_tidy_deletes_merged_branch(self, git_repo_with_remote):

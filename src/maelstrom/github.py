@@ -234,6 +234,10 @@ def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None
     # Fetch current branch's remote tracking ref for --force-with-lease
     run_cmd(["git", "fetch", "origin"], cwd=cwd, check=False, quiet=True)
 
+    # Fast-forward local main to match origin/main
+    from .worktree import update_local_main
+    update_local_main(cwd.parent)
+
     # Push the branch
     try:
         result = run_cmd(
