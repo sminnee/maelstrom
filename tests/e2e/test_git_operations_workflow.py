@@ -109,12 +109,13 @@ class TestGitOperationsWorkflow:
         assert merged_results[0].success
 
         # --- B2: Unmerged branch with remote → pushed ---
+        # Use alpha worktree for checkout/commit (project root is bare)
         branch = "feature/tidy-push-test"
-        run_git(gp.project_path, "branch", branch)
-        run_git(gp.project_path, "checkout", branch)
-        create_commit(gp.project_path, "tidy-push.txt", "content", "Push test")
-        run_git(gp.project_path, "push", "origin", branch)
-        run_git(gp.project_path, "checkout", "--detach", "HEAD")
+        original_branch = run_git(gp.worktree_path, "branch", "--show-current").stdout.strip()
+        run_git(gp.worktree_path, "checkout", "-b", branch)
+        create_commit(gp.worktree_path, "tidy-push.txt", "content", "Push test")
+        run_git(gp.worktree_path, "push", "origin", branch)
+        run_git(gp.worktree_path, "checkout", original_branch)
 
         # Add a new commit on main so the branch needs rebasing
         source_clone = base / "tidy-source"
@@ -136,11 +137,12 @@ class TestGitOperationsWorkflow:
         assert pushed_results[0].success
 
         # --- B3: Conflicting branch → skipped ---
+        # Use alpha worktree for checkout/commit (project root is bare)
         branch = "feature/tidy-conflict"
-        run_git(gp.project_path, "branch", branch)
-        run_git(gp.project_path, "checkout", branch)
-        create_commit(gp.project_path, "README.md", "conflict version", "Conflicting change")
-        run_git(gp.project_path, "checkout", "--detach", "HEAD")
+        original_branch = run_git(gp.worktree_path, "branch", "--show-current").stdout.strip()
+        run_git(gp.worktree_path, "checkout", "-b", branch)
+        create_commit(gp.worktree_path, "README.md", "conflict version", "Conflicting change")
+        run_git(gp.worktree_path, "checkout", original_branch)
 
         # Modify README.md on main via remote
         conflict_clone = base / "conflict-tidy-source"

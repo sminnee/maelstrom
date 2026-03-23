@@ -178,7 +178,7 @@ class TestTidyBranchesIntegration:
             )
 
             # Configure the bare repo to work with worktrees
-            run_git(project_path, "config", "core.bare", "false")
+            run_git(project_path, "config", "core.bare", "true")
             run_git(project_path, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
             run_git(project_path, "config", "user.email", "test@test.com")
             run_git(project_path, "config", "user.name", "Test")
@@ -196,22 +196,45 @@ class TestTidyBranchesIntegration:
                 cwd=project_path, check=True, capture_output=True
             )
 
-            yield project_path
+            # Create a helper worktree for tests that need checkout/commit
+            helper_wt = project_path / "_test_helper"
+            subprocess.run(
+                ["git", "worktree", "add", "--detach", str(helper_wt), "origin/main"],
+                cwd=project_path, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "test@test.com"],
+                cwd=helper_wt, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test"],
+                cwd=helper_wt, check=True, capture_output=True
+            )
+
+            yield project_path, helper_wt
+
+            # Cleanup helper worktree
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", str(helper_wt)],
+                cwd=project_path, check=False, capture_output=True
+            )
 
     def test_tidy_deletes_merged_branch(self, git_repo_with_remote):
         """Test that a branch at the same commit as main is deleted."""
+        project_path, _helper_wt = git_repo_with_remote
+
         # Create a branch at the same commit as main (merged)
-        run_git(git_repo_with_remote, "branch", "feature/merged")
+        run_git(project_path, "branch", "feature/merged")
 
         # Verify branch exists
-        branches_before = list_local_branches(git_repo_with_remote)
+        branches_before = list_local_branches(project_path)
         assert "feature/merged" in branches_before
 
         # Run tidy
-        results = tidy_branches(git_repo_with_remote)
+        results = tidy_branches(project_path)
 
         # Verify branch was deleted
-        branches_after = list_local_branches(git_repo_with_remote)
+        branches_after = list_local_branches(project_path)
         assert "feature/merged" not in branches_after
 
         # Verify result
@@ -222,14 +245,16 @@ class TestTidyBranchesIntegration:
 
     def test_tidy_skips_checked_out_branch(self, git_repo_with_remote):
         """Test that a branch checked out in a worktree is skipped."""
+        project_path, _helper_wt = git_repo_with_remote
+
         # Create a worktree with a branch
-        _worktree_path = create_worktree(git_repo_with_remote, "feature/checked-out")
+        _worktree_path = create_worktree(project_path, "feature/checked-out")
 
         # Run tidy
-        results = tidy_branches(git_repo_with_remote)
+        results = tidy_branches(project_path)
 
         # Verify branch still exists
-        branches = list_local_branches(git_repo_with_remote)
+        branches = list_local_branches(project_path)
         assert "feature/checked-out" in branches
 
         # Verify result
@@ -238,21 +263,23 @@ class TestTidyBranchesIntegration:
         assert skipped_result.action == "skipped_checked_out"
 
         # Cleanup
-        remove_worktree(git_repo_with_remote, "feature/checked-out")
+        remove_worktree(project_path, "feature/checked-out")
 
     def test_tidy_rebases_local_only_branch(self, git_repo_with_remote):
         """Test that a local-only branch with commits is rebased but not pushed."""
-        # Create a branch with a commit
-        run_git(git_repo_with_remote, "checkout", "-b", "feature/local-only")
-        create_commit(git_repo_with_remote, "local.txt", "local change", "Local commit")
-        # Checkout a detached state so we're not on the branch
-        run_git(git_repo_with_remote, "checkout", "--detach", "origin/main")
+        project_path, helper_wt = git_repo_with_remote
+
+        # Create a branch with a commit (using helper worktree since root is bare)
+        run_git(helper_wt, "checkout", "-b", "feature/local-only")
+        create_commit(helper_wt, "local.txt", "local change", "Local commit")
+        # Return helper to detached state
+        run_git(helper_wt, "checkout", "--detach", "origin/main")
 
         # Run tidy
-        results = tidy_branches(git_repo_with_remote)
+        results = tidy_branches(project_path)
 
         # Verify branch still exists (not deleted because it has commits)
-        branches = list_local_branches(git_repo_with_remote)
+        branches = list_local_branches(project_path)
         assert "feature/local-only" in branches
 
         # Verify result
@@ -263,18 +290,20 @@ class TestTidyBranchesIntegration:
 
     def test_tidy_pushes_branch_with_remote(self, git_repo_with_remote):
         """Test that a branch with remote is rebased and pushed."""
-        # Create a branch with a commit and push it
-        run_git(git_repo_with_remote, "checkout", "-b", "feature/with-remote")
-        create_commit(git_repo_with_remote, "remote.txt", "remote change", "Remote commit")
-        run_git(git_repo_with_remote, "push", "-u", "origin", "feature/with-remote")
-        # Checkout detached to not be on the branch
-        run_git(git_repo_with_remote, "checkout", "--detach", "origin/main")
+        project_path, helper_wt = git_repo_with_remote
+
+        # Create a branch with a commit and push it (using helper worktree)
+        run_git(helper_wt, "checkout", "-b", "feature/with-remote")
+        create_commit(helper_wt, "remote.txt", "remote change", "Remote commit")
+        run_git(helper_wt, "push", "-u", "origin", "feature/with-remote")
+        # Return helper to detached state
+        run_git(helper_wt, "checkout", "--detach", "origin/main")
 
         # Run tidy
-        results = tidy_branches(git_repo_with_remote)
+        results = tidy_branches(project_path)
 
         # Verify branch still exists
-        branches = list_local_branches(git_repo_with_remote)
+        branches = list_local_branches(project_path)
         assert "feature/with-remote" in branches
 
         # Verify result
@@ -285,22 +314,24 @@ class TestTidyBranchesIntegration:
 
     def test_tidy_skips_branch_with_conflicts(self, git_repo_with_remote):
         """Test that a branch with rebase conflicts is skipped."""
-        # Create a commit on main first
-        run_git(git_repo_with_remote, "checkout", "main")
-        create_commit(git_repo_with_remote, "conflict.txt", "main version", "Main commit")
-        run_git(git_repo_with_remote, "push", "origin", "main")
+        project_path, helper_wt = git_repo_with_remote
+
+        # Create a commit on main first (using helper worktree)
+        run_git(helper_wt, "checkout", "main")
+        create_commit(helper_wt, "conflict.txt", "main version", "Main commit")
+        run_git(helper_wt, "push", "origin", "main")
 
         # Create a branch from before that commit with a conflicting change
-        run_git(git_repo_with_remote, "checkout", "-b", "feature/conflict", "origin/main~1")
-        create_commit(git_repo_with_remote, "conflict.txt", "branch version", "Conflicting commit")
-        # Checkout detached
-        run_git(git_repo_with_remote, "checkout", "--detach", "origin/main")
+        run_git(helper_wt, "checkout", "-b", "feature/conflict", "origin/main~1")
+        create_commit(helper_wt, "conflict.txt", "branch version", "Conflicting commit")
+        # Return helper to detached state
+        run_git(helper_wt, "checkout", "--detach", "origin/main")
 
         # Run tidy
-        results = tidy_branches(git_repo_with_remote)
+        results = tidy_branches(project_path)
 
         # Verify branch still exists (not deleted due to conflicts)
-        branches = list_local_branches(git_repo_with_remote)
+        branches = list_local_branches(project_path)
         assert "feature/conflict" in branches
 
         # Verify result
@@ -311,23 +342,25 @@ class TestTidyBranchesIntegration:
 
     def test_tidy_deletes_remote_branch_when_merged(self, git_repo_with_remote):
         """Test that remote branch is also deleted when local is merged."""
+        project_path, _helper_wt = git_repo_with_remote
+
         # Create and push a branch
-        run_git(git_repo_with_remote, "branch", "feature/merged-remote")
-        run_git(git_repo_with_remote, "push", "-u", "origin", "feature/merged-remote")
+        run_git(project_path, "branch", "feature/merged-remote")
+        run_git(project_path, "push", "-u", "origin", "feature/merged-remote")
 
         # Verify remote branch exists
-        assert branch_exists_on_remote(git_repo_with_remote, "feature/merged-remote") is True
+        assert branch_exists_on_remote(project_path, "feature/merged-remote") is True
 
         # Run tidy
-        results = tidy_branches(git_repo_with_remote)
+        results = tidy_branches(project_path)
 
         # Verify branch was deleted (both local and remote)
-        branches = list_local_branches(git_repo_with_remote)
+        branches = list_local_branches(project_path)
         assert "feature/merged-remote" not in branches
 
         # Refresh remote refs
-        run_git(git_repo_with_remote, "fetch", "origin", "--prune")
-        assert branch_exists_on_remote(git_repo_with_remote, "feature/merged-remote") is False
+        run_git(project_path, "fetch", "origin", "--prune")
+        assert branch_exists_on_remote(project_path, "feature/merged-remote") is False
 
         # Verify result
         merged_result = next((r for r in results if r.branch == "feature/merged-remote"), None)
@@ -338,5 +371,6 @@ class TestTidyBranchesIntegration:
 
     def test_tidy_no_feature_branches(self, git_repo_with_remote):
         """Test that tidy returns empty list when no feature branches exist."""
-        results = tidy_branches(git_repo_with_remote)
+        project_path, _helper_wt = git_repo_with_remote
+        results = tidy_branches(project_path)
         assert results == []
