@@ -742,7 +742,7 @@ class TestCloseWorktreeIntegration:
 
             # Configure the bare repo to work with worktrees
             subprocess.run(
-                ["git", "config", "core.bare", "false"],
+                ["git", "config", "core.bare", "true"],
                 cwd=project_path, check=True, capture_output=True
             )
             subprocess.run(
@@ -909,7 +909,7 @@ class TestRecycleWorktreeIntegration:
 
             # Configure the bare repo to work with worktrees
             subprocess.run(
-                ["git", "config", "core.bare", "false"],
+                ["git", "config", "core.bare", "true"],
                 cwd=project_path, check=True, capture_output=True
             )
             subprocess.run(
@@ -1308,7 +1308,7 @@ class TestPortAllocationLifecycle:
         )
 
         subprocess.run(
-            ["git", "config", "core.bare", "false"],
+            ["git", "config", "core.bare", "true"],
             cwd=project_path, check=True, capture_output=True
         )
         subprocess.run(

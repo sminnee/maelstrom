@@ -875,11 +875,8 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
     git_dir = project_path / ".git"
     run_cmd(["git", "clone", "--bare", git_url, str(git_dir)])
 
-    # Configure the bare repo to work with worktrees
-    # Set core.bare to false so git commands work in worktrees
-    run_git(["config", "core.bare", "false"], cwd=project_path)
-
     # Set up fetch refspec to create origin/* remote tracking refs
+    # (core.bare stays true from the bare clone — worktrees work fine with it)
     run_git(["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"], cwd=project_path)
 
     # Get the default branch

@@ -57,7 +57,7 @@ def _check_mael_marker(project_path: Path) -> CheckResult:
 
 
 def _check_core_bare(project_path: Path) -> CheckResult:
-    """Check that core.bare = false."""
+    """Check that core.bare = true (project root should be bare, not a working tree)."""
     result = run_cmd(
         ["git", "config", "--get", "core.bare"],
         cwd=project_path,
@@ -65,13 +65,13 @@ def _check_core_bare(project_path: Path) -> CheckResult:
         check=False,
     )
     value = result.stdout.strip() if result.returncode == 0 else ""
-    if value == "false":
-        return CheckResult(CheckStatus.OK, "core.bare = false")
+    if value == "true":
+        return CheckResult(CheckStatus.OK, "core.bare = true")
 
     # Auto-fix
     try:
-        run_git(["config", "core.bare", "false"], cwd=project_path)
-        return CheckResult(CheckStatus.FIXED, f"core.bare was '{value or 'unset'}' → fixed to false")
+        run_git(["config", "core.bare", "true"], cwd=project_path)
+        return CheckResult(CheckStatus.FIXED, f"core.bare was '{value or 'unset'}' → fixed to true")
     except subprocess.CalledProcessError:
         return CheckResult(CheckStatus.ERROR, f"core.bare is '{value or 'unset'}' and could not be fixed")
 

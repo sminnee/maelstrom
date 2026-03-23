@@ -38,8 +38,7 @@ def _create_project_repo():
         check=True, capture_output=True,
     )
 
-    # Configure like add_project does
-    run_git(project_path, "config", "core.bare", "false")
+    # Configure like add_project does (core.bare stays true from bare clone)
     run_git(project_path, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
     run_git(project_path, "config", "user.email", "test@test.com")
     run_git(project_path, "config", "user.name", "Test")
@@ -151,12 +150,12 @@ class TestDoctor:
             assert result.issues_found == 0
             assert all(c.status == CheckStatus.OK for c in result.checks)
 
-    def test_fixes_missing_core_bare(self):
-        """Fixes core.bare when not set to false."""
+    def test_fixes_wrong_core_bare(self):
+        """Fixes core.bare when set to false instead of true."""
         tmpdir, project_path = _create_project_repo()
         with tmpdir:
             # Break core.bare
-            run_git(project_path, "config", "core.bare", "true")
+            run_git(project_path, "config", "core.bare", "false")
 
             result = run_doctor(project_path)
 
