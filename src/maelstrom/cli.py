@@ -30,6 +30,7 @@ from .claude_sessions import get_active_ide_sessions
 from .table import draw_table
 from .worktree import (
     MAIN_BRANCH,
+    _setup_claude_memory_symlink,
     add_project,
     close_worktree,
     create_worktree,
@@ -316,6 +317,8 @@ def cmd_add(branch, project, open, no_recycle):
 
     if recycled:
         click.echo(f"Worktree recycled at: {worktree_path}")
+        # Recycled worktrees don't go through _finalize_worktree, so set up memory symlink here
+        _setup_claude_memory_symlink(project_path, worktree_path)
     else:
         click.echo(f"Worktree created at: {worktree_path}")
 

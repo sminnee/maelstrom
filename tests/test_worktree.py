@@ -15,6 +15,8 @@ from maelstrom.worktree import (
     WORKTREE_NAMES,
     WORKTREE_SHORTCODES,
     WorktreeInfo,
+    _sanitise_path_for_claude,
+    _setup_claude_memory_symlink,
     close_worktree,
     create_worktree,
     extract_project_name,
@@ -1507,3 +1509,131 @@ class TestStaleWorktreeHandling:
         captured = capsys.readouterr()
         assert "directory is missing" in captured.err
         assert "git worktree prune" in captured.err
+
+
+class TestSanitisePathForClaude:
+    """Tests for _sanitise_path_for_claude."""
+
+    def test_basic_path(self):
+        result = _sanitise_path_for_claude(Path("/Users/sminnee/Projects/foo"))
+        assert result == "-Users-sminnee-Projects-foo"
+
+    def test_worktree_path(self):
+        result = _sanitise_path_for_claude(Path("/Users/sminnee/Projects/foo/foo-alpha"))
+        assert result == "-Users-sminnee-Projects-foo-foo-alpha"
+
+
+class TestSetupClaudeMemorySymlink:
+    """Tests for _setup_claude_memory_symlink."""
+
+    def test_creates_symlink_when_nothing_exists(self, tmp_path):
+        """Creates central memory dir and symlink when neither exists."""
+        project_path = tmp_path / "project"
+        worktree_path = tmp_path / "project" / "project-alpha"
+        project_path.mkdir()
+        worktree_path.mkdir()
+
+        claude_projects = tmp_path / ".claude" / "projects"
+        claude_projects.mkdir(parents=True)
+        project_sanitised = str(project_path.resolve()).replace("/", "-")
+        worktree_sanitised = str(worktree_path.resolve()).replace("/", "-")
+
+        with patch("maelstrom.worktree.Path.home", return_value=tmp_path):
+            _setup_claude_memory_symlink(project_path, worktree_path)
+
+        central = claude_projects / project_sanitised / "memory"
+        wt_memory = claude_projects / worktree_sanitised / "memory"
+
+        assert central.is_dir()
+        assert wt_memory.is_symlink()
+        assert wt_memory.resolve() == central.resolve()
+
+    def test_migrates_existing_worktree_memory(self, tmp_path):
+        """Migrates files from existing worktree memory dir to central."""
+        project_path = tmp_path / "project"
+        worktree_path = tmp_path / "project" / "project-alpha"
+        project_path.mkdir()
+        worktree_path.mkdir()
+
+        claude_projects = tmp_path / ".claude" / "projects"
+        worktree_sanitised = str(worktree_path.resolve()).replace("/", "-")
+
+        # Pre-create worktree memory with a file
+        wt_memory = claude_projects / worktree_sanitised / "memory"
+        wt_memory.mkdir(parents=True)
+        (wt_memory / "existing_note.md").write_text("some memory")
+
+        with patch("maelstrom.worktree.Path.home", return_value=tmp_path):
+            _setup_claude_memory_symlink(project_path, worktree_path)
+
+        project_sanitised = str(project_path.resolve()).replace("/", "-")
+        central = claude_projects / project_sanitised / "memory"
+
+        # File should be migrated to central
+        assert (central / "existing_note.md").read_text() == "some memory"
+        # Worktree memory should now be a symlink
+        assert wt_memory.is_symlink()
+        assert wt_memory.resolve() == central.resolve()
+
+    def test_skips_conflicting_files_during_migration(self, tmp_path):
+        """Does not overwrite existing files in central memory during migration."""
+        project_path = tmp_path / "project"
+        worktree_path = tmp_path / "project" / "project-alpha"
+        project_path.mkdir()
+        worktree_path.mkdir()
+
+        claude_projects = tmp_path / ".claude" / "projects"
+        project_sanitised = str(project_path.resolve()).replace("/", "-")
+        worktree_sanitised = str(worktree_path.resolve()).replace("/", "-")
+
+        # Pre-create central memory with a file
+        central = claude_projects / project_sanitised / "memory"
+        central.mkdir(parents=True)
+        (central / "shared.md").write_text("central version")
+
+        # Pre-create worktree memory with same-named file
+        wt_memory = claude_projects / worktree_sanitised / "memory"
+        wt_memory.mkdir(parents=True)
+        (wt_memory / "shared.md").write_text("worktree version")
+
+        with patch("maelstrom.worktree.Path.home", return_value=tmp_path):
+            _setup_claude_memory_symlink(project_path, worktree_path)
+
+        # Central version should be preserved
+        assert (central / "shared.md").read_text() == "central version"
+
+    def test_skips_when_claude_projects_missing(self, tmp_path):
+        """Does nothing when ~/.claude/projects doesn't exist."""
+        project_path = tmp_path / "project"
+        worktree_path = tmp_path / "project" / "project-alpha"
+        project_path.mkdir()
+        worktree_path.mkdir()
+
+        with patch("maelstrom.worktree.Path.home", return_value=tmp_path):
+            _setup_claude_memory_symlink(project_path, worktree_path)
+
+        # No directories created
+        assert not (tmp_path / ".claude").exists()
+
+    def test_idempotent(self, tmp_path):
+        """Running twice is safe and leaves correct state."""
+        project_path = tmp_path / "project"
+        worktree_path = tmp_path / "project" / "project-alpha"
+        project_path.mkdir()
+        worktree_path.mkdir()
+
+        (tmp_path / ".claude" / "projects").mkdir(parents=True)
+
+        with patch("maelstrom.worktree.Path.home", return_value=tmp_path):
+            _setup_claude_memory_symlink(project_path, worktree_path)
+            _setup_claude_memory_symlink(project_path, worktree_path)
+
+        claude_projects = tmp_path / ".claude" / "projects"
+        project_sanitised = str(project_path.resolve()).replace("/", "-")
+        worktree_sanitised = str(worktree_path.resolve()).replace("/", "-")
+        central = claude_projects / project_sanitised / "memory"
+        wt_memory = claude_projects / worktree_sanitised / "memory"
+
+        assert central.is_dir()
+        assert wt_memory.is_symlink()
+        assert wt_memory.resolve() == central.resolve()

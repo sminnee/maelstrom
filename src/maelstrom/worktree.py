@@ -2,6 +2,7 @@
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -897,6 +898,9 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
     # Generate .env for the initial worktree
     write_env_file(alpha_path, {"WORKTREE": "alpha", "WORKTREE_NUM": "0"})
 
+    # Unify Claude Code memory across worktrees
+    _setup_claude_memory_symlink(project_path, alpha_path)
+
     # Create .mael marker file to identify this as a Maelstrom project
     (project_path / ".mael").touch()
 
@@ -1028,6 +1032,78 @@ def _setup_claude_settings_symlink(worktree_path: Path) -> None:
     settings_local.symlink_to("settings.json")
 
 
+def _sanitise_path_for_claude(path: Path) -> str:
+    """Convert a filesystem path to Claude Code's sanitised project directory name.
+
+    Claude Code stores per-project data in ~/.claude/projects/<sanitised>/
+    where the sanitised name is the absolute path with '/' replaced by '-'.
+
+    Args:
+        path: Absolute path to sanitise.
+
+    Returns:
+        Sanitised path string (e.g., '-Users-sminnee-Projects-foo').
+    """
+    return str(path.resolve()).replace("/", "-")
+
+
+def _setup_claude_memory_symlink(project_path: Path, worktree_path: Path) -> None:
+    """Unify Claude Code memory across worktrees by symlinking to a shared dir.
+
+    Claude Code stores memories in ~/.claude/projects/<sanitised-path>/memory/.
+    Each worktree gets its own sanitised path, fragmenting knowledge. This function
+    creates a central memory dir at the project level and symlinks each worktree's
+    memory dir to it, migrating any existing files first.
+
+    Failures are logged as warnings rather than raised, since this is a
+    non-critical enhancement that should not break worktree operations.
+
+    Args:
+        project_path: Path to the project root (bare repo).
+        worktree_path: Path to the worktree.
+    """
+    try:
+        claude_projects_dir = Path.home() / ".claude" / "projects"
+
+        # Only proceed if ~/.claude/projects exists (Claude Code has been used)
+        if not claude_projects_dir.is_dir():
+            return
+
+        project_sanitised = _sanitise_path_for_claude(project_path)
+        worktree_sanitised = _sanitise_path_for_claude(worktree_path)
+
+        central_memory = claude_projects_dir / project_sanitised / "memory"
+        worktree_claude_dir = claude_projects_dir / worktree_sanitised
+        worktree_memory = worktree_claude_dir / "memory"
+
+        # Ensure central memory dir exists
+        central_memory.mkdir(parents=True, exist_ok=True)
+
+        # Ensure worktree's claude project dir exists
+        worktree_claude_dir.mkdir(parents=True, exist_ok=True)
+
+        # If worktree memory is already a symlink to the right place, nothing to do
+        if worktree_memory.is_symlink():
+            if worktree_memory.resolve() == central_memory.resolve():
+                return
+            # Stale symlink pointing elsewhere — remove it
+            worktree_memory.unlink()
+
+        # If worktree memory exists as a real directory, migrate its contents
+        if worktree_memory.is_dir():
+            for item in worktree_memory.iterdir():
+                target = central_memory / item.name
+                if not target.exists():
+                    shutil.move(str(item), str(target))
+            # Remove the now-empty (or emptied) directory
+            shutil.rmtree(str(worktree_memory))
+
+        # Create symlink
+        worktree_memory.symlink_to(central_memory)
+    except OSError as e:
+        print(f"Warning: Could not set up unified Claude memory: {e}", file=sys.stderr)
+
+
 def _finalize_worktree(project_path: Path, worktree_path: Path, worktree_name: str) -> Path:
     """Finalize worktree setup after git worktree add.
 
@@ -1043,6 +1119,7 @@ def _finalize_worktree(project_path: Path, worktree_path: Path, worktree_name: s
     """
     _build_env_file(project_path, worktree_path, worktree_name)
     _setup_claude_settings_symlink(worktree_path)
+    _setup_claude_memory_symlink(project_path, worktree_path)
     return worktree_path
 
 
