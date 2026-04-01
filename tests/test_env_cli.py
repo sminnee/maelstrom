@@ -703,17 +703,24 @@ class TestEnvRestart:
             "proj", "bravo", ctx.worktree_path, skip_install=False,
         )
 
+    @patch("maelstrom.env_cli.env_status")
+    @patch("maelstrom.env_cli.start_env")
+    @patch("maelstrom.env_cli.stop_env")
     @patch("maelstrom.env_cli.load_env_state", return_value=None)
     @patch("maelstrom.env_cli.resolve_context")
-    def test_restart_not_running(self, mock_ctx, mock_load, tmp_path):
-        """Errors when no env state exists."""
+    def test_restart_not_running(self, mock_ctx, mock_load, mock_stop, mock_start, mock_status, tmp_path):
+        """When no env state exists, restart skips stop and just starts."""
         ctx = _mock_ctx_with_path(tmp_path)
         mock_ctx.return_value = ctx
+        state = MagicMock()
+        mock_start.return_value = state
+        mock_status.return_value = [_make_status()]
 
         runner = CliRunner()
         result = runner.invoke(cli, ["env", "restart"])
-        assert result.exit_code != 0
-        assert "No running environment" in result.output
+        assert result.exit_code == 0
+        mock_stop.assert_not_called()
+        mock_start.assert_called_once()
 
     @patch("maelstrom.env_cli.resolve_context")
     def test_restart_worktree_not_found(self, mock_ctx):
