@@ -254,15 +254,11 @@ def env_restart(target, install):
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
     state = load_env_state(ctx.project, ctx.worktree)
-    if not state:
-        raise click.ClickException(
-            f"No running environment for {ctx.project}/{ctx.worktree}."
-        )
-
-    messages = stop_env(ctx.project, ctx.worktree)
-    for msg in messages:
-        click.echo(msg)
-    click.echo(f"Environment stopped for {ctx.project}/{ctx.worktree}.")
+    if state:
+        messages = stop_env(ctx.project, ctx.worktree)
+        for msg in messages:
+            click.echo(msg)
+        click.echo(f"Environment stopped for {ctx.project}/{ctx.worktree}.")
 
     try:
         state = start_env(
