@@ -1374,19 +1374,21 @@ def gh_read_pr(target, wait):
 @gh.command("download-artifact")
 @click.argument("run_id")
 @click.argument("artifact_name")
-@click.option("-o", "--output", default=None, help="Output directory (default: current directory)")
-def gh_download_artifact(run_id, artifact_name, output):
+def gh_download_artifact(run_id, artifact_name):
     """Download an artifact from a PR's workflow run."""
-    output_dir = Path(output).expanduser() if output else None
-
     try:
-        artifact_path = download_artifact(
+        artifact_path, files = download_artifact(
             cwd=Path.cwd(),
             run_id=run_id,
             artifact_name=artifact_name,
-            output_dir=output_dir,
         )
-        click.echo(f"Artifact downloaded to: {artifact_path}")
+        click.echo(f"Downloaded to: {artifact_path}")
+        if files:
+            click.echo(f"\nFiles ({len(files)}):")
+            for f in files:
+                click.echo(f"  {f}")
+        else:
+            click.echo("\nNo files found in artifact.")
     except RuntimeError as e:
         raise click.ClickException(str(e))
 

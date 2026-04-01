@@ -1,6 +1,7 @@
 """GitHub integration for maelstrom projects."""
 
 import json
+import os
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -535,23 +536,29 @@ def get_full_check_log(cwd: Path, run_id: str, failed_only: bool = False) -> str
         raise RuntimeError("GitHub CLI (gh) is not installed")
 
 
-def download_artifact(cwd: Path, run_id: str, artifact_name: str, output_dir: Path | None = None) -> Path:
-    """Download an artifact from a workflow run.
+def download_artifact(cwd: Path, run_id: str, artifact_name: str) -> tuple[Path, list[str]]:
+    """Download an artifact from a workflow run into $TMPDIR.
 
     Args:
         cwd: Working directory.
         run_id: GitHub Actions run ID.
         artifact_name: Name of the artifact to download.
-        output_dir: Directory to download to (default: cwd).
 
     Returns:
-        Path to the downloaded artifact directory.
+        Tuple of (output directory path, list of relative file paths).
 
     Raises:
         RuntimeError: If download fails.
     """
-    if output_dir is None:
-        output_dir = cwd
+    import tempfile
+
+    tmp_base = Path(os.environ.get("TMPDIR", tempfile.gettempdir()))
+    output_dir = tmp_base / artifact_name
+    if output_dir.exists():
+        suffix = 2
+        while (tmp_base / f"{artifact_name}-{suffix}").exists():
+            suffix += 1
+        output_dir = tmp_base / f"{artifact_name}-{suffix}"
 
     try:
         run_cmd(
@@ -560,7 +567,14 @@ def download_artifact(cwd: Path, run_id: str, artifact_name: str, output_dir: Pa
             quiet=False,
             check=True,
         )
-        return output_dir / artifact_name
+
+        files: list[str] = []
+        for root, _dirs, filenames in os.walk(output_dir):
+            for f in filenames:
+                files.append(str(Path(root, f).relative_to(output_dir)))
+        files.sort()
+
+        return output_dir, files
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to download artifact '{artifact_name}': {e.stderr}")
     except FileNotFoundError:
