@@ -171,7 +171,7 @@ Detailed architectural changes needed across the whole task:
 | File | Change |
 |------|--------|
 
-## First Iteration
+## First Iteration: <Description>
 Bullet-point list of what the first session will tackle. This will be further
 elaborated by continue-task's own planning step.
 - ...
@@ -184,12 +184,33 @@ Brief notes on what subsequent iterations will tackle.
 How to test the overall feature end-to-end.
 ```
 
+As sessions complete, the plan is updated inline via `mael linear edit-plan`. The rolling
+structure evolves as follows — completed iterations are rewritten to describe what actually
+happened, and the next iteration is promoted from Remaining Work:
+
+```markdown
+## Completed Iteration: <First Description>
+Concise summary of what was actually built, decisions made, deviations from plan.
+
+## Completed Iteration: <Second Description>
+Summary of what actually happened in this iteration.
+
+## Next Iteration: <Third Description>
+- ...
+
+## Remaining Work
+- ...
+```
+
+When the last iteration is reached, `## Remaining Work` can be removed or left empty.
+
 Each iteration of a multi-session plan should:
 - Be independently testable and pass CI when merged
 - Not break existing functionality
 - Not necessarily deliver end-user functionality -- e.g., a back-end API before the front-end,
   or a refactoring that makes it easy to implement the feature, are valid iterations
 - Be described as a bullet-point scope — continue-task handles detailed planning for each iteration
+- Be ordered by dependency (later iterations can depend on earlier ones)
 - For mechanical transformations: describe the mechanism clearly and note that confidence in
   test/type coverage is needed
 
