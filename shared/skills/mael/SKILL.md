@@ -22,6 +22,8 @@ mael linear list-tasks [--status STATUS]                # List tasks in current 
 ```bash
 mael linear write-plan PROJ-XXX plan.md
 mael linear read-plan PROJ-XXX                          # Read it back later
+mael linear edit-plan PROJ-XXX old.md new.md             # Search/replace within plan (file-based)
+mael linear edit-plan PROJ-XXX -s "old" "new"            # Search/replace within plan (string mode)
 ```
 
 **Break down large tasks** into subtasks (inherit parent's cycle):

@@ -75,8 +75,13 @@ Execute the plan directly:
 
 ### 7b. Multi-Session Flow
 
-a. **Read progress**: Review any progress report comments (from `read-task` output) chronologically
-   to understand what has been done in previous sessions.
+a. **Determine current iteration**: Look at the plan to understand where we are:
+   - `## First Iteration:` or `## Next Iteration:` heading = the current work to do
+   - `## Completed Iteration:` sections = what's been done in previous sessions
+   - If neither heading exists but `## Remaining Work` has content, this is a finishing session
+   - **Backward compat**: If the plan uses the old format (no `## First Iteration:` or
+     `## Next Iteration:` heading), also check progress report comments and fall back to
+     comment-based flow (step 7b-legacy below).
 
 b. **Enter plan mode**: Call **EnterPlanMode** to switch into plan mode for session planning.
 
@@ -114,28 +119,62 @@ i. **Create/update PR**: Always create or update the PR:
    Each increment should be mergeable and pass CI, even if it doesn't deliver the whole feature.
    Run this using the Bash tool with `run_in_background: true` so you can continue other work while waiting for CI.
 
-j. **Write progress report** (progress step only, NOT for finishing step):
-   Write a progress report to a temporary file, then add it as a comment on the Linear issue:
+j. **Update plan inline** (progress step only, NOT for finishing step):
+   Use `mael linear edit-plan` to atomically update the rolling plan structure. Use file-based
+   mode since this is multiline markdown:
+
+   1. Write `old.md` containing the text from the current iteration heading through end of
+      `## Remaining Work` section (i.e., from `## First Iteration: Foo` or `## Next Iteration: Foo`
+      through the end of the Remaining Work content).
+   2. Write `new.md` containing:
+      - `## Completed Iteration: <Current Iteration Description>` — body is **rewritten** to
+        describe what actually happened: what was built, key decisions, deviations from plan,
+        notes for future iterations. Keep it concise but accurate.
+      - `## Next Iteration: <New Description>` — promoted from Remaining Work, potentially
+        refined based on learnings from this session.
+      - `## Remaining Work` — updated with the promoted item removed, potentially
+        course-corrected based on what was learned.
+   3. Run:
+      ```bash
+      mael linear edit-plan <issue-id> old.md new.md
+      ```
+
+   This single edit atomically updates the rolling structure.
+
+   For small course-corrections, string mode also works:
    ```bash
-   mael linear add-comment <issue-id> <progress-report-file>
+   mael linear edit-plan <issue-id> -s "old text" "new text"
    ```
 
-   **Progress report format**:
-   ```markdown
-   ## Progress Report
-
-   **Session**: [n] ([date])
-   **Strategy**: [Making progress / Finishing]
-
-   ### Completed This Session
-   - [bullets]
-
-   ### Current State
-   - [where things stand, decisions made]
-
-   ### Remaining Work
-   - [high-level bullets]
+k. **Add a one-liner comment** (progress step only, NOT for finishing step):
+   After the plan edit, add a brief comment to keep the Linear activity feed readable:
+   ```bash
+   mael linear add-comment <issue-id> <comment-file>
    ```
+   Comment body: `Completed iteration: <iteration description>`
+
+### 7b-legacy. Legacy Multi-Session Flow (backward compat)
+
+For plans using the old format (no `## First Iteration:` or `## Next Iteration:` heading),
+fall back to comment-based progress tracking:
+
+- Read progress report comments chronologically to understand previous session work
+- After completing work, write a progress report comment (same format as before):
+  ```markdown
+  ## Progress Report
+
+  **Session**: [n] ([date])
+  **Strategy**: [Making progress / Finishing]
+
+  ### Completed This Session
+  - [bullets]
+
+  ### Current State
+  - [where things stand, decisions made]
+
+  ### Remaining Work
+  - [high-level bullets]
+  ```
 
 ## Commit Messages
 
@@ -210,6 +249,8 @@ When PR is merged (manual or via `complete-task`):
 - **CLI tool handles**: Team ID, workspace labels, parent task updates, PR detection, and all Linear
   API usage
 - **Progress tracking**: Use TodoWrite to track implementation progress
+- **Inline plan updates**: Multi-session progress is tracked inline in the plan via `edit-plan`,
+  not via comments. Comments are only used for one-liner activity feed entries and legacy compat.
 
 ## Integration with Plan Task
 
@@ -218,4 +259,5 @@ When PR is merged (manual or via `complete-task`):
 - Automatically picks up next phase from Linear task breakdown
 - Workspace labels enable filtering by codebase in Linear
 - Status tracking happens in Linear, visible to entire team
-- Multi-session plans track progress via Linear comments, enabling incremental delivery
+- Multi-session plans track progress inline in the plan description via `edit-plan`
+- Falls back to comment-based progress for plans using the old format (no iteration headings)

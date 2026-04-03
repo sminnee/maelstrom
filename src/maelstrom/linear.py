@@ -1091,6 +1091,70 @@ def cmd_read_plan(issue_id):
     click.echo(plan_content)
 
 
+@linear.command("edit-plan")
+@click.argument("issue_id")
+@click.argument("old_arg")
+@click.argument("new_arg")
+@click.option("-s", "--string", is_flag=True, help="Treat arguments as literal strings instead of file paths.")
+def cmd_edit_plan(issue_id, old_arg, new_arg, string):
+    """Search/replace within the plan section of a Linear issue description.
+
+    In default (file-based) mode, OLD_ARG and NEW_ARG are file paths containing
+    the search and replace text. With -s/--string, they are literal strings.
+    """
+    if string:
+        old_string = old_arg
+        new_string = new_arg
+    else:
+        old_path = Path(old_arg)
+        new_path = Path(new_arg)
+        if not old_path.exists():
+            raise click.ClickException(f"File not found: {old_arg}")
+        if not new_path.exists():
+            raise click.ClickException(f"File not found: {new_arg}")
+        old_string = old_path.read_text()
+        new_string = new_path.read_text()
+
+    if not old_string:
+        raise click.ClickException("Search string is empty")
+
+    issue = get_issue(issue_id)
+    description = issue.get("description") or ""
+
+    start_marker = "# Implementation Plan"
+    end_marker = "(end of plan)"
+    start_idx = description.find(start_marker)
+    end_idx = description.find(end_marker)
+
+    if start_idx == -1:
+        raise click.ClickException(
+            f"No implementation plan found on {issue['identifier']}. "
+            f"Use 'mael linear write-plan' to add one."
+        )
+
+    # Extract plan section
+    if end_idx != -1:
+        plan_section = description[start_idx:end_idx + len(end_marker)]
+    else:
+        plan_section = description[start_idx:]
+
+    # Verify exactly one match
+    count = plan_section.count(old_string)
+    if count == 0:
+        raise click.ClickException("Search string not found in plan section")
+    if count > 1:
+        raise click.ClickException(
+            f"Search string found {count} times in plan section (must be unique)"
+        )
+
+    # Replace within plan section and reconstruct
+    new_plan_section = plan_section.replace(old_string, new_string, 1)
+    new_description = description[:start_idx] + new_plan_section + description[start_idx + len(plan_section):]
+
+    update_issue(issue["id"], description=new_description)
+    click.echo(f"Updated plan on {issue['identifier']}: {issue['title']}")
+
+
 @linear.command("add-comment")
 @click.argument("issue_id")
 @click.argument("comment_file", type=click.Path(exists=True))
