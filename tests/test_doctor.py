@@ -116,8 +116,8 @@ class TestUpdateLocalMain:
             result = update_local_main(project_path)
             assert result.status == "skipped"
 
-    def test_skips_when_main_checked_out(self):
-        """Skips when main is checked out in a worktree."""
+    def test_fast_forwards_when_main_checked_out(self):
+        """Fast-forwards main via merge when checked out in a worktree."""
         tmpdir, project_path = _create_project_repo()
         with tmpdir:
             # Create a worktree on main
@@ -131,9 +131,20 @@ class TestUpdateLocalMain:
             run_git(source_path, "push", str(remote_path), "main")
             run_git(project_path, "fetch", "origin")
 
+            # Get origin/main sha before update
+            origin_sha = run_git(
+                project_path, "rev-parse", "refs/remotes/origin/main"
+            ).stdout.strip()
+
             result = update_local_main(project_path)
-            assert result.status == "skipped"
-            assert "checked out" in result.message
+            assert result.status == "updated"
+            assert "Fast-forwarded" in result.message
+
+            # Verify the ref was actually updated
+            local_sha = run_git(
+                project_path, "rev-parse", "refs/heads/main"
+            ).stdout.strip()
+            assert local_sha == origin_sha
 
             # Clean up
             run_git(project_path, "worktree", "remove", str(wt_path))

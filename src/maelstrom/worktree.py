@@ -134,9 +134,9 @@ def update_local_main(project_path: Path) -> UpdateMainResult:
     """Fast-forward local main to match origin/main after a fetch.
 
     Uses ``git update-ref`` when main is not checked out in any worktree.
-    If main is checked out somewhere, skips silently (the worktree's own
-    rebase handles it).  If local main is ahead of origin/main, returns
-    a warning.
+    If main is checked out in a worktree, runs ``git merge --ff-only`` in
+    that worktree to update both the ref and the working tree.  If local
+    main is ahead of origin/main, returns a warning.
 
     Args:
         project_path: Path to the project root (bare-ish repo).
@@ -181,14 +181,21 @@ def update_local_main(project_path: Path) -> UpdateMainResult:
                 f"Local {MAIN_BRANCH} is {ahead} commit(s) ahead of origin/{MAIN_BRANCH}",
             )
 
-    # Check if main is checked out in any worktree
+    # If main is checked out in a worktree, fast-forward via merge there
     worktrees = list_worktrees(project_path)
     for wt in worktrees:
         if wt.branch == MAIN_BRANCH:
-            return UpdateMainResult(
-                "skipped",
-                f"{MAIN_BRANCH} is checked out in {wt.path.name}",
-            )
+            try:
+                run_git(["merge", "--ff-only", f"origin/{MAIN_BRANCH}"], cwd=wt.path)
+                return UpdateMainResult(
+                    "updated",
+                    f"Fast-forwarded {MAIN_BRANCH} in worktree {wt.path.name}",
+                )
+            except subprocess.CalledProcessError:
+                return UpdateMainResult(
+                    "warning",
+                    f"Could not fast-forward {MAIN_BRANCH} in worktree {wt.path.name}",
+                )
 
     # Safe to fast-forward via update-ref
     try:
