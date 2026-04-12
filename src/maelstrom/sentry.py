@@ -244,7 +244,7 @@ def format_stacktrace(exception: dict) -> str:
     lines.append("")
     lines.append("```")
 
-    stacktrace = exception.get("stacktrace", {})
+    stacktrace = exception.get("stacktrace") or {}
     frames = stacktrace.get("frames", [])
 
     # Reverse frames to show outermost first (matches Sentry UI)
