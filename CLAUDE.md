@@ -1,3 +1,5 @@
+@.claude/CLAUDE.local.md
+
 # CLAUDE.md
 
 @.claude/CLAUDE.local.md
