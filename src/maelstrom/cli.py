@@ -25,6 +25,7 @@ from .git_cli import git as git_cli
 from .linear import linear
 from .review import review
 from .sentry import sentry
+from .uptimerobot import uptimerobot
 from .claude_integration import install_claude_integration
 from .claude_sessions import get_active_ide_sessions
 from .table import draw_table
@@ -1481,6 +1482,7 @@ cli.add_command(git_cli)
 cli.add_command(linear)
 cli.add_command(review)
 cli.add_command(sentry)
+cli.add_command(uptimerobot)
 
 
 def main(argv: list[str] | None = None) -> int:
