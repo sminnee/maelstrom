@@ -171,7 +171,7 @@ Structure the plan so that executing it will fix the issues:
 1. Each fix should be committed with `git commit --fixup=<sha>`
 2. Ask user to confirm the fixup commits are acceptable
 3. If approved, run `mael review squash` to combine fixups with originals
-4. Create PR with `mael gh create-pr --wait` (use Bash tool with `run_in_background: true`)
+4. Create PR with `mael gh create-pr`, then run both `mael gh read-pr --wait-for-review` and `mael gh read-pr --wait` (use Bash tool with `run_in_background: true` on both) — whichever fires first unblocks you
 ```
 
 ### 8. Exit Plan Mode
@@ -281,7 +281,7 @@ This squashes all fixup commits into their target commits.
 1. Each fix should be committed with `git commit --fixup=<sha>`
 2. Ask user to confirm the fixup commits are acceptable
 3. If approved, run `mael review squash` to combine fixups with originals
-4. Create PR with `mael gh create-pr --wait` (use Bash tool with `run_in_background: true`)
+4. Create PR with `mael gh create-pr`, then run both `mael gh read-pr --wait-for-review` and `mael gh read-pr --wait` (use Bash tool with `run_in_background: true` on both) — whichever fires first unblocks you
 ```
 
 ## Implementation Notes

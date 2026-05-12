@@ -112,12 +112,18 @@ h. **Commit changes** with the issue ID in the message (see "Commit Messages" be
    printf 'feat: <description> [<issue-id>]\n' | git commit -F -
    ```
 
-i. **Create/update PR**: Always create or update the PR:
-   - For **progress step**: `mael gh create-pr --wait --progress <issue-id>` (uses "Progresses" in title, keeps status as "In Progress")
-   - For **finishing step**: `mael gh create-pr --wait <issue-id>` (uses "Fixes" in title, sets status to "In Review")
+i. **Create/update PR**: Always create or update the PR using the two-track pattern:
+   - For **progress step**: `mael gh create-pr --progress <issue-id>` (uses "Progresses" in title, keeps status as "In Progress")
+   - For **finishing step**: `mael gh create-pr <issue-id>` (uses "Fixes" in title, sets status to "In Review")
+
+   Then start both background waiters — whichever fires first unblocks you so
+   you can act on review feedback before CI completes:
+   ```bash
+   mael gh read-pr --wait-for-review        # run_in_background: true
+   mael gh read-pr --wait                   # run_in_background: true
+   ```
 
    Each increment should be mergeable and pass CI, even if it doesn't deliver the whole feature.
-   Run this using the Bash tool with `run_in_background: true` so you can continue other work while waiting for CI.
 
 j. **Update plan inline** (progress step only, NOT for finishing step):
    Use `mael linear edit-plan` to atomically update the rolling plan structure. Use file-based

@@ -734,6 +734,57 @@ def wait_for_checks(
         time.sleep(poll_interval)
 
 
+def wait_for_review(
+    cwd: Path,
+    timeout: int = 1800,
+    poll_interval: int = 30,
+) -> PRComment:
+    """Poll PR until a review or inline-thread comment arrives after the last push.
+
+    A "review" here is either a formal review submission (kind="review") or an
+    unresolved inline thread comment (kind="thread"). Plain top-level issue
+    comments (kind="issue") are ignored — they're often informational.
+
+    Args:
+        cwd: Working directory (must be in a git repo with a PR).
+        timeout: Maximum seconds to wait (default 1800 = 30 min).
+        poll_interval: Seconds between polls (default 30).
+
+    Returns:
+        The earliest qualifying PRComment created after the last push.
+
+    Raises:
+        TimeoutError: If timeout exceeded before a review arrives.
+        RuntimeError: If PR/repo info is unavailable.
+    """
+    owner, repo = get_repo_info(cwd)
+    pr_number = get_pr_info(cwd).number
+
+    start = time.monotonic()
+
+    while True:
+        comments, last_push_at = get_pr_comments(cwd, owner, repo, pr_number)
+
+        candidates = [
+            c for c in comments
+            if c.kind in ("review", "thread")
+            and c.created_at
+            and (last_push_at is None or c.created_at > last_push_at)
+        ]
+        if candidates:
+            candidates.sort(key=lambda c: c.created_at)
+            return candidates[0]
+
+        elapsed = time.monotonic() - start
+        if elapsed >= timeout:
+            raise TimeoutError(
+                f"Timed out after {timeout}s waiting for a review on PR #{pr_number}"
+            )
+
+        print(f"Waiting for review on PR #{pr_number}...")
+        time.sleep(poll_interval)
+
+
 def get_worktree_code(cwd: Path) -> tuple[str, str]:
     """Get commits and uncommitted changes for a worktree.
 
