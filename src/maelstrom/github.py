@@ -11,22 +11,16 @@ from .worktree import run_cmd, run_git, sync_worktree
 
 
 @dataclass
-class ReviewComment:
-    """A comment in a review thread."""
+class PRComment:
+    """A flat comment on a PR (inline thread reply, top-level issue comment, or review summary)."""
 
     author: str
     body: str
     created_at: str
-
-
-@dataclass
-class ReviewThread:
-    """An unresolved review thread on a PR."""
-
-    id: str
-    path: str
-    line: int | None
-    comments: list[ReviewComment] = field(default_factory=list)
+    kind: str  # "thread" | "issue" | "review"
+    path: str | None = None
+    line: int | None = None
+    thread_id: str | None = None
 
 
 @dataclass
@@ -57,7 +51,8 @@ class PRInfo:
     state: str  # "OPEN", "MERGED", "CLOSED"
     merged: bool
     head_ref: str
-    review_threads: list[ReviewThread] = field(default_factory=list)
+    comments: list[PRComment] = field(default_factory=list)
+    last_push_at: str | None = None
     checks: list[CheckRun] = field(default_factory=list)
     artifacts: dict[str, list[Artifact]] = field(default_factory=dict)  # run_id -> artifacts
 
@@ -323,8 +318,13 @@ def get_pr_info(cwd: Path) -> PRInfo:
         raise RuntimeError("GitHub CLI (gh) is not installed")
 
 
-def get_unresolved_review_threads(cwd: Path, owner: str, repo: str, pr_number: int) -> list[ReviewThread]:
-    """Get unresolved review threads from a PR using GraphQL.
+def get_pr_comments(cwd: Path, owner: str, repo: str, pr_number: int) -> tuple[list[PRComment], str | None]:
+    """Get all comments from a PR using GraphQL, plus the timestamp of the last push.
+
+    Fetches three sources in a single round-trip:
+    - Unresolved inline review threads (resolved threads are dropped).
+    - Top-level PR (issue) comments.
+    - Review submissions with non-empty bodies (approve/request-changes summaries).
 
     Args:
         cwd: Working directory.
@@ -333,7 +333,9 @@ def get_unresolved_review_threads(cwd: Path, owner: str, repo: str, pr_number: i
         pr_number: Pull request number.
 
     Returns:
-        List of unresolved ReviewThread objects.
+        Tuple of (comments, last_push_at). last_push_at is the ISO 8601 timestamp
+        of the most recent commit's pushedDate (falling back to committedDate), or
+        None if unavailable.
     """
     query = """
     query($owner: String!, $repo: String!, $pr: Int!) {
@@ -345,12 +347,34 @@ def get_unresolved_review_threads(cwd: Path, owner: str, repo: str, pr_number: i
               isResolved
               path
               line
-              comments(first: 10) {
+              comments(first: 50) {
                 nodes {
                   body
                   author { login }
                   createdAt
                 }
+              }
+            }
+          }
+          comments(first: 100) {
+            nodes {
+              body
+              author { login }
+              createdAt
+            }
+          }
+          reviews(first: 100) {
+            nodes {
+              body
+              author { login }
+              submittedAt
+            }
+          }
+          commits(last: 1) {
+            nodes {
+              commit {
+                pushedDate
+                committedDate
               }
             }
           }
@@ -373,35 +397,60 @@ def get_unresolved_review_threads(cwd: Path, owner: str, repo: str, pr_number: i
             check=True,
         )
         data = json.loads(result.stdout)
-        threads = []
+        pr = data.get("data", {}).get("repository", {}).get("pullRequest", {}) or {}
 
-        nodes = data.get("data", {}).get("repository", {}).get("pullRequest", {}).get("reviewThreads", {}).get("nodes", [])
-        for node in nodes:
+        comments: list[PRComment] = []
+
+        for node in pr.get("reviewThreads", {}).get("nodes", []) or []:
             if node.get("isResolved"):
                 continue
-
-            comments = []
-            for comment in node.get("comments", {}).get("nodes", []):
-                author = comment.get("author", {})
-                comments.append(ReviewComment(
+            thread_id = node.get("id", "")
+            path = node.get("path", "")
+            line = node.get("line")
+            for c in node.get("comments", {}).get("nodes", []) or []:
+                author = c.get("author") or {}
+                comments.append(PRComment(
                     author=author.get("login", "unknown") if author else "unknown",
-                    body=comment.get("body", ""),
-                    created_at=comment.get("createdAt", ""),
+                    body=c.get("body", ""),
+                    created_at=c.get("createdAt", ""),
+                    kind="thread",
+                    path=path,
+                    line=line,
+                    thread_id=thread_id,
                 ))
 
-            threads.append(ReviewThread(
-                id=node.get("id", ""),
-                path=node.get("path", ""),
-                line=node.get("line"),
-                comments=comments,
+        for c in pr.get("comments", {}).get("nodes", []) or []:
+            author = c.get("author") or {}
+            comments.append(PRComment(
+                author=author.get("login", "unknown") if author else "unknown",
+                body=c.get("body", ""),
+                created_at=c.get("createdAt", ""),
+                kind="issue",
             ))
 
-        return threads
+        for r in pr.get("reviews", {}).get("nodes", []) or []:
+            body = r.get("body", "") or ""
+            if not body.strip():
+                continue
+            author = r.get("author") or {}
+            comments.append(PRComment(
+                author=author.get("login", "unknown") if author else "unknown",
+                body=body,
+                created_at=r.get("submittedAt", "") or "",
+                kind="review",
+            ))
+
+        last_push_at: str | None = None
+        commit_nodes = pr.get("commits", {}).get("nodes", []) or []
+        if commit_nodes:
+            commit = commit_nodes[0].get("commit") or {}
+            last_push_at = commit.get("pushedDate") or commit.get("committedDate") or None
+
+        return comments, last_push_at
     except subprocess.CalledProcessError:
-        # GraphQL query failed - return empty list rather than failing
-        return []
+        return [], None
     except (json.JSONDecodeError, KeyError):
-        return []
+        return [], None
 
 
 def get_pr_checks(cwd: Path) -> list[CheckRun]:
@@ -610,9 +659,9 @@ def read_pr(cwd: Path | None = None) -> PRInfo:
         # If we can't get repo info, continue without review threads
         owner, repo = None, None
 
-    # Get unresolved review threads
+    # Get PR comments (inline threads + top-level + review summaries) and last push time
     if owner and repo:
-        pr_info.review_threads = get_unresolved_review_threads(cwd, owner, repo, pr_info.number)
+        pr_info.comments, pr_info.last_push_at = get_pr_comments(cwd, owner, repo, pr_info.number)
 
     # Get check status
     pr_info.checks = get_pr_checks(cwd)

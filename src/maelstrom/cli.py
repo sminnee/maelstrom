@@ -1265,11 +1265,128 @@ def _format_size(size_bytes: int) -> str:
         return f"{size_bytes / (1024 * 1024):.1f} MB"
 
 
+def _render_pr_comments(pr_info, all_comments: bool) -> None:
+    """Render PR comments section with recency-based summarisation.
+
+    Comments newer than the last pushed commit are shown in full; older
+    comments are collapsed into a count line unless --all-comments is set.
+    Inline-thread comments are grouped by thread for display.
+    """
+    comments = pr_info.comments
+    if not comments:
+        return
+
+    last_push = pr_info.last_push_at
+    # ISO 8601 Z-form sorts lexicographically — no parsing needed.
+    def is_new(c) -> bool:
+        if last_push is None:
+            return True
+        return c.created_at > last_push
+
+    issue_comments = [c for c in comments if c.kind == "issue"]
+    review_comments = [c for c in comments if c.kind == "review"]
+    thread_comments = [c for c in comments if c.kind == "thread"]
+
+    # Group thread comments by thread_id, preserving order of first appearance.
+    threads: dict[str, list] = {}
+    for c in thread_comments:
+        tid = c.thread_id or ""
+        threads.setdefault(tid, []).append(c)
+
+    new_issue = [c for c in issue_comments if is_new(c)]
+    old_issue = [c for c in issue_comments if not is_new(c)]
+    new_review = [c for c in review_comments if is_new(c)]
+    old_review = [c for c in review_comments if not is_new(c)]
+
+    # Threads: entirely-old vs has-new-content
+    threads_with_new: list[tuple[str, list]] = []
+    threads_all_old: list[tuple[str, list]] = []
+    for tid, tcomments in threads.items():
+        if any(is_new(c) for c in tcomments):
+            threads_with_new.append((tid, tcomments))
+        else:
+            threads_all_old.append((tid, tcomments))
+
+    # Count total old comments hidden when not in all_comments mode.
+    old_in_mixed_threads = sum(
+        len([c for c in tc if not is_new(c)]) for _, tc in threads_with_new
+    )
+    all_old_thread_count = sum(len(tc) for _, tc in threads_all_old)
+    total_old_hidden = (
+        len(old_issue) + len(old_review) + all_old_thread_count + old_in_mixed_threads
+    )
+
+    if all_comments:
+        show_issue = issue_comments
+        show_review = review_comments
+        show_threads = list(threads.items())
+    else:
+        show_issue = new_issue
+        show_review = new_review
+        show_threads = threads_with_new
+
+    if not show_issue and not show_review and not show_threads and total_old_hidden == 0:
+        return
+
+    click.echo()
+    click.echo("--- Comments ---")
+
+    if show_issue:
+        label_count = len(show_issue) if all_comments else len(new_issue)
+        suffix = "" if all_comments else " new"
+        click.echo()
+        click.echo(f"Top-level ({label_count}{suffix}):")
+        for c in show_issue:
+            click.echo(f"  @{c.author} ({c.created_at}):")
+            for line in c.body.splitlines():
+                click.echo(f"    {line}")
+
+    if show_review:
+        label_count = len(show_review) if all_comments else len(new_review)
+        suffix = "" if all_comments else " new"
+        click.echo()
+        click.echo(f"Review summaries ({label_count}{suffix}):")
+        for c in show_review:
+            click.echo(f"  @{c.author} ({c.created_at}):")
+            for line in c.body.splitlines():
+                click.echo(f"    {line}")
+
+    if show_threads:
+        new_thread_count = len(threads_with_new)
+        label_count = len(show_threads) if all_comments else new_thread_count
+        suffix = "" if all_comments else " new"
+        click.echo()
+        click.echo(f"Inline ({label_count}{suffix}):")
+        for tid, tcomments in show_threads:
+            head = tcomments[0]
+            line_info = f":{head.line}" if head.line else ""
+            click.echo(f"  {head.path}{line_info}")
+            if all_comments:
+                shown = tcomments
+                hidden = 0
+            else:
+                shown = [c for c in tcomments if is_new(c)]
+                hidden = len(tcomments) - len(shown)
+            for c in shown:
+                click.echo(f"    @{c.author}:")
+                for line in c.body.splitlines():
+                    click.echo(f"      {line}")
+            if hidden:
+                noun = "comment" if hidden == 1 else "comments"
+                click.echo(f"    ... {hidden} earlier {noun} in this thread")
+
+    if not all_comments and total_old_hidden > 0:
+        noun = "comment" if total_old_hidden == 1 else "comments"
+        click.echo()
+        click.echo(f"{total_old_hidden} older {noun} hidden (use --all-comments to show)")
+
+
 @gh.command("read-pr")
 @click.argument("target", required=False, default=None)
 @click.option("--wait", is_flag=True, help="Wait for CI checks to complete (exit 0=pass, 1=fail, 2=timeout)")
-def gh_read_pr(target, wait):
-    """Read PR status, unresolved comments, and check results."""
+@click.option("--all-comments", is_flag=True, help="Include comments made before the last pushed commit")
+def gh_read_pr(target, wait, all_comments):
+    """Read PR status, comments, and check results."""
     try:
         ctx = resolve_context(target, require_project=False, require_worktree=False)
     except ValueError as e:
@@ -1298,17 +1415,8 @@ def gh_read_pr(target, wait):
 
     click.echo(f"Status: {pr_info.state}")
 
-    # Unresolved comments
-    if pr_info.review_threads:
-        click.echo()
-        click.echo(f"--- Unresolved Comments ({len(pr_info.review_threads)}) ---")
-        for thread in pr_info.review_threads:
-            line_info = f":{thread.line}" if thread.line else ""
-            click.echo(f"  {thread.path}{line_info}")
-            for comment in thread.comments:
-                click.echo(f"    @{comment.author}:")
-                for line in comment.body.splitlines():
-                    click.echo(f"      {line}")
+    # Comments (inline threads + top-level + review summaries)
+    _render_pr_comments(pr_info, all_comments=all_comments)
 
     # Checks
     failed_checks = [c for c in pr_info.checks if c.state == "FAILURE"]
