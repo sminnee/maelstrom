@@ -227,7 +227,7 @@ def parse_uptime_ratios(value: str | None) -> list[str]:
             parts.append("-")
             continue
         try:
-            parts.append(f"{float(chunk):.3f}%")
+            parts.append(f"{float(chunk):.2f}%")
         except ValueError:
             parts.append(chunk)
     return parts
@@ -250,7 +250,14 @@ UPTIME_WINDOW_HEADERS = ("24h", "7d", "30d")
 def cmd_status() -> None:
     """Show current status and uptime of configured monitors."""
     monitor_ids = get_uptimerobot_monitors()
-    monitors = _fetch_monitors(monitor_ids, uptime_ratios=UPTIME_WINDOWS)
+    # logs=1 with logs_limit=1 is what populates last_event_datetime; without
+    # it that field reflects creation/config time, not the most recent event.
+    monitors = _fetch_monitors(
+        monitor_ids,
+        uptime_ratios=UPTIME_WINDOWS,
+        logs=True,
+        logs_limit=1,
+    )
 
     if not monitors:
         click.echo("No monitors found.")
@@ -266,7 +273,11 @@ def cmd_status() -> None:
         name = name.replace("|", "\\|")
         monitor_id = str(monitor.get("id", ""))
         status = format_status(int(monitor.get("status", -1)))
-        last_event_ts = monitor.get("last_event_datetime") or monitor.get("create_datetime")
+        # Prefer the timestamp of the most recent log entry — last_event_datetime
+        # in the bare response often reflects creation/config time, not events.
+        logs = monitor.get("logs") or []
+        log_ts = int(logs[0].get("datetime", 0)) if logs else 0
+        last_event_ts = log_ts or monitor.get("last_event_datetime")
         if last_event_ts:
             last_event = format_relative_time(_epoch_to_iso(int(last_event_ts)))
         else:

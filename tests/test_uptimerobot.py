@@ -123,9 +123,46 @@ class TestStatusCommand:
         sent_body = mock_api.call_args[0][1]
         assert sent_body["monitors"] == "111-222"
         assert sent_body["custom_uptime_ratios"] == "1-7-30"
-        # Uptime columns rendered to 3dp with '%'
-        assert "99.991%" in result.output
-        assert "99.700%" in result.output
+        # logs=1 is required for last_event_datetime to reflect real events
+        assert sent_body["logs"] == 1
+        assert sent_body["logs_limit"] == 1
+        # Uptime columns rendered to 2dp with '%'
+        assert "99.99%" in result.output
+        assert "99.70%" in result.output
+
+    @patch("maelstrom.uptimerobot.format_relative_time")
+    @patch("maelstrom.uptimerobot.get_uptimerobot_monitors", return_value=["111"])
+    @patch("maelstrom.uptimerobot.api_request")
+    def test_status_prefers_log_timestamp_over_last_event_datetime(
+        self, mock_api, _mock_monitors, mock_relative
+    ):
+        mock_relative.return_value = "5m ago"
+
+        stale_last_event = 1700000000  # what the API returns without logs=1
+        recent_log_ts = 2_000_000_000
+
+        mock_api.return_value = {
+            "stat": "ok",
+            "monitors": [
+                {
+                    "id": 111,
+                    "friendly_name": "API",
+                    "status": 2,
+                    "last_event_datetime": stale_last_event,
+                    "custom_uptime_ratio": "99.700-99.900-99.800",
+                    "logs": [{"type": 2, "datetime": recent_log_ts, "duration": 0}],
+                },
+            ],
+        }
+
+        runner = CliRunner()
+        result = runner.invoke(uptimerobot, ["status"])
+
+        assert result.exit_code == 0, result.output
+        # The log timestamp must win over last_event_datetime
+        passed_iso = mock_relative.call_args[0][0]
+        assert "2033" in passed_iso  # epoch 2_000_000_000 → 2033
+        assert "2023" not in passed_iso  # stale_last_event would be 2023
 
     @patch("maelstrom.uptimerobot.get_uptimerobot_monitors", return_value=[111, 222])
     @patch("maelstrom.uptimerobot.api_request")
