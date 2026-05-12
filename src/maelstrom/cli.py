@@ -295,6 +295,7 @@ def cmd_add(branch, project, open, no_recycle):
     recycled = False
 
     if not no_recycle:
+        assert branch is not None  # no_recycle is forced True when branch is None
         closed_wt = find_closed_worktree(project_path)
         if closed_wt:
             click.echo(f"Recycling closed worktree '{closed_wt.path.name}'...")
