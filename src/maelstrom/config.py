@@ -24,6 +24,8 @@ class MaelstromConfig:
     # Sentry integration
     sentry_org: str | None = None
     sentry_project: str | None = None
+    # UptimeRobot integration
+    uptimerobot_monitors: list[str] | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "MaelstromConfig":
@@ -36,6 +38,10 @@ class MaelstromConfig:
         if not isinstance(sentry_config, dict):
             sentry_config = {}
 
+        ur_config = data.get("uptimerobot", {})
+        if not isinstance(ur_config, dict):
+            ur_config = {}
+
         return cls(
             port_names=data.get("port_names", []),
             shared_port_names=data.get("shared_port_names", []),
@@ -46,6 +52,7 @@ class MaelstromConfig:
             linear_product_label=linear_config.get("product_label"),
             sentry_org=sentry_config.get("org"),
             sentry_project=sentry_config.get("project_id"),
+            uptimerobot_monitors=ur_config.get("monitors"),
         )
 
 

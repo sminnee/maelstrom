@@ -51,6 +51,22 @@ class TestMaelstromConfig:
         assert config.start_cmd == ""
         assert config.install_cmd == ""
 
+    def test_from_dict_uptimerobot_monitors(self):
+        """Test parsing uptimerobot.monitors list."""
+        data = {"uptimerobot": {"monitors": ["111", "222"]}}
+        config = MaelstromConfig.from_dict(data)
+        assert config.uptimerobot_monitors == ["111", "222"]
+
+    def test_from_dict_uptimerobot_missing(self):
+        """Test that missing uptimerobot block leaves monitors as None."""
+        config = MaelstromConfig.from_dict({})
+        assert config.uptimerobot_monitors is None
+
+    def test_from_dict_uptimerobot_invalid_block(self):
+        """Test that a non-dict uptimerobot block is ignored gracefully."""
+        config = MaelstromConfig.from_dict({"uptimerobot": "garbage"})
+        assert config.uptimerobot_monitors is None
+
 
 class TestFindConfigFile:
     """Tests for find_config_file function."""

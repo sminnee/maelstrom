@@ -30,6 +30,7 @@ class GlobalConfig:
     open_command: str = "code"
     linear_api_key: str | None = None
     sentry_api_key: str | None = None
+    uptimerobot_api_key: str | None = None
 
     @classmethod
     def default(cls) -> "GlobalConfig":
@@ -47,11 +48,15 @@ class GlobalConfig:
         # Support nested sentry config: sentry.api_key
         sentry_config = data.get("sentry", {})
         sentry_api_key = sentry_config.get("api_key") if isinstance(sentry_config, dict) else None
+        # Support nested uptimerobot config: uptimerobot.api_key
+        ur_config = data.get("uptimerobot", {})
+        uptimerobot_api_key = ur_config.get("api_key") if isinstance(ur_config, dict) else None
         return cls(
             projects_dir=Path(projects_dir).expanduser(),
             open_command=open_command,
             linear_api_key=linear_api_key,
             sentry_api_key=sentry_api_key,
+            uptimerobot_api_key=uptimerobot_api_key,
         )
 
 
