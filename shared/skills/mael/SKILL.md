@@ -95,17 +95,22 @@ mael git status                          # Branch info, diff stats, recent commi
 mael gh show-code --committed            # All changes since branching from main
 ```
 
-**Create or update PR:**
+**Create or update PR** (recommended two-track pattern):
 ```bash
-mael gh create-pr PROJ-XXX --wait        # Link Linear task, wait for CI
+mael gh create-pr PROJ-XXX               # Create/push PR (no wait)
+mael gh read-pr --wait-for-review        # Background: unblock on first review
+mael gh read-pr --wait                   # Background: unblock when CI done
 ```
-- Run with `run_in_background: true` so you can continue working while CI runs.
+- Run the two `read-pr` calls with `run_in_background: true`. Whichever fires
+  first unblocks you — start on review feedback before CI completes.
 - Force-pushes branch with `--force-with-lease`.
 - New PR: uses first commit as title. Existing PR: just pushes.
 - With `ISSUE_ID`: appends `(Fixes ISSUE_ID)` to title, sets task to "In Review".
 - `--progress`: uses `(Progresses ISSUE_ID)` instead, skips "In Review". Use for multi-session tasks with remaining work.
 - `--draft`: create as draft PR.
 - `--wait`: blocks until CI completes (exit 0=pass, 1=fail, 2=timeout).
+- `--wait-for-review`: blocks until a reviewer comments — formal review or
+  inline thread (exit 0=review received, 2=timeout). Mutually exclusive with `--wait`.
 
 **Code review before PR** (optional):
 1. `/review-branch` (plan mode required) — produces review findings
@@ -120,6 +125,7 @@ mael gh create-pr PROJ-XXX --wait        # Link Linear task, wait for CI
 mael gh read-pr                          # Merge status, comments, CI results
 mael gh read-pr --all-comments           # Include comments older than the last push
 mael gh read-pr --wait                   # Wait for CI to finish (use run_in_background)
+mael gh read-pr --wait-for-review        # Wait for first reviewer comment (use run_in_background)
 mael gh check-log <run_id>               # Full GitHub Actions logs
 mael gh check-log <run_id> --failed-only # Just failed steps
 mael gh download-artifact <run_id> <name>            # Test results, screenshots, etc.
@@ -127,7 +133,12 @@ mael gh download-artifact <run_id> <name>            # Test results, screenshots
 
 `read-pr` shows top-level PR comments, review summaries, and unresolved inline review threads. Comments older than the most recent push are collapsed into a count line by default; pass `--all-comments` to expand them.
 
-Fix issues, commit, then `mael gh create-pr --wait` again to push and re-check CI.
+Fix issues, commit, then re-push with the same two-track pattern:
+```bash
+mael gh create-pr PROJ-XXX               # Push fixes (no wait)
+mael gh read-pr --wait-for-review        # Background: unblock on next review
+mael gh read-pr --wait                   # Background: unblock when CI done
+```
 
 ## Working with Sentry
 

@@ -17,6 +17,7 @@ from .github import (
     get_worktree_code,
     read_pr,
     wait_for_checks,
+    wait_for_review,
 )
 from .cmux import is_cmux_mode, set_status, clear_status
 from .env import get_env_status, stop_env
@@ -1115,13 +1116,39 @@ def gh():
     pass
 
 
+def _handle_wait_for_review(cwd: Path) -> None:
+    """Block until a reviewer comments, then print and exit appropriately.
+
+    Exits 2 on timeout. Returns normally (exit 0) once a review arrives.
+    """
+    try:
+        comment = wait_for_review(cwd)
+    except TimeoutError as e:
+        click.echo(str(e), err=True)
+        sys.exit(2)
+    except RuntimeError as e:
+        raise click.ClickException(str(e))
+
+    location = ""
+    if comment.kind == "thread" and comment.path:
+        loc = f"{comment.path}:{comment.line}" if comment.line is not None else comment.path
+        location = f" on {loc}"
+    snippet = comment.body.strip().splitlines()[0] if comment.body.strip() else ""
+    if len(snippet) > 200:
+        snippet = snippet[:197] + "..."
+    click.echo(f"Review received from @{comment.author} ({comment.kind}){location}")
+    if snippet:
+        click.echo(f"  {snippet}")
+
+
 @gh.command("create-pr")
 @click.argument("issue_id", required=False, default=None)
 @click.option("--draft", is_flag=True, help="Create as draft PR")
 @click.option("--progress", is_flag=True, help="Mark as progress (not final). Uses 'Progresses' instead of 'Fixes' and skips setting status to 'In Review'")
 @click.option("--wait", is_flag=True, help="Wait for CI checks to complete after creating PR")
+@click.option("--wait-for-review", "wait_for_review_flag", is_flag=True, help="Wait until a reviewer leaves feedback (review or inline thread). Exits 0 on first review, 2 on timeout.")
 @click.option("--target", default=None, help="Project/worktree target for directory resolution")
-def gh_create_pr(issue_id, draft, progress, wait, target):
+def gh_create_pr(issue_id, draft, progress, wait, wait_for_review_flag, target):
     """Create a PR for the current worktree (or push if PR exists).
 
     If ISSUE_ID is provided (e.g., ME-41), appends (Fixes ISSUE_ID) to the PR title
@@ -1130,6 +1157,9 @@ def gh_create_pr(issue_id, draft, progress, wait, target):
     With --progress, uses (Progresses ISSUE_ID) instead and does not change the task
     status to "In Review" (for multi-session tasks with remaining work).
     """
+    if wait and wait_for_review_flag:
+        raise click.UsageError("--wait and --wait-for-review are mutually exclusive")
+
     try:
         ctx = resolve_context(target, require_project=False, require_worktree=False)
     except ValueError as e:
@@ -1215,6 +1245,9 @@ def gh_create_pr(issue_id, draft, progress, wait, target):
             sys.exit(2)
         except RuntimeError as e:
             raise click.ClickException(str(e))
+
+    if wait_for_review_flag:
+        _handle_wait_for_review(cwd)
 
 
 @gh.command("wait-for-pr")
@@ -1384,9 +1417,13 @@ def _render_pr_comments(pr_info, all_comments: bool) -> None:
 @gh.command("read-pr")
 @click.argument("target", required=False, default=None)
 @click.option("--wait", is_flag=True, help="Wait for CI checks to complete (exit 0=pass, 1=fail, 2=timeout)")
+@click.option("--wait-for-review", "wait_for_review_flag", is_flag=True, help="Wait until a reviewer leaves feedback (review or inline thread). Exits 0 on first review, 2 on timeout.")
 @click.option("--all-comments", is_flag=True, help="Include comments made before the last pushed commit")
-def gh_read_pr(target, wait, all_comments):
+def gh_read_pr(target, wait, wait_for_review_flag, all_comments):
     """Read PR status, comments, and check results."""
+    if wait and wait_for_review_flag:
+        raise click.UsageError("--wait and --wait-for-review are mutually exclusive")
+
     try:
         ctx = resolve_context(target, require_project=False, require_worktree=False)
     except ValueError as e:
@@ -1479,6 +1516,9 @@ def gh_read_pr(target, wait, all_comments):
             sys.exit(2)
         except RuntimeError as e:
             raise click.ClickException(str(e))
+
+    if wait_for_review_flag:
+        _handle_wait_for_review(cwd)
 
 
 @gh.command("download-artifact")
