@@ -117,12 +117,15 @@ mael gh create-pr PROJ-XXX --wait        # Link Linear task, wait for CI
 ## Working with PR Failures
 
 ```bash
-mael gh read-pr                          # Merge status, review comments, CI results
+mael gh read-pr                          # Merge status, comments, CI results
+mael gh read-pr --all-comments           # Include comments older than the last push
 mael gh read-pr --wait                   # Wait for CI to finish (use run_in_background)
 mael gh check-log <run_id>               # Full GitHub Actions logs
 mael gh check-log <run_id> --failed-only # Just failed steps
 mael gh download-artifact <run_id> <name>            # Test results, screenshots, etc.
 ```
+
+`read-pr` shows top-level PR comments, review summaries, and unresolved inline review threads. Comments older than the most recent push are collapsed into a count line by default; pass `--all-comments` to expand them.
 
 Fix issues, commit, then `mael gh create-pr --wait` again to push and re-check CI.
 
