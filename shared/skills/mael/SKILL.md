@@ -1,6 +1,6 @@
 ---
 name: mael
-description: "Git workflow, commits, PRs, branches. Also Linear tasks, Sentry debugging, and dev environment management. Invoke /mael before any git operations."
+description: "Git workflow, commits, PRs, branches. Also Linear tasks, Sentry debugging, UptimeRobot monitor checks, and dev environment management. Invoke /mael before any git operations."
 ---
 
 # Maelstrom CLI Skill
@@ -135,6 +135,21 @@ mael sentry get-issue <issue-id>         # Full details with stacktrace and vari
 
 Prioritize by: escalating trend > recency > frequency. Investigate the stacktrace and fix.
 
+## Working with UptimeRobot
+
+```bash
+mael uptimerobot status                  # Current status of configured monitors with 24h/7d/30d uptime
+mael uptimerobot outages [--since 24h] [--limit 20]   # Recent down events, newest first
+mael uptimerobot monitors                # All monitors on the account with IDs (for initial setup)
+```
+
+Use `status` for "is anything down right now?" and `outages` to investigate
+recent incidents. Run `monitors` once to discover IDs, then list them under
+`uptimerobot.monitors` in `.maelstrom.yaml`. With no monitors configured,
+commands fall back to all monitors on the account.
+
+`--since` accepts `30m`, `24h`, `7d`, etc.
+
 ## Status Transitions
 
 ```
@@ -157,5 +172,5 @@ mael status clear
 ## Prerequisites
 
 - **GitHub CLI:** `brew install gh && gh auth login`
-- **Env vars** in `.env`: `LINEAR_API_KEY`, `SENTRY_API_KEY`
-- **Config** in `.maelstrom.yaml`: `linear.team_id`, `sentry_org`, `sentry_project`
+- **Env vars** in `.env`: `LINEAR_API_KEY`, `SENTRY_API_KEY`, `UPTIMEROBOT_API_KEY` (or set under `uptimerobot.api_key` in `~/.maelstrom/config.yaml`)
+- **Config** in `.maelstrom.yaml`: `linear.team_id`, `sentry.org`, `sentry.project_id`, `uptimerobot.monitors`
