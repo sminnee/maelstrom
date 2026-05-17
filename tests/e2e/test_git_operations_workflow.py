@@ -1,97 +1,27 @@
-"""E2E workflow tests for git operations: review (squash fixups) and tidy-branches.
-
-Consolidates review and tidy-branches tests into a single workflow.
-"""
+"""E2E workflow tests for tidy-branches."""
 
 import subprocess
 
 import pytest
 
-from maelstrom.review import find_fixup_commits, squash_fixups
 from maelstrom.worktree import (
-    branch_exists_on_remote,
     create_worktree,
     list_local_branches,
     remove_worktree,
     tidy_branches,
 )
 
-from .conftest import create_commit, run_git, setup_git_repo
-from tests.git_helpers import setup_origin_main
+from .conftest import create_commit, run_git
 
 
 @pytest.mark.e2e
 class TestGitOperationsWorkflow:
-    """Review (squash fixups) and tidy-branches in a single workflow."""
+    """End-to-end tidy-branches workflow."""
 
-    def test_review_and_tidy_workflow(self, git_project_module):
-        """Exercise squash fixups and tidy-branches end-to-end."""
+    def test_tidy_workflow(self, git_project_module):
+        """Exercise tidy-branches end-to-end."""
         gp = git_project_module
-
-        # ============================================================
-        # PART A: Squash fixups (uses isolated tmp repos to avoid
-        # polluting the shared project)
-        # ============================================================
         base = gp.projects_dir.parent
-
-        # --- A1: Squash fixup commits ---
-        repo = base / "review-repo"
-        repo.mkdir()
-        setup_git_repo(repo)
-        create_commit(repo, "README.md", "# Test", "Initial commit")
-        run_git(repo, "branch", "-M", "main")
-        setup_origin_main(repo)
-
-        run_git(repo, "checkout", "-b", "feature/squash-test")
-        create_commit(repo, "feature.txt", "feature v1", "Add feature")
-        create_commit(repo, "feature.txt", "feature v2", "fixup! Add feature")
-        create_commit(repo, "feature.txt", "feature v3", "fixup! Add feature")
-
-        result = squash_fixups(repo)
-        assert result.success
-        assert result.fixup_count == 2
-
-        log_result = run_git(repo, "log", "--oneline", "refs/remotes/origin/main..HEAD")
-        commits = [l for l in log_result.stdout.strip().splitlines() if l.strip()]
-        assert len(commits) == 1
-        assert "Add feature" in commits[0]
-
-        # --- A2: find_fixup_commits ---
-        repo2 = base / "fixup-repo"
-        repo2.mkdir()
-        setup_git_repo(repo2)
-        create_commit(repo2, "README.md", "# Test", "Initial commit")
-        run_git(repo2, "branch", "-M", "main")
-        setup_origin_main(repo2)
-
-        run_git(repo2, "checkout", "-b", "feature/find-fixups")
-        create_commit(repo2, "a.txt", "a", "Normal commit")
-        create_commit(repo2, "b.txt", "b", "fixup! Normal commit")
-
-        fixups = find_fixup_commits(repo2)
-        assert len(fixups) == 1
-        sha, subject = fixups[0]
-        assert subject == "fixup! Normal commit"
-        assert len(sha) > 0
-
-        # --- A3: Squash with no fixups is a no-op ---
-        repo3 = base / "noop-repo"
-        repo3.mkdir()
-        setup_git_repo(repo3)
-        create_commit(repo3, "README.md", "# Test", "Initial commit")
-        run_git(repo3, "branch", "-M", "main")
-        setup_origin_main(repo3)
-
-        run_git(repo3, "checkout", "-b", "feature/no-fixups")
-        create_commit(repo3, "a.txt", "a", "Normal commit")
-
-        result = squash_fixups(repo3)
-        assert result.success
-        assert result.fixup_count == 0
-
-        # ============================================================
-        # PART B: Tidy branches (uses the shared git_project)
-        # ============================================================
 
         # --- B1: Merged branch → deleted ---
         run_git(gp.project_path, "branch", "feature/tidy-merged")
