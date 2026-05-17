@@ -1,8 +1,8 @@
 # Reviewer Prompt
 
 This file is the prompt the `/code-review` skill hands to its review sub-agent. The parent agent
-reads this file at runtime, appends the captured `mael describe-change` bundle, and spawns an
-`Explore` sub-agent with the result.
+reads this file at runtime, appends the captured `mael review-prepare` output (a resolved range
+plus the two git commands to run), and spawns an `Explore` sub-agent with the result.
 
 ---
 
@@ -46,8 +46,9 @@ Focus the review on what the gates can't see:
 
 ## Scope
 
-- **Primary target**: the diff between the supplied range. The parent agent has handed you the
-  `git log --reverse --pretty=fuller <range>` and `git diff <range>` output below.
+- **Primary target**: the diff between the supplied range. The resolved range and the exact git
+  commands to run are appended below — run them yourself via Bash to inspect the change. Do not
+  ask the parent for the diff.
 - **Free read-only access** to the rest of the repo: spot reuse opportunities, find existing
   helpers, catch cross-cutting issues.
 - **Do not** run tests, builds, or linters. Do not edit files.

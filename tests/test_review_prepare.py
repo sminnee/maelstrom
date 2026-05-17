@@ -1,4 +1,4 @@
-"""Tests for maelstrom.describe_change."""
+"""Tests for maelstrom.review_prepare."""
 
 import subprocess
 from pathlib import Path
@@ -7,10 +7,10 @@ from tempfile import TemporaryDirectory
 import click
 import pytest
 
-from maelstrom.describe_change import (
+from maelstrom.review_prepare import (
     check_clean_worktree,
     check_range_non_empty,
-    describe_change,
+    render,
     resolve_range,
 )
 
@@ -120,40 +120,14 @@ class TestCheckRangeNonEmpty:
                 check_range_non_empty(repo, "nonexistent-ref..HEAD")
 
 
-class TestDescribeChange:
-    def test_returns_log_and_diff(self):
-        with TemporaryDirectory() as tmpdir:
-            repo = Path(tmpdir)
-            setup_git_repo(repo)
-            create_commit(repo, "a.txt", "x", "init")
-            subprocess.run(
-                ["git", "branch", "-M", "main"],
-                cwd=repo, check=True, capture_output=True,
-            )
-            setup_origin_main(repo)
-            create_commit(repo, "b.txt", "y\n", "feat: add b")
+class TestRender:
+    def test_includes_range_and_both_commands(self):
+        out = render("origin/main..HEAD")
+        assert out.startswith("Range: origin/main..HEAD")
+        assert "git log --reverse --pretty=fuller origin/main..HEAD" in out
+        assert "git diff origin/main..HEAD" in out
 
-            result = describe_change(repo, "origin/main..HEAD")
-
-            assert result.range == "origin/main..HEAD"
-            assert "feat: add b" in result.log
-            assert "b.txt" in result.diff
-            assert "+y" in result.diff
-
-    def test_render_has_expected_sections(self):
-        with TemporaryDirectory() as tmpdir:
-            repo = Path(tmpdir)
-            setup_git_repo(repo)
-            create_commit(repo, "a.txt", "x", "init")
-            subprocess.run(
-                ["git", "branch", "-M", "main"],
-                cwd=repo, check=True, capture_output=True,
-            )
-            setup_origin_main(repo)
-            create_commit(repo, "b.txt", "y\n", "feat: add b")
-
-            rendered = describe_change(repo, "origin/main..HEAD").render()
-
-            assert rendered.startswith("Range: origin/main..HEAD")
-            assert "## Log" in rendered
-            assert "## Diff" in rendered
+    def test_substitutes_arbitrary_range(self):
+        out = render("abc1234^..abc1234")
+        assert "git log --reverse --pretty=fuller abc1234^..abc1234" in out
+        assert "git diff abc1234^..abc1234" in out
