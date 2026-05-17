@@ -17,12 +17,12 @@ is no incremental-review machinery, no resolved-thread tracking, no JSON output.
 
 This is what runs when the user types `/code-review`. Follow these steps in order.
 
-### 1. Build the review bundle
+### 1. Gate the review and resolve the range
 
 Run:
 
 ```bash
-mael describe-change $ARGUMENTS
+mael review-prepare $ARGUMENTS
 ```
 
 `$ARGUMENTS` is the user's argument string (may be empty). The command handles range resolution
@@ -33,8 +33,8 @@ is empty).
 If the command exits non-zero, print its stderr to the user and stop — **do not spawn the
 sub-agent**.
 
-On success, capture stdout. It contains a `Range:` header followed by `## Log` and `## Diff`
-sections — feed the whole blob to the sub-agent.
+On success, capture stdout. It contains a `Range:` header followed by the two `git log` and
+`git diff` commands the sub-agent should run itself. The diff stays out of the parent's context.
 
 ### 2. Spawn the review sub-agent
 
@@ -42,8 +42,9 @@ Read the reviewer prompt from `reviewer-prompt.md` (alongside this file, at
 `~/.claude/skills/code-review/reviewer-prompt.md`).
 
 Use the Task tool with `subagent_type: "Explore"` (read-only — matches the brief: no edits, no
-tests, no builds). The sub-agent prompt is the contents of `reviewer-prompt.md` followed by the
-captured output of `mael describe-change` from step 1.
+tests, no builds; it can run `git log` / `git diff` via Bash). The sub-agent prompt is the
+contents of `reviewer-prompt.md` followed by the captured output of `mael review-prepare` from
+step 1.
 
 ### 3. Display the sub-agent's response
 

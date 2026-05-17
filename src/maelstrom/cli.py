@@ -20,7 +20,7 @@ from .github import (
     wait_for_review,
 )
 from .cmux import is_cmux_mode, set_status, clear_status
-from .describe_change import cmd_describe_change
+from .review_prepare import cmd_review_prepare
 from .env import get_env_status, stop_env
 from .env_cli import env as env_cli
 from .git_cli import git as git_cli
@@ -1626,7 +1626,7 @@ def status_clear():
 
 # --- Subcommand groups ---
 
-cli.add_command(cmd_describe_change)
+cli.add_command(cmd_review_prepare)
 cli.add_command(env_cli)
 cli.add_command(git_cli)
 cli.add_command(linear)
