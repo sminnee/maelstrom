@@ -112,12 +112,18 @@ mael gh read-pr --wait                   # Background: unblock when CI done
 - `--wait-for-review`: blocks until a reviewer comments — formal review or
   inline thread (exit 0=review received, 2=timeout). Mutually exclusive with `--wait`.
 
-**Code review before PR** (optional):
-1. `/review-branch` (plan mode required) — produces review findings
-2. Fix issues: `git add <files> && git commit --fixup=<original-sha>`
-3. `mael review squash` — autosquash fixups into targets (aborts on conflicts)
-4. `mael review status` — check for unsquashed fixups
-5. `mael gh create-pr`
+**Code review before PR**:
+1. `/code-review` — review committed changes via a read-only sub-agent.
+   Findings come back under **Summary**, **Design decisions**, **Blocking**, **Advisory**.
+2. Address Blocking findings (Advisory at your judgement) and commit fixes as a **separate
+   commit** with `printf 'fix: address code review feedback\n' | git commit -F -`. Do not
+   amend, do not `--fixup`, do not squash — squashing is the user's call.
+3. `mael gh create-pr`
+
+For mael projects this completion flow — commit work → `/code-review` → commit fixes →
+create PR — runs without prompting (overrides the global "do not commit without user
+instruction" default). If the project supplies `docs/review/coding-standards.md` and/or
+`docs/review/code-smells.md`, the review sub-agent loads them automatically.
 
 ## Working with PR Failures
 
