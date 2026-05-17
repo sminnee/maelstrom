@@ -112,14 +112,12 @@ h. **Commit changes** with the issue ID in the message (see "Commit Messages" be
    printf 'feat: <description> [<issue-id>]\n' | git commit -F -
    ```
 
-i. **Create/update PR**: Always create or update the PR using the two-track pattern:
+i. **Create/update PR**: Always create or update the PR:
    - For **progress step**: `mael gh create-pr --progress <issue-id>` (uses "Progresses" in title, keeps status as "In Progress")
    - For **finishing step**: `mael gh create-pr <issue-id>` (uses "Fixes" in title, sets status to "In Review")
 
-   Then start both background waiters — whichever fires first unblocks you so
-   you can act on review feedback before CI completes:
+   Then start the CI waiter in the background so you can continue while CI runs:
    ```bash
-   mael gh read-pr --wait-for-review        # run_in_background: true
    mael gh read-pr --wait                   # run_in_background: true
    ```
 

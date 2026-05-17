@@ -95,14 +95,13 @@ mael git status                          # Branch info, diff stats, recent commi
 mael gh show-code --committed            # All changes since branching from main
 ```
 
-**Create or update PR** (recommended two-track pattern):
+**Create or update PR**:
 ```bash
 mael gh create-pr PROJ-XXX               # Create/push PR (no wait)
-mael gh read-pr --wait-for-review        # Background: unblock on first review
 mael gh read-pr --wait                   # Background: unblock when CI done
 ```
-- Run the two `read-pr` calls with `run_in_background: true`. Whichever fires
-  first unblocks you — start on review feedback before CI completes.
+- Run `read-pr --wait` with `run_in_background: true` so you can continue
+  while CI runs.
 - Force-pushes branch with `--force-with-lease`.
 - New PR: uses first commit as title. Existing PR: just pushes.
 - With `ISSUE_ID`: appends `(Fixes ISSUE_ID)` to title, sets task to "In Review".
@@ -139,10 +138,9 @@ mael gh download-artifact <run_id> <name>            # Test results, screenshots
 
 `read-pr` shows top-level PR comments, review summaries, and unresolved inline review threads. Comments older than the most recent push are collapsed into a count line by default; pass `--all-comments` to expand them.
 
-Fix issues, commit, then re-push with the same two-track pattern:
+Fix issues, commit, then re-push:
 ```bash
 mael gh create-pr PROJ-XXX               # Push fixes (no wait)
-mael gh read-pr --wait-for-review        # Background: unblock on next review
 mael gh read-pr --wait                   # Background: unblock when CI done
 ```
 
