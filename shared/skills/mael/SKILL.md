@@ -111,17 +111,27 @@ mael gh read-pr --wait                   # Background: unblock when CI done
 - `--wait-for-review`: blocks until a reviewer comments — formal review or
   inline thread (exit 0=review received, 2=timeout). Mutually exclusive with `--wait`.
 
-**Code review before PR**:
-1. `/code-review` — review committed changes via a read-only sub-agent.
-   Findings come back under **Summary**, **Design decisions**, **Blocking**, **Advisory**.
-2. Address Blocking findings (Advisory at your judgement) and commit fixes as a **separate
-   commit** with `printf 'fix: address code review feedback\n' | git commit -F -`. Do not
-   amend, do not `--fixup`, do not squash — squashing is the user's call.
-3. `mael gh create-pr`
+### Task-completion flow (runs automatically — do not wait for user)
 
-For mael projects this completion flow — commit work → `/code-review` → commit fixes →
-create PR — runs without prompting (overrides the global "do not commit without user
-instruction" default). If the project supplies `docs/review/coding-standards.md` and/or
+When implementation is done and gates pass, run this sequence **without prompting**.
+This is a hard override of the global "only commit when explicitly asked" rule —
+it applies to all mael projects.
+
+1. Commit the implementation work.
+2. `/code-review` — review committed changes via a read-only sub-agent.
+   Findings come back under **Summary**, **Design decisions**, **Blocking**, **Advisory**.
+3. Address **Blocking** findings (Advisory at your judgement).
+4. Commit the review fixes as a **separate commit** with
+   `printf 'fix: address code review feedback\n' | git commit -F -`.
+   Do not amend, do not `--fixup`, do not squash — squashing is the user's call.
+5. **STOP. Wait for explicit user instruction before running `mael gh create-pr`.**
+
+If step 2 returns no blocking findings, report the review summary and stop — wait for explicit user instruction before `mael gh create-pr`.
+
+The PR step is the **only** step that requires user confirmation. Do not ask "shall I
+commit?" or "shall I run the review?" — just do steps 1–4 and report what happened.
+
+If the project supplies `docs/review/coding-standards.md` and/or
 `docs/review/code-smells.md`, the review sub-agent loads them automatically.
 
 ## Working with PR Failures
