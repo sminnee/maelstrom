@@ -22,8 +22,18 @@ Conditionally (only if the file/directory exists in the project):
   Advisory if the rule is untagged.
 - `docs/review/code-smells.md` — recurring mistakes worth catching. Scan the diff for any listed
   patterns. Default Advisory unless the entry says otherwise.
-- `.claude/skills/` — tech-specific skills (e.g. `python`, `typescript`, `database`). Load only the
-  ones matching file types actually present in the diff. Do not load speculatively.
+- `.claude/skills/` — project skills encoding conventions, patterns, and review-relevant guidance.
+  Discover them by listing the directory and reading the `description:` frontmatter line of each
+  `SKILL.md`; that line tells you when the skill applies.
+
+  Load a skill's body whenever its description matches the diff: file types touched, paths,
+  subsystems, or work kind (e.g. a skill describing test conventions applies when the diff
+  contains tests, even if no production code changed). Skills frequently encode rules the
+  reviewer is expected to apply — assertion strategy, mocking strategy, file organisation,
+  layering, naming — that no CI gate can catch.
+
+  Be liberal in loading: a wrongly-loaded skill costs a little context, a missed skill misses
+  the review. Do not load speculatively for file types the diff doesn't touch.
 
 ## What to focus on
 
