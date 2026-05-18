@@ -21,8 +21,8 @@ from .github import (
 )
 from .cmux import is_cmux_mode, set_status, clear_status
 from .review_prepare import cmd_review_prepare
-from .env import get_env_status, stop_env
-from .env_cli import env as env_cli
+from .env import get_env_status, regenerate_and_restart_if_running, stop_env
+from .env_cli import _ensure_cmux_browser, _print_service_status, env as env_cli
 from .git_cli import git as git_cli
 from .linear import linear
 from .sentry import sentry
@@ -322,6 +322,32 @@ def cmd_add(branch, project, open, no_recycle):
         click.echo(f"Worktree recycled at: {worktree_path}")
         # Recycled worktrees don't go through _finalize_worktree, so set up memory symlink here
         _setup_claude_memory_symlink(project_path, worktree_path)
+
+        recycled_wt_name = extract_worktree_name_from_folder(ctx.project, worktree_path.name)
+        if recycled_wt_name:
+            try:
+                stop_messages, new_state = regenerate_and_restart_if_running(
+                    ctx.project, recycled_wt_name, project_path, worktree_path,
+                )
+            except RuntimeError as e:
+                raise click.ClickException(str(e))
+
+            if stop_messages:
+                for msg in stop_messages:
+                    click.echo(msg)
+                click.echo(f"Environment stopped for {ctx.project}/{recycled_wt_name}.")
+
+            click.echo(f"Regenerated .env for {ctx.project}/{recycled_wt_name}.")
+
+            if new_state is not None:
+                _ensure_cmux_browser(new_state, project_path, recycled_wt_name)
+                _print_service_status(ctx.project, recycled_wt_name, project_path)
+        else:
+            click.echo(
+                f"Warning: Could not derive worktree name from '{worktree_path.name}'; "
+                "skipping .env regeneration.",
+                err=True,
+            )
     else:
         click.echo(f"Worktree created at: {worktree_path}")
 

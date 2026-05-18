@@ -741,10 +741,9 @@ class TestEnvRestart:
 class TestEnvReset:
     """Tests for mael env reset command."""
 
-    @patch("maelstrom.env_cli.regenerate_env_file")
-    @patch("maelstrom.env_cli.load_env_state", return_value=None)
+    @patch("maelstrom.env_cli.regenerate_and_restart_if_running", return_value=([], None))
     @patch("maelstrom.env_cli.resolve_context")
-    def test_reset_not_running(self, mock_ctx, mock_load, mock_regen, tmp_path):
+    def test_reset_not_running(self, mock_ctx, mock_helper, tmp_path):
         """Regenerates .env without stop/start when env is not running."""
         ctx = _mock_ctx_with_path(tmp_path)
         mock_ctx.return_value = ctx
@@ -753,25 +752,24 @@ class TestEnvReset:
         result = runner.invoke(cli, ["env", "reset"])
         assert result.exit_code == 0
         assert "Regenerated .env" in result.output
-        mock_regen.assert_called_once_with(ctx.project_path, ctx.worktree_path, "bravo")
+        mock_helper.assert_called_once_with(
+            "proj", "bravo", ctx.project_path, ctx.worktree_path,
+        )
 
     @patch("maelstrom.env_cli.get_app_url", return_value=None)
     @patch("maelstrom.env_cli.get_env_status")
-    @patch("maelstrom.env_cli.start_env")
-    @patch("maelstrom.env_cli.regenerate_env_file")
-    @patch("maelstrom.env_cli.stop_env", return_value=["web (pid 100): stopped"])
     @patch("maelstrom.env_cli.load_env_state")
+    @patch("maelstrom.env_cli.regenerate_and_restart_if_running")
     @patch("maelstrom.env_cli.resolve_context")
     def test_reset_running_stops_and_restarts(
-        self, mock_ctx, mock_load, mock_stop, mock_regen, mock_start,
-        mock_status, mock_app, tmp_path,
+        self, mock_ctx, mock_helper, mock_load, mock_status, mock_app, tmp_path,
     ):
         """Stops env, regenerates .env, and restarts when env is running."""
         ctx = _mock_ctx_with_path(tmp_path)
         mock_ctx.return_value = ctx
         state = _make_state()
+        mock_helper.return_value = (["web (pid 100): stopped"], state)
         mock_load.return_value = state
-        mock_start.return_value = state
         mock_status.return_value = [_make_status()]
 
         runner = CliRunner()
@@ -779,10 +777,8 @@ class TestEnvReset:
         assert result.exit_code == 0
         assert "Environment stopped" in result.output
         assert "Regenerated .env" in result.output
-        mock_stop.assert_called_once_with("proj", "bravo")
-        mock_regen.assert_called_once_with(ctx.project_path, ctx.worktree_path, "bravo")
-        mock_start.assert_called_once_with(
-            "proj", "bravo", ctx.worktree_path, skip_install=True,
+        mock_helper.assert_called_once_with(
+            "proj", "bravo", ctx.project_path, ctx.worktree_path,
         )
 
     @patch("maelstrom.env_cli.resolve_context")

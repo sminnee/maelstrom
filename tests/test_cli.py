@@ -473,3 +473,85 @@ class TestStaleSymlinkCleanup:
 
         assert valid.is_symlink()
         assert not any("Removed" in m for m in messages)
+
+
+class TestCmdAddRecycle:
+    """Tests for `mael add` recycle path triggering env regeneration/restart."""
+
+    def _setup_recycle_mocks(self, stack, tmp_path, helper_return=([], None)):
+        """Patch the recycle path of cmd_add. Returns the helper mock."""
+        from contextlib import ExitStack
+
+        project_path = tmp_path / "proj"
+        project_path.mkdir()
+        worktree_path = tmp_path / "proj-bravo"
+        worktree_path.mkdir()
+
+        ctx = MagicMock(
+            project="proj",
+            project_path=project_path,
+            worktree=None,
+            worktree_path=None,
+        )
+
+        closed_wt = MagicMock(path=worktree_path)
+
+        stack.enter_context(patch("maelstrom.cli.resolve_context", return_value=ctx))
+        stack.enter_context(patch("maelstrom.cli.find_closed_worktree", return_value=closed_wt))
+        stack.enter_context(patch("maelstrom.cli.recycle_worktree", return_value=worktree_path))
+        stack.enter_context(patch(
+            "maelstrom.cli.extract_worktree_name_from_folder", return_value="bravo",
+        ))
+        stack.enter_context(patch("maelstrom.cli.reclaim_or_allocate_ports"))
+        stack.enter_context(patch("maelstrom.cli._setup_claude_memory_symlink"))
+        stack.enter_context(patch("maelstrom.cli.update_claude_local_md", return_value=False))
+        stack.enter_context(patch("maelstrom.cli.run_install_cmd"))
+        stack.enter_context(patch("maelstrom.cli.start_claude_session"))
+
+        helper = stack.enter_context(patch(
+            "maelstrom.cli.regenerate_and_restart_if_running",
+            return_value=helper_return,
+        ))
+        return helper, project_path, worktree_path
+
+    def test_recycle_invokes_helper(self, tmp_path):
+        """The recycle branch calls regenerate_and_restart_if_running with NATO name."""
+        from contextlib import ExitStack
+
+        with ExitStack() as stack:
+            helper, project_path, worktree_path = self._setup_recycle_mocks(
+                stack, tmp_path,
+            )
+
+            runner = CliRunner()
+            result = runner.invoke(cli, ["add", "feat-x"])
+            assert result.exit_code == 0, result.output
+            helper.assert_called_once_with(
+                "proj", "bravo", project_path, worktree_path,
+            )
+            assert "Regenerated .env for proj/bravo." in result.output
+
+    def test_recycle_running_env_emits_stop_and_status(self, tmp_path):
+        """When env was running, prints stop messages and invokes status display."""
+        from contextlib import ExitStack
+
+        new_state = MagicMock()
+        with ExitStack() as stack:
+            helper, project_path, worktree_path = self._setup_recycle_mocks(
+                stack, tmp_path,
+                helper_return=(["web (pid 100): stopped"], new_state),
+            )
+            ensure_browser = stack.enter_context(patch(
+                "maelstrom.cli._ensure_cmux_browser",
+            ))
+            print_status = stack.enter_context(patch(
+                "maelstrom.cli._print_service_status",
+            ))
+
+            runner = CliRunner()
+            result = runner.invoke(cli, ["add", "feat-x"])
+            assert result.exit_code == 0, result.output
+            assert "web (pid 100): stopped" in result.output
+            assert "Environment stopped for proj/bravo." in result.output
+            ensure_browser.assert_called_once_with(new_state, project_path, "bravo")
+            print_status.assert_called_once_with("proj", "bravo", project_path)

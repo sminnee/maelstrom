@@ -39,6 +39,7 @@ from maelstrom.env import (
     stop_env,
     tail_log_file,
 )
+from maelstrom.env import regenerate_and_restart_if_running
 
 
 class TestParseProcfile:
@@ -1443,3 +1444,101 @@ class TestListProjectEnvsShared:
         result = list_project_envs("proj")
         assert len(result) == 1
         assert result[0].worktree == "alpha"
+
+
+class TestRegenerateAndRestartIfRunning:
+    """Tests for regenerate_and_restart_if_running helper."""
+
+    @patch("maelstrom.env.start_env")
+    @patch("maelstrom.env.stop_env")
+    @patch("maelstrom.env.regenerate_env_file")
+    @patch("maelstrom.env.load_env_state", return_value=None)
+    def test_when_stopped(self, mock_load, mock_regen, mock_stop, mock_start, tmp_path):
+        """When env not running: regenerate .env, no stop/start, returns ([], None)."""
+        result = regenerate_and_restart_if_running(
+            "proj", "bravo", tmp_path / "proj", tmp_path / "wt",
+        )
+        assert result == ([], None)
+        mock_regen.assert_called_once_with(tmp_path / "proj", tmp_path / "wt", "bravo")
+        mock_stop.assert_not_called()
+        mock_start.assert_not_called()
+
+    @patch("maelstrom.env.is_service_alive", return_value=True)
+    @patch("maelstrom.env.start_env")
+    @patch("maelstrom.env.stop_env", return_value=["web (pid 100): stopped"])
+    @patch("maelstrom.env.regenerate_env_file")
+    @patch("maelstrom.env.load_env_state")
+    def test_when_running(
+        self, mock_load, mock_regen, mock_stop, mock_start, mock_alive, tmp_path,
+    ):
+        """When env running: stop, regenerate, start with skip_install=True."""
+        state = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path=str(tmp_path / "wt"),
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+        )
+        mock_load.return_value = state
+        new_state = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path=str(tmp_path / "wt"),
+            started_at="2025-01-01T00:00:01+00:00",
+            services=[],
+        )
+        mock_start.return_value = new_state
+
+        stop_messages, returned_state = regenerate_and_restart_if_running(
+            "proj", "bravo", tmp_path / "proj", tmp_path / "wt",
+        )
+
+        assert stop_messages == ["web (pid 100): stopped"]
+        assert returned_state is new_state
+        mock_stop.assert_called_once_with("proj", "bravo")
+        mock_regen.assert_called_once_with(tmp_path / "proj", tmp_path / "wt", "bravo")
+        mock_start.assert_called_once_with(
+            "proj", "bravo", tmp_path / "wt", skip_install=True,
+        )
+
+    @patch("maelstrom.env.is_service_alive", return_value=False)
+    @patch("maelstrom.env.start_env")
+    @patch("maelstrom.env.stop_env")
+    @patch("maelstrom.env.regenerate_env_file")
+    @patch("maelstrom.env.load_env_state")
+    def test_state_exists_but_dead(
+        self, mock_load, mock_regen, mock_stop, mock_start, mock_alive, tmp_path,
+    ):
+        """State file exists but no services alive: treat as stopped."""
+        state = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path=str(tmp_path / "wt"),
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web", command="python app.py", pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+        )
+        mock_load.return_value = state
+
+        stop_messages, returned_state = regenerate_and_restart_if_running(
+            "proj", "bravo", tmp_path / "proj", tmp_path / "wt",
+        )
+
+        assert stop_messages == []
+        assert returned_state is None
+        mock_stop.assert_not_called()
+        mock_start.assert_not_called()
+        mock_regen.assert_called_once()
