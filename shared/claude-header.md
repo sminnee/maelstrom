@@ -2,3 +2,18 @@
 git operations, commits, branches, PRs, Linear tasks, and development workflows.
 
 **Plan mode is required** for `/plan-task` and `/continue-task` commands.
+
+## Finishing a task — run automatically, do not wait to be asked
+
+When implementation work is complete and gates (tests, lint, typecheck) pass, run this
+sequence **without prompting the user**. This overrides the default "only commit when
+asked" rule for mael projects:
+
+1. Commit the implementation work.
+2. Run `/code-review`.
+3. Address **Blocking** findings (Advisory at your judgement).
+4. Commit the review fixes as a separate commit (do not amend, do not `--fixup`, do not squash).
+5. **Stop.** Report back and wait for the user before running `mael gh create-pr`.
+
+If there are no blocking findings, stop after step 2 and report the review summary.
+The PR step is the only thing that requires user confirmation.
