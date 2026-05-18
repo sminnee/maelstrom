@@ -17,6 +17,7 @@ from .env import (
     list_project_envs,
     load_env_state,
     read_service_logs,
+    regenerate_and_restart_if_running,
     save_env_state,
     start_env,
     stop_all_envs,
@@ -24,7 +25,7 @@ from .env import (
 )
 from .ports import get_app_url, get_port_allocation, wait_for_port
 from .table import draw_table
-from .worktree import regenerate_env_file, update_claude_local_md
+from .worktree import update_claude_local_md
 
 
 def _ensure_cmux_browser(state: EnvState, project_path: Path, worktree: str) -> None:
@@ -296,34 +297,24 @@ def env_reset(target):
     if not worktree_path or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
-    # Check if env is currently running
-    was_running = False
-    state = load_env_state(ctx.project, ctx.worktree)
-    if state:
-        was_running = True
-        messages = stop_env(ctx.project, ctx.worktree)
-        for msg in messages:
+    try:
+        stop_messages, new_state = regenerate_and_restart_if_running(
+            ctx.project, ctx.worktree, ctx.project_path, worktree_path,
+        )
+    except RuntimeError as e:
+        raise click.ClickException(str(e))
+
+    if stop_messages:
+        for msg in stop_messages:
             click.echo(msg)
         click.echo(f"Environment stopped for {ctx.project}/{ctx.worktree}.")
 
-    regenerate_env_file(ctx.project_path, worktree_path, ctx.worktree)
     click.echo(f"Regenerated .env for {ctx.project}/{ctx.worktree}.")
 
     update_claude_local_md(ctx.project_path, worktree_path, ctx.worktree)
 
-    if was_running:
-        try:
-            state = start_env(
-                ctx.project,
-                ctx.worktree,
-                worktree_path,
-                skip_install=True,
-            )
-        except RuntimeError as e:
-            raise click.ClickException(str(e))
-
-        _ensure_cmux_browser(state, ctx.project_path, ctx.worktree)
-
+    if new_state is not None:
+        _ensure_cmux_browser(new_state, ctx.project_path, ctx.worktree)
         _print_service_status(ctx.project, ctx.worktree, ctx.project_path)
 
 

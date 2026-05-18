@@ -15,7 +15,7 @@ from subprocess import DEVNULL, STDOUT, Popen
 
 from maelstrom.config import load_config_or_default
 from maelstrom.context import get_maelstrom_dir
-from maelstrom.worktree import read_env_file, run_install_cmd
+from maelstrom.worktree import read_env_file, regenerate_env_file, run_install_cmd
 
 
 # --- Dataclasses ---
@@ -519,6 +519,35 @@ def stop_env(
     messages.extend(shared_msgs)
 
     return messages
+
+
+def regenerate_and_restart_if_running(
+    project: str,
+    worktree: str,
+    project_path: Path,
+    worktree_path: Path,
+) -> tuple[list[str], EnvState | None]:
+    """Regenerate .env; if env was running, stop+start it.
+
+    Returns (stop_messages, new_state). new_state is None if the env was
+    not running. stop_messages is empty if nothing was stopped.
+    """
+    state = load_env_state(project, worktree)
+    was_running = state is not None and any(
+        is_service_alive(s.pid) for s in state.services
+    )
+
+    stop_messages: list[str] = []
+    if was_running:
+        stop_messages = stop_env(project, worktree)
+
+    regenerate_env_file(project_path, worktree_path, worktree)
+
+    if was_running:
+        new_state = start_env(project, worktree, worktree_path, skip_install=True)
+        return stop_messages, new_state
+
+    return stop_messages, None
 
 
 def get_env_status(
