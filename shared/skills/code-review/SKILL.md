@@ -69,18 +69,27 @@ Skip the rest. State briefly which advisories you addressed and which you skippe
 
 ### 5. Commit the fixes
 
-Once all approved fixes are applied, commit them as **a single new commit**:
+For each blocking finding that was fixed, create one fixup commit targeting the
+commit that introduced the issue. The sub-agent's findings are reported against
+specific commits in the range, so the target SHA is available per finding:
 
 ```bash
-printf 'fix: address code review feedback\n' | git commit -F -
+git add -- <paths relevant to this finding>
+git commit --fixup=<sha>
 ```
 
-Hard rules — these exist so the user can squash manually if they want to:
+Stage only the files relevant to that finding before each fixup so the fixups
+stay aligned with their target commits.
 
-- **Never `--amend`** the prior commits.
-- **Never `--fixup`** — no autosquash machinery.
-- **Never squash** in this workflow.
-- One review pass = at most one new commit.
+If a fix can't be attributed to a single commit in the range (e.g. it spans
+multiple commits), fall back to `git commit --fixup=HEAD` and call that out in
+the report.
+
+Hard rules:
+
+- **Never `--amend`** existing commits.
+- **Don't run the autosquash rebase yourself** — leave that to the user
+  (`mael review squash` or `git rebase -i --autosquash`).
 
 ### 6. Done
 
@@ -108,5 +117,5 @@ Also out of scope:
 - GitHub PR comment posting or any CI-gate-specific output (JSON contract, `resolve_thread_ids`,
   inline-anchor rules).
 - GraphQL thread IDs.
-- Fixup commits, autosquash, or any squash workflow — the parent commits a single fix commit and
-  leaves squashing to the user.
+- The autosquash rebase itself — the parent creates fixup commits but leaves
+  `mael review squash` (or `git rebase -i --autosquash`) to the user.
