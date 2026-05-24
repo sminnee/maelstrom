@@ -121,9 +121,11 @@ it applies to all mael projects.
 2. `/code-review` — review committed changes via a read-only sub-agent.
    Findings come back under **Summary**, **Design decisions**, **Blocking**, **Advisory**.
 3. Address **Blocking** findings (Advisory at your judgement).
-4. Commit the review fixes as a **separate commit** with
-   `printf 'fix: address code review feedback\n' | git commit -F -`.
-   Do not amend, do not `--fixup`, do not squash — squashing is the user's call.
+4. Commit the review fixes as `--fixup` commits — one per blocking finding,
+   targeting the commit that introduced the issue. See the code-review skill for
+   the exact procedure. Do not amend existing commits. Do not run autosquash —
+   the user will run `mael review squash` (or `git rebase -i --autosquash`) when
+   they're ready.
 5. **STOP. Wait for explicit user instruction before running `mael gh create-pr`.**
 
 If step 2 returns no blocking findings, report the review summary and stop — wait for explicit user instruction before `mael gh create-pr`.
