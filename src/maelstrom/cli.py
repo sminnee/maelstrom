@@ -21,6 +21,7 @@ from .github import (
 )
 from .cmux import is_cmux_mode, set_status, clear_status
 from .review_prepare import cmd_review_prepare
+from .session_cli import session as session_cli, session_channel as session_channel_cmd
 from .env import get_env_status, regenerate_and_restart_if_running, stop_env
 from .env_cli import _ensure_cmux_browser, _print_service_status, env as env_cli
 from .git_cli import git as git_cli
@@ -73,9 +74,10 @@ def cli(ctx, output_json):
 
 
 @cli.command("install")
-def cmd_install():
+@click.option("--no-monitor", is_flag=True, help="Skip installing the session-tracking MCP channel, hooks, and shell wrapper.")
+def cmd_install(no_monitor):
     """Install maelstrom's Claude Code skills and hooks."""
-    messages = install_claude_integration()
+    messages = install_claude_integration(monitor=not no_monitor)
     for msg in messages:
         click.echo(msg)
 
@@ -1658,6 +1660,8 @@ cli.add_command(git_cli)
 cli.add_command(linear)
 cli.add_command(sentry)
 cli.add_command(uptimerobot)
+cli.add_command(session_cli)
+cli.add_command(session_channel_cmd)
 
 
 def main(argv: list[str] | None = None) -> int:
