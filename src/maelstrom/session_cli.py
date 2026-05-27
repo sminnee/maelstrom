@@ -127,19 +127,25 @@ def session() -> None:
     """Inspect and update Claude Code session state."""
 
 
-_EVENT_TO_STATE = {
+# Each hook is installed with its own `event` argument; the argument maps
+# directly to a session state, or to the special `session-end` action.
+#
+# This keeps the record command stateless: it doesn't need to know which
+# Claude Code hook fired or interpret payload fields — the hook installer
+# in claude_integration.py picks the right argument per matcher.
+_EVENT_TO_STATE: dict[str, str] = {
     "user-prompt-submit": "processing",
     "stop": "idle",
+    "stop-failure": "idle",
+    "permission-prompt": "awaiting-permission",
+    "elicitation-prompt": "awaiting-permission",
+    "idle-prompt": "idle",
+    "ask-user-pre": "awaiting-user-input",
+    "ask-user-post": "processing",
 }
 
-
-def _state_for_notification(payload: dict) -> str | None:
-    n_type = payload.get("type")
-    if n_type == "permission_prompt":
-        return "awaiting-permission"
-    if n_type == "idle_prompt":
-        return "waiting-for-input"
-    return None
+SESSION_END_EVENT = "session-end"
+HEARTBEAT_EVENT = "heartbeat"
 
 
 @session.command("record")
@@ -156,13 +162,7 @@ def session_record(event: str) -> None:
     except json.JSONDecodeError:
         payload = {}
 
-    if event in _EVENT_TO_STATE:
-        new_state = _EVENT_TO_STATE[event]
-    elif event == "notification":
-        new_state = _state_for_notification(payload)
-        if new_state is None:
-            return
-    else:
+    if event not in {SESSION_END_EVENT, HEARTBEAT_EVENT, *_EVENT_TO_STATE}:
         click.echo(f"Unknown event: {event}", err=True)
         sys.exit(2)
 
@@ -172,15 +172,23 @@ def session_record(event: str) -> None:
 
     path = _find_session_file(session_id, cwd, pid if isinstance(pid, int) else None)
     if path is None:
-        # No registry file yet — silently ignore. The channel may not have
-        # finished writing it, or this is a stray hook.
+        return
+
+    if event == SESSION_END_EVENT:
+        try:
+            path.unlink()
+        except OSError:
+            pass
         return
 
     data = _read_session_file(path)
     if data is None:
         return
 
-    data["state"] = new_state
+    # heartbeat events bump updated_at without changing state, so they can
+    # safely fire alongside state-setting hooks regardless of ordering.
+    if event != HEARTBEAT_EVENT:
+        data["state"] = _EVENT_TO_STATE[event]
     data["updated_at"] = _now_iso()
     _atomic_write_json(path, data)
 
@@ -219,6 +227,29 @@ def _derive_project_worktree(cwd: str | None) -> tuple[str | None, str | None]:
     return (ctx.project, ctx.worktree)
 
 
+# Claude Code doesn't fire a hook on ESC / user-interrupt, so a session
+# stuck in `processing` would never resolve on its own. If updated_at is
+# older than this threshold, treat the state as idle (and rewrite the
+# file so subsequent listings agree).
+#
+# The heartbeat hooks (matcher "" on PreToolUse/PostToolUse) bump
+# updated_at every tool call, so a session genuinely doing work keeps
+# ticking. The threshold needs to be longer than the slowest single tool
+# call — 5 minutes accommodates long Bash runs and Task sub-agents.
+STALE_PROCESSING_SECS = 300
+
+
+def _is_stale_processing(state: str, updated_at: str) -> bool:
+    if state != "processing" or not updated_at:
+        return False
+    try:
+        ts = datetime.fromisoformat(updated_at)
+    except ValueError:
+        return False
+    age = (datetime.now(timezone.utc) - ts).total_seconds()
+    return age > STALE_PROCESSING_SECS
+
+
 @session.command("list")
 def session_list() -> None:
     """List active Claude Code sessions."""
@@ -246,12 +277,19 @@ def session_list() -> None:
                 pass
             continue
 
+        state = data.get("state", "")
+        updated_at = data.get("updated_at", "")
+        if _is_stale_processing(state, updated_at):
+            state = "idle"
+            data["state"] = state
+            _atomic_write_json(f, data)
+
         cwd = data.get("cwd", "")
         project, worktree = _derive_project_worktree(cwd)
         pw = f"{project}/{worktree}" if project and worktree else (project or "")
 
         rows.append({
-            "STATE": data.get("state", ""),
+            "STATE": state,
             "PROJECT/WORKTREE": pw,
             "CWD": cwd,
             "AGE": _format_age(data.get("started_at", "")),

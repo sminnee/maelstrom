@@ -2,6 +2,7 @@
 
 import json
 import socket
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -68,7 +69,7 @@ class TestSessionRecord:
         data = json.loads(path.read_text())
         assert data["state"] == "idle"
 
-    def test_notification_permission_prompt(self, tmp_path):
+    def test_permission_prompt(self, tmp_path):
         sessions = tmp_path / "sessions"
         path = _write_session(sessions, "s1", session_id="abc")
 
@@ -76,19 +77,15 @@ class TestSessionRecord:
             runner = CliRunner()
             result = runner.invoke(
                 cli,
-                ["session", "record", "notification"],
-                input=json.dumps({
-                    "session_id": "abc",
-                    "type": "permission_prompt",
-                    "message": "bash command",
-                }),
+                ["session", "record", "permission-prompt"],
+                input=json.dumps({"session_id": "abc"}),
             )
 
         assert result.exit_code == 0, result.output
         data = json.loads(path.read_text())
         assert data["state"] == "awaiting-permission"
 
-    def test_notification_idle_prompt(self, tmp_path):
+    def test_elicitation_prompt(self, tmp_path):
         sessions = tmp_path / "sessions"
         path = _write_session(sessions, "s1", session_id="abc")
 
@@ -96,19 +93,15 @@ class TestSessionRecord:
             runner = CliRunner()
             result = runner.invoke(
                 cli,
-                ["session", "record", "notification"],
-                input=json.dumps({
-                    "session_id": "abc",
-                    "type": "idle_prompt",
-                    "message": "you there?",
-                }),
+                ["session", "record", "elicitation-prompt"],
+                input=json.dumps({"session_id": "abc"}),
             )
 
         assert result.exit_code == 0, result.output
         data = json.loads(path.read_text())
-        assert data["state"] == "waiting-for-input"
+        assert data["state"] == "awaiting-permission"
 
-    def test_notification_unknown_type_is_ignored(self, tmp_path):
+    def test_idle_prompt_sets_idle(self, tmp_path):
         sessions = tmp_path / "sessions"
         path = _write_session(sessions, "s1", session_id="abc", state="processing")
 
@@ -116,17 +109,87 @@ class TestSessionRecord:
             runner = CliRunner()
             result = runner.invoke(
                 cli,
-                ["session", "record", "notification"],
-                input=json.dumps({
-                    "session_id": "abc",
-                    "type": "something_else",
-                }),
+                ["session", "record", "idle-prompt"],
+                input=json.dumps({"session_id": "abc"}),
             )
 
         assert result.exit_code == 0, result.output
         data = json.loads(path.read_text())
-        # State unchanged
+        assert data["state"] == "idle"
+
+    def test_ask_user_pre_post(self, tmp_path):
+        sessions = tmp_path / "sessions"
+        path = _write_session(sessions, "s1", session_id="abc", state="processing")
+
+        runner = CliRunner()
+        with _patch_maelstrom_dir(tmp_path):
+            result = runner.invoke(
+                cli,
+                ["session", "record", "ask-user-pre"],
+                input=json.dumps({"session_id": "abc"}),
+            )
+            assert result.exit_code == 0
+            assert json.loads(path.read_text())["state"] == "awaiting-user-input"
+
+            result = runner.invoke(
+                cli,
+                ["session", "record", "ask-user-post"],
+                input=json.dumps({"session_id": "abc"}),
+            )
+            assert result.exit_code == 0
+            assert json.loads(path.read_text())["state"] == "processing"
+
+    def test_stop_failure_sets_idle(self, tmp_path):
+        sessions = tmp_path / "sessions"
+        path = _write_session(sessions, "s1", session_id="abc", state="processing")
+
+        with _patch_maelstrom_dir(tmp_path):
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                ["session", "record", "stop-failure"],
+                input=json.dumps({"session_id": "abc"}),
+            )
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(path.read_text())["state"] == "idle"
+
+    def test_heartbeat_bumps_updated_at_without_changing_state(self, tmp_path):
+        sessions = tmp_path / "sessions"
+        path = _write_session(
+            sessions, "s1", session_id="abc",
+            state="processing",
+            updated_at="2020-01-01T00:00:00+00:00",
+        )
+
+        with _patch_maelstrom_dir(tmp_path):
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                ["session", "record", "heartbeat"],
+                input=json.dumps({"session_id": "abc"}),
+            )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(path.read_text())
         assert data["state"] == "processing"
+        assert data["updated_at"] != "2020-01-01T00:00:00+00:00"
+
+    def test_session_end_deletes_file(self, tmp_path):
+        sessions = tmp_path / "sessions"
+        path = _write_session(sessions, "s1", session_id="abc")
+        assert path.exists()
+
+        with _patch_maelstrom_dir(tmp_path):
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                ["session", "record", "session-end"],
+                input=json.dumps({"session_id": "abc"}),
+            )
+
+        assert result.exit_code == 0, result.output
+        assert not path.exists()
 
     def test_fallback_to_cwd_pid(self, tmp_path):
         sessions = tmp_path / "sessions"
@@ -203,7 +266,13 @@ class TestSessionList:
 
         try:
             sessions = tmp_path / "sessions"
-            _write_session(sessions, "live", channel_port=port, state="processing")
+            now = datetime.now(timezone.utc).isoformat()
+            _write_session(
+                sessions, "live",
+                channel_port=port,
+                state="processing",
+                updated_at=now,
+            )
 
             with _patch_maelstrom_dir(tmp_path):
                 runner = CliRunner()
@@ -212,6 +281,34 @@ class TestSessionList:
             assert result.exit_code == 0, result.output
             assert "processing" in result.output
             assert "STATE" in result.output  # header rendered
+        finally:
+            srv.close()
+
+    def test_stale_processing_rewritten_to_idle(self, tmp_path):
+        # Live channel port but stale updated_at — should be downgraded.
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        port = srv.getsockname()[1]
+
+        try:
+            sessions = tmp_path / "sessions"
+            path = _write_session(
+                sessions, "stale",
+                channel_port=port,
+                state="processing",
+                updated_at="2020-01-01T00:00:00+00:00",
+            )
+
+            with _patch_maelstrom_dir(tmp_path):
+                runner = CliRunner()
+                result = runner.invoke(cli, ["session", "list"])
+
+            assert result.exit_code == 0, result.output
+            assert "idle" in result.output
+            assert "processing" not in result.output
+            # File rewritten too.
+            assert json.loads(path.read_text())["state"] == "idle"
         finally:
             srv.close()
 
