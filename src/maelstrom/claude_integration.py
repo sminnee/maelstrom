@@ -112,8 +112,67 @@ def install_session_channel() -> list[str]:
     return [f"Registered MCP channel mael-session in {path}"]
 
 
+# (Claude Code hook name, matcher, record-event-arg) for every hook we install.
+# Matcher "" matches all firings of the event; otherwise it's an exact string
+# (or regex for tool-name matchers). The third element is the argument passed
+# to `mael session record`.
+_SESSION_HOOKS: list[tuple[str, str, str]] = [
+    ("UserPromptSubmit", "", "user-prompt-submit"),
+    ("Stop", "", "stop"),
+    ("StopFailure", "", "stop-failure"),
+    ("Notification", "permission_prompt", "permission-prompt"),
+    ("Notification", "elicitation_dialog", "elicitation-prompt"),
+    ("Notification", "idle_prompt", "idle-prompt"),
+    ("PreToolUse", "AskUserQuestion|ExitPlanMode", "ask-user-pre"),
+    ("PostToolUse", "AskUserQuestion|ExitPlanMode", "ask-user-post"),
+    # Heartbeats: bump updated_at on every tool call without changing state.
+    # Lets `mael session list` detect ESC / interrupt while still tolerating
+    # long-running tools.
+    ("PreToolUse", "", "heartbeat"),
+    ("PostToolUse", "", "heartbeat"),
+    ("SessionEnd", "", "session-end"),
+]
+
+
+def _strip_mael_hooks(blocks: list) -> tuple[list, bool]:
+    """Return (cleaned_blocks, removed_any) for a hook event's blocks list.
+
+    Removes any `mael session record …` hook entry; keeps non-mael hooks
+    intact, dropping a block only if it's empty afterwards.
+    """
+    cleaned: list = []
+    removed = False
+    for block in blocks:
+        if not isinstance(block, dict):
+            cleaned.append(block)
+            continue
+        block_hooks = block.get("hooks", [])
+        if not isinstance(block_hooks, list):
+            cleaned.append(block)
+            continue
+        non_mael = [
+            h for h in block_hooks
+            if not (isinstance(h, dict)
+                    and isinstance(h.get("command"), str)
+                    and h["command"].startswith("mael session record"))
+        ]
+        if len(non_mael) == len(block_hooks):
+            cleaned.append(block)
+            continue
+        removed = True
+        if non_mael:
+            kept = dict(block)
+            kept["hooks"] = non_mael
+            cleaned.append(kept)
+    return cleaned, removed
+
+
 def install_session_hooks() -> list[str]:
-    """Install UserPromptSubmit / Stop / Notification hooks in ~/.claude/settings.json."""
+    """Install all session-tracking hooks in ~/.claude/settings.json.
+
+    Removes any pre-existing `mael session record …` entries first so re-runs
+    are idempotent and stale event/matcher combinations get cleaned up.
+    """
     path = Path.home() / ".claude" / "settings.json"
     data = _read_json(path)
 
@@ -121,60 +180,29 @@ def install_session_hooks() -> list[str]:
     if not isinstance(hooks, dict):
         return [f"Cannot install: {path} has non-object hooks"]
 
-    event_map = {
-        "UserPromptSubmit": "user-prompt-submit",
-        "Stop": "stop",
-        "Notification": "notification",
-    }
-
-    messages = []
-    for event_name, record_arg in event_map.items():
-        command = f"mael session record {record_arg}"
-        new_entry = {"type": "command", "command": command}
-        matcher_block = {"matcher": "", "hooks": [new_entry]}
-
-        existing = hooks.get(event_name)
+    # First pass: strip any prior mael entries across every hook event.
+    any_removed = False
+    for event_name, existing in list(hooks.items()):
         if not isinstance(existing, list):
-            hooks[event_name] = [matcher_block]
-            messages.append(f"Installed {event_name} hook in {path}")
             continue
+        cleaned, removed = _strip_mael_hooks(existing)
+        if removed:
+            any_removed = True
+            hooks[event_name] = cleaned
 
-        # Find any matcher block already containing a mael-session hook and replace it.
-        replaced = False
-        kept_blocks = []
-        for block in existing:
-            if not isinstance(block, dict):
-                kept_blocks.append(block)
-                continue
-            block_hooks = block.get("hooks", [])
-            if not isinstance(block_hooks, list):
-                kept_blocks.append(block)
-                continue
-            non_mael = [
-                h for h in block_hooks
-                if not (isinstance(h, dict)
-                        and isinstance(h.get("command"), str)
-                        and h["command"].startswith("mael session record"))
-            ]
-            if len(non_mael) == len(block_hooks):
-                kept_blocks.append(block)
-                continue
-            replaced = True
-            if non_mael:
-                # Keep the block with its other hooks intact.
-                kept = dict(block)
-                kept["hooks"] = non_mael
-                kept_blocks.append(kept)
-            # Drop the mael hooks; we'll re-add ours as its own block below.
-
-        kept_blocks.append(matcher_block)
-        hooks[event_name] = kept_blocks
-        messages.append(
-            f"{'Updated' if replaced else 'Installed'} {event_name} hook in {path}"
-        )
+    # Second pass: install each (event, matcher, record-arg) entry.
+    for event_name, matcher, record_arg in _SESSION_HOOKS:
+        entry = {"type": "command", "command": f"mael session record {record_arg}"}
+        block = {"matcher": matcher, "hooks": [entry]}
+        existing = hooks.get(event_name)
+        if isinstance(existing, list):
+            existing.append(block)
+        else:
+            hooks[event_name] = [block]
 
     _write_json(path, data)
-    return messages
+    action = "Reinstalled" if any_removed else "Installed"
+    return [f"{action} mael session hooks in {path}"]
 
 
 def install_claude_wrapper() -> list[str]:
