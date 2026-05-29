@@ -161,9 +161,14 @@ mael gh read-pr --wait                   # Background: unblock when CI done
 ```bash
 mael sentry list-issues [--env ENV]      # Unresolved issues (default: prod)
 mael sentry get-issue <issue-id>         # Full details with stacktrace and variables
+mael sentry resolve-issue <issue-id>     # Mark as resolved in next release
 ```
 
 Prioritize by: escalating trend > recency > frequency. Investigate the stacktrace and fix.
+
+Use `resolve-issue` when a Sentry issue is confirmed fixed in current code (e.g. the
+reported release pre-dates the fix commit, and call-sites now handle the case). Treat
+it as a write action — confirm with the user first.
 
 ## Working with UptimeRobot
 
