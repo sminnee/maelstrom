@@ -74,7 +74,7 @@ def cli(ctx, output_json):
 
 
 @cli.command("install")
-@click.option("--no-monitor", is_flag=True, help="Skip installing the session-tracking MCP channel, hooks, and shell wrapper.")
+@click.option("--no-monitor", is_flag=True, help="Skip installing the session-tracking MCP channel, hooks, and channel dependencies.")
 def cmd_install(no_monitor):
     """Install maelstrom's Claude Code skills and hooks."""
     messages = install_claude_integration(monitor=not no_monitor)

@@ -7,18 +7,6 @@ import subprocess
 from pathlib import Path
 
 
-WRAPPER_MARKER_BEGIN = "# >>> mael session wrapper >>>"
-WRAPPER_MARKER_END = "# <<< mael session wrapper <<<"
-
-WRAPPER_BODY = """\
-# Wraps `claude` to always load the mael session-tracking channel,
-# which is required while custom channels are in research-preview.
-claude() {
-  command claude --dangerously-load-development-channels server:mael-session "$@"
-}
-"""
-
-
 def get_shared_dir() -> Path:
     """Get path to maelstrom's shared/ directory."""
     module_dir = Path(__file__).parent
@@ -205,39 +193,6 @@ def install_session_hooks() -> list[str]:
     return [f"{action} mael session hooks in {path}"]
 
 
-def install_claude_wrapper() -> list[str]:
-    """Append a `claude()` shell function to ~/.zshrc that loads the dev channel."""
-    rc = Path.home() / ".zshrc"
-    block = f"{WRAPPER_MARKER_BEGIN}\n{WRAPPER_BODY}{WRAPPER_MARKER_END}\n"
-
-    if not rc.exists():
-        rc.write_text(block)
-        return [
-            f"Created {rc} with claude() wrapper.",
-            f"Re-source your shell: source {rc}",
-        ]
-
-    text = rc.read_text()
-
-    if WRAPPER_MARKER_BEGIN in text and WRAPPER_MARKER_END in text:
-        start = text.index(WRAPPER_MARKER_BEGIN)
-        end = text.index(WRAPPER_MARKER_END) + len(WRAPPER_MARKER_END)
-        current = text[start:end]
-        if current.strip() == block.strip():
-            return [f"claude() wrapper already present in {rc}"]
-        return [
-            f"WARNING: {rc} has an existing mael wrapper block with different contents.",
-            "Resolve manually (remove the old block to let `mael install` rewrite it).",
-        ]
-
-    sep = "" if text.endswith("\n") else "\n"
-    rc.write_text(text + sep + "\n" + block)
-    return [
-        f"Appended claude() wrapper to {rc}.",
-        f"Re-source your shell: source {rc}",
-    ]
-
-
 def install_session_channel_deps() -> list[str]:
     """Run `bun install` inside tools/mael-session-channel/."""
     channel_dir = get_channel_dir()
@@ -292,7 +247,6 @@ def install_claude_integration(*, monitor: bool = True) -> list[str]:
     if monitor:
         messages.extend(install_session_channel())
         messages.extend(install_session_hooks())
-        messages.extend(install_claude_wrapper())
         messages.extend(install_session_channel_deps())
 
     return messages or ["Nothing to install"]
