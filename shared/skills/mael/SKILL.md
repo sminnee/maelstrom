@@ -124,7 +124,7 @@ it applies to all mael projects.
 4. Commit the review fixes as `--fixup` commits — one per blocking finding,
    targeting the commit that introduced the issue. See the code-review skill for
    the exact procedure. Do not amend existing commits. Do not run autosquash —
-   the user will run `mael review squash` (or `git rebase -i --autosquash`) when
+   the user will run `mael sync --squash` (or `git rebase -i --autosquash`) when
    they're ready.
 5. **STOP. Wait for explicit user instruction before running `mael gh create-pr`.**
 

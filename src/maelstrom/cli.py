@@ -773,7 +773,8 @@ def cmd_claude(target):
 
 @cli.command("sync")
 @click.argument("target", required=False, default=None)
-def cmd_sync(target):
+@click.option("--squash", is_flag=True, help="Autosquash fixup! commits while rebasing onto origin/main")
+def cmd_sync(target, squash):
     """Rebase worktree against origin/main."""
     try:
         ctx = resolve_context(
@@ -789,8 +790,11 @@ def cmd_sync(target):
     if worktree_path is None or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
-    click.echo(f"Syncing {ctx.worktree} with origin/main...")
-    result = sync_worktree(worktree_path)
+    if squash:
+        click.echo(f"Syncing {ctx.worktree} with origin/main (autosquashing fixup! commits)...")
+    else:
+        click.echo(f"Syncing {ctx.worktree} with origin/main...")
+    result = sync_worktree(worktree_path, squash=squash)
 
     if result.success:
         click.echo(result.message)
@@ -1175,8 +1179,9 @@ def _handle_wait_for_review(cwd: Path) -> None:
 @click.option("--progress", is_flag=True, help="Mark as progress (not final). Uses 'Progresses' instead of 'Fixes' and skips setting status to 'In Review'")
 @click.option("--wait", is_flag=True, help="Wait for CI checks to complete after creating PR")
 @click.option("--wait-for-review", "wait_for_review_flag", is_flag=True, help="Wait until a reviewer leaves feedback (review or inline thread). Exits 0 on first review, 2 on timeout.")
+@click.option("--squash", is_flag=True, help="Autosquash fixup! commits before pushing")
 @click.option("--target", default=None, help="Project/worktree target for directory resolution")
-def gh_create_pr(issue_id, draft, progress, wait, wait_for_review_flag, target):
+def gh_create_pr(issue_id, draft, progress, wait, wait_for_review_flag, squash, target):
     """Create a PR for the current worktree (or push if PR exists).
 
     If ISSUE_ID is provided (e.g., ME-41), appends (Fixes ISSUE_ID) to the PR title
@@ -1200,7 +1205,7 @@ def gh_create_pr(issue_id, draft, progress, wait, wait_for_review_flag, target):
         cwd = Path.cwd()
 
     try:
-        url, created = create_pr(cwd=cwd, draft=draft, issue_id=issue_id, progress=progress)
+        url, created = create_pr(cwd=cwd, draft=draft, issue_id=issue_id, progress=progress, squash=squash)
         if created:
             click.echo(f"PR created: {url}")
         else:

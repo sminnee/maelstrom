@@ -89,7 +89,7 @@ Hard rules:
 
 - **Never `--amend`** existing commits.
 - **Don't run the autosquash rebase yourself** — leave that to the user
-  (`mael review squash` or `git rebase -i --autosquash`).
+  (`mael sync --squash` or `git rebase -i --autosquash`).
 
 ### 6. Done
 
@@ -118,4 +118,4 @@ Also out of scope:
   inline-anchor rules).
 - GraphQL thread IDs.
 - The autosquash rebase itself — the parent creates fixup commits but leaves
-  `mael review squash` (or `git rebase -i --autosquash`) to the user.
+  `mael sync --squash` (or `git rebase -i --autosquash`) to the user.

@@ -215,8 +215,7 @@ Services with names ending in `-shared` are shared across worktrees in the same 
 
 | Command | Description |
 |---------|-------------|
-| `mael review squash` | Squash all `fixup!` commits via autosquash rebase |
-| `mael review status` | Show pending fixup commits and their targets |
+| `mael sync --squash` | Autosquash all `fixup!` commits while rebasing onto `origin/main` |
 
 ## Claude Code Integration
 

@@ -12,7 +12,7 @@ asked" rule for mael projects:
 1. Commit the implementation work.
 2. Run `/code-review`.
 3. Address **Blocking** findings (Advisory at your judgement).
-4. Commit the review fixes as `--fixup` commits (one per blocking finding, targeting the originating commit). Do not amend; do not run autosquash — the user squashes via `mael review squash`.
+4. Commit the review fixes as `--fixup` commits (one per blocking finding, targeting the originating commit). Do not amend; do not run autosquash — the user squashes via `mael sync --squash`.
 5. **Stop.** Report back and wait for the user before running `mael gh create-pr`.
 
 If there are no blocking findings, stop after step 2 and report the review summary.
