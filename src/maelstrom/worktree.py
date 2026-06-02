@@ -104,16 +104,22 @@ def extract_worktree_name_from_folder(project_name: str, folder_name: str) -> st
     return None
 
 
-def run_cmd(cmd: list[str], cwd: Path | None = None, quiet: bool = False, check: bool = True, stream: bool = False) -> subprocess.CompletedProcess:
-    """Run a shell command and return the result."""
+def run_cmd(cmd: list[str], cwd: Path | None = None, quiet: bool = False, check: bool = True, stream: bool = False, env: dict | None = None) -> subprocess.CompletedProcess:
+    """Run a shell command and return the result.
+
+    If ``env`` is provided, its keys are merged over the current process
+    environment (``os.environ``) rather than replacing it wholesale.
+    """
     if not quiet:
         print(f"$ {' '.join(cmd)}")
+    merged_env = {**os.environ, **env} if env is not None else None
     return subprocess.run(
         cmd,
         cwd=cwd,
         capture_output=not stream,
         text=True,
         check=check,
+        env=merged_env,
     )
 
 
@@ -470,13 +476,15 @@ def find_closed_worktree(project_path: Path) -> WorktreeInfo | None:
     return None
 
 
-def sync_worktree(worktree_path: Path, skip_fetch: bool = False) -> SyncResult:
+def sync_worktree(worktree_path: Path, skip_fetch: bool = False, squash: bool = False) -> SyncResult:
     """Sync a worktree by rebasing against origin/main.
 
     Args:
         worktree_path: Path to the worktree directory.
         skip_fetch: If True, skip the fetch step (useful when syncing multiple
             worktrees that share the same repo, where fetch was already done).
+        squash: If True, autosquash ``fixup!`` commits into their targets while
+            rebasing (``git rebase --autosquash``).
 
     Returns:
         SyncResult with status and message.
@@ -525,11 +533,21 @@ def sync_worktree(worktree_path: Path, skip_fetch: bool = False) -> SyncResult:
     except Exception:
         pass
 
-    # Rebase with autostash
+    # Rebase with autostash (optionally autosquashing fixup! commits)
+    rebase_cmd = ["git", "rebase", "--autostash", "origin/main"]
+    rebase_env: dict | None = None
+    if squash:
+        rebase_cmd.insert(2, "--autosquash")
+        # --autosquash triggers an interactive rebase; run it non-interactively
+        # by stubbing out the sequence editor (and the commit editor as a safety
+        # net) so the generated todo list is applied verbatim.
+        rebase_env = {"GIT_SEQUENCE_EDITOR": "true", "GIT_EDITOR": "true"}
+
     result = run_cmd(
-        ["git", "rebase", "--autostash", "origin/main"],
+        rebase_cmd,
         cwd=worktree_path,
         check=False,
+        env=rebase_env,
     )
 
     if result.returncode != 0:

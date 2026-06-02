@@ -173,7 +173,7 @@ def get_pr_url(cwd: Path) -> str:
         raise RuntimeError("GitHub CLI (gh) is not installed")
 
 
-def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None = None, progress: bool = False) -> tuple[str, bool]:
+def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None = None, progress: bool = False, squash: bool = False) -> tuple[str, bool]:
     """Create a pull request for the current worktree branch, or push if PR exists.
 
     Syncs (rebases onto origin/main) before pushing.
@@ -184,6 +184,7 @@ def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None
         issue_id: Optional Linear issue ID to prepend to PR title (e.g., "ME-41").
         progress: If True, use "Progresses" instead of "Fixes" in PR title for
             multi-session tasks that aren't complete yet.
+        squash: If True, autosquash ``fixup!`` commits during the pre-push sync.
 
     Returns:
         Tuple of (PR URL, created) where created is True if new PR was created.
@@ -195,7 +196,7 @@ def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None
         cwd = Path.cwd()
 
     # Sync first (rebase onto origin/main)
-    sync_result = sync_worktree(cwd)
+    sync_result = sync_worktree(cwd, squash=squash)
     if not sync_result.success:
         if sync_result.had_conflicts:
             raise RuntimeError(

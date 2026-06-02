@@ -37,8 +37,10 @@ from maelstrom.worktree import (
     remove_worktree,
     remove_worktree_by_path,
     resolve_worktree_shortcode,
+    run_cmd,
     run_install_cmd,
     sanitize_branch_name,
+    sync_worktree,
     update_claude_local_md,
     write_env_file,
 )
@@ -1637,3 +1639,88 @@ class TestSetupClaudeMemorySymlink:
         assert central.is_dir()
         assert wt_memory.is_symlink()
         assert wt_memory.resolve() == central.resolve()
+
+
+class TestRunCmdEnv:
+    """Tests for the env merging behaviour of run_cmd."""
+
+    def test_env_merges_over_os_environ(self, monkeypatch):
+        """A provided env dict is merged over os.environ, not used wholesale."""
+        monkeypatch.setenv("MAEL_PRESERVED", "from_parent")
+        result = run_cmd(
+            ["sh", "-c", "echo $MAEL_PRESERVED $MAEL_EXTRA"],
+            quiet=True,
+            env={"MAEL_EXTRA": "added"},
+        )
+        # Parent var survives the merge, and the override is applied.
+        assert result.stdout.strip() == "from_parent added"
+
+    def test_env_none_uses_inherited_environment(self, monkeypatch):
+        """With env=None the child inherits the parent environment unchanged."""
+        monkeypatch.setenv("MAEL_PRESERVED", "inherited")
+        result = run_cmd(
+            ["sh", "-c", "echo $MAEL_PRESERVED"],
+            quiet=True,
+        )
+        assert result.stdout.strip() == "inherited"
+
+
+class TestSyncWorktreeSquash:
+    """Tests for autosquashing fixup! commits via sync_worktree(squash=True)."""
+
+    def _make_repo_with_fixup(self, repo):
+        """Build a feature branch with a base commit + a fixup commit on top of
+        origin/main."""
+        from tests.git_helpers import (
+            create_commit,
+            run_git,
+            setup_git_repo,
+            setup_origin_main,
+        )
+
+        setup_git_repo(repo)
+        create_commit(repo, "README.md", "hello\n", "initial commit")
+        setup_origin_main(repo)
+
+        run_git(repo, "checkout", "-b", "feature")
+        target_sha = create_commit(repo, "feature.txt", "v1\n", "feat: add feature")
+        (repo / "feature.txt").write_text("v2\n")
+        run_git(repo, "add", "feature.txt")
+        run_git(repo, "commit", "--fixup", target_sha)
+
+    def test_squash_folds_fixup_commit(self, tmp_path):
+        from tests.git_helpers import run_git
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        self._make_repo_with_fixup(repo)
+
+        # Before squash: base + feature + fixup = 3 commits, fixup present.
+        log_before = run_git(repo, "log", "--oneline").stdout
+        assert "fixup!" in log_before
+        assert len(log_before.strip().splitlines()) == 3
+
+        result = sync_worktree(repo, skip_fetch=True, squash=True)
+        assert result.success, result.message
+
+        log_after = run_git(repo, "log", "--oneline").stdout
+        assert "fixup!" not in log_after
+        # Fixup folded into its target: base + feature = 2 commits.
+        assert len(log_after.strip().splitlines()) == 2
+        # The folded content is present.
+        assert (repo / "feature.txt").read_text() == "v2\n"
+
+    def test_sync_without_squash_keeps_fixup(self, tmp_path):
+        from tests.git_helpers import run_git
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        self._make_repo_with_fixup(repo)
+
+        result = sync_worktree(repo, skip_fetch=True, squash=False)
+        assert result.success, result.message
+
+        # Plain rebase leaves the fixup! commit untouched.
+        log_after = run_git(repo, "log", "--oneline").stdout
+        assert "fixup!" in log_after
+        assert len(log_after.strip().splitlines()) == 3
