@@ -289,6 +289,20 @@ def task_log(id: str, msg: str, project: str | None) -> None:
     click.echo(f"Logged to {id}.")
 
 
+@task.command("rm")
+@click.argument("id")
+@click.option("--project", default=None, help="Project name (default: from cwd).")
+def task_rm(id: str, project: str | None) -> None:
+    """Delete a task and strip it from any dependents' follows lists."""
+    proj = _resolve_project(project)
+    store = _store()
+    try:
+        model.delete(store, proj, id)
+    except KeyError:
+        raise click.ClickException(f"Task not found: {id}")
+    click.echo(f"Deleted {id}.")
+
+
 def _move_command(name: str, status: str, help_text: str):
     @task.command(name)
     @click.argument("id")

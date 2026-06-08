@@ -330,6 +330,103 @@ class TestMutationAccounting:
         assert len(store.deletes) == 0
 
 
+# --- delete ---
+
+
+class TestDelete:
+    def test_delete_removes_file(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        model.delete(store, "p", a.id)
+        assert not store.exists(f"p/todo/{a.id}.md")
+        with pytest.raises(KeyError):
+            model.load(store, "p", a.id)
+
+    def test_delete_returns_task(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        deleted = model.delete(store, "p", a.id)
+        assert deleted.id == a.id
+        assert deleted.title == "a"
+
+    def test_delete_missing_raises(self):
+        store = InMemoryStore()
+        with pytest.raises(KeyError):
+            model.delete(store, "p", "nope")
+
+    def test_delete_finds_task_in_any_status(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        model.move(store, "p", a.id, "in-progress", now=NOW)
+        model.delete(store, "p", a.id)
+        assert not store.exists(f"p/in-progress/{a.id}.md")
+
+    def test_delete_strips_dep_from_dependent(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        b = model.create(
+            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
+        )
+        model.delete(store, "p", a.id)
+        assert model.load(store, "p", b.id).follows == []
+
+    def test_delete_keeps_other_deps(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        b = model.create(store, project="p", title="b", now=NOW, today=TODAY)
+        c = model.create(
+            store, project="p", title="c", follows=[a.id, b.id], now=NOW, today=TODAY
+        )
+        model.delete(store, "p", a.id)
+        assert model.load(store, "p", c.id).follows == [b.id]
+
+    def test_delete_unblocks_dependent(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        b = model.create(
+            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
+        )
+        # b is blocked while a (undone) exists; deleting a makes b actionable.
+        assert not model.is_actionable(model.load(store, "p", b.id), store)
+        model.delete(store, "p", a.id)
+        assert model.is_actionable(model.load(store, "p", b.id), store)
+
+    def test_delete_ignores_terminal_dependents(self):
+        # A done task that follows the deleted id is left untouched.
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        b = model.create(
+            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
+        )
+        model.move(store, "p", b.id, "done", now=NOW)
+        model.delete(store, "p", a.id)
+        # b is terminal; its historical follows is preserved.
+        assert model.load(store, "p", b.id).follows == [a.id]
+
+    def test_delete_mutation_accounting(self):
+        # One delete for the task, plus one write per non-terminal dependent.
+        store = RecordingStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
+        model.create(store, project="p", title="c", follows=[a.id], now=NOW, today=TODAY)
+        store.writes.clear()
+        store.deletes.clear()
+        model.delete(store, "p", a.id)
+        assert len(store.deletes) == 1
+        assert a.id in store.deletes[0][1] and "rm" in store.deletes[0][1]
+        assert len(store.writes) == 2  # b and c rewritten
+
+    def test_delete_no_dependents_no_extra_writes(self):
+        store = RecordingStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        model.create(store, project="p", title="b", now=NOW, today=TODAY)
+        store.writes.clear()
+        store.deletes.clear()
+        model.delete(store, "p", a.id)
+        assert len(store.deletes) == 1
+        assert len(store.writes) == 0
+
+
 # --- load / list ---
 
 
