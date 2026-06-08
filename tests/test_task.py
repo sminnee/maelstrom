@@ -508,7 +508,7 @@ class TestBuildPrompt:
     def test_command_title_and_content(self):
         t = Task(id="x", title="Do thing", project="p", command="plan-task",
                  content="Details here.")
-        assert model.build_prompt(t) == "plan-task Do thing\n\nDetails here."
+        assert model.build_prompt(t) == "/plan-task Do thing\n\nDetails here."
 
     def test_no_command_omits_leading_space(self):
         t = Task(id="x", title="Do thing", project="p", content="Details.")
@@ -516,7 +516,7 @@ class TestBuildPrompt:
 
     def test_no_content_omits_trailing_block(self):
         t = Task(id="x", title="Do thing", project="p", command="plan-task")
-        assert model.build_prompt(t) == "plan-task Do thing"
+        assert model.build_prompt(t) == "/plan-task Do thing"
 
     def test_title_only(self):
         t = Task(id="x", title="Just a title", project="p")
