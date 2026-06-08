@@ -1659,6 +1659,7 @@ def start_claude_session(
     worktree: str | None = None,
     initial_prompt: str | None = None,
     permission_mode: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> None:
     """Start an interactive Claude Code CLI session in a worktree.
 
@@ -1667,8 +1668,10 @@ def start_claude_session(
     os.execvp if cmux setup fails or is unavailable.
 
     ``initial_prompt`` is passed to Claude as the opening prompt (positional
-    argument) and ``permission_mode`` as ``--permission-mode``. Both are
-    optional so existing callers are unaffected.
+    argument) and ``permission_mode`` as ``--permission-mode``. ``env`` is a
+    set of extra environment variables exported into the session (e.g.
+    ``MAEL_TASK_ID``) so skills can self-reference. All are optional so
+    existing callers are unaffected.
     """
     import shlex
 
@@ -1680,6 +1683,13 @@ def start_claude_session(
             command += f" --permission-mode {shlex.quote(permission_mode)}"
         if initial_prompt:
             command += f" {shlex.quote(initial_prompt)}"
+        # The cmux path sends a shell line, so prefix `KEY=value ` assignments
+        # rather than relying on inherited os.environ.
+        if env:
+            prefix = " ".join(
+                f"{k}={shlex.quote(v)}" for k, v in env.items()
+            )
+            command = f"{prefix} {command}"
         result = create_cmux_workspace(
             project, worktree, str(worktree_path), command=command
         )
@@ -1687,6 +1697,8 @@ def start_claude_session(
             return
 
     os.chdir(worktree_path)
+    if env:
+        os.environ.update(env)
     argv = ["claude"]
     if permission_mode:
         argv += ["--permission-mode", permission_mode]

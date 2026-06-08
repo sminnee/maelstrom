@@ -681,6 +681,40 @@ def cmd_list_tasks(status):
         )
 
 
+@linear.command("plan")
+@click.argument("issue_id")
+@click.option("--project", default=None, help="Project name (default: from cwd).")
+@click.option(
+    "--run", is_flag=True, help="Launch the planning session immediately."
+)
+def cmd_plan(issue_id: str, project: str | None, run: bool) -> None:
+    """Seed a notebook planning task from a Linear issue.
+
+    Thin wrapper over ``mael task add``: fetches the issue brief and creates a
+    ``plan-task`` task whose content is the brief, parented under
+    ``linear.<identifier>``. Defaults to create-only (parity with ``task add``);
+    ``--run`` also launches the planning session. All worktree/launch behaviour
+    comes from the shared ``task add`` path — this command adds only the brief
+    fetch and argument assembly.
+    """
+    from . import task_cli
+
+    issue = get_issue(issue_id)
+    identifier = issue["identifier"]
+    title = issue.get("title") or ""
+    description = issue.get("description") or ""
+    brief = f"# {identifier}: {title}\n\n{description}"
+
+    task_cli.add_task(
+        title=f"Plan {identifier}",
+        project=project,
+        command="plan-task",
+        parent=f"linear.{identifier}",
+        content=brief,
+        run=run,
+    )
+
+
 @linear.command("read-task")
 @click.argument("issue_id")
 def cmd_read_task(issue_id):

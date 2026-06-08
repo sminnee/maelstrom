@@ -82,6 +82,24 @@ class TestAddBranch:
         assert t.command == "plan-task"
         assert t.mode == "plan"
 
+    def test_plan_command_defaults_to_plan_mode_without_mode_flag(
+        self, runner, store
+    ):
+        # --command plan-task with no --mode should land in plan mode via
+        # DEFAULT_MODE_BY_COMMAND.
+        result = runner.invoke(
+            task_cli.task, ["add", "Plan it", "--command", "plan-task"]
+        )
+        assert result.exit_code == 0, result.output
+        t = model.load(store, "p", result.output.strip())
+        assert t.mode == "plan"
+
+    def test_plain_task_defaults_to_normal_mode(self, runner, store):
+        result = runner.invoke(task_cli.task, ["add", "Just do it"])
+        assert result.exit_code == 0, result.output
+        t = model.load(store, "p", result.output.strip())
+        assert t.mode == "normal"
+
 
 # --- next: selection ---
 
@@ -338,3 +356,55 @@ class TestNextRun:
         assert result.exit_code != 0
         assert "No actionable task" in result.output
         launch.session.assert_not_called()
+
+
+class TestContentFile:
+    def test_content_file_reads_stdin_on_dash(self, runner, store):
+        result = runner.invoke(
+            task_cli.task,
+            ["add", "Piped", "--content-file", "-"],
+            input="brief from stdin\n",
+        )
+        assert result.exit_code == 0, result.output
+        t = model.load(store, "p", result.output.strip())
+        assert "brief from stdin" in t.content
+
+    def test_content_file_reads_path(self, runner, store, tmp_path):
+        f = tmp_path / "brief.md"
+        f.write_text("brief from file")
+        result = runner.invoke(
+            task_cli.task, ["add", "FromFile", "--content-file", str(f)]
+        )
+        assert result.exit_code == 0, result.output
+        t = model.load(store, "p", result.output.strip())
+        assert t.content == "brief from file"
+
+    def test_content_file_missing_path_errors(self, runner, store, tmp_path):
+        missing = tmp_path / "nope.md"
+        result = runner.invoke(
+            task_cli.task, ["add", "Missing", "--content-file", str(missing)]
+        )
+        assert result.exit_code != 0
+        assert "Content file not found" in result.output
+
+
+class TestEnvThreading:
+    def test_run_threads_task_id_and_parent_env(self, runner, store, launch):
+        # A child task carries a parent; both ids should reach the session env.
+        model.create(store, project="p", title="Parent task", parent="linear.ME-1")
+        t = model.create(
+            store, project="p", title="Child", parent="linear.ME-1"
+        )
+        result = runner.invoke(task_cli.task, ["run", t.id])
+        assert result.exit_code == 0, result.output
+        env = launch.session.call_args.kwargs["env"]
+        assert env["MAEL_TASK_ID"] == t.id
+        assert env["MAEL_TASK_PARENT"] == "linear.ME-1"
+
+    def test_run_omits_parent_env_when_orphan(self, runner, store, launch):
+        t = model.create(store, project="p", title="Orphan")
+        result = runner.invoke(task_cli.task, ["run", t.id])
+        assert result.exit_code == 0, result.output
+        env = launch.session.call_args.kwargs["env"]
+        assert env["MAEL_TASK_ID"] == t.id
+        assert "MAEL_TASK_PARENT" not in env

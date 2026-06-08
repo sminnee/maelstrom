@@ -10,6 +10,57 @@ from click.testing import CliRunner
 from maelstrom.linear import create_comment, linear
 
 
+class TestCmdPlan:
+    """Tests for ``mael linear plan`` — a thin wrapper over ``mael task add``."""
+
+    @patch("maelstrom.task_cli.add_task")
+    @patch("maelstrom.linear.get_issue")
+    def test_plan_assembles_brief_and_invokes_task_add(self, mock_get, mock_add):
+        mock_get.return_value = {
+            "identifier": "ME-99",
+            "title": "Do the thing",
+            "description": "Some details.",
+        }
+        runner = CliRunner()
+        result = runner.invoke(linear, ["plan", "ME-99"])
+        assert result.exit_code == 0, result.output
+
+        mock_get.assert_called_once_with("ME-99")
+        mock_add.assert_called_once()
+        kwargs = mock_add.call_args.kwargs
+        assert kwargs["title"] == "Plan ME-99"
+        assert kwargs["command"] == "plan-task"
+        assert kwargs["parent"] == "linear.ME-99"
+        assert kwargs["run"] is False
+        assert kwargs["content"] == "# ME-99: Do the thing\n\nSome details."
+
+    @patch("maelstrom.task_cli.add_task")
+    @patch("maelstrom.linear.get_issue")
+    def test_plan_run_forwards_run_flag(self, mock_get, mock_add):
+        mock_get.return_value = {
+            "identifier": "ME-99",
+            "title": "T",
+            "description": "",
+        }
+        runner = CliRunner()
+        result = runner.invoke(linear, ["plan", "ME-99", "--run"])
+        assert result.exit_code == 0, result.output
+        assert mock_add.call_args.kwargs["run"] is True
+
+    @patch("maelstrom.task_cli.add_task")
+    @patch("maelstrom.linear.get_issue")
+    def test_plan_forwards_project(self, mock_get, mock_add):
+        mock_get.return_value = {
+            "identifier": "ME-99",
+            "title": "T",
+            "description": "",
+        }
+        runner = CliRunner()
+        result = runner.invoke(linear, ["plan", "ME-99", "--project", "myproj"])
+        assert result.exit_code == 0, result.output
+        assert mock_add.call_args.kwargs["project"] == "myproj"
+
+
 class TestCreateComment:
     """Tests for create_comment function."""
 
