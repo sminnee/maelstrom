@@ -66,6 +66,135 @@ def is_ok(result: str | None) -> str | None:
     return None
 
 
+def _first_ref(text: str | None, kind: str) -> str | None:
+    """First `{kind}:N` ref in `text`, or None.
+
+    cmux often replies with multiple refs, e.g. new-surface returns
+    "surface:5 pane:2 workspace:1"; only the leading surface ref is a valid
+    --surface handle.
+    """
+    if not text:
+        return None
+    match = re.search(rf'{kind}:\d+', text)
+    return match.group(0) if match else None
+
+
+def workspace_name(project: str, worktree: str) -> str:
+    """Canonical cmux workspace name: '{project}-{worktree}'."""
+    return f"{project}-{worktree}"
+
+
+def find_workspace(name: str) -> str | None:
+    """Workspace ref for `name` (first match), else None.
+
+    Parses list-workspaces output, e.g. lines like:
+      * workspace:13  maelstrom-bravo  [selected]
+    """
+    output = cmux_cmd("list-workspaces")
+    if not output:
+        return None
+
+    for line in output.splitlines():
+        match = re.match(r'.*?(workspace:\d+)\s+(\S+)', line)
+        if match and match.group(2) == name:
+            return match.group(1)
+    return None
+
+
+def list_panes(workspace_ref: str | None = None) -> list[str]:
+    """Pane refs left→right, or [] if none / not in cmux mode.
+
+    Uses re.findall (order-preserving) so it works for both space- and
+    newline-separated output.
+    """
+    args = ["list-panes"]
+    if workspace_ref:
+        args.extend(["--workspace", workspace_ref])
+    output = cmux_cmd(*args)
+    if not output:
+        return []
+    return re.findall(r'pane:\d+', output)
+
+
+def leftmost_pane(workspace_ref: str | None = None) -> str | None:
+    """First pane from list_panes, or None."""
+    panes = list_panes(workspace_ref)
+    return panes[0] if panes else None
+
+
+def add_tab(
+    workspace_ref: str, pane_ref: str | None = None, title: str | None = None,
+) -> str | None:
+    """New terminal surface (tab) in the workspace, optionally in `pane_ref`.
+
+    Omits --pane when pane_ref is None (cmux uses its default pane).
+    Renames the surface to `title` if given. Returns the surface ref, else None.
+    """
+    args = ["new-surface", "--type", "terminal"]
+    if pane_ref:
+        args.extend(["--pane", pane_ref])
+    args.extend(["--workspace", workspace_ref])
+    # new-surface replies "OK surface:N pane:N workspace:N" — pull out the
+    # surface ref; the multi-token string is not a valid --surface handle.
+    surface_ref = _first_ref(is_ok(cmux_cmd(*args)), "surface")
+    if surface_ref is None:
+        return None
+
+    if title:
+        cmux_cmd("rename-tab", "--surface", surface_ref, title)
+
+    return surface_ref
+
+
+def start_claude_in_surface(surface_ref: str, worktree_path: str) -> None:
+    """send `cd <path>\\n` then `claude\\n` into the surface."""
+    cmux_cmd("send", "--surface", surface_ref, "--", f"cd {worktree_path}\n")
+    cmux_cmd("send", "--surface", surface_ref, "--", "claude\n")
+
+
+def focus_pane(pane_ref: str, workspace_ref: str | None = None) -> None:
+    """Focus a pane, optionally within a specific workspace."""
+    args = ["focus-pane", "--pane", pane_ref]
+    if workspace_ref:
+        args.extend(["--workspace", workspace_ref])
+    cmux_cmd(*args)
+
+
+def select_workspace(workspace_ref: str) -> None:
+    """Select (bring to foreground) a workspace."""
+    cmux_cmd("select-workspace", "--workspace", workspace_ref)
+
+
+def open_claude_tab(
+    project: str, worktree: str, worktree_path: str,
+) -> str | None:
+    """Add a new Claude tab to the leftmost pane of an existing workspace.
+
+    Composes the primitives: find the workspace by canonical name, add a
+    terminal tab titled "Claude" to its leftmost pane, start claude in it,
+    then focus the pane and select the workspace so the tab is visible.
+
+    Returns the new surface ref, or None if the workspace isn't found / not
+    in cmux mode / the tab couldn't be created.
+    """
+    workspace_ref = find_workspace(workspace_name(project, worktree))
+    if workspace_ref is None:
+        return None
+
+    pane_ref = leftmost_pane(workspace_ref)
+    surface_ref = add_tab(workspace_ref, pane_ref=pane_ref, title="Claude")
+    if surface_ref is None:
+        return None
+
+    start_claude_in_surface(surface_ref, worktree_path)
+
+    if pane_ref:
+        focus_pane(pane_ref, workspace_ref)
+    select_workspace(workspace_ref)
+
+    return surface_ref
+
+
 def create_cmux_workspace(
     project: str, worktree: str, worktree_path: str,
 ) -> str | None:
@@ -87,22 +216,26 @@ def create_cmux_workspace(
     cmux_cmd("send", "--workspace", workspace_ref, "--", "claude\n")
 
     # Rename workspace
-    workspace_name = f"{project}-{worktree}"
-    cmux_cmd("rename-workspace", "--workspace", workspace_ref, workspace_name)
+    cmux_cmd(
+        "rename-workspace", "--workspace", workspace_ref,
+        workspace_name(project, worktree),
+    )
 
-    # Open a second terminal pane to the right
-    pane_ref = is_ok(cmux_cmd(
+    # Open a second terminal pane to the right. new-pane replies
+    # "OK surface:N pane:N workspace:N" — the surface ref is what `send` and
+    # `rename-tab` target.
+    surface_ref = _first_ref(is_ok(cmux_cmd(
         "new-pane", "--workspace", workspace_ref,
         "--type", "terminal", "--direction", "right",
-    ))
-    if pane_ref:
-        cmux_cmd("send", "--surface", pane_ref, "--", f"cd {worktree_path}\n")
-        cmux_cmd("rename-surface", "--surface", pane_ref, "Terminal")
+    )), "surface")
+    if surface_ref:
+        cmux_cmd("send", "--surface", surface_ref, "--", f"cd {worktree_path}\n")
+        cmux_cmd("rename-tab", "--surface", surface_ref, "Terminal")
 
     # Focus the new workspace's first pane
-    panes = cmux_cmd("list-panes", "--workspace", workspace_ref)
-    if panes and (matches := re.search('(pane:[0-9]+)', panes)):
-        cmux_cmd("focus-pane", "--pane", matches.group(1),"--workspace", workspace_ref)
+    first_pane = leftmost_pane(workspace_ref)
+    if first_pane:
+        focus_pane(first_pane, workspace_ref)
 
     return workspace_ref
 
@@ -146,25 +279,17 @@ def clear_status() -> bool:
 
 
 def close_workspace(name: str) -> bool:
-    """Close cmux workspaces matching the given name.
+    """Close the cmux workspace matching the given name.
 
-    Parses list-workspaces output to find workspaces by name, then closes them.
-    Returns True if any workspace was closed, False otherwise.
+    Finds the workspace by name and closes it.
+    Returns True if a workspace was closed, False otherwise.
     """
-    output = cmux_cmd("list-workspaces")
-    if not output:
+    workspace_ref = find_workspace(name)
+    if workspace_ref is None:
         return False
 
-    closed = False
-    for line in output.splitlines():
-        # Lines like: * workspace:13  maelstrom-bravo  [selected]
-        match = re.match(r'.*?(workspace:\d+)\s+(\S+)', line)
-        if match and match.group(2) == name:
-            result = cmux_cmd("close-workspace", "--workspace", match.group(1))
-            if is_ok(result) is not None:
-                closed = True
-
-    return closed
+    result = cmux_cmd("close-workspace", "--workspace", workspace_ref)
+    return is_ok(result) is not None
 
 
 def close_surface(surface_ref: str) -> bool:

@@ -9,15 +9,23 @@ from maelstrom.cmux import (
     CmuxPanel,
     CmuxWorkspace,
     _find_cmux_cli,
+    _first_ref,
     _parse_panels,
+    add_tab,
     close_surface,
     close_workspace,
     cmux_cmd,
     create_cmux_workspace,
+    find_workspace,
     is_cmux_mode,
     is_ok,
+    leftmost_pane,
+    list_panes,
     open_browser_pane,
+    open_claude_tab,
     browser_surface_exists,
+    start_claude_in_surface,
+    workspace_name,
 )
 
 
@@ -149,6 +157,214 @@ class TestIsOk:
         assert is_ok("") is None
 
 
+class TestWorkspaceName:
+    """Tests for workspace_name function."""
+
+    def test_combines_project_and_worktree(self):
+        assert workspace_name("maelstrom", "bravo") == "maelstrom-bravo"
+
+
+class TestFindWorkspace:
+    """Tests for find_workspace function."""
+
+    def test_returns_ref_on_match(self):
+        list_output = (
+            "* workspace:13  maelstrom-bravo  [selected]\n"
+            "  workspace:14  other-project"
+        )
+        with patch("maelstrom.cmux.cmux_cmd", return_value=list_output):
+            assert find_workspace("maelstrom-bravo") == "workspace:13"
+
+    def test_returns_first_match(self):
+        list_output = (
+            "  workspace:14  other-project\n"
+            "  workspace:15  maelstrom-bravo\n"
+            "  workspace:16  maelstrom-bravo"
+        )
+        with patch("maelstrom.cmux.cmux_cmd", return_value=list_output):
+            assert find_workspace("maelstrom-bravo") == "workspace:15"
+
+    def test_returns_none_on_no_match(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value="  workspace:14  other"):
+            assert find_workspace("maelstrom-bravo") is None
+
+    def test_returns_none_when_cmux_unavailable(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
+            assert find_workspace("maelstrom-bravo") is None
+
+
+class TestListPanes:
+    """Tests for list_panes function."""
+
+    def test_parses_space_separated(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value="pane:0 pane:1 pane:2"):
+            assert list_panes() == ["pane:0", "pane:1", "pane:2"]
+
+    def test_parses_newline_separated(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value="pane:0\npane:1"):
+            assert list_panes() == ["pane:0", "pane:1"]
+
+    def test_returns_empty_when_none(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
+            assert list_panes() == []
+
+    def test_returns_empty_when_blank(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value=""):
+            assert list_panes() == []
+
+    def test_passes_workspace_ref(self):
+        calls = []
+
+        def mock_cmux_cmd(*args):
+            calls.append(args)
+            return "pane:0"
+
+        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
+            list_panes("workspace:13")
+
+        assert calls[0] == ("list-panes", "--workspace", "workspace:13")
+
+
+class TestLeftmostPane:
+    """Tests for leftmost_pane function."""
+
+    def test_returns_first_pane(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value="pane:0 pane:1"):
+            assert leftmost_pane() == "pane:0"
+
+    def test_returns_none_when_empty(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
+            assert leftmost_pane() is None
+
+
+class TestFirstRef:
+    """Tests for _first_ref helper."""
+
+    def test_extracts_leading_surface_ref(self):
+        assert _first_ref("surface:99 pane:0 workspace:13", "surface") == "surface:99"
+
+    def test_extracts_pane_ref(self):
+        assert _first_ref("surface:99 pane:7 workspace:1", "pane") == "pane:7"
+
+    def test_returns_none_when_kind_absent(self):
+        assert _first_ref("pane:0 workspace:1", "surface") is None
+
+    def test_returns_none_for_none(self):
+        assert _first_ref(None, "surface") is None
+
+    def test_returns_none_for_empty(self):
+        assert _first_ref("", "surface") is None
+
+
+class TestAddTab:
+    """Tests for add_tab function."""
+
+    def test_creates_and_renames_surface(self):
+        calls = []
+
+        def mock_cmux_cmd(*args):
+            calls.append(args)
+            if args[0] == "new-surface":
+                # cmux returns multiple refs; only the surface ref is usable.
+                return "OK surface:99 pane:0 workspace:13"
+            return "OK"
+
+        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
+            result = add_tab("workspace:13", pane_ref="pane:0", title="Claude")
+
+        assert result == "surface:99"
+        assert calls[0] == (
+            "new-surface", "--type", "terminal",
+            "--pane", "pane:0", "--workspace", "workspace:13",
+        )
+        assert calls[1] == ("rename-tab", "--surface", "surface:99", "Claude")
+
+    def test_omits_pane_when_none(self):
+        calls = []
+
+        def mock_cmux_cmd(*args):
+            calls.append(args)
+            return (
+                "OK surface:99 pane:0 workspace:13"
+                if args[0] == "new-surface" else "OK"
+            )
+
+        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
+            add_tab("workspace:13")
+
+        assert "--pane" not in calls[0]
+
+    def test_returns_none_on_failure(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
+            assert add_tab("workspace:13") is None
+
+    def test_returns_none_when_no_surface_ref(self):
+        # A bare "OK" (or a reply without a surface ref) is unusable.
+        with patch("maelstrom.cmux.cmux_cmd", return_value="OK"):
+            assert add_tab("workspace:13") is None
+
+
+class TestStartClaudeInSurface:
+    """Tests for start_claude_in_surface function."""
+
+    def test_sends_cd_then_claude(self):
+        calls = []
+
+        def mock_cmux_cmd(*args):
+            calls.append(args)
+            return "OK"
+
+        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
+            start_claude_in_surface("surface:99", "/path/to/wt")
+
+        assert calls[0] == ("send", "--surface", "surface:99", "--", "cd /path/to/wt\n")
+        assert calls[1] == ("send", "--surface", "surface:99", "--", "claude\n")
+
+
+class TestOpenClaudeTab:
+    """Tests for open_claude_tab function."""
+
+    def test_happy_path(self):
+        calls = []
+
+        def mock_cmux_cmd(*args):
+            calls.append(args)
+            if args[0] == "list-workspaces":
+                return "  workspace:13  myproject-alpha"
+            if args[0] == "list-panes":
+                return "pane:0 pane:1"
+            if args[0] == "new-surface":
+                return "OK surface:99 pane:0 workspace:13"
+            return "OK"
+
+        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
+            result = open_claude_tab("myproject", "alpha", "/path/to/wt")
+
+        assert result == "surface:99"
+        cmds = [c[0] for c in calls]
+        assert "new-surface" in cmds
+        # claude is actually sent into the new tab's surface ref
+        assert ("send", "--surface", "surface:99", "--", "claude\n") in calls
+        assert ("focus-pane", "--pane", "pane:0", "--workspace", "workspace:13") in calls
+        assert ("select-workspace", "--workspace", "workspace:13") in calls
+
+    def test_returns_none_when_workspace_not_found(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value=""):
+            assert open_claude_tab("myproject", "alpha", "/path/to/wt") is None
+
+    def test_returns_none_when_add_tab_fails(self):
+        def mock_cmux_cmd(*args):
+            if args[0] == "list-workspaces":
+                return "  workspace:13  myproject-alpha"
+            if args[0] == "list-panes":
+                return "pane:0"
+            # new-surface fails
+            return None
+
+        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
+            assert open_claude_tab("myproject", "alpha", "/path/to/wt") is None
+
+
 class TestCreateCmuxWorkspace:
     """Tests for create_cmux_workspace function."""
 
@@ -162,10 +378,11 @@ class TestCreateCmuxWorkspace:
             if args[0] == "rename-workspace":
                 return "OK"
             if args[0] == "new-pane":
-                return "OK pane-456"
+                # cmux returns "OK surface:N pane:N workspace:N".
+                return "OK surface:456 pane:7 workspace:1"
             if args[0] == "send":
                 return "OK"
-            if args[0] == "rename-surface":
+            if args[0] == "rename-tab":
                 return "OK"
             if args[0] == "list-panes":
                 return "pane:0 pane:1"
@@ -181,6 +398,10 @@ class TestCreateCmuxWorkspace:
         assert calls[1][0] == "send"
         assert calls[2][0] == "rename-workspace"
         assert calls[3][0] == "new-pane"
+        # The second pane is cd'd and renamed via its surface ref (not the
+        # multi-token new-pane reply).
+        assert ("send", "--surface", "surface:456", "--", "cd /path/to/worktree\n") in calls
+        assert ("rename-tab", "--surface", "surface:456", "Terminal") in calls
 
     def test_returns_none_when_workspace_creation_fails(self):
         with patch("maelstrom.cmux.cmux_cmd", return_value=None):
