@@ -485,12 +485,11 @@ def move(
     task.status = new_status
     task.updated = now if now is not None else _now_iso()
     new_key = task_key(project, new_status, id)
-    store.write(
-        new_key,
-        task.to_markdown(),
-        message=f"task: move {id} -> {new_status}",
-    )
-    store.delete(old_key, message=f"task: move {id} -> {new_status}")
+    # One commit for the write-new + delete-old pair; the transaction owns the
+    # message, so the per-call writes/deletes don't repeat it.
+    with store.transaction(message=f"task: move {id} -> {new_status}"):
+        store.write(new_key, task.to_markdown())
+        store.delete(old_key)
     return task
 
 
@@ -533,26 +532,27 @@ def delete(store: TaskStore, project: str, id: str) -> Task:
     if text is None:
         raise KeyError(f"Task not found: {project}/{id}")
     deleted = Task.from_markdown(text, status=status_from_key(key))
-    store.delete(key, message=f"task: rm {id}")
 
-    # Drop the deleted id from any non-terminal dependent's follows list.
-    for dep_key in store.list_dir(f"{project}/"):
-        if not dep_key.endswith(".md") or dep_key == key:
-            continue
-        if is_terminal(status_from_key(dep_key)):
-            continue
-        dep_text = store.read(dep_key)
-        if dep_text is None:
-            continue
-        dep = Task.from_markdown(dep_text, status=status_from_key(dep_key))
-        if id not in dep.follows:
-            continue
-        dep.follows = [f for f in dep.follows if f != id]
-        store.write(
-            dep_key,
-            dep.to_markdown(),
-            message=f"task: drop follows {id} from {dep.id}",
-        )
+    # One commit for the removal plus every dependent rewrite; the transaction
+    # owns the message. The store mutates eagerly, so the post-delete list_dir
+    # scan below still sees a consistent view.
+    with store.transaction(message=f"task: rm {id}"):
+        store.delete(key)
+
+        # Drop the deleted id from any non-terminal dependent's follows list.
+        for dep_key in store.list_dir(f"{project}/"):
+            if not dep_key.endswith(".md") or dep_key == key:
+                continue
+            if is_terminal(status_from_key(dep_key)):
+                continue
+            dep_text = store.read(dep_key)
+            if dep_text is None:
+                continue
+            dep = Task.from_markdown(dep_text, status=status_from_key(dep_key))
+            if id not in dep.follows:
+                continue
+            dep.follows = [f for f in dep.follows if f != id]
+            store.write(dep_key, dep.to_markdown())
     return deleted
 
 
