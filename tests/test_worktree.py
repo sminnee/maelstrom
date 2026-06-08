@@ -40,6 +40,7 @@ from maelstrom.worktree import (
     run_cmd,
     run_install_cmd,
     sanitize_branch_name,
+    setup_worktree_for_branch,
     sync_worktree,
     update_claude_local_md,
     write_env_file,
@@ -1043,6 +1044,158 @@ class TestRecycleWorktreeIntegration:
         # Cleanup
         remove_worktree(git_repo_with_remote, "feature/existing")
         remove_worktree_by_path(git_repo_with_remote, worktree_alpha.name)
+
+
+class TestSetupWorktreeForBranch:
+    """Integration tests for setup_worktree_for_branch (the shared core fn)."""
+
+    @pytest.fixture
+    def git_repo_with_remote(self):
+        """Bare repo with a remote, matching maelstrom's worktree structure."""
+        with TemporaryDirectory() as tmpdir:
+            remote_path = Path(tmpdir) / "remote.git"
+            source_path = Path(tmpdir) / "source"
+            source_path.mkdir()
+
+            subprocess.run(["git", "init"], cwd=source_path, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@test.com"],
+                cwd=source_path, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test"],
+                cwd=source_path, check=True, capture_output=True
+            )
+            (source_path / "README.md").write_text("# Test")
+            subprocess.run(["git", "add", "."], cwd=source_path, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "commit", "-m", "Initial commit"],
+                cwd=source_path, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "branch", "-M", "main"],
+                cwd=source_path, check=True, capture_output=True
+            )
+
+            subprocess.run(
+                ["git", "clone", "--bare", str(source_path), str(remote_path)],
+                check=True, capture_output=True
+            )
+
+            project_path = Path(tmpdir) / "test-repo"
+            project_path.mkdir()
+
+            git_dir = project_path / ".git"
+            subprocess.run(
+                ["git", "clone", "--bare", str(remote_path), str(git_dir)],
+                check=True, capture_output=True
+            )
+
+            subprocess.run(
+                ["git", "config", "core.bare", "true"],
+                cwd=project_path, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
+                cwd=project_path, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "test@test.com"],
+                cwd=project_path, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test"],
+                cwd=project_path, check=True, capture_output=True
+            )
+
+            subprocess.run(
+                ["git", "fetch", "origin"],
+                cwd=project_path, check=True, capture_output=True
+            )
+
+            head_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=project_path, check=True, capture_output=True, text=True
+            ).stdout.strip()
+            subprocess.run(
+                ["git", "update-ref", "--no-deref", "HEAD", head_sha],
+                cwd=project_path, check=True, capture_output=True
+            )
+
+            yield project_path
+
+    def test_create_fresh_branch(self, git_repo_with_remote):
+        """A fresh branch with no closed worktree → action 'created'."""
+        result = setup_worktree_for_branch(
+            git_repo_with_remote, "test-repo", "feature/new"
+        )
+        assert result.action == "created"
+        assert result.path.exists()
+        assert result.name in WORKTREE_NAMES
+        assert result.path.name == f"test-repo-{result.name}"
+
+    def test_idempotent_reuse(self, git_repo_with_remote):
+        """Calling twice for the same branch reuses the worktree untouched."""
+        first = setup_worktree_for_branch(
+            git_repo_with_remote, "test-repo", "feature/reuse"
+        )
+        assert first.action == "created"
+        before = len(list_worktrees(git_repo_with_remote))
+
+        # The second call must NOT re-run install / claude-local-md.
+        with patch("maelstrom.worktree.run_install_cmd") as install, \
+                patch("maelstrom.worktree.update_claude_local_md") as local_md:
+            second = setup_worktree_for_branch(
+                git_repo_with_remote, "test-repo", "feature/reuse"
+            )
+            assert install.call_count == 0
+            assert local_md.call_count == 0
+
+        assert second.action == "reused"
+        assert second.path == first.path
+        assert len(list_worktrees(git_repo_with_remote)) == before
+
+    def test_recycle_closed_worktree(self, git_repo_with_remote):
+        """A closed worktree is recycled for a new branch → action 'recycled'."""
+        # Stub the finalize side-effects so the worktree stays clean for close
+        # (writing CLAUDE.local.md/.gitignore would dirty it).
+        with patch("maelstrom.worktree.update_claude_local_md", return_value=False), \
+                patch("maelstrom.worktree.run_install_cmd"), \
+                patch("maelstrom.worktree._setup_claude_memory_symlink"):
+            first = setup_worktree_for_branch(
+                git_repo_with_remote, "test-repo", "feature/original"
+            )
+            close_result = close_worktree(first.path)
+            assert close_result.success is True
+
+            result = setup_worktree_for_branch(
+                git_repo_with_remote, "test-repo", "feature/recycled"
+            )
+        assert result.action == "recycled"
+        assert result.path == first.path  # reused the closed folder
+
+        branch = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=result.path, check=True, capture_output=True, text=True
+        ).stdout.strip()
+        assert branch == "feature/recycled"
+
+    def test_no_recycle_creates_instead(self, git_repo_with_remote):
+        """no_recycle=True ignores a closed worktree and creates a new one."""
+        with patch("maelstrom.worktree.update_claude_local_md", return_value=False), \
+                patch("maelstrom.worktree.run_install_cmd"), \
+                patch("maelstrom.worktree._setup_claude_memory_symlink"):
+            first = setup_worktree_for_branch(
+                git_repo_with_remote, "test-repo", "feature/original"
+            )
+            close_result = close_worktree(first.path)
+            assert close_result.success is True
+
+            result = setup_worktree_for_branch(
+                git_repo_with_remote, "test-repo", "feature/fresh", no_recycle=True
+            )
+        assert result.action == "created"
+        assert result.path != first.path
 
 
 class TestUpdateClaudeLocalMd:

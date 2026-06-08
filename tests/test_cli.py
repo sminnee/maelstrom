@@ -497,15 +497,23 @@ class TestCmdAddRecycle:
         closed_wt = MagicMock(path=worktree_path)
 
         stack.enter_context(patch("maelstrom.cli.resolve_context", return_value=ctx))
-        stack.enter_context(patch("maelstrom.cli.find_closed_worktree", return_value=closed_wt))
-        stack.enter_context(patch("maelstrom.cli.recycle_worktree", return_value=worktree_path))
+        # The recycle collaborators now run inside worktree.setup_worktree_for_branch.
+        stack.enter_context(patch(
+            "maelstrom.worktree.find_worktree_by_branch", return_value=None,
+        ))
+        stack.enter_context(patch("maelstrom.worktree.find_closed_worktree", return_value=closed_wt))
+        stack.enter_context(patch("maelstrom.worktree.recycle_worktree", return_value=worktree_path))
+        stack.enter_context(patch(
+            "maelstrom.worktree.extract_worktree_name_from_folder", return_value="bravo",
+        ))
+        stack.enter_context(patch("maelstrom.worktree.reclaim_or_allocate_ports"))
+        stack.enter_context(patch("maelstrom.worktree._setup_claude_memory_symlink"))
+        stack.enter_context(patch("maelstrom.worktree.update_claude_local_md", return_value=False))
+        stack.enter_context(patch("maelstrom.worktree.run_install_cmd"))
+        # The recycle env block stays CLI-side and derives the NATO name there too.
         stack.enter_context(patch(
             "maelstrom.cli.extract_worktree_name_from_folder", return_value="bravo",
         ))
-        stack.enter_context(patch("maelstrom.cli.reclaim_or_allocate_ports"))
-        stack.enter_context(patch("maelstrom.cli._setup_claude_memory_symlink"))
-        stack.enter_context(patch("maelstrom.cli.update_claude_local_md", return_value=False))
-        stack.enter_context(patch("maelstrom.cli.run_install_cmd"))
         stack.enter_context(patch("maelstrom.cli.start_claude_session"))
 
         helper = stack.enter_context(patch(
@@ -580,6 +588,8 @@ class TestCmdAddExistingBranch:
         )
 
         stack.enter_context(patch("maelstrom.cli.resolve_context", return_value=ctx))
+        # The live-tab fast-path in cmd_add reads find_worktree_by_branch /
+        # extract_worktree_name_from_folder from the cli namespace.
         stack.enter_context(patch(
             "maelstrom.cli.find_worktree_by_branch",
             return_value=worktree_path if existing else None,
@@ -587,20 +597,28 @@ class TestCmdAddExistingBranch:
         stack.enter_context(patch(
             "maelstrom.cli.extract_worktree_name_from_folder", return_value="bravo",
         ))
+        # The core fn (worktree.setup_worktree_for_branch) reads its own copies.
+        stack.enter_context(patch(
+            "maelstrom.worktree.find_worktree_by_branch",
+            return_value=worktree_path if existing else None,
+        ))
+        stack.enter_context(patch(
+            "maelstrom.worktree.extract_worktree_name_from_folder", return_value="bravo",
+        ))
 
         mocks = {
             "create_worktree": stack.enter_context(
-                patch("maelstrom.cli.create_worktree", return_value=worktree_path)
+                patch("maelstrom.worktree.create_worktree", return_value=worktree_path)
             ),
-            "run_install_cmd": stack.enter_context(patch("maelstrom.cli.run_install_cmd")),
+            "run_install_cmd": stack.enter_context(patch("maelstrom.worktree.run_install_cmd")),
             "start_claude_session": stack.enter_context(
                 patch("maelstrom.cli.start_claude_session")
             ),
             "find_closed_worktree": stack.enter_context(
-                patch("maelstrom.cli.find_closed_worktree", return_value=None)
+                patch("maelstrom.worktree.find_closed_worktree", return_value=None)
             ),
             "update_claude_local_md": stack.enter_context(
-                patch("maelstrom.cli.update_claude_local_md", return_value=False)
+                patch("maelstrom.worktree.update_claude_local_md", return_value=False)
             ),
             "is_cmux_mode": stack.enter_context(patch("maelstrom.cmux.is_cmux_mode")),
             "find_workspace": stack.enter_context(patch("maelstrom.cmux.find_workspace")),

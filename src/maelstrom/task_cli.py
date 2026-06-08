@@ -13,10 +13,37 @@ from . import task as model  # noqa: F401  (module, used as `model.*`)
 from .context import resolve_context
 from .table import draw_table
 from .task_store import GitFileStore
+from .worktree import setup_worktree_for_branch, start_claude_session
 
 
 def _store() -> GitFileStore:
     return GitFileStore()
+
+
+def _run_task(store: GitFileStore, project: str, task: "model.Task") -> None:
+    """Ensure a worktree for the task, mark it in-progress, then launch Claude.
+
+    ``start_claude_session`` may ``execvp`` (replacing the process), so every
+    store write MUST complete before it is called.
+    """
+    ctx = resolve_context(project, require_project=True, arg_is_project=True)
+    project_path = ctx.project_path
+    if project_path is None or not project_path.exists():
+        raise click.ClickException(
+            f"Project '{project}' not found at {project_path}"
+        )
+    branch = task.branch or model.default_branch(task.id)
+    result = setup_worktree_for_branch(project_path, project, branch)
+    model.move(store, project, task.id, model.STATUS_IN_PROGRESS)  # write BEFORE launch
+    click.echo(f"Running {task.id} on {branch}")
+    click.echo(f"  → {project}/{result.name} ({result.action})")
+    start_claude_session(
+        result.path,
+        project=project,
+        worktree=result.name,
+        initial_prompt=model.build_prompt(task),
+        permission_mode=model._permission_mode_for(task.mode),
+    )
 
 
 def _resolve_project(project: str | None) -> str:
@@ -39,7 +66,7 @@ def task() -> None:
 @click.option("--command", default="", help="Command to launch the session with.")
 @click.option("--mode", default="normal", help="Session mode (default: normal).")
 @click.option(
-    "--branch", default="", help="Branch for the task (default: the task id)."
+    "--branch", default="", help="Branch for the task (default: task/<id>)."
 )
 @click.option("--parent", default="", help="Parent task id (creates a child id).")
 @click.option(
@@ -60,6 +87,7 @@ def task() -> None:
     default=None,
     help="File whose contents become the task's Content section.",
 )
+@click.option("--run", is_flag=True, help="Launch the task as a session immediately.")
 def task_add(
     title: str,
     project: str | None,
@@ -70,6 +98,7 @@ def task_add(
     follows: tuple[str, ...],
     follow_ends: tuple[str, ...],
     content_file: Path | None,
+    run: bool,
 ) -> None:
     """Add a new task and print its id."""
     proj = _resolve_project(project)
@@ -95,6 +124,8 @@ def task_add(
         content=content,
     )
     click.echo(new.id)
+    if run:
+        _run_task(store, proj, new)
 
 
 @task.command("list")
@@ -123,14 +154,32 @@ def task_list(project: str | None, status: str | None, parent: str | None) -> No
 @task.command("next")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 @click.option("--parent", default=None, help="Restrict to children of this id.")
-def task_next(project: str | None, parent: str | None) -> None:
+@click.option("--run", is_flag=True, help="Launch the next actionable task as a session.")
+def task_next(project: str | None, parent: str | None, run: bool) -> None:
     """Print the id of the next actionable task."""
     proj = _resolve_project(project)
     store = _store()
     nxt = model.next_task(store, proj, parent=parent)
     if nxt is None:
         raise click.ClickException("No actionable task.")
-    click.echo(nxt.id)
+    if run:
+        _run_task(store, proj, nxt)
+    else:
+        click.echo(nxt.id)
+
+
+@task.command("run")
+@click.argument("id")
+@click.option("--project", default=None, help="Project name (default: from cwd).")
+def task_run(id: str, project: str | None) -> None:
+    """Launch a task as a Claude session (ensures its worktree first)."""
+    proj = _resolve_project(project)
+    store = _store()
+    try:
+        t = model.load(store, proj, id)
+    except KeyError:
+        raise click.ClickException(f"Task not found: {id}")
+    _run_task(store, proj, t)
 
 
 @task.command("show")

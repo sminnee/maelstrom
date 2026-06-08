@@ -1495,6 +1495,90 @@ def find_worktree_by_branch(project_path: Path, branch: str) -> Path | None:
     return None
 
 
+@dataclass
+class WorktreeSetup:
+    """Result of :func:`setup_worktree_for_branch`.
+
+    ``action`` is one of ``"reused"`` (an existing worktree for the branch was
+    returned untouched), ``"recycled"`` (a closed worktree was repurposed), or
+    ``"created"`` (a fresh worktree was created).
+    """
+
+    path: Path
+    name: str  # NATO name, e.g. "bravo"
+    action: str  # "reused" | "recycled" | "created"
+
+
+def setup_worktree_for_branch(
+    project_path: Path,
+    project_name: str,
+    branch: str,
+    *,
+    no_recycle: bool = False,
+) -> WorktreeSetup:
+    """Ensure a fully set-up worktree exists for ``branch``; return path+name+action.
+
+    Does NOT launch anything. Idempotent: an existing worktree for ``branch`` is
+    returned as-is (no recycle/create, no install, no CLAUDE.local.md rewrite).
+
+    Raises:
+        RuntimeError: If a worktree name cannot be derived from the folder name.
+    """
+    project_path = project_path.resolve()
+
+    # Reuse: an existing worktree for the branch is returned untouched.
+    existing = find_worktree_by_branch(project_path, branch)
+    if existing is not None:
+        name = extract_worktree_name_from_folder(project_name, existing.name)
+        if name is None:
+            raise RuntimeError(
+                f"Could not derive worktree name from '{existing.name}'."
+            )
+        return WorktreeSetup(path=existing, name=name, action="reused")
+
+    worktree_path: Path | None = None
+    action = "created"
+
+    # Recycle a closed worktree if allowed.
+    if not no_recycle:
+        closed_wt = find_closed_worktree(project_path)
+        if closed_wt is not None:
+            try:
+                worktree_path = recycle_worktree(closed_wt.path, branch)
+                action = "recycled"
+                wt_name = extract_worktree_name_from_folder(
+                    project_name, closed_wt.path.name
+                )
+                if wt_name:
+                    reclaim_or_allocate_ports(project_path, worktree_path, wt_name)
+                # Recycled worktrees skip _finalize_worktree; set up memory symlink.
+                _setup_claude_memory_symlink(project_path, worktree_path)
+            except Exception as e:
+                print(
+                    f"Warning: Could not recycle worktree: {e}; creating new one.",
+                    file=sys.stderr,
+                )
+                worktree_path = None
+                action = "created"
+
+    # Create a new worktree if not recycled.
+    if worktree_path is None:
+        worktree_path = create_worktree(project_path, branch, detached=False)
+        action = "created"
+
+    name = extract_worktree_name_from_folder(project_name, worktree_path.name)
+    if name is None:
+        raise RuntimeError(
+            f"Could not derive worktree name from '{worktree_path.name}'."
+        )
+
+    # Finalize (recycle + create): write CLAUDE.local.md, run install command.
+    update_claude_local_md(project_path, worktree_path, name)
+    run_install_cmd(worktree_path)
+
+    return WorktreeSetup(path=worktree_path, name=name, action=action)
+
+
 def remove_worktree(project_path: Path, branch: str) -> None:
     """Remove a worktree by branch name.
 

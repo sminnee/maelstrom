@@ -382,11 +382,12 @@ class TestLoadList:
 
 
 class TestBranchDefault:
-    def test_branch_defaults_to_id(self):
+    def test_branch_defaults_to_task_slash_id(self):
         store = InMemoryStore()
         t = model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        assert t.branch == t.id
-        assert model.load(store, "p", t.id).branch == t.id
+        assert t.branch == f"task/{t.id}"
+        assert t.branch == model.default_branch(t.id)
+        assert model.load(store, "p", t.id).branch == f"task/{t.id}"
 
     def test_branch_override_respected(self):
         store = InMemoryStore()
