@@ -518,6 +518,44 @@ def append_log(
     return task
 
 
+def delete(store: TaskStore, project: str, id: str) -> Task:
+    """Delete a task and strip it from every dependent's ``follows`` list.
+
+    Removes the task file, then scans the project for non-terminal tasks that
+    ``follows`` ``id`` and rewrites them without it (one write each). Terminal
+    tasks (done/cancelled) are left untouched — they're historical and their
+    ``follows`` no longer gates anything. Returns the deleted task.
+    """
+    key = find_key(store, project, id)
+    if key is None:
+        raise KeyError(f"Task not found: {project}/{id}")
+    text = store.read(key)
+    if text is None:
+        raise KeyError(f"Task not found: {project}/{id}")
+    deleted = Task.from_markdown(text, status=status_from_key(key))
+    store.delete(key, message=f"task: rm {id}")
+
+    # Drop the deleted id from any non-terminal dependent's follows list.
+    for dep_key in store.list_dir(f"{project}/"):
+        if not dep_key.endswith(".md") or dep_key == key:
+            continue
+        if is_terminal(status_from_key(dep_key)):
+            continue
+        dep_text = store.read(dep_key)
+        if dep_text is None:
+            continue
+        dep = Task.from_markdown(dep_text, status=status_from_key(dep_key))
+        if id not in dep.follows:
+            continue
+        dep.follows = [f for f in dep.follows if f != id]
+        store.write(
+            dep_key,
+            dep.to_markdown(),
+            message=f"task: drop follows {id} from {dep.id}",
+        )
+    return deleted
+
+
 def list_tasks(
     store: TaskStore,
     *,

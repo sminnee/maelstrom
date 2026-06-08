@@ -210,6 +210,30 @@ class TestList:
         assert t.id in result.output
 
 
+# --- rm ---
+
+
+class TestRm:
+    def test_rm_deletes_task(self, runner, store):
+        a = model.create(store, project="p", title="a")
+        result = runner.invoke(task_cli.task, ["rm", a.id])
+        assert result.exit_code == 0, result.output
+        assert f"Deleted {a.id}" in result.output
+        assert model.find_key(store, "p", a.id) is None
+
+    def test_rm_unknown_task_errors(self, runner, store):
+        result = runner.invoke(task_cli.task, ["rm", "nope"])
+        assert result.exit_code != 0
+        assert "Task not found" in result.output
+
+    def test_rm_strips_dependents_follows(self, runner, store):
+        a = model.create(store, project="p", title="a")
+        b = model.create(store, project="p", title="b", follows=[a.id])
+        result = runner.invoke(task_cli.task, ["rm", a.id])
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", b.id).follows == []
+
+
 # --- launch wiring: run / add --run / next --run ---
 
 
