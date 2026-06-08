@@ -132,23 +132,69 @@ def task_add(
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 @click.option("--status", default=None, help="Filter by status (folder).")
 @click.option("--parent", default=None, help="Filter by parent id.")
-def task_list(project: str | None, status: str | None, parent: str | None) -> None:
-    """List tasks in a table."""
+@click.option(
+    "--all-todo",
+    "all_todo",
+    is_flag=True,
+    help="Also show blocked-but-todo tasks (incomplete deps); still hides done/cancelled.",
+)
+@click.option(
+    "--all",
+    "all_",
+    is_flag=True,
+    help="Show everything, including done and cancelled. Takes precedence over --all-todo.",
+)
+def task_list(
+    project: str | None,
+    status: str | None,
+    parent: str | None,
+    all_todo: bool,
+    all_: bool,
+) -> None:
+    """List actionable tasks (those that can be started now).
+
+    By default only actionable tasks are shown. ``--all-todo`` also includes
+    blocked-but-todo tasks (incomplete ``follows`` deps or in ``blocked/``);
+    ``--all`` additionally includes done and cancelled. ``--status`` still
+    constrains the folder scanned, so e.g. ``--status done`` without ``--all``
+    naturally shows nothing.
+    """
     proj = _resolve_project(project)
     store = _store()
     tasks = model.list_tasks(store, project=proj, status=status, parent=parent)
     if not tasks:
         click.echo("No tasks.")
         return
+
     rows = []
     for t in tasks:
-        rows.append({
-            "ID": t.id,
-            "STATUS": t.status,
-            "ACTIONABLE": "yes" if model.is_actionable(t, store) else "no",
-            "TITLE": t.title,
-        })
-    draw_table(rows, ["ID", "STATUS", "ACTIONABLE", "TITLE"])
+        actionable = model.is_actionable(t, store)
+        terminal = model.is_terminal(t.status)
+        blocked = not actionable and not terminal
+        if all_:
+            visible = True
+        elif all_todo:
+            visible = actionable or blocked
+        else:
+            visible = actionable
+        if not visible:
+            continue
+        row = {"ID": t.id, "STATUS": t.status}
+        if all_ or all_todo:
+            row["ACTIONABLE"] = "yes" if actionable else "no"
+        row["TITLE"] = t.title
+        rows.append(row)
+
+    if not rows:
+        click.echo("No tasks.")
+        return
+
+    columns = (
+        ["ID", "STATUS", "ACTIONABLE", "TITLE"]
+        if (all_ or all_todo)
+        else ["ID", "STATUS", "TITLE"]
+    )
+    draw_table(rows, columns)
 
 
 @task.command("next")

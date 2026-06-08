@@ -116,6 +116,100 @@ class TestNext:
         assert result.output.strip() == child.id
 
 
+# --- list: actionable-by-default filtering ---
+
+
+class TestList:
+    def test_no_tasks(self, runner, store):
+        result = runner.invoke(task_cli.task, ["list"])
+        assert result.exit_code == 0, result.output
+        assert "No tasks." in result.output
+
+    def test_default_hides_blocked_and_terminal_shows_actionable(self, runner, store):
+        a = model.create(store, project="p", title="alpha")  # actionable
+        b = model.create(store, project="p", title="beta", follows=[a.id])  # blocked
+        done = model.create(store, project="p", title="finished")
+        model.move(store, "p", done.id, model.STATUS_DONE)
+        cancelled = model.create(store, project="p", title="dropped")
+        model.move(store, "p", cancelled.id, model.STATUS_CANCELLED)
+
+        result = runner.invoke(task_cli.task, ["list"])
+        assert result.exit_code == 0, result.output
+        assert a.id in result.output
+        assert b.id not in result.output
+        assert done.id not in result.output
+        assert cancelled.id not in result.output
+
+    def test_default_in_progress_gated_by_actionability(self, runner, store):
+        dep = model.create(store, project="p", title="dep")
+        blocked_ip = model.create(
+            store, project="p", title="blocked-in-prog", follows=[dep.id]
+        )
+        model.move(store, "p", blocked_ip.id, model.STATUS_IN_PROGRESS)
+
+        ready_dep = model.create(store, project="p", title="ready-dep")
+        model.move(store, "p", ready_dep.id, model.STATUS_DONE)
+        ready_ip = model.create(
+            store, project="p", title="ready-in-prog", follows=[ready_dep.id]
+        )
+        model.move(store, "p", ready_ip.id, model.STATUS_IN_PROGRESS)
+
+        result = runner.invoke(task_cli.task, ["list"])
+        assert result.exit_code == 0, result.output
+        # in-progress but deps incomplete -> hidden; deps done -> shown.
+        assert blocked_ip.id not in result.output
+        assert ready_ip.id in result.output
+
+    def test_all_todo_shows_actionable_and_blocked_hides_terminal(self, runner, store):
+        a = model.create(store, project="p", title="alpha")
+        b = model.create(store, project="p", title="beta", follows=[a.id])  # blocked
+        done = model.create(store, project="p", title="finished")
+        model.move(store, "p", done.id, model.STATUS_DONE)
+
+        result = runner.invoke(task_cli.task, ["list", "--all-todo"])
+        assert result.exit_code == 0, result.output
+        assert a.id in result.output
+        assert b.id in result.output
+        assert done.id not in result.output
+
+    def test_all_shows_terminal_too(self, runner, store):
+        a = model.create(store, project="p", title="alpha")
+        b = model.create(store, project="p", title="beta", follows=[a.id])
+        done = model.create(store, project="p", title="finished")
+        model.move(store, "p", done.id, model.STATUS_DONE)
+        cancelled = model.create(store, project="p", title="dropped")
+        model.move(store, "p", cancelled.id, model.STATUS_CANCELLED)
+
+        result = runner.invoke(task_cli.task, ["list", "--all"])
+        assert result.exit_code == 0, result.output
+        for t in (a, b, done, cancelled):
+            assert t.id in result.output
+
+    def test_actionable_column_only_in_all_views(self, runner, store):
+        model.create(store, project="p", title="alpha")
+
+        default = runner.invoke(task_cli.task, ["list"])
+        assert "ACTIONABLE" not in default.output
+
+        all_todo = runner.invoke(task_cli.task, ["list", "--all-todo"])
+        assert "ACTIONABLE" in all_todo.output
+
+        all_ = runner.invoke(task_cli.task, ["list", "--all"])
+        assert "ACTIONABLE" in all_.output
+
+    def test_blocked_folder_with_deps_done_shows_by_default(self, runner, store):
+        # A task sitting in blocked/ but with all follows done is actionable,
+        # so it must show by default — we key off is_actionable, not the folder.
+        dep = model.create(store, project="p", title="dep")
+        model.move(store, "p", dep.id, model.STATUS_DONE)
+        t = model.create(store, project="p", title="manually-blocked", follows=[dep.id])
+        model.move(store, "p", t.id, model.STATUS_BLOCKED)
+
+        result = runner.invoke(task_cli.task, ["list"])
+        assert result.exit_code == 0, result.output
+        assert t.id in result.output
+
+
 # --- launch wiring: run / add --run / next --run ---
 
 
