@@ -75,7 +75,7 @@ work forward.
    **Single-session (spec A)** — emit one execute task, then finish:
    ```bash
    mael task add "Execute <ID>" --follow-end "linear.<ID>" --content-file <plan-file>
-   mael task done "$MAEL_TASK_ID"
+   mael task status done
    ```
    The execute task has an empty `command`, so it is a plain execute in normal mode: its prompt is
    just `<title>` + the plan as content, with no skill invoked. The session then implements and the
@@ -87,7 +87,7 @@ work forward.
    ```bash
    mael task add "Execute: <iter-1 desc>" --follow-end "linear.<ID>" --content-file <iter1-file>
    mael task add "Plan next step" --command plan-next-step --follow-end "linear.<ID>" --content-file <tail-file>
-   mael task done "$MAEL_TASK_ID"
+   mael task status done
    ```
    Both files are derived from the plan you just wrote:
    - `<iter1-file>`: the concrete iteration-1 scope (what the first execute session implements).
@@ -103,7 +103,7 @@ work forward.
 ## Knowing your own task id
 
 The session exports `MAEL_TASK_ID` (this planning task) and `MAEL_TASK_PARENT` (the
-`linear.<ID>` parent). Use `$MAEL_TASK_ID` to `mael task done` yourself, and key `--follow-end` off
+`linear.<ID>` parent). Use `$MAEL_TASK_ID` to `mael task status done` yourself, and key `--follow-end` off
 the parent (`linear.<ID>`); the Linear `<ID>` is also in the brief in your prompt.
 
 ## Error Cases
