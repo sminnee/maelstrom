@@ -15,14 +15,14 @@ class RecordingStore(InMemoryStore):
 
     def __init__(self) -> None:
         super().__init__()
-        self.writes: list[tuple[str, str]] = []  # (key, message)
-        self.deletes: list[tuple[str, str]] = []  # (key, message)
+        self.writes: list[tuple[str, str | None]] = []  # (key, message)
+        self.deletes: list[tuple[str, str | None]] = []  # (key, message)
 
-    def write(self, key: str, text: str, *, message: str) -> None:
+    def write(self, key: str, text: str, *, message: str | None = None) -> None:
         super().write(key, text, message=message)
         self.writes.append((key, message))
 
-    def delete(self, key: str, *, message: str) -> None:
+    def delete(self, key: str, *, message: str | None = None) -> None:
         super().delete(key, message=message)
         self.deletes.append((key, message))
 
@@ -291,6 +291,7 @@ class TestMutationAccounting:
         assert len(store.deletes) == 0
         key, message = store.writes[0]
         assert key == f"p/todo/{t.id}.md"
+        assert message is not None
         assert t.id in message and "add" in message
 
     def test_append_log_one_write(self):
@@ -300,7 +301,8 @@ class TestMutationAccounting:
         model.append_log(store, "p", t.id, "a note", now=NOW)
         assert len(store.writes) == 1
         assert len(store.deletes) == 0
-        assert t.id in store.writes[0][1]
+        msg = store.writes[0][1]
+        assert msg is not None and t.id in msg
 
     def test_append_log_records_message(self):
         store = InMemoryStore()
@@ -317,8 +319,10 @@ class TestMutationAccounting:
         model.move(store, "p", t.id, "done", now=NOW)
         assert len(store.writes) == 1
         assert len(store.deletes) == 1
-        assert "done" in store.writes[0][1]
-        assert "done" in store.deletes[0][1]
+        # The new key/old key reflect the move; the commit subject is now owned by
+        # the transaction (asserted at the GitFileStore level), not per-call.
+        assert store.writes[0][0] == f"p/done/{t.id}.md"
+        assert store.deletes[0][0] == f"p/todo/{t.id}.md"
 
     def test_move_noop_when_same_status(self):
         store = RecordingStore()
@@ -413,7 +417,9 @@ class TestDelete:
         store.deletes.clear()
         model.delete(store, "p", a.id)
         assert len(store.deletes) == 1
-        assert a.id in store.deletes[0][1] and "rm" in store.deletes[0][1]
+        # The deleted key carries the id; the commit subject is the transaction's
+        # (asserted at the GitFileStore level), so it's no longer passed per-call.
+        assert a.id in store.deletes[0][0]
         assert len(store.writes) == 2  # b and c rewritten
 
     def test_delete_no_dependents_no_extra_writes(self):
