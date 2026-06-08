@@ -25,7 +25,7 @@ Examples:
 4. **Creates sub-tasks on the Linear issue** for each project phase
 5. **Ensures phases fit within single Claude Code sessions**
 6. **Only creates sub-tasks if the issue doesn't already have them**
-7. **Does NOT begin work** - use `/continue-task` to start working on the created sub-tasks
+7. **Does NOT begin work** - use `mael task next --run` to start working on the created sub-tasks
 
 ## Command Logic
 
@@ -201,7 +201,7 @@ Description:
   - Planning phase: Research codebase, ask questions, present plan with proposed sub-tasks
   - Execution phase: Create sub-tasks in Linear after plan approval
 - **Final action is writing to Linear**: This command ends with creating sub-tasks in Linear and
-  does NOT begin work on any of them - use `/continue-task` to start working on the sub-tasks
+  does NOT begin work on any of them - use `mael task next --run` to start working on the sub-tasks
 - **CLI tool handles**: Issue resolution, sub-task creation, team ID, cycle inheritance, and all
   Linear API usage
 - **Plan mode detection**: Check for `Plan mode is active` in system-reminder tags. If not present,
@@ -210,9 +210,9 @@ Description:
 
 ## Integration with Existing Workflow
 
-- **Works with `/continue-task`**: After sub-tasks are created, use `/continue-task` to begin
+- **Works with the notebook chain**: After sub-tasks are created, use `mael task next --run` to begin
   working on them
 - **Planning only**: This command ends with creating sub-tasks in Linear - it does not start work
 - **Tracks in Linear**: Project phases visible in Linear alongside other work
 - **Cycle integration**: Sub-tasks inherit cycle from parent issue
-- **Label management**: Workspace labels added automatically by `/continue-task`
+- **Label management**: Workspace labels added automatically by `mael linear start-task`
