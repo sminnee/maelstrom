@@ -34,14 +34,12 @@ from .claude_sessions import get_active_ide_sessions
 from .table import draw_table
 from .worktree import (
     MAIN_BRANCH,
-    _setup_claude_memory_symlink,
     add_project,
     close_worktree,
     create_worktree,
     extract_project_name,
     extract_worktree_name_from_folder,
     find_all_projects,
-    find_closed_worktree,
     find_worktree_by_branch,
     get_local_only_commits,
     get_pushed_commit_count,
@@ -50,11 +48,10 @@ from .worktree import (
     is_worktree_closed,
     list_worktrees,
     open_worktree,
-    reclaim_or_allocate_ports,
-    recycle_worktree,
     remove_worktree_by_path,
     run_git,
     run_install_cmd,
+    setup_worktree_for_branch,
     start_claude_session,
     sync_worktree,
     tidy_branches,
@@ -284,20 +281,42 @@ def cmd_add(branch, project, open, no_recycle):
         raise click.ClickException(f"Project '{ctx.project}' not found at {project_path}")
     assert ctx.project is not None
 
-    # Determine the branch to use
-    detached = False
+    # No branch specified: create a fresh detached worktree at origin/main.
+    # This path never recycles and stays inline (the core fn requires a branch).
     if branch is None:
-        # No branch specified - create fresh detached worktree at origin/main
-        detached = True
-        # Force no recycling when no branch specified
-        no_recycle = True
         click.echo(f"Creating fresh worktree at origin/{MAIN_BRANCH}...")
-    else:
-        click.echo(f"Creating worktree for branch '{branch}'...")
+        try:
+            worktree_path = create_worktree(project_path, MAIN_BRANCH, detached=True)
+        except Exception as e:
+            raise click.ClickException(f"Error creating worktree: {e}")
+        click.echo(f"Worktree created at: {worktree_path}")
+        wt_name = extract_worktree_name_from_folder(ctx.project, worktree_path.name)
+        if wt_name and update_claude_local_md(project_path, worktree_path, wt_name):
+            click.echo(
+                ".claude/CLAUDE.local.md generated with maelstrom workflow instructions"
+            )
+        env_file = worktree_path / ".env"
+        if env_file.exists():
+            click.echo(f"Environment file: {env_file}")
+            click.echo("Port assignments:")
+            for line in env_file.read_text().strip().split("\n"):
+                click.echo(f"  {line}")
+        run_install_cmd(worktree_path)
+        if open:
+            global_config = load_global_config()
+            try:
+                open_worktree(worktree_path, global_config.open_command)
+            except RuntimeError as e:
+                click.echo(f"Warning: Could not open worktree: {e}", err=True)
+        else:
+            start_claude_session(worktree_path, project=ctx.project, worktree=wt_name)
+        return
+
+    click.echo(f"Creating worktree for branch '{branch}'...")
 
     # If the branch is already checked out in a worktree, don't touch git —
     # reuse the existing workspace (new Claude tab) or open a fresh session.
-    if branch is not None and not open:  # --open keeps today's behavior
+    if not open:  # --open keeps today's behavior
         existing_wt = find_worktree_by_branch(project_path, branch)
         if existing_wt is not None:
             from .cmux import find_workspace, is_cmux_mode, open_claude_tab, workspace_name
@@ -311,74 +330,40 @@ def cmd_add(branch, project, open, no_recycle):
                         "started a new Claude tab."
                     )
                     return
-            # Case 2: worktree exists, no live workspace (or tab failed) → like `mael open`
-            start_claude_session(existing_wt, project=ctx.project, worktree=wt_name)
-            return
+            # Case 2: worktree exists, no live workspace (or tab failed) → fall
+            # through to the core fn, which returns it as "reused"; the step-8
+            # launch below starts the session (same as `mael open`).
 
-    # Try to recycle a closed worktree if allowed
-    worktree_path = None
-    recycled = False
+    # Ensure a fully set-up worktree exists for the branch (shared with `task run`).
+    try:
+        result = setup_worktree_for_branch(
+            project_path, ctx.project, branch, no_recycle=no_recycle
+        )
+    except RuntimeError as e:
+        raise click.ClickException(str(e))
+    worktree_path, wt_name = result.path, result.name
 
-    if not no_recycle:
-        assert branch is not None  # no_recycle is forced True when branch is None
-        closed_wt = find_closed_worktree(project_path)
-        if closed_wt:
-            click.echo(f"Recycling closed worktree '{closed_wt.path.name}'...")
-            try:
-                worktree_path = recycle_worktree(closed_wt.path, branch)
-                recycled = True
-                # Reclaim old port allocation or allocate new ports
-                wt_name = extract_worktree_name_from_folder(ctx.project, closed_wt.path.name)
-                if wt_name:
-                    reclaim_or_allocate_ports(project_path, worktree_path, wt_name)
-            except Exception as e:
-                click.echo(f"Warning: Could not recycle worktree: {e}", err=True)
-                click.echo("Creating new worktree instead...")
-
-    # Create new worktree if not recycled
-    if worktree_path is None:
-        try:
-            worktree_path = create_worktree(project_path, branch or MAIN_BRANCH, detached=detached)
-        except Exception as e:
-            raise click.ClickException(f"Error creating worktree: {e}")
-
-    if recycled:
+    if result.action == "recycled":
         click.echo(f"Worktree recycled at: {worktree_path}")
-        # Recycled worktrees don't go through _finalize_worktree, so set up memory symlink here
-        _setup_claude_memory_symlink(project_path, worktree_path)
-
-        recycled_wt_name = extract_worktree_name_from_folder(ctx.project, worktree_path.name)
-        if recycled_wt_name:
-            try:
-                stop_messages, new_state = regenerate_and_restart_if_running(
-                    ctx.project, recycled_wt_name, project_path, worktree_path,
-                )
-            except RuntimeError as e:
-                raise click.ClickException(str(e))
-
-            if stop_messages:
-                for msg in stop_messages:
-                    click.echo(msg)
-                click.echo(f"Environment stopped for {ctx.project}/{recycled_wt_name}.")
-
-            click.echo(f"Regenerated .env for {ctx.project}/{recycled_wt_name}.")
-
-            if new_state is not None:
-                _ensure_cmux_browser(new_state, project_path, recycled_wt_name)
-                _print_service_status(ctx.project, recycled_wt_name, project_path)
-        else:
-            click.echo(
-                f"Warning: Could not derive worktree name from '{worktree_path.name}'; "
-                "skipping .env regeneration.",
-                err=True,
+        try:
+            stop_messages, new_state = regenerate_and_restart_if_running(
+                ctx.project, wt_name, project_path, worktree_path,
             )
-    else:
-        click.echo(f"Worktree created at: {worktree_path}")
+        except RuntimeError as e:
+            raise click.ClickException(str(e))
 
-    # Generate .claude/CLAUDE.local.md with maelstrom workflow instructions
-    wt_name = extract_worktree_name_from_folder(ctx.project, worktree_path.name)
-    if wt_name and update_claude_local_md(project_path, worktree_path, wt_name):
-        click.echo(".claude/CLAUDE.local.md generated with maelstrom workflow instructions")
+        if stop_messages:
+            for msg in stop_messages:
+                click.echo(msg)
+            click.echo(f"Environment stopped for {ctx.project}/{wt_name}.")
+
+        click.echo(f"Regenerated .env for {ctx.project}/{wt_name}.")
+
+        if new_state is not None:
+            _ensure_cmux_browser(new_state, project_path, wt_name)
+            _print_service_status(ctx.project, wt_name, project_path)
+    elif result.action == "created":
+        click.echo(f"Worktree created at: {worktree_path}")
 
     # Check if .env was created/exists
     env_file = worktree_path / ".env"
@@ -388,10 +373,7 @@ def cmd_add(branch, project, open, no_recycle):
         for line in env_file.read_text().strip().split("\n"):
             click.echo(f"  {line}")
 
-    # Run install command if configured
-    run_install_cmd(worktree_path)
-
-    # Open in editor or start Claude session
+    # Open in editor or start Claude session (install was run by the core fn).
     if open:
         global_config = load_global_config()
         try:
@@ -399,7 +381,6 @@ def cmd_add(branch, project, open, no_recycle):
         except RuntimeError as e:
             click.echo(f"Warning: Could not open worktree: {e}", err=True)
     else:
-        wt_name = extract_worktree_name_from_folder(ctx.project, worktree_path.name)
         start_claude_session(worktree_path, project=ctx.project, worktree=wt_name)
 
 

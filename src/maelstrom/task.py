@@ -422,8 +422,8 @@ def create(
 ) -> Task:
     """Create a new task and write it to the store (one write).
 
-    ``branch`` defaults to the newly-allocated id when falsy, so a task always
-    has a stable branch and tasks chained from it can derive the same one.
+    ``branch`` defaults to ``task/<id>`` when falsy, so a task always has a
+    stable branch and tasks chained from it can derive the same one.
     """
     timestamp = now if now is not None else _now_iso()
     if parent:
@@ -436,7 +436,7 @@ def create(
         project=project,
         command=command,
         mode=mode or "normal",
-        branch=branch or id,
+        branch=branch or default_branch(id),
         parent=parent,
         follows=list(follows or []),
         created=timestamp,
@@ -548,6 +548,11 @@ def list_tasks(
 
 
 # --- session launch helpers (pure) ---
+
+
+def default_branch(id: str) -> str:
+    """Return the default branch name for a task id (``task/<id>``)."""
+    return f"task/{id}"
 
 
 def build_prompt(task: Task) -> str:
