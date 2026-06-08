@@ -609,12 +609,13 @@ def default_branch(id: str) -> str:
 def build_prompt(task: Task) -> str:
     """Build the initial Claude prompt for a task.
 
-    The shape is ``<command> <title>`` followed by a blank line and the task's
-    content. The leading ``<command> `` is omitted when ``command`` is empty
-    (a plain execute), and the trailing ``\\n\\n<content>`` is omitted when the
-    task has no content.
+    The shape is ``/<command> <title>`` followed by a blank line and the task's
+    content. ``command`` names a Claude skill/slash-command, so it is prefixed
+    with ``/`` to invoke it. The leading ``/<command> `` is omitted when
+    ``command`` is empty (a plain execute), and the trailing ``\\n\\n<content>``
+    is omitted when the task has no content.
     """
-    head = f"{task.command} {task.title}" if task.command else task.title
+    head = f"/{task.command} {task.title}" if task.command else task.title
     content = task.content.strip()
     if content:
         return f"{head}\n\n{content}"
