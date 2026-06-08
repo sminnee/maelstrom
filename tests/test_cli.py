@@ -555,3 +555,123 @@ class TestCmdAddRecycle:
             assert "Environment stopped for proj/bravo." in result.output
             ensure_browser.assert_called_once_with(new_state, project_path, "bravo")
             print_status.assert_called_once_with("proj", "bravo", project_path)
+
+
+class TestCmdAddExistingBranch:
+    """Tests for `mael add <branch>` when the branch is already checked out."""
+
+    def _setup(self, stack, tmp_path, existing=True):
+        """Patch cmd_add so an existing worktree is (or isn't) found.
+
+        cmux functions are imported inside cmd_add via `from .cmux import ...`,
+        so they must be patched at maelstrom.cmux.*.
+        Returns (existing_wt_path, mocks dict).
+        """
+        project_path = tmp_path / "proj"
+        project_path.mkdir()
+        worktree_path = tmp_path / "proj-bravo"
+        worktree_path.mkdir()
+
+        ctx = MagicMock(
+            project="proj",
+            project_path=project_path,
+            worktree=None,
+            worktree_path=None,
+        )
+
+        stack.enter_context(patch("maelstrom.cli.resolve_context", return_value=ctx))
+        stack.enter_context(patch(
+            "maelstrom.cli.find_worktree_by_branch",
+            return_value=worktree_path if existing else None,
+        ))
+        stack.enter_context(patch(
+            "maelstrom.cli.extract_worktree_name_from_folder", return_value="bravo",
+        ))
+
+        mocks = {
+            "create_worktree": stack.enter_context(
+                patch("maelstrom.cli.create_worktree", return_value=worktree_path)
+            ),
+            "run_install_cmd": stack.enter_context(patch("maelstrom.cli.run_install_cmd")),
+            "start_claude_session": stack.enter_context(
+                patch("maelstrom.cli.start_claude_session")
+            ),
+            "find_closed_worktree": stack.enter_context(
+                patch("maelstrom.cli.find_closed_worktree", return_value=None)
+            ),
+            "update_claude_local_md": stack.enter_context(
+                patch("maelstrom.cli.update_claude_local_md", return_value=False)
+            ),
+            "is_cmux_mode": stack.enter_context(patch("maelstrom.cmux.is_cmux_mode")),
+            "find_workspace": stack.enter_context(patch("maelstrom.cmux.find_workspace")),
+            "open_claude_tab": stack.enter_context(patch("maelstrom.cmux.open_claude_tab")),
+        }
+        return worktree_path, mocks
+
+    def test_case1_live_workspace_opens_tab(self, tmp_path):
+        """Live workspace → open a Claude tab; don't touch git/install."""
+        from contextlib import ExitStack
+
+        with ExitStack() as stack:
+            _, mocks = self._setup(stack, tmp_path)
+            mocks["is_cmux_mode"].return_value = True
+            mocks["find_workspace"].return_value = "workspace:13"
+            mocks["open_claude_tab"].return_value = "surface:99"
+
+            result = CliRunner().invoke(cli, ["add", "feat-x"])
+            assert result.exit_code == 0, result.output
+
+            mocks["open_claude_tab"].assert_called_once()
+            mocks["create_worktree"].assert_not_called()
+            mocks["run_install_cmd"].assert_not_called()
+            mocks["start_claude_session"].assert_not_called()
+            assert "already open" in result.output
+
+    def test_case2_no_workspace_starts_session(self, tmp_path):
+        """Worktree exists but no live workspace → start_claude_session."""
+        from contextlib import ExitStack
+
+        with ExitStack() as stack:
+            existing_wt, mocks = self._setup(stack, tmp_path)
+            mocks["is_cmux_mode"].return_value = True
+            mocks["find_workspace"].return_value = None  # no live workspace
+
+            result = CliRunner().invoke(cli, ["add", "feat-x"])
+            assert result.exit_code == 0, result.output
+
+            mocks["start_claude_session"].assert_called_once_with(
+                existing_wt, project="proj", worktree="bravo",
+            )
+            mocks["open_claude_tab"].assert_not_called()
+            mocks["create_worktree"].assert_not_called()
+
+    def test_not_in_cmux_starts_session(self, tmp_path):
+        """Not in cmux + existing worktree → Case 2 path, no create_worktree."""
+        from contextlib import ExitStack
+
+        with ExitStack() as stack:
+            existing_wt, mocks = self._setup(stack, tmp_path)
+            mocks["is_cmux_mode"].return_value = False
+
+            result = CliRunner().invoke(cli, ["add", "feat-x"])
+            assert result.exit_code == 0, result.output
+
+            mocks["start_claude_session"].assert_called_once_with(
+                existing_wt, project="proj", worktree="bravo",
+            )
+            mocks["open_claude_tab"].assert_not_called()
+            mocks["create_worktree"].assert_not_called()
+
+    def test_case3_no_existing_worktree_creates(self, tmp_path):
+        """No existing worktree → falls through to the create path (regression)."""
+        from contextlib import ExitStack
+
+        with ExitStack() as stack:
+            _, mocks = self._setup(stack, tmp_path, existing=False)
+            mocks["is_cmux_mode"].return_value = True
+
+            result = CliRunner().invoke(cli, ["add", "feat-x"])
+            assert result.exit_code == 0, result.output
+
+            mocks["create_worktree"].assert_called_once()
+            mocks["open_claude_tab"].assert_not_called()

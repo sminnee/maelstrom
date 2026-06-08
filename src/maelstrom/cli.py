@@ -42,6 +42,7 @@ from .worktree import (
     extract_worktree_name_from_folder,
     find_all_projects,
     find_closed_worktree,
+    find_worktree_by_branch,
     get_local_only_commits,
     get_pushed_commit_count,
     get_worktree_folder_name,
@@ -293,6 +294,26 @@ def cmd_add(branch, project, open, no_recycle):
         click.echo(f"Creating fresh worktree at origin/{MAIN_BRANCH}...")
     else:
         click.echo(f"Creating worktree for branch '{branch}'...")
+
+    # If the branch is already checked out in a worktree, don't touch git —
+    # reuse the existing workspace (new Claude tab) or open a fresh session.
+    if branch is not None and not open:  # --open keeps today's behavior
+        existing_wt = find_worktree_by_branch(project_path, branch)
+        if existing_wt is not None:
+            from .cmux import find_workspace, is_cmux_mode, open_claude_tab, workspace_name
+            wt_name = extract_worktree_name_from_folder(ctx.project, existing_wt.name)
+            if is_cmux_mode() and wt_name and \
+               find_workspace(workspace_name(ctx.project, wt_name)) is not None:
+                # Case 1: live workspace → new Claude tab; touch nothing else
+                if open_claude_tab(ctx.project, wt_name, str(existing_wt)) is not None:
+                    click.echo(
+                        f"Branch '{branch}' already open in {ctx.project}/{wt_name}; "
+                        "started a new Claude tab."
+                    )
+                    return
+            # Case 2: worktree exists, no live workspace (or tab failed) → like `mael open`
+            start_claude_session(existing_wt, project=ctx.project, worktree=wt_name)
+            return
 
     # Try to recycle a closed worktree if allowed
     worktree_path = None
@@ -885,10 +906,10 @@ def cmd_close(targets):
         if result.success:
             click.echo(result.message)
             # Close cmux workspace after successful worktree close
-            from maelstrom.cmux import close_workspace
-            workspace_name = f"{ctx.project}-{ctx.worktree}"
-            if close_workspace(workspace_name):
-                click.echo(f"Closed cmux workspace '{workspace_name}'.")
+            from maelstrom.cmux import close_workspace, workspace_name
+            ws_name = workspace_name(ctx.project, ctx.worktree)
+            if close_workspace(ws_name):
+                click.echo(f"Closed cmux workspace '{ws_name}'.")
             continue
 
         # Handle specific failure cases
