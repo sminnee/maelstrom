@@ -388,6 +388,49 @@ class TestContentFile:
         assert "Content file not found" in result.output
 
 
+class TestStatus:
+    @pytest.mark.parametrize(
+        "sub,status",
+        [
+            ("start", model.STATUS_IN_PROGRESS),
+            ("done", model.STATUS_DONE),
+            ("cancel", model.STATUS_CANCELLED),
+            ("block", model.STATUS_BLOCKED),
+        ],
+    )
+    def test_status_with_id_moves_task(self, runner, store, sub, status):
+        t = model.create(store, project="p", title="t")
+        result = runner.invoke(task_cli.task, ["status", sub, t.id])
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", t.id).status == status
+        assert f"{t.id} -> {status}" in result.output
+
+    def test_status_env_fallback(self, runner, store, monkeypatch):
+        t = model.create(store, project="p", title="t")
+        monkeypatch.setenv("MAEL_TASK_ID", t.id)
+        result = runner.invoke(task_cli.task, ["status", "done"])
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", t.id).status == model.STATUS_DONE
+
+    def test_status_no_id_and_no_env_errors(self, runner, store, monkeypatch):
+        model.create(store, project="p", title="t")
+        monkeypatch.delenv("MAEL_TASK_ID", raising=False)
+        result = runner.invoke(task_cli.task, ["status", "done"])
+        assert result.exit_code != 0
+        assert "No task id" in result.output
+
+    def test_status_unknown_id_errors(self, runner, store, monkeypatch):
+        monkeypatch.delenv("MAEL_TASK_ID", raising=False)
+        result = runner.invoke(task_cli.task, ["status", "done", "nope"])
+        assert result.exit_code != 0
+        assert "Task not found" in result.output
+
+    def test_old_flat_command_gone(self, runner, store):
+        t = model.create(store, project="p", title="t")
+        result = runner.invoke(task_cli.task, ["done", t.id])
+        assert result.exit_code != 0
+
+
 class TestEnvThreading:
     def test_run_threads_task_id_and_parent_env(self, runner, store, launch):
         # A child task carries a parent; both ids should reach the session env.

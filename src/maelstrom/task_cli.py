@@ -5,6 +5,7 @@ model function from :mod:`maelstrom.task`, and renders the result. All logic
 lives in the model; this layer only parses arguments and prints.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -77,6 +78,16 @@ def _resolve_project(project: str | None) -> str:
     ctx = resolve_context(None, require_project=True)
     assert ctx.project is not None  # require_project guarantees this
     return ctx.project
+
+
+def _resolve_task_id(id: str | None) -> str:
+    """Return the task id from the arg, falling back to ``MAEL_TASK_ID``."""
+    task_id = id or os.environ.get("MAEL_TASK_ID")
+    if not task_id:
+        raise click.ClickException(
+            "No task id given and MAEL_TASK_ID is not set."
+        )
+    return task_id
 
 
 @click.group("task")
@@ -363,24 +374,30 @@ def task_rm(id: str, project: str | None) -> None:
     click.echo(f"Deleted {id}.")
 
 
-def _move_command(name: str, status: str, help_text: str):
-    @task.command(name)
-    @click.argument("id")
+@task.group("status")
+def task_status() -> None:
+    """Move a task between lifecycle states."""
+
+
+def _status_command(name: str, status: str, help_text: str):
+    @task_status.command(name)
+    @click.argument("id", required=False)
     @click.option("--project", default=None, help="Project name (default: from cwd).")
-    def _cmd(id: str, project: str | None) -> None:
+    def _cmd(id: str | None, project: str | None) -> None:
+        task_id = _resolve_task_id(id)
         proj = _resolve_project(project)
         store = _store()
         try:
-            model.move(store, proj, id, status)
+            model.move(store, proj, task_id, status)
         except KeyError:
-            raise click.ClickException(f"Task not found: {id}")
-        click.echo(f"{id} -> {status}")
+            raise click.ClickException(f"Task not found: {task_id}")
+        click.echo(f"{task_id} -> {status}")
 
     _cmd.__doc__ = help_text
     return _cmd
 
 
-_move_command("start", model.STATUS_IN_PROGRESS, "Move a task to in-progress.")
-_move_command("done", model.STATUS_DONE, "Move a task to done.")
-_move_command("cancel", model.STATUS_CANCELLED, "Move a task to cancelled.")
-_move_command("block", model.STATUS_BLOCKED, "Move a task to blocked.")
+_status_command("start", model.STATUS_IN_PROGRESS, "Move a task to in-progress.")
+_status_command("done", model.STATUS_DONE, "Move a task to done.")
+_status_command("cancel", model.STATUS_CANCELLED, "Move a task to cancelled.")
+_status_command("block", model.STATUS_BLOCKED, "Move a task to blocked.")

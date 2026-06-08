@@ -56,7 +56,7 @@ reality, plan the top item, and hand the next planner an updated tail.
    mael task add "Execute: <next>" --follow-end "linear.<ID>" --content-file <next.md>
    # only if more work remains after this step:
    mael task add "Plan next step" --command plan-next-step --follow-end "linear.<ID>" --content-file <tail.md>
-   mael task done "$MAEL_TASK_ID"
+   mael task status done
    ```
    - The execute task carries `<next.md>` (this step's plan) as content; it runs **no skill** and
      finishes via the project's always-on "Finishing a task" rule.
@@ -81,7 +81,7 @@ product-level mirror only.
 ## Knowing your own task id
 
 The session exports `MAEL_TASK_ID` (this planning task) and `MAEL_TASK_PARENT` (the `linear.<ID>`
-parent). Use `$MAEL_TASK_ID` to `mael task done` yourself, and key `--follow-end` off the parent.
+parent). Use `$MAEL_TASK_ID` to `mael task status done` yourself, and key `--follow-end` off the parent.
 
 ## Error Cases
 
