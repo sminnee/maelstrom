@@ -37,13 +37,14 @@ VALID_STATUSES = (
 
 DEFAULT_STATUS = STATUS_TODO
 
-# The nine frontmatter keys, always emitted in this order for stable diffs.
+# The ten frontmatter keys, always emitted in this order for stable diffs.
 FRONTMATTER_KEYS = (
     "id",
     "title",
     "project",
     "command",
     "mode",
+    "branch",
     "parent",
     "follows",
     "created",
@@ -111,6 +112,7 @@ class Task:
     project: str
     command: str = ""
     mode: str = "normal"
+    branch: str = ""
     parent: str = ""
     follows: list[str] = field(default_factory=list)
     created: str = ""
@@ -125,7 +127,7 @@ class Task:
     def to_markdown(self) -> str:
         """Render the task as markdown with YAML frontmatter.
 
-        All nine frontmatter keys are always emitted (in a fixed order) and the
+        All ten frontmatter keys are always emitted (in a fixed order) and the
         three body sections always appear, so files round-trip with stable diffs.
         """
         lines = ["---"]
@@ -161,6 +163,7 @@ class Task:
             project=str(frontmatter.get("project", "")),
             command=str(frontmatter.get("command", "")),
             mode=str(frontmatter.get("mode", "normal")) or "normal",
+            branch=str(frontmatter.get("branch", "")),
             parent=str(frontmatter.get("parent", "")),
             follows=_coerce_follows(frontmatter.get("follows")),
             created=str(frontmatter.get("created", "")),
@@ -410,13 +413,18 @@ def create(
     title: str,
     command: str = "",
     mode: str = "normal",
+    branch: str = "",
     parent: str = "",
     follows: list[str] | None = None,
     content: str = "",
     now: str | None = None,
     today: str | None = None,
 ) -> Task:
-    """Create a new task and write it to the store (one write)."""
+    """Create a new task and write it to the store (one write).
+
+    ``branch`` defaults to the newly-allocated id when falsy, so a task always
+    has a stable branch and tasks chained from it can derive the same one.
+    """
     timestamp = now if now is not None else _now_iso()
     if parent:
         id = allocate_child_id(store, project, parent)
@@ -428,6 +436,7 @@ def create(
         project=project,
         command=command,
         mode=mode or "normal",
+        branch=branch or id,
         parent=parent,
         follows=list(follows or []),
         created=timestamp,
@@ -536,3 +545,53 @@ def list_tasks(
         tasks.append(task)
     tasks.sort(key=lambda t: t.id)
     return tasks
+
+
+# --- session launch helpers (pure) ---
+
+
+def build_prompt(task: Task) -> str:
+    """Build the initial Claude prompt for a task.
+
+    The shape is ``<command> <title>`` followed by a blank line and the task's
+    content. The leading ``<command> `` is omitted when ``command`` is empty
+    (a plain execute), and the trailing ``\\n\\n<content>`` is omitted when the
+    task has no content.
+    """
+    head = f"{task.command} {task.title}" if task.command else task.title
+    content = task.content.strip()
+    if content:
+        return f"{head}\n\n{content}"
+    return head
+
+
+def _permission_mode_for(mode: str) -> str | None:
+    """Map a task ``mode`` to Claude's ``--permission-mode`` value.
+
+    ``"plan"`` maps to ``"plan"``; anything else uses Claude's default (None,
+    i.e. no flag passed).
+    """
+    return "plan" if mode == "plan" else None
+
+
+def next_task(
+    store: TaskStore,
+    project: str,
+    *,
+    parent: str | None = None,
+) -> Task | None:
+    """Return the next actionable task, or ``None`` if there isn't one.
+
+    Considers ``todo`` and ``in-progress`` tasks (id-sorted), optionally
+    filtered to a ``parent``, and returns the first actionable one.
+    In-progress tasks are included so an interrupted session re-surfaces.
+    """
+    candidates = list_tasks(store, project=project, status=STATUS_TODO, parent=parent)
+    candidates += list_tasks(
+        store, project=project, status=STATUS_IN_PROGRESS, parent=parent
+    )
+    candidates.sort(key=lambda t: t.id)
+    for task in candidates:
+        if is_actionable(task, store):
+            return task
+    return None

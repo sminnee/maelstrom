@@ -611,6 +611,46 @@ class TestStartClaudeSession:
                 mock_chdir.assert_called_once_with(worktree_path)
                 mock_execvp.assert_called_once_with("claude", ["claude"])
 
+    def test_execvp_includes_prompt_and_permission_mode(self):
+        """Prompt is positional; permission mode is a --permission-mode flag."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            with patch("maelstrom.worktree.os.chdir"), \
+                 patch("maelstrom.worktree.os.execvp") as mock_execvp:
+                start_claude_session(
+                    worktree_path,
+                    initial_prompt="plan-task Do it\n\nDetails.",
+                    permission_mode="plan",
+                )
+                mock_execvp.assert_called_once_with(
+                    "claude",
+                    [
+                        "claude",
+                        "--permission-mode",
+                        "plan",
+                        "plan-task Do it\n\nDetails.",
+                    ],
+                )
+
+    def test_cmux_path_passes_quoted_command(self):
+        """In cmux mode the prompt + flag are shell-quoted into the command."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            with patch("maelstrom.cmux.is_cmux_mode", return_value=True), \
+                 patch(
+                     "maelstrom.cmux.create_cmux_workspace", return_value="workspace:1"
+                 ) as mock_create:
+                start_claude_session(
+                    worktree_path,
+                    project="proj",
+                    worktree="alpha",
+                    initial_prompt="hi there",
+                    permission_mode="plan",
+                )
+                mock_create.assert_called_once()
+                command = mock_create.call_args.kwargs["command"]
+                assert command == "claude --permission-mode plan 'hi there'"
+
 
 class TestIsWorktreeClosed:
     """Tests for is_worktree_closed function."""
