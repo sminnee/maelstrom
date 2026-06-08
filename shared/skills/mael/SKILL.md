@@ -9,47 +9,78 @@ description: "Git workflow, commits, PRs, branches. Also Linear tasks, Sentry de
 
 **Prefer `mael` commands over raw `git`/`gh`** — they handle worktree context, Linear integration, and status transitions automatically. Use `mael git status` not `git status`, `mael sync` not `git pull --rebase`, `mael gh create-pr` not `gh pr create`, `mael gh read-pr` not `gh pr view`, etc.
 
-## Planning Work
+## Planning & Doing Work — the task notebook
 
-Research the task, write a plan, and break it down if needed.
+The primary workflow is the **git-backed task notebook** (`mael task …`). You no longer type
+`/plan-task` or `/continue-task` in a shell you open yourself — `mael` launches sessions, and each
+task's `command` field decides which skill (if any) runs inside. The everyday loop is:
+
+```bash
+mael linear plan PROJ-XXX --run    # create + launch a plan-mode session for a Linear issue
+mael task next --run               # launch the next ready task in the chain (repeat to advance)
+```
+
+`mael linear plan` is a thin wrapper over `mael task add` that seeds a `plan-task` task with the
+Linear brief as content (parented under `linear.PROJ-XXX`). It **defaults to create-only** (parity
+with `task add`); add `--run` to launch the planning session immediately.
+
+**How a task flows:**
+- `mael linear plan PROJ-XXX --run` launches the `plan-task` skill in plan mode, holding the brief.
+  After ExitPlanMode approval it emits the chain — an **Execute** task (plan as content, no skill)
+  and, for multi-session work, a **`plan-next-step`** task carrying the remaining-work tail — then
+  marks its own planning task done.
+- `mael task next --run` launches the next ready task. **Execute tasks run no skill**: the plan is
+  their content, and the project's always-on "Finishing a task" rule (commit → `/code-review` →
+  fixups → stop) closes them out. `plan-next-step` tasks plan one more increment and re-queue
+  themselves until the work is done.
+
+**The `mael task` surface:**
+```bash
+mael task add "<title>" [--run]          # create (and optionally launch) a plain execute task
+mael task add "<title>" --command plan-task --parent linear.PROJ-XXX --content-file brief.md
+mael task add "<title>" --follow-end linear.PROJ-XXX --content-file plan.md   # chain after the leaf
+mael task add "<title>" --content-file -                  # read content from stdin
+mael task next [--run] [--parent <id>]   # next actionable task (id, or launch it)
+mael task run <id>                       # launch a specific task
+mael task list                           # actionable tasks (default)
+mael task list --all-todo                # include blocked-but-waiting
+mael task list --all                     # include done/cancelled
+mael task show <id> / read <id>          # summary / raw file
+mael task log <id> "note"                # append a log line
+mael task start|done|cancel|block <id>   # move between status folders
+mael task rm <id>                        # delete and strip from dependents
+```
+
+`--follow` / `--follow-end` build the chain (a task becomes actionable only once everything it
+follows is done); `--parent` nests ids; `--command` selects the skill the launched session runs;
+`--content-file` (or `-` for stdin) seeds the task's content. Launched sessions export
+`MAEL_TASK_ID` / `MAEL_TASK_PARENT` so skills can self-reference.
+
+### Ad-hoc work (no Linear issue)
+
+```bash
+mael task add "Fix flaky port test"          # create only
+mael task add "Fix flaky port test" --run    # create + launch a plain execute session
+```
+
+### Linear as a product-level mirror
+
+Linear stays the product-level mirror — read briefs, set status, and complete tasks there, but the
+plan-of-record lives in the notebook chain, not in the Linear description.
 
 ```bash
 mael linear read-task PROJ-XXX                          # Read task details, subtasks, comments
 mael linear list-tasks [--status STATUS]                # List tasks in current cycle
+mael linear start-task PROJ-XXX                          # Set "In Progress", add worktree label
+mael linear complete-task PROJ-XXX                       # Mirror completion status
 ```
 
-**Write a plan** to the task description (replaces any existing plan, updates status to "Planned"):
-```bash
-mael linear write-plan PROJ-XXX plan.md
-mael linear read-plan PROJ-XXX                          # Read it back later
-mael linear edit-plan PROJ-XXX old.md new.md             # Search/replace within plan (file-based)
-mael linear edit-plan PROJ-XXX -s "old" "new"            # Search/replace within plan (string mode)
-```
+`mael sync` rebases on origin/main before starting. Run project checks from CLAUDE.md (tests,
+linting, typecheck) as part of any implementation session.
 
-**Break down large tasks** into subtasks (inherit parent's cycle):
-```bash
-mael linear create-subtask PROJ-XXX "Phase 1: title" "description"
-```
-
-**Create standalone tasks** (not linked to a parent):
-```bash
-mael linear create-task "title" "description"
-```
-
-Slash commands for assisted planning:
-- `/plan-task PROJ-XXX` — research and create implementation plan (plan mode required)
-- `/create-subtasks PROJ-XXX` — research and break into subtasks (plan mode required)
-
-## Doing Work
-
-```bash
-mael sync                                # Rebase on origin/main before starting
-mael linear start-task PROJ-XXX          # Set "In Progress", add worktree label
-```
-
-Then implement. Run project checks from CLAUDE.md (tests, linting, typecheck).
-
-For multi-session tasks, use `/continue-task PROJ-XXX` — it reads the plan/progress from Linear, executes one iteration, writes a progress report, and creates/updates the PR.
+The `/plan-task` and `/plan-next-step` skills are **prompts that run inside notebook sessions**
+`mael` launches (selected by a task's `command` field) — not commands you type directly.
+`/continue-task` is **removed** — advance work with `mael task next --run` instead.
 
 ## Testing Work
 

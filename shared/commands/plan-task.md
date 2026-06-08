@@ -3,111 +3,122 @@
 ⚠️ **PLAN MODE REQUIRED**: This command ONLY works in plan mode. You must stop with an error message
 immediately if not in plan mode.
 
-Creates a detailed implementation plan for a Linear task and writes it to the task's description.
-The task should be in "Todo" status with no existing plan.
+This skill runs **inside a session that `mael` launched** — it is not a command you type in a shell
+you opened yourself. `mael linear plan <issue>` (or `mael task add … --command plan-task`) creates a
+planning task and launches a plan-mode session holding the brief; this skill is the prompt that runs
+there.
 
-## Usage
-
-```
-/plan-task <issue-id-or-description>
-```
-
-Examples:
-
-- `/plan-task ME-32`
-- `/plan-task manage agent plans`
+The brief is **already in your initial prompt** (the planning task's content). Do **not** re-fetch it
+from Linear, do not validate Linear status, and do not write any plan back to Linear. Your job is to
+research, plan interactively, write a plan file, then **emit the notebook chain** that carries the
+work forward.
 
 ## What This Command Does
 
-1. **Fetches the issue** from Linear using the CLI tool
-2. **Validates** the task is in "Todo" status and has no existing plan
-3. **Researches the codebase** to understand the issue context
-4. **Creates a detailed implementation plan** through interactive discussion
-5. **Exits plan mode** with allowed prompt to write the plan to Linear
-6. **After approval**: writes the plan to Linear via `mael linear write-plan`, then **stops** (does NOT implement)
+1. **Plan mode check** (mandatory — fail immediately if not in plan mode).
+2. **Research the codebase** with Explore subagents.
+3. **Classify** single-session vs multi-session.
+4. **Refine** the plan interactively with the user.
+5. **Write** the plan to the plan file.
+6. **After ExitPlanMode approval**: emit the chain (execute task, plus a `plan-next-step` task for
+   multi-session work) and mark this planning task done. Do **not** implement.
 
 ## Command Logic
 
-1. **MANDATORY Plan Mode Check**: MUST fail immediately if not in plan mode - do not proceed with
-   any other logic
+1. **MANDATORY Plan Mode Check**: MUST fail immediately if not in plan mode — do not proceed with any
+   other logic. (Detect via `Plan mode is active` in system-reminder tags.)
 
-2. **Fetch Issue Details**: Use the Linear CLI to get issue information:
-
-   ```bash
-   mael linear read-task <issue-id>
-   ```
-
-   - If argument looks like an issue ID (e.g., `ME-32`), use it directly
-   - Otherwise, use `list-tasks` to find matching issues by title
+2. **Read the brief from the initial prompt**: The Linear brief (`# <ID>: <title>` + description) is
+   already in your prompt. Treat it as the source of truth for *what* to build. Do not call
+   `mael linear read-task` — the brief is in front of you.
 
 3. **Set status**:
    ```bash
-   mael status set "Planning <issue-id>"
+   mael status set "Planning <ID>"
    ```
 
-4. **Validate Task State**:
-   - Task should be in "Todo" status (warn if not, but continue)
-   - Check for existing "# Implementation Plan" in description (warn if found - plan will replace
-     it)
+4. **Codebase Research**: Use the Task tool with Explore subagent(s):
+   - Launch 1-3 Explore agents in parallel for efficient research.
+   - Examine relevant files and subsystems mentioned in the brief.
+   - Review existing patterns, dependencies, and integration points.
+   - Understand current implementation state.
 
-5. **Codebase Research**: Use Task tool with Explore subagent(s) to research the codebase:
-   - Launch 1-3 Explore agents in parallel for efficient research
-   - Examine relevant code files and subsystems mentioned in the issue
-   - Review existing patterns and architecture in affected areas
-   - Identify dependencies and integration points
-   - Understand current implementation state
+5. **Classify Session Type**:
+   - **Single-session**: less than ~500 lines of new code; completable in one session.
+   - **Multi-session**: larger scope, or a mechanical transformation whose mechanical piece should
+     land first.
+   - Use AskUserQuestion to confirm the classification with the user.
 
-6. **Classify Session Type**: Determine whether this task is single-session or multi-session:
-   - **Single-session**: Less than ~500 lines of new code, can be completed in one session
-   - **Multi-session**: Larger scope, or mechanical transformation where only the mechanical piece
-     should be done first
-   - Use AskUserQuestion to discuss the classification with the user
+6. **Interactive Planning**: Use AskUserQuestion to discuss the plan:
+   - Present your understanding based on research.
+   - Discuss approach and trade-offs.
+   - Iterate until the user is satisfied.
 
-7. **Interactive Planning**: Use AskUserQuestion tool to discuss the plan with the user:
-   - Present your understanding of the task based on research
-   - Discuss approach and any trade-offs
-   - Iterate on the plan until the user is satisfied
+7. **Write Plan to File**: Write the implementation plan to the plan file (path provided in system
+   context). Include:
+   - `**Session type: single**` or `**Session type: multi**` after `# <ID>: <Title>`.
+   - Context: why this change is being made.
+   - Research findings (relevant files, patterns, dependencies).
+   - For **single-session**: step-by-step implementation with specific file changes.
+   - For **multi-session**: overall goal, architecture & design for the whole task, a bullet-point
+     first-iteration scope, and remaining-work notes (see templates below).
+   - Testing strategy.
 
-8. **Write Plan to File**: Write the detailed implementation plan to the plan file (path provided
-   in system context). The plan should include:
-   - `**Session type: single**` or `**Session type: multi**` marker line after `# Implementation Plan`
-   - Context section: why this change is being made
-   - Research findings (relevant files, patterns, dependencies)
-   - For **single-session**: step-by-step implementation approach with specific file changes
-   - For **multi-session**: overall goal, detailed architecture & design for the whole task,
-     bullet-point first iteration scope, and remaining work notes (see template below)
-   - Testing strategy
-   - A first step: "Write plan to Linear"
-     (`mael linear write-plan <issue-id> <plan-file>`)
+8. **Present Plan**: Call ExitPlanMode with allowedPrompts:
+   - `{"tool": "Bash", "prompt": "emit notebook chain tasks"}`
 
-9. **Present Plan**: Call ExitPlanMode with allowedPrompts:
-   - `{"tool": "Bash", "prompt": "write plan to Linear"}`
+9. **After Plan Approval — Emit the chain and finish**: This replaces the old "write plan to Linear"
+   handoff. You self-reference via `$MAEL_TASK_ID` (this planning task's id, exported into the
+   session) and target the chain by the parent (`linear.<ID>`, where `<ID>` is the Linear identifier
+   from the brief).
 
-10. **After Plan Approval - Write to Linear and STOP**: Execute:
+   **Single-session (spec A)** — emit one execute task, then finish:
    ```bash
-   mael linear write-plan <issue-id> <plan-file-path>
+   mael task add "Execute <ID>" --follow-end "linear.<ID>" --content-file <plan-file>
+   mael task done "$MAEL_TASK_ID"
    ```
-   where `<plan-file-path>` is the plan file path from system context.
+   The execute task has an empty `command`, so it is a plain execute in normal mode: its prompt is
+   just `<title>` + the plan as content, with no skill invoked. The session then implements and the
+   project's always-on "Finishing a task" rule (commit → `/code-review` → fixups → stop) closes it
+   out.
 
-   **IMPORTANT: After writing the plan to Linear, your work is DONE.** Do NOT begin implementing
-   the plan. Do NOT write code, edit files, or create branches. Simply confirm the plan was written
-   to Linear and stop. Implementation is handled separately via `/continue-task`.
+   **Multi-session (spec B)** — emit a concrete first-iteration execute task **and** a fuzzy-tail
+   `plan-next-step` task, then finish:
+   ```bash
+   mael task add "Execute: <iter-1 desc>" --follow-end "linear.<ID>" --content-file <iter1-file>
+   mael task add "Plan next step" --command plan-next-step --follow-end "linear.<ID>" --content-file <tail-file>
+   mael task done "$MAEL_TASK_ID"
+   ```
+   Both files are derived from the plan you just wrote:
+   - `<iter1-file>`: the concrete iteration-1 scope (what the first execute session implements).
+   - `<tail-file>`: the **fuzzy tail** — it MUST carry content, not be an empty placeholder:
+     - a **bullet-point list of remaining work** (everything beyond iteration 1), and
+     - a **summary of what should already have been done** by the time it runs (iteration-1 scope
+       plus the overall goal / architecture context the next planner needs).
+
+   **IMPORTANT: After emitting the chain and marking this task done, your work is DONE.** Do NOT
+   begin implementing. Do NOT write code, edit source files, or create branches. Confirm the tasks
+   were created and stop. Implementation happens in a later session via `mael task next --run`.
+
+## Knowing your own task id
+
+The session exports `MAEL_TASK_ID` (this planning task) and `MAEL_TASK_PARENT` (the
+`linear.<ID>` parent). Use `$MAEL_TASK_ID` to `mael task done` yourself, and key `--follow-end` off
+the parent (`linear.<ID>`); the Linear `<ID>` is also in the brief in your prompt.
 
 ## Error Cases
 
 - Not in plan mode: "Plan-task command requires plan mode. Please enter plan mode first before using
   this command."
-- No matching issue found
-- Task not in Todo status (warning, not blocking)
 
 ## Plan Structure
 
 ### Single-Session Plan
 
-For tasks that can be completed in one session (~500 lines or less):
+For tasks completable in one session (~500 lines or less):
 
 ```markdown
-# <ISSUE-ID>: <Title>
+# <ID>: <Title>
 
 **Session type: single**
 
@@ -116,18 +127,12 @@ Brief description of the problem and why this change is needed.
 
 ## Implementation Steps
 
-### Step 1: Write plan to Linear
-- `mael linear write-plan <issue-id> <plan-file-path>`
-
-### Step 2: <Description>
+### Step 1: <Description>
 - Files to modify: ...
 - Changes: ...
 
-### Step 3: <Description>
+### Step 2: <Description>
 ...
-
-### Final Step: Create PR and submit to Linear
-- `mael gh create-pr <issue-id>`
 
 ## Files to Modify
 | File | Change |
@@ -139,20 +144,18 @@ Brief description of the problem and why this change is needed.
 - Expected outcomes
 ```
 
+This whole plan file becomes the **execute task's content** (`--content-file <plan-file>`). The
+execute session reads it and implements directly.
+
 ### Multi-Session Plan
 
-For larger tasks that require multiple sessions. Provides detailed architectural design
-for the whole task, with the first iteration as a bullet-point scope (continue-task will
-elaborate it further in its own planning step):
+For larger tasks. Provides architectural design for the whole task; iteration 1 is a concrete scope,
+and the tail is carried forward by the `plan-next-step` chain (not by a Linear description):
 
 ```markdown
-# <ISSUE-ID>: <Title>
+# <ID>: <Title>
 
 **Session type: multi**
-
-## Step 1: Write plan to Linear
-- `mael linear write-plan <issue-id> <plan-file-path>`
-- Then STOP. Use `/continue-task` to begin implementation.
 
 ## Context
 Why this change is needed.
@@ -161,7 +164,7 @@ Why this change is needed.
 The full end state we're working toward.
 
 ## Architecture & Design
-Detailed architectural changes needed across the whole task:
+Detailed architectural changes across the whole task:
 - Key design decisions and trade-offs
 - New components/modules and their responsibilities
 - Changes to existing interfaces or data flow
@@ -171,62 +174,44 @@ Detailed architectural changes needed across the whole task:
 | File | Change |
 |------|--------|
 
-## First Iteration: <Description>
-Bullet-point list of what the first session will tackle. This will be further
-elaborated by continue-task's own planning step.
+## Iteration 1: <Description>
+Concrete scope for the first execute session — this becomes `<iter1-file>`.
 - ...
 
 ## Remaining Work
-Brief notes on what subsequent iterations will tackle.
+The fuzzy tail — everything beyond iteration 1. This (plus the Overall Goal / Architecture
+context above) becomes `<tail-file>`, the content of the `plan-next-step` task.
 - ...
 
 ## Verification
 How to test the overall feature end-to-end.
 ```
 
-As sessions complete, the plan is updated inline via `mael linear edit-plan`. The rolling
-structure evolves as follows — completed iterations are rewritten to describe what actually
-happened, and the next iteration is promoted from Remaining Work:
-
-```markdown
-## Completed Iteration: <First Description>
-Concise summary of what was actually built, decisions made, deviations from plan.
-
-## Completed Iteration: <Second Description>
-Summary of what actually happened in this iteration.
-
-## Next Iteration: <Third Description>
-- ...
-
-## Remaining Work
-- ...
-```
-
-When the last iteration is reached, `## Remaining Work` can be removed or left empty.
-
-Each iteration of a multi-session plan should:
-- Be independently testable and pass CI when merged
-- Not break existing functionality
-- Not necessarily deliver end-user functionality -- e.g., a back-end API before the front-end,
-  or a refactoring that makes it easy to implement the feature, are valid iterations
-- Be described as a bullet-point scope — continue-task handles detailed planning for each iteration
-- Be ordered by dependency (later iterations can depend on earlier ones)
-- For mechanical transformations: describe the mechanism clearly and note that confidence in
-  test/type coverage is needed
+The chain replaces the old rolling `## Next Iteration` / `## Completed Iteration` machinery that used
+to live in the Linear description. Each iteration should:
+- Be independently testable and pass CI when merged.
+- Not break existing functionality.
+- Not necessarily deliver end-user functionality (a back-end API before the front-end, or an enabling
+  refactor, are valid iterations).
+- Be ordered by dependency (later iterations can depend on earlier ones).
+- For mechanical transformations: describe the mechanism clearly and note where test/type coverage
+  gives confidence.
 
 ## Implementation Notes
 
-- **Plan mode required**: Command must fail immediately if not in plan mode
-- **Research before planning**: Codebase research happens before creating the plan
-- **Interactive refinement**: Discuss the plan with the user before finalizing
-- **Plan written after ExitPlanMode acceptance**: The plan is only uploaded to Linear after
-  the user approves the ExitPlanMode prompt
-- **Plan mode detection**: Check for `Plan mode is active` in system-reminder tags. If not present,
-  output error message and stop immediately.
-- **Progress tracking**: Use TodoWrite to track planning progress
+- **Plan mode required**: fail immediately if not in plan mode.
+- **Research before planning**: codebase research happens before the plan.
+- **Interactive refinement**: discuss with the user before finalising.
+- **Chain emitted after ExitPlanMode acceptance**: tasks are created only after the user approves the
+  ExitPlanMode prompt.
+- **No Linear writes**: Linear is a product-level mirror only; this skill never writes the plan back
+  to a Linear description.
+- **Progress tracking**: use TodoWrite to track planning progress.
 
-## Integration with Continue Task
+## Integration with the notebook chain
 
-- After a plan is written to Linear, `/continue-task` reads it and begins implementation
-- The plan provides the detailed context so `/continue-task` does not need plan mode
-- Plans can be re-written by running `/plan-task` again (replaces the existing plan section)
+- The execute task carries the plan as content; a plain execute runs **no skill** and finishes via
+  the project's always-on "Finishing a task" rule.
+- For multi-session work, `plan-next-step` (re)plans each subsequent increment, consuming the
+  remaining-work tail this skill seeded and handing a refreshed tail to the next one.
+- Advance the chain with `mael task next --run`.
