@@ -38,6 +38,9 @@ def task() -> None:
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 @click.option("--command", default="", help="Command to launch the session with.")
 @click.option("--mode", default="normal", help="Session mode (default: normal).")
+@click.option(
+    "--branch", default="", help="Branch for the task (default: the task id)."
+)
 @click.option("--parent", default="", help="Parent task id (creates a child id).")
 @click.option(
     "--follow",
@@ -62,6 +65,7 @@ def task_add(
     project: str | None,
     command: str,
     mode: str,
+    branch: str,
     parent: str,
     follows: tuple[str, ...],
     follow_ends: tuple[str, ...],
@@ -85,6 +89,7 @@ def task_add(
         title=title,
         command=command,
         mode=mode,
+        branch=branch,
         parent=parent,
         follows=deduped,
         content=content,
@@ -115,6 +120,19 @@ def task_list(project: str | None, status: str | None, parent: str | None) -> No
     draw_table(rows, ["ID", "STATUS", "ACTIONABLE", "TITLE"])
 
 
+@task.command("next")
+@click.option("--project", default=None, help="Project name (default: from cwd).")
+@click.option("--parent", default=None, help="Restrict to children of this id.")
+def task_next(project: str | None, parent: str | None) -> None:
+    """Print the id of the next actionable task."""
+    proj = _resolve_project(project)
+    store = _store()
+    nxt = model.next_task(store, proj, parent=parent)
+    if nxt is None:
+        raise click.ClickException("No actionable task.")
+    click.echo(nxt.id)
+
+
 @task.command("show")
 @click.argument("id")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
@@ -132,6 +150,7 @@ def task_show(id: str, project: str | None) -> None:
     click.echo(f"project: {t.project}")
     click.echo(f"command: {t.command}")
     click.echo(f"mode:    {t.mode}")
+    click.echo(f"branch:  {t.branch}")
     if t.parent:
         click.echo(f"parent:  {t.parent}")
     if t.follows:

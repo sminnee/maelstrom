@@ -196,12 +196,14 @@ def open_claude_tab(
 
 
 def create_cmux_workspace(
-    project: str, worktree: str, worktree_path: str,
+    project: str, worktree: str, worktree_path: str, command: str = "claude",
 ) -> str | None:
     """Create a cmux workspace for a worktree.
 
-    Creates a workspace running claude, renames it to {project}-{worktree},
-    then opens a second terminal pane and cds into the worktree path.
+    Creates a workspace running ``command`` (default ``claude``), renames it to
+    {project}-{worktree}, then opens a second terminal pane and cds into the
+    worktree path. ``command`` is sent verbatim, so callers wanting flags or an
+    initial prompt must shell-quote them.
 
     Returns the workspace ref string, or None on failure.
     """
@@ -213,7 +215,7 @@ def create_cmux_workspace(
     if not workspace_ref:
         return None
 
-    cmux_cmd("send", "--workspace", workspace_ref, "--", "claude\n")
+    cmux_cmd("send", "--workspace", workspace_ref, "--", f"{command}\n")
 
     # Rename workspace
     cmux_cmd(

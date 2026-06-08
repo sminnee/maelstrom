@@ -1573,22 +1573,42 @@ def start_claude_session(
     worktree_path: Path,
     project: str | None = None,
     worktree: str | None = None,
+    initial_prompt: str | None = None,
+    permission_mode: str | None = None,
 ) -> None:
     """Start an interactive Claude Code CLI session in a worktree.
 
     When running inside cmux and project/worktree are provided, creates a
     cmux workspace instead of replacing the current process. Falls back to
     os.execvp if cmux setup fails or is unavailable.
+
+    ``initial_prompt`` is passed to Claude as the opening prompt (positional
+    argument) and ``permission_mode`` as ``--permission-mode``. Both are
+    optional so existing callers are unaffected.
     """
+    import shlex
+
     from .cmux import create_cmux_workspace, is_cmux_mode
 
     if is_cmux_mode() and project and worktree:
-        result = create_cmux_workspace(project, worktree, str(worktree_path))
+        command = "claude"
+        if permission_mode:
+            command += f" --permission-mode {shlex.quote(permission_mode)}"
+        if initial_prompt:
+            command += f" {shlex.quote(initial_prompt)}"
+        result = create_cmux_workspace(
+            project, worktree, str(worktree_path), command=command
+        )
         if result is not None:
             return
 
     os.chdir(worktree_path)
-    os.execvp("claude", ["claude"])
+    argv = ["claude"]
+    if permission_mode:
+        argv += ["--permission-mode", permission_mode]
+    if initial_prompt:
+        argv.append(initial_prompt)
+    os.execvp("claude", argv)
 
 
 CLAUDE_LOCAL_IMPORT = "@.claude/CLAUDE.local.md"

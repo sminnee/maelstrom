@@ -55,11 +55,16 @@ class TestRoundTrip:
         back = Task.from_markdown(text, status="todo")
         assert back == t
 
-    def test_all_nine_frontmatter_keys_emitted(self):
+    def test_all_frontmatter_keys_emitted(self):
         t = Task(id="x", title="t", project="p")
         text = t.to_markdown()
         for key in model.FRONTMATTER_KEYS:
             assert f"\n{key}:" in "\n" + text
+
+    def test_branch_round_trips(self):
+        t = Task(id="x", title="t", project="p", branch="fix/login")
+        back = Task.from_markdown(t.to_markdown())
+        assert back.branch == "fix/login"
 
     def test_body_line_that_looks_like_heading_preserved(self):
         # A "## Something" line inside Content that isn't a known section.
@@ -371,3 +376,107 @@ class TestLoadList:
         model.create(store, project="p", title="a", now=NOW, today=TODAY)
         model.create(store, project="other", title="b", now=NOW, today=TODAY)
         assert len(model.list_tasks(store, project="p")) == 1
+
+
+# --- branch defaulting on create ---
+
+
+class TestBranchDefault:
+    def test_branch_defaults_to_id(self):
+        store = InMemoryStore()
+        t = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        assert t.branch == t.id
+        assert model.load(store, "p", t.id).branch == t.id
+
+    def test_branch_override_respected(self):
+        store = InMemoryStore()
+        t = model.create(
+            store, project="p", title="a", branch="fix/login", now=NOW, today=TODAY
+        )
+        assert t.branch == "fix/login"
+        assert model.load(store, "p", t.id).branch == "fix/login"
+
+
+# --- build_prompt ---
+
+
+class TestBuildPrompt:
+    def test_command_title_and_content(self):
+        t = Task(id="x", title="Do thing", project="p", command="plan-task",
+                 content="Details here.")
+        assert model.build_prompt(t) == "plan-task Do thing\n\nDetails here."
+
+    def test_no_command_omits_leading_space(self):
+        t = Task(id="x", title="Do thing", project="p", content="Details.")
+        assert model.build_prompt(t) == "Do thing\n\nDetails."
+
+    def test_no_content_omits_trailing_block(self):
+        t = Task(id="x", title="Do thing", project="p", command="plan-task")
+        assert model.build_prompt(t) == "plan-task Do thing"
+
+    def test_title_only(self):
+        t = Task(id="x", title="Just a title", project="p")
+        assert model.build_prompt(t) == "Just a title"
+
+
+# --- _permission_mode_for ---
+
+
+class TestPermissionMode:
+    def test_plan_maps_to_plan(self):
+        assert model._permission_mode_for("plan") == "plan"
+
+    def test_normal_maps_to_none(self):
+        assert model._permission_mode_for("normal") is None
+
+    def test_unknown_maps_to_none(self):
+        assert model._permission_mode_for("anything-else") is None
+
+
+# --- next_task ---
+
+
+class TestNextTask:
+    def test_none_when_empty(self):
+        store = InMemoryStore()
+        assert model.next_task(store, "p") is None
+
+    def test_returns_first_actionable_by_id(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        model.create(store, project="p", title="b", now=NOW, today=TODAY)
+        assert model.next_task(store, "p").id == a.id
+
+    def test_skips_blocked_by_unfinished_dep(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        b = model.create(
+            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
+        )
+        # a is actionable, b is not (follows undone a) -> next is a.
+        assert model.next_task(store, "p").id == a.id
+        # With a done, b becomes the next actionable.
+        model.move(store, "p", a.id, "done", now=NOW)
+        assert model.next_task(store, "p").id == b.id
+
+    def test_includes_in_progress(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        model.move(store, "p", a.id, "in-progress", now=NOW)
+        # An interrupted (in-progress) task re-surfaces as next.
+        assert model.next_task(store, "p").id == a.id
+
+    def test_excludes_terminal(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        model.move(store, "p", a.id, "done", now=NOW)
+        assert model.next_task(store, "p") is None
+
+    def test_filters_by_parent(self):
+        store = InMemoryStore()
+        p = model.create(store, project="p", title="parent", now=NOW, today=TODAY)
+        child = model.create(store, project="p", title="child", parent=p.id, now=NOW)
+        # Without filter, the (lower-id) parent comes first.
+        assert model.next_task(store, "p").id == p.id
+        # Filtered to the parent's children, only the child qualifies.
+        assert model.next_task(store, "p", parent=p.id).id == child.id
