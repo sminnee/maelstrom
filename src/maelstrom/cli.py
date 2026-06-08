@@ -22,6 +22,7 @@ from .github import (
 from .cmux import is_cmux_mode, set_status, clear_status
 from .review_prepare import cmd_review_prepare
 from .session_cli import session as session_cli, session_channel as session_channel_cmd
+from .task_cli import task as task_cli
 from .env import get_env_status, regenerate_and_restart_if_running, stop_env
 from .env_cli import _ensure_cmux_browser, _print_service_status, env as env_cli
 from .git_cli import git as git_cli
@@ -1667,6 +1668,7 @@ cli.add_command(sentry)
 cli.add_command(uptimerobot)
 cli.add_command(session_cli)
 cli.add_command(session_channel_cmd)
+cli.add_command(task_cli)
 
 
 def main(argv: list[str] | None = None) -> int:
