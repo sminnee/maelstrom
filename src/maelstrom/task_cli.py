@@ -5,6 +5,7 @@ model function from :mod:`maelstrom.task`, and renders the result. All logic
 lives in the model; this layer only parses arguments and prints.
 """
 
+import sys
 from pathlib import Path
 
 import click
@@ -18,6 +19,23 @@ from .worktree import setup_worktree_for_branch, start_claude_session
 
 def _store() -> GitFileStore:
     return GitFileStore()
+
+
+def _read_content_file(content_file: str | None) -> str:
+    """Read the ``--content-file`` argument's contents.
+
+    ``-`` reads from stdin (the Unix ``cat -`` idiom), so callers can pipe a
+    brief without managing a temp file; any other value is a path that must
+    exist.
+    """
+    if content_file is None:
+        return ""
+    if content_file == "-":
+        return sys.stdin.read()
+    path = Path(content_file)
+    if not path.is_file():
+        raise click.ClickException(f"Content file not found: {content_file}")
+    return path.read_text()
 
 
 def _run_task(store: GitFileStore, project: str, task: "model.Task") -> None:
@@ -37,12 +55,18 @@ def _run_task(store: GitFileStore, project: str, task: "model.Task") -> None:
     model.move(store, project, task.id, model.STATUS_IN_PROGRESS)  # write BEFORE launch
     click.echo(f"Running {task.id} on {branch}")
     click.echo(f"  → {project}/{result.name} ({result.action})")
+    # Skills running inside the session self-reference via these — e.g. to
+    # `mael task done $MAEL_TASK_ID` and `--follow-end linear.<parent>`.
+    session_env = {"MAEL_TASK_ID": task.id}
+    if task.parent:
+        session_env["MAEL_TASK_PARENT"] = task.parent
     start_claude_session(
         result.path,
         project=project,
         worktree=result.name,
         initial_prompt=model.build_prompt(task),
         permission_mode=model._permission_mode_for(task.mode),
+        env=session_env,
     )
 
 
@@ -64,7 +88,11 @@ def task() -> None:
 @click.argument("title")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 @click.option("--command", default="", help="Command to launch the session with.")
-@click.option("--mode", default="normal", help="Session mode (default: normal).")
+@click.option(
+    "--mode",
+    default="",
+    help="Session mode (default: per-command, usually normal; plan commands plan).",
+)
 @click.option(
     "--branch", default="", help="Branch for the task (default: task/<id>)."
 )
@@ -83,9 +111,8 @@ def task() -> None:
 )
 @click.option(
     "--content-file",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
     default=None,
-    help="File whose contents become the task's Content section.",
+    help="File whose contents become the task's Content section ('-' reads stdin).",
 )
 @click.option("--run", is_flag=True, help="Launch the task as a session immediately.")
 def task_add(
@@ -97,10 +124,44 @@ def task_add(
     parent: str,
     follows: tuple[str, ...],
     follow_ends: tuple[str, ...],
-    content_file: Path | None,
+    content_file: str | None,
     run: bool,
 ) -> None:
     """Add a new task and print its id."""
+    content = _read_content_file(content_file)
+    add_task(
+        title=title,
+        project=project,
+        command=command,
+        mode=mode,
+        branch=branch,
+        parent=parent,
+        follows=follows,
+        follow_ends=follow_ends,
+        content=content,
+        run=run,
+    )
+
+
+def add_task(
+    *,
+    title: str,
+    project: str | None,
+    command: str = "",
+    mode: str = "",
+    branch: str = "",
+    parent: str = "",
+    follows: tuple[str, ...] = (),
+    follow_ends: tuple[str, ...] = (),
+    content: str = "",
+    run: bool = False,
+) -> "model.Task":
+    """Create a task (and optionally launch it), echoing its id.
+
+    The single create-and-launch path shared by ``mael task add`` and any other
+    command that creates a task (e.g. ``mael linear plan``), so there is exactly
+    one place that resolves follows, creates the task, and runs it.
+    """
     proj = _resolve_project(project)
     store = _store()
 
@@ -109,8 +170,6 @@ def task_add(
         follow_list.extend(model.follow_end_leaves(store, proj, end_id))
     # De-dupe while preserving first-seen order.
     deduped = list(dict.fromkeys(follow_list))
-
-    content = content_file.read_text() if content_file else ""
 
     new = model.create(
         store,
@@ -126,6 +185,7 @@ def task_add(
     click.echo(new.id)
     if run:
         _run_task(store, proj, new)
+    return new
 
 
 @task.command("list")
