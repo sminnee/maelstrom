@@ -888,56 +888,38 @@ def cmd_start_task(issue_id):
             click.echo(f"- Workspace: {workspace_label}")
 
 
-@linear.command("complete-task")
+# The three logical statuses the task workflow uses, mapped to their Linear
+# workflow-state names. ``done`` maps to ``Unreleased`` (completed work waiting
+# on a release), not the literal ``Done`` state. This is the single canonical
+# status-transition command; there is deliberately no special subtask handling.
+_STATUS_STATES = {
+    "planned": "Planned",
+    "in-progress": "In Progress",
+    "done": "Unreleased",
+}
+
+
+@linear.command("set-status")
 @click.argument("issue_id")
-def cmd_complete_task(issue_id):
-    """Complete a task: set to Done (subtask) or Unreleased (standalone/parent)."""
+@click.argument("status", type=click.Choice(list(_STATUS_STATES)))
+def cmd_set_status(issue_id, status):
+    """Set a Linear issue's status: planned, in-progress, or done.
+
+    The canonical status-transition command. ``done`` maps to the ``Unreleased``
+    workflow state (promote to ``Done`` later with ``mael linear release``).
+    Applies to the issue as-is — no special subtask/parent handling.
+    """
+    state_name = _STATUS_STATES[status]
     issue = get_issue(issue_id)
     states = get_workflow_states()
-
-    is_subtask = bool(issue.get("parent"))
-
-    # Determine target status
-    if is_subtask:
-        target_status = "Done"
-    else:
-        target_status = "Unreleased"
-
-    if target_status not in states:
-        raise click.ClickException(f"'{target_status}' state not found")
-
-    # Update the issue
-    update_issue(issue["id"], stateId=states[target_status])
-
-    click.echo(f"Completed task {issue['identifier']}: {issue['title']}")
-    click.echo(f"- Status: {target_status}")
-
-    # If this is a subtask, check if all siblings are complete
-    if is_subtask:
-        parent = get_issue(issue["parent"]["id"])
-        siblings = parent.get("children", {}).get("nodes", [])
-
-        all_complete = all(
-            s["state"]["type"] in ["completed", "canceled"] or s["id"] == issue["id"]
-            for s in siblings
-        )
-
-        if all_complete and "Unreleased" in states:
-            update_issue(parent["id"], stateId=states["Unreleased"])
-            click.echo(f"\nAll subtasks complete - updated parent {parent['identifier']}:")
-            click.echo("- Status: Unreleased")
-        else:
-            incomplete = [
-                s
-                for s in siblings
-                if s["state"]["type"] not in ["completed", "canceled"]
-                and s["id"] != issue["id"]
-            ]
-            if incomplete:
-                click.echo(
-                    f"\nParent {parent['identifier']} not updated "
-                    f"({len(incomplete)} subtask(s) still incomplete)"
-                )
+    if state_name not in states:
+        raise click.ClickException(f"'{state_name}' state not found in workflow.")
+    current = issue["state"]["name"]
+    if current == state_name:
+        click.echo(f"{issue['identifier']} already {state_name}.")
+        return
+    update_issue(issue["id"], stateId=states[state_name])
+    click.echo(f"{issue['identifier']}: {current} -> {state_name}")
 
 
 @linear.command("create-subtask")

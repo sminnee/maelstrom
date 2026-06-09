@@ -191,6 +191,96 @@ class TestCmdCreateTask:
         assert "Backlog state not found" in result.output
 
 
+class TestCmdSetStatus:
+    """Tests for cmd_set_status command."""
+
+    @patch("maelstrom.linear.update_issue")
+    @patch("maelstrom.linear.get_workflow_states")
+    @patch("maelstrom.linear.get_issue")
+    def test_set_status_planned(self, mock_get, mock_states, mock_update):
+        mock_get.return_value = {
+            "id": "issue-1",
+            "identifier": "PROJ-7",
+            "state": {"name": "Todo"},
+        }
+        mock_states.return_value = {"Todo": "s-todo", "Planned": "s-planned"}
+
+        runner = CliRunner()
+        result = runner.invoke(linear, ["set-status", "PROJ-7", "planned"])
+
+        assert result.exit_code == 0, result.output
+        assert "Todo -> Planned" in result.output
+        mock_update.assert_called_once_with("issue-1", stateId="s-planned")
+
+    @patch("maelstrom.linear.update_issue")
+    @patch("maelstrom.linear.get_workflow_states")
+    @patch("maelstrom.linear.get_issue")
+    def test_set_status_done_maps_to_unreleased(
+        self, mock_get, mock_states, mock_update
+    ):
+        # `done` maps to the Unreleased state, with no subtask special-casing.
+        mock_get.return_value = {
+            "id": "issue-1",
+            "identifier": "PROJ-7",
+            "state": {"name": "In Review"},
+            "parent": {"id": "parent-1"},  # ignored — no special subtask handling
+        }
+        mock_states.return_value = {
+            "In Review": "s-rev",
+            "Unreleased": "s-unrel",
+            "Done": "s-done",
+        }
+
+        runner = CliRunner()
+        result = runner.invoke(linear, ["set-status", "PROJ-7", "done"])
+
+        assert result.exit_code == 0, result.output
+        assert "In Review -> Unreleased" in result.output
+        mock_update.assert_called_once_with("issue-1", stateId="s-unrel")
+
+    @patch("maelstrom.linear.update_issue")
+    @patch("maelstrom.linear.get_workflow_states")
+    @patch("maelstrom.linear.get_issue")
+    def test_set_status_noop_when_already(self, mock_get, mock_states, mock_update):
+        mock_get.return_value = {
+            "id": "issue-1",
+            "identifier": "PROJ-7",
+            "state": {"name": "Planned"},
+        }
+        mock_states.return_value = {"Todo": "s-todo", "Planned": "s-planned"}
+
+        runner = CliRunner()
+        result = runner.invoke(linear, ["set-status", "PROJ-7", "planned"])
+
+        assert result.exit_code == 0, result.output
+        assert "already Planned" in result.output
+        mock_update.assert_not_called()
+
+    def test_set_status_invalid_choice_errors(self):
+        # An unknown logical status is rejected by click before any API call.
+        runner = CliRunner()
+        result = runner.invoke(linear, ["set-status", "PROJ-7", "bogus"])
+
+        assert result.exit_code != 0
+        assert "Invalid value" in result.output
+
+    @patch("maelstrom.linear.get_workflow_states")
+    @patch("maelstrom.linear.get_issue")
+    def test_set_status_missing_workflow_state_errors(self, mock_get, mock_states):
+        mock_get.return_value = {
+            "id": "issue-1",
+            "identifier": "PROJ-7",
+            "state": {"name": "Todo"},
+        }
+        mock_states.return_value = {"Todo": "s-todo"}  # no Unreleased state
+
+        runner = CliRunner()
+        result = runner.invoke(linear, ["set-status", "PROJ-7", "done"])
+
+        assert result.exit_code != 0
+        assert "not found in workflow" in result.output
+
+
 SAMPLE_DESCRIPTION_WITH_PLAN = (
     "Some preamble text.\n\n"
     "---\n\n"
