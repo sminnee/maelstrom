@@ -1,13 +1,16 @@
 # Plan Next Step Command
 
-⚠️ **PLAN MODE REQUIRED**: This command ONLY works in plan mode. You must stop with an error message
-immediately if not in plan mode.
+⚠️ **PLAN MODE REQUIRED**: This command only works in plan mode. The launched session normally
+starts there already; if it didn't, call `EnterPlanMode` to switch (the user approves the switch)
+before doing anything else — don't hard-fail.
 
 This skill runs **inside a session that `mael` launched** — it is the fuzzy-tail planner of a
 multi-session notebook chain (spec B). `mael task next --run` reached a `plan-next-step` task and
 launched a plan-mode session holding that task's content. This skill plans **one** concrete next
-step, emits an execute task for it, and — if work remains — re-queues another `plan-next-step` task
-with a refreshed picture. It does **not** implement, and it never writes to Linear.
+step and writes a **load-many plan file** whose blocks *are* the next chain: an execute block for
+this step and — if work remains — a `tail` `plan-next-step` block with a refreshed picture. The only
+post-approval action is one `mael task load-many` call. It does **not** implement, and it never
+writes to Linear.
 
 ## What you already hold
 
@@ -21,8 +24,9 @@ reality, plan the top item, and hand the next planner an updated tail.
 
 ## Command Logic
 
-1. **MANDATORY Plan Mode Check**: MUST fail immediately if not in plan mode. (Detect via
-   `Plan mode is active` in system-reminder tags.)
+1. **Ensure plan mode**: detect via `Plan mode is active` in system-reminder tags. If it's already
+   active, proceed; if not, call `EnterPlanMode` to switch (the user approves the switch) — only if
+   that's declined should you stop.
 
 2. **Reconcile intended vs actual**: Read the remaining-work list and prior-work summary from your
    prompt, then research the current state to confirm what has actually landed:
@@ -35,62 +39,96 @@ reality, plan the top item, and hand the next planner an updated tail.
    *shows* is done. The `<ID>` is the Linear identifier — it's in `$MAEL_TASK_PARENT`
    (`linear.<ID>`) and in your prompt's prior-work summary.
 
-3. **Set status**:
-   ```bash
-   mael status set "Planning next step for <ID>"
-   ```
-
-4. **Plan one concrete step**: Take the **top** item from the remaining-work list and plan it in
+3. **Plan one concrete step**: Take the **top** item from the remaining-work list and plan it in
    detail — a single, mergeable, independently-testable increment.
    - **Strong bias toward finishing**: if the remaining work is small enough to complete in one
      execute session (~500 lines or less), plan to finish ALL of it. Each step must leave less work
      than it found.
    - Use AskUserQuestion to confirm scope if the boundary is unclear.
-   - Write this step's plan to a plan file (e.g. `next.md`).
+   - **Decide: is this the final step?** After scoping, judge whether this step exhausts the
+     remaining-work list. That decision picks the plan template (final = no `tail`).
+   - Write a **load-many plan file** (e.g. `next.md`) using the matching template in
+     **Plan templates** below.
 
-5. **Present Plan**: Call ExitPlanMode with allowedPrompts:
-   - `{"tool": "Bash", "prompt": "emit notebook chain tasks"}`
+   Then present the plan with ExitPlanMode as usual, with
+   `allowedPrompts: [{"tool": "Bash", "prompt": "mael task load-many"}]`. The plan file *is* the
+   chain: approving it runs `mael task load-many <next.md>` to create the tasks, then
+   `mael task status done` closes this planning task. The execute block's task runs **no skill** and
+   finishes via the project's always-on "Finishing a task" rule. **Do NOT implement** — do not write
+   code, edit source files, or create branches; the next increment runs via `mael task next --run`.
 
-6. **After Plan Approval — emit and finish**:
-   ```bash
-   mael task add "Execute: <next>" --follow-end "linear.<ID>" --content-file <next.md>
-   # only if more work remains after this step:
-   mael task add "Plan next step" --command plan-next-step --follow-end "linear.<ID>" --content-file <tail.md>
-   mael task status done
-   ```
-   - The execute task carries `<next.md>` (this step's plan) as content; it runs **no skill** and
-     finishes via the project's always-on "Finishing a task" rule.
-   - **Re-queue `plan-next-step` iff work remains.** `<tail.md>` is the **updated** plan-of-record:
-     - the remaining-work list with **this step removed** (and course-corrected from what you
-       learned), and
-     - an **updated prior-work summary** that now includes this step's scope.
-   - If this step finishes the task (nothing remains), do **not** re-queue `plan-next-step` — emit
-     only the execute task and finish.
+## Plan templates
 
-   **IMPORTANT: After emitting the tasks and marking this task done, your work is DONE.** Do NOT
-   implement. Do NOT write code, edit source files, or create branches. Confirm and stop. The next
-   increment runs via `mael task next --run`.
+Pick by the final-step decision in step 3.
+
+Both blocks nest under the parent automatically — `mael task load-many` defaults each block's
+`parent` to `$MAEL_TASK_PARENT` (`linear.<ID>`), so you don't spell it out. Chaining is expressed by:
+- `follow-end: *` on the **head** block — "append me after the end of my parent's existing
+  child-chain" (the current leaf of the sibling chain under `linear.<ID>`).
+- `follow: <block-name>` on later blocks — intra-file ordering by block name.
+
+### More work remains — execute block + `tail`
+
+The `tail` block re-queues `plan-next-step` with the **updated** plan-of-record in its body: the
+remaining-work list with **this step removed** (course-corrected from what you learned), plus a
+prior-work summary that now includes this step's scope.
+
+```markdown
+This step's chain. The only action is:
+    mael task load-many <this file>
+
+---CREATE TASK step---
+title: "Execute: <next step desc>"
+follow-end: "*"
+---
+<this step's detailed plan…>
+
+---CREATE TASK tail---
+title: Plan next step
+command: plan-next-step
+follow: step
+---
+## Remaining work
+<remaining-work list with this step removed…>
+
+## What should already be done
+<updated prior-work summary including this step…>
+```
+
+### Final step — execute block only
+
+When this step exhausts the remaining work, emit **just** the execute block — no `tail`, so the
+chain ends here. Once its execute session merges, the feature is done.
+
+```markdown
+This step's chain. The only action is:
+    mael task load-many <this file>
+
+---CREATE TASK step---
+title: "Execute: <final step desc>"
+follow-end: "*"
+---
+<this final step's detailed plan…>
+```
 
 ## How the rolling state travels
 
-Each `plan-next-step` task hands the next one a refreshed `<tail.md>` — "what's left" shrinks and
-"what's done" grows as the chain advances. This replaces the old `## Remaining Work` /
+Each `plan-next-step` task hands the next one a refreshed `tail` block body — "what's left" shrinks
+and "what's done" grows as the chain advances. This replaces the old `## Remaining Work` /
 `## Completed Iteration` headings that used to live in the Linear description. Linear stays a
 product-level mirror only.
 
 ## Knowing your own task id
 
 The session exports `MAEL_TASK_ID` (this planning task) and `MAEL_TASK_PARENT` (the `linear.<ID>`
-parent). Use `$MAEL_TASK_ID` to `mael task status done` yourself, and key `--follow-end` off the parent.
-
-## Error Cases
-
-- Not in plan mode: "Plan-next-step command requires plan mode. Please enter plan mode first."
+parent). `mael task status done` with no id closes **this** task — it falls back to `$MAEL_TASK_ID`
+— so you never need to pass your own id. Block `parent` likewise defaults to `$MAEL_TASK_PARENT`, so
+blocks can omit it and chain with `follow-end: *` (append after siblings) / `follow: <block>`.
 
 ## Implementation Notes
 
-- **Plan mode required**: fail immediately if not in plan mode. (`--command plan-next-step` defaults
-  the launched session to plan mode, so this should already hold.)
+- **Plan mode required**: `--command plan-next-step` defaults the launched session to plan mode, so
+  this should already hold; if not, switch via `EnterPlanMode` rather than failing.
 - **One step per session**: plan exactly one increment; let the chain carry the rest.
 - **No Linear writes**: never write the plan back to a Linear description.
 - **Progress tracking**: use TodoWrite to track planning progress.

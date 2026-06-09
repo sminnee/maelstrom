@@ -413,6 +413,29 @@ def follow_end_leaves(store: TaskStore, project: str, id: str) -> list[str]:
     return sorted(leaves)
 
 
+def child_chain_leaves(store: TaskStore, project: str, parent: str) -> list[str]:
+    """Return the chain-leaves among ``parent``'s existing children.
+
+    The children of ``parent`` form their own ``follows`` chain; a new child
+    appended "to the end" (the ``follow-end: *`` wildcard) should follow the tail
+    of that chain — the siblings that **no other sibling follows**. Returns an
+    empty list when ``parent`` has no children yet (the new task becomes the
+    first child, following nothing).
+
+    Only direct children (``task.parent == parent``) are considered, so a
+    grandchild's own sub-chain never leaks into a sibling's leaf set.
+    """
+    siblings = list_tasks(store, project=project, parent=parent)
+    sibling_ids = {t.id for t in siblings}
+    # A sibling is followed-from-within the set if any other sibling follows it.
+    followed_within: set[str] = set()
+    for t in siblings:
+        for dep in t.follows:
+            if dep in sibling_ids:
+                followed_within.add(dep)
+    return sorted(t.id for t in siblings if t.id not in followed_within)
+
+
 # --- mutations ---
 
 
@@ -460,6 +483,165 @@ def create(
     key = task_key(project, DEFAULT_STATUS, id)
     store.write(key, task.to_markdown(), message=f"task: add {id} ({title})")
     return task
+
+
+# --- plan-file (load-many) parsing + batch creation ---
+
+# Frontmatter keys allowed in a `---CREATE TASK---` block. These are
+# *task-creation arguments* (mirroring `mael task add`'s flags), not the
+# serialized task frontmatter. Anything else is a typo that should fail loudly
+# rather than silently drop a dependency.
+_BLOCK_KEYS = frozenset({"title", "command", "parent", "follow", "follow-end"})
+
+_OPEN_MARKER = re.compile(r"^---CREATE TASK ([A-Za-z0-9]+)---$")
+_END_MARKER = re.compile(r"^---END TASK ([A-Za-z0-9]+)---$")
+# A line that *looks like* a marker (so we can reject a malformed one — e.g. a
+# hyphenated name or stray spacing — rather than silently treat it as prose).
+_LOOSE_MARKER = re.compile(r"^---(?:CREATE|END) TASK\b.*---$")
+
+
+def parse_task_blocks(text: str) -> list[dict]:
+    """Parse a marked plan file into a list of task-creation blocks.
+
+    A plan file is human-readable preamble (ignored) followed by one or more
+    blocks, each opening with ``---CREATE TASK <name>---`` on its own line. A
+    block runs until the next open marker, an optional ``---END TASK <name>---``
+    close marker, or EOF. ``<name>`` (``[A-Za-z0-9]+``) is a local handle for
+    intra-file ``follow`` references — not the task id.
+
+    Each block's inner text is split with :func:`_split_frontmatter` into
+    ``(frontmatter, body)``: the frontmatter keys are creation arguments and the
+    body becomes the task's Content. Returns a list of
+    ``{"name", "args", "content"}`` dicts.
+
+    Raises ``ValueError`` on: no blocks, a duplicate block name, a block missing
+    ``title``, an unknown frontmatter key, or a malformed marker line (one that
+    resembles a ``CREATE``/``END TASK`` marker but has a bad name or spacing).
+    """
+    lines = text.split("\n")
+    blocks: list[dict] = []
+    seen_names: set[str] = set()
+    current_name: str | None = None
+    buf: list[str] = []
+
+    def flush() -> None:
+        if current_name is None:
+            return
+        # A block body opens straight into frontmatter keys (no leading `---`
+        # fence — the `---CREATE TASK` marker already delimited the block), with
+        # a `---` separator before the markdown body. Synthesize the opening
+        # fence so `_split_frontmatter` parses it the usual way.
+        frontmatter, body = _split_frontmatter("---\n" + "\n".join(buf))
+        unknown = set(frontmatter) - _BLOCK_KEYS
+        if unknown:
+            raise ValueError(
+                f"Unknown key(s) in block {current_name!r}: "
+                f"{', '.join(sorted(unknown))}"
+            )
+        if not str(frontmatter.get("title", "")).strip():
+            raise ValueError(f"Block {current_name!r} is missing a title.")
+        blocks.append(
+            {"name": current_name, "args": frontmatter, "content": body.strip()}
+        )
+
+    for line in lines:
+        stripped = line.strip()
+        open_m = _OPEN_MARKER.match(stripped)
+        if open_m:
+            flush()
+            name = open_m.group(1)
+            if name in seen_names:
+                raise ValueError(f"Duplicate block name: {name!r}")
+            seen_names.add(name)
+            current_name = name
+            buf = []
+            continue
+        if _END_MARKER.match(stripped) is not None:
+            flush()
+            current_name = None
+            buf = []
+            continue
+        # A line that resembles a marker but matched neither strict pattern is a
+        # malformed marker (bad name, stray spacing); reject it loudly so a typo
+        # isn't silently swallowed as prose/body.
+        if _LOOSE_MARKER.match(stripped) is not None:
+            raise ValueError(
+                f"Malformed task marker: {stripped!r} "
+                "(name must match [A-Za-z0-9]+)."
+            )
+        if current_name is not None:
+            buf.append(line)
+    flush()
+
+    if not blocks:
+        raise ValueError("No task blocks found (expected '---CREATE TASK <name>---').")
+    return blocks
+
+
+def load_many(
+    store: TaskStore,
+    *,
+    project: str,
+    blocks: list[dict],
+    default_parent: str = "",
+    now: str | None = None,
+    today: str | None = None,
+) -> list[Task]:
+    """Create every block as a task in one transaction (a single commit).
+
+    A block's ``parent`` defaults to ``default_parent`` (the launching session's
+    ``$MAEL_TASK_PARENT``) when its frontmatter omits one.
+
+    Each block's ``follow`` values are resolved against the tasks created earlier
+    in this batch (block name -> allocated id) and otherwise passed through as
+    real ids. ``follow-end`` values resolve to the live store's chain leaves;
+    the wildcard ``*`` resolves to the chain-leaves of the block's *parent's*
+    existing children (see :func:`child_chain_leaves`) — "append me to the end of
+    my siblings". Because ``GitFileStore`` mutates the filesystem eagerly inside a
+    transaction, each ``create()``'s file is visible to the next iteration's id
+    allocation and leaf scans, so forward-chaining within the batch is correct.
+    Returns the created tasks in block order.
+    """
+    created: dict[str, Task] = {}  # block name -> created Task
+    with store.transaction(message=f"task: load {len(blocks)} task(s)"):
+        for b in blocks:
+            args = b["args"]
+            parent = str(args.get("parent", "")) or default_parent
+            follows: list[str] = []
+            for f in _coerce_follows(args.get("follow")):
+                # Intra-file ref wins; otherwise treat as a real id.
+                follows.append(created[f].id if f in created else f)
+            for end_id in _coerce_follows(args.get("follow-end")):
+                follows.extend(_resolve_follow_end(store, project, end_id, parent))
+            deduped = list(dict.fromkeys(follows))
+            t = create(
+                store,
+                project=project,
+                title=str(args["title"]),
+                command=str(args.get("command", "")),
+                parent=parent,
+                follows=deduped,
+                content=b["content"],
+                now=now,
+                today=today,
+            )
+            created[b["name"]] = t
+    return list(created.values())
+
+
+def _resolve_follow_end(
+    store: TaskStore, project: str, end_id: str, parent: str
+) -> list[str]:
+    """Resolve one ``follow-end`` value to a list of ids to follow.
+
+    ``*`` means "the end of my parent's child-chain" — :func:`child_chain_leaves`
+    against ``parent`` (empty when there are no siblings yet, or when the task
+    has no parent). Any other value is a real task id resolved via
+    :func:`follow_end_leaves`.
+    """
+    if end_id == "*":
+        return child_chain_leaves(store, project, parent) if parent else []
+    return follow_end_leaves(store, project, end_id)
 
 
 def load(store: TaskStore, project: str, id: str) -> Task:
