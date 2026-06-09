@@ -73,7 +73,7 @@ def _run_task(
         raise click.ClickException(
             f"Project '{project}' not found at {project_path}"
         )
-    branch = task.branch or model.default_branch(task.id)
+    branch = task.branch or model.default_branch(task.id, task.parent)
     result = setup_worktree_for_branch(project_path, project, branch)
     model.move(store, project, task.id, model.STATUS_IN_PROGRESS)  # write BEFORE launch
     click.echo(f"Running {task.id} on {branch}")
@@ -308,7 +308,7 @@ def task_list(
         row = {"ID": t.id, "STATUS": t.status}
         if all_ or all_todo:
             row["ACTIONABLE"] = "yes" if actionable else "no"
-        row["BRANCH"] = t.branch or model.default_branch(t.id)
+        row["BRANCH"] = t.branch or model.default_branch(t.id, t.parent)
         row["TITLE"] = t.title
         rows.append(row)
 

@@ -474,7 +474,7 @@ def create(
         project=project,
         command=command,
         mode=resolved_mode,
-        branch=branch or default_branch(id),
+        branch=branch or default_branch(id, parent),
         parent=parent,
         follows=list(follows or []),
         created=timestamp,
@@ -857,8 +857,27 @@ def list_tasks(
 # --- session launch helpers (pure) ---
 
 
-def default_branch(id: str) -> str:
-    """Return the default branch name for a task id (``task/<id>``)."""
+# Linear issue identifiers look like NORT-123, ABC-7, TEAM2-99.
+_LINEAR_PARENT_RE = re.compile(r"^linear\.([A-Z][A-Z0-9]*-\d+)$")
+
+
+def default_branch(id: str, parent: str = "") -> str:
+    """Return the default branch name for a task.
+
+    The branch derives from the *parent* when present, so all children of one
+    parent share a branch (one PR per parent):
+
+    - ``linear.NORT-123`` (virtual Linear parent) → ``feat/NORT-123``
+    - any other parent (e.g. ``2026-06-09.3``)     → ``task/2026-06-09.3``
+    - no parent                                     → ``task/<id>``
+
+    Only the immediate parent is resolved (no ancestor-chain walk).
+    """
+    if parent:
+        m = _LINEAR_PARENT_RE.match(parent)
+        if m:
+            return f"feat/{m.group(1)}"
+        return f"task/{parent}"
     return f"task/{id}"
 
 
