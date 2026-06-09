@@ -11,12 +11,14 @@ only the injected store, so it can be exercised against an
 :class:`~maelstrom.task_store.InMemoryStore` in tests.
 """
 
+import os
 import re
+import subprocess
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from .task_store import TaskStore
+from .task_store import GitFileStore, TaskStore
 
 
 # --- statuses (folder names) ---
@@ -710,6 +712,78 @@ def append_log(
     task.updated = timestamp
     store.write(key, task.to_markdown(), message=f"task: log {id}")
     return task
+
+
+def update(
+    store: TaskStore,
+    project: str,
+    id: str,
+    *,
+    title: str | None = None,
+    branch: str | None = None,
+    content: str | None = None,
+    now: str | None = None,
+) -> Task:
+    """Update provided fields in place (one write, bumps ``updated``).
+
+    Status is folder-derived and intentionally not touched here (use ``move``
+    for lifecycle transitions). Only fields passed non-``None`` are changed, so
+    an omitted argument leaves that field as-is.
+    """
+    key = find_key(store, project, id)
+    if key is None:
+        raise KeyError(f"Task not found: {project}/{id}")
+    text = store.read(key)
+    if text is None:
+        raise KeyError(f"Task not found: {project}/{id}")
+    task = Task.from_markdown(text, status=status_from_key(key))
+    if title is not None:
+        task.title = title
+    if branch is not None:
+        task.branch = branch
+    if content is not None:
+        task.content = content
+    task.updated = now if now is not None else _now_iso()
+    store.write(key, task.to_markdown(), message=f"task: update {id}")
+    return task
+
+
+def edit_in_editor(
+    store: GitFileStore,
+    project: str,
+    id: str,
+    *,
+    editor: str | None = None,
+) -> tuple[Task, bool]:
+    """Open the task file in ``$EDITOR``/vi; commit only if it changed.
+
+    Returns ``(task, changed)``. A no-op save (open + quit, no edits) produces
+    no commit. On a real change the file is re-rendered through the model so it
+    stays canonical (stable frontmatter order / section layout) and ``updated``
+    bumps, then committed via the store — keeping git the single committer.
+    Needs the on-disk path, which only :class:`GitFileStore` exposes.
+    """
+    key = find_key(store, project, id)
+    if key is None:
+        raise KeyError(f"Task not found: {project}/{id}")
+    before = store.read(key)
+    if before is None:
+        raise KeyError(f"Task not found: {project}/{id}")
+    path = store._path(key)  # file already exists on disk in the git-fs store
+    ed = editor or os.environ.get("EDITOR") or "vi"
+    try:
+        subprocess.run([ed, str(path)], check=True)
+    except FileNotFoundError:
+        raise RuntimeError(f"Editor not found: {ed}")
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Editor exited with status {e.returncode}: {ed}")
+    after = path.read_text()
+    if after == before:
+        return Task.from_markdown(after, status=status_from_key(key)), False
+    task = Task.from_markdown(after, status=status_from_key(key))
+    task.updated = _now_iso()
+    store.write(key, task.to_markdown(), message=f"task: edit {id}")
+    return task, True
 
 
 def delete(store: TaskStore, project: str, id: str) -> Task:

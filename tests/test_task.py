@@ -28,6 +28,7 @@ class RecordingStore(InMemoryStore):
 
 
 NOW = "2026-06-08T12:00:00+00:00"
+NOW2 = "2026-06-09T12:00:00+00:00"
 TODAY = "2026-06-08"
 
 
@@ -862,3 +863,132 @@ class TestLoadMany:
         assert tail.follows == [step.id]
         # The wildcard for `tail` would have seen `step` as a new sibling leaf,
         # but `tail` uses intra-file `follow`, so it chains off step directly.
+
+
+# --- update() ---
+
+
+class TestUpdate:
+    def test_update_changes_fields_and_bumps_updated(self):
+        store = InMemoryStore()
+        t = model.create(store, project="p", title="old", now=NOW)
+        updated = model.update(
+            store, "p", t.id, title="new", branch="feat/x", content="body", now=NOW2
+        )
+        assert updated.title == "new"
+        assert updated.branch == "feat/x"
+        assert updated.content == "body"
+        assert updated.updated == NOW2
+        reloaded = model.load(store, "p", t.id)
+        assert reloaded.title == "new"
+        assert reloaded.branch == "feat/x"
+        assert reloaded.content == "body"
+
+    def test_update_leaves_omitted_fields_untouched(self):
+        store = InMemoryStore()
+        t = model.create(
+            store, project="p", title="keep", branch="b", content="body", now=NOW
+        )
+        model.update(store, "p", t.id, branch="b2", now=NOW2)
+        reloaded = model.load(store, "p", t.id)
+        assert reloaded.title == "keep"
+        assert reloaded.content == "body"
+        assert reloaded.branch == "b2"
+
+    def test_update_does_not_change_status(self):
+        store = InMemoryStore()
+        t = model.create(store, project="p", title="t", now=NOW)
+        model.move(store, "p", t.id, model.STATUS_IN_PROGRESS, now=NOW)
+        model.update(store, "p", t.id, branch="b", now=NOW2)
+        assert model.load(store, "p", t.id).status == model.STATUS_IN_PROGRESS
+
+    def test_update_unknown_id_raises(self):
+        store = InMemoryStore()
+        with pytest.raises(KeyError):
+            model.update(store, "p", "nope", branch="x")
+
+    def test_update_single_write(self):
+        store = RecordingStore()
+        t = model.create(store, project="p", title="t", now=NOW)
+        store.writes.clear()
+        model.update(store, "p", t.id, branch="b", now=NOW2)
+        assert len(store.writes) == 1
+
+
+# --- edit_in_editor() (needs a GitFileStore for the on-disk path) ---
+
+
+def _editor_script(tmp_path, py_body: str):
+    """Write an executable fake-editor (Python) script and return its path.
+
+    ``py_body`` runs with ``sys.argv[1]`` bound to the task file path, so it can
+    rewrite or leave the file untouched to simulate a real editor session.
+    Python keeps the fake editor OS-portable (no sed/`-i ''` quirks).
+    """
+    import sys as _sys
+
+    script = tmp_path / "fake_editor.py"
+    script.write_text(f"#!{_sys.executable}\nimport sys\n" + py_body + "\n")
+    script.chmod(0o755)
+    return str(script)
+
+
+class TestEditInEditor:
+    def test_changed_save_commits_and_bumps_updated(self, tmp_path):
+        from maelstrom.task_store import GitFileStore
+
+        store = GitFileStore(root=tmp_path / "tasks")
+        t = model.create(store, project="p", title="orig", now=NOW)
+        before_updated = model.load(store, "p", t.id).updated
+        # Insert text under the ## Content heading so the edit lands in a
+        # section the model parses back, mimicking a real editor change.
+        editor = _editor_script(
+            tmp_path,
+            "p = sys.argv[1]\n"
+            "t = open(p).read().replace('## Content\\n', '## Content\\nedited\\n')\n"
+            "open(p, 'w').write(t)\n",
+        )
+        task, changed = model.edit_in_editor(store, "p", t.id, editor=editor)
+        assert changed is True
+        assert task.updated != before_updated
+        # File stays canonical and the edit reached the Content section.
+        assert "edited" in model.load(store, "p", t.id).content
+
+    def test_noop_save_writes_nothing(self, tmp_path):
+        from maelstrom.task_store import GitFileStore
+
+        store = GitFileStore(root=tmp_path / "tasks")
+        t = model.create(store, project="p", title="orig", now=NOW)
+        before = model.load(store, "p", t.id)
+        editor = _editor_script(tmp_path, "pass")  # no-op: open + quit, no change
+        _task, changed = model.edit_in_editor(store, "p", t.id, editor=editor)
+        assert changed is False
+        after = model.load(store, "p", t.id)
+        assert after.updated == before.updated
+        assert after.content == before.content
+
+    def test_unknown_id_raises(self, tmp_path):
+        from maelstrom.task_store import GitFileStore
+
+        store = GitFileStore(root=tmp_path / "tasks")
+        with pytest.raises(KeyError):
+            model.edit_in_editor(store, "p", "nope", editor="true")
+
+    def test_missing_editor_raises_runtimeerror(self, tmp_path):
+        from maelstrom.task_store import GitFileStore
+
+        store = GitFileStore(root=tmp_path / "tasks")
+        t = model.create(store, project="p", title="orig", now=NOW)
+        with pytest.raises(RuntimeError):
+            model.edit_in_editor(
+                store, "p", t.id, editor="definitely-not-an-editor-xyz"
+            )
+
+    def test_editor_nonzero_exit_raises_runtimeerror(self, tmp_path):
+        from maelstrom.task_store import GitFileStore
+
+        store = GitFileStore(root=tmp_path / "tasks")
+        t = model.create(store, project="p", title="orig", now=NOW)
+        editor = _editor_script(tmp_path, "sys.exit(1)")
+        with pytest.raises(RuntimeError):
+            model.edit_in_editor(store, "p", t.id, editor=editor)

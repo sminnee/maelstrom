@@ -590,3 +590,79 @@ class TestEnvThreading:
         env = launch.session.call_args.kwargs["env"]
         assert env["MAEL_TASK_ID"] == t.id
         assert "MAEL_TASK_PARENT" not in env
+
+
+# --- list: BRANCH column ---
+
+
+class TestListBranch:
+    def test_branch_column_shows_default_when_blank(self, runner, store):
+        t = model.create(store, project="p", title="alpha")
+        # Force a blank branch to exercise the inferred fallback.
+        model.update(store, "p", t.id, branch="")
+        result = runner.invoke(task_cli.task, ["list"])
+        assert result.exit_code == 0, result.output
+        assert "BRANCH" in result.output
+        assert f"task/{t.id}" in result.output
+
+    def test_branch_column_shows_explicit_branch(self, runner, store):
+        t = model.create(store, project="p", title="alpha", branch="feat/foo")
+        result = runner.invoke(task_cli.task, ["list"])
+        assert result.exit_code == 0, result.output
+        assert "feat/foo" in result.output
+
+    def test_branch_column_in_all_views(self, runner, store):
+        model.create(store, project="p", title="alpha", branch="feat/bar")
+        for args in (["list"], ["list", "--all-todo"], ["list", "--all"]):
+            result = runner.invoke(task_cli.task, args)
+            assert "BRANCH" in result.output, args
+
+
+# --- update ---
+
+
+class TestUpdate:
+    def test_update_branch(self, runner, store):
+        t = model.create(store, project="p", title="alpha")
+        result = runner.invoke(
+            task_cli.task, ["update", t.id, "--branch", "feat/foo"]
+        )
+        assert result.exit_code == 0, result.output
+        assert f"Updated {t.id}" in result.output
+        assert model.load(store, "p", t.id).branch == "feat/foo"
+
+    def test_update_title_via_positional(self, runner, store):
+        t = model.create(store, project="p", title="old")
+        result = runner.invoke(task_cli.task, ["update", t.id, "new title"])
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", t.id).title == "new title"
+
+    def test_update_content_from_stdin(self, runner, store):
+        t = model.create(store, project="p", title="alpha", content="old body")
+        result = runner.invoke(
+            task_cli.task,
+            ["update", t.id, "--content-file", "-"],
+            input="new body\n",
+        )
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", t.id).content == "new body"
+
+    def test_update_unknown_id_errors(self, runner, store):
+        result = runner.invoke(task_cli.task, ["update", "nope", "--branch", "x"])
+        assert result.exit_code != 0
+        assert "Task not found" in result.output
+
+    def test_update_bumps_updated(self, runner, store):
+        t = model.create(store, project="p", title="alpha", now="2020-01-01T00:00:00")
+        runner.invoke(task_cli.task, ["update", t.id, "--branch", "feat/foo"])
+        assert model.load(store, "p", t.id).updated != "2020-01-01T00:00:00"
+
+    def test_update_omitted_fields_untouched(self, runner, store):
+        t = model.create(
+            store, project="p", title="keep", branch="b", content="body"
+        )
+        runner.invoke(task_cli.task, ["update", t.id, "--branch", "b2"])
+        reloaded = model.load(store, "p", t.id)
+        assert reloaded.title == "keep"
+        assert reloaded.content == "body"
+        assert reloaded.branch == "b2"
