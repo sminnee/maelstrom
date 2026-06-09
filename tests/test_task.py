@@ -542,6 +542,53 @@ class TestBranchDefault:
         assert t.branch == "fix/login"
         assert model.load(store, "p", t.id).branch == "fix/login"
 
+    def test_linear_parent_yields_feat_branch(self):
+        store = InMemoryStore()
+        t = model.create(
+            store, project="p", title="a", parent="linear.NORT-123",
+            now=NOW, today=TODAY,
+        )
+        assert t.branch == "feat/NORT-123"
+        assert model.load(store, "p", t.id).branch == "feat/NORT-123"
+
+    def test_siblings_under_linear_parent_share_branch(self):
+        store = InMemoryStore()
+        a = model.create(
+            store, project="p", title="a", parent="linear.NORT-123",
+            now=NOW, today=TODAY,
+        )
+        b = model.create(
+            store, project="p", title="b", parent="linear.NORT-123",
+            now=NOW, today=TODAY,
+        )
+        assert a.branch == b.branch == "feat/NORT-123"
+
+    def test_non_linear_parent_siblings_share_task_branch(self):
+        store = InMemoryStore()
+        a = model.create(
+            store, project="p", title="a", parent="2026-06-09.3",
+            now=NOW, today=TODAY,
+        )
+        b = model.create(
+            store, project="p", title="b", parent="2026-06-09.3",
+            now=NOW, today=TODAY,
+        )
+        assert a.branch == b.branch == "task/2026-06-09.3"
+
+    def test_branch_override_beats_parent_derivation(self):
+        store = InMemoryStore()
+        t = model.create(
+            store, project="p", title="a", parent="linear.NORT-123",
+            branch="fix/login", now=NOW, today=TODAY,
+        )
+        assert t.branch == "fix/login"
+
+    def test_default_branch_unit_cases(self):
+        assert model.default_branch("x", "linear.NORT-123") == "feat/NORT-123"
+        assert model.default_branch("x", "linear.foo") == "task/linear.foo"
+        assert model.default_branch("x", "2026-06-09.3") == "task/2026-06-09.3"
+        assert model.default_branch("x") == "task/x"
+
 
 # --- build_prompt ---
 

@@ -7,7 +7,9 @@ import pytest
 
 from click.testing import CliRunner
 
+from maelstrom import task_cli
 from maelstrom.linear import create_comment, linear
+from maelstrom.task_store import InMemoryStore
 
 
 class TestCmdPlan:
@@ -59,6 +61,29 @@ class TestCmdPlan:
         result = runner.invoke(linear, ["plan", "ME-99", "--project", "myproj"])
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["project"] == "myproj"
+
+    @patch("maelstrom.linear.get_issue")
+    def test_plan_creates_task_on_feat_branch(self, mock_get, monkeypatch):
+        """End-to-end: the real create path derives ``feat/<id>`` from the
+        ``linear.<id>`` parent that ``plan`` passes through."""
+        mock_get.return_value = {
+            "identifier": "NORT-123",
+            "title": "Do the thing",
+            "description": "",
+        }
+        store = InMemoryStore()
+        monkeypatch.setattr(task_cli, "_store", lambda: store)
+        monkeypatch.setattr(
+            task_cli, "_resolve_project", lambda project: project or "p"
+        )
+        runner = CliRunner()
+        result = runner.invoke(linear, ["plan", "NORT-123"])
+        assert result.exit_code == 0, result.output
+
+        created = task_cli.model.list_tasks(store, project="p")
+        assert len(created) == 1
+        assert created[0].parent == "linear.NORT-123"
+        assert created[0].branch == "feat/NORT-123"
 
 
 class TestCreateComment:
