@@ -7,6 +7,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NoReturn
 
 from .claude_integration import get_shared_dir
 from .config import load_config_or_default
@@ -1653,58 +1654,85 @@ def open_worktree(worktree_path: Path, command: str) -> None:
         raise RuntimeError(f"Failed to open worktree: {e}")
 
 
-def start_claude_session(
-    worktree_path: Path,
-    project: str | None = None,
-    worktree: str | None = None,
+def build_claude_command(
     initial_prompt: str | None = None,
     permission_mode: str | None = None,
-    env: dict[str, str] | None = None,
-) -> None:
-    """Start an interactive Claude Code CLI session in a worktree.
-
-    When running inside cmux and project/worktree are provided, creates a
-    cmux workspace instead of replacing the current process. Falls back to
-    os.execvp if cmux setup fails or is unavailable.
-
-    ``initial_prompt`` is passed to Claude as the opening prompt (positional
-    argument) and ``permission_mode`` as ``--permission-mode``. ``env`` is a
-    set of extra environment variables exported into the session (e.g.
-    ``MAEL_TASK_ID``) so skills can self-reference. All are optional so
-    existing callers are unaffected.
-    """
-    import shlex
-
-    from .cmux import create_cmux_workspace, is_cmux_mode
-
-    if is_cmux_mode() and project and worktree:
-        command = "claude"
-        if permission_mode:
-            command += f" --permission-mode {shlex.quote(permission_mode)}"
-        if initial_prompt:
-            command += f" {shlex.quote(initial_prompt)}"
-        # The cmux path sends a shell line, so prefix `KEY=value ` assignments
-        # rather than relying on inherited os.environ.
-        if env:
-            prefix = " ".join(
-                f"{k}={shlex.quote(v)}" for k, v in env.items()
-            )
-            command = f"{prefix} {command}"
-        result = create_cmux_workspace(
-            project, worktree, str(worktree_path), command=command
-        )
-        if result is not None:
-            return
-
-    os.chdir(worktree_path)
-    if env:
-        os.environ.update(env)
+) -> list[str]:
+    """The ``claude [...]`` argv shared by every placement (no env, no cwd)."""
     argv = ["claude"]
     if permission_mode:
         argv += ["--permission-mode", permission_mode]
     if initial_prompt:
         argv.append(initial_prompt)
+    return argv
+
+
+def claude_shell_line(argv: list[str], env: dict[str, str] | None = None) -> str:
+    """Shell-quoted ``KEY=val ... claude ...`` line for the cmux ``send`` path."""
+    import shlex
+
+    prefix = " ".join(f"{k}={shlex.quote(v)}" for k, v in (env or {}).items())
+    line = " ".join(shlex.quote(a) for a in argv)
+    return f"{prefix} {line}".strip()
+
+
+def exec_claude(
+    argv: list[str],
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> NoReturn:
+    """Replace this process with ``claude``. chdir to ``cwd`` first if given.
+
+    ``cwd=None`` means "right here" (the ``--here`` path); a worktree path
+    means the old execvp-fallback behaviour.
+    """
+    if cwd is not None:
+        os.chdir(cwd)
+    if env:
+        os.environ.update(env)
     os.execvp("claude", argv)
+
+
+def open_claude_workspace(
+    project: str | None,
+    worktree: str | None,
+    worktree_path: Path,
+    argv: list[str],
+    env: dict[str, str] | None = None,
+) -> bool:
+    """cmux placement: open a new workspace running the command. True if placed.
+
+    Returns False (so the caller falls back to ``exec_claude``) when not in
+    cmux or when project/worktree are missing — a workspace can't be named
+    without them.
+    """
+    from .cmux import create_cmux_workspace, is_cmux_mode
+
+    if not (is_cmux_mode() and project and worktree):
+        return False
+    line = claude_shell_line(argv, env)
+    return create_cmux_workspace(
+        project, worktree, str(worktree_path), command=line
+    ) is not None
+
+
+def launch_claude_in_worktree(
+    worktree_path: Path,
+    project: str | None,
+    worktree: str | None,
+    initial_prompt: str | None = None,
+    permission_mode: str | None = None,
+    env: dict[str, str] | None = None,
+) -> None:
+    """Launch Claude for a worktree: new cmux workspace, else execvp in it.
+
+    The worktree-placement composition of the peers — the only thing the old
+    ``start_claude_session`` actually provided. The ``--here`` path skips this
+    wrapper and calls :func:`exec_claude` with ``cwd=None`` directly.
+    """
+    argv = build_claude_command(initial_prompt, permission_mode)
+    if not open_claude_workspace(project, worktree, worktree_path, argv, env):
+        exec_claude(argv, cwd=worktree_path, env=env)
 
 
 CLAUDE_LOCAL_IMPORT = "@.claude/CLAUDE.local.md"

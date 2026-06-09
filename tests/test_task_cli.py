@@ -34,8 +34,9 @@ def runner() -> CliRunner:
 def launch(monkeypatch, tmp_path):
     """Stub the launch collaborators of ``_run_task``.
 
-    Returns a namespace with the mocked ``setup`` and ``session`` callables and
-    the worktree path the fake setup returns.
+    Returns a namespace with the mocked ``setup`` and ``session`` (the
+    worktree-placement wrapper) callables, plus ``exec`` (the --here exec peer),
+    and the worktree path the fake setup returns.
     """
     project_path = tmp_path / "proj"
     project_path.mkdir()
@@ -49,9 +50,13 @@ def launch(monkeypatch, tmp_path):
         return_value=WorktreeSetup(path=wt_path, name="bravo", action="created")
     )
     session = MagicMock()
+    exec_claude = MagicMock()
     monkeypatch.setattr(task_cli, "setup_worktree_for_branch", setup)
-    monkeypatch.setattr(task_cli, "start_claude_session", session)
-    return SimpleNamespace(setup=setup, session=session, wt_path=wt_path)
+    monkeypatch.setattr(task_cli, "launch_claude_in_worktree", session)
+    monkeypatch.setattr(task_cli, "exec_claude", exec_claude)
+    return SimpleNamespace(
+        setup=setup, session=session, exec=exec_claude, wt_path=wt_path
+    )
 
 
 # --- add: branch defaulting / override ---
@@ -298,7 +303,7 @@ class TestRun:
             lambda *a, **k: SimpleNamespace(project="p", project_path=missing),
         )
         session = MagicMock()
-        monkeypatch.setattr(task_cli, "start_claude_session", session)
+        monkeypatch.setattr(task_cli, "launch_claude_in_worktree", session)
         result = runner.invoke(task_cli.task, ["run", t.id])
         assert result.exit_code != 0
         assert "not found" in result.output
@@ -312,7 +317,7 @@ class TestAddRun:
 
         def fake_session(*args, **kwargs):
             # At launch time the (only) task must already be in-progress —
-            # i.e. model.move ran before start_claude_session.
+            # i.e. model.move ran before launch_claude_in_worktree.
             seen["in_progress"] = model.list_tasks(
                 store, project="p", status=model.STATUS_IN_PROGRESS
             )
@@ -356,6 +361,49 @@ class TestNextRun:
         assert result.exit_code != 0
         assert "No actionable task" in result.output
         launch.session.assert_not_called()
+
+
+class TestRunHere:
+    def test_run_here_skips_worktree_and_execs_in_cwd(self, runner, store, launch):
+        t = model.create(
+            store, project="p", title="Plan it", command="plan-task", mode="plan"
+        )
+        result = runner.invoke(task_cli.task, ["run", t.id, "--here"])
+        assert result.exit_code == 0, result.output
+
+        # No worktree reconciliation; the worktree-placement wrapper is unused.
+        launch.setup.assert_not_called()
+        launch.session.assert_not_called()
+
+        # Task still moves to in-progress (parity with --run).
+        assert model.load(store, "p", t.id).status == model.STATUS_IN_PROGRESS
+
+        # Execs claude in the current shell (cwd=None) with the task env.
+        launch.exec.assert_called_once()
+        kwargs = launch.exec.call_args.kwargs
+        assert kwargs["cwd"] is None
+        assert kwargs["env"]["MAEL_TASK_ID"] == t.id
+        assert f"Running {t.id} here (current shell)" in result.output
+
+    def test_add_run_here(self, runner, store, launch):
+        result = runner.invoke(task_cli.task, ["add", "Here go", "--run", "--here"])
+        assert result.exit_code == 0, result.output
+        new_id = result.output.splitlines()[0].strip()
+        launch.setup.assert_not_called()
+        launch.session.assert_not_called()
+        assert model.load(store, "p", new_id).status == model.STATUS_IN_PROGRESS
+        assert launch.exec.call_args.kwargs["cwd"] is None
+        assert launch.exec.call_args.kwargs["env"]["MAEL_TASK_ID"] == new_id
+
+    def test_next_run_here(self, runner, store, launch):
+        a = model.create(store, project="p", title="a")
+        result = runner.invoke(task_cli.task, ["next", "--run", "--here"])
+        assert result.exit_code == 0, result.output
+        launch.setup.assert_not_called()
+        launch.session.assert_not_called()
+        assert model.load(store, "p", a.id).status == model.STATUS_IN_PROGRESS
+        assert launch.exec.call_args.kwargs["cwd"] is None
+        assert launch.exec.call_args.kwargs["env"]["MAEL_TASK_ID"] == a.id
 
 
 class TestContentFile:

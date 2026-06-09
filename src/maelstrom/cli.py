@@ -51,8 +51,8 @@ from .worktree import (
     remove_worktree_by_path,
     run_git,
     run_install_cmd,
+    launch_claude_in_worktree,
     setup_worktree_for_branch,
-    start_claude_session,
     sync_worktree,
     tidy_branches,
     update_claude_local_md,
@@ -309,7 +309,7 @@ def cmd_add(branch, project, open, no_recycle):
             except RuntimeError as e:
                 click.echo(f"Warning: Could not open worktree: {e}", err=True)
         else:
-            start_claude_session(worktree_path, project=ctx.project, worktree=wt_name)
+            launch_claude_in_worktree(worktree_path, project=ctx.project, worktree=wt_name)
         return
 
     click.echo(f"Creating worktree for branch '{branch}'...")
@@ -381,7 +381,7 @@ def cmd_add(branch, project, open, no_recycle):
         except RuntimeError as e:
             click.echo(f"Warning: Could not open worktree: {e}", err=True)
     else:
-        start_claude_session(worktree_path, project=ctx.project, worktree=wt_name)
+        launch_claude_in_worktree(worktree_path, project=ctx.project, worktree=wt_name)
 
 
 @cli.command("remove")
@@ -725,7 +725,7 @@ def cmd_open(target):
     if worktree_path is None or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
-    start_claude_session(worktree_path, project=ctx.project, worktree=ctx.worktree)
+    launch_claude_in_worktree(worktree_path, project=ctx.project, worktree=ctx.worktree)
 
 
 @cli.command("ide")
@@ -771,7 +771,7 @@ def cmd_claude(target):
     if worktree_path is None or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
-    start_claude_session(worktree_path, project=ctx.project, worktree=ctx.worktree)
+    launch_claude_in_worktree(worktree_path, project=ctx.project, worktree=ctx.worktree)
 
 
 @cli.command("sync")

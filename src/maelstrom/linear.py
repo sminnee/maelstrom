@@ -687,7 +687,12 @@ def cmd_list_tasks(status):
 @click.option(
     "--run", is_flag=True, help="Launch the planning session immediately."
 )
-def cmd_plan(issue_id: str, project: str | None, run: bool) -> None:
+@click.option(
+    "--here",
+    is_flag=True,
+    help="With --run, launch in the current shell (no worktree, no new workspace).",
+)
+def cmd_plan(issue_id: str, project: str | None, run: bool, here: bool) -> None:
     """Seed a notebook planning task from a Linear issue.
 
     Thin wrapper over ``mael task add``: fetches the issue brief and creates a
@@ -712,6 +717,7 @@ def cmd_plan(issue_id: str, project: str | None, run: bool) -> None:
         parent=f"linear.{identifier}",
         content=brief,
         run=run,
+        here=here,
     )
 
 
