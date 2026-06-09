@@ -1152,6 +1152,19 @@ def _finalize_worktree(project_path: Path, worktree_path: Path, worktree_name: s
     return worktree_path
 
 
+def _blank_sentinel_keys(project_path: Path) -> set[str]:
+    """Return keys the parent ``.env`` declares as blank-value sentinels (``KEY=``).
+
+    A blank value in the parent marks a var the worktree manages independently:
+    it is copied neither back (worktree -> parent) nor forward (parent ->
+    worktree), so each worktree keeps its own value across a reset.
+    """
+    parent_env = project_path / ".env"
+    if not parent_env.exists():
+        return set()
+    return {k for k, v in parse_env_text(parent_env.read_text()).items() if v == ""}
+
+
 def regenerate_env_file(project_path: Path, worktree_path: Path, worktree_name: str) -> None:
     """Regenerate the .env file for a worktree, reusing the existing PORT_BASE.
 
@@ -1163,15 +1176,46 @@ def regenerate_env_file(project_path: Path, worktree_path: Path, worktree_name: 
         worktree_path: Path to the worktree.
         worktree_name: NATO name of the worktree.
     """
+    # Capture worktree-managed values (parent declares them blank) before the
+    # clean recreate wipes them — these are copied neither back nor forward, so
+    # the worktree must keep its own value across the reset.
+    env_file = worktree_path / ".env"
+    sentinel_keys = _blank_sentinel_keys(project_path)
+    preserved = {
+        k: v
+        for k, v in read_env_file(worktree_path).items()
+        if k in sentinel_keys
+    }
+
     # Clean recreate: drop the existing .env so _build_env_file rebuilds it
     # purely from the parent template. Callers (e.g. `mael env reset`) copy any
     # new worktree vars back to the parent first, so nothing user-authored is
     # lost — and the only difference between worktrees becomes the managed
     # section.
-    env_file = worktree_path / ".env"
     if env_file.exists():
         env_file.unlink()
     _build_env_file(project_path, worktree_path, worktree_name, reuse_ports=True)
+
+    # Restore the worktree's own values for blank-sentinel vars, replacing the
+    # blank line the parent template produced.
+    if preserved:
+        _restore_blank_sentinel_values(env_file, preserved)
+
+
+def _restore_blank_sentinel_values(env_file: Path, preserved: dict[str, str]) -> None:
+    """Replace blank ``KEY=`` lines in *env_file* with their preserved values."""
+    if not env_file.exists():
+        return
+    out: list[str] = []
+    for line in env_file.read_text().splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            key = stripped.split("=", 1)[0].strip()
+            if key in preserved:
+                out.append(f"{key}={preserved[key]}")
+                continue
+        out.append(line)
+    env_file.write_text("\n".join(out) + "\n")
 
 
 def reclaim_or_allocate_ports(project_path: Path, worktree_path: Path, worktree_name: str) -> None:
@@ -1462,7 +1506,11 @@ class EnvConflict:
 
     key: str
     parent_value: str
+    """The parent value in its canonical (possibly unresolved template) form."""
     worktree_value: str
+    """The current worktree value, which a reset would overwrite."""
+    resolved_parent_value: str
+    """``parent_value`` with worktree vars substituted — the value a reset applies."""
 
 
 @dataclass
@@ -1554,8 +1602,20 @@ def copy_back_new_env_vars(
         for key, value in user_vars.items():
             if key not in parent_vars:
                 added[key] = value
-            elif parent_vars[key] != value:
-                conflicts.append(EnvConflict(key, parent_vars[key], value))
+                continue
+            parent_val = parent_vars[key]
+            if parent_val == "":
+                # Blank parent value = install-managed sentinel; never copy back.
+                continue
+            if parent_val != value:
+                resolved_parent = _substitute_vars(parent_val, worktree_vars)
+                if resolved_parent == value:
+                    # Parent holds the unresolved template that resolves to the
+                    # worktree value — equivalent, not a real conflict.
+                    continue
+                conflicts.append(
+                    EnvConflict(key, parent_val, value, resolved_parent)
+                )
 
         result.added = added
         result.conflicts = conflicts
@@ -1572,6 +1632,21 @@ def copy_back_new_env_vars(
 
 _VAR_PATTERN = re.compile(r"\$\{(\w+)\}|\$(\w+)")
 _SOURCE_PATTERN = re.compile(r"  # source: \[(.+)\]$")
+
+
+def _substitute_vars(text: str, generated_vars: dict[str, str]) -> str:
+    """Substitute ``$VAR`` / ``${VAR}`` references in ``text`` from ``generated_vars``.
+
+    Unknown references are left intact. This is the shared substitution used both
+    when writing a worktree ``.env`` and when resolving parent templates for
+    copy-back comparison.
+    """
+
+    def _replace(m: re.Match[str]) -> str:
+        var = m.group(1) or m.group(2) or m.group(0)
+        return generated_vars.get(var, m.group(0))
+
+    return _VAR_PATTERN.sub(_replace, text)
 
 
 def _resolve_env_line(line: str, generated_vars: dict[str, str]) -> str:
@@ -1592,11 +1667,7 @@ def _resolve_env_line(line: str, generated_vars: dict[str, str]) -> str:
     else:
         template = line
 
-    def _replace(m: re.Match[str]) -> str:
-        var = m.group(1) or m.group(2) or m.group(0)
-        return generated_vars.get(var, m.group(0))
-
-    resolved = _VAR_PATTERN.sub(_replace, template)
+    resolved = _substitute_vars(template, generated_vars)
 
     if resolved != template:
         # Substitution occurred – attach/update source comment

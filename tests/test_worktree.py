@@ -1750,6 +1750,34 @@ class TestRegenerateEnvFile:
         mock_record.assert_called_once_with(project_path, "bravo", 300)
         mock_write.assert_called_once()
 
+    def test_blank_sentinel_value_preserved_not_copied_forward(self, tmp_path):
+        """A parent blank-sentinel (KEY=) keeps the worktree's own value on reset."""
+        from maelstrom.worktree import regenerate_env_file
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        worktree_path = project_path / "project-bravo"
+        worktree_path.mkdir()
+
+        # Parent: YAY is a blank sentinel; TEST is a normal template.
+        (project_path / ".env").write_text("YAY=\nTEST=${WORKTREE}-foo\n")
+        # Worktree already holds an independent YAY value (e.g. install-created).
+        _write_worktree_env(
+            worktree_path,
+            {"WORKTREE": "bravo", "WORKTREE_NUM": "1"},
+            user_lines="YAY=install_secret\nTEST=bravo-foo",
+        )
+
+        regenerate_env_file(project_path, worktree_path, "bravo")
+
+        worktree_vars = read_env_file(worktree_path)
+        # Worktree's own YAY survives — neither wiped to blank nor templated.
+        assert worktree_vars["YAY"] == "install_secret"
+        # Normal template var is still regenerated from the parent.
+        assert worktree_vars["TEST"] == "bravo-foo"
+        # Parent untouched.
+        assert (project_path / ".env").read_text() == "YAY=\nTEST=${WORKTREE}-foo\n"
+
 
 class TestStaleWorktreeHandling:
     """Tests for handling worktrees whose directories no longer exist."""
@@ -2228,3 +2256,75 @@ class TestCopyBackNewEnvVars:
         # Original bytes are an unbroken prefix; only new content appended.
         assert new_text.startswith(original)
         assert "C=3" in new_text
+
+    def test_blank_parent_value_is_install_managed_sentinel(self, tmp_path):
+        # Parent declares KEY= (blank) to mark it install-managed: a value the
+        # worktree's install_cmd generates must never be copied back.
+        project, worktree = self._setup(tmp_path)
+        (project / ".env").write_text("INSTALL_SECRET=\n")
+        before = (project / ".env").read_text()
+        _write_worktree_env(
+            worktree, {"WORKTREE": "charlie"},
+            user_lines="INSTALL_SECRET=generated_secret",
+        )
+
+        result = copy_back_new_env_vars(project, worktree)
+
+        assert result.added == {}
+        assert result.conflicts == []
+        # Parent left untouched — the blank sentinel stays.
+        assert (project / ".env").read_text() == before
+
+    def test_blank_parent_value_not_added_when_new_looking(self, tmp_path):
+        # The sentinel key is present in the parent (blank), so even though the
+        # worktree value looks "new", it is never appended.
+        project, worktree = self._setup(tmp_path)
+        (project / ".env").write_text("SECRET=\n")
+        _write_worktree_env(
+            worktree, {"WORKTREE": "charlie"}, user_lines="SECRET=xyz",
+        )
+
+        result = copy_back_new_env_vars(project, worktree)
+
+        assert "SECRET" not in result.added
+
+    def test_parent_template_resolving_to_worktree_value_is_not_conflict(self, tmp_path):
+        # Parent holds the unresolved template; worktree holds the resolved value
+        # (plus a source comment). They are equivalent — no spurious conflict.
+        project, worktree = self._setup(tmp_path)
+        (project / ".env").write_text("APP_URL=http://localhost:${WEB_PORT}\n")
+        before = (project / ".env").read_text()
+        _write_worktree_env(
+            worktree,
+            {"WORKTREE": "charlie", "WEB_PORT": "1200"},
+            user_lines=(
+                "APP_URL=http://localhost:1200"
+                "  # source: [APP_URL=http://localhost:${WEB_PORT}]"
+            ),
+        )
+
+        result = copy_back_new_env_vars(project, worktree)
+
+        assert result.added == {}
+        assert result.conflicts == []
+        assert (project / ".env").read_text() == before
+
+    def test_parent_template_resolving_to_different_value_is_conflict(self, tmp_path):
+        # Regression guard: resolving the template must not blanket-suppress —
+        # a genuinely different worktree value is still a conflict.
+        project, worktree = self._setup(tmp_path)
+        (project / ".env").write_text("APP_URL=http://localhost:${WEB_PORT}\n")
+        _write_worktree_env(
+            worktree,
+            {"WORKTREE": "charlie", "WEB_PORT": "1200"},
+            user_lines="APP_URL=http://localhost:9999",
+        )
+
+        result = copy_back_new_env_vars(project, worktree)
+
+        assert result.added == {}
+        assert len(result.conflicts) == 1
+        conflict = result.conflicts[0]
+        assert conflict.key == "APP_URL"
+        assert conflict.parent_value == "http://localhost:${WEB_PORT}"
+        assert conflict.worktree_value == "http://localhost:9999"
