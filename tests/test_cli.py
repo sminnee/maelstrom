@@ -478,12 +478,13 @@ class TestCloseMultiTarget:
                 result = runner.invoke(cli, ["close", "myproject.alpha"])
 
         assert result.exit_code == 0, result.output
-        # One consolidated warning listing both keys, with a synthetic diff.
+        # One consolidated warning listing both keys, with a synthetic diff:
+        # the worktree value (-, overwritten) vs the resolved parent value (+).
         assert "FOO, BAR differ between worktree" in result.output
-        assert "-FOO=parentval" in result.output
-        assert "+FOO=wtval" in result.output
-        assert "-BAR=parentbar" in result.output
-        assert "+BAR=wtbar" in result.output
+        assert "-FOO=wtval" in result.output
+        assert "+FOO=parentval" in result.output
+        assert "-BAR=wtbar" in result.output
+        assert "+BAR=parentbar" in result.output
         # Parent value untouched.
         assert (project_path / ".env").read_text() == parent_text
         mock_close.assert_called_once()

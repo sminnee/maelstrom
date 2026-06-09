@@ -36,8 +36,9 @@ def print_copy_back_result(result: CopyBackResult, project_path: Path) -> None:
     """Print copy-back results: added keys, then a single conflict warning.
 
     Conflicts are reported as one warning listing every differing key, with a
-    synthetic diff of the parent value (``-``, kept) vs the worktree value
-    (``+``, ignored). Prints nothing when there is nothing to report.
+    synthetic diff of the worktree value being overwritten (``-``) vs the
+    resolved parent value a reset applies (``+``). Prints nothing when there is
+    nothing to report.
     """
     parent_env = project_path / ".env"
     if result.added:
@@ -53,8 +54,8 @@ def print_copy_back_result(result: CopyBackResult, project_path: Path) -> None:
             err=True,
         )
         for c in result.conflicts:
-            click.echo(f"  -{c.key}={c.parent_value}", err=True)
-            click.echo(f"  +{c.key}={c.worktree_value}", err=True)
+            click.echo(f"  -{c.key}={c.worktree_value}", err=True)
+            click.echo(f"  +{c.key}={c.resolved_parent_value}", err=True)
 
 
 def _ensure_cmux_browser(state: EnvState, project_path: Path, worktree: str) -> None:
