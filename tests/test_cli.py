@@ -490,6 +490,103 @@ class TestCloseMultiTarget:
         mock_close.assert_called_once()
 
 
+class TestCloseWait:
+    """Tests for `mael close --wait`."""
+
+    def _ctx(self):
+        mock_ctx = MagicMock()
+        mock_ctx.worktree = "alpha"
+        mock_ctx.project = "myproject"
+        mock_ctx.worktree_path = MagicMock()
+        mock_ctx.worktree_path.exists.return_value = True
+        return mock_ctx
+
+    def test_wait_merged_proceeds_to_close(self):
+        """--wait calls wait_for_merge and, once merged, runs close_worktree."""
+        runner = CliRunner()
+
+        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
+             patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
+             patch("maelstrom.cli.get_env_status", return_value=None), \
+             patch("maelstrom.cli.wait_for_merge") as mock_wait, \
+             patch("maelstrom.cli.close_worktree") as mock_close:
+            mock_wait.return_value = MagicMock(number=42)
+            mock_close.return_value = MagicMock(success=True, message="Closed")
+            result = runner.invoke(cli, ["close", "myproject.alpha", "--wait"])
+
+        mock_wait.assert_called_once()
+        mock_close.assert_called_once()
+        assert "PR #42 merged." in result.output
+        assert result.exit_code == 0
+
+    def test_wait_passes_timeout_and_interval(self):
+        """--timeout/--interval are forwarded to wait_for_merge."""
+        runner = CliRunner()
+
+        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
+             patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
+             patch("maelstrom.cli.get_env_status", return_value=None), \
+             patch("maelstrom.cli.wait_for_merge") as mock_wait, \
+             patch("maelstrom.cli.close_worktree") as mock_close:
+            mock_wait.return_value = MagicMock(number=1)
+            mock_close.return_value = MagicMock(success=True, message="Closed")
+            runner.invoke(
+                cli,
+                ["close", "myproject.alpha", "--wait", "--timeout", "120", "--interval", "5"],
+            )
+
+        _, kwargs = mock_wait.call_args
+        assert kwargs["timeout"] == 120
+        assert kwargs["poll_interval"] == 5
+
+    def test_wait_runtime_error_skips_close(self):
+        """A RuntimeError (closed-unmerged / red CI) skips close and exits 1."""
+        runner = CliRunner()
+
+        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
+             patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
+             patch("maelstrom.cli.get_env_status", return_value=None), \
+             patch("maelstrom.cli.wait_for_merge",
+                   side_effect=RuntimeError("PR #7 was closed without merging")), \
+             patch("maelstrom.cli.close_worktree") as mock_close:
+            result = runner.invoke(cli, ["close", "myproject.alpha", "--wait"])
+
+        mock_close.assert_not_called()
+        assert result.exit_code == 1
+        assert "closed without merging" in result.output
+
+    def test_wait_timeout_skips_close(self):
+        """A TimeoutError skips close and exits 1."""
+        runner = CliRunner()
+
+        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
+             patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
+             patch("maelstrom.cli.get_env_status", return_value=None), \
+             patch("maelstrom.cli.wait_for_merge",
+                   side_effect=TimeoutError("Timed out after 3600s")), \
+             patch("maelstrom.cli.close_worktree") as mock_close:
+            result = runner.invoke(cli, ["close", "myproject.alpha", "--wait"])
+
+        mock_close.assert_not_called()
+        assert result.exit_code == 1
+        assert "Timed out" in result.output
+
+    def test_no_wait_does_not_poll(self):
+        """Without --wait, wait_for_merge is never called."""
+        runner = CliRunner()
+
+        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
+             patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
+             patch("maelstrom.cli.get_env_status", return_value=None), \
+             patch("maelstrom.cli.wait_for_merge") as mock_wait, \
+             patch("maelstrom.cli.close_worktree") as mock_close:
+            mock_close.return_value = MagicMock(success=True, message="Closed")
+            result = runner.invoke(cli, ["close", "myproject.alpha"])
+
+        mock_wait.assert_not_called()
+        assert result.exit_code == 0
+
+
 class TestStaleSymlinkCleanup:
     """Tests for stale symlink cleanup in _symlink_items."""
 

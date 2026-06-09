@@ -17,6 +17,7 @@ from .github import (
     get_worktree_code,
     read_pr,
     wait_for_checks,
+    wait_for_merge,
     wait_for_review,
 )
 from .cmux import is_cmux_mode, set_status, clear_status
@@ -845,7 +846,10 @@ def cmd_sync(target, squash):
 
 @cli.command("close")
 @click.argument("targets", nargs=-1)
-def cmd_close(targets):
+@click.option("--wait", is_flag=True, help="Wait for the PR to merge before closing")
+@click.option("--timeout", default=3600, help="Max seconds to wait for merge (default: 3600)")
+@click.option("--interval", default=30, help="Poll interval in seconds (default: 30)")
+def cmd_close(targets, wait, timeout, interval):
     """Close one or more worktrees (sync, verify clean, checkout main).
 
     Closes a worktree by:
@@ -856,6 +860,10 @@ def cmd_close(targets):
 
     The worktree folder, NATO name, and .env file are preserved.
     The worktree can later be recycled with 'mael add <branch>'.
+
+    With --wait, monitors the worktree's PR and only attempts the close once it
+    has merged; if the PR is closed without merging or its CI fails, an error is
+    raised instead. Waiting is bounded by --timeout (default 1 hour).
     """
     # If no targets given, use cwd detection (original behavior)
     if not targets:
@@ -882,6 +890,22 @@ def cmd_close(targets):
             continue
         assert ctx.project is not None
         assert ctx.worktree is not None
+
+        # Wait for the PR to merge before closing. Done before stopping the env so
+        # a still-running dev environment stays alive while we wait.
+        if wait:
+            click.echo(f"Waiting for PR to merge before closing '{ctx.worktree}'...")
+            try:
+                pr = wait_for_merge(worktree_path, timeout=timeout, poll_interval=interval)
+                click.echo(f"PR #{pr.number} merged.")
+            except TimeoutError as e:
+                click.echo(str(e), err=True)
+                errors.append(target)
+                continue
+            except RuntimeError as e:
+                click.echo(f"Error: {e}", err=True)
+                errors.append(target)
+                continue
 
         # Stop running environment if any
         env_status = get_env_status(ctx.project, ctx.worktree)

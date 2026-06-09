@@ -6,6 +6,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable, TypeVar
 
 from .worktree import run_cmd, run_git, sync_worktree
 
@@ -688,6 +689,53 @@ TERMINAL_STATES = {
 PASSING_STATES = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 
 
+_T = TypeVar("_T")
+
+
+def _poll_until(
+    check: Callable[[], _T | None],
+    *,
+    timeout: int,
+    poll_interval: int,
+    progress: Callable[[], str],
+    timeout_message: Callable[[], str],
+) -> _T:
+    """Poll ``check`` on a fixed interval until it yields a result.
+
+    Shared base for the ``wait_for_*`` helpers. Each iteration calls ``check``:
+    a non-``None`` return is the result and ends the loop. A ``None`` return
+    means "keep waiting" — ``progress()`` is printed and we sleep for
+    ``poll_interval`` before retrying. ``check`` may raise ``RuntimeError`` to
+    abort early (e.g. a terminal failure state).
+
+    Args:
+        check: Probe run each iteration; returns the result or ``None`` to wait.
+        timeout: Maximum seconds to wait before raising.
+        poll_interval: Seconds to sleep between polls.
+        progress: Builds the per-iteration progress line (called when waiting).
+        timeout_message: Builds the ``TimeoutError`` message (called on timeout).
+
+    Returns:
+        The first non-``None`` value returned by ``check``.
+
+    Raises:
+        TimeoutError: If ``timeout`` elapses before ``check`` yields a result.
+        RuntimeError: Propagated from ``check`` on a terminal failure.
+    """
+    start = time.monotonic()
+
+    while True:
+        result = check()
+        if result is not None:
+            return result
+
+        if time.monotonic() - start >= timeout:
+            raise TimeoutError(timeout_message())
+
+        print(progress())
+        time.sleep(poll_interval)
+
+
 def wait_for_checks(
     cwd: Path,
     timeout: int = 1800,
@@ -709,30 +757,84 @@ def wait_for_checks(
         RuntimeError: If no PR or checks found.
     """
     start = time.monotonic()
+    progress = {"complete": 0, "total": 0}
 
-    while True:
+    def check() -> tuple[bool, list[CheckRun]] | None:
         checks = get_pr_checks(cwd)
-        if not checks:
-            elapsed = time.monotonic() - start
-            if elapsed > poll_interval * 2:
-                raise RuntimeError("No checks found for this PR")
+        if not checks and time.monotonic() - start > poll_interval * 2:
+            raise RuntimeError("No checks found for this PR")
 
-        complete = sum(1 for c in checks if c.state in TERMINAL_STATES)
-        total = len(checks)
+        progress["complete"] = sum(1 for c in checks if c.state in TERMINAL_STATES)
+        progress["total"] = len(checks)
 
-        if total > 0 and complete == total:
+        if progress["total"] > 0 and progress["complete"] == progress["total"]:
             passed = all(c.state in PASSING_STATES for c in checks)
             return passed, checks
+        return None
 
-        elapsed = time.monotonic() - start
-        if elapsed >= timeout:
-            raise TimeoutError(
-                f"Timed out after {timeout}s waiting for checks "
-                f"({complete}/{total} complete)"
+    return _poll_until(
+        check,
+        timeout=timeout,
+        poll_interval=poll_interval,
+        progress=lambda: f"Waiting... {progress['complete']}/{progress['total']} checks complete",
+        timeout_message=lambda: (
+            f"Timed out after {timeout}s waiting for checks "
+            f"({progress['complete']}/{progress['total']} complete)"
+        ),
+    )
+
+
+def wait_for_merge(
+    cwd: Path,
+    timeout: int = 3600,
+    poll_interval: int = 30,
+) -> PRInfo:
+    """Poll the current PR until it merges.
+
+    Args:
+        cwd: Working directory (must be in a git repo with a PR).
+        timeout: Maximum seconds to wait (default 3600 = 1 hour).
+        poll_interval: Seconds between polls (default 30).
+
+    Returns:
+        The merged PRInfo.
+
+    Raises:
+        RuntimeError: If the PR is closed without merging or its CI reaches a
+            terminal failed state.
+        TimeoutError: If timeout exceeded before the PR merges.
+    """
+    pr_number: int | None = None
+
+    def check() -> PRInfo | None:
+        nonlocal pr_number
+        pr = get_pr_info(cwd)
+        pr_number = pr.number
+
+        if pr.merged:
+            return pr
+        if pr.state == "CLOSED":
+            raise RuntimeError(f"PR #{pr.number} was closed without merging")
+
+        failed = [
+            c.name for c in get_pr_checks(cwd)
+            if c.state in TERMINAL_STATES and c.state not in PASSING_STATES
+        ]
+        if failed:
+            raise RuntimeError(
+                f"PR #{pr.number} has failing checks: {', '.join(failed)}"
             )
+        return None
 
-        print(f"Waiting... {complete}/{total} checks complete")
-        time.sleep(poll_interval)
+    return _poll_until(
+        check,
+        timeout=timeout,
+        poll_interval=poll_interval,
+        progress=lambda: f"Waiting for PR #{pr_number} to merge...",
+        timeout_message=lambda: (
+            f"Timed out after {timeout}s waiting for PR #{pr_number} to merge"
+        ),
+    )
 
 
 def wait_for_review(
@@ -761,9 +863,7 @@ def wait_for_review(
     owner, repo = get_repo_info(cwd)
     pr_number = get_pr_info(cwd).number
 
-    start = time.monotonic()
-
-    while True:
+    def check() -> PRComment | None:
         comments, last_push_at = get_pr_comments(cwd, owner, repo, pr_number)
 
         candidates = [
@@ -775,15 +875,17 @@ def wait_for_review(
         if candidates:
             candidates.sort(key=lambda c: c.created_at)
             return candidates[0]
+        return None
 
-        elapsed = time.monotonic() - start
-        if elapsed >= timeout:
-            raise TimeoutError(
-                f"Timed out after {timeout}s waiting for a review on PR #{pr_number}"
-            )
-
-        print(f"Waiting for review on PR #{pr_number}...")
-        time.sleep(poll_interval)
+    return _poll_until(
+        check,
+        timeout=timeout,
+        poll_interval=poll_interval,
+        progress=lambda: f"Waiting for review on PR #{pr_number}...",
+        timeout_message=lambda: (
+            f"Timed out after {timeout}s waiting for a review on PR #{pr_number}"
+        ),
+    )
 
 
 def get_worktree_code(cwd: Path) -> tuple[str, str]:
