@@ -16,6 +16,10 @@ from dataclasses import dataclass
 
 GITHUB_URL_PREFIX = "https://github.com"
 
+# Browsers all live in the third pane of the standard 3-pane workspace layout
+# (pane 1 = Claude, pane 2 = shell, pane 3 = browsers).
+BROWSER_PANE_INDEX = 2
+
 
 def is_cmux_mode() -> bool:
     """Return True if running inside cmux (CMUX_SOCKET_PATH is set)."""
@@ -119,10 +123,12 @@ def list_panes(workspace_ref: str | None = None) -> list[str]:
     return re.findall(r'pane:\d+', output)
 
 
-def leftmost_pane(workspace_ref: str | None = None) -> str | None:
-    """First pane from list_panes, or None."""
+def pane_idx(workspace_ref: str | None = None, index: int = 0) -> str | None:
+    """Pane at `index` (left→right; negatives from the right), or None if OOB."""
     panes = list_panes(workspace_ref)
-    return panes[0] if panes else None
+    if -len(panes) <= index < len(panes):
+        return panes[index]
+    return None
 
 
 def add_tab(
@@ -184,7 +190,7 @@ def open_claude_tab(
     if workspace_ref is None:
         return None
 
-    pane_ref = leftmost_pane(workspace_ref)
+    pane_ref = pane_idx(workspace_ref, 0)
     surface_ref = add_tab(workspace_ref, pane_ref=pane_ref, title="Claude")
     if surface_ref is None:
         return None
@@ -238,7 +244,7 @@ def create_cmux_workspace(
         cmux_cmd("rename-tab", "--surface", surface_ref, "Terminal")
 
     # Focus the new workspace's first pane
-    first_pane = leftmost_pane(workspace_ref)
+    first_pane = pane_idx(workspace_ref, 0)
     if first_pane:
         focus_pane(first_pane, workspace_ref)
 
@@ -254,6 +260,28 @@ def open_browser_pane(url: str, workspace_ref: str | None = None) -> str | None:
     if workspace_ref:
         args.extend(["--workspace", workspace_ref])
     return is_ok(cmux_cmd(*args))
+
+
+def open_browser_surface(
+    pane_ref: str, url: str, workspace_ref: str | None = None,
+) -> str | None:
+    """Open a browser tab in `pane_ref` and return its surface ref, or None.
+
+    Mirrors add_tab but for browser surfaces. new-surface replies
+    "OK surface:N pane:N workspace:N"; only the leading surface ref is usable.
+    """
+    args = ["new-surface", "--type", "browser", "--pane", pane_ref, "--url", url]
+    if workspace_ref:
+        args.extend(["--workspace", workspace_ref])
+    return _first_ref(is_ok(cmux_cmd(*args)), "surface")
+
+
+def focus_surface(surface_ref: str, workspace_ref: str | None = None) -> None:
+    """Make a surface the visible tab via focus-panel (surfaces are panels)."""
+    args = ["focus-panel", "--panel", surface_ref]
+    if workspace_ref:
+        args.extend(["--workspace", workspace_ref])
+    cmux_cmd(*args)
 
 
 def browser_surface_exists(surface_ref: str) -> bool:
@@ -387,19 +415,38 @@ class CmuxWorkspace:
                 return panel
         return None
 
+    def open_in_browser_pane(self, url: str) -> str | None:
+        """Open url as a browser tab in pane 3, creating pane 3 if needed.
+
+        Pane 3 is the standard browser pane (BROWSER_PANE_INDEX). If it already
+        exists, the browser opens as a tab there; otherwise the rightmost pane is
+        focused and a new pane is split off to the right to become pane 3. The
+        new browser is focused (made the visible tab). Returns its surface ref.
+        """
+        pane3 = pane_idx(index=BROWSER_PANE_INDEX)
+        if pane3:
+            ref = open_browser_surface(pane3, url)
+        else:
+            rightmost = pane_idx(index=-1)
+            if rightmost:
+                focus_pane(rightmost)
+            ref = open_browser_pane(url)
+        if ref:
+            focus_surface(ref)        # make the new browser the visible tab
+            self.refresh()
+        return ref
+
     def ensure_browser(self, url: str) -> str | None:
         """Return ref of a browser already showing this app's URL, or open a new one.
 
         Matches by URL prefix — e.g. url="http://localhost:3000" matches
         "http://localhost:3000/dashboard". Ignores unrelated browser panels.
+        New browsers open as a tab in pane 3 (the standard browser pane).
         """
         existing = self.find_browser_by_url(url)
         if existing:
             return existing.ref
-        ref = open_browser_pane(url)
-        if ref:
-            self.refresh()
-        return ref
+        return self.open_in_browser_pane(url)
 
     def close_browser(self, url: str) -> bool:
         """Close the browser panel matching the given URL prefix, if one exists."""
@@ -411,14 +458,12 @@ class CmuxWorkspace:
         return False
 
     def open_github_url(self, url: str) -> str | None:
-        """Close any existing github.com browser, then open url in a fresh pane.
+        """Close any existing github.com browser, then open url in pane 3.
 
         Recycles by prefix: any browser whose current URL starts with
         https://github.com is closed first, so PR browsers don't accumulate.
+        The replacement opens as a tab in pane 3 (the standard browser pane).
         Returns the new surface ref, or None on failure.
         """
         self.close_browser(GITHUB_URL_PREFIX)   # find+close-by-prefix; no-op if none
-        ref = open_browser_pane(url)
-        if ref:
-            self.refresh()
-        return ref
+        return self.open_in_browser_pane(url)

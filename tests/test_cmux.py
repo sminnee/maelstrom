@@ -19,10 +19,11 @@ from maelstrom.cmux import (
     find_workspace,
     is_cmux_mode,
     is_ok,
-    leftmost_pane,
     list_panes,
     open_browser_pane,
+    open_browser_surface,
     open_claude_tab,
+    pane_idx,
     browser_surface_exists,
     start_claude_in_surface,
     workspace_name,
@@ -225,16 +226,28 @@ class TestListPanes:
         assert calls[0] == ("list-panes", "--workspace", "workspace:13")
 
 
-class TestLeftmostPane:
-    """Tests for leftmost_pane function."""
+class TestPaneIdx:
+    """Tests for pane_idx function."""
 
-    def test_returns_first_pane(self):
+    def test_index_zero_returns_first_pane(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value="pane:0 pane:1 pane:2"):
+            assert pane_idx(index=0) == "pane:0"
+
+    def test_index_two_returns_third_pane(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value="pane:0 pane:1 pane:2"):
+            assert pane_idx(index=2) == "pane:2"
+
+    def test_negative_index_returns_last_pane(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value="pane:0 pane:1 pane:2"):
+            assert pane_idx(index=-1) == "pane:2"
+
+    def test_out_of_bounds_returns_none(self):
         with patch("maelstrom.cmux.cmux_cmd", return_value="pane:0 pane:1"):
-            assert leftmost_pane() == "pane:0"
+            assert pane_idx(index=2) is None
 
     def test_returns_none_when_empty(self):
         with patch("maelstrom.cmux.cmux_cmd", return_value=None):
-            assert leftmost_pane() is None
+            assert pane_idx(index=0) is None
 
 
 class TestFirstRef:
@@ -443,6 +456,35 @@ class TestOpenBrowserPane:
             assert result is None
 
 
+class TestOpenBrowserSurface:
+    """Tests for open_browser_surface function."""
+
+    def test_opens_browser_tab_in_pane(self):
+        calls = []
+
+        def mock_cmux_cmd(*args):
+            calls.append(args)
+            # cmux returns multiple refs; only the surface ref is usable.
+            return "OK surface:99 pane:2 workspace:13"
+
+        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
+            result = open_browser_surface("pane:2", "http://localhost:3000")
+
+        assert result == "surface:99"
+        assert calls[0] == (
+            "new-surface", "--type", "browser",
+            "--pane", "pane:2", "--url", "http://localhost:3000",
+        )
+
+    def test_returns_none_when_no_surface_ref(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value="OK"):
+            assert open_browser_surface("pane:2", "http://localhost:3000") is None
+
+    def test_returns_none_on_failure(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
+            assert open_browser_surface("pane:2", "http://localhost:3000") is None
+
+
 class TestSurfaceExists:
     """Tests for browser_surface_exists function."""
 
@@ -621,7 +663,7 @@ class TestCmuxWorkspace:
 
         with (
             patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd),
-            patch("maelstrom.cmux.open_browser_pane") as mock_open,
+            patch.object(CmuxWorkspace, "open_in_browser_pane") as mock_open,
         ):
             ws = CmuxWorkspace()
             ref = ws.ensure_browser("http://localhost:3000")
@@ -638,7 +680,9 @@ class TestCmuxWorkspace:
 
         with (
             patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd),
-            patch("maelstrom.cmux.open_browser_pane", return_value="surface:200") as mock_open,
+            patch.object(
+                CmuxWorkspace, "open_in_browser_pane", return_value="surface:200",
+            ) as mock_open,
         ):
             ws = CmuxWorkspace()
             ref = ws.ensure_browser("http://localhost:3000")
@@ -688,7 +732,9 @@ class TestOpenGithubUrl:
 
         with (
             patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd),
-            patch("maelstrom.cmux.open_browser_pane", return_value="surface:300") as mock_open,
+            patch.object(
+                CmuxWorkspace, "open_in_browser_pane", return_value="surface:300",
+            ) as mock_open,
         ):
             ws = CmuxWorkspace()
             ref = ws.open_github_url("https://github.com/owner/repo/pull/9")
@@ -711,7 +757,9 @@ class TestOpenGithubUrl:
 
         with (
             patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd),
-            patch("maelstrom.cmux.open_browser_pane", return_value="surface:300") as mock_open,
+            patch.object(
+                CmuxWorkspace, "open_in_browser_pane", return_value="surface:300",
+            ) as mock_open,
         ):
             ws = CmuxWorkspace()
             ref = ws.open_github_url("https://github.com/owner/repo/pull/9")
@@ -736,7 +784,9 @@ class TestOpenGithubUrl:
 
         with (
             patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd),
-            patch("maelstrom.cmux.open_browser_pane", return_value="surface:300") as mock_open,
+            patch.object(
+                CmuxWorkspace, "open_in_browser_pane", return_value="surface:300",
+            ) as mock_open,
         ):
             ws = CmuxWorkspace()
             ref = ws.open_github_url("https://github.com/owner/repo/pull/9")
@@ -750,7 +800,54 @@ class TestOpenGithubUrl:
 
         with (
             patch("maelstrom.cmux.cmux_cmd", return_value=output),
-            patch("maelstrom.cmux.open_browser_pane", return_value=None),
+            patch.object(CmuxWorkspace, "open_in_browser_pane", return_value=None),
         ):
             ws = CmuxWorkspace()
             assert ws.open_github_url("https://github.com/owner/repo/pull/9") is None
+
+
+class TestOpenInBrowserPane:
+    """Tests for CmuxWorkspace.open_in_browser_pane."""
+
+    def test_opens_surface_in_existing_pane3(self):
+        with (
+            patch("maelstrom.cmux.pane_idx", return_value="pane:2") as mock_pane_idx,
+            patch(
+                "maelstrom.cmux.open_browser_surface", return_value="surface:99",
+            ) as mock_surface,
+            patch("maelstrom.cmux.open_browser_pane") as mock_pane,
+            patch("maelstrom.cmux.focus_surface") as mock_focus,
+            patch("maelstrom.cmux.cmux_cmd", return_value=""),
+        ):
+            ws = CmuxWorkspace()
+            ref = ws.open_in_browser_pane("http://localhost:3000")
+
+        assert ref == "surface:99"
+        mock_pane_idx.assert_called_once_with(index=2)
+        mock_surface.assert_called_once_with("pane:2", "http://localhost:3000")
+        mock_pane.assert_not_called()
+        mock_focus.assert_called_once_with("surface:99")
+
+    def test_creates_pane3_when_missing(self):
+        # pane_idx returns None for pane 3, "pane:1" for rightmost.
+        def fake_pane_idx(index=0):
+            return None if index == 2 else "pane:1"
+
+        with (
+            patch("maelstrom.cmux.pane_idx", side_effect=fake_pane_idx),
+            patch("maelstrom.cmux.open_browser_surface") as mock_surface,
+            patch(
+                "maelstrom.cmux.open_browser_pane", return_value="surface:200",
+            ) as mock_pane,
+            patch("maelstrom.cmux.focus_pane") as mock_focus_pane,
+            patch("maelstrom.cmux.focus_surface") as mock_focus_surface,
+            patch("maelstrom.cmux.cmux_cmd", return_value=""),
+        ):
+            ws = CmuxWorkspace()
+            ref = ws.open_in_browser_pane("http://localhost:3000")
+
+        assert ref == "surface:200"
+        mock_focus_pane.assert_called_once_with("pane:1")
+        mock_pane.assert_called_once_with("http://localhost:3000")
+        mock_surface.assert_not_called()
+        mock_focus_surface.assert_called_once_with("surface:200")
