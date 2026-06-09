@@ -308,6 +308,7 @@ def task_list(
         row = {"ID": t.id, "STATUS": t.status}
         if all_ or all_todo:
             row["ACTIONABLE"] = "yes" if actionable else "no"
+        row["BRANCH"] = t.branch or model.default_branch(t.id)
         row["TITLE"] = t.title
         rows.append(row)
 
@@ -316,9 +317,9 @@ def task_list(
         return
 
     columns = (
-        ["ID", "STATUS", "ACTIONABLE", "TITLE"]
+        ["ID", "STATUS", "ACTIONABLE", "BRANCH", "TITLE"]
         if (all_ or all_todo)
-        else ["ID", "STATUS", "TITLE"]
+        else ["ID", "STATUS", "BRANCH", "TITLE"]
     )
     draw_table(rows, columns)
 
@@ -423,6 +424,50 @@ def task_log(id: str, msg: str, project: str | None) -> None:
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
     click.echo(f"Logged to {id}.")
+
+
+@task.command("update")
+@click.argument("id")
+@click.argument("title", required=False)
+@click.option("--project", default=None, help="Project name (default: from cwd).")
+@click.option("--branch", default=None, help="Set the task's branch.")
+@click.option(
+    "--content-file",
+    default=None,
+    help="File whose contents replace the Content section ('-' reads stdin).",
+)
+def task_update(
+    id: str,
+    title: str | None,
+    project: str | None,
+    branch: str | None,
+    content_file: str | None,
+) -> None:
+    """Update a task's fields (title, branch, content)."""
+    proj = _resolve_project(project)
+    store = _store()
+    content = _read_content_file(content_file) if content_file is not None else None
+    try:
+        model.update(store, proj, id, title=title, branch=branch, content=content)
+    except KeyError:
+        raise click.ClickException(f"Task not found: {id}")
+    click.echo(f"Updated {id}.")
+
+
+@task.command("edit")
+@click.argument("id")
+@click.option("--project", default=None, help="Project name (default: from cwd).")
+def task_edit(id: str, project: str | None) -> None:
+    """Open the task file in $EDITOR (vi); commit if changed."""
+    proj = _resolve_project(project)
+    store = _store()
+    try:
+        _task, changed = model.edit_in_editor(store, proj, id)
+    except KeyError:
+        raise click.ClickException(f"Task not found: {id}")
+    except RuntimeError as e:
+        raise click.ClickException(str(e))
+    click.echo(f"Updated {id}." if changed else f"No changes to {id}.")
 
 
 @task.command("rm")
