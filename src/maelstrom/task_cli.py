@@ -15,7 +15,12 @@ from . import task as model  # noqa: F401  (module, used as `model.*`)
 from .context import resolve_context
 from .table import draw_table
 from .task_store import GitFileStore
-from .worktree import setup_worktree_for_branch, start_claude_session
+from .worktree import (
+    build_claude_command,
+    exec_claude,
+    launch_claude_in_worktree,
+    setup_worktree_for_branch,
+)
 
 
 def _store() -> GitFileStore:
@@ -39,12 +44,29 @@ def _read_content_file(content_file: str | None) -> str:
     return path.read_text()
 
 
-def _run_task(store: GitFileStore, project: str, task: "model.Task") -> None:
-    """Ensure a worktree for the task, mark it in-progress, then launch Claude.
+def _run_task(
+    store: GitFileStore, project: str, task: "model.Task", *, here: bool = False
+) -> None:
+    """Mark a task in-progress and launch its Claude session.
 
-    ``start_claude_session`` may ``execvp`` (replacing the process), so every
-    store write MUST complete before it is called.
+    The launchers may ``execvp`` (replacing the process), so every store write
+    MUST complete before they are called. With ``here=True`` the session runs
+    in the current shell — no worktree reconciliation, no new cmux workspace.
     """
+    # Skills running inside the session self-reference via these — e.g. to
+    # `mael task done $MAEL_TASK_ID` and `--follow-end linear.<parent>`.
+    session_env = {"MAEL_TASK_ID": task.id}
+    if task.parent:
+        session_env["MAEL_TASK_PARENT"] = task.parent
+    prompt = model.build_prompt(task)
+    perm = model._permission_mode_for(task.mode)
+
+    if here:
+        model.move(store, project, task.id, model.STATUS_IN_PROGRESS)  # write BEFORE launch
+        click.echo(f"Running {task.id} here (current shell)")
+        exec_claude(build_claude_command(prompt, perm), cwd=None, env=session_env)
+        return
+
     ctx = resolve_context(project, require_project=True, arg_is_project=True)
     project_path = ctx.project_path
     if project_path is None or not project_path.exists():
@@ -56,17 +78,12 @@ def _run_task(store: GitFileStore, project: str, task: "model.Task") -> None:
     model.move(store, project, task.id, model.STATUS_IN_PROGRESS)  # write BEFORE launch
     click.echo(f"Running {task.id} on {branch}")
     click.echo(f"  → {project}/{result.name} ({result.action})")
-    # Skills running inside the session self-reference via these — e.g. to
-    # `mael task done $MAEL_TASK_ID` and `--follow-end linear.<parent>`.
-    session_env = {"MAEL_TASK_ID": task.id}
-    if task.parent:
-        session_env["MAEL_TASK_PARENT"] = task.parent
-    start_claude_session(
+    launch_claude_in_worktree(
         result.path,
         project=project,
         worktree=result.name,
-        initial_prompt=model.build_prompt(task),
-        permission_mode=model._permission_mode_for(task.mode),
+        initial_prompt=prompt,
+        permission_mode=perm,
         env=session_env,
     )
 
@@ -126,6 +143,11 @@ def task() -> None:
     help="File whose contents become the task's Content section ('-' reads stdin).",
 )
 @click.option("--run", is_flag=True, help="Launch the task as a session immediately.")
+@click.option(
+    "--here",
+    is_flag=True,
+    help="With --run, launch in the current shell (no worktree, no new workspace).",
+)
 def task_add(
     title: str,
     project: str | None,
@@ -137,6 +159,7 @@ def task_add(
     follow_ends: tuple[str, ...],
     content_file: str | None,
     run: bool,
+    here: bool,
 ) -> None:
     """Add a new task and print its id."""
     content = _read_content_file(content_file)
@@ -151,6 +174,7 @@ def task_add(
         follow_ends=follow_ends,
         content=content,
         run=run,
+        here=here,
     )
 
 
@@ -166,6 +190,7 @@ def add_task(
     follow_ends: tuple[str, ...] = (),
     content: str = "",
     run: bool = False,
+    here: bool = False,
 ) -> "model.Task":
     """Create a task (and optionally launch it), echoing its id.
 
@@ -195,7 +220,7 @@ def add_task(
     )
     click.echo(new.id)
     if run:
-        _run_task(store, proj, new)
+        _run_task(store, proj, new, here=here)
     return new
 
 
@@ -272,7 +297,12 @@ def task_list(
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 @click.option("--parent", default=None, help="Restrict to children of this id.")
 @click.option("--run", is_flag=True, help="Launch the next actionable task as a session.")
-def task_next(project: str | None, parent: str | None, run: bool) -> None:
+@click.option(
+    "--here",
+    is_flag=True,
+    help="With --run, launch in the current shell (no worktree, no new workspace).",
+)
+def task_next(project: str | None, parent: str | None, run: bool, here: bool) -> None:
     """Print the id of the next actionable task."""
     proj = _resolve_project(project)
     store = _store()
@@ -280,7 +310,7 @@ def task_next(project: str | None, parent: str | None, run: bool) -> None:
     if nxt is None:
         raise click.ClickException("No actionable task.")
     if run:
-        _run_task(store, proj, nxt)
+        _run_task(store, proj, nxt, here=here)
     else:
         click.echo(nxt.id)
 
@@ -288,7 +318,12 @@ def task_next(project: str | None, parent: str | None, run: bool) -> None:
 @task.command("run")
 @click.argument("id")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
-def task_run(id: str, project: str | None) -> None:
+@click.option(
+    "--here",
+    is_flag=True,
+    help="Launch in the current shell (no worktree, no new workspace).",
+)
+def task_run(id: str, project: str | None, here: bool) -> None:
     """Launch a task as a Claude session (ensures its worktree first)."""
     proj = _resolve_project(project)
     store = _store()
@@ -296,7 +331,7 @@ def task_run(id: str, project: str | None) -> None:
         t = model.load(store, proj, id)
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
-    _run_task(store, proj, t)
+    _run_task(store, proj, t, here=here)
 
 
 @task.command("show")

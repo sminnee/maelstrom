@@ -514,7 +514,7 @@ class TestCmdAddRecycle:
         stack.enter_context(patch(
             "maelstrom.cli.extract_worktree_name_from_folder", return_value="bravo",
         ))
-        stack.enter_context(patch("maelstrom.cli.start_claude_session"))
+        stack.enter_context(patch("maelstrom.cli.launch_claude_in_worktree"))
 
         helper = stack.enter_context(patch(
             "maelstrom.cli.regenerate_and_restart_if_running",
@@ -611,8 +611,8 @@ class TestCmdAddExistingBranch:
                 patch("maelstrom.worktree.create_worktree", return_value=worktree_path)
             ),
             "run_install_cmd": stack.enter_context(patch("maelstrom.worktree.run_install_cmd")),
-            "start_claude_session": stack.enter_context(
-                patch("maelstrom.cli.start_claude_session")
+            "launch_claude_in_worktree": stack.enter_context(
+                patch("maelstrom.cli.launch_claude_in_worktree")
             ),
             "find_closed_worktree": stack.enter_context(
                 patch("maelstrom.worktree.find_closed_worktree", return_value=None)
@@ -642,11 +642,11 @@ class TestCmdAddExistingBranch:
             mocks["open_claude_tab"].assert_called_once()
             mocks["create_worktree"].assert_not_called()
             mocks["run_install_cmd"].assert_not_called()
-            mocks["start_claude_session"].assert_not_called()
+            mocks["launch_claude_in_worktree"].assert_not_called()
             assert "already open" in result.output
 
     def test_case2_no_workspace_starts_session(self, tmp_path):
-        """Worktree exists but no live workspace → start_claude_session."""
+        """Worktree exists but no live workspace → launch_claude_in_worktree."""
         from contextlib import ExitStack
 
         with ExitStack() as stack:
@@ -657,7 +657,7 @@ class TestCmdAddExistingBranch:
             result = CliRunner().invoke(cli, ["add", "feat-x"])
             assert result.exit_code == 0, result.output
 
-            mocks["start_claude_session"].assert_called_once_with(
+            mocks["launch_claude_in_worktree"].assert_called_once_with(
                 existing_wt, project="proj", worktree="bravo",
             )
             mocks["open_claude_tab"].assert_not_called()
@@ -674,7 +674,7 @@ class TestCmdAddExistingBranch:
             result = CliRunner().invoke(cli, ["add", "feat-x"])
             assert result.exit_code == 0, result.output
 
-            mocks["start_claude_session"].assert_called_once_with(
+            mocks["launch_claude_in_worktree"].assert_called_once_with(
                 existing_wt, project="proj", worktree="bravo",
             )
             mocks["open_claude_tab"].assert_not_called()

@@ -1,5 +1,6 @@
 """Tests for maelstrom.worktree module."""
 
+import os
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -17,8 +18,11 @@ from maelstrom.worktree import (
     WorktreeInfo,
     _sanitise_path_for_claude,
     _setup_claude_memory_symlink,
+    build_claude_command,
+    claude_shell_line,
     close_worktree,
     create_worktree,
+    exec_claude,
     extract_project_name,
     extract_worktree_name_from_folder,
     find_closed_worktree,
@@ -28,9 +32,10 @@ from maelstrom.worktree import (
     get_worktree_folder_name,
     has_root_worktree,
     is_worktree_closed,
+    launch_claude_in_worktree,
     list_worktrees,
+    open_claude_workspace,
     open_worktree,
-    start_claude_session,
     read_env_file,
     reclaim_or_allocate_ports,
     recycle_worktree,
@@ -599,58 +604,138 @@ class TestOpenWorktree:
                     open_worktree(worktree_path, "code")
 
 
-class TestStartClaudeSession:
-    """Tests for start_claude_session function."""
+class TestBuildClaudeCommand:
+    """Tests for the pure command-builder."""
 
-    def test_start_claude_session_calls_execvp(self):
-        """Test that start_claude_session calls os.execvp with correct args."""
+    def test_bare(self):
+        assert build_claude_command() == ["claude"]
+
+    def test_with_permission_mode(self):
+        assert build_claude_command(permission_mode="plan") == [
+            "claude",
+            "--permission-mode",
+            "plan",
+        ]
+
+    def test_with_prompt(self):
+        assert build_claude_command("Do it") == ["claude", "Do it"]
+
+    def test_with_both(self):
+        assert build_claude_command("Do it", "plan") == [
+            "claude",
+            "--permission-mode",
+            "plan",
+            "Do it",
+        ]
+
+
+class TestClaudeShellLine:
+    """Tests for the shell-quoted line used by the cmux ``send`` path."""
+
+    def test_quotes_argv(self):
+        line = claude_shell_line(["claude", "--permission-mode", "plan", "hi there"])
+        assert line == "claude --permission-mode plan 'hi there'"
+
+    def test_prepends_quoted_env(self):
+        line = claude_shell_line(
+            ["claude", "hi"], env={"MAEL_TASK_ID": "a b"}
+        )
+        assert line == "MAEL_TASK_ID='a b' claude hi"
+
+
+class TestExecClaude:
+    """Tests for the execvp placement peer."""
+
+    def test_cwd_none_does_not_chdir(self):
+        with patch("maelstrom.worktree.os.chdir") as mock_chdir, \
+             patch("maelstrom.worktree.os.execvp") as mock_execvp:
+            exec_claude(["claude"], cwd=None)
+            mock_chdir.assert_not_called()
+            mock_execvp.assert_called_once_with("claude", ["claude"])
+
+    def test_cwd_chdirs(self):
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
             with patch("maelstrom.worktree.os.chdir") as mock_chdir, \
                  patch("maelstrom.worktree.os.execvp") as mock_execvp:
-                start_claude_session(worktree_path)
+                exec_claude(["claude"], cwd=worktree_path)
                 mock_chdir.assert_called_once_with(worktree_path)
                 mock_execvp.assert_called_once_with("claude", ["claude"])
 
-    def test_execvp_includes_prompt_and_permission_mode(self):
-        """Prompt is positional; permission mode is a --permission-mode flag."""
-        with TemporaryDirectory() as tmpdir:
-            worktree_path = Path(tmpdir)
-            with patch("maelstrom.worktree.os.chdir"), \
-                 patch("maelstrom.worktree.os.execvp") as mock_execvp:
-                start_claude_session(
-                    worktree_path,
-                    initial_prompt="plan-task Do it\n\nDetails.",
-                    permission_mode="plan",
-                )
-                mock_execvp.assert_called_once_with(
-                    "claude",
-                    [
-                        "claude",
-                        "--permission-mode",
-                        "plan",
-                        "plan-task Do it\n\nDetails.",
-                    ],
-                )
+    def test_env_updates_environ(self):
+        with patch("maelstrom.worktree.os.chdir"), \
+             patch("maelstrom.worktree.os.execvp"), \
+             patch.dict("maelstrom.worktree.os.environ", {}, clear=True):
+            exec_claude(["claude"], cwd=None, env={"MAEL_TASK_ID": "x"})
+            assert os.environ["MAEL_TASK_ID"] == "x"
 
-    def test_cmux_path_passes_quoted_command(self):
-        """In cmux mode the prompt + flag are shell-quoted into the command."""
+
+class TestOpenClaudeWorkspace:
+    """Tests for the cmux new-workspace placement peer."""
+
+    def test_returns_false_when_not_cmux(self):
+        with patch("maelstrom.cmux.is_cmux_mode", return_value=False), \
+             patch("maelstrom.cmux.create_cmux_workspace") as mock_create:
+            placed = open_claude_workspace(
+                "proj", "alpha", Path("/wt"), ["claude", "hi"]
+            )
+            assert placed is False
+            mock_create.assert_not_called()
+
+    def test_calls_create_with_shell_line_when_cmux(self):
+        with patch("maelstrom.cmux.is_cmux_mode", return_value=True), \
+             patch(
+                 "maelstrom.cmux.create_cmux_workspace", return_value="workspace:1"
+             ) as mock_create:
+            placed = open_claude_workspace(
+                "proj",
+                "alpha",
+                Path("/wt"),
+                ["claude", "--permission-mode", "plan", "hi there"],
+                env={"MAEL_TASK_ID": "t1"},
+            )
+            assert placed is True
+            command = mock_create.call_args.kwargs["command"]
+            assert command == (
+                "MAEL_TASK_ID=t1 claude --permission-mode plan 'hi there'"
+            )
+
+
+class TestLaunchClaudeInWorktree:
+    """Guards the old workspace-or-exec-in-worktree composition."""
+
+    def test_uses_workspace_when_cmux_succeeds(self):
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
-            with patch("maelstrom.cmux.is_cmux_mode", return_value=True), \
-                 patch(
-                     "maelstrom.cmux.create_cmux_workspace", return_value="workspace:1"
-                 ) as mock_create:
-                start_claude_session(
+            with patch(
+                "maelstrom.worktree.open_claude_workspace", return_value=True
+            ) as mock_open, \
+                 patch("maelstrom.worktree.exec_claude") as mock_exec:
+                launch_claude_in_worktree(
+                    worktree_path, project="proj", worktree="alpha"
+                )
+                mock_open.assert_called_once()
+                mock_exec.assert_not_called()
+
+    def test_execs_in_worktree_when_no_workspace(self):
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            with patch(
+                "maelstrom.worktree.open_claude_workspace", return_value=False
+            ), patch("maelstrom.worktree.exec_claude") as mock_exec:
+                launch_claude_in_worktree(
                     worktree_path,
                     project="proj",
                     worktree="alpha",
-                    initial_prompt="hi there",
+                    initial_prompt="hi",
                     permission_mode="plan",
+                    env={"MAEL_TASK_ID": "t1"},
                 )
-                mock_create.assert_called_once()
-                command = mock_create.call_args.kwargs["command"]
-                assert command == "claude --permission-mode plan 'hi there'"
+                mock_exec.assert_called_once_with(
+                    ["claude", "--permission-mode", "plan", "hi"],
+                    cwd=worktree_path,
+                    env={"MAEL_TASK_ID": "t1"},
+                )
 
 
 class TestIsWorktreeClosed:
