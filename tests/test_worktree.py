@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -21,6 +22,10 @@ from maelstrom.worktree import (
     build_claude_command,
     claude_shell_line,
     close_worktree,
+    copy_back_new_env_vars,
+    locked_file,
+    managed_keys_in_env,
+    parse_env_text,
     create_worktree,
     exec_claude,
     extract_project_name,
@@ -2002,3 +2007,224 @@ class TestSyncWorktreeSquash:
         log_after = run_git(repo, "log", "--oneline").stdout
         assert "fixup!" in log_after
         assert len(log_after.strip().splitlines()) == 3
+
+
+def _write_worktree_env(worktree_path: Path, managed: dict, user_lines: str = "") -> None:
+    """Write a worktree .env with a managed section and optional user content."""
+    lines = [ENV_SECTION_START]
+    for key, value in managed.items():
+        lines.append(f"{key}={value}")
+    lines.append(ENV_SECTION_END)
+    text = "\n".join(lines) + "\n"
+    if user_lines:
+        text += "\n" + user_lines.rstrip("\n") + "\n"
+    (worktree_path / ".env").write_text(text)
+
+
+class TestManagedKeysInEnv:
+    """Tests for managed_keys_in_env."""
+
+    def test_empty_when_no_file(self, tmp_path):
+        assert managed_keys_in_env(tmp_path) == set()
+
+    def test_empty_when_no_markers(self, tmp_path):
+        (tmp_path / ".env").write_text("FOO=bar\n")
+        assert managed_keys_in_env(tmp_path) == set()
+
+    def test_collects_keys_between_markers(self, tmp_path):
+        _write_worktree_env(
+            tmp_path,
+            {"WORKTREE": "charlie", "PORT_BASE": "120", "WEB_PORT": "1200"},
+            user_lines="FOO=bar",
+        )
+        assert managed_keys_in_env(tmp_path) == {"WORKTREE", "PORT_BASE", "WEB_PORT"}
+
+
+class TestParseEnvText:
+    """Tests for parse_env_text."""
+
+    def test_parses_and_strips_source_comment(self):
+        text = (
+            "APP_URL=http://localhost:1200  # source: [APP_URL=http://localhost:${WEB_PORT}]\n"
+            "FOO=bar\n"
+        )
+        assert parse_env_text(text) == {
+            "APP_URL": "http://localhost:1200",
+            "FOO": "bar",
+        }
+
+    def test_empty_text(self):
+        assert parse_env_text("") == {}
+
+
+class TestLockedFile:
+    """Tests for the locked_file transaction context manager."""
+
+    def test_writes_buffered_text_on_clean_exit(self, tmp_path):
+        path = tmp_path / "f.env"
+        path.write_text("A=1\n")
+        with locked_file(path) as txn:
+            assert txn.text == "A=1\n"
+            txn.text = "A=1\nB=2\n"
+        assert path.read_text() == "A=1\nB=2\n"
+
+    def test_no_write_when_unchanged(self, tmp_path):
+        path = tmp_path / "f.env"
+        path.write_text("A=1\n")
+        mtime_before = path.stat().st_mtime_ns
+        time.sleep(0.01)
+        with locked_file(path) as txn:
+            _ = txn.text  # read but do not modify
+        assert path.read_text() == "A=1\n"
+        assert path.stat().st_mtime_ns == mtime_before
+
+    def test_no_write_on_exception(self, tmp_path):
+        path = tmp_path / "f.env"
+        path.write_text("A=1\n")
+
+        class Boom(Exception):
+            pass
+
+        with pytest.raises(Boom):
+            with locked_file(path) as txn:
+                txn.text = "A=1\nB=2\n"
+                raise Boom()
+        # Buffered change not flushed; lock released so a re-acquire succeeds.
+        assert path.read_text() == "A=1\n"
+        with locked_file(path) as txn:
+            assert txn.text == "A=1\n"
+
+    def test_creates_missing_file(self, tmp_path):
+        path = tmp_path / "new.env"
+        with locked_file(path) as txn:
+            assert txn.text == ""
+            txn.text = "X=1\n"
+        assert path.read_text() == "X=1\n"
+
+    def test_missing_file_without_create_raises(self, tmp_path):
+        path = tmp_path / "absent.env"
+        with pytest.raises(FileNotFoundError):
+            with locked_file(path, create=False):
+                pass
+
+    def test_second_acquisition_times_out_while_held(self, tmp_path):
+        path = tmp_path / "f.env"
+        path.write_text("A=1\n")
+        # Hold the lock via a raw fd, then assert locked_file gives up.
+        import fcntl as _fcntl
+
+        held = open(path, "a+")
+        _fcntl.flock(held, _fcntl.LOCK_EX)
+        try:
+            with pytest.raises(TimeoutError):
+                with locked_file(path, timeout=0.3):
+                    pass
+        finally:
+            _fcntl.flock(held, _fcntl.LOCK_UN)
+            held.close()
+
+
+class TestCopyBackNewEnvVars:
+    """Tests for copy_back_new_env_vars."""
+
+    def _setup(self, tmp_path):
+        project = tmp_path / "project"
+        worktree = project / "project-charlie"
+        worktree.mkdir(parents=True)
+        return project, worktree
+
+    def test_new_worktree_key_appended_to_parent(self, tmp_path):
+        project, worktree = self._setup(tmp_path)
+        (project / ".env").write_text("EXISTING=1\n")
+        _write_worktree_env(
+            worktree, {"WORKTREE": "charlie", "PORT_BASE": "120"},
+            user_lines="EXISTING=1\nSTRIPE_KEY=sk_test",
+        )
+
+        result = copy_back_new_env_vars(project, worktree)
+
+        assert result.added == {"STRIPE_KEY": "sk_test"}
+        assert result.conflicts == []
+        parent_vars = parse_env_text((project / ".env").read_text())
+        assert parent_vars["STRIPE_KEY"] == "sk_test"
+        assert parent_vars["EXISTING"] == "1"
+
+    def test_managed_keys_never_copied_back(self, tmp_path):
+        project, worktree = self._setup(tmp_path)
+        (project / ".env").write_text("EXISTING=1\n")
+        _write_worktree_env(
+            worktree,
+            {"WORKTREE": "charlie", "PORT_BASE": "120", "WEB_PORT": "1200"},
+            user_lines="EXISTING=1",
+        )
+
+        result = copy_back_new_env_vars(project, worktree)
+
+        assert result.added == {}
+        parent_vars = parse_env_text((project / ".env").read_text())
+        assert "PORT_BASE" not in parent_vars
+        assert "WEB_PORT" not in parent_vars
+        assert "WORKTREE" not in parent_vars
+
+    def test_key_in_both_same_value_is_noop(self, tmp_path):
+        project, worktree = self._setup(tmp_path)
+        (project / ".env").write_text("FOO=bar\n")
+        before = (project / ".env").read_text()
+        _write_worktree_env(
+            worktree, {"WORKTREE": "charlie"}, user_lines="FOO=bar",
+        )
+
+        result = copy_back_new_env_vars(project, worktree)
+
+        assert result.added == {}
+        assert result.conflicts == []
+        assert (project / ".env").read_text() == before
+
+    def test_key_in_both_different_value_is_conflict(self, tmp_path):
+        project, worktree = self._setup(tmp_path)
+        (project / ".env").write_text("FOO=parentval\n")
+        before = (project / ".env").read_text()
+        _write_worktree_env(
+            worktree, {"WORKTREE": "charlie"}, user_lines="FOO=wtval",
+        )
+
+        result = copy_back_new_env_vars(project, worktree)
+
+        assert result.added == {}
+        assert len(result.conflicts) == 1
+        conflict = result.conflicts[0]
+        assert conflict.key == "FOO"
+        assert conflict.parent_value == "parentval"
+        assert conflict.worktree_value == "wtval"
+        # Parent left unchanged.
+        assert (project / ".env").read_text() == before
+
+    def test_missing_parent_env_created_with_new_keys(self, tmp_path):
+        project, worktree = self._setup(tmp_path)
+        assert not (project / ".env").exists()
+        _write_worktree_env(
+            worktree, {"WORKTREE": "charlie"}, user_lines="NEW=val",
+        )
+
+        result = copy_back_new_env_vars(project, worktree)
+
+        assert result.added == {"NEW": "val"}
+        assert (project / ".env").exists()
+        assert parse_env_text((project / ".env").read_text())["NEW"] == "val"
+
+    def test_existing_parent_content_preserved_verbatim(self, tmp_path):
+        project, worktree = self._setup(tmp_path)
+        original = "# header comment\nA=1\n\nB=2\n"
+        (project / ".env").write_text(original)
+        _write_worktree_env(
+            worktree, {"WORKTREE": "charlie"},
+            user_lines="A=1\nB=2\nC=3",
+        )
+
+        result = copy_back_new_env_vars(project, worktree)
+
+        assert result.added == {"C": "3"}
+        new_text = (project / ".env").read_text()
+        # Original bytes are an unbroken prefix; only new content appended.
+        assert new_text.startswith(original)
+        assert "C=3" in new_text

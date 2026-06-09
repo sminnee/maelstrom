@@ -24,7 +24,12 @@ from .review_prepare import cmd_review_prepare
 from .session_cli import session as session_cli, session_channel as session_channel_cmd
 from .task_cli import task as task_cli
 from .env import get_env_status, regenerate_and_restart_if_running, stop_env
-from .env_cli import _ensure_cmux_browser, _print_service_status, env as env_cli
+from .env_cli import (
+    _ensure_cmux_browser,
+    _print_service_status,
+    env as env_cli,
+    print_copy_back_result,
+)
 from .git_cli import git as git_cli
 from .linear import linear
 from .sentry import sentry
@@ -36,6 +41,7 @@ from .worktree import (
     MAIN_BRANCH,
     add_project,
     close_worktree,
+    copy_back_new_env_vars,
     create_worktree,
     extract_project_name,
     extract_worktree_name_from_folder,
@@ -345,6 +351,9 @@ def cmd_add(branch, project, open, no_recycle):
 
     if result.action == "recycled":
         click.echo(f"Worktree recycled at: {worktree_path}")
+        # Rescue any stale worktree-only vars into the parent before the recreate.
+        copy_back = copy_back_new_env_vars(project_path, worktree_path)
+        print_copy_back_result(copy_back, project_path)
         try:
             stop_messages, new_state = regenerate_and_restart_if_running(
                 ctx.project, wt_name, project_path, worktree_path,
@@ -880,6 +889,12 @@ def cmd_close(targets):
             click.echo(f"Stopping environment for '{ctx.worktree}'...")
             for msg in stop_env(ctx.project, ctx.worktree):
                 click.echo(f"  {msg}")
+
+        # Rescue any vars added to this worktree's .env back to the parent before
+        # closing. Warnings never fail the close.
+        if ctx.project_path is not None:
+            copy_back = copy_back_new_env_vars(ctx.project_path, worktree_path)
+            print_copy_back_result(copy_back, ctx.project_path)
 
         click.echo(f"Closing worktree '{ctx.worktree}'...")
         result = close_worktree(worktree_path)

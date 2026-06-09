@@ -1,13 +1,16 @@
 """Worktree management for maelstrom projects."""
 
+import fcntl
 import os
 import re
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
+import time
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import NoReturn
+from typing import Iterator, NoReturn
 
 from .claude_integration import get_shared_dir
 from .config import load_config_or_default
@@ -1160,6 +1163,14 @@ def regenerate_env_file(project_path: Path, worktree_path: Path, worktree_name: 
         worktree_path: Path to the worktree.
         worktree_name: NATO name of the worktree.
     """
+    # Clean recreate: drop the existing .env so _build_env_file rebuilds it
+    # purely from the parent template. Callers (e.g. `mael env reset`) copy any
+    # new worktree vars back to the parent first, so nothing user-authored is
+    # lost — and the only difference between worktrees becomes the managed
+    # section.
+    env_file = worktree_path / ".env"
+    if env_file.exists():
+        env_file.unlink()
     _build_env_file(project_path, worktree_path, worktree_name, reuse_ports=True)
 
 
@@ -1300,21 +1311,21 @@ def create_worktree(project_path: Path, branch: str, *, detached: bool = False) 
     return _finalize_worktree(project_path, worktree_path, worktree_name)
 
 
-def read_env_file(worktree_path: Path) -> dict[str, str]:
-    """Read existing .env file if present.
+def parse_env_text(text: str) -> dict[str, str]:
+    """Parse the text of a ``.env`` file into a flat dict.
+
+    Strips ``# source: [...]`` template comments and surrounding quotes so the
+    returned values match what a dotenv reader would see. Used for both worktree
+    and parent ``.env`` files so they are parsed identically.
 
     Args:
-        worktree_path: Path to the worktree.
+        text: Raw ``.env`` file contents.
 
     Returns:
-        Dictionary of environment variables from the file.
+        Dictionary of environment variables.
     """
-    env_file = worktree_path / ".env"
-    if not env_file.exists():
-        return {}
-
     env_vars = {}
-    for line in env_file.read_text().splitlines():
+    for line in text.splitlines():
         line = line.strip()
         # Skip empty lines and comments
         if not line or line.startswith("#"):
@@ -1346,6 +1357,217 @@ def read_env_file(worktree_path: Path) -> dict[str, str]:
                 value = value[1:-1]
             env_vars[key.strip()] = value
     return env_vars
+
+
+def read_env_file(worktree_path: Path) -> dict[str, str]:
+    """Read existing .env file if present.
+
+    Args:
+        worktree_path: Path to the worktree.
+
+    Returns:
+        Dictionary of environment variables from the file.
+    """
+    env_file = worktree_path / ".env"
+    if not env_file.exists():
+        return {}
+    return parse_env_text(env_file.read_text())
+
+
+# --- Locked file transactions -------------------------------------------------
+
+
+class _Txn:
+    """Buffer for a :func:`locked_file` transaction.
+
+    ``text`` starts as the file's current contents; assigning to it buffers a
+    rewrite that is flushed only on clean exit of the ``with`` block, and only
+    if the value actually changed.
+    """
+
+    def __init__(self, initial: str) -> None:
+        self._initial = initial
+        self.text = initial
+
+
+@contextmanager
+def locked_file(
+    path: Path, *, timeout: float = 10.0, create: bool = True
+) -> Iterator[_Txn]:
+    """Open *path* under an exclusive advisory lock as a read/rewrite transaction.
+
+    The file is its own lockfile: we ``flock`` its open fd directly (no separate
+    lockfile, no atomic rename). The yielded transaction exposes the current
+    ``text``; assigning ``txn.text`` buffers a rewrite that is flushed in place on
+    clean exit, and only when the contents changed. On an exception inside the
+    block nothing is written. The lock is always released in ``finally``.
+
+    Because we lock the target fd, the rewrite is truncate-in-place rather than
+    temp+``os.replace`` — replacing the inode would orphan a second waiter's
+    already-open fd.
+
+    Args:
+        path: File to lock and (optionally) rewrite.
+        timeout: Seconds to wait for the lock before raising ``TimeoutError``.
+        create: Create the file if missing (open ``a+`` never truncates).
+
+    Raises:
+        TimeoutError: If the lock cannot be acquired within *timeout* seconds.
+        FileNotFoundError: If the file is missing and *create* is False.
+    """
+    if not create and not path.exists():
+        raise FileNotFoundError(path)
+
+    # "a+" creates the file if missing and never truncates on open. Seek to 0 to
+    # read existing contents.
+    fd = open(path, "a+")
+    try:
+        deadline = time.monotonic() + timeout
+        # Non-blocking acquire + sleep-poll so the deadline is portable; a plain
+        # blocking LOCK_EX can't be time-bounded across platforms. Mirrors
+        # task_store._locked.
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"{path} is locked by another process; "
+                        f"gave up after {int(timeout)}s."
+                    )
+                time.sleep(0.1)
+
+        fd.seek(0)
+        txn = _Txn(initial=fd.read())
+        try:
+            yield txn
+            if txn.text != txn._initial:
+                fd.seek(0)
+                fd.truncate()
+                fd.write(txn.text)
+                fd.flush()
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        fd.close()
+
+
+# --- Copy-back of new worktree env vars to the parent .env --------------------
+
+
+@dataclass
+class EnvConflict:
+    """A key present in both the worktree and parent ``.env`` with differing values."""
+
+    key: str
+    parent_value: str
+    worktree_value: str
+
+
+@dataclass
+class CopyBackResult:
+    """Outcome of :func:`copy_back_new_env_vars`."""
+
+    added: dict[str, str] = field(default_factory=dict)
+    """New keys appended to the parent ``.env`` (key -> value)."""
+    conflicts: list[EnvConflict] = field(default_factory=list)
+    """Keys present in both with differing values (warned, left unchanged)."""
+
+
+def managed_keys_in_env(worktree_path: Path) -> set[str]:
+    """Return the set of maelstrom-managed keys in a worktree's ``.env``.
+
+    These are exactly the keys inside the ``ENV_SECTION_START`` /
+    ``ENV_SECTION_END`` markers (ports, ``WORKTREE``, etc.). Deriving them
+    structurally from the file avoids re-running the port allocation logic.
+
+    Args:
+        worktree_path: Path to the worktree.
+
+    Returns:
+        Set of managed key names (empty if the file or markers are absent).
+    """
+    env_file = worktree_path / ".env"
+    if not env_file.exists():
+        return set()
+
+    text = env_file.read_text()
+    if ENV_SECTION_START not in text or ENV_SECTION_END not in text:
+        return set()
+
+    start = text.index(ENV_SECTION_START)
+    end = text.index(ENV_SECTION_END)
+    if start >= end:
+        # Malformed: end marker before start marker — don't trust the slice.
+        return set()
+    section = text[start:end]
+    keys: set[str] = set()
+    for line in section.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        keys.add(line.split("=", 1)[0].strip())
+    return keys
+
+
+def _format_copy_back_block(added: dict[str, str]) -> str:
+    """Render new keys as ``KEY=value`` lines to append to the parent ``.env``."""
+    lines = [f"{key}={value}" for key, value in added.items()]
+    return "\n".join(lines) + "\n"
+
+
+def copy_back_new_env_vars(
+    project_path: Path, worktree_path: Path
+) -> CopyBackResult:
+    """Copy genuinely-new worktree ``.env`` vars back to the parent ``.env``.
+
+    The parent ``.env`` (``project_path/.env``) is the template every worktree
+    ``.env`` is generated from. A var added to a worktree first would be lost on
+    the next recreate; this rescues such vars into the parent so the parent stays
+    the source of truth.
+
+    Only **new** keys are copied: present in the worktree, absent from the parent,
+    and not maelstrom-managed. Copy-back is purely additive — a key present in
+    both with a differing value is reported as a conflict and left untouched.
+
+    Args:
+        project_path: Path to the project root (holds the parent ``.env``).
+        worktree_path: Path to the worktree to copy from.
+
+    Returns:
+        A :class:`CopyBackResult` listing added keys and conflicts.
+    """
+    worktree_vars = read_env_file(worktree_path)
+    managed = managed_keys_in_env(worktree_path)
+    user_vars = {k: v for k, v in worktree_vars.items() if k not in managed}
+
+    parent_env = project_path / ".env"
+    result = CopyBackResult()
+
+    # The read and the write are one critical section under the lock.
+    with locked_file(parent_env) as env:
+        parent_vars = parse_env_text(env.text)
+
+        added: dict[str, str] = {}
+        conflicts: list[EnvConflict] = []
+        for key, value in user_vars.items():
+            if key not in parent_vars:
+                added[key] = value
+            elif parent_vars[key] != value:
+                conflicts.append(EnvConflict(key, parent_vars[key], value))
+
+        result.added = added
+        result.conflicts = conflicts
+
+        if added:
+            block = _format_copy_back_block(added)
+            existing = env.text.rstrip("\n")
+            # Append directly after existing content (one newline); if the parent
+            # is empty, start cleanly at the top.
+            env.text = f"{existing}\n{block}" if existing else block
+
+    return result
 
 
 _VAR_PATTERN = re.compile(r"\$\{(\w+)\}|\$(\w+)")
