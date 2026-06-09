@@ -25,7 +25,36 @@ from .env import (
 )
 from .ports import get_app_url, get_port_allocation, wait_for_port
 from .table import draw_table
-from .worktree import update_claude_local_md
+from .worktree import (
+    CopyBackResult,
+    copy_back_new_env_vars,
+    update_claude_local_md,
+)
+
+
+def print_copy_back_result(result: CopyBackResult, project_path: Path) -> None:
+    """Print copy-back results: added keys, then a single conflict warning.
+
+    Conflicts are reported as one warning listing every differing key, with a
+    synthetic diff of the parent value (``-``, kept) vs the worktree value
+    (``+``, ignored). Prints nothing when there is nothing to report.
+    """
+    parent_env = project_path / ".env"
+    if result.added:
+        n = len(result.added)
+        click.echo(f"Copied {n} new var(s) back to {parent_env}:")
+        for key, value in result.added.items():
+            click.echo(f"  +{key}={value}")
+    if result.conflicts:
+        keys = ", ".join(c.key for c in result.conflicts)
+        click.echo(
+            f"Warning: {keys} differ between worktree and {parent_env}; "
+            "parent unchanged, the worktree overwritten:",
+            err=True,
+        )
+        for c in result.conflicts:
+            click.echo(f"  -{c.key}={c.parent_value}", err=True)
+            click.echo(f"  +{c.key}={c.worktree_value}", err=True)
 
 
 def _ensure_cmux_browser(state: EnvState, project_path: Path, worktree: str) -> None:
@@ -296,6 +325,11 @@ def env_reset(target):
     worktree_path = ctx.worktree_path
     if not worktree_path or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
+
+    # Rescue any new worktree vars into the parent before regenerating, so the
+    # regenerate is a clean recreate from the parent template.
+    copy_back = copy_back_new_env_vars(ctx.project_path, worktree_path)
+    print_copy_back_result(copy_back, ctx.project_path)
 
     try:
         stop_messages, new_state = regenerate_and_restart_if_running(

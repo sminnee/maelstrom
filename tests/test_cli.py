@@ -8,7 +8,7 @@ from unittest.mock import patch, MagicMock
 from click.testing import CliRunner
 
 from maelstrom.cli import cli, _compute_app_build_hash, _should_rebuild_app, _store_build_hash
-from maelstrom.worktree import WorktreeInfo
+from maelstrom.worktree import CopyBackResult, WorktreeInfo
 
 
 class TestListAllJson:
@@ -308,7 +308,8 @@ class TestCloseMultiTarget:
             mock_ctx.worktree_path.exists.return_value = True
             mock_resolve.return_value = mock_ctx
 
-            with patch("maelstrom.cli.close_worktree") as mock_close, \
+            with patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
+                 patch("maelstrom.cli.close_worktree") as mock_close, \
                  patch("maelstrom.cli.get_env_status", return_value=None):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 result = runner.invoke(cli, ["close"])
@@ -335,7 +336,8 @@ class TestCloseMultiTarget:
 
             mock_resolve.side_effect = [make_ctx("alpha"), make_ctx("bravo")]
 
-            with patch("maelstrom.cli.close_worktree") as mock_close, \
+            with patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
+                 patch("maelstrom.cli.close_worktree") as mock_close, \
                  patch("maelstrom.cli.get_env_status", return_value=None):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 result = runner.invoke(cli, ["close", "alpha", "bravo"])
@@ -356,7 +358,8 @@ class TestCloseMultiTarget:
             mock_resolve.return_value = mock_ctx
 
             alive_service = MagicMock(alive=True)
-            with patch("maelstrom.cli.close_worktree") as mock_close, \
+            with patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
+                 patch("maelstrom.cli.close_worktree") as mock_close, \
                  patch("maelstrom.cli.get_env_status", return_value=[alive_service]), \
                  patch("maelstrom.cli.stop_env", return_value=["web: stopped"]) as mock_stop:
                 mock_close.return_value = MagicMock(success=True, message="Closed")
@@ -377,7 +380,8 @@ class TestCloseMultiTarget:
             mock_ctx.worktree_path.exists.return_value = True
             mock_resolve.return_value = mock_ctx
 
-            with patch("maelstrom.cli.close_worktree") as mock_close, \
+            with patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
+                 patch("maelstrom.cli.close_worktree") as mock_close, \
                  patch("maelstrom.cli.get_env_status", return_value=None), \
                  patch("maelstrom.cli.stop_env") as mock_stop:
                 mock_close.return_value = MagicMock(success=True, message="Closed")
@@ -402,13 +406,87 @@ class TestCloseMultiTarget:
                 if args[0] == "list-workspaces" else "OK"
             )
 
-            with patch("maelstrom.cli.close_worktree") as mock_close, \
+            with patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
+                 patch("maelstrom.cli.close_worktree") as mock_close, \
                  patch("maelstrom.cli.get_env_status", return_value=None), \
                  patch("maelstrom.cli.stop_env"):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 result = runner.invoke(cli, ["close", "myproject.alpha"])
 
             assert "Closed cmux workspace 'myproject-alpha'" in result.output
+
+    def test_close_copies_back_new_var(self, tmp_path):
+        """mael close copies a new worktree var back to the parent and reports it."""
+        runner = CliRunner()
+
+        project_path = tmp_path / "myproject"
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir(parents=True)
+        (project_path / ".env").write_text("EXISTING=1\n")
+        (worktree_path / ".env").write_text(
+            "# Maelstrom port allocations\n"
+            "WORKTREE=alpha\n"
+            "# End Maelstrom port allocations\n"
+            "\nEXISTING=1\nFOO=bar\n"
+        )
+
+        with patch("maelstrom.cli.resolve_context") as mock_resolve:
+            mock_ctx = MagicMock()
+            mock_ctx.worktree = "alpha"
+            mock_ctx.project = "myproject"
+            mock_ctx.project_path = project_path
+            mock_ctx.worktree_path = worktree_path
+            mock_resolve.return_value = mock_ctx
+
+            with patch("maelstrom.cli.close_worktree") as mock_close, \
+                 patch("maelstrom.cli.get_env_status", return_value=None):
+                mock_close.return_value = MagicMock(success=True, message="Closed")
+                result = runner.invoke(cli, ["close", "myproject.alpha"])
+
+        assert result.exit_code == 0, result.output
+        assert "Copied 1 new var(s) back" in result.output
+        assert "+FOO=bar" in result.output
+        assert "FOO=bar" in (project_path / ".env").read_text()
+
+    def test_close_does_not_fail_on_conflict(self, tmp_path):
+        """A copy-back conflict warns but does not fail the close."""
+        runner = CliRunner()
+
+        project_path = tmp_path / "myproject"
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir(parents=True)
+        parent_text = "FOO=parentval\nBAR=parentbar\n"
+        (project_path / ".env").write_text(parent_text)
+        (worktree_path / ".env").write_text(
+            "# Maelstrom port allocations\n"
+            "WORKTREE=alpha\n"
+            "# End Maelstrom port allocations\n"
+            "\nFOO=wtval\nBAR=wtbar\n"
+        )
+
+        with patch("maelstrom.cli.resolve_context") as mock_resolve:
+            mock_ctx = MagicMock()
+            mock_ctx.worktree = "alpha"
+            mock_ctx.project = "myproject"
+            mock_ctx.project_path = project_path
+            mock_ctx.worktree_path = worktree_path
+            mock_resolve.return_value = mock_ctx
+
+            with patch("maelstrom.cli.close_worktree") as mock_close, \
+                 patch("maelstrom.cli.get_env_status", return_value=None):
+                mock_close.return_value = MagicMock(success=True, message="Closed")
+                result = runner.invoke(cli, ["close", "myproject.alpha"])
+
+        assert result.exit_code == 0, result.output
+        # One consolidated warning listing both keys, with a synthetic diff.
+        assert "FOO, BAR differ between worktree" in result.output
+        assert "-FOO=parentval" in result.output
+        assert "+FOO=wtval" in result.output
+        assert "-BAR=parentbar" in result.output
+        assert "+BAR=wtbar" in result.output
+        # Parent value untouched.
+        assert (project_path / ".env").read_text() == parent_text
+        mock_close.assert_called_once()
 
 
 class TestStaleSymlinkCleanup:

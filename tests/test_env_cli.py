@@ -781,6 +781,30 @@ class TestEnvReset:
             "proj", "bravo", ctx.project_path, ctx.worktree_path,
         )
 
+    @patch("maelstrom.env_cli.regenerate_and_restart_if_running", return_value=([], None))
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_reset_copies_back_new_worktree_var(self, mock_ctx, mock_helper, tmp_path):
+        """Copies a new worktree var back to the parent before regenerating."""
+        ctx = _mock_ctx_with_path(tmp_path)
+        mock_ctx.return_value = ctx
+        # Parent template has only an existing var.
+        (ctx.project_path / ".env").write_text("EXISTING=1\n")
+        # Worktree .env carries a managed section plus a brand-new user var.
+        (ctx.worktree_path / ".env").write_text(
+            "# Maelstrom port allocations\n"
+            "WORKTREE=bravo\n"
+            "# End Maelstrom port allocations\n"
+            "\nEXISTING=1\nFOO=bar\n"
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "reset"])
+        assert result.exit_code == 0, result.output
+        assert "Copied 1 new var(s) back" in result.output
+        assert "+FOO=bar" in result.output
+        parent_text = (ctx.project_path / ".env").read_text()
+        assert "FOO=bar" in parent_text
+
     @patch("maelstrom.env_cli.resolve_context")
     def test_reset_worktree_not_found(self, mock_ctx):
         """Shows error when worktree path doesn't exist."""
