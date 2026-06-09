@@ -1191,6 +1191,14 @@ def _handle_wait_for_review(cwd: Path) -> None:
         click.echo(f"  {snippet}")
 
 
+def _open_pr_in_cmux(url: str) -> None:
+    """Open a PR URL in a cmux browser, recycling any github.com browser. No-op outside cmux."""
+    from .cmux import CmuxWorkspace
+    ws = CmuxWorkspace.current()   # None when not in cmux mode
+    if ws:
+        ws.open_github_url(url)
+
+
 @gh.command("create-pr")
 @click.argument("issue_id", required=False, default=None)
 @click.option("--draft", is_flag=True, help="Create as draft PR")
@@ -1228,6 +1236,7 @@ def gh_create_pr(issue_id, draft, progress, wait, wait_for_review_flag, squash, 
             click.echo(f"PR created: {url}")
         else:
             click.echo(f"Pushed to existing PR: {url}")
+        _open_pr_in_cmux(url)
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -1494,6 +1503,7 @@ def gh_read_pr(target, wait, wait_for_review_flag, all_comments):
     # Print header
     click.echo(f"PR #{pr_info.number}: {pr_info.title}")
     click.echo(f"URL: {pr_info.url}")
+    _open_pr_in_cmux(pr_info.url)
 
     # If merged, show simple message and exit
     if pr_info.merged:

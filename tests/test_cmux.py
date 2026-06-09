@@ -667,3 +667,90 @@ class TestCmuxWorkspace:
         with patch("maelstrom.cmux.cmux_cmd", return_value=output):
             ws = CmuxWorkspace()
             assert ws.close_browser("http://localhost:3000") is False
+
+
+class TestOpenGithubUrl:
+    """Tests for CmuxWorkspace.open_github_url."""
+
+    def test_closes_existing_github_browser_then_opens(self):
+        output = '  surface:183  browser  "GitHub"\n'
+        calls = []
+
+        def mock_cmux_cmd(*args):
+            calls.append(args)
+            if args[0] == "list-panels":
+                return output
+            if args[0] == "browser" and args[1] == "get-url":
+                return "https://github.com/owner/repo"
+            if args[0] == "close-surface":
+                return "OK"
+            return None
+
+        with (
+            patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd),
+            patch("maelstrom.cmux.open_browser_pane", return_value="surface:300") as mock_open,
+        ):
+            ws = CmuxWorkspace()
+            ref = ws.open_github_url("https://github.com/owner/repo/pull/9")
+
+        assert ("close-surface", "--surface", "surface:183") in calls
+        mock_open.assert_called_once_with("https://github.com/owner/repo/pull/9")
+        assert ref == "surface:300"
+
+    def test_opens_when_no_github_browser(self):
+        output = '  surface:183  browser  "Localhost"\n  surface:103  terminal  "Terminal"\n'
+        calls = []
+
+        def mock_cmux_cmd(*args):
+            calls.append(args)
+            if args[0] == "list-panels":
+                return output
+            if args[0] == "browser" and args[1] == "get-url":
+                return "http://localhost:3000"
+            return None
+
+        with (
+            patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd),
+            patch("maelstrom.cmux.open_browser_pane", return_value="surface:300") as mock_open,
+        ):
+            ws = CmuxWorkspace()
+            ref = ws.open_github_url("https://github.com/owner/repo/pull/9")
+
+        assert not any(c[0] == "close-surface" for c in calls)
+        mock_open.assert_called_once_with("https://github.com/owner/repo/pull/9")
+        assert ref == "surface:300"
+
+    def test_matches_by_prefix_not_exact_pr(self):
+        output = '  surface:183  browser  "GitHub"\n'
+        calls = []
+
+        def mock_cmux_cmd(*args):
+            calls.append(args)
+            if args[0] == "list-panels":
+                return output
+            if args[0] == "browser" and args[1] == "get-url":
+                return "https://github.com/owner/repo/issues/5"
+            if args[0] == "close-surface":
+                return "OK"
+            return None
+
+        with (
+            patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd),
+            patch("maelstrom.cmux.open_browser_pane", return_value="surface:300") as mock_open,
+        ):
+            ws = CmuxWorkspace()
+            ref = ws.open_github_url("https://github.com/owner/repo/pull/9")
+
+        assert ("close-surface", "--surface", "surface:183") in calls
+        mock_open.assert_called_once_with("https://github.com/owner/repo/pull/9")
+        assert ref == "surface:300"
+
+    def test_returns_none_when_open_fails(self):
+        output = '  surface:103  terminal  "Terminal"\n'
+
+        with (
+            patch("maelstrom.cmux.cmux_cmd", return_value=output),
+            patch("maelstrom.cmux.open_browser_pane", return_value=None),
+        ):
+            ws = CmuxWorkspace()
+            assert ws.open_github_url("https://github.com/owner/repo/pull/9") is None

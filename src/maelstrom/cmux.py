@@ -14,6 +14,9 @@ import subprocess
 from dataclasses import dataclass
 
 
+GITHUB_URL_PREFIX = "https://github.com"
+
+
 def is_cmux_mode() -> bool:
     """Return True if running inside cmux (CMUX_SOCKET_PATH is set)."""
     return bool(os.environ.get("CMUX_SOCKET_PATH"))
@@ -406,3 +409,16 @@ class CmuxWorkspace:
             self.refresh()
             return result
         return False
+
+    def open_github_url(self, url: str) -> str | None:
+        """Close any existing github.com browser, then open url in a fresh pane.
+
+        Recycles by prefix: any browser whose current URL starts with
+        https://github.com is closed first, so PR browsers don't accumulate.
+        Returns the new surface ref, or None on failure.
+        """
+        self.close_browser(GITHUB_URL_PREFIX)   # find+close-by-prefix; no-op if none
+        ref = open_browser_pane(url)
+        if ref:
+            self.refresh()
+        return ref
