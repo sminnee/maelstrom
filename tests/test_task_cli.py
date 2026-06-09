@@ -436,6 +436,97 @@ class TestContentFile:
         assert "Content file not found" in result.output
 
 
+class TestLoadMany:
+    def test_creates_chain_with_block_follow(self, runner, store, tmp_path):
+        f = tmp_path / "plan.md"
+        f.write_text(
+            "Preamble: only action is `mael task load-many <file>`.\n"
+            "\n"
+            "---CREATE TASK iter1---\n"
+            "title: First step\n"
+            "---\n"
+            "## Scope\n"
+            "do the first thing\n"
+            "---CREATE TASK tail---\n"
+            "title: Plan next step\n"
+            "command: plan-next-step\n"
+            "follow: iter1\n"
+            "---\n"
+            "## Remaining\n"
+            "the rest\n"
+        )
+        result = runner.invoke(task_cli.task, ["load-many", str(f)])
+        assert result.exit_code == 0, result.output
+        # Two ids printed, one per line.
+        lines = [ln for ln in result.output.strip().split("\n") if ln]
+        assert len(lines) == 2
+        first_id = lines[0].split("\t")[0]
+        second_id = lines[1].split("\t")[0]
+        # The second task follows the first (block name resolved to real id).
+        second = model.load(store, "p", second_id)
+        assert second.follows == [first_id]
+        assert second.command == "plan-next-step"
+        assert "the rest" in second.content
+
+    def test_reads_stdin_on_dash(self, runner, store):
+        text = "---CREATE TASK a---\ntitle: From stdin\n---\nbody\n"
+        result = runner.invoke(task_cli.task, ["load-many", "-"], input=text)
+        assert result.exit_code == 0, result.output
+        line = result.output.strip().split("\n")[0]
+        t = model.load(store, "p", line.split("\t")[0])
+        assert t.title == "From stdin"
+
+    def test_bad_file_unknown_key_exits_nonzero(self, runner, store, tmp_path):
+        f = tmp_path / "bad.md"
+        f.write_text("---CREATE TASK a---\ntitle: A\nfollows: b\n---\nbody\n")
+        result = runner.invoke(task_cli.task, ["load-many", str(f)])
+        assert result.exit_code != 0
+        assert "Unknown key" in result.output
+
+    def test_blocks_default_parent_from_env(self, runner, store, monkeypatch, tmp_path):
+        # With MAEL_TASK_PARENT set and no `parent:` in the block, the created
+        # task nests under that parent, and follow-end:* appends to its siblings.
+        monkeypatch.setenv("MAEL_TASK_PARENT", "linear.NORT-9")
+        existing = model.create(store, project="p", title="prev", parent="linear.NORT-9")
+        f = tmp_path / "plan.md"
+        f.write_text(
+            "---CREATE TASK step---\ntitle: Step\nfollow-end: \"*\"\n---\nbody\n"
+        )
+        result = runner.invoke(task_cli.task, ["load-many", str(f)])
+        assert result.exit_code == 0, result.output
+        created = model.load(store, "p", result.output.split("\t")[0])
+        assert created.parent == "linear.NORT-9"
+        assert created.follows == [existing.id]
+
+
+class TestAddParentDefault:
+    def test_add_defaults_parent_from_env(self, runner, store, monkeypatch):
+        monkeypatch.setenv("MAEL_TASK_PARENT", "linear.NORT-9")
+        result = runner.invoke(task_cli.task, ["add", "Child"])
+        assert result.exit_code == 0, result.output
+        t = model.load(store, "p", result.output.strip())
+        assert t.parent == "linear.NORT-9"
+
+    def test_explicit_parent_overrides_env(self, runner, store, monkeypatch):
+        monkeypatch.setenv("MAEL_TASK_PARENT", "linear.NORT-9")
+        result = runner.invoke(
+            task_cli.task, ["add", "Child", "--parent", "linear.OTHER"]
+        )
+        assert result.exit_code == 0, result.output
+        t = model.load(store, "p", result.output.strip())
+        assert t.parent == "linear.OTHER"
+
+    def test_add_follow_end_wildcard(self, runner, store, monkeypatch):
+        monkeypatch.setenv("MAEL_TASK_PARENT", "linear.NORT-9")
+        prev = model.create(store, project="p", title="prev", parent="linear.NORT-9")
+        result = runner.invoke(
+            task_cli.task, ["add", "Next", "--follow-end", "*"]
+        )
+        assert result.exit_code == 0, result.output
+        t = model.load(store, "p", result.output.strip())
+        assert t.follows == [prev.id]
+
+
 class TestStatus:
     @pytest.mark.parametrize(
         "sub,status",

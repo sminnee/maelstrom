@@ -107,6 +107,17 @@ def _resolve_task_id(id: str | None) -> str:
     return task_id
 
 
+def _default_parent(parent: str) -> str:
+    """Default an unset ``--parent`` to the launching session's parent.
+
+    A session launched by ``mael task run`` exports ``MAEL_TASK_PARENT`` (the
+    Linear ``linear.<ID>`` the task hangs under), so chain tasks a skill emits
+    nest under the same parent without spelling it out. An explicit ``parent``
+    always wins.
+    """
+    return parent or os.environ.get("MAEL_TASK_PARENT", "")
+
+
 @click.group("task")
 def task() -> None:
     """Manage the git-backed task notebook."""
@@ -200,10 +211,11 @@ def add_task(
     """
     proj = _resolve_project(project)
     store = _store()
+    parent = _default_parent(parent)
 
     follow_list = list(follows)
     for end_id in follow_ends:
-        follow_list.extend(model.follow_end_leaves(store, proj, end_id))
+        follow_list.extend(model._resolve_follow_end(store, proj, end_id, parent))
     # De-dupe while preserving first-seen order.
     deduped = list(dict.fromkeys(follow_list))
 
@@ -222,6 +234,24 @@ def add_task(
     if run:
         _run_task(store, proj, new, here=here)
     return new
+
+
+@task.command("load-many")
+@click.argument("file")
+@click.option("--project", default=None, help="Project name (default: from cwd).")
+def task_load_many(file: str, project: str | None) -> None:
+    """Create one or more tasks from a marked plan file ('-' reads stdin)."""
+    text = _read_content_file(file)
+    try:
+        blocks = model.parse_task_blocks(text)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+    proj = _resolve_project(project)
+    created = model.load_many(
+        _store(), project=proj, blocks=blocks, default_parent=_default_parent("")
+    )
+    for t in created:
+        click.echo(f"{t.id}\t{t.title}")
 
 
 @task.command("list")

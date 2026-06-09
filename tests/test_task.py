@@ -194,6 +194,47 @@ class TestFollowEndLeaves:
         assert result == []  # cycle, no terminal leaf
 
 
+# --- child_chain_leaves ---
+
+
+class TestChildChainLeaves:
+    def test_no_children_is_empty(self):
+        store = InMemoryStore()
+        assert model.child_chain_leaves(store, "p", "linear.X") == []
+
+    def test_single_child_is_leaf(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", parent="linear.X", now=NOW)
+        assert model.child_chain_leaves(store, "p", "linear.X") == [a.id]
+
+    def test_chained_children_only_tail_is_leaf(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", parent="linear.X", now=NOW)
+        b = model.create(
+            store, project="p", title="b", parent="linear.X", follows=[a.id], now=NOW
+        )
+        # b follows a, so only b is the end of the sibling chain.
+        assert model.child_chain_leaves(store, "p", "linear.X") == [b.id]
+
+    def test_branched_children_multiple_leaves(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", parent="linear.X", now=NOW)
+        b = model.create(
+            store, project="p", title="b", parent="linear.X", follows=[a.id], now=NOW
+        )
+        c = model.create(
+            store, project="p", title="c", parent="linear.X", follows=[a.id], now=NOW
+        )
+        # b and c both follow a; neither is followed -> both are leaves.
+        assert model.child_chain_leaves(store, "p", "linear.X") == sorted([b.id, c.id])
+
+    def test_ignores_other_parents(self):
+        store = InMemoryStore()
+        mine = model.create(store, project="p", title="m", parent="linear.X", now=NOW)
+        model.create(store, project="p", title="other", parent="linear.Y", now=NOW)
+        assert model.child_chain_leaves(store, "p", "linear.X") == [mine.id]
+
+
 # --- is_actionable / terminal ---
 
 
@@ -584,3 +625,240 @@ class TestNextTask:
         assert model.next_task(store, "p").id == p.id
         # Filtered to the parent's children, only the child qualifies.
         assert model.next_task(store, "p", parent=p.id).id == child.id
+
+
+# --- parse_task_blocks ---
+
+
+class TestParseTaskBlocks:
+    def test_preamble_ignored(self):
+        text = (
+            "This is human-readable preamble.\n"
+            "    mael task load-many <file>\n"
+            "\n"
+            "---CREATE TASK iter1---\n"
+            "title: Do the thing\n"
+            "---\n"
+            "## Scope\n"
+            "the body\n"
+        )
+        blocks = model.parse_task_blocks(text)
+        assert len(blocks) == 1
+        assert blocks[0]["name"] == "iter1"
+        assert blocks[0]["args"]["title"] == "Do the thing"
+        assert "the body" in blocks[0]["content"]
+        assert blocks[0]["content"].startswith("## Scope")
+
+    def test_open_marker_only_closure(self):
+        # No END marker — block A runs until block B's open marker.
+        text = (
+            "---CREATE TASK a---\n"
+            "title: A\n"
+            "---\n"
+            "body a\n"
+            "---CREATE TASK b---\n"
+            "title: B\n"
+            "---\n"
+            "body b\n"
+        )
+        blocks = model.parse_task_blocks(text)
+        assert [b["name"] for b in blocks] == ["a", "b"]
+        assert blocks[0]["content"] == "body a"
+        assert blocks[1]["content"] == "body b"
+
+    def test_explicit_end_marker_closure(self):
+        # Text between END and the next open marker is ignored (preamble again).
+        text = (
+            "---CREATE TASK a---\n"
+            "title: A\n"
+            "---\n"
+            "body a\n"
+            "---END TASK a---\n"
+            "ignored interstitial text\n"
+            "---CREATE TASK b---\n"
+            "title: B\n"
+            "---\n"
+            "body b\n"
+        )
+        blocks = model.parse_task_blocks(text)
+        assert [b["name"] for b in blocks] == ["a", "b"]
+        assert blocks[0]["content"] == "body a"
+        assert "ignored" not in blocks[1]["content"]
+
+    def test_multiple_blocks(self):
+        text = (
+            "---CREATE TASK one---\n"
+            "title: One\n"
+            "---\n"
+            "c1\n"
+            "---CREATE TASK two---\n"
+            "title: Two\n"
+            "command: plan-next-step\n"
+            "---\n"
+            "c2\n"
+            "---CREATE TASK three---\n"
+            "title: Three\n"
+            "---\n"
+            "c3\n"
+        )
+        blocks = model.parse_task_blocks(text)
+        assert len(blocks) == 3
+        assert blocks[1]["args"]["command"] == "plan-next-step"
+
+    def test_no_blocks_raises(self):
+        with pytest.raises(ValueError, match="No task blocks"):
+            model.parse_task_blocks("just some preamble, no markers")
+
+    def test_duplicate_name_raises(self):
+        text = (
+            "---CREATE TASK a---\n"
+            "title: A\n"
+            "---\n"
+            "x\n"
+            "---CREATE TASK a---\n"
+            "title: A2\n"
+            "---\n"
+            "y\n"
+        )
+        with pytest.raises(ValueError, match="Duplicate block name"):
+            model.parse_task_blocks(text)
+
+    def test_missing_title_raises(self):
+        text = "---CREATE TASK a---\ncommand: plan-task\n---\nbody\n"
+        with pytest.raises(ValueError, match="missing a title"):
+            model.parse_task_blocks(text)
+
+    def test_unknown_key_raises(self):
+        # A typo like `follows:` (should be `follow:`) must fail loudly.
+        text = "---CREATE TASK a---\ntitle: A\nfollows: b\n---\nbody\n"
+        with pytest.raises(ValueError, match="Unknown key"):
+            model.parse_task_blocks(text)
+
+    def test_malformed_marker_name_raises(self):
+        # A hyphenated name resembles a marker but fails the strict pattern; it
+        # must error rather than silently becoming prose.
+        text = "---CREATE TASK iter-1---\ntitle: A\n---\nbody\n"
+        with pytest.raises(ValueError, match="Malformed task marker"):
+            model.parse_task_blocks(text)
+
+
+# --- load_many ---
+
+
+class TestLoadMany:
+    def test_intra_file_follow_resolves_to_allocated_id(self):
+        store = InMemoryStore()
+        blocks = [
+            {"name": "a", "args": {"title": "A"}, "content": "ca"},
+            {"name": "b", "args": {"title": "B", "follow": "a"}, "content": "cb"},
+        ]
+        created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
+        assert len(created) == 2
+        a, b = created
+        # B's follows points at A's allocated id, not the block name "a".
+        assert b.follows == [a.id]
+        assert "a" not in b.follows
+
+    def test_follow_end_resolves_against_live_store(self):
+        store = InMemoryStore()
+        seed = model.create(store, project="p", title="seed", now=NOW, today=TODAY)
+        blocks = [
+            {"name": "x", "args": {"title": "X", "follow-end": seed.id}, "content": ""},
+        ]
+        created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
+        assert created[0].follows == [seed.id]
+
+    def test_passthrough_real_id_follow(self):
+        store = InMemoryStore()
+        seed = model.create(store, project="p", title="seed", now=NOW, today=TODAY)
+        blocks = [
+            {"name": "x", "args": {"title": "X", "follow": seed.id}, "content": ""},
+        ]
+        created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
+        assert created[0].follows == [seed.id]
+
+    def test_child_id_allocation_increments_across_batch(self):
+        store = InMemoryStore()
+        blocks = [
+            {"name": "a", "args": {"title": "A", "parent": "linear.X"}, "content": ""},
+            {"name": "b", "args": {"title": "B", "parent": "linear.X"}, "content": ""},
+        ]
+        created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
+        ids = [t.id for t in created]
+        assert ids == ["linear.X.1", "linear.X.2"]
+
+    def test_follow_list_value(self):
+        # A list-valued follow with one block-name and one real id.
+        store = InMemoryStore()
+        seed = model.create(store, project="p", title="seed", now=NOW, today=TODAY)
+        blocks = [
+            {"name": "a", "args": {"title": "A"}, "content": ""},
+            {"name": "b", "args": {"title": "B", "follow": ["a", seed.id]}, "content": ""},
+        ]
+        created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
+        a, b = created
+        assert b.follows == [a.id, seed.id]
+
+    def test_default_parent_applied_when_block_omits_parent(self):
+        store = InMemoryStore()
+        blocks = [{"name": "a", "args": {"title": "A"}, "content": ""}]
+        created = model.load_many(
+            store, project="p", blocks=blocks, default_parent="linear.X", now=NOW
+        )
+        assert created[0].parent == "linear.X"
+        assert created[0].id == "linear.X.1"  # nested child id
+
+    def test_block_parent_overrides_default(self):
+        store = InMemoryStore()
+        blocks = [
+            {"name": "a", "args": {"title": "A", "parent": "linear.Y"}, "content": ""}
+        ]
+        created = model.load_many(
+            store, project="p", blocks=blocks, default_parent="linear.X", now=NOW
+        )
+        assert created[0].parent == "linear.Y"
+
+    def test_follow_end_wildcard_appends_to_sibling_chain(self):
+        # An existing child of linear.X; a new block with follow-end: * should
+        # follow it (the end of the parent's child-chain).
+        store = InMemoryStore()
+        existing = model.create(
+            store, project="p", title="existing", parent="linear.X", now=NOW
+        )
+        blocks = [
+            {"name": "step", "args": {"title": "Step", "follow-end": "*"}, "content": ""},
+        ]
+        created = model.load_many(
+            store, project="p", blocks=blocks, default_parent="linear.X", now=NOW
+        )
+        assert created[0].follows == [existing.id]
+
+    def test_follow_end_wildcard_empty_when_first_child(self):
+        store = InMemoryStore()
+        blocks = [
+            {"name": "step", "args": {"title": "Step", "follow-end": "*"}, "content": ""},
+        ]
+        created = model.load_many(
+            store, project="p", blocks=blocks, default_parent="linear.X", now=NOW
+        )
+        # No existing siblings -> nothing to follow.
+        assert created[0].follows == []
+
+    def test_wildcard_and_intra_file_follow_combine(self):
+        # step: follow-end:* (appends after existing sibling); tail: follow:step.
+        store = InMemoryStore()
+        existing = model.create(
+            store, project="p", title="existing", parent="linear.X", now=NOW
+        )
+        blocks = [
+            {"name": "step", "args": {"title": "Step", "follow-end": "*"}, "content": ""},
+            {"name": "tail", "args": {"title": "Tail", "follow": "step"}, "content": ""},
+        ]
+        created = model.load_many(
+            store, project="p", blocks=blocks, default_parent="linear.X", now=NOW
+        )
+        step, tail = created
+        assert step.follows == [existing.id]
+        assert tail.follows == [step.id]
+        # The wildcard for `tail` would have seen `step` as a new sibling leaf,
+        # but `tail` uses intra-file `follow`, so it chains off step directly.

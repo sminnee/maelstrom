@@ -26,9 +26,10 @@ with `task add`); add `--run` to launch the planning session immediately.
 
 **How a task flows:**
 - `mael linear plan PROJ-XXX --run` launches the `plan-task` skill in plan mode, holding the brief.
-  After ExitPlanMode approval it emits the chain — an **Execute** task (plan as content, no skill)
-  and, for multi-session work, a **`plan-next-step`** task carrying the remaining-work tail — then
-  marks its own planning task done.
+  The plan file it writes *is* the chain (a marked load-many file); after ExitPlanMode approval it
+  runs `mael task load-many <plan-file>` to create it — an **Execute** task (plan as content, no
+  skill) and, for multi-session work, a **`plan-next-step`** task carrying the remaining-work tail —
+  then marks its own planning task done.
 - `mael task next --run` launches the next ready task. **Execute tasks run no skill**: the plan is
   their content, and the project's always-on "Finishing a task" rule (commit → `/code-review` →
   fixups → stop) closes them out. `plan-next-step` tasks plan one more increment and re-queue
@@ -38,8 +39,9 @@ with `task add`); add `--run` to launch the planning session immediately.
 ```bash
 mael task add "<title>" [--run]          # create (and optionally launch) a plain execute task
 mael task add "<title>" --command plan-task --parent linear.PROJ-XXX --content-file brief.md
-mael task add "<title>" --follow-end linear.PROJ-XXX --content-file plan.md   # chain after the leaf
+mael task add "<title>" --follow-end '*' --content-file plan.md   # append after the parent's siblings
 mael task add "<title>" --content-file -                  # read content from stdin
+mael task load-many <file>               # create a whole chain from a marked plan file ('-' = stdin)
 mael task next [--run] [--parent <id>]   # next actionable task (id, or launch it)
 mael task run <id>                       # launch a specific task
 mael task list                           # actionable tasks (default)
@@ -52,9 +54,12 @@ mael task rm <id>                        # delete and strip from dependents
 ```
 
 `--follow` / `--follow-end` build the chain (a task becomes actionable only once everything it
-follows is done); `--parent` nests ids; `--command` selects the skill the launched session runs;
-`--content-file` (or `-` for stdin) seeds the task's content. Launched sessions export
-`MAEL_TASK_ID` / `MAEL_TASK_PARENT` so skills can self-reference.
+follows is done); `--follow-end '*'` appends after the leaf of the parent's existing child-chain.
+`--parent` nests ids and **defaults to `$MAEL_TASK_PARENT`** when unset, so chain tasks a launched
+session emits nest under the same Linear issue without spelling it out. `--command` selects the skill
+the launched session runs; `--content-file` (or `-` for stdin) seeds the task's content. Launched
+sessions export `MAEL_TASK_ID` / `MAEL_TASK_PARENT` so skills can self-reference; `mael task status`
+and `--parent` both fall back to those env vars.
 
 ### Ad-hoc work (no Linear issue)
 
@@ -72,7 +77,7 @@ plan-of-record lives in the notebook chain, not in the Linear description.
 mael linear read-task PROJ-XXX                          # Read task details, subtasks, comments
 mael linear list-tasks [--status STATUS]                # List tasks in current cycle
 mael linear start-task PROJ-XXX                          # Set "In Progress", add worktree label
-mael linear complete-task PROJ-XXX                       # Mirror completion status
+mael linear set-status PROJ-XXX planned|in-progress|done # Set status (done -> Unreleased)
 ```
 
 `mael sync` rebases on origin/main before starting. Run project checks from CLAUDE.md (tests,
@@ -101,12 +106,13 @@ Run the project's test suite and linting as defined in CLAUDE.md.
 ## Finalising Work
 
 ```bash
-mael linear complete-task PROJ-XXX       # Subtask -> "Done", standalone -> "Unreleased"
+mael linear set-status PROJ-XXX done     # Mark complete -> "Unreleased"
 mael linear add-comment PROJ-XXX file.md # Add progress/completion notes
 mael linear release                      # Promote all "Unreleased" with product label to "Done"
 ```
 
-When completing a subtask, if all siblings are Done/Canceled, the parent auto-transitions to "Unreleased".
+`set-status` applies to the issue as-is — it does not auto-transition parents. Move a parent to
+"Unreleased" yourself with `mael linear set-status <parent> done` once its subtasks are complete.
 
 ## Committing & Creating PRs
 
@@ -219,14 +225,16 @@ commands fall back to all monitors on the account.
 ## Status Transitions
 
 ```
-Todo -> Planned        (write-plan or create-subtask)
-Planned/Todo -> In Progress  (start-task)
+Todo -> Planned        (set-status … planned, or create-subtask)
+Planned/Todo -> In Progress  (start-task, or set-status … in-progress)
 In Progress -> In Review     (create-pr ISSUE-ID)
-In Review -> Done/Unreleased (complete-task)
+In Review -> Unreleased      (set-status … done)
 Unreleased -> Done           (release)
 ```
 
-**Subtasks:** complete to "Done". **Parent tasks:** complete to "Unreleased" only when ALL subtasks are Done/Canceled. Parent is promoted to "In Progress" when subtask starts or PR is raised, but NOT set to "In Review" when subtask is.
+`set-status` takes `planned` / `in-progress` / `done` (where `done` -> "Unreleased") and applies to
+the named issue only — no automatic parent/subtask transitions. Move a parent to "Unreleased"
+explicitly with `mael linear set-status <parent> done` once its subtasks are complete.
 
 ## Workspace Status
 
