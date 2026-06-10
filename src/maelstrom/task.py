@@ -722,6 +722,8 @@ def update(
     title: str | None = None,
     branch: str | None = None,
     content: str | None = None,
+    command: str | None = None,
+    mode: str | None = None,
     now: str | None = None,
 ) -> Task:
     """Update provided fields in place (one write, bumps ``updated``).
@@ -743,6 +745,10 @@ def update(
         task.branch = branch
     if content is not None:
         task.content = content
+    if command is not None:
+        task.command = command
+    if mode is not None:
+        task.mode = mode
     task.updated = now if now is not None else _now_iso()
     store.write(key, task.to_markdown(), message=f"task: update {id}")
     return task

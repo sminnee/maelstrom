@@ -647,6 +647,17 @@ class TestUpdate:
         assert result.exit_code == 0, result.output
         assert model.load(store, "p", t.id).content == "new body"
 
+    def test_update_command_and_mode(self, runner, store):
+        t = model.create(store, project="p", title="alpha", command="plan-task")
+        result = runner.invoke(
+            task_cli.task,
+            ["update", t.id, "--command", "execute", "--mode", "plan"],
+        )
+        assert result.exit_code == 0, result.output
+        reloaded = model.load(store, "p", t.id)
+        assert reloaded.command == "execute"
+        assert reloaded.mode == "plan"
+
     def test_update_unknown_id_errors(self, runner, store):
         result = runner.invoke(task_cli.task, ["update", "nope", "--branch", "x"])
         assert result.exit_code != 0

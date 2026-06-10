@@ -895,6 +895,22 @@ class TestUpdate:
         assert reloaded.content == "body"
         assert reloaded.branch == "b2"
 
+    def test_update_changes_command_and_mode(self):
+        store = InMemoryStore()
+        t = model.create(
+            store, project="p", title="t", command="plan-task", mode="plan", now=NOW
+        )
+        model.update(store, "p", t.id, command="execute", mode="normal", now=NOW2)
+        reloaded = model.load(store, "p", t.id)
+        assert reloaded.command == "execute"
+        assert reloaded.mode == "normal"
+
+    def test_update_command_to_empty(self):
+        store = InMemoryStore()
+        t = model.create(store, project="p", title="t", command="plan-task", now=NOW)
+        model.update(store, "p", t.id, command="", now=NOW2)
+        assert model.load(store, "p", t.id).command == ""
+
     def test_update_does_not_change_status(self):
         store = InMemoryStore()
         t = model.create(store, project="p", title="t", now=NOW)
