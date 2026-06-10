@@ -431,6 +431,8 @@ def task_log(id: str, msg: str, project: str | None) -> None:
 @click.argument("title", required=False)
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 @click.option("--branch", default=None, help="Set the task's branch.")
+@click.option("--command", default=None, help="Set the task's command/skill the session launches with.")
+@click.option("--mode", default=None, help="Set the task's mode (e.g. normal, plan).")
 @click.option(
     "--content-file",
     default=None,
@@ -441,14 +443,19 @@ def task_update(
     title: str | None,
     project: str | None,
     branch: str | None,
+    command: str | None,
+    mode: str | None,
     content_file: str | None,
 ) -> None:
-    """Update a task's fields (title, branch, content)."""
+    """Update a task's fields (title, branch, command, mode, content)."""
     proj = _resolve_project(project)
     store = _store()
     content = _read_content_file(content_file) if content_file is not None else None
     try:
-        model.update(store, proj, id, title=title, branch=branch, content=content)
+        model.update(
+            store, proj, id, title=title, branch=branch, content=content,
+            command=command, mode=mode,
+        )
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
     click.echo(f"Updated {id}.")
