@@ -348,6 +348,82 @@ class TestAddRun:
         assert launch.setup.call_args.args[2] == f"task/{new_id}"
 
 
+class TestAddEdit:
+    def test_edit_opens_editor_after_create(self, runner, store, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            task_cli.model,
+            "edit_in_editor",
+            lambda s, p, i: calls.append((s, p, i)) or (None, True),
+        )
+        result = runner.invoke(task_cli.task, ["add", "Hand authored", "--edit"])
+        assert result.exit_code == 0, result.output
+        new_id = result.output.splitlines()[0].strip()
+        # Editor opened exactly once on the freshly created task.
+        assert calls == [(store, "p", new_id)]
+
+    def test_edit_short_flag(self, runner, store, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            task_cli.model,
+            "edit_in_editor",
+            lambda s, p, i: calls.append(i) or (None, True),
+        )
+        result = runner.invoke(task_cli.task, ["add", "Quick", "-e"])
+        assert result.exit_code == 0, result.output
+        assert len(calls) == 1
+
+    def test_no_edit_does_not_open_editor(self, runner, store, monkeypatch):
+        edit = MagicMock(return_value=(None, False))
+        monkeypatch.setattr(task_cli.model, "edit_in_editor", edit)
+        result = runner.invoke(task_cli.task, ["add", "No edit"])
+        assert result.exit_code == 0, result.output
+        edit.assert_not_called()
+
+    def test_edit_then_run_edits_before_launch(
+        self, runner, store, launch, monkeypatch
+    ):
+        order = []
+        launch.session.side_effect = lambda *a, **k: order.append("launch")
+        monkeypatch.setattr(
+            task_cli.model,
+            "edit_in_editor",
+            lambda s, p, i: order.append("edit") or (None, True),
+        )
+        result = runner.invoke(task_cli.task, ["add", "Both", "--edit", "--run"])
+        assert result.exit_code == 0, result.output
+        assert order == ["edit", "launch"]
+
+    def test_edit_reports_broken_editor_cleanly(self, runner, store, monkeypatch):
+        monkeypatch.setattr(
+            task_cli.model,
+            "edit_in_editor",
+            MagicMock(side_effect=RuntimeError("editor exploded")),
+        )
+        result = runner.invoke(task_cli.task, ["add", "Boom", "--edit"])
+        assert result.exit_code != 0
+        assert "editor exploded" in result.output
+
+
+class TestAddShortFlags:
+    def test_short_project(self, runner, store):
+        result = runner.invoke(task_cli.task, ["add", "T", "-p", "maelstrom"])
+        assert result.exit_code == 0, result.output
+
+    def test_short_branch(self, runner, store):
+        result = runner.invoke(task_cli.task, ["add", "T", "-b", "fix/login"])
+        assert result.exit_code == 0, result.output
+        new_id = result.output.splitlines()[0].strip()
+        assert model.load(store, "p", new_id).branch == "fix/login"
+
+    def test_short_parent_capital_p(self, runner, store):
+        parent = model.create(store, project="p", title="parent")
+        result = runner.invoke(task_cli.task, ["add", "child", "-P", parent.id])
+        assert result.exit_code == 0, result.output
+        new_id = result.output.splitlines()[0].strip()
+        assert model.load(store, "p", new_id).parent == parent.id
+
+
 class TestNextRun:
     def test_next_run_runs_the_actionable(self, runner, store, launch):
         a = model.create(store, project="p", title="a")

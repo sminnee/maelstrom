@@ -125,17 +125,24 @@ def task() -> None:
 
 @task.command("add")
 @click.argument("title")
-@click.option("--project", default=None, help="Project name (default: from cwd).")
-@click.option("--command", default="", help="Command to launch the session with.")
 @click.option(
+    "-p", "--project", default=None, help="Project name (default: from cwd)."
+)
+@click.option(
+    "-c", "--command", default="", help="Command to launch the session with."
+)
+@click.option(
+    "-m",
     "--mode",
     default="",
     help="Session mode (default: per-command, usually normal; plan commands plan).",
 )
 @click.option(
-    "--branch", default="", help="Branch for the task (default: task/<id>)."
+    "-b", "--branch", default="", help="Branch for the task (default: task/<id>)."
 )
-@click.option("--parent", default="", help="Parent task id (creates a child id).")
+@click.option(
+    "-P", "--parent", default="", help="Parent task id (creates a child id)."
+)
 @click.option(
     "--follow",
     "follows",
@@ -153,7 +160,16 @@ def task() -> None:
     default=None,
     help="File whose contents become the task's Content section ('-' reads stdin).",
 )
-@click.option("--run", is_flag=True, help="Launch the task as a session immediately.")
+@click.option(
+    "-e",
+    "--edit",
+    "edit",
+    is_flag=True,
+    help="Open the new task in $EDITOR after creating it.",
+)
+@click.option(
+    "-r", "--run", is_flag=True, help="Launch the task as a session immediately."
+)
 @click.option(
     "--here",
     is_flag=True,
@@ -169,6 +185,7 @@ def task_add(
     follows: tuple[str, ...],
     follow_ends: tuple[str, ...],
     content_file: str | None,
+    edit: bool,
     run: bool,
     here: bool,
 ) -> None:
@@ -184,6 +201,7 @@ def task_add(
         follows=follows,
         follow_ends=follow_ends,
         content=content,
+        edit=edit,
         run=run,
         here=here,
     )
@@ -200,6 +218,7 @@ def add_task(
     follows: tuple[str, ...] = (),
     follow_ends: tuple[str, ...] = (),
     content: str = "",
+    edit: bool = False,
     run: bool = False,
     here: bool = False,
 ) -> "model.Task":
@@ -231,6 +250,13 @@ def add_task(
         content=content,
     )
     click.echo(new.id)
+    if edit:
+        try:
+            model.edit_in_editor(store, proj, new.id)
+        except KeyError:
+            raise click.ClickException(f"Task not found: {new.id}")
+        except RuntimeError as e:
+            raise click.ClickException(str(e))
     if run:
         _run_task(store, proj, new, here=here)
     return new
