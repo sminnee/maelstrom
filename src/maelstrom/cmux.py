@@ -293,6 +293,15 @@ def browser_surface_exists(surface_ref: str) -> bool:
     return is_ok(result) is not None
 
 
+def navigate_surface(surface_ref: str, url: str) -> bool:
+    """Navigate an existing browser surface to url via `browser goto`.
+
+    Returns True on success, False otherwise.
+    """
+    result = cmux_cmd("browser", "--surface", surface_ref, "goto", url)
+    return is_ok(result) is not None
+
+
 def set_status(text: str) -> bool:
     """Set the cmux task status line.
 
@@ -421,7 +430,8 @@ class CmuxWorkspace:
         Pane 3 is the standard browser pane (BROWSER_PANE_INDEX). If it already
         exists, the browser opens as a tab there; otherwise the rightmost pane is
         focused and a new pane is split off to the right to become pane 3. The
-        new browser is focused (made the visible tab). Returns its surface ref.
+        new browser opens in the background (it is not auto-selected as the
+        visible tab). Returns its surface ref.
         """
         pane3 = pane_idx(index=BROWSER_PANE_INDEX)
         if pane3:
@@ -432,7 +442,6 @@ class CmuxWorkspace:
                 focus_pane(rightmost)
             ref = open_browser_pane(url)
         if ref:
-            focus_surface(ref)        # make the new browser the visible tab
             self.refresh()
         return ref
 
@@ -458,12 +467,14 @@ class CmuxWorkspace:
         return False
 
     def open_github_url(self, url: str) -> str | None:
-        """Close any existing github.com browser, then open url in pane 3.
+        """Open url in the github browser tab in pane 3, reusing it if present.
 
-        Recycles by prefix: any browser whose current URL starts with
-        https://github.com is closed first, so PR browsers don't accumulate.
-        The replacement opens as a tab in pane 3 (the standard browser pane).
-        Returns the new surface ref, or None on failure.
+        If a browser whose current URL starts with https://github.com already
+        exists, navigate it to url in place (no close/recreate, no focus
+        capture). Otherwise open a new browser tab in pane 3. Returns the
+        surface ref, or None on failure.
         """
-        self.close_browser(GITHUB_URL_PREFIX)   # find+close-by-prefix; no-op if none
+        existing = self.find_browser_by_url(GITHUB_URL_PREFIX)
+        if existing and navigate_surface(existing.ref, url):
+            return existing.ref
         return self.open_in_browser_pane(url)
