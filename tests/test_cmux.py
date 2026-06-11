@@ -20,6 +20,7 @@ from maelstrom.cmux import (
     is_cmux_mode,
     is_ok,
     list_panes,
+    navigate_surface,
     open_browser_pane,
     open_browser_surface,
     open_claude_tab,
@@ -501,6 +502,26 @@ class TestSurfaceExists:
             assert browser_surface_exists("browser-789") is False
 
 
+class TestNavigateSurface:
+    """Tests for navigate_surface function."""
+
+    def test_navigates_via_browser_goto(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value="OK") as mock_cmd:
+            assert navigate_surface("surface:183", "https://github.com/o/r/pull/9") is True
+        mock_cmd.assert_called_once_with(
+            "browser", "--surface", "surface:183", "goto",
+            "https://github.com/o/r/pull/9",
+        )
+
+    def test_returns_false_when_command_fails(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
+            assert navigate_surface("surface:183", "https://github.com/o/r") is False
+
+    def test_returns_false_on_error_response(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value="ERR no such surface"):
+            assert navigate_surface("surface:183", "https://github.com/o/r") is False
+
+
 class TestCloseWorkspace:
     """Tests for close_workspace function."""
 
@@ -716,7 +737,7 @@ class TestCmuxWorkspace:
 class TestOpenGithubUrl:
     """Tests for CmuxWorkspace.open_github_url."""
 
-    def test_closes_existing_github_browser_then_opens(self):
+    def test_navigates_existing_github_browser_in_place(self):
         output = '  surface:183  browser  "GitHub"\n'
         calls = []
 
@@ -726,7 +747,7 @@ class TestOpenGithubUrl:
                 return output
             if args[0] == "browser" and args[1] == "get-url":
                 return "https://github.com/owner/repo"
-            if args[0] == "close-surface":
+            if args[0] == "browser" and "goto" in args:
                 return "OK"
             return None
 
@@ -739,7 +760,37 @@ class TestOpenGithubUrl:
             ws = CmuxWorkspace()
             ref = ws.open_github_url("https://github.com/owner/repo/pull/9")
 
-        assert ("close-surface", "--surface", "surface:183") in calls
+        # Navigated the existing surface in place, no close, no recreate.
+        assert (
+            "browser", "--surface", "surface:183", "goto",
+            "https://github.com/owner/repo/pull/9",
+        ) in calls
+        assert not any(c[0] == "close-surface" for c in calls)
+        mock_open.assert_not_called()
+        assert ref == "surface:183"
+
+    def test_opens_new_tab_when_navigate_fails(self):
+        # A github browser exists but `browser goto` fails — fall back to a new tab.
+        output = '  surface:183  browser  "GitHub"\n'
+
+        def mock_cmux_cmd(*args):
+            if args[0] == "list-panels":
+                return output
+            if args[0] == "browser" and args[1] == "get-url":
+                return "https://github.com/owner/repo"
+            if args[0] == "browser" and "goto" in args:
+                return None  # navigation failed
+            return None
+
+        with (
+            patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd),
+            patch.object(
+                CmuxWorkspace, "open_in_browser_pane", return_value="surface:300",
+            ) as mock_open,
+        ):
+            ws = CmuxWorkspace()
+            ref = ws.open_github_url("https://github.com/owner/repo/pull/9")
+
         mock_open.assert_called_once_with("https://github.com/owner/repo/pull/9")
         assert ref == "surface:300"
 
@@ -778,7 +829,7 @@ class TestOpenGithubUrl:
                 return output
             if args[0] == "browser" and args[1] == "get-url":
                 return "https://github.com/owner/repo/issues/5"
-            if args[0] == "close-surface":
+            if args[0] == "browser" and "goto" in args:
                 return "OK"
             return None
 
@@ -791,9 +842,13 @@ class TestOpenGithubUrl:
             ws = CmuxWorkspace()
             ref = ws.open_github_url("https://github.com/owner/repo/pull/9")
 
-        assert ("close-surface", "--surface", "surface:183") in calls
-        mock_open.assert_called_once_with("https://github.com/owner/repo/pull/9")
-        assert ref == "surface:300"
+        # A different github.com page still matches by prefix and is navigated in place.
+        assert (
+            "browser", "--surface", "surface:183", "goto",
+            "https://github.com/owner/repo/pull/9",
+        ) in calls
+        mock_open.assert_not_called()
+        assert ref == "surface:183"
 
     def test_returns_none_when_open_fails(self):
         output = '  surface:103  terminal  "Terminal"\n'
@@ -826,7 +881,8 @@ class TestOpenInBrowserPane:
         mock_pane_idx.assert_called_once_with(index=2)
         mock_surface.assert_called_once_with("pane:2", "http://localhost:3000")
         mock_pane.assert_not_called()
-        mock_focus.assert_called_once_with("surface:99")
+        # New browsers open in the background — no auto-focus.
+        mock_focus.assert_not_called()
 
     def test_creates_pane3_when_missing(self):
         # pane_idx returns None for pane 3, "pane:1" for rightmost.
@@ -850,4 +906,5 @@ class TestOpenInBrowserPane:
         mock_focus_pane.assert_called_once_with("pane:1")
         mock_pane.assert_called_once_with("http://localhost:3000")
         mock_surface.assert_not_called()
-        mock_focus_surface.assert_called_once_with("surface:200")
+        # New browsers open in the background — no auto-focus.
+        mock_focus_surface.assert_not_called()
