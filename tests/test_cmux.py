@@ -25,6 +25,8 @@ from maelstrom.cmux import (
     open_browser_surface,
     open_claude_tab,
     pane_idx,
+    pane_surface,
+    split_pane_off,
     browser_surface_exists,
     start_claude_in_surface,
     workspace_name,
@@ -522,6 +524,54 @@ class TestNavigateSurface:
             assert navigate_surface("surface:183", "https://github.com/o/r") is False
 
 
+class TestPaneSurface:
+    """Tests for pane_surface function."""
+
+    def test_returns_first_surface_ref(self):
+        output = '* surface:425  browser  "GitHub"  [selected]\n'
+        with patch("maelstrom.cmux.cmux_cmd", return_value=output) as mock_cmd:
+            assert pane_surface("pane:258") == "surface:425"
+        mock_cmd.assert_called_once_with(
+            "list-pane-surfaces", "--pane", "pane:258",
+        )
+
+    def test_passes_workspace_when_given(self):
+        output = "  surface:7  terminal  \"Terminal\"\n"
+        with patch("maelstrom.cmux.cmux_cmd", return_value=output) as mock_cmd:
+            assert pane_surface("pane:1", "workspace:9") == "surface:7"
+        mock_cmd.assert_called_once_with(
+            "list-pane-surfaces", "--pane", "pane:1", "--workspace", "workspace:9",
+        )
+
+    def test_returns_none_when_empty(self):
+        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
+            assert pane_surface("pane:258") is None
+
+
+class TestSplitPaneOff:
+    """Tests for split_pane_off function."""
+
+    def test_splits_from_surface_and_returns_new_rightmost_pane(self):
+        # new-split succeeds; the new pane is the rightmost afterwards.
+        with (
+            patch("maelstrom.cmux.cmux_cmd", return_value="OK surface:430 workspace:87") as mock_cmd,
+            patch("maelstrom.cmux.pane_idx", return_value="pane:261") as mock_pane_idx,
+        ):
+            assert split_pane_off("surface:425", direction="right") == "pane:261"
+        mock_cmd.assert_called_once_with(
+            "new-split", "right", "--surface", "surface:425",
+        )
+        mock_pane_idx.assert_called_once_with(None, index=-1)
+
+    def test_returns_none_when_split_fails(self):
+        with (
+            patch("maelstrom.cmux.cmux_cmd", return_value=None),
+            patch("maelstrom.cmux.pane_idx") as mock_pane_idx,
+        ):
+            assert split_pane_off("surface:425") is None
+        mock_pane_idx.assert_not_called()
+
+
 class TestCloseWorkspace:
     """Tests for close_workspace function."""
 
@@ -884,17 +934,37 @@ class TestOpenInBrowserPane:
         # New browsers open in the background — no auto-focus.
         mock_focus.assert_not_called()
 
-    def test_creates_pane3_when_missing(self):
-        # pane_idx returns None for pane 3, "pane:1" for rightmost.
-        def fake_pane_idx(index=0):
-            return None if index == 2 else "pane:1"
+    def test_creates_pane3_via_split_without_focusing(self):
+        # pane_idx returns None for pane 3, "pane:9" for rightmost (-1), and
+        # "pane:10" for the newly-split pane (also queried as index -1 inside
+        # split_pane_off). Sequence the -1 lookups: first the rightmost, then
+        # the new pane.
+        rightmost_lookups = ["pane:9", "pane:10"]
+
+        def fake_pane_idx(workspace_ref=None, index=0):
+            if index == 2:  # BROWSER_PANE_INDEX — pane 3 absent
+                return None
+            if index == -1:
+                return rightmost_lookups.pop(0)
+            return None
 
         with (
             patch("maelstrom.cmux.pane_idx", side_effect=fake_pane_idx),
-            patch("maelstrom.cmux.open_browser_surface") as mock_surface,
             patch(
-                "maelstrom.cmux.open_browser_pane", return_value="surface:200",
-            ) as mock_pane,
+                "maelstrom.cmux.pane_surface",
+                side_effect=lambda pane, workspace_ref=None: {
+                    "pane:9": "surface:90",   # rightmost's surface to split from
+                    "pane:10": "surface:100",  # placeholder in the new pane
+                }.get(pane),
+            ),
+            patch(
+                "maelstrom.cmux.split_pane_off", return_value="pane:10",
+            ) as mock_split,
+            patch(
+                "maelstrom.cmux.open_browser_surface", return_value="surface:200",
+            ) as mock_open_surface,
+            patch("maelstrom.cmux.close_surface") as mock_close,
+            patch("maelstrom.cmux.open_browser_pane") as mock_open_pane,
             patch("maelstrom.cmux.focus_pane") as mock_focus_pane,
             patch("maelstrom.cmux.focus_surface") as mock_focus_surface,
             patch("maelstrom.cmux.cmux_cmd", return_value=""),
@@ -903,8 +973,12 @@ class TestOpenInBrowserPane:
             ref = ws.open_in_browser_pane("http://localhost:3000")
 
         assert ref == "surface:200"
-        mock_focus_pane.assert_called_once_with("pane:1")
-        mock_pane.assert_called_once_with("http://localhost:3000")
-        mock_surface.assert_not_called()
-        # New browsers open in the background — no auto-focus.
+        # Split off the rightmost pane's surface — no focus, no naked new-pane.
+        mock_split.assert_called_once_with("surface:90", direction="right")
+        mock_open_surface.assert_called_once_with("pane:10", "http://localhost:3000")
+        # Placeholder terminal surface from the split is discarded.
+        mock_close.assert_called_once_with("surface:100")
+        mock_open_pane.assert_not_called()
+        # The core fix: no focus-pane (workspace-focus grab) and no focus-surface.
+        mock_focus_pane.assert_not_called()
         mock_focus_surface.assert_not_called()

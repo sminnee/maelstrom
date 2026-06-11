@@ -276,6 +276,43 @@ def open_browser_surface(
     return _first_ref(is_ok(cmux_cmd(*args)), "surface")
 
 
+def pane_surface(pane_ref: str, workspace_ref: str | None = None) -> str | None:
+    """Return the (selected) surface ref of a pane, or None.
+
+    Reads `list-pane-surfaces` and returns the first surface ref. Used to obtain
+    a `--surface` handle for a pane without focusing it (focusing a pane in
+    another workspace would switch the selected workspace).
+    """
+    args = ["list-pane-surfaces", "--pane", pane_ref]
+    if workspace_ref:
+        args.extend(["--workspace", workspace_ref])
+    output = cmux_cmd(args[0], *args[1:])
+    if not output:
+        return None
+    match = re.search(r'surface:\d+', output)
+    return match.group(0) if match else None
+
+
+def split_pane_off(
+    surface_ref: str, direction: str = "right", workspace_ref: str | None = None,
+) -> str | None:
+    """Split a new pane off `surface_ref`'s pane in `direction`, return its ref.
+
+    Uses `new-split --surface`, which targets a specific surface **without
+    focusing it** — unlike `new-pane`, which splits the focused pane and so
+    requires a focus call that would steal workspace focus cross-workspace.
+    Returns the new (placeholder) pane's ref, or None on failure.
+    """
+    args = ["new-split", direction, "--surface", surface_ref]
+    if workspace_ref:
+        args.extend(["--workspace", workspace_ref])
+    if is_ok(cmux_cmd(*args)) is None:
+        return None
+    # new-split returns the new surface but not its pane ref; the split lands a
+    # new rightmost pane, which is now the last in left→right order.
+    return pane_idx(workspace_ref, index=-1)
+
+
 def focus_surface(surface_ref: str, workspace_ref: str | None = None) -> None:
     """Make a surface the visible tab via focus-panel (surfaces are panels)."""
     args = ["focus-panel", "--panel", surface_ref]
@@ -428,21 +465,42 @@ class CmuxWorkspace:
         """Open url as a browser tab in pane 3, creating pane 3 if needed.
 
         Pane 3 is the standard browser pane (BROWSER_PANE_INDEX). If it already
-        exists, the browser opens as a tab there; otherwise the rightmost pane is
-        focused and a new pane is split off to the right to become pane 3. The
-        new browser opens in the background (it is not auto-selected as the
+        exists, the browser opens as a tab there. Otherwise a new pane is split
+        off the rightmost pane to become pane 3 — done via `new-split --surface`
+        (which targets a surface without focusing it) rather than focus+new-pane,
+        so it never steals workspace focus when triggered from another workspace.
+        The new browser opens in the background (it is not auto-selected as the
         visible tab). Returns its surface ref.
         """
         pane3 = pane_idx(index=BROWSER_PANE_INDEX)
         if pane3:
             ref = open_browser_surface(pane3, url)
         else:
-            rightmost = pane_idx(index=-1)
-            if rightmost:
-                focus_pane(rightmost)
-            ref = open_browser_pane(url)
+            ref = self._open_browser_in_new_pane(url)
         if ref:
             self.refresh()
+        return ref
+
+    def _open_browser_in_new_pane(self, url: str) -> str | None:
+        """Split a new rightmost pane (focus-safe) and open url as a browser there.
+
+        Splits off the rightmost pane via `new-split --surface` (no focus, see
+        open_in_browser_pane), opens the browser tab in the resulting pane, then
+        discards the placeholder terminal surface the split created. The browser
+        tab is opened before the placeholder is closed so the pane always retains
+        a surface. Returns the browser surface ref, or None on failure.
+        """
+        rightmost = pane_idx(index=-1)
+        rightmost_surface = pane_surface(rightmost) if rightmost else None
+        if not rightmost_surface:
+            return None
+        new_pane = split_pane_off(rightmost_surface, direction="right")
+        if not new_pane:
+            return None
+        placeholder = pane_surface(new_pane)
+        ref = open_browser_surface(new_pane, url)
+        if placeholder and placeholder != ref:
+            close_surface(placeholder)
         return ref
 
     def ensure_browser(self, url: str) -> str | None:
