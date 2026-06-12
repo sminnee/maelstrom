@@ -61,9 +61,9 @@ blocks *are* the notebook chain — the single post-approval action is one `mael
    mael task load-many <plan-file>          # create every block's task in one atomic commit
    mael task status done                    # close this planning task ($MAEL_TASK_ID)
    ```
-   Each execute block's task has an empty `command`, so it's a plain execute that runs **no skill**
-   and finishes via the project's always-on "Finishing a task" rule (commit → `/code-review` →
-   fixups → stop). **Do NOT implement** — do not write code, edit source files, or create branches;
+   Each execute block's task has an empty `command` and `mode: normal`, so it's a plain execute that
+   runs **no skill** (not a re-plan) and finishes via the project's always-on "Finishing a task" rule
+   (commit → `/code-review` → fixups → stop). **Do NOT implement** — do not write code, edit source files, or create branches;
    implementation happens in a later session via `mael task next --run`.
 
 ## Knowing your own task id
@@ -78,9 +78,14 @@ The session exports `MAEL_TASK_ID` (this planning task) and `MAEL_TASK_PARENT` (
 
 The plan file is a load-many file: a short preamble (ignored by `load-many`, for the human reviewer)
 followed by `---CREATE TASK <name>---` blocks. Each block is `frontmatter` + `markdown body`; the
-body becomes the created task's Content. Frontmatter keys: `title` (required), `command`, `parent`,
-`follow`, `follow-end`. A block ends at the next open marker or EOF — so back-to-back blocks need no
-explicit terminator. Add an optional `---END TASK <name>---` only when prose for the human reviewer
+body becomes the created task's Content. Frontmatter keys: `title` (required), `command`, `mode`,
+`parent`, `follow`, `follow-end`. A block ends at the next open marker or EOF — so back-to-back
+blocks need no explicit terminator.
+
+**Mode markers are required on every block.** New tasks default to *plan* mode, so an Execute block
+that omits `mode:` would wrongly re-plan instead of running its plan. Always set:
+- `mode: normal` on every **execute** block (`iter` / `iter1`) — it runs the plan as-is, no skill.
+- `mode: plan` on the **`plan-next-step`** tail block — the next increment is planned afresh. Add an optional `---END TASK <name>---` only when prose for the human reviewer
 follows a block (it stops that prose leaking into the block's body).
 
 **Parent + chaining.** `load-many` defaults each block's `parent` to `$MAEL_TASK_PARENT`
@@ -103,6 +108,7 @@ This plan creates the notebook chain for <ID>. The only action is:
 
 ---CREATE TASK iter---
 title: "Execute: <ID> — <short desc>"
+mode: normal
 follow-end: "*"
 ---
 # <ID>: <Title>
@@ -142,6 +148,7 @@ This plan creates the notebook chain for <ID>. The only action is:
 
 ---CREATE TASK iter1---
 title: "Execute: <iteration-1 desc>"
+mode: normal
 follow-end: "*"
 ---
 # <ID>: <Title> — Iteration 1
@@ -165,6 +172,7 @@ How to test this iteration.
 ---CREATE TASK tail---
 title: Plan next step
 command: plan-next-step
+mode: plan
 follow: iter1
 ---
 ## Remaining work

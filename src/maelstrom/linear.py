@@ -714,6 +714,7 @@ def cmd_plan(issue_id: str, project: str | None, run: bool, here: bool) -> None:
         title=f"Plan {identifier}",
         project=project,
         command="plan-task",
+        mode="plan",  # planning always runs in plan mode, independent of DEFAULT_MODE
         parent=f"linear.{identifier}",
         content=brief,
         run=run,

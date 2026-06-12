@@ -87,20 +87,17 @@ class TestAddBranch:
         assert t.command == "plan-task"
         assert t.mode == "plan"
 
-    def test_plan_command_defaults_to_plan_mode_without_mode_flag(
-        self, runner, store
-    ):
-        # --command plan-task with no --mode should land in plan mode via
-        # DEFAULT_MODE_BY_COMMAND.
-        result = runner.invoke(
-            task_cli.task, ["add", "Plan it", "--command", "plan-task"]
-        )
+    def test_plain_task_defaults_to_plan_mode(self, runner, store):
+        # New tasks default to plan mode (DEFAULT_MODE).
+        result = runner.invoke(task_cli.task, ["add", "Just do it"])
         assert result.exit_code == 0, result.output
         t = model.load(store, "p", result.output.strip())
         assert t.mode == "plan"
 
-    def test_plain_task_defaults_to_normal_mode(self, runner, store):
-        result = runner.invoke(task_cli.task, ["add", "Just do it"])
+    def test_explicit_normal_mode_overrides_default(self, runner, store):
+        result = runner.invoke(
+            task_cli.task, ["add", "Just do it", "--mode", "normal"]
+        )
         assert result.exit_code == 0, result.output
         t = model.load(store, "p", result.output.strip())
         assert t.mode == "normal"

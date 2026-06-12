@@ -68,6 +68,10 @@ Both blocks nest under the parent automatically — `mael task load-many` defaul
   `follow-end: "*"`. Unquoted `*` (YAML alias) and escaped `"\*"` (bad escape) both fail to parse.
 - `follow: <block-name>` on later blocks — intra-file ordering by block name.
 
+Set `mode:` on every block: `mode: normal` on the **execute** (`step`) block so it runs the plan
+instead of re-planning, and `mode: plan` on the **`tail`** block so the next `plan-next-step` session
+opens in plan mode. New tasks default to plan mode, so the execute block's `mode: normal` is required.
+
 ### More work remains — execute block + `tail`
 
 The `tail` block re-queues `plan-next-step` with the **updated** plan-of-record in its body: the
@@ -80,6 +84,7 @@ This step's chain. The only action is:
 
 ---CREATE TASK step---
 title: "Execute: <next step desc>"
+mode: normal
 follow-end: "*"
 ---
 <this step's detailed plan…>
@@ -87,6 +92,7 @@ follow-end: "*"
 ---CREATE TASK tail---
 title: Plan next step
 command: plan-next-step
+mode: plan
 follow: step
 ---
 ## Remaining work
@@ -107,6 +113,7 @@ This step's chain. The only action is:
 
 ---CREATE TASK step---
 title: "Execute: <final step desc>"
+mode: normal
 follow-end: "*"
 ---
 <this final step's detailed plan…>
@@ -128,8 +135,8 @@ blocks can omit it and chain with `follow-end: "*"` (append after siblings) / `f
 
 ## Implementation Notes
 
-- **Plan mode required**: `--command plan-next-step` defaults the launched session to plan mode, so
-  this should already hold; if not, switch via `EnterPlanMode` rather than failing.
+- **Plan mode required**: the `tail` block sets `mode: plan`, so a `plan-next-step` session launches
+  in plan mode already; if it didn't, switch via `EnterPlanMode` rather than failing.
 - **One step per session**: plan exactly one increment; let the chain carry the rest.
 - **No Linear writes**: never write the plan back to a Linear description.
 - **Progress tracking**: use TodoWrite to track planning progress.

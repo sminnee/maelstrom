@@ -135,7 +135,7 @@ def task() -> None:
     "-m",
     "--mode",
     default="",
-    help="Session mode (default: per-command, usually normal; plan commands plan).",
+    help="Session mode (default: plan; pass 'normal' for a non-planning session).",
 )
 @click.option(
     "-b", "--branch", default="", help="Branch for the task (default: task/<id>)."
