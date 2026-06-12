@@ -32,6 +32,7 @@ from .env_cli import (
     print_copy_back_result,
 )
 from .git_cli import git as git_cli
+from .git_cli import print_rebase_conflict_help
 from .linear import linear
 from .sentry import sentry
 from .uptimerobot import uptimerobot
@@ -817,28 +818,7 @@ def cmd_sync(target, squash):
 
     # Handle conflicts
     if result.had_conflicts:
-        click.echo("Rebase encountered conflicts.", err=True)
-        click.echo()
-
-        # Show commands with specific SHAs if available
-        if result.merge_base and result.upstream_head:
-            click.echo("To see what changed upstream:")
-            click.echo(f"  git log {result.merge_base}..{result.upstream_head} --oneline")
-            click.echo(f"  git diff {result.merge_base}...{result.upstream_head}")
-        else:
-            click.echo("To see what changed upstream:")
-            click.echo("  git log HEAD..origin/main --oneline")
-            click.echo("  git diff HEAD...origin/main")
-
-        click.echo()
-        click.echo("To resolve conflicts:")
-        click.echo("  git status                  # see conflicted files")
-        click.echo("  # edit files to resolve conflicts")
-        click.echo("  git add <resolved-files>")
-        click.echo("  git rebase --continue")
-        click.echo()
-        click.echo("To abort the rebase:")
-        click.echo("  git rebase --abort")
+        print_rebase_conflict_help(result)
         raise SystemExit(1)
 
     raise click.ClickException(result.message)

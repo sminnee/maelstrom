@@ -323,3 +323,71 @@ class TestGitStatusCommand:
         result = runner.invoke(cli, ["git", "status"])
         assert result.exit_code == 0
         assert "Clean working tree, no commits ahead of main." in result.output
+
+
+class TestGitSquashCommand:
+    """Integration tests for mael git squash command."""
+
+    def _mock_worktree_path(self):
+        wt = MagicMock()
+        wt.exists.return_value = True
+        return wt
+
+    @patch("maelstrom.git_cli.squash_worktree")
+    @patch("maelstrom.git_cli.resolve_context")
+    def test_success_echoes_message(self, mock_ctx, mock_squash):
+        from maelstrom.worktree import SyncResult
+
+        mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
+        mock_squash.return_value = SyncResult(
+            success=True,
+            branch="feat/test",
+            message="Successfully rebased feat/test onto origin/main",
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["git", "squash"])
+        assert result.exit_code == 0
+        assert "Successfully rebased feat/test onto origin/main" in result.output
+        # The command rebases only — it must never push.
+        _, kwargs = mock_squash.call_args
+        assert kwargs.get("squash") is True
+
+    @patch("maelstrom.git_cli.squash_worktree")
+    @patch("maelstrom.git_cli.resolve_context")
+    def test_conflicts_print_guidance_and_exit_1(self, mock_ctx, mock_squash):
+        from maelstrom.worktree import SyncResult
+
+        mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
+        mock_squash.return_value = SyncResult(
+            success=False,
+            branch="feat/test",
+            message="CONFLICT (content): Merge conflict in feature.txt",
+            had_conflicts=True,
+            merge_base="abc1234",
+            upstream_head="def5678",
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["git", "squash"])
+        assert result.exit_code == 1
+        assert "Rebase encountered conflicts." in result.output
+        assert "git log abc1234..def5678 --oneline" in result.output
+        assert "git rebase --continue" in result.output
+
+    @patch("maelstrom.git_cli.squash_worktree")
+    @patch("maelstrom.git_cli.resolve_context")
+    def test_other_failure_raises_click_exception(self, mock_ctx, mock_squash):
+        from maelstrom.worktree import SyncResult
+
+        mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
+        mock_squash.return_value = SyncResult(
+            success=False,
+            branch="feat/test",
+            message="Failed to fetch from origin: boom",
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["git", "squash"])
+        assert result.exit_code != 0
+        assert "Failed to fetch from origin: boom" in result.output

@@ -9,10 +9,43 @@ import click
 from .context import resolve_context
 from .worktree import (
     MAIN_BRANCH,
+    SyncResult,
     get_commits_ahead,
     get_current_branch,
     get_local_only_commits,
+    squash_worktree,
 )
+
+
+def print_rebase_conflict_help(result: SyncResult) -> None:
+    """Print conflict-resolution guidance after a failed autosquash/rebase.
+
+    Shared by ``mael sync`` and ``mael git squash`` so the guidance isn't
+    duplicated. Uses the captured ``merge_base``/``upstream_head`` SHAs when
+    available to print precise log/diff hints.
+    """
+    click.echo("Rebase encountered conflicts.", err=True)
+    click.echo()
+
+    # Show commands with specific SHAs if available
+    if result.merge_base and result.upstream_head:
+        click.echo("To see what changed upstream:")
+        click.echo(f"  git log {result.merge_base}..{result.upstream_head} --oneline")
+        click.echo(f"  git diff {result.merge_base}...{result.upstream_head}")
+    else:
+        click.echo("To see what changed upstream:")
+        click.echo("  git log HEAD..origin/main --oneline")
+        click.echo("  git diff HEAD...origin/main")
+
+    click.echo()
+    click.echo("To resolve conflicts:")
+    click.echo("  git status                  # see conflicted files")
+    click.echo("  # edit files to resolve conflicts")
+    click.echo("  git add <resolved-files>")
+    click.echo("  git rebase --continue")
+    click.echo()
+    click.echo("To abort the rebase:")
+    click.echo("  git rebase --abort")
 
 
 def get_worktree_file_status(path: Path) -> dict[str, list[str]]:
@@ -258,3 +291,29 @@ def git_status(ctx, target):
     else:
         output = format_git_status(branch, commits_ahead, unpushed, file_status, diff_stat, recent_commits)
         click.echo(output)
+
+
+@git.command("squash")
+@click.argument("target", required=False, default=None)
+def git_squash(target):
+    """Rebase the current branch onto origin/main, autosquashing fixup! commits (no push)."""
+    try:
+        context = resolve_context(target, require_project=True, require_worktree=True)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    worktree_path = context.worktree_path
+    if worktree_path is None or not worktree_path.exists():
+        raise click.ClickException(f"Worktree not found at {worktree_path}")
+
+    result = squash_worktree(worktree_path, squash=True)
+
+    if result.success:
+        click.echo(result.message)
+        return
+
+    if result.had_conflicts:
+        print_rebase_conflict_help(result)
+        raise SystemExit(1)
+
+    raise click.ClickException(result.message)
