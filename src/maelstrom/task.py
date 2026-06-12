@@ -250,8 +250,16 @@ def _coerce_follows(value: object) -> list[str]:
     return [str(value)]
 
 
-def _split_frontmatter(text: str) -> tuple[dict, str]:
-    """Split ``text`` into (frontmatter dict, body). Tolerant of missing fm."""
+def _split_frontmatter(text: str, *, strict: bool = False) -> tuple[dict, str]:
+    """Split ``text`` into (frontmatter dict, body). Tolerant of missing fm.
+
+    With ``strict=True``, a YAML *parse* failure re-raises instead of being
+    swallowed to ``{}`` — callers that need to surface a precise error (e.g.
+    :func:`parse_task_blocks`) opt in. A missing opening/closing fence is "no
+    frontmatter present", not a parse failure, and still returns ``({}, text)``
+    regardless of ``strict``. The default preserves the tolerant behaviour the
+    round-trip :meth:`Task.from_markdown` relies on.
+    """
     import yaml
 
     lines = text.split("\n")
@@ -265,6 +273,8 @@ def _split_frontmatter(text: str) -> tuple[dict, str]:
             try:
                 data = yaml.safe_load(fm_text) or {}
             except yaml.YAMLError:
+                if strict:
+                    raise
                 data = {}
             if not isinstance(data, dict):
                 data = {}
@@ -495,6 +505,21 @@ def create(
 # rather than silently drop a dependency.
 _BLOCK_KEYS = frozenset({"title", "command", "parent", "follow", "follow-end"})
 
+_BAD_WILDCARD_ESCAPE = re.compile(r'"\\(\*)"')  # the "\*" double-quoted-escape case
+
+
+def _normalise_block_frontmatter(fm_text: str) -> tuple[str, bool]:
+    r"""Salvage the known ``\*`` wildcard-escape slip; return (cleaned, changed).
+
+    In a YAML double-quoted scalar ``\*`` is an *invalid escape sequence* and
+    fails to parse, but the documented canonical form is the unescaped
+    ``follow-end: "*"``. Repair only this one known slip; any other invalid YAML
+    is left to error loudly downstream.
+    """
+    cleaned = _BAD_WILDCARD_ESCAPE.sub(r'"\1"', fm_text)
+    return cleaned, cleaned != fm_text
+
+
 _OPEN_MARKER = re.compile(r"^---CREATE TASK ([A-Za-z0-9]+)---$")
 _END_MARKER = re.compile(r"^---END TASK ([A-Za-z0-9]+)---$")
 # A line that *looks like* a marker (so we can reject a malformed one — e.g. a
@@ -502,7 +527,7 @@ _END_MARKER = re.compile(r"^---END TASK ([A-Za-z0-9]+)---$")
 _LOOSE_MARKER = re.compile(r"^---(?:CREATE|END) TASK\b.*---$")
 
 
-def parse_task_blocks(text: str) -> list[dict]:
+def parse_task_blocks(text: str) -> tuple[list[dict], list[str]]:
     """Parse a marked plan file into a list of task-creation blocks.
 
     A plan file is human-readable preamble (ignored) followed by one or more
@@ -513,15 +538,19 @@ def parse_task_blocks(text: str) -> list[dict]:
 
     Each block's inner text is split with :func:`_split_frontmatter` into
     ``(frontmatter, body)``: the frontmatter keys are creation arguments and the
-    body becomes the task's Content. Returns a list of
-    ``{"name", "args", "content"}`` dicts.
+    body becomes the task's Content. Returns ``(blocks, warnings)`` where
+    ``blocks`` is a list of ``{"name", "args", "content"}`` dicts and
+    ``warnings`` is a list of human-readable salvage notes (e.g. a normalised
+    ``\\*`` wildcard escape) for the caller to surface.
 
     Raises ``ValueError`` on: no blocks, a duplicate block name, a block missing
-    ``title``, an unknown frontmatter key, or a malformed marker line (one that
+    ``title``, invalid frontmatter YAML (naming the block and the real YAML
+    error), an unknown frontmatter key, or a malformed marker line (one that
     resembles a ``CREATE``/``END TASK`` marker but has a bad name or spacing).
     """
     lines = text.split("\n")
     blocks: list[dict] = []
+    warnings: list[str] = []
     seen_names: set[str] = set()
     current_name: str | None = None
     buf: list[str] = []
@@ -533,7 +562,20 @@ def parse_task_blocks(text: str) -> list[dict]:
         # fence — the `---CREATE TASK` marker already delimited the block), with
         # a `---` separator before the markdown body. Synthesize the opening
         # fence so `_split_frontmatter` parses it the usual way.
-        frontmatter, body = _split_frontmatter("---\n" + "\n".join(buf))
+        fm_text = "\n".join(buf)
+        cleaned, changed = _normalise_block_frontmatter(fm_text)
+        if changed:
+            warnings.append(
+                f"normalised invalid escape \\* -> * in block {current_name!r}"
+            )
+        import yaml
+
+        try:
+            frontmatter, body = _split_frontmatter("---\n" + cleaned, strict=True)
+        except yaml.YAMLError as e:
+            raise ValueError(
+                f"Block {current_name!r} has invalid frontmatter: {e}"
+            )
         unknown = set(frontmatter) - _BLOCK_KEYS
         if unknown:
             raise ValueError(
@@ -577,7 +619,7 @@ def parse_task_blocks(text: str) -> list[dict]:
 
     if not blocks:
         raise ValueError("No task blocks found (expected '---CREATE TASK <name>---').")
-    return blocks
+    return blocks, warnings
 
 
 def load_many(
