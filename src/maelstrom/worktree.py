@@ -480,8 +480,12 @@ def find_closed_worktree(project_path: Path) -> WorktreeInfo | None:
     return None
 
 
-def sync_worktree(worktree_path: Path, skip_fetch: bool = False, squash: bool = False) -> SyncResult:
-    """Sync a worktree by rebasing against origin/main.
+def squash_worktree(worktree_path: Path, skip_fetch: bool = False, squash: bool = True) -> SyncResult:
+    """Fetch and rebase a worktree onto origin/main, optionally autosquashing
+    ``fixup!`` commits.
+
+    Does NOT push — callers that need to publish the rebased branch call
+    :func:`sync_worktree`, which builds on this function.
 
     Args:
         worktree_path: Path to the worktree directory.
@@ -491,7 +495,8 @@ def sync_worktree(worktree_path: Path, skip_fetch: bool = False, squash: bool = 
             rebasing (``git rebase --autosquash``).
 
     Returns:
-        SyncResult with status and message.
+        SyncResult with status and message. On success ``pushed``/``push_message``
+        are left at their defaults — this function never pushes.
     """
     worktree_path = worktree_path.resolve()
 
@@ -565,6 +570,36 @@ def sync_worktree(worktree_path: Path, skip_fetch: bool = False, squash: bool = 
             upstream_head=upstream_head,
         )
 
+    return SyncResult(
+        success=True,
+        branch=branch,
+        message=f"Successfully rebased {branch} onto origin/main",
+    )
+
+
+def sync_worktree(worktree_path: Path, skip_fetch: bool = False, squash: bool = False) -> SyncResult:
+    """Sync a worktree by rebasing against origin/main, then pushing.
+
+    Builds on :func:`squash_worktree` (the fetch + rebase primitive) and adds the
+    force-with-lease push of the rebased branch.
+
+    Args:
+        worktree_path: Path to the worktree directory.
+        skip_fetch: If True, skip the fetch step (useful when syncing multiple
+            worktrees that share the same repo, where fetch was already done).
+        squash: If True, autosquash ``fixup!`` commits into their targets while
+            rebasing (``git rebase --autosquash``).
+
+    Returns:
+        SyncResult with status and message.
+    """
+    result = squash_worktree(worktree_path, skip_fetch=skip_fetch, squash=squash)
+    if not result.success:
+        return result  # conflicts / fetch failure already populated
+
+    worktree_path = worktree_path.resolve()
+    branch = result.branch
+
     # Rebase succeeded - check if remote branch exists and push
     pushed = False
     push_message = None
@@ -594,7 +629,7 @@ def sync_worktree(worktree_path: Path, skip_fetch: bool = False, squash: bool = 
     return SyncResult(
         success=True,
         branch=branch,
-        message=f"Successfully rebased {branch} onto origin/main",
+        message=result.message,
         pushed=pushed,
         push_message=push_message,
     )

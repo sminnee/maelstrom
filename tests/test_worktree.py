@@ -51,6 +51,7 @@ from maelstrom.worktree import (
     run_install_cmd,
     sanitize_branch_name,
     setup_worktree_for_branch,
+    squash_worktree,
     sync_worktree,
     update_claude_local_md,
     write_env_file,
@@ -2035,6 +2036,51 @@ class TestSyncWorktreeSquash:
         log_after = run_git(repo, "log", "--oneline").stdout
         assert "fixup!" in log_after
         assert len(log_after.strip().splitlines()) == 3
+
+
+class TestSquashWorktree:
+    """Tests for the squash_worktree primitive (rebase only, never pushes)."""
+
+    def _make_repo_with_fixup(self, repo):
+        TestSyncWorktreeSquash()._make_repo_with_fixup(repo)
+
+    def test_squash_folds_fixup_and_does_not_push(self, tmp_path):
+        from tests.git_helpers import run_git
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        self._make_repo_with_fixup(repo)
+
+        result = squash_worktree(repo, skip_fetch=True, squash=True)
+        assert result.success, result.message
+
+        log_after = run_git(repo, "log", "--oneline").stdout
+        assert "fixup!" not in log_after
+        # Fixup folded into its target: base + feature = 2 commits.
+        assert len(log_after.strip().splitlines()) == 2
+        assert (repo / "feature.txt").read_text() == "v2\n"
+
+        # squash_worktree must never push.
+        assert not result.pushed
+        assert result.push_message is None
+
+    def test_squash_false_keeps_fixup(self, tmp_path):
+        from tests.git_helpers import run_git
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        self._make_repo_with_fixup(repo)
+
+        result = squash_worktree(repo, skip_fetch=True, squash=False)
+        assert result.success, result.message
+
+        # Plain rebase leaves the fixup! commit untouched.
+        log_after = run_git(repo, "log", "--oneline").stdout
+        assert "fixup!" in log_after
+        assert len(log_after.strip().splitlines()) == 3
+
+        assert not result.pushed
+        assert result.push_message is None
 
 
 def _write_worktree_env(worktree_path: Path, managed: dict, user_lines: str = "") -> None:
