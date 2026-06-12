@@ -269,9 +269,11 @@ def task_load_many(file: str, project: str | None) -> None:
     """Create one or more tasks from a marked plan file ('-' reads stdin)."""
     text = _read_content_file(file)
     try:
-        blocks = model.parse_task_blocks(text)
+        blocks, warnings = model.parse_task_blocks(text)
     except ValueError as e:
         raise click.ClickException(str(e))
+    for w in warnings:
+        click.echo(f"warning: {w}", err=True)
     proj = _resolve_project(project)
     created = model.load_many(
         _store(), project=proj, blocks=blocks, default_parent=_default_parent("")

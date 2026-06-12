@@ -690,7 +690,7 @@ class TestParseTaskBlocks:
             "## Scope\n"
             "the body\n"
         )
-        blocks = model.parse_task_blocks(text)
+        blocks, _ = model.parse_task_blocks(text)
         assert len(blocks) == 1
         assert blocks[0]["name"] == "iter1"
         assert blocks[0]["args"]["title"] == "Do the thing"
@@ -709,7 +709,7 @@ class TestParseTaskBlocks:
             "---\n"
             "body b\n"
         )
-        blocks = model.parse_task_blocks(text)
+        blocks, _ = model.parse_task_blocks(text)
         assert [b["name"] for b in blocks] == ["a", "b"]
         assert blocks[0]["content"] == "body a"
         assert blocks[1]["content"] == "body b"
@@ -728,7 +728,7 @@ class TestParseTaskBlocks:
             "---\n"
             "body b\n"
         )
-        blocks = model.parse_task_blocks(text)
+        blocks, _ = model.parse_task_blocks(text)
         assert [b["name"] for b in blocks] == ["a", "b"]
         assert blocks[0]["content"] == "body a"
         assert "ignored" not in blocks[1]["content"]
@@ -749,7 +749,7 @@ class TestParseTaskBlocks:
             "---\n"
             "c3\n"
         )
-        blocks = model.parse_task_blocks(text)
+        blocks, _ = model.parse_task_blocks(text)
         assert len(blocks) == 3
         assert blocks[1]["args"]["command"] == "plan-next-step"
 
@@ -788,6 +788,44 @@ class TestParseTaskBlocks:
         text = "---CREATE TASK iter-1---\ntitle: A\n---\nbody\n"
         with pytest.raises(ValueError, match="Malformed task marker"):
             model.parse_task_blocks(text)
+
+    def test_escaped_wildcard_follow_end_tolerated(self):
+        # `follow-end: "\*"` is invalid YAML (bad escape) but the canonical form
+        # is `"*"`; we salvage it and warn rather than hard-fail.
+        text = (
+            "---CREATE TASK a---\n"
+            'title: A\n'
+            'follow-end: "\\*"\n'
+            "---\n"
+            "body\n"
+        )
+        blocks, warnings = model.parse_task_blocks(text)
+        assert blocks[0]["args"]["follow-end"] == "*"
+        assert warnings
+        assert any("a" in w for w in warnings)
+
+    def test_invalid_yaml_raises_precise_error(self):
+        # A *different* invalid escape must error precisely (naming the block and
+        # the YAML problem), not the misleading "missing a title".
+        text = '---CREATE TASK a---\ntitle: "x \\q"\n---\nbody\n'
+        with pytest.raises(ValueError, match="invalid frontmatter") as exc:
+            model.parse_task_blocks(text)
+        assert "missing a title" not in str(exc.value)
+
+    def test_reported_file_regression(self):
+        # The exact failing frontmatter from the reported plan file: a real
+        # title plus the escaped wildcard. Title survives, wildcard normalises.
+        text = (
+            "---CREATE TASK step---\n"
+            'title: "Execute: ... (view + unlink + attach file)"\n'
+            'follow-end: "\\*"\n'
+            "---\n"
+            "do the work\n"
+        )
+        blocks, warnings = model.parse_task_blocks(text)
+        assert blocks[0]["args"]["title"] == "Execute: ... (view + unlink + attach file)"
+        assert blocks[0]["args"]["follow-end"] == "*"
+        assert warnings
 
 
 # --- load_many ---
