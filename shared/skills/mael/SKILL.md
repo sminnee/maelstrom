@@ -28,16 +28,23 @@ with `task add`); add `--run` to launch the planning session immediately.
 - `mael linear plan PROJ-XXX --run` launches the `plan-task` skill in plan mode, holding the brief.
   The plan file it writes *is* the chain (a marked load-many file); after ExitPlanMode approval it
   runs `mael task load-many <plan-file>` to create it — an **Execute** task (plan as content, no
-  skill) and, for multi-session work, a **`plan-next-step`** task carrying the remaining-work tail —
-  then marks its own planning task done.
+  skill, **`mode: normal`** so it runs the plan instead of re-planning) and, for multi-session work,
+  a **`plan-next-step`** task carrying the remaining-work tail — then marks its own planning task
+  done.
 - `mael task next --run` launches the next ready task. **Execute tasks run no skill**: the plan is
   their content, and the project's always-on "Finishing a task" rule (commit → `/code-review` →
   fixups → stop) closes them out. `plan-next-step` tasks plan one more increment and re-queue
   themselves until the work is done.
 
+New tasks **default to plan mode** (`DEFAULT_MODE`): a bare `mael task add "<title>" --run` opens a
+planning session. Pass `--mode normal` for a direct execute session. In a load-many plan file each
+block may carry a `mode:` key; Execute blocks set `mode: normal`, planning blocks omit it (or set
+`mode: plan`).
+
 **The `mael task` surface:**
 ```bash
-mael task add "<title>" [--run]          # create (and optionally launch) a plain execute task
+mael task add "<title>" [--run]          # create (and optionally launch) a task (plan mode by default)
+mael task add "<title>" --mode normal    # a direct execute session (no planning step)
 mael task add "<title>" --command plan-task --parent linear.PROJ-XXX --content-file brief.md
 mael task add "<title>" --follow-end '*' --content-file plan.md   # append after the parent's siblings
 mael task add "<title>" --content-file -                  # read content from stdin

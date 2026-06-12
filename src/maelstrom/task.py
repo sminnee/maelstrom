@@ -39,15 +39,10 @@ VALID_STATUSES = (
 
 DEFAULT_STATUS = STATUS_TODO
 
-# Commands that should launch their session in a non-default mode. Applied in
-# ``create()`` when ``mode`` is left unset, so skills that emit chain tasks
-# (and `mael linear plan`) don't have to pass ``--mode`` explicitly. The
-# planning commands need plan mode; everything else uses normal.
-DEFAULT_MODE = "normal"
-DEFAULT_MODE_BY_COMMAND = {
-    "plan-task": "plan",
-    "plan-next-step": "plan",
-}
+# New tasks default to plan mode: a fresh task should start by planning unless
+# the caller explicitly passes ``--mode normal``. Applied in ``create()`` when
+# ``mode`` is left unset.
+DEFAULT_MODE = "plan"
 
 # The ten frontmatter keys, always emitted in this order for stable diffs.
 FRONTMATTER_KEYS = (
@@ -123,7 +118,7 @@ class Task:
     title: str
     project: str
     command: str = ""
-    mode: str = "normal"
+    mode: str = DEFAULT_MODE
     branch: str = ""
     parent: str = ""
     follows: list[str] = field(default_factory=list)
@@ -174,7 +169,7 @@ class Task:
             title=str(frontmatter.get("title", "")),
             project=str(frontmatter.get("project", "")),
             command=str(frontmatter.get("command", "")),
-            mode=str(frontmatter.get("mode", "normal")) or "normal",
+            mode=str(frontmatter.get("mode", DEFAULT_MODE)) or DEFAULT_MODE,
             branch=str(frontmatter.get("branch", "")),
             parent=str(frontmatter.get("parent", "")),
             follows=_coerce_follows(frontmatter.get("follows")),
@@ -457,7 +452,7 @@ def create(
     project: str,
     title: str,
     command: str = "",
-    mode: str = "normal",
+    mode: str = "",
     branch: str = "",
     parent: str = "",
     follows: list[str] | None = None,
@@ -475,9 +470,9 @@ def create(
         id = allocate_child_id(store, project, parent)
     else:
         id = allocate_orphan_id(store, project, today=today)
-    # When mode is left at its default, let the command pick one (plan commands
-    # launch in plan mode); an explicit ``mode`` always wins.
-    resolved_mode = mode or DEFAULT_MODE_BY_COMMAND.get(command, DEFAULT_MODE)
+    # When mode is left unset, fall back to the global default; an explicit
+    # ``mode`` always wins.
+    resolved_mode = mode or DEFAULT_MODE
     task = Task(
         id=id,
         title=title,
@@ -503,7 +498,9 @@ def create(
 # *task-creation arguments* (mirroring `mael task add`'s flags), not the
 # serialized task frontmatter. Anything else is a typo that should fail loudly
 # rather than silently drop a dependency.
-_BLOCK_KEYS = frozenset({"title", "command", "parent", "follow", "follow-end"})
+_BLOCK_KEYS = frozenset(
+    {"title", "command", "mode", "parent", "follow", "follow-end"}
+)
 
 _BAD_WILDCARD_ESCAPE = re.compile(r'"\\(\*)"')  # the "\*" double-quoted-escape case
 
@@ -663,6 +660,7 @@ def load_many(
                 project=project,
                 title=str(args["title"]),
                 command=str(args.get("command", "")),
+                mode=str(args.get("mode", "")),
                 parent=parent,
                 follows=deduped,
                 content=b["content"],

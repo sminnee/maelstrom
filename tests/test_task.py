@@ -782,6 +782,11 @@ class TestParseTaskBlocks:
         with pytest.raises(ValueError, match="Unknown key"):
             model.parse_task_blocks(text)
 
+    def test_mode_is_an_accepted_key(self):
+        text = "---CREATE TASK a---\ntitle: A\nmode: normal\n---\nbody\n"
+        blocks = model.parse_task_blocks(text)
+        assert blocks[0]["args"]["mode"] == "normal"
+
     def test_malformed_marker_name_raises(self):
         # A hyphenated name resembles a marker but fails the strict pattern; it
         # must error rather than silently becoming prose.
@@ -853,6 +858,17 @@ class TestLoadMany:
         ]
         created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
         assert created[0].follows == [seed.id]
+
+    def test_block_mode_is_honored_and_defaults_to_plan(self):
+        store = InMemoryStore()
+        blocks = [
+            {"name": "exec", "args": {"title": "E", "mode": "normal"}, "content": ""},
+            {"name": "plan", "args": {"title": "P"}, "content": ""},
+        ]
+        created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
+        by_title = {t.title: t for t in created}
+        assert by_title["E"].mode == "normal"          # explicit wins
+        assert by_title["P"].mode == model.DEFAULT_MODE  # omitted falls through to plan
 
     def test_passthrough_real_id_follow(self):
         store = InMemoryStore()
