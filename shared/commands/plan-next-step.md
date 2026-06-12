@@ -63,8 +63,9 @@ Pick by the final-step decision in step 3.
 
 Both blocks nest under the parent automatically — `mael task load-many` defaults each block's
 `parent` to `$MAEL_TASK_PARENT` (`linear.<ID>`), so you don't spell it out. Chaining is expressed by:
-- `follow-end: *` on the **head** block — "append me after the end of my parent's existing
-  child-chain" (the current leaf of the sibling chain under `linear.<ID>`).
+- `follow-end: "*"` on the **head** block — "append me after the end of my parent's existing
+  child-chain" (the current leaf of the sibling chain under `linear.<ID>`) — always quote it:
+  `follow-end: "*"`. Unquoted `*` (YAML alias) and escaped `"\*"` (bad escape) both fail to parse.
 - `follow: <block-name>` on later blocks — intra-file ordering by block name.
 
 ### More work remains — execute block + `tail`
@@ -123,7 +124,7 @@ product-level mirror only.
 The session exports `MAEL_TASK_ID` (this planning task) and `MAEL_TASK_PARENT` (the `linear.<ID>`
 parent). `mael task status done` with no id closes **this** task — it falls back to `$MAEL_TASK_ID`
 — so you never need to pass your own id. Block `parent` likewise defaults to `$MAEL_TASK_PARENT`, so
-blocks can omit it and chain with `follow-end: *` (append after siblings) / `follow: <block>`.
+blocks can omit it and chain with `follow-end: "*"` (append after siblings) / `follow: <block>`.
 
 ## Implementation Notes
 

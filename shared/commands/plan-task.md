@@ -71,7 +71,7 @@ blocks *are* the notebook chain — the single post-approval action is one `mael
 The session exports `MAEL_TASK_ID` (this planning task) and `MAEL_TASK_PARENT` (the
 `linear.<ID>` parent). `mael task status done` with no id closes **this** task — it falls back to
 `$MAEL_TASK_ID` — so you never need to pass your own id. Block `parent` likewise defaults to
-`$MAEL_TASK_PARENT`, so blocks omit it and chain with `follow-end: *` (append after siblings) /
+`$MAEL_TASK_PARENT`, so blocks omit it and chain with `follow-end: "*"` (append after siblings) /
 `follow: <block>`; the Linear `<ID>` is also in the brief in your prompt if you need it.
 
 ## Plan Structure
@@ -85,9 +85,10 @@ follows a block (it stops that prose leaking into the block's body).
 
 **Parent + chaining.** `load-many` defaults each block's `parent` to `$MAEL_TASK_PARENT`
 (`linear.<ID>`), so blocks omit `parent:` and nest under the Linear issue automatically. Chain with:
-- `follow-end: *` — "append me after the end of my parent's existing child-chain" (the current leaf
+- `follow-end: "*"` — "append me after the end of my parent's existing child-chain" (the current leaf
   of the siblings under `linear.<ID>`). Use this on the **head** block so the plan queues behind any
-  work already chained under the issue.
+  work already chained under the issue — always quote it: `follow-end: "*"`. Unquoted `*` (YAML
+  alias) and escaped `"\*"` (bad escape) both fail to parse.
 - `follow: <block-name>` — intra-file ordering: a block runs only after the named block in this same
   file.
 
@@ -131,7 +132,7 @@ implements directly.
 ### Multi-Session Plan
 
 For larger tasks — a concrete `iter1` execute block plus a fuzzy-tail `plan-next-step` block. The
-`iter1` block uses `follow-end: *` (append after existing siblings); the `tail` block uses
+`iter1` block uses `follow-end: "*"` (append after existing siblings); the `tail` block uses
 `follow: iter1` (run after iter1 in this file). The tail block carries the remaining-work picture in
 its **body** — it must not be an empty placeholder:
 
