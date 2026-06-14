@@ -542,6 +542,7 @@ def _status_command(name: str, status: str, help_text: str):
     return _cmd
 
 
+_status_command("todo", model.STATUS_TODO, "Move a task back to todo.")
 _status_command("start", model.STATUS_IN_PROGRESS, "Move a task to in-progress.")
 _status_command("done", model.STATUS_DONE, "Move a task to done.")
 _status_command("cancel", model.STATUS_CANCELLED, "Move a task to cancelled.")

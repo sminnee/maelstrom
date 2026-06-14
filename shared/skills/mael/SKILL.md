@@ -56,7 +56,7 @@ mael task list --all-todo                # include blocked-but-waiting
 mael task list --all                     # include done/cancelled
 mael task show <id> / read <id>          # summary / raw file
 mael task log <id> "note"                # append a log line
-mael task status start|done|cancel|block [<id>]   # move between status folders ([<id>] defaults to $MAEL_TASK_ID)
+mael task status todo|start|done|cancel|block [<id>]   # move between status folders ([<id>] defaults to $MAEL_TASK_ID)
 mael task rm <id>                        # delete and strip from dependents
 ```
 
