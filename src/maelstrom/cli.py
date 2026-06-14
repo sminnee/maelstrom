@@ -48,7 +48,6 @@ from .worktree import (
     extract_project_name,
     extract_worktree_name_from_folder,
     find_all_projects,
-    find_worktree_by_branch,
     get_local_only_commits,
     get_pushed_commit_count,
     get_worktree_folder_name,
@@ -322,30 +321,14 @@ def cmd_add(branch, project, open, no_recycle):
 
     click.echo(f"Creating worktree for branch '{branch}'...")
 
-    # If the branch is already checked out in a worktree, don't touch git —
-    # reuse the existing workspace (new Claude tab) or open a fresh session.
-    if not open:  # --open keeps today's behavior
-        existing_wt = find_worktree_by_branch(project_path, branch)
-        if existing_wt is not None:
-            from .cmux import find_workspace, is_cmux_mode, open_claude_tab, workspace_name
-            wt_name = extract_worktree_name_from_folder(ctx.project, existing_wt.name)
-            if is_cmux_mode() and wt_name and \
-               find_workspace(workspace_name(ctx.project, wt_name)) is not None:
-                # Case 1: live workspace → new Claude tab; touch nothing else
-                if open_claude_tab(ctx.project, wt_name, str(existing_wt)) is not None:
-                    click.echo(
-                        f"Branch '{branch}' already open in {ctx.project}/{wt_name}; "
-                        "started a new Claude tab."
-                    )
-                    return
-            # Case 2: worktree exists, no live workspace (or tab failed) → fall
-            # through to the core fn, which returns it as "reused"; the step-8
-            # launch below starts the session (same as `mael open`).
-
     # Ensure a fully set-up worktree exists for the branch (shared with `task run`).
+    # The shared launcher owns install for the create path (it runs it in the new
+    # workspace's shell pane), and reuses a live workspace as a new Claude tab — so
+    # skip install here and let the launcher place the session.
     try:
         result = setup_worktree_for_branch(
-            project_path, ctx.project, branch, no_recycle=no_recycle
+            project_path, ctx.project, branch,
+            no_recycle=no_recycle, run_install=False,
         )
     except RuntimeError as e:
         raise click.ClickException(str(e))
@@ -375,6 +358,7 @@ def cmd_add(branch, project, open, no_recycle):
             _print_service_status(ctx.project, wt_name, project_path)
     elif result.action == "created":
         click.echo(f"Worktree created at: {worktree_path}")
+        click.echo(f"  → {ctx.project}/{wt_name} (created)")
 
     # Check if .env was created/exists
     env_file = worktree_path / ".env"
@@ -384,8 +368,12 @@ def cmd_add(branch, project, open, no_recycle):
         for line in env_file.read_text().strip().split("\n"):
             click.echo(f"  {line}")
 
-    # Open in editor or start Claude session (install was run by the core fn).
+    # Open in editor or start a Claude session. Install was deferred
+    # (run_install=False above): the launcher owns it for the Claude path (shell
+    # pane on create, blocking in non-cmux), but the editor path has no launcher,
+    # so run it blocking here.
     if open:
+        run_install_cmd(worktree_path)
         global_config = load_global_config()
         try:
             open_worktree(worktree_path, global_config.open_command)

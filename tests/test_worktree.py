@@ -5,6 +5,7 @@ import subprocess
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 import pytest
 
@@ -690,6 +691,11 @@ class TestOpenClaudeWorkspace:
 
     def test_calls_create_with_shell_line_when_cmux(self):
         with patch("maelstrom.cmux.is_cmux_mode", return_value=True), \
+             patch("maelstrom.cmux.find_workspace", return_value=None), \
+             patch(
+                 "maelstrom.worktree.load_config_or_default",
+                 return_value=SimpleNamespace(install_cmd=""),
+             ), \
              patch(
                  "maelstrom.cmux.create_cmux_workspace", return_value="workspace:1"
              ) as mock_create:
@@ -703,6 +709,45 @@ class TestOpenClaudeWorkspace:
             assert placed is True
             command = mock_create.call_args.kwargs["command"]
             assert command == (
+                "MAEL_TASK_ID=t1 claude --permission-mode plan 'hi there'"
+            )
+
+    def test_passes_install_cmd_as_shell_command_on_create(self):
+        with patch("maelstrom.cmux.is_cmux_mode", return_value=True), \
+             patch("maelstrom.cmux.find_workspace", return_value=None), \
+             patch(
+                 "maelstrom.worktree.load_config_or_default",
+                 return_value=SimpleNamespace(install_cmd="npm install"),
+             ), \
+             patch(
+                 "maelstrom.cmux.create_cmux_workspace", return_value="workspace:1"
+             ) as mock_create:
+            placed = open_claude_workspace(
+                "proj", "alpha", Path("/wt"), ["claude", "hi"]
+            )
+            assert placed is True
+            assert mock_create.call_args.kwargs["shell_command"] == "npm install"
+
+    def test_reuses_workspace_as_tab_when_live(self):
+        with patch("maelstrom.cmux.is_cmux_mode", return_value=True), \
+             patch(
+                 "maelstrom.cmux.find_workspace", return_value="workspace:7"
+             ), \
+             patch(
+                 "maelstrom.cmux.open_claude_tab", return_value="surface:9"
+             ) as mock_tab, \
+             patch("maelstrom.cmux.create_cmux_workspace") as mock_create:
+            placed = open_claude_workspace(
+                "proj",
+                "alpha",
+                Path("/wt"),
+                ["claude", "--permission-mode", "plan", "hi there"],
+                env={"MAEL_TASK_ID": "t1"},
+            )
+            assert placed is True
+            mock_create.assert_not_called()
+            mock_tab.assert_called_once()
+            assert mock_tab.call_args.kwargs["command"] == (
                 "MAEL_TASK_ID=t1 claude --permission-mode plan 'hi there'"
             )
 
@@ -726,9 +771,16 @@ class TestLaunchClaudeInWorktree:
     def test_execs_in_worktree_when_no_workspace(self):
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
+            order = []
             with patch(
                 "maelstrom.worktree.open_claude_workspace", return_value=False
-            ), patch("maelstrom.worktree.exec_claude") as mock_exec:
+            ), patch(
+                "maelstrom.worktree.run_install_cmd",
+                side_effect=lambda *a, **k: order.append("install"),
+            ) as mock_install, patch(
+                "maelstrom.worktree.exec_claude",
+                side_effect=lambda *a, **k: order.append("exec"),
+            ) as mock_exec:
                 launch_claude_in_worktree(
                     worktree_path,
                     project="proj",
@@ -737,11 +789,14 @@ class TestLaunchClaudeInWorktree:
                     permission_mode="plan",
                     env={"MAEL_TASK_ID": "t1"},
                 )
+                # Non-cmux: install runs blocking, then exec, in that order.
+                mock_install.assert_called_once_with(worktree_path)
                 mock_exec.assert_called_once_with(
                     ["claude", "--permission-mode", "plan", "hi"],
                     cwd=worktree_path,
                     env={"MAEL_TASK_ID": "t1"},
                 )
+                assert order == ["install", "exec"]
 
 
 class TestIsWorktreeClosed:
@@ -1224,6 +1279,17 @@ class TestSetupWorktreeForBranch:
         assert result.path.exists()
         assert result.name in WORKTREE_NAMES
         assert result.path.name == f"test-repo-{result.name}"
+
+    def test_run_install_false_skips_install_on_create(self, git_repo_with_remote):
+        """run_install=False creates the worktree but defers the install command."""
+        with patch("maelstrom.worktree.run_install_cmd") as install:
+            result = setup_worktree_for_branch(
+                git_repo_with_remote, "test-repo", "feature/no-install",
+                run_install=False,
+            )
+        assert result.action == "created"
+        assert result.path.exists()
+        assert install.call_count == 0
 
     def test_idempotent_reuse(self, git_repo_with_remote):
         """Calling twice for the same branch reuses the worktree untouched."""

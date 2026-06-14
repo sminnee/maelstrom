@@ -155,10 +155,24 @@ def add_tab(
     return surface_ref
 
 
-def start_claude_in_surface(surface_ref: str, worktree_path: str) -> None:
-    """send `cd <path>\\n` then `claude\\n` into the surface."""
-    cmux_cmd("send", "--surface", surface_ref, "--", f"cd {worktree_path}\n")
-    cmux_cmd("send", "--surface", surface_ref, "--", "claude\n")
+def start_claude_in_surface(
+    surface_ref: str, worktree_path: str, command: str = "claude",
+    workspace_ref: str | None = None,
+) -> None:
+    """send `cd <path>\\n` then `{command}\\n` into the surface.
+
+    ``command`` defaults to ``claude`` but callers may pass a full shell line
+    (e.g. ``claude --permission-mode plan 'prompt'``); it is sent verbatim, so
+    callers wanting flags or a prompt must shell-quote them.
+
+    ``workspace_ref`` must be passed when the surface lives in a workspace other
+    than the caller's: ``cmux send`` defaults ``--workspace`` to the caller's
+    ``$CMUX_WORKSPACE_ID``, and without the right one it can't find the surface
+    (it fails with "Surface is not a terminal") so the command never runs.
+    """
+    ws = ["--workspace", workspace_ref] if workspace_ref else []
+    cmux_cmd("send", "--surface", surface_ref, *ws, "--", f"cd {worktree_path}\n")
+    cmux_cmd("send", "--surface", surface_ref, *ws, "--", f"{command}\n")
 
 
 def focus_pane(pane_ref: str, workspace_ref: str | None = None) -> None:
@@ -175,13 +189,15 @@ def select_workspace(workspace_ref: str) -> None:
 
 
 def open_claude_tab(
-    project: str, worktree: str, worktree_path: str,
+    project: str, worktree: str, worktree_path: str, command: str = "claude",
 ) -> str | None:
     """Add a new Claude tab to the leftmost pane of an existing workspace.
 
     Composes the primitives: find the workspace by canonical name, add a
-    terminal tab titled "Claude" to its leftmost pane, start claude in it,
-    then focus the pane and select the workspace so the tab is visible.
+    terminal tab titled "Claude" to its leftmost pane, start ``command`` in it
+    (default ``claude``), then focus the pane and select the workspace so the
+    tab is visible. ``command`` is sent verbatim — see
+    :func:`start_claude_in_surface`.
 
     Returns the new surface ref, or None if the workspace isn't found / not
     in cmux mode / the tab couldn't be created.
@@ -195,17 +211,24 @@ def open_claude_tab(
     if surface_ref is None:
         return None
 
-    start_claude_in_surface(surface_ref, worktree_path)
+    start_claude_in_surface(
+        surface_ref, worktree_path, command=command, workspace_ref=workspace_ref,
+    )
 
     if pane_ref:
         focus_pane(pane_ref, workspace_ref)
     select_workspace(workspace_ref)
+    # Bring the new tab itself to the front — add_tab selects it in the pane's
+    # data model, but the GUI keeps the previously-active tab visible until we
+    # focus this surface (a panel) explicitly.
+    focus_surface(surface_ref, workspace_ref)
 
     return surface_ref
 
 
 def create_cmux_workspace(
     project: str, worktree: str, worktree_path: str, command: str = "claude",
+    shell_command: str | None = None,
 ) -> str | None:
     """Create a cmux workspace for a worktree.
 
@@ -213,6 +236,10 @@ def create_cmux_workspace(
     {project}-{worktree}, then opens a second terminal pane and cds into the
     worktree path. ``command`` is sent verbatim, so callers wanting flags or an
     initial prompt must shell-quote them.
+
+    If ``shell_command`` is set, it is sent into the second (terminal) pane
+    after the ``cd`` — used to run the install command visibly there while
+    Claude starts in the first pane.
 
     Returns the workspace ref string, or None on failure.
     """
@@ -242,6 +269,8 @@ def create_cmux_workspace(
     if surface_ref:
         cmux_cmd("send", "--surface", surface_ref, "--", f"cd {worktree_path}\n")
         cmux_cmd("rename-tab", "--surface", surface_ref, "Terminal")
+        if shell_command:
+            cmux_cmd("send", "--surface", surface_ref, "--", f"{shell_command}\n")
 
     # Focus the new workspace's first pane
     first_pane = pane_idx(workspace_ref, 0)
