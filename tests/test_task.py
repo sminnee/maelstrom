@@ -784,7 +784,7 @@ class TestParseTaskBlocks:
 
     def test_mode_is_an_accepted_key(self):
         text = "---CREATE TASK a---\ntitle: A\nmode: normal\n---\nbody\n"
-        blocks = model.parse_task_blocks(text)
+        blocks, _ = model.parse_task_blocks(text)
         assert blocks[0]["args"]["mode"] == "normal"
 
     def test_malformed_marker_name_raises(self):
