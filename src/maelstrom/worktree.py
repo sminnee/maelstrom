@@ -1844,6 +1844,7 @@ def setup_worktree_for_branch(
     branch: str,
     *,
     no_recycle: bool = False,
+    run_install: bool = True,
 ) -> WorktreeSetup:
     """Ensure a fully set-up worktree exists for ``branch``; return path+name+action.
 
@@ -1903,7 +1904,8 @@ def setup_worktree_for_branch(
 
     # Finalize (recycle + create): write CLAUDE.local.md, run install command.
     update_claude_local_md(project_path, worktree_path, name)
-    run_install_cmd(worktree_path)
+    if run_install:
+        run_install_cmd(worktree_path)
 
     return WorktreeSetup(path=worktree_path, name=name, action=action)
 
@@ -2033,14 +2035,35 @@ def open_claude_workspace(
     Returns False (so the caller falls back to ``exec_claude``) when not in
     cmux or when project/worktree are missing — a workspace can't be named
     without them.
+
+    A reused worktree with a live workspace gets a new Claude tab (carrying the
+    same command line) rather than a duplicate workspace. Only the create path
+    runs the install command, sent into the new workspace's shell pane so it
+    runs visibly there; a reused workspace already installed.
     """
-    from .cmux import create_cmux_workspace, is_cmux_mode
+    from .cmux import (
+        create_cmux_workspace,
+        find_workspace,
+        is_cmux_mode,
+        open_claude_tab,
+        workspace_name,
+    )
 
     if not (is_cmux_mode() and project and worktree):
         return False
     line = claude_shell_line(argv, env)
+
+    # Reuse a live workspace: add a Claude tab carrying the same command line.
+    if find_workspace(workspace_name(project, worktree)) is not None:
+        return open_claude_tab(
+            project, worktree, str(worktree_path), command=line
+        ) is not None
+
+    # Create a fresh workspace; run install visibly in its shell pane.
+    install_cmd = load_config_or_default(worktree_path).install_cmd
     return create_cmux_workspace(
-        project, worktree, str(worktree_path), command=line
+        project, worktree, str(worktree_path), command=line,
+        shell_command=install_cmd or None,
     ) is not None
 
 
@@ -2060,6 +2083,8 @@ def launch_claude_in_worktree(
     """
     argv = build_claude_command(initial_prompt, permission_mode)
     if not open_claude_workspace(project, worktree, worktree_path, argv, env):
+        # Non-cmux: no shell pane to run install in, so install blocking first.
+        run_install_cmd(worktree_path)
         exec_claude(argv, cwd=worktree_path, env=env)
 
 

@@ -74,7 +74,10 @@ def _run_task(
             f"Project '{project}' not found at {project_path}"
         )
     branch = task.branch or model.default_branch(task.id, task.parent)
-    result = setup_worktree_for_branch(project_path, project, branch)
+    # The launcher owns install (shell pane on create, blocking in non-cmux).
+    result = setup_worktree_for_branch(
+        project_path, project, branch, run_install=False
+    )
     model.move(store, project, task.id, model.STATUS_IN_PROGRESS)  # write BEFORE launch
     click.echo(f"Running {task.id} on {branch}")
     click.echo(f"  → {project}/{result.name} ({result.action})")

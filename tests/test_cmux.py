@@ -336,6 +336,43 @@ class TestStartClaudeInSurface:
         assert calls[0] == ("send", "--surface", "surface:99", "--", "cd /path/to/wt\n")
         assert calls[1] == ("send", "--surface", "surface:99", "--", "claude\n")
 
+    def test_sends_custom_command_verbatim(self):
+        calls = []
+
+        def mock_cmux_cmd(*args):
+            calls.append(args)
+            return "OK"
+
+        cmd = "claude --permission-mode plan 'do the thing'"
+        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
+            start_claude_in_surface("surface:99", "/path/to/wt", command=cmd)
+
+        assert calls[0] == ("send", "--surface", "surface:99", "--", "cd /path/to/wt\n")
+        assert calls[1] == ("send", "--surface", "surface:99", "--", f"{cmd}\n")
+
+    def test_scopes_send_to_workspace_when_given(self):
+        """A surface in another workspace needs --workspace on send, else cmux
+        looks in the caller's workspace and reports "not a terminal"."""
+        calls = []
+
+        def mock_cmux_cmd(*args):
+            calls.append(args)
+            return "OK"
+
+        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
+            start_claude_in_surface(
+                "surface:99", "/path/to/wt", workspace_ref="workspace:13",
+            )
+
+        assert calls[0] == (
+            "send", "--surface", "surface:99", "--workspace", "workspace:13",
+            "--", "cd /path/to/wt\n",
+        )
+        assert calls[1] == (
+            "send", "--surface", "surface:99", "--workspace", "workspace:13",
+            "--", "claude\n",
+        )
+
 
 class TestOpenClaudeTab:
     """Tests for open_claude_tab function."""
@@ -359,10 +396,42 @@ class TestOpenClaudeTab:
         assert result == "surface:99"
         cmds = [c[0] for c in calls]
         assert "new-surface" in cmds
-        # claude is actually sent into the new tab's surface ref
-        assert ("send", "--surface", "surface:99", "--", "claude\n") in calls
+        # claude is sent into the new tab's surface ref, scoped to its workspace
+        # (the tab may live in a workspace other than the caller's).
+        assert (
+            "send", "--surface", "surface:99", "--workspace", "workspace:13",
+            "--", "claude\n",
+        ) in calls
         assert ("focus-pane", "--pane", "pane:0", "--workspace", "workspace:13") in calls
         assert ("select-workspace", "--workspace", "workspace:13") in calls
+        # The new tab is brought to the front (its panel focused) so the GUI
+        # shows it rather than the previously-active tab.
+        assert ("focus-panel", "--panel", "surface:99", "--workspace", "workspace:13") in calls
+
+    def test_sends_custom_command_verbatim(self):
+        calls = []
+
+        def mock_cmux_cmd(*args):
+            calls.append(args)
+            if args[0] == "list-workspaces":
+                return "  workspace:13  myproject-alpha"
+            if args[0] == "list-panes":
+                return "pane:0 pane:1"
+            if args[0] == "new-surface":
+                return "OK surface:99 pane:0 workspace:13"
+            return "OK"
+
+        cmd = "claude --permission-mode plan 'do the thing'"
+        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
+            result = open_claude_tab(
+                "myproject", "alpha", "/path/to/wt", command=cmd
+            )
+
+        assert result == "surface:99"
+        assert (
+            "send", "--surface", "surface:99", "--workspace", "workspace:13",
+            "--", f"{cmd}\n",
+        ) in calls
 
     def test_returns_none_when_workspace_not_found(self):
         with patch("maelstrom.cmux.cmux_cmd", return_value=""):
@@ -418,6 +487,38 @@ class TestCreateCmuxWorkspace:
         # multi-token new-pane reply).
         assert ("send", "--surface", "surface:456", "--", "cd /path/to/worktree\n") in calls
         assert ("rename-tab", "--surface", "surface:456", "Terminal") in calls
+        # No shell_command → nothing extra sent into the second pane.
+        assert ("send", "--surface", "surface:456", "--", "npm install\n") not in calls
+
+    def test_sends_shell_command_into_second_pane(self):
+        calls = []
+
+        def mock_cmux_cmd(*args):
+            calls.append(args)
+            if args[0] == "new-workspace":
+                return "OK ws-123"
+            if args[0] == "new-pane":
+                return "OK surface:456 pane:7 workspace:1"
+            if args[0] == "list-panes":
+                return "pane:0 pane:1"
+            return "OK"
+
+        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
+            result = create_cmux_workspace(
+                "myproject", "alpha", "/path/to/worktree",
+                shell_command="npm install",
+            )
+
+        assert result == "ws-123"
+        # The install command is sent into the second pane after its cd.
+        assert ("send", "--surface", "surface:456", "--", "npm install\n") in calls
+        cd_idx = calls.index(
+            ("send", "--surface", "surface:456", "--", "cd /path/to/worktree\n")
+        )
+        install_idx = calls.index(
+            ("send", "--surface", "surface:456", "--", "npm install\n")
+        )
+        assert install_idx > cd_idx
 
     def test_returns_none_when_workspace_creation_fails(self):
         with patch("maelstrom.cmux.cmux_cmd", return_value=None):

@@ -764,16 +764,10 @@ class TestCmdAddExistingBranch:
         )
 
         stack.enter_context(patch("maelstrom.cli.resolve_context", return_value=ctx))
-        # The live-tab fast-path in cmd_add reads find_worktree_by_branch /
-        # extract_worktree_name_from_folder from the cli namespace.
-        stack.enter_context(patch(
-            "maelstrom.cli.find_worktree_by_branch",
-            return_value=worktree_path if existing else None,
-        ))
-        stack.enter_context(patch(
-            "maelstrom.cli.extract_worktree_name_from_folder", return_value="bravo",
-        ))
-        # The core fn (worktree.setup_worktree_for_branch) reads its own copies.
+        # cmd_add now defers entirely to the shared launcher for reuse: it always
+        # calls setup_worktree_for_branch (the core fn) then launch_claude_in_worktree.
+        # The core fn reads find_worktree_by_branch / extract_worktree_name_from_folder
+        # from the worktree namespace.
         stack.enter_context(patch(
             "maelstrom.worktree.find_worktree_by_branch",
             return_value=worktree_path if existing else None,
@@ -802,33 +796,19 @@ class TestCmdAddExistingBranch:
         }
         return worktree_path, mocks
 
-    def test_case1_live_workspace_opens_tab(self, tmp_path):
-        """Live workspace → open a Claude tab; don't touch git/install."""
-        from contextlib import ExitStack
+    def test_existing_worktree_reuses_via_launcher(self, tmp_path):
+        """Existing worktree → reused (no git touch); the launcher places it.
 
-        with ExitStack() as stack:
-            _, mocks = self._setup(stack, tmp_path)
-            mocks["is_cmux_mode"].return_value = True
-            mocks["find_workspace"].return_value = "workspace:13"
-            mocks["open_claude_tab"].return_value = "surface:99"
-
-            result = CliRunner().invoke(cli, ["add", "feat-x"])
-            assert result.exit_code == 0, result.output
-
-            mocks["open_claude_tab"].assert_called_once()
-            mocks["create_worktree"].assert_not_called()
-            mocks["run_install_cmd"].assert_not_called()
-            mocks["launch_claude_in_worktree"].assert_not_called()
-            assert "already open" in result.output
-
-    def test_case2_no_workspace_starts_session(self, tmp_path):
-        """Worktree exists but no live workspace → launch_claude_in_worktree."""
+        Reuse-as-tab now lives entirely in the shared launcher
+        (launch_claude_in_worktree), so cmd_add just hands the reused worktree
+        to it — it never touches git/install itself.
+        """
         from contextlib import ExitStack
 
         with ExitStack() as stack:
             existing_wt, mocks = self._setup(stack, tmp_path)
             mocks["is_cmux_mode"].return_value = True
-            mocks["find_workspace"].return_value = None  # no live workspace
+            mocks["find_workspace"].return_value = "workspace:13"
 
             result = CliRunner().invoke(cli, ["add", "feat-x"])
             assert result.exit_code == 0, result.output
@@ -836,11 +816,12 @@ class TestCmdAddExistingBranch:
             mocks["launch_claude_in_worktree"].assert_called_once_with(
                 existing_wt, project="proj", worktree="bravo",
             )
-            mocks["open_claude_tab"].assert_not_called()
             mocks["create_worktree"].assert_not_called()
+            # cmd_add no longer runs install itself; the launcher owns it.
+            mocks["run_install_cmd"].assert_not_called()
 
     def test_not_in_cmux_starts_session(self, tmp_path):
-        """Not in cmux + existing worktree → Case 2 path, no create_worktree."""
+        """Not in cmux + existing worktree → reused, no create_worktree."""
         from contextlib import ExitStack
 
         with ExitStack() as stack:
@@ -853,10 +834,9 @@ class TestCmdAddExistingBranch:
             mocks["launch_claude_in_worktree"].assert_called_once_with(
                 existing_wt, project="proj", worktree="bravo",
             )
-            mocks["open_claude_tab"].assert_not_called()
             mocks["create_worktree"].assert_not_called()
 
-    def test_case3_no_existing_worktree_creates(self, tmp_path):
+    def test_no_existing_worktree_creates(self, tmp_path):
         """No existing worktree → falls through to the create path (regression)."""
         from contextlib import ExitStack
 
@@ -868,4 +848,7 @@ class TestCmdAddExistingBranch:
             assert result.exit_code == 0, result.output
 
             mocks["create_worktree"].assert_called_once()
-            mocks["open_claude_tab"].assert_not_called()
+            # cmd_add defers install to the launcher (run_install=False).
+            mocks["run_install_cmd"].assert_not_called()
+            # The create echo names the worktree.
+            assert "→ proj/bravo (created)" in result.output
