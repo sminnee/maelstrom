@@ -617,6 +617,14 @@ class TestStatus:
         assert model.load(store, "p", t.id).status == status
         assert f"{t.id} -> {status}" in result.output
 
+    def test_status_todo_moves_task_back(self, runner, store):
+        t = model.create(store, project="p", title="t")
+        model.move(store, "p", t.id, model.STATUS_IN_PROGRESS)
+        result = runner.invoke(task_cli.task, ["status", "todo", t.id])
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", t.id).status == model.STATUS_TODO
+        assert f"{t.id} -> {model.STATUS_TODO}" in result.output
+
     def test_status_env_fallback(self, runner, store, monkeypatch):
         t = model.create(store, project="p", title="t")
         monkeypatch.setenv("MAEL_TASK_ID", t.id)
