@@ -135,6 +135,21 @@ class TestNext:
         assert result.exit_code == 0, result.output
         assert result.output.strip() == child.id
 
+    def test_branch_flag_restricts_to_branch(self, runner, store):
+        # a has the lower id but is on another branch.
+        model.create(store, project="p", title="a", branch="other")
+        b = model.create(store, project="p", title="b", branch="feat/x")
+        result = runner.invoke(task_cli.task, ["next", "-b", "feat/x"])
+        assert result.exit_code == 0, result.output
+        assert result.output.strip() == b.id
+
+    def test_branch_flag_no_match_no_fallback(self, runner, store):
+        # Only a task on 'other' exists; -b restricts strictly with no fallback.
+        model.create(store, project="p", title="a", branch="other")
+        result = runner.invoke(task_cli.task, ["next", "-b", "feat/x"])
+        assert result.exit_code != 0
+        assert "No actionable task" in result.output
+
 
 # --- list: actionable-by-default filtering ---
 

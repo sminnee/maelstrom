@@ -674,6 +674,37 @@ class TestNextTask:
         # Filtered to the parent's children, only the child qualifies.
         assert model.next_task(store, "p", parent=p.id).id == child.id
 
+    def test_branch_match_beats_lower_id_on_other_branch(self):
+        store = InMemoryStore()
+        # a has the lower id but is on another branch; b is on the wanted one.
+        model.create(store, project="p", title="a", branch="other", now=NOW, today=TODAY)
+        b = model.create(
+            store, project="p", title="b", branch="feat/x", now=NOW, today=TODAY
+        )
+        assert model.next_task(store, "p", branch="feat/x").id == b.id
+
+    def test_branch_no_match_falls_back_to_global(self):
+        store = InMemoryStore()
+        a = model.create(
+            store, project="p", title="a", branch="other", now=NOW, today=TODAY
+        )
+        # No actionable task on feat/x -> fall back to the global next (a).
+        assert model.next_task(store, "p", branch="feat/x", fallback=True).id == a.id
+
+    def test_branch_no_match_no_fallback_returns_none(self):
+        store = InMemoryStore()
+        model.create(store, project="p", title="a", branch="other", now=NOW, today=TODAY)
+        assert model.next_task(store, "p", branch="feat/x", fallback=False) is None
+
+    def test_branch_none_unchanged(self):
+        store = InMemoryStore()
+        a = model.create(
+            store, project="p", title="a", branch="other", now=NOW, today=TODAY
+        )
+        model.create(store, project="p", title="b", branch="feat/x", now=NOW, today=TODAY)
+        # No branch preference -> first actionable, id-sorted.
+        assert model.next_task(store, "p", branch=None).id == a.id
+
 
 # --- parse_task_blocks ---
 
