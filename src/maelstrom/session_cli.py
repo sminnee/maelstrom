@@ -148,6 +148,55 @@ SESSION_END_EVENT = "session-end"
 HEARTBEAT_EVENT = "heartbeat"
 
 
+def _close_task_for_session(cwd: str | None) -> None:
+    """Mark the launching task ``done`` when its agent session ends.
+
+    The open session *is* the "in-progress" signal: `mael task run` exports
+    ``MAEL_TASK_ID`` into the launched Claude process, and Claude Code fires
+    hooks as child processes, so the `session-end` hook inherits that env var.
+    Reading it here is what lets us close the task without the agent having to
+    remember to run `mael task status done`.
+
+    Defensive throughout: a non-task session (no ``MAEL_TASK_ID``) is a clean
+    no-op, and any failure — unresolvable project, missing task store, task
+    already gone — is swallowed so session teardown always completes. We only
+    move tasks that are still ``in-progress``; a task already moved to
+    ``done``/``cancelled``/``blocked`` (by the agent or the user) is left alone.
+    """
+    task_id = os.environ.get("MAEL_TASK_ID")
+    if not task_id:
+        return
+
+    try:
+        from maelstrom import task as model
+        from maelstrom.task_store import GitFileStore
+
+        ctx = resolve_context(
+            None,
+            require_project=True,
+            cwd=Path(cwd) if cwd else None,
+        )
+        project = ctx.project
+        if not project:
+            return  # require_project guarantees this, but narrows the type
+
+        store = GitFileStore()
+        key = model.find_key(store, project, task_id)
+        if key is None:
+            return  # task already deleted — nothing to close
+        if model.status_from_key(key) != model.STATUS_IN_PROGRESS:
+            return  # already terminal or back in todo — don't clobber
+        model.move(store, project, task_id, model.STATUS_DONE)
+        click.echo(
+            f"Session ended: closed task {project}/{task_id} -> "
+            f"{model.STATUS_DONE}",
+            err=True,
+        )
+    except Exception:
+        # A hook must never crash session teardown.
+        pass
+
+
 @session.command("record")
 @click.argument("event")
 def session_record(event: str) -> None:
@@ -175,6 +224,9 @@ def session_record(event: str) -> None:
         return
 
     if event == SESSION_END_EVENT:
+        # The ending session is the completion signal for the task it launched:
+        # close that task before tearing down the session file.
+        _close_task_for_session(cwd)
         try:
             path.unlink()
         except OSError:
