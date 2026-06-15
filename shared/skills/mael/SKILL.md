@@ -177,6 +177,9 @@ If step 2 returns no blocking findings, report the review summary and stop — w
 The PR step is the **only** step that requires user confirmation. Do not ask "shall I
 commit?" or "shall I run the review?" — just do steps 1–4 and report what happened.
 
+When the agent session ends, mael automatically moves the task to `done` (the open session is
+the "in-progress" signal). You don't need to run `mael task status done` yourself.
+
 If the project supplies `docs/review/coding-standards.md` and/or
 `docs/review/code-smells.md`, the review sub-agent loads them automatically.
 

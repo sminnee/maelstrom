@@ -61,6 +61,9 @@ blocks *are* the notebook chain — the single post-approval action is one `mael
    mael task load-many <plan-file>          # create every block's task in one atomic commit
    mael task status done                    # close this planning task ($MAEL_TASK_ID)
    ```
+   (Ending the planning session also auto-closes the task via the SessionEnd hook, so this
+   `mael task status done` is a no-op if the session ends first — but run it anyway so the task
+   closes before any chained session continues.)
    Each execute block's task has an empty `command` and `mode: normal`, so it's a plain execute that
    runs **no skill** (not a re-plan) and finishes via the project's always-on "Finishing a task" rule
    (commit → `/code-review` → fixups → stop). **Do NOT implement** — do not write code, edit source files, or create branches;

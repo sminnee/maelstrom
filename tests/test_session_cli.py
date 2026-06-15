@@ -4,12 +4,15 @@ import json
 import socket
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from click.testing import CliRunner
 
 from maelstrom.cli import cli
 from maelstrom import session_cli
+from maelstrom import task as model
+from maelstrom.task_store import GitFileStore
 
 
 def _write_session(sessions_dir: Path, key: str, **overrides) -> Path:
@@ -234,6 +237,143 @@ class TestSessionRecord:
                 input="{}",
             )
         assert result.exit_code == 2
+
+
+class TestSessionEndAutoClose:
+    """`session record session-end` closes the task its session launched.
+
+    The launching `mael task run` exports MAEL_TASK_ID into the Claude process,
+    which the hook subprocess inherits; ending the session is the completion
+    signal that moves the still-in-progress task to done.
+    """
+
+    def _setup(self, tmp_path, monkeypatch, *, status):
+        """Create a task in ``status`` and wire the auto-close collaborators.
+
+        Returns the GitFileStore so callers can assert the task's final status.
+        """
+        store = GitFileStore(root=tmp_path / "tasks")
+        task = model.create(store, project="proj", title="throwaway")
+        if status != model.STATUS_TODO:
+            model.move(store, "proj", task.id, status)
+
+        monkeypatch.setenv("MAEL_TASK_ID", task.id)
+        monkeypatch.setattr(
+            session_cli,
+            "resolve_context",
+            lambda *a, **k: SimpleNamespace(project="proj", worktree=None),
+        )
+        monkeypatch.setattr(
+            "maelstrom.task_store.get_maelstrom_dir", lambda: tmp_path
+        )
+        return store, task.id
+
+    def test_in_progress_task_moves_to_done(self, tmp_path, monkeypatch):
+        store, task_id = self._setup(
+            tmp_path, monkeypatch, status=model.STATUS_IN_PROGRESS
+        )
+        sessions = tmp_path / "sessions"
+        path = _write_session(sessions, "s1", session_id="abc")
+
+        with _patch_maelstrom_dir(tmp_path):
+            result = CliRunner().invoke(
+                cli,
+                ["session", "record", "session-end"],
+                input=json.dumps({"session_id": "abc"}),
+            )
+
+        assert result.exit_code == 0, result.output
+        assert not path.exists()  # session file still unlinked
+        assert "closed task" in result.output
+        key = model.find_key(store, "proj", task_id)
+        assert key is not None
+        assert model.status_from_key(key) == model.STATUS_DONE
+
+    def test_no_task_id_is_noop(self, tmp_path, monkeypatch):
+        store, task_id = self._setup(
+            tmp_path, monkeypatch, status=model.STATUS_IN_PROGRESS
+        )
+        monkeypatch.delenv("MAEL_TASK_ID", raising=False)
+        sessions = tmp_path / "sessions"
+        path = _write_session(sessions, "s1", session_id="abc")
+
+        with _patch_maelstrom_dir(tmp_path):
+            result = CliRunner().invoke(
+                cli,
+                ["session", "record", "session-end"],
+                input=json.dumps({"session_id": "abc"}),
+            )
+
+        assert result.exit_code == 0, result.output
+        assert not path.exists()  # session file still unlinked
+        # Task untouched: still in-progress.
+        key = model.find_key(store, "proj", task_id)
+        assert key is not None
+        assert model.status_from_key(key) == model.STATUS_IN_PROGRESS
+
+    def test_already_terminal_task_left_untouched(self, tmp_path, monkeypatch):
+        store, task_id = self._setup(
+            tmp_path, monkeypatch, status=model.STATUS_DONE
+        )
+        sessions = tmp_path / "sessions"
+        path = _write_session(sessions, "s1", session_id="abc")
+
+        with _patch_maelstrom_dir(tmp_path):
+            result = CliRunner().invoke(
+                cli,
+                ["session", "record", "session-end"],
+                input=json.dumps({"session_id": "abc"}),
+            )
+
+        assert result.exit_code == 0, result.output
+        assert not path.exists()
+        key = model.find_key(store, "proj", task_id)
+        assert key is not None
+        assert model.status_from_key(key) == model.STATUS_DONE
+
+    def test_cancelled_task_not_reopened(self, tmp_path, monkeypatch):
+        store, task_id = self._setup(
+            tmp_path, monkeypatch, status=model.STATUS_CANCELLED
+        )
+        sessions = tmp_path / "sessions"
+        _write_session(sessions, "s1", session_id="abc")
+
+        with _patch_maelstrom_dir(tmp_path):
+            result = CliRunner().invoke(
+                cli,
+                ["session", "record", "session-end"],
+                input=json.dumps({"session_id": "abc"}),
+            )
+
+        assert result.exit_code == 0, result.output
+        key = model.find_key(store, "proj", task_id)
+        assert key is not None
+        assert model.status_from_key(key) == model.STATUS_CANCELLED
+
+    def test_missing_task_does_not_crash(self, tmp_path, monkeypatch):
+        # MAEL_TASK_ID points at a task that doesn't exist in the store.
+        GitFileStore(root=tmp_path / "tasks")  # empty store
+        monkeypatch.setenv("MAEL_TASK_ID", "2026-01-01.1")
+        monkeypatch.setattr(
+            session_cli,
+            "resolve_context",
+            lambda *a, **k: SimpleNamespace(project="proj", worktree=None),
+        )
+        monkeypatch.setattr(
+            "maelstrom.task_store.get_maelstrom_dir", lambda: tmp_path
+        )
+        sessions = tmp_path / "sessions"
+        path = _write_session(sessions, "s1", session_id="abc")
+
+        with _patch_maelstrom_dir(tmp_path):
+            result = CliRunner().invoke(
+                cli,
+                ["session", "record", "session-end"],
+                input=json.dumps({"session_id": "abc"}),
+            )
+
+        assert result.exit_code == 0, result.output
+        assert not path.exists()  # session file still unlinked
 
 
 class TestSessionList:

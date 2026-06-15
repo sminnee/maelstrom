@@ -17,3 +17,6 @@ asked" rule for mael projects:
 
 If there are no blocking findings, stop after step 2 and report the review summary.
 The PR step is the only thing that requires user confirmation.
+
+When the agent session ends, mael automatically moves the task to `done` (the open session is
+the "in-progress" signal). You don't need to run `mael task status done` yourself.
