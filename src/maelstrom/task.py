@@ -957,19 +957,27 @@ def next_task(
     project: str,
     *,
     parent: str | None = None,
+    branch: str | None = None,
+    fallback: bool = True,
 ) -> Task | None:
     """Return the next actionable task, or ``None`` if there isn't one.
 
     Considers ``todo`` and ``in-progress`` tasks (id-sorted), optionally
-    filtered to a ``parent``, and returns the first actionable one.
-    In-progress tasks are included so an interrupted session re-surfaces.
+    filtered to a ``parent``. When ``branch`` is given, prefers actionable
+    tasks whose ``branch`` matches; if none and ``fallback`` is true, falls
+    back to the next actionable task on any branch. In-progress tasks are
+    included so an interrupted session re-surfaces.
     """
     candidates = list_tasks(store, project=project, status=STATUS_TODO, parent=parent)
     candidates += list_tasks(
         store, project=project, status=STATUS_IN_PROGRESS, parent=parent
     )
     candidates.sort(key=lambda t: t.id)
-    for task in candidates:
-        if is_actionable(task, store):
-            return task
-    return None
+    actionable = [t for t in candidates if is_actionable(t, store)]
+    if branch is not None:
+        on_branch = next((t for t in actionable if t.branch == branch), None)
+        if on_branch is not None:
+            return on_branch
+        if not fallback:
+            return None
+    return actionable[0] if actionable else None

@@ -6,6 +6,7 @@ lives in the model; this layer only parses arguments and prints.
 """
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -18,9 +19,26 @@ from .task_store import GitFileStore
 from .worktree import (
     build_claude_command,
     exec_claude,
+    get_current_branch,
     launch_claude_in_worktree,
     setup_worktree_for_branch,
 )
+
+
+def _current_branch_or_none() -> str | None:
+    """Detect the current git branch, or ``None`` when there's no preference.
+
+    Returns ``None`` outside a git repo (any failure), and treats ``main`` or
+    an empty result as "no branch preference" so the command degrades to global
+    next-task behavior.
+    """
+    try:
+        branch = get_current_branch(Path.cwd())
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    if not branch or branch == "main":
+        return None
+    return branch
 
 
 def _store() -> GitFileStore:
@@ -360,15 +378,38 @@ def task_list(
 @click.option("--parent", default=None, help="Restrict to children of this id.")
 @click.option("--run", is_flag=True, help="Launch the next actionable task as a session.")
 @click.option(
+    "-b",
+    "--branch",
+    default=None,
+    help="Restrict to this branch (no fallback to other branches).",
+)
+@click.option(
     "--here",
     is_flag=True,
     help="With --run, launch in the current shell (no worktree, no new workspace).",
 )
-def task_next(project: str | None, parent: str | None, run: bool, here: bool) -> None:
-    """Print the id of the next actionable task."""
+def task_next(
+    project: str | None,
+    parent: str | None,
+    run: bool,
+    branch: str | None,
+    here: bool,
+) -> None:
+    """Print the id of the next actionable task.
+
+    By default, prefers a task on the current git branch and falls back to the
+    global next task. With ``--branch``, restricts strictly to that branch (no
+    fallback).
+    """
     proj = _resolve_project(project)
     store = _store()
-    nxt = model.next_task(store, proj, parent=parent)
+    if branch is not None:
+        effective_branch, fallback = branch, False
+    else:
+        effective_branch, fallback = _current_branch_or_none(), True
+    nxt = model.next_task(
+        store, proj, parent=parent, branch=effective_branch, fallback=fallback
+    )
     if nxt is None:
         raise click.ClickException("No actionable task.")
     if run:
