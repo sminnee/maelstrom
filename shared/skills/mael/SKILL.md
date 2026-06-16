@@ -33,7 +33,7 @@ session launches immediately; pass `--no-run` to create the task without launchi
   done.
 - `mael task next --run` launches the next ready task. **Execute tasks run no skill**: the plan is
   their content, and the project's always-on "Finishing a task" rule (commit → `/code-review` →
-  fixups → stop) closes them out. `plan-next-step` tasks plan one more increment and re-queue
+  fixups → `create-pr --squash` → `/watch-pr` → `task status done`) closes them out. `plan-next-step` tasks plan one more increment and re-queue
   themselves until the work is done.
 
 New tasks **default to plan mode** (`DEFAULT_MODE`): a bare `mael task add "<title>" --run` opens a
