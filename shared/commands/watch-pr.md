@@ -54,7 +54,8 @@ Run this loop. Each iteration is one CI cycle.
      git commit --fixup <sha>
      ```
 
-     Don't amend, and don't autosquash — the user squashes later via `mael sync --squash`.
+     Don't amend. Push the fixup with a plain `mael sync` (step 6) — it stays a
+     separate `fixup!` commit on the PR; fold it in later with `mael sync --squash`.
 
    - **Unrelated to this PR** (the failure is pre-existing or stems from something outside this
      PR's changes — e.g. a flaky test, a broken dependency, a main-branch regression) → commit as a

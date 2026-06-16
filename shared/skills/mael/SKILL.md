@@ -167,15 +167,19 @@ it applies to all mael projects.
 3. Address **Blocking** findings (Advisory at your judgement).
 4. Commit the review fixes as `--fixup` commits — one per blocking finding,
    targeting the commit that introduced the issue. See the code-review skill for
-   the exact procedure. Do not amend existing commits. Do not run autosquash —
-   the user will run `mael sync --squash` (or `git rebase -i --autosquash`) when
-   they're ready.
-5. **STOP. Wait for explicit user instruction before running `mael gh create-pr`.**
+   the exact procedure. Do not amend existing commits.
+5. Push the PR: `mael gh create-pr <ISSUE-ID> --squash`. The `--squash` flag
+   autosquashes the `fixup!` commits into their targets as it rebases onto
+   `origin/main` before pushing, so the PR lands with a clean history.
+6. Run `/watch-pr` — take CI to green autonomously: fix each failure
+   (fixup for PR-caused, `chore:` for unrelated), `mael sync` to re-push, and loop
+   until CI passes or times out.
 
-If step 2 returns no blocking findings, report the review summary and stop — wait for explicit user instruction before `mael gh create-pr`.
+If step 2 returns no blocking findings, skip steps 3–4 and go straight to step 5.
 
-The PR step is the **only** step that requires user confirmation. Do not ask "shall I
-commit?" or "shall I run the review?" — just do steps 1–4 and report what happened.
+The **entire** sequence runs without confirmation — including the PR push (step 5)
+and the CI watch (step 6). Do not ask "shall I commit?", "shall I run the review?",
+or "shall I open the PR?" — just run steps 1–6 and report what happened.
 
 When the agent session ends, mael automatically moves the task to `done` (the open session is
 the "in-progress" signal). You don't need to run `mael task status done` yourself.
