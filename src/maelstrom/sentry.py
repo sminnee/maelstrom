@@ -450,7 +450,8 @@ def resolve_issue(issue_id: str) -> None:
 
     result = api_request(endpoint, method="PUT", body=body)
 
-    assert isinstance(result, dict)
+    if not isinstance(result, dict):
+        raise RuntimeError(f"Unexpected Sentry API response: {result!r}")
     status = result.get("status", "unknown")
     title = result.get("title", issue_id)
     click.echo(f"Resolved: {title}")
