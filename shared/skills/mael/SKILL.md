@@ -28,7 +28,7 @@ session launches immediately; pass `--no-run` to create the task without launchi
 - `mael linear plan PROJ-XXX` launches the `plan-task` skill in plan mode, holding the brief.
   The plan file it writes *is* the chain (a marked load-many file); after ExitPlanMode approval it
   runs `mael task load-many <plan-file>` to create it — an **Execute** task (plan as content, no
-  skill, **`mode: normal`** so it runs the plan instead of re-planning) and, for multi-session work,
+  skill, **`mode: auto`** so it runs the plan unattended instead of re-planning) and, for multi-session work,
   a **`plan-next-step`** task carrying the remaining-work tail — then marks its own planning task
   done.
 - `mael task next --run` launches the next ready task. **Execute tasks run no skill**: the plan is
@@ -37,14 +37,15 @@ session launches immediately; pass `--no-run` to create the task without launchi
   themselves until the work is done.
 
 New tasks **default to plan mode** (`DEFAULT_MODE`): a bare `mael task add "<title>" --run` opens a
-planning session. Pass `--mode normal` for a direct execute session. In a load-many plan file each
-block may carry a `mode:` key; Execute blocks set `mode: normal`, planning blocks omit it (or set
-`mode: plan`).
+planning session. Pass `--mode auto` for an unattended execute session (Claude's classifier-vetted
+auto permission mode — `⏵⏵ auto mode on`), or `--mode normal` for a direct execute session that
+prompts on each action. In a load-many plan file each block may carry a `mode:` key; Execute blocks
+set `mode: auto`, planning blocks omit it (or set `mode: plan`).
 
 **The `mael task` surface:**
 ```bash
 mael task add "<title>" [--run]          # create (and optionally launch) a task (plan mode by default)
-mael task add "<title>" --mode normal    # a direct execute session (no planning step)
+mael task add "<title>" --mode auto      # an unattended execute session (no planning step)
 mael task add "<title>" --command plan-task --parent linear.PROJ-XXX --content-file brief.md
 mael task add "<title>" --follow-end '*' --content-file plan.md   # append after the parent's siblings
 mael task add "<title>" --content-file -                  # read content from stdin
@@ -174,15 +175,20 @@ it applies to all mael projects.
 6. Run `/watch-pr` — take CI to green autonomously: fix each failure
    (fixup for PR-caused, `chore:` for unrelated), `mael sync` to re-push, and loop
    until CI passes or times out.
+7. **Close the task.** Run `mael task status done` (defaults to `$MAEL_TASK_ID`) as the
+   last step before reporting back. The SessionEnd hook also does this as a backstop, but
+   call it explicitly so the task closes deterministically even if the hook fails to fire.
 
 If step 2 returns no blocking findings, skip steps 3–4 and go straight to step 5.
 
-The **entire** sequence runs without confirmation — including the PR push (step 5)
-and the CI watch (step 6). Do not ask "shall I commit?", "shall I run the review?",
-or "shall I open the PR?" — just run steps 1–6 and report what happened.
+The **entire** sequence runs without confirmation — including the PR push (step 5),
+the CI watch (step 6), and closing the task (step 7). Do not ask "shall I commit?",
+"shall I run the review?", or "shall I open the PR?" — just run steps 1–7 and report
+what happened.
 
-When the agent session ends, mael automatically moves the task to `done` (the open session is
-the "in-progress" signal). You don't need to run `mael task status done` yourself.
+The SessionEnd hook moves the task to `done` as a backstop when the session ends, but it can
+fail silently (if `mael` isn't on PATH, git is unavailable, or the process is killed). Don't
+rely on it — run `mael task status done` explicitly as step 7 so the task closes deterministically.
 
 If the project supplies `docs/review/coding-standards.md` and/or
 `docs/review/code-smells.md`, the review sub-agent loads them automatically.
