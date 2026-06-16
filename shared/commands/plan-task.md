@@ -64,8 +64,8 @@ blocks *are* the notebook chain — the single post-approval action is one `mael
    (Ending the planning session also auto-closes the task via the SessionEnd hook, so this
    `mael task status done` is a no-op if the session ends first — but run it anyway so the task
    closes before any chained session continues.)
-   Each execute block's task has an empty `command` and `mode: normal`, so it's a plain execute that
-   runs **no skill** (not a re-plan) and finishes via the project's always-on "Finishing a task" rule
+   Each execute block's task has an empty `command` and `mode: auto`, so it's a plain unattended
+   execute that runs **no skill** (not a re-plan) and finishes via the project's always-on "Finishing a task" rule
    (commit → `/code-review` → fixups → stop). **Do NOT implement** — do not write code, edit source files, or create branches;
    implementation happens in a later session via `mael task next --run`.
 
@@ -105,7 +105,8 @@ only the final step flips it to Unreleased.
 
 **Mode markers are required on every block.** New tasks default to *plan* mode, so an Execute block
 that omits `mode:` would wrongly re-plan instead of running its plan. Always set:
-- `mode: normal` on every **execute** block (`iter` / `iter1`) — it runs the plan as-is, no skill.
+- `mode: auto` on every **execute** block (`iter` / `iter1`) — it runs the plan as-is unattended
+  (Claude's classifier-vetted auto permission mode), no skill.
 - `mode: plan` on the **`plan-next-step`** tail block — the next increment is planned afresh. Add an optional `---END TASK <name>---` only when prose for the human reviewer
 follows a block (it stops that prose leaking into the block's body).
 
@@ -129,7 +130,7 @@ This plan creates the notebook chain for <ID>. The only action is:
 
 ---CREATE TASK iter---
 title: "Execute: <ID> — <short desc>"
-mode: normal
+mode: auto
 pre-action: linear.in-progress
 post-action: linear.done
 follow-end: "*"
@@ -171,7 +172,7 @@ This plan creates the notebook chain for <ID>. The only action is:
 
 ---CREATE TASK iter1---
 title: "Execute: <iteration-1 desc>"
-mode: normal
+mode: auto
 pre-action: linear.in-progress
 follow-end: "*"
 ---

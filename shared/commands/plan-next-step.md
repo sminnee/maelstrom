@@ -69,9 +69,10 @@ Both blocks nest under the parent automatically — `mael task load-many` defaul
   `follow-end: "*"`. Unquoted `*` (YAML alias) and escaped `"\*"` (bad escape) both fail to parse.
 - `follow: <block-name>` on later blocks — intra-file ordering by block name.
 
-Set `mode:` on every block: `mode: normal` on the **execute** (`step`) block so it runs the plan
-instead of re-planning, and `mode: plan` on the **`tail`** block so the next `plan-next-step` session
-opens in plan mode. New tasks default to plan mode, so the execute block's `mode: normal` is required.
+Set `mode:` on every block: `mode: auto` on the **execute** (`step`) block so it runs the plan
+unattended (Claude's classifier-vetted auto permission mode) instead of re-planning, and `mode: plan`
+on the **`tail`** block so the next `plan-next-step` session opens in plan mode. New tasks default to
+plan mode, so the execute block's `mode: auto` is required.
 
 Put lifecycle actions on the **execute** (`step`) block so each step mirrors itself to Linear.
 Always set `pre-action: linear.in-progress` (fired on launch). Set `post-action: linear.done` (fired
@@ -93,7 +94,7 @@ This step's chain. The only action is:
 
 ---CREATE TASK step---
 title: "Execute: <next step desc>"
-mode: normal
+mode: auto
 pre-action: linear.in-progress
 follow-end: "*"
 ---
@@ -123,7 +124,7 @@ This step's chain. The only action is:
 
 ---CREATE TASK step---
 title: "Execute: <final step desc>"
-mode: normal
+mode: auto
 pre-action: linear.in-progress
 post-action: linear.done
 follow-end: "*"
