@@ -82,8 +82,26 @@ The session exports `MAEL_TASK_ID` (this planning task) and `MAEL_TASK_PARENT` (
 The plan file is a load-many file: a short preamble (ignored by `load-many`, for the human reviewer)
 followed by `---CREATE TASK <name>---` blocks. Each block is `frontmatter` + `markdown body`; the
 body becomes the created task's Content. Frontmatter keys: `title` (required), `command`, `mode`,
-`parent`, `follow`, `follow-end`. A block ends at the next open marker or EOF — so back-to-back
-blocks need no explicit terminator.
+`parent`, `pre-action`, `post-action`, `follow`, `follow-end`. A block ends at the next open marker
+or EOF — so back-to-back blocks need no explicit terminator.
+
+**Lifecycle actions** (`pre-action` / `post-action`) fire a Linear/Sentry status change when the
+task starts / finishes, against the `linear.<ID>` parent. Use them so the chain mirrors itself to
+Linear automatically — no manual `set-status`:
+- `pre-action: linear.in-progress` — fired when the task is launched.
+- `post-action: linear.done` — fired when the session ends (task → done; Linear → Unreleased).
+
+**`post-action: linear.done` belongs only on the LAST execute step** — it moves the Linear issue to
+Unreleased, which is wrong while work remains:
+- **Single-session plan** (one `iter` block, no `tail`): it *is* the last step, so set both
+  `pre-action: linear.in-progress` **and** `post-action: linear.done`.
+- **Multi-session plan** (an `iter1` block followed by a `plan-next-step` `tail`): `iter1` is **not**
+  the last step, so set **only** `pre-action: linear.in-progress` — no `post-action`. The
+  `plan-next-step` chain seeds `post-action: linear.done` on whichever step it decides is final.
+
+The planning task already carries `post-action: linear.planned` (seeded by `mael linear plan`), so
+finishing planning flips Linear to Planned and launching each execute step flips it to In Progress;
+only the final step flips it to Unreleased.
 
 **Mode markers are required on every block.** New tasks default to *plan* mode, so an Execute block
 that omits `mode:` would wrongly re-plan instead of running its plan. Always set:
@@ -112,6 +130,8 @@ This plan creates the notebook chain for <ID>. The only action is:
 ---CREATE TASK iter---
 title: "Execute: <ID> — <short desc>"
 mode: normal
+pre-action: linear.in-progress
+post-action: linear.done
 follow-end: "*"
 ---
 # <ID>: <Title>
@@ -152,6 +172,7 @@ This plan creates the notebook chain for <ID>. The only action is:
 ---CREATE TASK iter1---
 title: "Execute: <iteration-1 desc>"
 mode: normal
+pre-action: linear.in-progress
 follow-end: "*"
 ---
 # <ID>: <Title> — Iteration 1

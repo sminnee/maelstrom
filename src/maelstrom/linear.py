@@ -719,6 +719,8 @@ def cmd_plan(issue_id: str, project: str | None, run: bool, here: bool) -> None:
         mode="plan",  # planning always runs in plan mode, independent of DEFAULT_MODE
         parent=f"linear.{identifier}",
         content=brief,
+        # Finishing the planning session moves the Linear issue to Planned.
+        post_action="linear.planned",
         run=run,
         here=here,
     )
@@ -902,6 +904,27 @@ _STATUS_STATES = {
 }
 
 
+def set_issue_status(issue_id: str, status: str) -> None:
+    """Set a Linear issue to one of planned|in-progress|done. Raises on failure.
+
+    The reusable core shared by ``mael linear set-status`` and the task
+    lifecycle actions. ``done`` maps to the ``Unreleased`` workflow state.
+    Raises ``RuntimeError`` if the target state is missing from the workflow;
+    a no-op (already in the target state) just echoes and returns.
+    """
+    state_name = _STATUS_STATES[status]
+    issue = get_issue(issue_id)
+    states = get_workflow_states()
+    if state_name not in states:
+        raise RuntimeError(f"'{state_name}' state not found in workflow.")
+    current = issue["state"]["name"]
+    if current == state_name:
+        click.echo(f"{issue['identifier']} already {state_name}.")
+        return
+    update_issue(issue["id"], stateId=states[state_name])
+    click.echo(f"{issue['identifier']}: {current} -> {state_name}")
+
+
 @linear.command("set-status")
 @click.argument("issue_id")
 @click.argument("status", type=click.Choice(list(_STATUS_STATES)))
@@ -912,17 +935,10 @@ def cmd_set_status(issue_id, status):
     workflow state (promote to ``Done`` later with ``mael linear release``).
     Applies to the issue as-is — no special subtask/parent handling.
     """
-    state_name = _STATUS_STATES[status]
-    issue = get_issue(issue_id)
-    states = get_workflow_states()
-    if state_name not in states:
-        raise click.ClickException(f"'{state_name}' state not found in workflow.")
-    current = issue["state"]["name"]
-    if current == state_name:
-        click.echo(f"{issue['identifier']} already {state_name}.")
-        return
-    update_issue(issue["id"], stateId=states[state_name])
-    click.echo(f"{issue['identifier']}: {current} -> {state_name}")
+    try:
+        set_issue_status(issue_id, status)
+    except RuntimeError as e:
+        raise click.ClickException(str(e))
 
 
 @linear.command("create-subtask")

@@ -437,10 +437,12 @@ def cmd_get_issue(issue_id):
             click.echo("")
 
 
-@sentry.command("resolve-issue")  # type: ignore[attr-defined]
-@click.argument("issue_id")
-def cmd_resolve_issue(issue_id: str) -> None:
-    """Mark an issue as resolved in the next release."""
+def resolve_issue(issue_id: str) -> None:
+    """Mark a Sentry issue resolved in the next release. Raises on failure.
+
+    The reusable core shared by ``mael sentry resolve-issue`` and the task
+    lifecycle action ``sentry.resolve``.
+    """
     sentry_org, _ = get_sentry_config()
 
     endpoint = f"/organizations/{sentry_org}/issues/{issue_id}/"
@@ -453,3 +455,10 @@ def cmd_resolve_issue(issue_id: str) -> None:
     title = result.get("title", issue_id)
     click.echo(f"Resolved: {title}")
     click.echo(f"Status: {status}")
+
+
+@sentry.command("resolve-issue")  # type: ignore[attr-defined]
+@click.argument("issue_id")
+def cmd_resolve_issue(issue_id: str) -> None:
+    """Mark an issue as resolved in the next release."""
+    resolve_issue(issue_id)

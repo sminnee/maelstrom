@@ -44,7 +44,9 @@ DEFAULT_STATUS = STATUS_TODO
 # ``mode`` is left unset.
 DEFAULT_MODE = "plan"
 
-# The ten frontmatter keys, always emitted in this order for stable diffs.
+# The frontmatter keys, always emitted in this order for stable diffs. Most
+# names match a ``Task`` attr 1:1; the kebab-case lifecycle keys map to the
+# snake_case attrs via ``_FRONTMATTER_ATTR`` below.
 FRONTMATTER_KEYS = (
     "id",
     "title",
@@ -53,10 +55,19 @@ FRONTMATTER_KEYS = (
     "mode",
     "branch",
     "parent",
+    "pre-action",
+    "post-action",
     "follows",
     "created",
     "updated",
 )
+
+# Frontmatter keys whose name differs from the dataclass attr (kebab vs snake).
+# Any key absent here uses its own name as the attr.
+_FRONTMATTER_ATTR = {
+    "pre-action": "pre_action",
+    "post-action": "post_action",
+}
 
 
 def _now_iso() -> str:
@@ -121,6 +132,8 @@ class Task:
     mode: str = DEFAULT_MODE
     branch: str = ""
     parent: str = ""
+    pre_action: str = ""
+    post_action: str = ""
     follows: list[str] = field(default_factory=list)
     created: str = ""
     updated: str = ""
@@ -142,7 +155,8 @@ class Task:
             if k == "follows":
                 lines.append(f"follows: {_dump_follows(self.follows)}")
             else:
-                lines.append(f"{k}: {_dump_scalar(getattr(self, k))}")
+                attr = _FRONTMATTER_ATTR.get(k, k)
+                lines.append(f"{k}: {_dump_scalar(getattr(self, attr))}")
         lines.append("---")
         lines.append("")
         lines.append("## Content")
@@ -172,6 +186,8 @@ class Task:
             mode=str(frontmatter.get("mode", DEFAULT_MODE)) or DEFAULT_MODE,
             branch=str(frontmatter.get("branch", "")),
             parent=str(frontmatter.get("parent", "")),
+            pre_action=str(frontmatter.get("pre-action", "")),
+            post_action=str(frontmatter.get("post-action", "")),
             follows=_coerce_follows(frontmatter.get("follows")),
             created=str(frontmatter.get("created", "")),
             updated=str(frontmatter.get("updated", "")),
@@ -455,6 +471,8 @@ def create(
     mode: str = "",
     branch: str = "",
     parent: str = "",
+    pre_action: str = "",
+    post_action: str = "",
     follows: list[str] | None = None,
     content: str = "",
     now: str | None = None,
@@ -481,6 +499,8 @@ def create(
         mode=resolved_mode,
         branch=branch or default_branch(id, parent),
         parent=parent,
+        pre_action=pre_action,
+        post_action=post_action,
         follows=list(follows or []),
         created=timestamp,
         updated=timestamp,
@@ -499,7 +519,16 @@ def create(
 # serialized task frontmatter. Anything else is a typo that should fail loudly
 # rather than silently drop a dependency.
 _BLOCK_KEYS = frozenset(
-    {"title", "command", "mode", "parent", "follow", "follow-end"}
+    {
+        "title",
+        "command",
+        "mode",
+        "parent",
+        "pre-action",
+        "post-action",
+        "follow",
+        "follow-end",
+    }
 )
 
 _BAD_WILDCARD_ESCAPE = re.compile(r'"\\(\*)"')  # the "\*" double-quoted-escape case
@@ -662,6 +691,8 @@ def load_many(
                 command=str(args.get("command", "")),
                 mode=str(args.get("mode", "")),
                 parent=parent,
+                pre_action=str(args.get("pre-action", "")),
+                post_action=str(args.get("post-action", "")),
                 follows=deduped,
                 content=b["content"],
                 now=now,
@@ -764,6 +795,8 @@ def update(
     content: str | None = None,
     command: str | None = None,
     mode: str | None = None,
+    pre_action: str | None = None,
+    post_action: str | None = None,
     now: str | None = None,
 ) -> Task:
     """Update provided fields in place (one write, bumps ``updated``).
@@ -789,6 +822,10 @@ def update(
         task.command = command
     if mode is not None:
         task.mode = mode
+    if pre_action is not None:
+        task.pre_action = pre_action
+    if post_action is not None:
+        task.post_action = post_action
     task.updated = now if now is not None else _now_iso()
     store.write(key, task.to_markdown(), message=f"task: update {id}")
     return task

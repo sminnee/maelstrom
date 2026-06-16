@@ -13,6 +13,7 @@ from pathlib import Path
 import click
 
 from . import task as model  # noqa: F401  (module, used as `model.*`)
+from . import task_actions
 from .context import resolve_context
 from .table import draw_table
 from .task_store import GitFileStore
@@ -80,7 +81,9 @@ def _run_task(
     perm = model._permission_mode_for(task.mode)
 
     if here:
-        model.move(store, project, task.id, model.STATUS_IN_PROGRESS)  # write BEFORE launch
+        task_actions.move_with_actions(
+            store, project, task.id, model.STATUS_IN_PROGRESS
+        )  # write BEFORE launch; fires pre_action
         click.echo(f"Running {task.id} here (current shell)")
         exec_claude(build_claude_command(prompt, perm), cwd=None, env=session_env)
         return
@@ -96,7 +99,9 @@ def _run_task(
     result = setup_worktree_for_branch(
         project_path, project, branch, run_install=False
     )
-    model.move(store, project, task.id, model.STATUS_IN_PROGRESS)  # write BEFORE launch
+    task_actions.move_with_actions(
+        store, project, task.id, model.STATUS_IN_PROGRESS
+    )  # write BEFORE launch; fires pre_action
     click.echo(f"Running {task.id} on {branch}")
     click.echo(f"  → {project}/{result.name} ({result.action})")
     launch_claude_in_worktree(
@@ -165,6 +170,18 @@ def task() -> None:
     "-P", "--parent", default="", help="Parent task id (creates a child id)."
 )
 @click.option(
+    "--pre-action",
+    "pre_action",
+    default="",
+    help="Lifecycle action fired when the task starts (e.g. linear.in-progress).",
+)
+@click.option(
+    "--post-action",
+    "post_action",
+    default="",
+    help="Lifecycle action fired when the task finishes (e.g. linear.done).",
+)
+@click.option(
     "--follow",
     "follows",
     multiple=True,
@@ -203,6 +220,8 @@ def task_add(
     mode: str,
     branch: str,
     parent: str,
+    pre_action: str,
+    post_action: str,
     follows: tuple[str, ...],
     follow_ends: tuple[str, ...],
     content_file: str | None,
@@ -219,6 +238,8 @@ def task_add(
         mode=mode,
         branch=branch,
         parent=parent,
+        pre_action=pre_action,
+        post_action=post_action,
         follows=follows,
         follow_ends=follow_ends,
         content=content,
@@ -236,6 +257,8 @@ def add_task(
     mode: str = "",
     branch: str = "",
     parent: str = "",
+    pre_action: str = "",
+    post_action: str = "",
     follows: tuple[str, ...] = (),
     follow_ends: tuple[str, ...] = (),
     content: str = "",
@@ -267,6 +290,8 @@ def add_task(
         mode=mode,
         branch=branch,
         parent=parent,
+        pre_action=pre_action,
+        post_action=post_action,
         follows=deduped,
         content=content,
     )
@@ -506,6 +531,18 @@ def task_log(id: str, msg: str, project: str | None) -> None:
 @click.option("--command", default=None, help="Set the task's command/skill the session launches with.")
 @click.option("--mode", default=None, help="Set the task's mode (e.g. normal, plan).")
 @click.option(
+    "--pre-action",
+    "pre_action",
+    default=None,
+    help="Set the start lifecycle action (pass '' to clear).",
+)
+@click.option(
+    "--post-action",
+    "post_action",
+    default=None,
+    help="Set the finish lifecycle action (pass '' to clear).",
+)
+@click.option(
     "--content-file",
     default=None,
     help="File whose contents replace the Content section ('-' reads stdin).",
@@ -517,9 +554,11 @@ def task_update(
     branch: str | None,
     command: str | None,
     mode: str | None,
+    pre_action: str | None,
+    post_action: str | None,
     content_file: str | None,
 ) -> None:
-    """Update a task's fields (title, branch, command, mode, content)."""
+    """Update a task's fields (title, branch, command, mode, actions, content)."""
     proj = _resolve_project(project)
     store = _store()
     content = _read_content_file(content_file) if content_file is not None else None
@@ -527,6 +566,7 @@ def task_update(
         model.update(
             store, proj, id, title=title, branch=branch, content=content,
             command=command, mode=mode,
+            pre_action=pre_action, post_action=post_action,
         )
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
@@ -577,7 +617,7 @@ def _status_command(name: str, status: str, help_text: str):
         proj = _resolve_project(project)
         store = _store()
         try:
-            model.move(store, proj, task_id, status)
+            task_actions.move_with_actions(store, proj, task_id, status)
         except KeyError:
             raise click.ClickException(f"Task not found: {task_id}")
         click.echo(f"{task_id} -> {status}")

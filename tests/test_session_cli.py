@@ -289,6 +289,51 @@ class TestSessionEndAutoClose:
         assert key is not None
         assert model.status_from_key(key) == model.STATUS_DONE
 
+    def test_post_action_fires_on_session_end(self, tmp_path, monkeypatch):
+        # A task carrying post-action: linear.done under a linear.<ID> parent
+        # flips Linear when the session ends and the task moves to done.
+        store = GitFileStore(root=tmp_path / "tasks")
+        task = model.create(
+            store,
+            project="proj",
+            title="exec",
+            parent="linear.NORT-12",
+            post_action="linear.done",
+        )
+        model.move(store, "proj", task.id, model.STATUS_IN_PROGRESS)
+        monkeypatch.setenv("MAEL_TASK_ID", task.id)
+        monkeypatch.setattr(
+            session_cli,
+            "resolve_context",
+            lambda *a, **k: SimpleNamespace(project="proj", worktree=None),
+        )
+        monkeypatch.setattr(
+            "maelstrom.task_store.get_maelstrom_dir", lambda: tmp_path
+        )
+
+        calls = []
+        from maelstrom import linear
+
+        monkeypatch.setattr(
+            linear, "set_issue_status", lambda i, s: calls.append((i, s))
+        )
+
+        sessions = tmp_path / "sessions"
+        _write_session(sessions, "s1", session_id="abc")
+
+        with _patch_maelstrom_dir(tmp_path):
+            result = CliRunner().invoke(
+                cli,
+                ["session", "record", "session-end"],
+                input=json.dumps({"session_id": "abc"}),
+            )
+
+        assert result.exit_code == 0, result.output
+        assert calls == [("NORT-12", "done")]
+        key = model.find_key(store, "proj", task.id)
+        assert key is not None
+        assert model.status_from_key(key) == model.STATUS_DONE
+
     def test_no_task_id_is_noop(self, tmp_path, monkeypatch):
         store, task_id = self._setup(
             tmp_path, monkeypatch, status=model.STATUS_IN_PROGRESS
