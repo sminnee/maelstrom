@@ -66,7 +66,7 @@ blocks *are* the notebook chain — the single post-approval action is one `mael
    closes before any chained session continues.)
    Each execute block's task has an empty `command` and `mode: auto`, so it's a plain unattended
    execute that runs **no skill** (not a re-plan) and finishes via the project's always-on "Finishing a task" rule
-   (commit → `/code-review` → fixups → stop). **Do NOT implement** — do not write code, edit source files, or create branches;
+   (commit → `/code-review` → fixups → `create-pr --squash` → `/watch-pr` → `task status done`). **Do NOT implement** — do not write code, edit source files, or create branches;
    implementation happens in a later session via `mael task next --run`.
 
 ## Knowing your own task id
