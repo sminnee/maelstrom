@@ -643,6 +643,9 @@ class TestPermissionMode:
     def test_plan_maps_to_plan(self):
         assert model._permission_mode_for("plan") == "plan"
 
+    def test_auto_maps_to_auto(self):
+        assert model._permission_mode_for("auto") == "auto"
+
     def test_normal_maps_to_none(self):
         assert model._permission_mode_for("normal") is None
 

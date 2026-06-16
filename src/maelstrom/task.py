@@ -983,10 +983,10 @@ def build_prompt(task: Task) -> str:
 def _permission_mode_for(mode: str) -> str | None:
     """Map a task ``mode`` to Claude's ``--permission-mode`` value.
 
-    ``"plan"`` maps to ``"plan"``; anything else uses Claude's default (None,
-    i.e. no flag passed).
+    ``"plan"`` → ``"plan"``; ``"auto"`` → ``"auto"`` (Claude's classifier-vetted
+    unattended mode); anything else uses Claude's default (None, no flag).
     """
-    return "plan" if mode == "plan" else None
+    return mode if mode in {"plan", "auto"} else None
 
 
 def next_task(
