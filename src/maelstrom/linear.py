@@ -685,7 +685,9 @@ def cmd_list_tasks(status):
 @click.argument("issue_id")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 @click.option(
-    "--run", is_flag=True, help="Launch the planning session immediately."
+    "--run/--no-run",
+    default=True,
+    help="Launch the planning session immediately (default: run; --no-run creates only).",
 )
 @click.option(
     "--here",
@@ -697,10 +699,10 @@ def cmd_plan(issue_id: str, project: str | None, run: bool, here: bool) -> None:
 
     Thin wrapper over ``mael task add``: fetches the issue brief and creates a
     ``plan-task`` task whose content is the brief, parented under
-    ``linear.<identifier>``. Defaults to create-only (parity with ``task add``);
-    ``--run`` also launches the planning session. All worktree/launch behaviour
-    comes from the shared ``task add`` path — this command adds only the brief
-    fetch and argument assembly.
+    ``linear.<identifier>``. Runs by default — the planning session launches
+    immediately; pass ``--no-run`` to create the task without launching. All
+    worktree/launch behaviour comes from the shared ``task add`` path — this
+    command adds only the brief fetch and argument assembly.
     """
     from . import task_cli
 

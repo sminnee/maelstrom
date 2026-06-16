@@ -16,16 +16,16 @@ The primary workflow is the **git-backed task notebook** (`mael task …`). You 
 task's `command` field decides which skill (if any) runs inside. The everyday loop is:
 
 ```bash
-mael linear plan PROJ-XXX --run    # create + launch a plan-mode session for a Linear issue
+mael linear plan PROJ-XXX          # create + launch a plan-mode session for a Linear issue
 mael task next --run               # launch the next ready task in the chain (repeat to advance)
 ```
 
 `mael linear plan` is a thin wrapper over `mael task add` that seeds a `plan-task` task with the
-Linear brief as content (parented under `linear.PROJ-XXX`). It **defaults to create-only** (parity
-with `task add`); add `--run` to launch the planning session immediately.
+Linear brief as content (parented under `linear.PROJ-XXX`). It **runs by default** — the planning
+session launches immediately; pass `--no-run` to create the task without launching.
 
 **How a task flows:**
-- `mael linear plan PROJ-XXX --run` launches the `plan-task` skill in plan mode, holding the brief.
+- `mael linear plan PROJ-XXX` launches the `plan-task` skill in plan mode, holding the brief.
   The plan file it writes *is* the chain (a marked load-many file); after ExitPlanMode approval it
   runs `mael task load-many <plan-file>` to create it — an **Execute** task (plan as content, no
   skill, **`mode: normal`** so it runs the plan instead of re-planning) and, for multi-session work,

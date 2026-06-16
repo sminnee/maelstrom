@@ -33,7 +33,7 @@ class TestCmdPlan:
         assert kwargs["title"] == "Plan ME-99"
         assert kwargs["command"] == "plan-task"
         assert kwargs["parent"] == "linear.ME-99"
-        assert kwargs["run"] is False
+        assert kwargs["run"] is True
         assert kwargs["content"] == "# ME-99: Do the thing\n\nSome details."
 
     @patch("maelstrom.task_cli.add_task")
@@ -48,6 +48,19 @@ class TestCmdPlan:
         result = runner.invoke(linear, ["plan", "ME-99", "--run"])
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["run"] is True
+
+    @patch("maelstrom.task_cli.add_task")
+    @patch("maelstrom.linear.get_issue")
+    def test_plan_no_run_forwards_run_flag(self, mock_get, mock_add):
+        mock_get.return_value = {
+            "identifier": "ME-99",
+            "title": "T",
+            "description": "",
+        }
+        runner = CliRunner()
+        result = runner.invoke(linear, ["plan", "ME-99", "--no-run"])
+        assert result.exit_code == 0, result.output
+        assert mock_add.call_args.kwargs["run"] is False
 
     @patch("maelstrom.task_cli.add_task")
     @patch("maelstrom.linear.get_issue")
@@ -77,7 +90,7 @@ class TestCmdPlan:
             task_cli, "_resolve_project", lambda project: project or "p"
         )
         runner = CliRunner()
-        result = runner.invoke(linear, ["plan", "NORT-123"])
+        result = runner.invoke(linear, ["plan", "NORT-123", "--no-run"])
         assert result.exit_code == 0, result.output
 
         created = task_cli.model.list_tasks(store, project="p")
