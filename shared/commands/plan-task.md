@@ -54,8 +54,8 @@ blocks *are* the notebook chain — the single post-approval action is one `mael
    multi-session = an `iter1` execute block plus a `tail` `plan-next-step` block.
 
    Then present the plan with ExitPlanMode as usual, with
-   `allowedPrompts: [{"tool": "Bash", "prompt": "mael task load-many"}]`. The plan file you wrote
-   *is* the chain: approving it runs the three post-approval commands —
+   `allowedPrompts: [{"tool": "Bash", "prompt": "mael task load-many"}, {"tool": "Bash", "prompt": "mael task status done"}]`.
+   The plan file you wrote *is* the chain: approving it runs the three post-approval commands —
    ```bash
    mael linear set-status <ID> planned      # mirror the plan to Linear (no plan body written)
    mael task load-many <plan-file>          # create every block's task in one atomic commit

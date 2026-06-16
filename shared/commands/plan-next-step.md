@@ -51,10 +51,10 @@ reality, plan the top item, and hand the next planner an updated tail.
      **Plan templates** below.
 
    Then present the plan with ExitPlanMode as usual, with
-   `allowedPrompts: [{"tool": "Bash", "prompt": "mael task load-many"}]`. The plan file *is* the
-   chain: approving it runs `mael task load-many <next.md>` to create the tasks, then
-   `mael task status done` closes this planning task (the SessionEnd hook is a safety net if it's
-   missed). The execute block's task runs **no skill** and
+   `allowedPrompts: [{"tool": "Bash", "prompt": "mael task load-many"}, {"tool": "Bash", "prompt": "mael task status done"}]`.
+   The plan file *is* the chain: approving it runs `mael task load-many <next.md>` to create the
+   tasks, then `mael task status done` closes this planning task (the SessionEnd hook is a safety net
+   if it's missed). The execute block's task runs **no skill** and
    finishes via the project's always-on "Finishing a task" rule. **Do NOT implement** — do not write
    code, edit source files, or create branches; the next increment runs via `mael task next --run`.
 
