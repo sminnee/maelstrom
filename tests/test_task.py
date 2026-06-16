@@ -109,6 +109,30 @@ class TestRoundTrip:
         t = Task(id="x", title="t", project="p", status="in-progress")
         assert "status:" not in t.to_markdown()
 
+    def test_lifecycle_actions_round_trip_as_kebab_keys(self):
+        t = Task(
+            id="x",
+            title="t",
+            project="p",
+            pre_action="linear.in-progress",
+            post_action="linear.done",
+        )
+        text = t.to_markdown()
+        # Frontmatter keys are kebab-case; attrs are snake_case.
+        assert "pre-action: linear.in-progress" in text
+        assert "post-action: linear.done" in text
+        assert "pre_action:" not in text
+        back = Task.from_markdown(text)
+        assert back.pre_action == "linear.in-progress"
+        assert back.post_action == "linear.done"
+
+    def test_missing_actions_default_to_empty(self):
+        # Back-compat: a task file without the action keys parses to "".
+        t = Task(id="x", title="t", project="p")
+        back = Task.from_markdown(t.to_markdown())
+        assert back.pre_action == ""
+        assert back.post_action == ""
+
 
 # --- id allocation ---
 
@@ -818,6 +842,18 @@ class TestParseTaskBlocks:
         blocks, _ = model.parse_task_blocks(text)
         assert blocks[0]["args"]["mode"] == "normal"
 
+    def test_action_keys_are_accepted(self):
+        text = (
+            "---CREATE TASK a---\n"
+            "title: A\n"
+            "pre-action: linear.in-progress\n"
+            "post-action: linear.done\n"
+            "---\nbody\n"
+        )
+        blocks, _ = model.parse_task_blocks(text)
+        assert blocks[0]["args"]["pre-action"] == "linear.in-progress"
+        assert blocks[0]["args"]["post-action"] == "linear.done"
+
     def test_malformed_marker_name_raises(self):
         # A hyphenated name resembles a marker but fails the strict pattern; it
         # must error rather than silently becoming prose.
@@ -889,6 +925,34 @@ class TestLoadMany:
         ]
         created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
         assert created[0].follows == [seed.id]
+
+    def test_block_actions_are_applied(self):
+        store = InMemoryStore()
+        blocks = [
+            {
+                "name": "exec",
+                "args": {
+                    "title": "E",
+                    "pre-action": "linear.in-progress",
+                    "post-action": "linear.done",
+                },
+                "content": "",
+            },
+        ]
+        created = model.load_many(
+            store, project="p", blocks=blocks, now=NOW, today=TODAY
+        )
+        assert created[0].pre_action == "linear.in-progress"
+        assert created[0].post_action == "linear.done"
+
+    def test_block_actions_default_empty(self):
+        store = InMemoryStore()
+        blocks = [{"name": "a", "args": {"title": "A"}, "content": ""}]
+        created = model.load_many(
+            store, project="p", blocks=blocks, now=NOW, today=TODAY
+        )
+        assert created[0].pre_action == ""
+        assert created[0].post_action == ""
 
     def test_block_mode_is_honored_and_defaults_to_plan(self):
         store = InMemoryStore()

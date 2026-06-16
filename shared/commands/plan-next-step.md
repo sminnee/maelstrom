@@ -73,6 +73,14 @@ Set `mode:` on every block: `mode: normal` on the **execute** (`step`) block so 
 instead of re-planning, and `mode: plan` on the **`tail`** block so the next `plan-next-step` session
 opens in plan mode. New tasks default to plan mode, so the execute block's `mode: normal` is required.
 
+Put lifecycle actions on the **execute** (`step`) block so each step mirrors itself to Linear.
+Always set `pre-action: linear.in-progress` (fired on launch). Set `post-action: linear.done` (fired
+on session end — Linear → Unreleased) **only on the final step**:
+- **More work remains** (this `step` + a `tail`): set **only** `pre-action: linear.in-progress` — no
+  `post-action`. The issue stays In Progress because there's still a queued `tail`.
+- **Final step** (`step` only, no `tail`): set `post-action: linear.done` as well, so finishing it
+  moves the Linear issue to Unreleased.
+
 ### More work remains — execute block + `tail`
 
 The `tail` block re-queues `plan-next-step` with the **updated** plan-of-record in its body: the
@@ -86,6 +94,7 @@ This step's chain. The only action is:
 ---CREATE TASK step---
 title: "Execute: <next step desc>"
 mode: normal
+pre-action: linear.in-progress
 follow-end: "*"
 ---
 <this step's detailed plan…>
@@ -115,6 +124,8 @@ This step's chain. The only action is:
 ---CREATE TASK step---
 title: "Execute: <final step desc>"
 mode: normal
+pre-action: linear.in-progress
+post-action: linear.done
 follow-end: "*"
 ---
 <this final step's detailed plan…>

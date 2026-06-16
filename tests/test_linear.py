@@ -34,6 +34,7 @@ class TestCmdPlan:
         assert kwargs["command"] == "plan-task"
         assert kwargs["parent"] == "linear.ME-99"
         assert kwargs["run"] is True
+        assert kwargs["post_action"] == "linear.planned"
         assert kwargs["content"] == "# ME-99: Do the thing\n\nSome details."
 
     @patch("maelstrom.task_cli.add_task")

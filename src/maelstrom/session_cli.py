@@ -169,6 +169,7 @@ def _close_task_for_session(cwd: str | None) -> None:
 
     try:
         from maelstrom import task as model
+        from maelstrom import task_actions
         from maelstrom.task_store import GitFileStore
 
         ctx = resolve_context(
@@ -186,7 +187,7 @@ def _close_task_for_session(cwd: str | None) -> None:
             return  # task already deleted — nothing to close
         if model.status_from_key(key) != model.STATUS_IN_PROGRESS:
             return  # already terminal or back in todo — don't clobber
-        model.move(store, project, task_id, model.STATUS_DONE)
+        task_actions.move_with_actions(store, project, task_id, model.STATUS_DONE)
         click.echo(
             f"Session ended: closed task {project}/{task_id} -> "
             f"{model.STATUS_DONE}",

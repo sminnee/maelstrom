@@ -103,6 +103,78 @@ class TestAddBranch:
         assert t.mode == "normal"
 
 
+# --- add/update: lifecycle action flags ---
+
+
+class TestActionFlags:
+    def test_add_stores_post_action(self, runner, store):
+        result = runner.invoke(
+            task_cli.task, ["add", "E", "--post-action", "linear.done"]
+        )
+        assert result.exit_code == 0, result.output
+        t = model.load(store, "p", result.output.strip())
+        assert t.post_action == "linear.done"
+
+    def test_add_stores_pre_action(self, runner, store):
+        result = runner.invoke(
+            task_cli.task, ["add", "E", "--pre-action", "linear.in-progress"]
+        )
+        assert result.exit_code == 0, result.output
+        t = model.load(store, "p", result.output.strip())
+        assert t.pre_action == "linear.in-progress"
+
+    def test_update_retrofits_post_action(self, runner, store):
+        new_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
+        result = runner.invoke(
+            task_cli.task,
+            ["update", new_id, "--post-action", "linear.done"],
+        )
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", new_id).post_action == "linear.done"
+
+    def test_update_can_clear_post_action(self, runner, store):
+        new_id = runner.invoke(
+            task_cli.task, ["add", "E", "--post-action", "linear.done"]
+        ).output.strip()
+        result = runner.invoke(
+            task_cli.task, ["update", new_id, "--post-action", ""]
+        )
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", new_id).post_action == ""
+
+    def test_update_omitting_action_leaves_it(self, runner, store):
+        new_id = runner.invoke(
+            task_cli.task, ["add", "E", "--post-action", "linear.done"]
+        ).output.strip()
+        # An unrelated update must not wipe the action.
+        runner.invoke(task_cli.task, ["update", new_id, "--branch", "x"])
+        assert model.load(store, "p", new_id).post_action == "linear.done"
+
+
+class TestStatusFiresActions:
+    def test_status_done_fires_post_action(self, runner, store, monkeypatch):
+        from maelstrom import linear
+
+        calls = []
+        monkeypatch.setattr(
+            linear, "set_issue_status", lambda i, s: calls.append((i, s))
+        )
+        new_id = runner.invoke(
+            task_cli.task,
+            [
+                "add",
+                "E",
+                "--parent",
+                "linear.NORT-12",
+                "--post-action",
+                "linear.done",
+            ],
+        ).output.strip()
+        result = runner.invoke(task_cli.task, ["status", "done", new_id])
+        assert result.exit_code == 0, result.output
+        assert calls == [("NORT-12", "done")]
+
+
 # --- next: selection ---
 
 
