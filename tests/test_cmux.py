@@ -475,7 +475,8 @@ class TestCreateCmuxWorkspace:
                 return "OK"
             return None
 
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
+        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd), \
+                patch("maelstrom.cmux.time.sleep") as mock_sleep:
             result = create_cmux_workspace("myproject", "alpha", "/path/to/worktree")
 
         assert result == "ws-123"
@@ -483,6 +484,9 @@ class TestCreateCmuxWorkspace:
         assert calls[1][0] == "send"
         assert calls[2][0] == "rename-workspace"
         assert calls[3][0] == "new-pane"
+        # A settle sleep is interposed after pane 1's command send and before
+        # the new-pane split so pane 2 inherits the worktree cwd.
+        mock_sleep.assert_called_once()
         # The second pane is cd'd and renamed via its surface ref (not the
         # multi-token new-pane reply).
         assert ("send", "--surface", "surface:456", "--", "cd /path/to/worktree\n") in calls
@@ -503,7 +507,8 @@ class TestCreateCmuxWorkspace:
                 return "pane:0 pane:1"
             return "OK"
 
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
+        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd), \
+                patch("maelstrom.cmux.time.sleep"):
             result = create_cmux_workspace(
                 "myproject", "alpha", "/path/to/worktree",
                 shell_command="npm install",
@@ -540,7 +545,8 @@ class TestCreateCmuxWorkspace:
             # new-pane fails
             return None
 
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
+        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd), \
+                patch("maelstrom.cmux.time.sleep"):
             result = create_cmux_workspace("myproject", "alpha", "/path/to/worktree")
 
         assert result == "ws-123"

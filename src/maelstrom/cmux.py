@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 
 
@@ -19,6 +20,13 @@ GITHUB_URL_PREFIX = "https://github.com"
 # Browsers all live in the third pane of the standard 3-pane workspace layout
 # (pane 1 = Claude, pane 2 = shell, pane 3 = browsers).
 BROWSER_PANE_INDEX = 2
+
+# cmux splits inherit the source pane's *current* cwd; give pane 1's
+# `cd {worktree_path}` time to land so the shell pane starts in the worktree
+# rather than wherever `mael add` was invoked from. 0.25s is long enough for a
+# shell to process a `cd` without a noticeable hang; the pane-2 `cd` send is a
+# fallback for slower shells.
+_PANE_CD_SETTLE_SECONDS = 0.25
 
 
 def is_cmux_mode() -> bool:
@@ -258,6 +266,11 @@ def create_cmux_workspace(
         "rename-workspace", "--workspace", workspace_ref,
         workspace_name(project, worktree),
     )
+
+    # Let pane 1's `cd` settle before splitting — the new pane inherits its
+    # initial cwd from pane 1's shell, which would otherwise still be at the
+    # invocation directory.
+    time.sleep(_PANE_CD_SETTLE_SECONDS)
 
     # Open a second terminal pane to the right. new-pane replies
     # "OK surface:N pane:N workspace:N" — the surface ref is what `send` and
