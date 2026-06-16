@@ -302,12 +302,10 @@ def cmd_add(branch, project, open, no_recycle):
             click.echo(
                 ".claude/CLAUDE.local.md generated with maelstrom workflow instructions"
             )
-        env_file = worktree_path / ".env"
-        if env_file.exists():
-            click.echo(f"Environment file: {env_file}")
-            click.echo("Port assignments:")
-            for line in env_file.read_text().strip().split("\n"):
-                click.echo(f"  {line}")
+        app_info = get_app_url(project_path, wt_name) if wt_name else None
+        if app_info:
+            url, _ = app_info
+            click.echo(f"App: {url}")
         run_install_cmd(worktree_path)
         if open:
             global_config = load_global_config()
@@ -360,13 +358,10 @@ def cmd_add(branch, project, open, no_recycle):
         click.echo(f"Worktree created at: {worktree_path}")
         click.echo(f"  → {ctx.project}/{wt_name} (created)")
 
-    # Check if .env was created/exists
-    env_file = worktree_path / ".env"
-    if env_file.exists():
-        click.echo(f"Environment file: {env_file}")
-        click.echo("Port assignments:")
-        for line in env_file.read_text().strip().split("\n"):
-            click.echo(f"  {line}")
+    app_info = get_app_url(project_path, wt_name)
+    if app_info:
+        url, _ = app_info
+        click.echo(f"App: {url}")
 
     # Open in editor or start a Claude session. Install was deferred
     # (run_install=False above): the launcher owns it for the Claude path (shell
