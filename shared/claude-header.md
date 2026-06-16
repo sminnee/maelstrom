@@ -15,10 +15,14 @@ asked" rule for mael projects:
 4. Commit the review fixes as `--fixup` commits (one per blocking finding, targeting the originating commit). Do not amend.
 5. Push the PR with `mael gh create-pr <ISSUE-ID> --squash` — `--squash` autosquashes the fixup commits into their targets as it rebases onto `origin/main` before pushing.
 6. Run `/watch-pr` to take CI to green autonomously (fix → fixup/chore → `mael sync` → wait, looping until CI passes or times out).
+7. **Close the task.** Run `mael task status done` (defaults to `$MAEL_TASK_ID`) as the last step
+   before reporting back. The SessionEnd hook also does this as a backstop, but call it explicitly
+   so the task closes deterministically even if the hook fails to fire.
 
 If there are no blocking findings, skip steps 3–4 and go straight to step 5.
 
 This whole sequence runs without user confirmation — including the PR push and CI watch.
 
-When the agent session ends, mael automatically moves the task to `done` (the open session is
-the "in-progress" signal). You don't need to run `mael task status done` yourself.
+The SessionEnd hook moves the task to `done` as a backstop when the session ends, but it can fail
+silently (if `mael` isn't on PATH, git is unavailable, or the process is killed). Don't rely on it —
+run `mael task status done` explicitly as step 7 so the task closes deterministically.
