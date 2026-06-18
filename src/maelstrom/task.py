@@ -28,6 +28,12 @@ STATUS_IN_PROGRESS = "in-progress"
 STATUS_DONE = "done"
 STATUS_CANCELLED = "cancelled"
 STATUS_BLOCKED = "blocked"
+# A parking folder for tasks you duplicate *from* regularly (templates). Kept
+# out of the actionable/WIP scans (next_task/list_tasks default, is_actionable),
+# which only consider todo + in-progress, yet trivially listed via
+# ``list_tasks(..., status=STATUS_TEMPLATE)``. Optional ``schedule``/``last_run``
+# metadata on a template drives the scheduler.
+STATUS_TEMPLATE = "template"
 
 VALID_STATUSES = (
     STATUS_TODO,
@@ -35,6 +41,7 @@ VALID_STATUSES = (
     STATUS_BLOCKED,
     STATUS_DONE,
     STATUS_CANCELLED,
+    STATUS_TEMPLATE,
 )
 
 DEFAULT_STATUS = STATUS_TODO
@@ -60,6 +67,11 @@ FRONTMATTER_KEYS = (
     "follows",
     "created",
     "updated",
+    # Scheduling metadata. Ordinary task fields (settable/shown like any other),
+    # but only *acted on* when the task is a ``template/`` task. Appended at the
+    # end so existing files keep a stable diff.
+    "schedule",
+    "last-run",
 )
 
 # Frontmatter keys whose name differs from the dataclass attr (kebab vs snake).
@@ -67,6 +79,7 @@ FRONTMATTER_KEYS = (
 _FRONTMATTER_ATTR = {
     "pre-action": "pre_action",
     "post-action": "post_action",
+    "last-run": "last_run",
 }
 
 
@@ -137,6 +150,11 @@ class Task:
     follows: list[str] = field(default_factory=list)
     created: str = ""
     updated: str = ""
+    # Cron expression (only consulted by the scheduler on ``template/`` tasks).
+    schedule: str = ""
+    # ISO watermark of the most recent scheduled boundary the scheduler has
+    # satisfied; the authoritative "what's due" state for a template.
+    last_run: str = ""
     content: str = ""
     steps: str = ""
     log: str = ""
@@ -191,6 +209,8 @@ class Task:
             follows=_coerce_follows(frontmatter.get("follows")),
             created=str(frontmatter.get("created", "")),
             updated=str(frontmatter.get("updated", "")),
+            schedule=str(frontmatter.get("schedule", "")),
+            last_run=str(frontmatter.get("last-run", "")),
             content=sections.get("content", ""),
             steps=sections.get("steps", ""),
             log=sections.get("log", ""),
@@ -359,6 +379,19 @@ def allocate_child_id(store: TaskStore, project: str, parent: str) -> str:
     return f"{parent}.{_next_counter(store, project, pattern)}"
 
 
+def allocate_run_id(template_id: str, date: str) -> str:
+    """Allocate a date-keyed run id ``<template_id>.<date>`` for a scheduled run.
+
+    Distinct from the numeric :func:`allocate_child_id`: a scheduled run is keyed
+    by the boundary date it satisfies (e.g. ``maintenance.2026-06-18``), so the
+    id is both meaningful and idempotent — re-firing the same boundary produces
+    the same id, which the caller skips if it already exists. Raises
+    ``ValueError`` (via :func:`task_key` callers) only when the result is unsafe;
+    a date-keyed id is ``is_safe_id``-legal.
+    """
+    return f"{template_id}.{date}"
+
+
 def _next_counter(store: TaskStore, project: str, pattern: re.Pattern) -> int:
     """Return max matching counter + 1 across all of ``project``'s tasks."""
     highest = 0
@@ -386,10 +419,12 @@ def is_terminal(status: str) -> bool:
 def is_actionable(task: Task, store: TaskStore) -> bool:
     """Return whether ``task`` can be started now.
 
-    A task is actionable when it is not terminal and every id it follows is in
-    ``done/``.
+    A task is actionable when it is not terminal, not a parked template, and
+    every id it follows is in ``done/``. A ``template/`` task is a recipe to
+    duplicate from, never something to launch directly, so it is never
+    actionable and so stays out of the default ``task list``/``task next`` views.
     """
-    if is_terminal(task.status):
+    if is_terminal(task.status) or task.status == STATUS_TEMPLATE:
         return False
     for dep in task.follows:
         dep_key = find_key(store, task.project, dep)
@@ -475,6 +510,10 @@ def create(
     post_action: str = "",
     follows: list[str] | None = None,
     content: str = "",
+    schedule: str = "",
+    last_run: str = "",
+    id: str | None = None,
+    status: str = DEFAULT_STATUS,
     now: str | None = None,
     today: str | None = None,
 ) -> Task:
@@ -482,12 +521,18 @@ def create(
 
     ``branch`` defaults to ``task/<id>`` when falsy, so a task always has a
     stable branch and tasks chained from it can derive the same one.
+
+    ``id`` overrides id allocation (used by scheduled runs, which key the id by
+    boundary date via :func:`allocate_run_id`); when ``None`` an id is allocated
+    as a child of ``parent`` or a fresh orphan. ``status`` places the task in a
+    folder other than ``todo/`` (e.g. ``template/`` for a parked template).
     """
     timestamp = now if now is not None else _now_iso()
-    if parent:
-        id = allocate_child_id(store, project, parent)
-    else:
-        id = allocate_orphan_id(store, project, today=today)
+    if id is None:
+        if parent:
+            id = allocate_child_id(store, project, parent)
+        else:
+            id = allocate_orphan_id(store, project, today=today)
     # When mode is left unset, fall back to the global default; an explicit
     # ``mode`` always wins.
     resolved_mode = mode or DEFAULT_MODE
@@ -504,12 +549,69 @@ def create(
         follows=list(follows or []),
         created=timestamp,
         updated=timestamp,
+        schedule=schedule,
+        last_run=last_run,
         content=content,
-        status=DEFAULT_STATUS,
+        status=status,
     )
-    key = task_key(project, DEFAULT_STATUS, id)
+    key = task_key(project, status, id)
     store.write(key, task.to_markdown(), message=f"task: add {id} ({title})")
     return task
+
+
+def duplicate(
+    store: TaskStore,
+    project: str,
+    src_id: str,
+    *,
+    title: str | None = None,
+    command: str | None = None,
+    mode: str | None = None,
+    content: str | None = None,
+    pre_action: str | None = None,
+    post_action: str | None = None,
+    branch: str = "",
+    parent: str = "",
+    follows: list[str] | None = None,
+    schedule: str = "",
+    status: str = DEFAULT_STATUS,
+    id: str | None = None,
+    now: str | None = None,
+    today: str | None = None,
+) -> Task:
+    """Duplicate ``src_id``'s recipe into a fresh task (in one write).
+
+    The model primitive behind ``mael task add --from``. Copies the source's
+    title/command/mode/content/pre_action/post_action; any non-``None`` override
+    wins over the copied default. Source-agnostic — works from any status,
+    including ``template/`` — and never mutates the source. ``schedule``/
+    ``last_run`` are intentionally *not* copied: ``schedule`` is set only from the
+    explicit override (so a run never inherits its template's cron).
+
+    ``branch``/``follows``/``status`` compose the remaining ``add`` flags onto the
+    duplicate. For a scheduled run pass ``parent=<template-id>`` and
+    ``id=allocate_run_id(...)`` to land a date-keyed child on the template's
+    shared branch; ad-hoc duplicates omit both and get a normal id.
+    """
+    src = load(store, project, src_id)
+    return create(
+        store,
+        project=project,
+        title=title if title is not None else src.title,
+        command=command if command is not None else src.command,
+        mode=mode if mode is not None else src.mode,
+        branch=branch,
+        pre_action=pre_action if pre_action is not None else src.pre_action,
+        post_action=post_action if post_action is not None else src.post_action,
+        content=content if content is not None else src.content,
+        parent=parent,
+        follows=follows,
+        schedule=schedule,
+        status=status,
+        id=id,
+        now=now,
+        today=today,
+    )
 
 
 # --- plan-file (load-many) parsing + batch creation ---
@@ -797,6 +899,8 @@ def update(
     mode: str | None = None,
     pre_action: str | None = None,
     post_action: str | None = None,
+    schedule: str | None = None,
+    last_run: str | None = None,
     now: str | None = None,
 ) -> Task:
     """Update provided fields in place (one write, bumps ``updated``).
@@ -826,6 +930,10 @@ def update(
         task.pre_action = pre_action
     if post_action is not None:
         task.post_action = post_action
+    if schedule is not None:
+        task.schedule = schedule
+    if last_run is not None:
+        task.last_run = last_run
     task.updated = now if now is not None else _now_iso()
     store.write(key, task.to_markdown(), message=f"task: update {id}")
     return task

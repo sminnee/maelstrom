@@ -249,4 +249,10 @@ def install_claude_integration(*, monitor: bool = True) -> list[str]:
         messages.extend(install_session_hooks())
         messages.extend(install_session_channel_deps())
 
+    # Keep an opted-in scheduled-task agent in sync (self-heals its `mael` path
+    # after a self-update). A no-op when the opt-in marker is absent or off-mac.
+    from .schedule_launchd import ensure_schedule_agent
+
+    messages.extend(ensure_schedule_agent())
+
     return messages or ["Nothing to install"]
