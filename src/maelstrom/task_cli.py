@@ -8,6 +8,7 @@ lives in the model; this layer only parses arguments and prints.
 import os
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -150,7 +151,7 @@ def task() -> None:
 
 
 @task.command("add")
-@click.argument("title")
+@click.argument("title", required=False, default=None)
 @click.option(
     "-p", "--project", default=None, help="Project name (default: from cwd)."
 )
@@ -199,6 +200,23 @@ def task() -> None:
     help="File whose contents become the task's Content section ('-' reads stdin).",
 )
 @click.option(
+    "--from",
+    "from_id",
+    default=None,
+    help="Seed the new task by duplicating this task's recipe; other flags override.",
+)
+@click.option(
+    "--template",
+    "is_template",
+    is_flag=True,
+    help="Park the new task in 'template' status (a reusable, non-actionable recipe).",
+)
+@click.option(
+    "--schedule",
+    default=None,
+    help="Cron expression (acted on only for template tasks); e.g. '0 9 * * 1-5'.",
+)
+@click.option(
     "-e",
     "--edit",
     "edit",
@@ -214,7 +232,7 @@ def task() -> None:
     help="With --run, launch in the current shell (no worktree, no new workspace).",
 )
 def task_add(
-    title: str,
+    title: str | None,
     project: str | None,
     command: str,
     mode: str,
@@ -225,12 +243,15 @@ def task_add(
     follows: tuple[str, ...],
     follow_ends: tuple[str, ...],
     content_file: str | None,
+    from_id: str | None,
+    is_template: bool,
+    schedule: str | None,
     edit: bool,
     run: bool,
     here: bool,
 ) -> None:
     """Add a new task and print its id."""
-    content = _read_content_file(content_file)
+    content = _read_content_file(content_file) if content_file is not None else None
     add_task(
         title=title,
         project=project,
@@ -243,6 +264,9 @@ def task_add(
         follows=follows,
         follow_ends=follow_ends,
         content=content,
+        from_id=from_id,
+        is_template=is_template,
+        schedule=schedule,
         edit=edit,
         run=run,
         here=here,
@@ -251,7 +275,7 @@ def task_add(
 
 def add_task(
     *,
-    title: str,
+    title: str | None = None,
     project: str | None,
     command: str = "",
     mode: str = "",
@@ -261,7 +285,10 @@ def add_task(
     post_action: str = "",
     follows: tuple[str, ...] = (),
     follow_ends: tuple[str, ...] = (),
-    content: str = "",
+    content: str | None = None,
+    from_id: str | None = None,
+    is_template: bool = False,
+    schedule: str | None = None,
     edit: bool = False,
     run: bool = False,
     here: bool = False,
@@ -271,10 +298,19 @@ def add_task(
     The single create-and-launch path shared by ``mael task add`` and any other
     command that creates a task (e.g. ``mael linear plan``), so there is exactly
     one place that resolves follows, creates the task, and runs it.
+
+    With ``from_id`` the task is seeded by :func:`model.duplicate` from that
+    source; the remaining flags override the copied recipe. ``is_template`` parks
+    the new task in ``template/`` status and ``schedule`` sets its cron metadata.
+    ``content`` of ``None`` means "unspecified" (so a duplicate keeps the
+    source's content); pass ``""`` to deliberately blank it.
     """
     proj = _resolve_project(project)
     store = _store()
     parent = _default_parent(parent)
+
+    if from_id is None and not (title and title.strip()):
+        raise click.ClickException("A title is required (or pass --from <task-id>).")
 
     follow_list = list(follows)
     for end_id in follow_ends:
@@ -282,19 +318,44 @@ def add_task(
     # De-dupe while preserving first-seen order.
     deduped = list(dict.fromkeys(follow_list))
 
-    new = model.create(
-        store,
-        project=proj,
-        title=title,
-        command=command,
-        mode=mode,
-        branch=branch,
-        parent=parent,
-        pre_action=pre_action,
-        post_action=post_action,
-        follows=deduped,
-        content=content,
-    )
+    status = model.STATUS_TEMPLATE if is_template else model.STATUS_TODO
+
+    if from_id is not None:
+        try:
+            new = model.duplicate(
+                store,
+                proj,
+                from_id,
+                title=title,
+                command=command or None,
+                mode=mode or None,
+                content=content,
+                pre_action=pre_action or None,
+                post_action=post_action or None,
+                branch=branch,
+                parent=parent,
+                follows=deduped,
+                schedule=schedule or "",
+                status=status,
+            )
+        except KeyError:
+            raise click.ClickException(f"Task not found: {from_id}")
+    else:
+        new = model.create(
+            store,
+            project=proj,
+            title=title or "",
+            command=command,
+            mode=mode,
+            branch=branch,
+            parent=parent,
+            pre_action=pre_action,
+            post_action=post_action,
+            follows=deduped,
+            content=content or "",
+            schedule=schedule or "",
+            status=status,
+        )
     click.echo(new.id)
     if edit:
         try:
@@ -326,6 +387,94 @@ def task_load_many(file: str, project: str | None) -> None:
     )
     for t in created:
         click.echo(f"{t.id}\t{t.title}")
+
+
+def _scheduled_projects(project: str | None, all_projects: bool) -> list[str]:
+    """Resolve the project set ``add-scheduled`` should scan.
+
+    ``--all-projects`` enumerates every maelstrom-managed project (the launchd
+    entry point); otherwise it's the single ``-p`` project or the cwd's.
+    """
+    if all_projects:
+        from .context import load_global_config
+        from .worktree import find_all_projects
+
+        projects = find_all_projects(load_global_config().projects_dir)
+        return [p.name for p in projects]
+    return [_resolve_project(project)]
+
+
+def _fire_due_templates(
+    store: GitFileStore, project: str, *, now: datetime, run: bool, here: bool
+) -> list["model.Task"]:
+    """Create (and optionally launch) one run per due template in ``project``.
+
+    Each fired template, in its own transaction: duplicate it into a date-keyed
+    child run (skipped if that id already exists → idempotent across
+    RunAtLoad+interval double-fires) and advance its ``last-run`` watermark to the
+    boundary. Returns the run tasks that were created this call.
+    """
+    from . import schedule as sched
+
+    created: list[model.Task] = []
+    for tmpl, date in sched.due_templates(store, project, now=now):
+        run_id = model.allocate_run_id(tmpl.id, date)
+        if model.find_key(store, project, run_id) is not None:
+            continue  # already fired this boundary
+        prev = sched.previous_fire(tmpl.schedule, now)
+        assert prev is not None  # due_templates only yields when a boundary exists
+        with store.transaction(message=f"task: scheduled run {run_id}"):
+            new = model.duplicate(
+                store,
+                project,
+                tmpl.id,
+                parent=tmpl.id,
+                id=run_id,
+            )
+            model.update(store, project, tmpl.id, last_run=prev.isoformat())
+        created.append(new)
+    if run:
+        for t in created:
+            _run_task(store, project, t, here=here)
+    return created
+
+
+@task.command("add-scheduled")
+@click.option("-p", "--project", default=None, help="Project name (default: from cwd).")
+@click.option(
+    "--all-projects",
+    "all_projects",
+    is_flag=True,
+    help="Scan every maelstrom project (the launchd entry point).",
+)
+@click.option(
+    "--run", is_flag=True, help="Launch each due run into a session (cmux workspace)."
+)
+@click.option(
+    "--here",
+    is_flag=True,
+    help="With --run, launch in the current shell (no worktree, no new workspace).",
+)
+def task_add_scheduled(
+    project: str | None, all_projects: bool, run: bool, here: bool
+) -> None:
+    """Fire every due template: duplicate it into a dated run and advance its watermark.
+
+    The scheduler entry point invoked by the launchd agent. Thin: it computes the
+    due templates and reuses the canonical duplicate/launch path — it owns only
+    the cron/last-run/catch-up logic, never creation or launch.
+    """
+    from datetime import timezone
+
+    now = datetime.now(timezone.utc)
+    store = _store()
+    total = 0
+    for proj in _scheduled_projects(project, all_projects):
+        for t in _fire_due_templates(store, proj, now=now, run=run, here=here):
+            click.echo(f"{proj}/{t.id}\t{t.title}")
+            total += 1
+    if total == 0:
+        click.echo("No scheduled tasks due.")
 
 
 @task.command("list")
@@ -366,12 +515,17 @@ def task_list(
         click.echo("No tasks.")
         return
 
+    # An explicit ``--status template`` is a direct window into the template
+    # folder: templates are never actionable (so the default view hides them),
+    # but asking for the folder by name should list them.
+    show_all_in_folder = status == model.STATUS_TEMPLATE
+
     rows = []
     for t in tasks:
         actionable = model.is_actionable(t, store)
         terminal = model.is_terminal(t.status)
         blocked = not actionable and not terminal
-        if all_:
+        if all_ or show_all_in_folder:
             visible = True
         elif all_todo:
             visible = actionable or blocked
@@ -382,6 +536,9 @@ def task_list(
         row = {"ID": t.id, "STATUS": t.status}
         if all_ or all_todo:
             row["ACTIONABLE"] = "yes" if actionable else "no"
+        if show_all_in_folder:
+            row["SCHEDULE"] = t.schedule or ""
+            row["NEXT-FIRE"] = _next_fire_display(t)
         row["BRANCH"] = t.branch or model.default_branch(t.id, t.parent)
         row["TITLE"] = t.title
         rows.append(row)
@@ -390,12 +547,28 @@ def task_list(
         click.echo("No tasks.")
         return
 
-    columns = (
-        ["ID", "STATUS", "ACTIONABLE", "BRANCH", "TITLE"]
-        if (all_ or all_todo)
-        else ["ID", "STATUS", "BRANCH", "TITLE"]
-    )
+    if show_all_in_folder:
+        columns = ["ID", "STATUS", "SCHEDULE", "NEXT-FIRE", "BRANCH", "TITLE"]
+    elif all_ or all_todo:
+        columns = ["ID", "STATUS", "ACTIONABLE", "BRANCH", "TITLE"]
+    else:
+        columns = ["ID", "STATUS", "BRANCH", "TITLE"]
     draw_table(rows, columns)
+
+
+def _next_fire_display(task: "model.Task") -> str:
+    """Render a template's next scheduled fire for the listing, or ''."""
+    if not task.schedule:
+        return ""
+    from datetime import timezone
+
+    from . import schedule as sched
+
+    try:
+        nxt = sched.next_fire(task.schedule, datetime.now(timezone.utc))
+    except ValueError:
+        return "(invalid)"
+    return nxt.isoformat(timespec="minutes") if nxt else ""
 
 
 @task.command("next")
@@ -484,6 +657,10 @@ def task_show(id: str, project: str | None) -> None:
         click.echo(f"parent:  {t.parent}")
     if t.follows:
         click.echo(f"follows: {', '.join(t.follows)}")
+    if t.schedule:
+        click.echo(f"schedule: {t.schedule}")
+    if t.last_run:
+        click.echo(f"last-run: {t.last_run}")
     click.echo(f"created: {t.created}")
     click.echo(f"updated: {t.updated}")
     click.echo(f"actionable: {'yes' if model.is_actionable(t, store) else 'no'}")
@@ -543,6 +720,11 @@ def task_log(id: str, msg: str, project: str | None) -> None:
     help="Set the finish lifecycle action (pass '' to clear).",
 )
 @click.option(
+    "--schedule",
+    default=None,
+    help="Set the cron schedule (acted on only for template tasks; '' clears).",
+)
+@click.option(
     "--content-file",
     default=None,
     help="File whose contents replace the Content section ('-' reads stdin).",
@@ -556,9 +738,10 @@ def task_update(
     mode: str | None,
     pre_action: str | None,
     post_action: str | None,
+    schedule: str | None,
     content_file: str | None,
 ) -> None:
-    """Update a task's fields (title, branch, command, mode, actions, content)."""
+    """Update a task's fields (title, branch, command, mode, actions, schedule, content)."""
     proj = _resolve_project(project)
     store = _store()
     content = _read_content_file(content_file) if content_file is not None else None
@@ -567,6 +750,7 @@ def task_update(
             store, proj, id, title=title, branch=branch, content=content,
             command=command, mode=mode,
             pre_action=pre_action, post_action=post_action,
+            schedule=schedule,
         )
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
@@ -631,3 +815,6 @@ _status_command("start", model.STATUS_IN_PROGRESS, "Move a task to in-progress."
 _status_command("done", model.STATUS_DONE, "Move a task to done.")
 _status_command("cancel", model.STATUS_CANCELLED, "Move a task to cancelled.")
 _status_command("block", model.STATUS_BLOCKED, "Move a task to blocked.")
+_status_command(
+    "template", model.STATUS_TEMPLATE, "Park a task as a reusable template."
+)

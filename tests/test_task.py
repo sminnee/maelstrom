@@ -1207,3 +1207,97 @@ class TestEditInEditor:
         editor = _editor_script(tmp_path, "sys.exit(1)")
         with pytest.raises(RuntimeError):
             model.edit_in_editor(store, "p", t.id, editor=editor)
+
+
+# --- duplicate + run-id (model-level) ---
+
+
+class TestDuplicate:
+    def test_copies_recipe_into_todo(self):
+        store = InMemoryStore()
+        src = model.create(
+            store, project="p", title="Src", command="plan-task",
+            mode="auto", content="body", pre_action="a", post_action="b",
+            status=model.STATUS_TEMPLATE, id="tmpl",
+        )
+        dup = model.duplicate(store, "p", src.id)
+        assert dup.id != src.id
+        assert dup.status == model.STATUS_TODO
+        assert dup.title == "Src"
+        assert dup.command == "plan-task"
+        assert dup.mode == "auto"
+        assert dup.content == "body"
+        assert dup.pre_action == "a"
+        assert dup.post_action == "b"
+
+    def test_does_not_copy_schedule(self):
+        store = InMemoryStore()
+        model.create(
+            store, project="p", title="T", schedule="0 9 * * *",
+            last_run="2026-01-01T00:00:00+00:00",
+            status=model.STATUS_TEMPLATE, id="tmpl",
+        )
+        dup = model.duplicate(store, "p", "tmpl")
+        assert dup.schedule == ""
+        assert dup.last_run == ""
+
+    def test_overrides_win(self):
+        store = InMemoryStore()
+        model.create(store, project="p", title="Src", command="c1", id="s")
+        dup = model.duplicate(store, "p", "s", title="New", command="c2")
+        assert dup.title == "New"
+        assert dup.command == "c2"
+
+    def test_source_untouched(self):
+        store = InMemoryStore()
+        model.create(store, project="p", title="Src", content="x", id="s")
+        model.duplicate(store, "p", "s", title="other")
+        assert model.load(store, "p", "s").title == "Src"
+
+    def test_run_id_child_of_template(self):
+        store = InMemoryStore()
+        model.create(
+            store, project="p", title="Maint", status=model.STATUS_TEMPLATE,
+            id="maintenance",
+        )
+        run_id = model.allocate_run_id("maintenance", "2026-06-18")
+        assert run_id == "maintenance.2026-06-18"
+        dup = model.duplicate(
+            store, "p", "maintenance", parent="maintenance", id=run_id
+        )
+        assert dup.id == "maintenance.2026-06-18"
+        assert dup.parent == "maintenance"
+        # Shared branch via parent.
+        assert dup.branch == model.default_branch(run_id, "maintenance")
+
+
+class TestTemplateStatus:
+    def test_template_is_not_actionable(self):
+        store = InMemoryStore()
+        t = model.create(
+            store, project="p", title="T", status=model.STATUS_TEMPLATE, id="t"
+        )
+        assert not model.is_actionable(t, store)
+
+    def test_template_invisible_to_next_task(self):
+        store = InMemoryStore()
+        model.create(
+            store, project="p", title="T", status=model.STATUS_TEMPLATE, id="t"
+        )
+        assert model.next_task(store, "p") is None
+
+    def test_move_accepts_template(self):
+        store = InMemoryStore()
+        model.create(store, project="p", title="T", id="t")
+        moved = model.move(store, "p", "t", model.STATUS_TEMPLATE)
+        assert moved.status == model.STATUS_TEMPLATE
+
+    def test_schedule_round_trips(self):
+        store = InMemoryStore()
+        model.create(
+            store, project="p", title="T", schedule="0 9 * * *",
+            last_run="2026-06-18T09:00:00+00:00", id="t",
+        )
+        reloaded = model.load(store, "p", "t")
+        assert reloaded.schedule == "0 9 * * *"
+        assert reloaded.last_run == "2026-06-18T09:00:00+00:00"

@@ -845,3 +845,231 @@ class TestUpdate:
         assert reloaded.title == "keep"
         assert reloaded.content == "body"
         assert reloaded.branch == "b2"
+
+
+# --- duplicate (--from) ---
+
+
+class TestDuplicate:
+    def test_from_copies_recipe(self, runner, store):
+        src = model.create(
+            store, project="p", title="Orig", command="plan-task",
+            mode="auto", content="the body",
+        )
+        result = runner.invoke(task_cli.task, ["add", "--from", src.id])
+        assert result.exit_code == 0, result.output
+        new = model.load(store, "p", result.output.strip())
+        assert new.id != src.id
+        assert new.title == "Orig"
+        assert new.command == "plan-task"
+        assert new.mode == "auto"
+        assert new.content == "the body"
+        assert new.status == model.STATUS_TODO
+
+    def test_from_overrides_win(self, runner, store):
+        src = model.create(store, project="p", title="Orig", command="plan-task")
+        result = runner.invoke(
+            task_cli.task,
+            ["add", "New title", "--from", src.id, "--command", "other"],
+        )
+        new = model.load(store, "p", result.output.strip())
+        assert new.title == "New title"
+        assert new.command == "other"
+
+    def test_source_untouched(self, runner, store):
+        src = model.create(store, project="p", title="Orig", content="x")
+        runner.invoke(task_cli.task, ["add", "--from", src.id])
+        again = model.load(store, "p", src.id)
+        assert again.title == "Orig"
+        assert again.content == "x"
+
+    def test_from_works_from_template_status(self, runner, store):
+        src = model.create(
+            store, project="p", title="Tmpl", status=model.STATUS_TEMPLATE,
+            id="tmpl",
+        )
+        result = runner.invoke(task_cli.task, ["add", "--from", src.id])
+        assert result.exit_code == 0, result.output
+        new = model.load(store, "p", result.output.strip())
+        assert new.title == "Tmpl"
+        assert new.status == model.STATUS_TODO
+
+    def test_from_unknown_id_errors(self, runner, store):
+        result = runner.invoke(task_cli.task, ["add", "--from", "nope"])
+        assert result.exit_code != 0
+        assert "Task not found" in result.output
+
+    def test_title_required_without_from(self, runner, store):
+        result = runner.invoke(task_cli.task, ["add"])
+        assert result.exit_code != 0
+        assert "title is required" in result.output.lower()
+
+
+# --- templates + schedule metadata ---
+
+
+class TestTemplates:
+    def test_add_template_parks_in_template_status(self, runner, store):
+        result = runner.invoke(
+            task_cli.task, ["add", "Morning", "--template", "--schedule", "0 9 * * *"]
+        )
+        assert result.exit_code == 0, result.output
+        t = model.load(store, "p", result.output.strip())
+        assert t.status == model.STATUS_TEMPLATE
+        assert t.schedule == "0 9 * * *"
+
+    def test_template_invisible_to_next(self, runner, store):
+        runner.invoke(task_cli.task, ["add", "Tmpl", "--template"])
+        result = runner.invoke(task_cli.task, ["next"])
+        assert result.exit_code != 0  # no actionable task
+
+    def test_template_invisible_to_default_list(self, runner, store):
+        tid = runner.invoke(
+            task_cli.task, ["add", "Tmpl", "--template"]
+        ).output.strip()
+        result = runner.invoke(task_cli.task, ["list"])
+        assert tid not in result.output
+
+    def test_template_listed_with_status_filter(self, runner, store):
+        tid = runner.invoke(
+            task_cli.task, ["add", "Tmpl", "--template"]
+        ).output.strip()
+        result = runner.invoke(task_cli.task, ["list", "--status", "template"])
+        assert tid in result.output
+
+    def test_update_schedule_round_trips(self, runner, store):
+        tid = runner.invoke(
+            task_cli.task, ["add", "Tmpl", "--template"]
+        ).output.strip()
+        runner.invoke(
+            task_cli.task, ["update", tid, "--schedule", "0 9 * * 1-5"]
+        )
+        assert model.load(store, "p", tid).schedule == "0 9 * * 1-5"
+
+    def test_status_template_parks_existing_task(self, runner, store):
+        tid = runner.invoke(task_cli.task, ["add", "Existing"]).output.strip()
+        result = runner.invoke(task_cli.task, ["status", "template", tid])
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", tid).status == model.STATUS_TEMPLATE
+
+    def test_template_from_duplicate(self, runner, store):
+        src = model.create(store, project="p", title="Base", command="plan-task")
+        result = runner.invoke(
+            task_cli.task, ["add", "--from", src.id, "--template"]
+        )
+        new = model.load(store, "p", result.output.strip())
+        assert new.status == model.STATUS_TEMPLATE
+        assert new.command == "plan-task"
+
+
+# --- add-scheduled (catch-up / idempotency / launch) ---
+
+
+def _make_template(store, *, schedule, last_run="", created):
+    return model.create(
+        store, project="p", title="Maintenance", command="",
+        schedule=schedule, last_run=last_run,
+        status=model.STATUS_TEMPLATE, id="maintenance", now=created,
+    )
+
+
+class TestAddScheduled:
+    def test_one_run_created_and_watermark_advances(self, runner, store, monkeypatch):
+        from datetime import datetime, timezone
+
+        _make_template(
+            store,
+            schedule="0 9 * * *",
+            last_run="2026-06-11T09:00:00+00:00",
+            created="2026-06-01T00:00:00+00:00",
+        )
+        # Freeze "now" inside the command.
+        import maelstrom.task_cli as tc
+        real_dt = datetime
+
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+
+        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
+        result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
+        assert result.exit_code == 0, result.output
+        run = model.load(store, "p", "maintenance.2026-06-18")
+        assert run.parent == "maintenance"
+        # Exactly one run (catch-up is a single boundary, not 7).
+        runs = [
+            t for t in model.list_tasks(store, project="p")
+            if t.parent == "maintenance"
+        ]
+        assert len(runs) == 1
+        # Watermark advanced to today's 09:00 boundary.
+        tmpl = model.load(store, "p", "maintenance")
+        assert tmpl.last_run == "2026-06-18T09:00:00+00:00"
+
+    def test_idempotent_second_call_creates_nothing(self, runner, store, monkeypatch):
+        from datetime import datetime, timezone
+
+        _make_template(
+            store,
+            schedule="0 9 * * *",
+            last_run="2026-06-17T09:00:00+00:00",
+            created="2026-06-01T00:00:00+00:00",
+        )
+        real_dt = datetime
+
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+
+        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
+        runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
+        result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
+        assert "No scheduled tasks due." in result.output
+        runs = [
+            t for t in model.list_tasks(store, project="p")
+            if t.parent == "maintenance"
+        ]
+        assert len(runs) == 1
+
+    def test_not_due_creates_nothing(self, runner, store, monkeypatch):
+        from datetime import datetime, timezone
+
+        _make_template(
+            store,
+            schedule="0 9 * * *",
+            last_run="2026-06-18T09:00:00+00:00",
+            created="2026-06-01T00:00:00+00:00",
+        )
+        real_dt = datetime
+
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+
+        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
+        result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
+        assert "No scheduled tasks due." in result.output
+
+    def test_run_launches_into_workspace(self, runner, store, monkeypatch, launch):
+        from datetime import datetime, timezone
+
+        _make_template(
+            store,
+            schedule="0 9 * * *",
+            last_run="2026-06-17T09:00:00+00:00",
+            created="2026-06-01T00:00:00+00:00",
+        )
+        real_dt = datetime
+
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+
+        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
+        result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p", "--run"])
+        assert result.exit_code == 0, result.output
+        launch.session.assert_called_once()
