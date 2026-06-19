@@ -8,9 +8,9 @@ This skill runs **inside a session that `mael` launched** — it is the fuzzy-ta
 multi-session notebook chain (spec B). `mael task next --run` reached a `plan-next-step` task and
 launched a plan-mode session holding that task's content. This skill plans **one** concrete next
 step and writes a **load-many plan file** whose blocks *are* the next chain: an execute block for
-this step and — if work remains — a `tail` `plan-next-step` block with a refreshed picture. The only
-post-approval action is one `mael task load-many` call. It does **not** implement, and it never
-writes to Linear.
+this step and — if work remains — a `tail` `plan-next-step` block with a refreshed picture. After
+approval, run two commands: `mael task load-many` (create the chain) **then** `mael task status done`
+(close this planning task). It does **not** implement, and it never writes to Linear.
 
 ## What you already hold
 
@@ -91,8 +91,9 @@ remaining-work list with **this step removed** (course-corrected from what you l
 prior-work summary that now includes this step's scope.
 
 ```markdown
-This step's chain. The only action is:
-    mael task load-many <this file>
+This step's chain. After approval, run:
+    mael task load-many <this file>   # create the chain
+    mael task status done             # close this planning task
 
 ---CREATE TASK step---
 title: "Execute: <next step desc>"
@@ -121,8 +122,9 @@ When this step exhausts the remaining work, emit **just** the execute block — 
 chain ends here. Once its execute session merges, the feature is done.
 
 ```markdown
-This step's chain. The only action is:
-    mael task load-many <this file>
+This step's chain. After approval, run:
+    mael task load-many <this file>   # create the chain
+    mael task status done             # close this planning task
 
 ---CREATE TASK step---
 title: "Execute: <final step desc>"
