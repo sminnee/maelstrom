@@ -11,7 +11,8 @@ there.
 
 The brief is **already in your initial prompt** (the planning task's content). Your job is to
 research, plan interactively, then write a **load-many plan file** whose `---CREATE TASK ...---`
-blocks *are* the notebook chain — the single post-approval action is one `mael task load-many` call.
+blocks *are* the notebook chain — after approval, run two commands: `mael task load-many` (create the
+chain) **then** `mael task status done` (close this planning task).
 
 ## What This Command Does
 
@@ -128,8 +129,9 @@ For tasks completable in one session (~500 lines or less) — one execute block 
 implementation plan:
 
 ```markdown
-This plan creates the notebook chain for <ID>. The only action is:
-    mael task load-many <this file>
+This plan creates the notebook chain for <ID>. After approval, run:
+    mael task load-many <this file>   # create the chain
+    mael task status done             # close this planning task
 
 ---CREATE TASK iter---
 title: "Execute: <ID> — <short desc>"
@@ -170,8 +172,9 @@ For larger tasks — a concrete `iter1` execute block plus a fuzzy-tail `plan-ne
 its **body** — it must not be an empty placeholder:
 
 ```markdown
-This plan creates the notebook chain for <ID>. The only action is:
-    mael task load-many <this file>
+This plan creates the notebook chain for <ID>. After approval, run:
+    mael task load-many <this file>   # create the chain
+    mael task status done             # close this planning task
 
 ---CREATE TASK iter1---
 title: "Execute: <iteration-1 desc>"
