@@ -65,9 +65,10 @@ Click or exit codes.
 
 ### 4. Empty `__init__.py`; import from concrete submodules
 
-`__init__.py` stays empty. Import from the concrete module
-(`from .worktree import create_worktree`), never re-export through the package,
-and **never** import another module's `_private` helpers.
+`__init__.py` carries nothing but the package docstring and `__version__`.
+Import from the concrete module (`from .worktree import create_worktree`), never
+re-export through the package, and **never** import another module's `_private`
+helpers.
 
 Anti-pattern (to be removed in a later iteration): `cli.py` imports
 `_ensure_cmux_browser` and `_print_service_status` from `env_cli`. A leading
