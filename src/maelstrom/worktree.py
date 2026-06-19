@@ -2041,30 +2041,21 @@ def open_claude_workspace(
     runs the install command, sent into the new workspace's shell pane so it
     runs visibly there; a reused workspace already installed.
     """
-    from .cmux import (
-        create_cmux_workspace,
-        find_workspace,
-        is_cmux_mode,
-        open_claude_tab,
-        workspace_name,
-    )
+    from .cmux import mael_layout
 
-    if not (is_cmux_mode() and project and worktree):
+    if not (project and worktree):
         return False
-    line = claude_shell_line(argv, env)
 
-    # Reuse a live workspace: add a Claude tab carrying the same command line.
-    if find_workspace(workspace_name(project, worktree)) is not None:
-        return open_claude_tab(
-            project, worktree, str(worktree_path), command=line
-        ) is not None
-
-    # Create a fresh workspace; run install visibly in its shell pane.
+    # Idempotent: creates the 3-pane workspace if absent, else adds a Claude tab
+    # to a live one. Returns False outside cmux. The install command runs in the
+    # shell pane (a reused workspace already installed, but the create path needs
+    # it). Returns False so the caller falls back to ``exec_claude``.
     install_cmd = load_config_or_default(worktree_path).install_cmd
-    return create_cmux_workspace(
-        project, worktree, str(worktree_path), command=line,
-        shell_command=install_cmd or None,
-    ) is not None
+    return mael_layout.ensure_worktree_workspace(
+        project, worktree, str(worktree_path),
+        command=claude_shell_line(argv, env),
+        install_cmd=install_cmd or None,
+    )
 
 
 def launch_claude_in_worktree(

@@ -312,7 +312,7 @@ class TestCloseMultiTarget:
 
             mock_stop.assert_not_called()
 
-    def test_close_closes_cmux_workspace(self, mock_cmux_cmd):
+    def test_close_closes_cmux_workspace(self):
         """Test that mael close closes the cmux workspace."""
         runner = CliRunner()
 
@@ -324,18 +324,15 @@ class TestCloseMultiTarget:
             mock_ctx.worktree_path.exists.return_value = True
             mock_resolve.return_value = mock_ctx
 
-            mock_cmux_cmd.side_effect = lambda *args: (
-                "* workspace:1  myproject-alpha  [selected]"
-                if args[0] == "list-workspaces" else "OK"
-            )
-
             with patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
                  patch("maelstrom.cli.close_worktree") as mock_close, \
                  patch("maelstrom.cli.get_env_status", return_value=None), \
-                 patch("maelstrom.cli.stop_env"):
+                 patch("maelstrom.cli.stop_env"), \
+                 patch("maelstrom.cli.mael_layout.close_workspace", return_value=True) as mock_close_ws:
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 result = runner.invoke(cli, ["close", "myproject.alpha"])
 
+            mock_close_ws.assert_called_once_with("myproject", "alpha")
             assert "Closed cmux workspace 'myproject-alpha'" in result.output
 
     def test_close_copies_back_new_var(self, tmp_path):
@@ -670,8 +667,8 @@ class TestCmdAddExistingBranch:
     def _setup(self, stack, tmp_path, existing=True):
         """Patch cmd_add so an existing worktree is (or isn't) found.
 
-        cmux functions are imported inside cmd_add via `from .cmux import ...`,
-        so they must be patched at maelstrom.cmux.*.
+        cmd_add defers cmux placement to launch_claude_in_worktree (mocked
+        here), so the cmux layers are never reached and need no patching.
         Returns (existing_wt_path, mocks dict).
         """
         project_path = tmp_path / "proj"
@@ -713,9 +710,6 @@ class TestCmdAddExistingBranch:
             "update_claude_local_md": stack.enter_context(
                 patch("maelstrom.worktree.update_claude_local_md", return_value=False)
             ),
-            "is_cmux_mode": stack.enter_context(patch("maelstrom.cmux.is_cmux_mode")),
-            "find_workspace": stack.enter_context(patch("maelstrom.cmux.find_workspace")),
-            "open_claude_tab": stack.enter_context(patch("maelstrom.cmux.open_claude_tab")),
         }
         return worktree_path, mocks
 
@@ -730,8 +724,6 @@ class TestCmdAddExistingBranch:
 
         with ExitStack() as stack:
             existing_wt, mocks = self._setup(stack, tmp_path)
-            mocks["is_cmux_mode"].return_value = True
-            mocks["find_workspace"].return_value = "workspace:13"
 
             result = CliRunner().invoke(cli, ["add", "feat-x"])
             assert result.exit_code == 0, result.output
@@ -749,7 +741,6 @@ class TestCmdAddExistingBranch:
 
         with ExitStack() as stack:
             existing_wt, mocks = self._setup(stack, tmp_path)
-            mocks["is_cmux_mode"].return_value = False
 
             result = CliRunner().invoke(cli, ["add", "feat-x"])
             assert result.exit_code == 0, result.output
@@ -765,7 +756,6 @@ class TestCmdAddExistingBranch:
 
         with ExitStack() as stack:
             _, mocks = self._setup(stack, tmp_path, existing=False)
-            mocks["is_cmux_mode"].return_value = True
 
             result = CliRunner().invoke(cli, ["add", "feat-x"])
             assert result.exit_code == 0, result.output

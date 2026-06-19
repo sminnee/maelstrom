@@ -1,56 +1,79 @@
-"""Tests for maelstrom.cmux module."""
+"""Tests for the cmux transport (client.py) and layout/domain (model.py) layers."""
 
 import subprocess
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from maelstrom.cmux import (
-    CmuxPanel,
-    CmuxWorkspace,
+from maelstrom.cmux.client import (
+    CmuxResult,
+    RecordingCmuxClient,
+    SubprocessCmuxClient,
     _find_cmux_cli,
-    _first_ref,
-    _parse_panels,
-    add_tab,
-    close_surface,
-    close_workspace,
-    cmux_cmd,
-    create_cmux_workspace,
-    find_workspace,
+    current_client,
     is_cmux_mode,
-    is_ok,
-    list_panes,
-    navigate_surface,
-    open_browser_pane,
-    open_browser_surface,
-    open_claude_tab,
-    pane_idx,
-    pane_surface,
-    split_pane_off,
-    browser_surface_exists,
-    start_claude_in_surface,
-    workspace_name,
+)
+from maelstrom.cmux.model import (
+    BrowserTab,
+    CmuxLayout,
+    Surface,
+    TerminalTab,
 )
 
 
-class TestIsCmuxMode:
-    """Tests for is_cmux_mode function."""
+# ===========================================================================
+# Transport layer — client.py
+# ===========================================================================
 
-    def test_returns_true_when_env_set(self):
-        with patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/cmux.sock"}):
-            assert is_cmux_mode() is True
 
-    def test_returns_false_when_env_not_set(self):
-        with patch.dict("os.environ", {}, clear=True):
-            assert is_cmux_mode() is False
+class TestCmuxResult:
+    """Tests for the CmuxResult value object (ok/text/ref parsing)."""
 
-    def test_returns_false_when_env_empty(self):
-        with patch.dict("os.environ", {"CMUX_SOCKET_PATH": ""}):
-            assert is_cmux_mode() is False
+    def test_ok_true_for_ok_line(self):
+        assert CmuxResult("OK ws-123").ok is True
+
+    def test_ok_true_for_bare_ok(self):
+        assert CmuxResult("OK").ok is True
+
+    def test_ok_false_for_error(self):
+        assert CmuxResult("ERR something").ok is False
+
+    def test_ok_false_for_none(self):
+        assert CmuxResult(None).ok is False
+
+    def test_ok_false_for_empty(self):
+        assert CmuxResult("").ok is False
+
+    def test_text_extracts_ref(self):
+        assert CmuxResult("OK ws-123").text == "ws-123"
+
+    def test_text_empty_for_bare_ok(self):
+        assert CmuxResult("OK").text == ""
+
+    def test_text_empty_for_non_ok(self):
+        assert CmuxResult("ERR x").text == ""
+
+    def test_text_empty_for_none(self):
+        assert CmuxResult(None).text == ""
+
+    def test_ref_extracts_leading_surface(self):
+        result = CmuxResult("OK surface:99 pane:0 workspace:13")
+        assert result.ref("surface") == "surface:99"
+
+    def test_ref_extracts_pane(self):
+        result = CmuxResult("OK surface:99 pane:7 workspace:1")
+        assert result.ref("pane") == "pane:7"
+
+    def test_ref_none_when_kind_absent(self):
+        assert CmuxResult("OK pane:0 workspace:1").ref("surface") is None
+
+    def test_ref_none_for_non_ok(self):
+        assert CmuxResult("ERR surface:5").ref("surface") is None
+
+    def test_ref_none_for_none(self):
+        assert CmuxResult(None).ref("surface") is None
 
 
 class TestFindCmuxCli:
-    """Tests for _find_cmux_cli function."""
+    """Tests for the _find_cmux_cli discovery helper."""
 
     def test_finds_in_path(self):
         with patch("shutil.which", return_value="/usr/local/bin/cmux"):
@@ -72,316 +95,297 @@ class TestFindCmuxCli:
             assert _find_cmux_cli() is None
 
 
-class TestCmuxCmd:
-    """Tests for cmux_cmd function."""
+class TestSubprocessCmuxClient:
+    """Tests for the real subprocess-backed client."""
 
-    def test_runs_command_with_flags(self):
+    def test_runs_command_with_socket_flag(self):
         mock_result = MagicMock()
         mock_result.stdout = "OK ws-123\n"
-        with (
-            patch("maelstrom.cmux._find_cmux_cli", return_value="/usr/bin/cmux"),
-            patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/cmux.sock"}),
-            patch("subprocess.run", return_value=mock_result) as mock_run,
-        ):
-            result = cmux_cmd("new-workspace", "--command", "claude")
-            assert result == "OK ws-123"
-            mock_run.assert_called_once_with(
-                ["/usr/bin/cmux", "--socket", "/tmp/cmux.sock",
-                 "new-workspace", "--command", "claude"],
-                capture_output=True, text=True, check=True,
-            )
+        client = SubprocessCmuxClient("/usr/bin/cmux", "/tmp/cmux.sock")
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            result = client.run("new-workspace", "--command", "claude")
+        assert result.raw == "OK ws-123"
+        assert result.text == "ws-123"
+        mock_run.assert_called_once_with(
+            ["/usr/bin/cmux", "--socket", "/tmp/cmux.sock",
+             "new-workspace", "--command", "claude"],
+            capture_output=True, text=True, check=True,
+        )
 
-    def test_returns_raw_stdout_stripped(self):
+    def test_strips_stdout(self):
         mock_result = MagicMock()
         mock_result.stdout = "OK\n"
-        with (
-            patch("maelstrom.cmux._find_cmux_cli", return_value="/usr/bin/cmux"),
-            patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/cmux.sock"}),
-            patch("subprocess.run", return_value=mock_result),
-        ):
-            result = cmux_cmd("rename-workspace", "foo")
-            assert result == "OK"
+        client = SubprocessCmuxClient("/usr/bin/cmux", "/tmp/cmux.sock")
+        with patch("subprocess.run", return_value=mock_result):
+            assert client.run("rename-workspace", "foo").raw == "OK"
 
-    def test_returns_non_ok_output(self):
+    def test_preserves_non_ok_output(self):
         mock_result = MagicMock()
         mock_result.stdout = "ERR something went wrong\n"
-        with (
-            patch("maelstrom.cmux._find_cmux_cli", return_value="/usr/bin/cmux"),
-            patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/cmux.sock"}),
-            patch("subprocess.run", return_value=mock_result),
+        client = SubprocessCmuxClient("/usr/bin/cmux", "/tmp/cmux.sock")
+        with patch("subprocess.run", return_value=mock_result):
+            result = client.run("bad-command")
+        assert result.raw == "ERR something went wrong"
+        assert result.ok is False
+
+    def test_none_on_called_process_error(self):
+        client = SubprocessCmuxClient("/usr/bin/cmux", "/tmp/cmux.sock")
+        with patch(
+            "subprocess.run",
+            side_effect=subprocess.CalledProcessError(1, "cmux"),
         ):
-            result = cmux_cmd("bad-command")
-            assert result == "ERR something went wrong"
+            assert client.run("bad-command").raw is None
 
-    def test_returns_none_when_cli_not_found(self):
-        with patch("maelstrom.cmux._find_cmux_cli", return_value=None):
-            assert cmux_cmd("status") is None
+    def test_none_on_file_not_found(self):
+        client = SubprocessCmuxClient("/usr/bin/cmux", "/tmp/cmux.sock")
+        with patch("subprocess.run", side_effect=FileNotFoundError):
+            assert client.run("status").raw is None
 
-    def test_returns_none_when_no_socket(self):
+
+class TestRecordingCmuxClient:
+    """Tests for the in-memory fake client."""
+
+    def test_records_calls(self):
+        client = RecordingCmuxClient()
+        client.run("list-workspaces")
+        client.run("send", "--surface", "surface:1", "--", "ls\n")
+        assert client.calls == [
+            ("list-workspaces",),
+            ("send", "--surface", "surface:1", "--", "ls\n"),
+        ]
+
+    def test_dict_responses(self):
+        client = RecordingCmuxClient({("list-panes",): "pane:0 pane:1"})
+        assert client.run("list-panes").raw == "pane:0 pane:1"
+        # Unmatched calls return None.
+        assert client.run("other").raw is None
+
+    def test_callable_responses(self):
+        def fn(*args):
+            return "OK ws-9" if args[0] == "new-workspace" else "OK"
+
+        client = RecordingCmuxClient(fn)
+        assert client.run("new-workspace").text == "ws-9"
+        assert client.run("rename-workspace").raw == "OK"
+
+    def test_no_responses_returns_none(self):
+        client = RecordingCmuxClient()
+        assert client.run("anything").raw is None
+
+
+class TestCurrentClient:
+    """Tests for current_client / is_cmux_mode."""
+
+    def test_none_when_socket_unset(self):
+        with patch.dict("os.environ", {}, clear=True):
+            assert current_client() is None
+            assert is_cmux_mode() is False
+
+    def test_none_when_socket_empty(self):
+        with patch.dict("os.environ", {"CMUX_SOCKET_PATH": ""}):
+            assert current_client() is None
+
+    def test_none_when_no_binary(self):
         with (
-            patch("maelstrom.cmux._find_cmux_cli", return_value="/usr/bin/cmux"),
-            patch.dict("os.environ", {}, clear=True),
+            patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/c.sock"}),
+            patch("maelstrom.cmux.client._find_cmux_cli", return_value=None),
         ):
-            assert cmux_cmd("status") is None
+            assert current_client() is None
+            assert is_cmux_mode() is False
 
-    def test_returns_none_on_called_process_error(self):
+    def test_returns_client_when_in_cmux(self):
         with (
-            patch("maelstrom.cmux._find_cmux_cli", return_value="/usr/bin/cmux"),
-            patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/cmux.sock"}),
-            patch("subprocess.run", side_effect=subprocess.CalledProcessError(1, "cmux")),
+            patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/c.sock"}),
+            patch(
+                "maelstrom.cmux.client._find_cmux_cli",
+                return_value="/usr/bin/cmux",
+            ),
         ):
-            assert cmux_cmd("bad-command") is None
+            client = current_client()
+            assert isinstance(client, SubprocessCmuxClient)
+            assert is_cmux_mode() is True
 
-    def test_returns_none_on_file_not_found(self):
+
+# ===========================================================================
+# Layout / domain layer — model.py
+# ===========================================================================
+
+
+def _layout(responses=None, name="myproject-alpha"):
+    """Build a CmuxLayout over a RecordingCmuxClient; return (layout, client)."""
+    client = RecordingCmuxClient(responses)
+    return CmuxLayout(client, name), client
+
+
+class TestCurrent:
+    """CmuxLayout.current returns None outside cmux, a layout inside."""
+
+    def test_none_outside_cmux(self):
+        with patch.dict("os.environ", {}, clear=True):
+            assert CmuxLayout.current("foo") is None
+
+    def test_layout_inside_cmux(self):
         with (
-            patch("maelstrom.cmux._find_cmux_cli", return_value="/usr/bin/cmux"),
-            patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/cmux.sock"}),
-            patch("subprocess.run", side_effect=FileNotFoundError),
+            patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/c.sock"}),
+            patch(
+                "maelstrom.cmux.client._find_cmux_cli",
+                return_value="/usr/bin/cmux",
+            ),
         ):
-            assert cmux_cmd("status") is None
+            lay = CmuxLayout.current("foo")
+            assert isinstance(lay, CmuxLayout)
 
 
+class TestHasWorkspace:
+    """CmuxLayout.has_workspace."""
 
-class TestIsOk:
-    """Tests for is_ok function."""
+    def test_true_when_present(self):
+        lay, _ = _layout({
+            ("list-workspaces",): "  workspace:13  myproject-alpha",
+        })
+        assert lay.has_workspace() is True
 
-    def test_extracts_ref_from_ok_response(self):
-        assert is_ok("OK ws-123") == "ws-123"
+    def test_false_when_absent(self):
+        lay, _ = _layout({("list-workspaces",): "  workspace:14  other"})
+        assert lay.has_workspace() is False
 
-    def test_returns_empty_string_for_bare_ok(self):
-        assert is_ok("OK") == ""
+    def test_false_when_cmux_unavailable(self):
+        lay, _ = _layout({("list-workspaces",): None})
+        assert lay.has_workspace() is False
 
-    def test_returns_none_for_non_ok(self):
-        assert is_ok("ERR something") is None
-
-    def test_returns_none_for_none(self):
-        assert is_ok(None) is None
-
-    def test_returns_none_for_empty_string(self):
-        assert is_ok("") is None
-
-
-class TestWorkspaceName:
-    """Tests for workspace_name function."""
-
-    def test_combines_project_and_worktree(self):
-        assert workspace_name("maelstrom", "bravo") == "maelstrom-bravo"
-
-
-class TestFindWorkspace:
-    """Tests for find_workspace function."""
-
-    def test_returns_ref_on_match(self):
-        list_output = (
-            "* workspace:13  maelstrom-bravo  [selected]\n"
-            "  workspace:14  other-project"
-        )
-        with patch("maelstrom.cmux.cmux_cmd", return_value=list_output):
-            assert find_workspace("maelstrom-bravo") == "workspace:13"
-
-    def test_returns_first_match(self):
-        list_output = (
-            "  workspace:14  other-project\n"
-            "  workspace:15  maelstrom-bravo\n"
-            "  workspace:16  maelstrom-bravo"
-        )
-        with patch("maelstrom.cmux.cmux_cmd", return_value=list_output):
-            assert find_workspace("maelstrom-bravo") == "workspace:15"
-
-    def test_returns_none_on_no_match(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value="  workspace:14  other"):
-            assert find_workspace("maelstrom-bravo") is None
-
-    def test_returns_none_when_cmux_unavailable(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
-            assert find_workspace("maelstrom-bravo") is None
+    def test_matches_first(self):
+        lay, _ = _layout({
+            ("list-workspaces",): (
+                "  workspace:14  other\n"
+                "  workspace:15  myproject-alpha\n"
+                "  workspace:16  myproject-alpha"
+            ),
+        })
+        # has_workspace is boolean, but the underlying find returns the first.
+        assert lay.has_workspace() is True
 
 
-class TestListPanes:
-    """Tests for list_panes function."""
+class TestEnsureWorkspace:
+    """CmuxLayout.ensure_workspace — create if absent, no-op if present."""
 
-    def test_parses_space_separated(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value="pane:0 pane:1 pane:2"):
-            assert list_panes() == ["pane:0", "pane:1", "pane:2"]
+    def test_no_op_when_present(self):
+        lay, client = _layout({
+            ("list-workspaces",): "  workspace:13  myproject-alpha",
+        })
+        ref = lay.ensure_workspace(TerminalTab("Claude", cwd="/wt", command="claude"))
+        assert ref == "workspace:13"
+        # No creation commands issued.
+        assert not any(c[0] == "new-workspace" for c in client.calls)
 
-    def test_parses_newline_separated(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value="pane:0\npane:1"):
-            assert list_panes() == ["pane:0", "pane:1"]
-
-    def test_returns_empty_when_none(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
-            assert list_panes() == []
-
-    def test_returns_empty_when_blank(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value=""):
-            assert list_panes() == []
-
-    def test_passes_workspace_ref(self):
-        calls = []
-
-        def mock_cmux_cmd(*args):
-            calls.append(args)
-            return "pane:0"
-
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
-            list_panes("workspace:13")
-
-        assert calls[0] == ("list-panes", "--workspace", "workspace:13")
-
-
-class TestPaneIdx:
-    """Tests for pane_idx function."""
-
-    def test_index_zero_returns_first_pane(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value="pane:0 pane:1 pane:2"):
-            assert pane_idx(index=0) == "pane:0"
-
-    def test_index_two_returns_third_pane(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value="pane:0 pane:1 pane:2"):
-            assert pane_idx(index=2) == "pane:2"
-
-    def test_negative_index_returns_last_pane(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value="pane:0 pane:1 pane:2"):
-            assert pane_idx(index=-1) == "pane:2"
-
-    def test_out_of_bounds_returns_none(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value="pane:0 pane:1"):
-            assert pane_idx(index=2) is None
-
-    def test_returns_none_when_empty(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
-            assert pane_idx(index=0) is None
-
-
-class TestFirstRef:
-    """Tests for _first_ref helper."""
-
-    def test_extracts_leading_surface_ref(self):
-        assert _first_ref("surface:99 pane:0 workspace:13", "surface") == "surface:99"
-
-    def test_extracts_pane_ref(self):
-        assert _first_ref("surface:99 pane:7 workspace:1", "pane") == "pane:7"
-
-    def test_returns_none_when_kind_absent(self):
-        assert _first_ref("pane:0 workspace:1", "surface") is None
-
-    def test_returns_none_for_none(self):
-        assert _first_ref(None, "surface") is None
-
-    def test_returns_none_for_empty(self):
-        assert _first_ref("", "surface") is None
-
-
-class TestAddTab:
-    """Tests for add_tab function."""
-
-    def test_creates_and_renames_surface(self):
-        calls = []
-
-        def mock_cmux_cmd(*args):
-            calls.append(args)
-            if args[0] == "new-surface":
-                # cmux returns multiple refs; only the surface ref is usable.
-                return "OK surface:99 pane:0 workspace:13"
+    def test_creates_with_initial_terminal(self):
+        def fn(*args):
+            if args[0] == "list-workspaces":
+                return ""  # absent
+            if args[0] == "new-workspace":
+                return "OK workspace:1"
+            if args[0] == "list-panes":
+                return "pane:0"
+            if args[0] == "list-pane-surfaces":
+                return '  surface:5  terminal  "shell"'
             return "OK"
 
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
-            result = add_tab("workspace:13", pane_ref="pane:0", title="Claude")
-
-        assert result == "surface:99"
-        assert calls[0] == (
-            "new-surface", "--type", "terminal",
-            "--pane", "pane:0", "--workspace", "workspace:13",
+        lay, client = _layout(fn)
+        ref = lay.ensure_workspace(
+            TerminalTab("Claude", cwd="/wt", command="claude"),
         )
-        assert calls[1] == ("rename-tab", "--surface", "surface:99", "Claude")
+        assert ref == "workspace:1"
+        # Created with the cd as its initial command.
+        assert ("new-workspace", "--command", "cd /wt") in client.calls
+        # Renamed to the canonical name.
+        assert (
+            "rename-workspace", "--workspace", "workspace:1", "myproject-alpha",
+        ) in client.calls
+        # The command is sent into the workspace's initial surface.
+        assert (
+            "send", "--workspace", "workspace:1", "--", "claude\n",
+        ) in client.calls
+        # The initial tab is renamed to the tab title.
+        assert ("rename-tab", "--surface", "surface:5", "Claude") in client.calls
 
-    def test_omits_pane_when_none(self):
-        calls = []
-
-        def mock_cmux_cmd(*args):
-            calls.append(args)
-            return (
-                "OK surface:99 pane:0 workspace:13"
-                if args[0] == "new-surface" else "OK"
-            )
-
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
-            add_tab("workspace:13")
-
-        assert "--pane" not in calls[0]
-
-    def test_returns_none_on_failure(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
-            assert add_tab("workspace:13") is None
-
-    def test_returns_none_when_no_surface_ref(self):
-        # A bare "OK" (or a reply without a surface ref) is unusable.
-        with patch("maelstrom.cmux.cmux_cmd", return_value="OK"):
-            assert add_tab("workspace:13") is None
+    def test_returns_none_on_creation_failure(self):
+        lay, _ = _layout({
+            ("list-workspaces",): "",
+            ("new-workspace", "--command", "cd /wt"): None,
+        })
+        ref = lay.ensure_workspace(TerminalTab("Claude", cwd="/wt"))
+        assert ref is None
 
 
-class TestStartClaudeInSurface:
-    """Tests for start_claude_in_surface function."""
+class TestEnsureTerminal:
+    """CmuxLayout.ensure_terminal — at-least-one terminal at a pane index."""
 
-    def test_sends_cd_then_claude(self):
-        calls = []
-
-        def mock_cmux_cmd(*args):
-            calls.append(args)
+    def test_no_op_when_pane_present(self):
+        """Pane exists → a terminal already exists there; no split."""
+        def fn(*args):
+            if args[0] == "list-workspaces":
+                return "  workspace:13  myproject-alpha"
+            if args[0] == "list-panes":
+                return "pane:0 pane:1"
+            if args[0] == "list-pane-surfaces":
+                return '  surface:7  terminal  "Terminal"'
             return "OK"
 
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
-            start_claude_in_surface("surface:99", "/path/to/wt")
+        lay, client = _layout(fn)
+        ref = lay.ensure_terminal(1, TerminalTab("Terminal", cwd="/wt"))
+        assert ref == "surface:7"
+        # No new pane was split.
+        assert not any(c[0] == "new-split" for c in client.calls)
 
-        assert calls[0] == ("send", "--surface", "surface:99", "--", "cd /path/to/wt\n")
-        assert calls[1] == ("send", "--surface", "surface:99", "--", "claude\n")
+    def test_splits_and_reuses_initial_surface_when_pane_absent(self):
+        # Pane 1 absent; split a new pane and send the command into ITS initial
+        # surface (no new tab).
+        panes_seq = ["pane:0", "pane:0 pane:9"]
 
-    def test_sends_custom_command_verbatim(self):
-        calls = []
-
-        def mock_cmux_cmd(*args):
-            calls.append(args)
+        def fn(*args):
+            if args[0] == "list-workspaces":
+                return "  workspace:13  myproject-alpha"
+            if args[0] == "list-panes":
+                return panes_seq.pop(0) if panes_seq else "pane:0 pane:9"
+            if args[0] == "new-split":
+                return "OK surface:90 workspace:13"
+            if args[0] == "list-pane-surfaces":
+                # rightmost pane:0's surface, then the new pane:9's surface
+                pane = args[2]
+                return {
+                    "pane:0": '  surface:50  terminal  "x"',
+                    "pane:9": '  surface:91  terminal  "shell"',
+                }.get(pane, "")
             return "OK"
 
-        cmd = "claude --permission-mode plan 'do the thing'"
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
-            start_claude_in_surface("surface:99", "/path/to/wt", command=cmd)
+        lay, client = _layout(fn)
+        with patch("maelstrom.cmux.model.time.sleep") as mock_sleep:
+            ref = lay.ensure_terminal(1, TerminalTab("Terminal", cwd="/wt", command="npm i"))
+        assert ref == "surface:91"
+        # Split off the rightmost surface (focus-safe), not new-pane.
+        assert any(c[0] == "new-split" for c in client.calls)
+        assert not any(c[0] == "new-pane" for c in client.calls)
+        # Settle sleep interposed before sending into the split pane.
+        mock_sleep.assert_called_once()
+        # cwd + command sent into the new pane's initial surface.
+        assert (
+            "send", "--surface", "surface:91", "--workspace", "workspace:13",
+            "--", "cd /wt\n",
+        ) in client.calls
+        assert (
+            "send", "--surface", "surface:91", "--workspace", "workspace:13",
+            "--", "npm i\n",
+        ) in client.calls
 
-        assert calls[0] == ("send", "--surface", "surface:99", "--", "cd /path/to/wt\n")
-        assert calls[1] == ("send", "--surface", "surface:99", "--", f"{cmd}\n")
-
-    def test_scopes_send_to_workspace_when_given(self):
-        """A surface in another workspace needs --workspace on send, else cmux
-        looks in the caller's workspace and reports "not a terminal"."""
-        calls = []
-
-        def mock_cmux_cmd(*args):
-            calls.append(args)
-            return "OK"
-
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
-            start_claude_in_surface(
-                "surface:99", "/path/to/wt", workspace_ref="workspace:13",
-            )
-
-        assert calls[0] == (
-            "send", "--surface", "surface:99", "--workspace", "workspace:13",
-            "--", "cd /path/to/wt\n",
-        )
-        assert calls[1] == (
-            "send", "--surface", "surface:99", "--workspace", "workspace:13",
-            "--", "claude\n",
-        )
+    def test_returns_none_when_no_workspace(self):
+        lay, _ = _layout({("list-workspaces",): ""})
+        assert lay.ensure_terminal(1, TerminalTab("T")) is None
 
 
-class TestOpenClaudeTab:
-    """Tests for open_claude_tab function."""
+class TestAddTerminal:
+    """CmuxLayout.add_terminal — unconditionally add a new tab."""
 
-    def test_happy_path(self):
-        calls = []
-
-        def mock_cmux_cmd(*args):
-            calls.append(args)
+    def test_adds_new_tab_and_focuses(self):
+        def fn(*args):
             if args[0] == "list-workspaces":
                 return "  workspace:13  myproject-alpha"
             if args[0] == "list-panes":
@@ -390,702 +394,315 @@ class TestOpenClaudeTab:
                 return "OK surface:99 pane:0 workspace:13"
             return "OK"
 
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
-            result = open_claude_tab("myproject", "alpha", "/path/to/wt")
-
-        assert result == "surface:99"
-        cmds = [c[0] for c in calls]
-        assert "new-surface" in cmds
-        # claude is sent into the new tab's surface ref, scoped to its workspace
-        # (the tab may live in a workspace other than the caller's).
+        lay, client = _layout(fn)
+        ref = lay.add_terminal(0, TerminalTab("Claude", cwd="/wt", command="claude"))
+        assert ref == "surface:99"
+        # A new terminal surface tab was created in pane:0.
+        assert (
+            "new-surface", "--type", "terminal",
+            "--pane", "pane:0", "--workspace", "workspace:13",
+        ) in client.calls
+        assert ("rename-tab", "--surface", "surface:99", "Claude") in client.calls
+        # Command sent into the new surface, scoped to the workspace.
         assert (
             "send", "--surface", "surface:99", "--workspace", "workspace:13",
             "--", "claude\n",
-        ) in calls
-        assert ("focus-pane", "--pane", "pane:0", "--workspace", "workspace:13") in calls
-        assert ("select-workspace", "--workspace", "workspace:13") in calls
-        # The new tab is brought to the front (its panel focused) so the GUI
-        # shows it rather than the previously-active tab.
-        assert ("focus-panel", "--panel", "surface:99", "--workspace", "workspace:13") in calls
+        ) in client.calls
+        # The workspace is brought to the foreground (it may be a background one),
+        # the pane focused, and the new tab brought to front.
+        assert (
+            "select-workspace", "--workspace", "workspace:13",
+        ) in client.calls
+        assert (
+            "focus-pane", "--pane", "pane:0", "--workspace", "workspace:13",
+        ) in client.calls
+        assert (
+            "focus-panel", "--panel", "surface:99", "--workspace", "workspace:13",
+        ) in client.calls
 
-    def test_sends_custom_command_verbatim(self):
-        calls = []
-
-        def mock_cmux_cmd(*args):
-            calls.append(args)
+    def test_returns_none_when_pane_absent(self):
+        def fn(*args):
             if args[0] == "list-workspaces":
                 return "  workspace:13  myproject-alpha"
             if args[0] == "list-panes":
-                return "pane:0 pane:1"
+                return "pane:0"
+            return "OK"
+
+        lay, _ = _layout(fn)
+        assert lay.add_terminal(2, TerminalTab("X")) is None
+
+    def test_returns_none_when_no_workspace(self):
+        lay, _ = _layout({("list-workspaces",): ""})
+        assert lay.add_terminal(0, TerminalTab("X")) is None
+
+    def test_sends_command_verbatim(self):
+        def fn(*args):
+            if args[0] == "list-workspaces":
+                return "  workspace:13  myproject-alpha"
+            if args[0] == "list-panes":
+                return "pane:0"
             if args[0] == "new-surface":
                 return "OK surface:99 pane:0 workspace:13"
             return "OK"
 
+        lay, client = _layout(fn)
         cmd = "claude --permission-mode plan 'do the thing'"
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
-            result = open_claude_tab(
-                "myproject", "alpha", "/path/to/wt", command=cmd
-            )
-
-        assert result == "surface:99"
+        lay.add_terminal(0, TerminalTab("Claude", cwd="/wt", command=cmd))
         assert (
             "send", "--surface", "surface:99", "--workspace", "workspace:13",
             "--", f"{cmd}\n",
-        ) in calls
-
-    def test_returns_none_when_workspace_not_found(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value=""):
-            assert open_claude_tab("myproject", "alpha", "/path/to/wt") is None
-
-    def test_returns_none_when_add_tab_fails(self):
-        def mock_cmux_cmd(*args):
-            if args[0] == "list-workspaces":
-                return "  workspace:13  myproject-alpha"
-            if args[0] == "list-panes":
-                return "pane:0"
-            # new-surface fails
-            return None
-
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
-            assert open_claude_tab("myproject", "alpha", "/path/to/wt") is None
+        ) in client.calls
 
 
-class TestCreateCmuxWorkspace:
-    """Tests for create_cmux_workspace function."""
+class TestEnsureBrowser:
+    """CmuxLayout.ensure_browser — recycle by URL prefix, else open new."""
 
-    def test_creates_workspace_and_pane(self):
-        calls = []
-
-        def mock_cmux_cmd(*args):
-            calls.append(args)
-            if args[0] == "new-workspace":
-                return "OK ws-123"
-            if args[0] == "rename-workspace":
-                return "OK"
-            if args[0] == "new-pane":
-                # cmux returns "OK surface:N pane:N workspace:N".
-                return "OK surface:456 pane:7 workspace:1"
-            if args[0] == "send":
-                return "OK"
-            if args[0] == "rename-tab":
-                return "OK"
-            if args[0] == "list-panes":
-                return "pane:0 pane:1"
-            if args[0] == "focus-pane":
+    def test_recycles_existing_in_place(self):
+        def fn(*args):
+            if args[0] == "list-panels":
+                return '  surface:183  browser  "App"'
+            if args[0] == "browser" and args[1] == "get-url":
+                return "http://localhost:3000/dashboard"
+            if args[0] == "browser" and "goto" in args:
                 return "OK"
             return None
 
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd), \
-                patch("maelstrom.cmux.time.sleep") as mock_sleep:
-            result = create_cmux_workspace("myproject", "alpha", "/path/to/worktree")
+        lay, client = _layout(fn)
+        ref = lay.ensure_browser(2, BrowserTab("http://localhost:3000"))
+        assert ref == "surface:183"
+        # Navigated in place — no close, no new surface.
+        assert (
+            "browser", "--surface", "surface:183", "goto", "http://localhost:3000",
+        ) in client.calls
+        assert not any(c[0] == "close-surface" for c in client.calls)
+        assert not any(c[0] == "new-surface" for c in client.calls)
 
-        assert result == "ws-123"
-        assert calls[0][0] == "new-workspace"
-        assert calls[1][0] == "send"
-        assert calls[2][0] == "rename-workspace"
-        assert calls[3][0] == "new-pane"
-        # A settle sleep is interposed after pane 1's command send and before
-        # the new-pane split so pane 2 inherits the worktree cwd.
-        mock_sleep.assert_called_once()
-        # The second pane is cd'd and renamed via its surface ref (not the
-        # multi-token new-pane reply).
-        assert ("send", "--surface", "surface:456", "--", "cd /path/to/worktree\n") in calls
-        assert ("rename-tab", "--surface", "surface:456", "Terminal") in calls
-        # No shell_command → nothing extra sent into the second pane.
-        assert ("send", "--surface", "surface:456", "--", "npm install\n") not in calls
-
-    def test_sends_shell_command_into_second_pane(self):
-        calls = []
-
-        def mock_cmux_cmd(*args):
-            calls.append(args)
-            if args[0] == "new-workspace":
-                return "OK ws-123"
-            if args[0] == "new-pane":
-                return "OK surface:456 pane:7 workspace:1"
+    def test_opens_in_existing_pane_when_no_match(self):
+        def fn(*args):
+            if args[0] == "list-panels":
+                return '  surface:103  terminal  "Terminal"'
             if args[0] == "list-panes":
-                return "pane:0 pane:1"
-            return "OK"
-
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd), \
-                patch("maelstrom.cmux.time.sleep"):
-            result = create_cmux_workspace(
-                "myproject", "alpha", "/path/to/worktree",
-                shell_command="npm install",
-            )
-
-        assert result == "ws-123"
-        # The install command is sent into the second pane after its cd.
-        assert ("send", "--surface", "surface:456", "--", "npm install\n") in calls
-        cd_idx = calls.index(
-            ("send", "--surface", "surface:456", "--", "cd /path/to/worktree\n")
-        )
-        install_idx = calls.index(
-            ("send", "--surface", "surface:456", "--", "npm install\n")
-        )
-        assert install_idx > cd_idx
-
-    def test_returns_none_when_workspace_creation_fails(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
-            result = create_cmux_workspace("myproject", "alpha", "/path/to/worktree")
-            assert result is None
-
-    def test_succeeds_even_if_pane_fails(self):
-        def mock_cmux_cmd(*args):
-            if args[0] == "new-workspace":
-                return "OK ws-123"
-            if args[0] == "send":
-                return "OK"
-            if args[0] == "rename-workspace":
-                return "OK"
-            if args[0] == "list-panes":
-                return "pane:0"
-            if args[0] == "focus-pane":
-                return "OK"
-            # new-pane fails
+                return "pane:0 pane:1 pane:2"
+            if args[0] == "new-surface":
+                return "OK surface:200 pane:2 workspace:13"
             return None
 
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd), \
-                patch("maelstrom.cmux.time.sleep"):
-            result = create_cmux_workspace("myproject", "alpha", "/path/to/worktree")
-
-        assert result == "ws-123"
-
-
-class TestOpenBrowserPane:
-    """Tests for open_browser_pane function."""
-
-    def test_returns_surface_ref(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value="OK browser-789"):
-            result = open_browser_pane("http://localhost:3000")
-            assert result == "browser-789"
-
-    def test_returns_none_on_failure(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
-            result = open_browser_pane("http://localhost:3000")
-            assert result is None
-
-
-class TestOpenBrowserSurface:
-    """Tests for open_browser_surface function."""
-
-    def test_opens_browser_tab_in_pane(self):
-        calls = []
-
-        def mock_cmux_cmd(*args):
-            calls.append(args)
-            # cmux returns multiple refs; only the surface ref is usable.
-            return "OK surface:99 pane:2 workspace:13"
-
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
-            result = open_browser_surface("pane:2", "http://localhost:3000")
-
-        assert result == "surface:99"
-        assert calls[0] == (
+        lay, client = _layout(fn)
+        ref = lay.ensure_browser(2, BrowserTab("http://localhost:3000"))
+        assert ref == "surface:200"
+        # Opened a browser tab in pane:2 (the browser pane).
+        assert (
             "new-surface", "--type", "browser",
             "--pane", "pane:2", "--url", "http://localhost:3000",
-        )
+        ) in client.calls
 
-    def test_returns_none_when_no_surface_ref(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value="OK"):
-            assert open_browser_surface("pane:2", "http://localhost:3000") is None
-
-    def test_returns_none_on_failure(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
-            assert open_browser_surface("pane:2", "http://localhost:3000") is None
-
-
-class TestSurfaceExists:
-    """Tests for browser_surface_exists function."""
-
-    def test_returns_true_when_surface_alive(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value="OK http://localhost:3000"):
-            assert browser_surface_exists("browser-789") is True
-
-    def test_returns_false_when_surface_dead(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
-            assert browser_surface_exists("browser-789") is False
-
-    def test_returns_false_on_error_response(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value="ERR not found"):
-            assert browser_surface_exists("browser-789") is False
-
-
-class TestNavigateSurface:
-    """Tests for navigate_surface function."""
-
-    def test_navigates_via_browser_goto(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value="OK") as mock_cmd:
-            assert navigate_surface("surface:183", "https://github.com/o/r/pull/9") is True
-        mock_cmd.assert_called_once_with(
-            "browser", "--surface", "surface:183", "goto",
-            "https://github.com/o/r/pull/9",
-        )
-
-    def test_returns_false_when_command_fails(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
-            assert navigate_surface("surface:183", "https://github.com/o/r") is False
-
-    def test_returns_false_on_error_response(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value="ERR no such surface"):
-            assert navigate_surface("surface:183", "https://github.com/o/r") is False
-
-
-class TestPaneSurface:
-    """Tests for pane_surface function."""
-
-    def test_returns_first_surface_ref(self):
-        output = '* surface:425  browser  "GitHub"  [selected]\n'
-        with patch("maelstrom.cmux.cmux_cmd", return_value=output) as mock_cmd:
-            assert pane_surface("pane:258") == "surface:425"
-        mock_cmd.assert_called_once_with(
-            "list-pane-surfaces", "--pane", "pane:258",
-        )
-
-    def test_passes_workspace_when_given(self):
-        output = "  surface:7  terminal  \"Terminal\"\n"
-        with patch("maelstrom.cmux.cmux_cmd", return_value=output) as mock_cmd:
-            assert pane_surface("pane:1", "workspace:9") == "surface:7"
-        mock_cmd.assert_called_once_with(
-            "list-pane-surfaces", "--pane", "pane:1", "--workspace", "workspace:9",
-        )
-
-    def test_returns_none_when_empty(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
-            assert pane_surface("pane:258") is None
-
-
-class TestSplitPaneOff:
-    """Tests for split_pane_off function."""
-
-    def test_splits_from_surface_and_returns_new_rightmost_pane(self):
-        # new-split succeeds; the new pane is the rightmost afterwards.
-        with (
-            patch("maelstrom.cmux.cmux_cmd", return_value="OK surface:430 workspace:87") as mock_cmd,
-            patch("maelstrom.cmux.pane_idx", return_value="pane:261") as mock_pane_idx,
-        ):
-            assert split_pane_off("surface:425", direction="right") == "pane:261"
-        mock_cmd.assert_called_once_with(
-            "new-split", "right", "--surface", "surface:425",
-        )
-        mock_pane_idx.assert_called_once_with(None, index=-1)
-
-    def test_returns_none_when_split_fails(self):
-        with (
-            patch("maelstrom.cmux.cmux_cmd", return_value=None),
-            patch("maelstrom.cmux.pane_idx") as mock_pane_idx,
-        ):
-            assert split_pane_off("surface:425") is None
-        mock_pane_idx.assert_not_called()
-
-
-class TestCloseWorkspace:
-    """Tests for close_workspace function."""
-
-    def test_closes_matching_workspace(self):
-        list_output = (
-            "* workspace:13  maelstrom-bravo  [selected]\n"
-            "  workspace:14  other-project"
-        )
-        calls = []
-
-        def mock_cmux_cmd(*args):
-            calls.append(args)
-            if args[0] == "list-workspaces":
-                return list_output
-            if args[0] == "close-workspace":
-                return "OK"
-            return None
-
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
-            assert close_workspace("maelstrom-bravo") is True
-
-        assert ("close-workspace", "--workspace", "workspace:13") in calls
-
-    def test_returns_false_when_no_match(self):
-        list_output = "  workspace:14  other-project"
-
-        with patch("maelstrom.cmux.cmux_cmd", return_value=list_output):
-            assert close_workspace("maelstrom-bravo") is False
-
-    def test_returns_false_when_cmux_unavailable(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
-            assert close_workspace("maelstrom-bravo") is False
-
-
-class TestCloseSurface:
-    """Tests for close_surface function."""
-
-    def test_returns_true_on_success(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value="OK"):
-            assert close_surface("surface-123") is True
-
-    def test_returns_false_on_failure(self):
-        with patch("maelstrom.cmux.cmux_cmd", return_value=None):
-            assert close_surface("surface-123") is False
-
-
-class TestParsePanels:
-    """Tests for _parse_panels function."""
-
-    def test_parses_terminal_and_browser(self):
-        output = (
-            '  surface:103  terminal  "Terminal"\n'
-            '  surface:183  browser  "My App"\n'
-        )
-        panels = _parse_panels(output)
-        assert len(panels) == 2
-        assert panels[0] == CmuxPanel(ref="surface:103", panel_type="terminal", title="Terminal", focused=False)
-        assert panels[1] == CmuxPanel(ref="surface:183", panel_type="browser", title="My App", focused=False)
-
-    def test_parses_focused_panel(self):
-        output = '* surface:104  terminal  [focused]  "Terminal"\n'
-        panels = _parse_panels(output)
-        assert len(panels) == 1
-        assert panels[0].focused is True
-        assert panels[0].ref == "surface:104"
-
-    def test_skips_empty_lines(self):
-        output = '\n  surface:103  terminal  "Terminal"\n\n'
-        panels = _parse_panels(output)
-        assert len(panels) == 1
-
-    def test_empty_output(self):
-        assert _parse_panels("") == []
-
-    def test_skips_malformed_lines(self):
-        output = (
-            '  surface:103  terminal  "Terminal"\n'
-            '  garbage line\n'
-            '  surface:104  browser  "App"\n'
-        )
-        panels = _parse_panels(output)
-        assert len(panels) == 2
-
-
-class TestCmuxWorkspace:
-    """Tests for CmuxWorkspace class."""
-
-    def test_current_returns_none_outside_cmux(self):
-        with patch.dict("os.environ", {}, clear=True):
-            assert CmuxWorkspace.current() is None
-
-    def test_current_returns_workspace_in_cmux(self):
-        with patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/cmux.sock"}):
-            ws = CmuxWorkspace.current()
-            assert ws is not None
-            assert isinstance(ws, CmuxWorkspace)
-
-    def test_panels_lazy_loads(self):
-        output = '  surface:103  terminal  "Terminal"\n  surface:183  browser  "App"\n'
-        with patch("maelstrom.cmux.cmux_cmd", return_value=output):
-            ws = CmuxWorkspace()
-            panels = ws.panels
-            assert len(panels) == 2
-
-    def test_browsers_filters(self):
-        output = (
-            '  surface:103  terminal  "Terminal"\n'
-            '  surface:183  browser  "App"\n'
-            '  surface:184  browser  "Docs"\n'
-        )
-        with patch("maelstrom.cmux.cmux_cmd", return_value=output):
-            ws = CmuxWorkspace()
-            browsers = ws.browsers()
-            assert len(browsers) == 2
-            assert all(b.panel_type == "browser" for b in browsers)
-
-    def test_find_browser_by_url_matches_prefix(self):
-        output = '  surface:183  browser  "App"\n  surface:184  browser  "Docs"\n'
-
-        def mock_cmux_cmd(*args):
+    def test_match_prefix_overrides_url(self):
+        """match= recycles a different github page in place (PR navigation)."""
+        def fn(*args):
             if args[0] == "list-panels":
-                return output
-            if args[0] == "browser" and args[1] == "get-url":
-                surface = args[3]
-                if surface == "surface:183":
-                    return "http://localhost:3000/dashboard"
-                if surface == "surface:184":
-                    return "https://docs.example.com"
-            return None
-
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
-            ws = CmuxWorkspace()
-            panel = ws.find_browser_by_url("http://localhost:3000")
-            assert panel is not None
-            assert panel.ref == "surface:183"
-
-    def test_find_browser_by_url_returns_none_when_no_match(self):
-        output = '  surface:183  browser  "Docs"\n'
-
-        def mock_cmux_cmd(*args):
-            if args[0] == "list-panels":
-                return output
-            if args[0] == "browser":
-                return "https://docs.example.com"
-            return None
-
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
-            ws = CmuxWorkspace()
-            assert ws.find_browser_by_url("http://localhost:3000") is None
-
-    def test_ensure_browser_reuses_existing(self):
-        output = '  surface:183  browser  "App"\n'
-
-        def mock_cmux_cmd(*args):
-            if args[0] == "list-panels":
-                return output
-            if args[0] == "browser":
-                return "http://localhost:3000"
-            return None
-
-        with (
-            patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd),
-            patch.object(CmuxWorkspace, "open_in_browser_pane") as mock_open,
-        ):
-            ws = CmuxWorkspace()
-            ref = ws.ensure_browser("http://localhost:3000")
-            assert ref == "surface:183"
-            mock_open.assert_not_called()
-
-    def test_ensure_browser_opens_new_when_none_match(self):
-        output = '  surface:103  terminal  "Terminal"\n'
-
-        def mock_cmux_cmd(*args):
-            if args[0] == "list-panels":
-                return output
-            return None
-
-        with (
-            patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd),
-            patch.object(
-                CmuxWorkspace, "open_in_browser_pane", return_value="surface:200",
-            ) as mock_open,
-        ):
-            ws = CmuxWorkspace()
-            ref = ws.ensure_browser("http://localhost:3000")
-            assert ref == "surface:200"
-            mock_open.assert_called_once_with("http://localhost:3000")
-
-    def test_close_browser_closes_matching(self):
-        output = '  surface:183  browser  "App"\n'
-
-        def mock_cmux_cmd(*args):
-            if args[0] == "list-panels":
-                return output
-            if args[0] == "browser":
-                return "http://localhost:3000"
-            if args[0] == "close-surface":
-                return "OK"
-            return None
-
-        with patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd):
-            ws = CmuxWorkspace()
-            assert ws.close_browser("http://localhost:3000") is True
-
-    def test_close_browser_returns_false_no_match(self):
-        output = '  surface:103  terminal  "Terminal"\n'
-
-        with patch("maelstrom.cmux.cmux_cmd", return_value=output):
-            ws = CmuxWorkspace()
-            assert ws.close_browser("http://localhost:3000") is False
-
-
-class TestOpenGithubUrl:
-    """Tests for CmuxWorkspace.open_github_url."""
-
-    def test_navigates_existing_github_browser_in_place(self):
-        output = '  surface:183  browser  "GitHub"\n'
-        calls = []
-
-        def mock_cmux_cmd(*args):
-            calls.append(args)
-            if args[0] == "list-panels":
-                return output
-            if args[0] == "browser" and args[1] == "get-url":
-                return "https://github.com/owner/repo"
-            if args[0] == "browser" and "goto" in args:
-                return "OK"
-            return None
-
-        with (
-            patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd),
-            patch.object(
-                CmuxWorkspace, "open_in_browser_pane", return_value="surface:300",
-            ) as mock_open,
-        ):
-            ws = CmuxWorkspace()
-            ref = ws.open_github_url("https://github.com/owner/repo/pull/9")
-
-        # Navigated the existing surface in place, no close, no recreate.
-        assert (
-            "browser", "--surface", "surface:183", "goto",
-            "https://github.com/owner/repo/pull/9",
-        ) in calls
-        assert not any(c[0] == "close-surface" for c in calls)
-        mock_open.assert_not_called()
-        assert ref == "surface:183"
-
-    def test_opens_new_tab_when_navigate_fails(self):
-        # A github browser exists but `browser goto` fails — fall back to a new tab.
-        output = '  surface:183  browser  "GitHub"\n'
-
-        def mock_cmux_cmd(*args):
-            if args[0] == "list-panels":
-                return output
-            if args[0] == "browser" and args[1] == "get-url":
-                return "https://github.com/owner/repo"
-            if args[0] == "browser" and "goto" in args:
-                return None  # navigation failed
-            return None
-
-        with (
-            patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd),
-            patch.object(
-                CmuxWorkspace, "open_in_browser_pane", return_value="surface:300",
-            ) as mock_open,
-        ):
-            ws = CmuxWorkspace()
-            ref = ws.open_github_url("https://github.com/owner/repo/pull/9")
-
-        mock_open.assert_called_once_with("https://github.com/owner/repo/pull/9")
-        assert ref == "surface:300"
-
-    def test_opens_when_no_github_browser(self):
-        output = '  surface:183  browser  "Localhost"\n  surface:103  terminal  "Terminal"\n'
-        calls = []
-
-        def mock_cmux_cmd(*args):
-            calls.append(args)
-            if args[0] == "list-panels":
-                return output
-            if args[0] == "browser" and args[1] == "get-url":
-                return "http://localhost:3000"
-            return None
-
-        with (
-            patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd),
-            patch.object(
-                CmuxWorkspace, "open_in_browser_pane", return_value="surface:300",
-            ) as mock_open,
-        ):
-            ws = CmuxWorkspace()
-            ref = ws.open_github_url("https://github.com/owner/repo/pull/9")
-
-        assert not any(c[0] == "close-surface" for c in calls)
-        mock_open.assert_called_once_with("https://github.com/owner/repo/pull/9")
-        assert ref == "surface:300"
-
-    def test_matches_by_prefix_not_exact_pr(self):
-        output = '  surface:183  browser  "GitHub"\n'
-        calls = []
-
-        def mock_cmux_cmd(*args):
-            calls.append(args)
-            if args[0] == "list-panels":
-                return output
+                return '  surface:183  browser  "GitHub"'
             if args[0] == "browser" and args[1] == "get-url":
                 return "https://github.com/owner/repo/issues/5"
             if args[0] == "browser" and "goto" in args:
                 return "OK"
             return None
 
-        with (
-            patch("maelstrom.cmux.cmux_cmd", side_effect=mock_cmux_cmd),
-            patch.object(
-                CmuxWorkspace, "open_in_browser_pane", return_value="surface:300",
-            ) as mock_open,
-        ):
-            ws = CmuxWorkspace()
-            ref = ws.open_github_url("https://github.com/owner/repo/pull/9")
-
-        # A different github.com page still matches by prefix and is navigated in place.
+        lay, client = _layout(fn)
+        ref = lay.ensure_browser(
+            2,
+            BrowserTab(
+                "https://github.com/owner/repo/pull/9",
+                match="https://github.com",
+            ),
+        )
+        assert ref == "surface:183"
         assert (
             "browser", "--surface", "surface:183", "goto",
             "https://github.com/owner/repo/pull/9",
-        ) in calls
-        mock_open.assert_not_called()
-        assert ref == "surface:183"
+        ) in client.calls
 
-    def test_returns_none_when_open_fails(self):
-        output = '  surface:103  terminal  "Terminal"\n'
-
-        with (
-            patch("maelstrom.cmux.cmux_cmd", return_value=output),
-            patch.object(CmuxWorkspace, "open_in_browser_pane", return_value=None),
-        ):
-            ws = CmuxWorkspace()
-            assert ws.open_github_url("https://github.com/owner/repo/pull/9") is None
-
-
-class TestOpenInBrowserPane:
-    """Tests for CmuxWorkspace.open_in_browser_pane."""
-
-    def test_opens_surface_in_existing_pane3(self):
-        with (
-            patch("maelstrom.cmux.pane_idx", return_value="pane:2") as mock_pane_idx,
-            patch(
-                "maelstrom.cmux.open_browser_surface", return_value="surface:99",
-            ) as mock_surface,
-            patch("maelstrom.cmux.open_browser_pane") as mock_pane,
-            patch("maelstrom.cmux.focus_surface") as mock_focus,
-            patch("maelstrom.cmux.cmux_cmd", return_value=""),
-        ):
-            ws = CmuxWorkspace()
-            ref = ws.open_in_browser_pane("http://localhost:3000")
-
-        assert ref == "surface:99"
-        mock_pane_idx.assert_called_once_with(index=2)
-        mock_surface.assert_called_once_with("pane:2", "http://localhost:3000")
-        mock_pane.assert_not_called()
-        # New browsers open in the background — no auto-focus.
-        mock_focus.assert_not_called()
-
-    def test_creates_pane3_via_split_without_focusing(self):
-        # pane_idx returns None for pane 3, "pane:9" for rightmost (-1), and
-        # "pane:10" for the newly-split pane (also queried as index -1 inside
-        # split_pane_off). Sequence the -1 lookups: first the rightmost, then
-        # the new pane.
-        rightmost_lookups = ["pane:9", "pane:10"]
-
-        def fake_pane_idx(workspace_ref=None, index=0):
-            if index == 2:  # BROWSER_PANE_INDEX — pane 3 absent
-                return None
-            if index == -1:
-                return rightmost_lookups.pop(0)
+    def test_splits_new_pane_when_browser_pane_absent(self):
+        # No browser pane (pane index 2 absent): split off the rightmost,
+        # focus-safely, and discard the placeholder surface.
+        def fn(*args):
+            if args[0] == "list-panels":
+                return '  surface:103  terminal  "Terminal"'
+            if args[0] == "list-panes":
+                return "pane:0 pane:1"  # only 2 panes → index 2 absent
+            if args[0] == "new-split":
+                return "OK surface:430 workspace:13"
+            if args[0] == "list-pane-surfaces":
+                pane = args[2]
+                return {
+                    "pane:1": '  surface:90  terminal  "rightmost"',
+                    "pane:9": '  surface:100  terminal  "placeholder"',
+                }.get(pane, "")
+            if args[0] == "new-surface":
+                return "OK surface:200 pane:9 workspace:13"
+            if args[0] == "close-surface":
+                return "OK"
             return None
 
-        with (
-            patch("maelstrom.cmux.pane_idx", side_effect=fake_pane_idx),
-            patch(
-                "maelstrom.cmux.pane_surface",
-                side_effect=lambda pane, workspace_ref=None: {
-                    "pane:9": "surface:90",   # rightmost's surface to split from
-                    "pane:10": "surface:100",  # placeholder in the new pane
-                }.get(pane),
-            ),
-            patch(
-                "maelstrom.cmux.split_pane_off", return_value="pane:10",
-            ) as mock_split,
-            patch(
-                "maelstrom.cmux.open_browser_surface", return_value="surface:200",
-            ) as mock_open_surface,
-            patch("maelstrom.cmux.close_surface") as mock_close,
-            patch("maelstrom.cmux.open_browser_pane") as mock_open_pane,
-            patch("maelstrom.cmux.focus_pane") as mock_focus_pane,
-            patch("maelstrom.cmux.focus_surface") as mock_focus_surface,
-            patch("maelstrom.cmux.cmux_cmd", return_value=""),
-        ):
-            ws = CmuxWorkspace()
-            ref = ws.open_in_browser_pane("http://localhost:3000")
+        # list-panes returns "pane:0 pane:1" for index-2 / rightmost lookups, then
+        # "...pane:9" for the post-split rightmost lookup inside _split_pane_off.
+        panes_seq = ["pane:0 pane:1", "pane:0 pane:1", "pane:0 pane:1 pane:9"]
 
+        def fn2(*args):
+            if args[0] == "list-panes":
+                return panes_seq.pop(0) if panes_seq else "pane:0 pane:1 pane:9"
+            return fn(*args)
+
+        lay, client = _layout(fn2)
+        ref = lay.ensure_browser(2, BrowserTab("http://localhost:3000"))
         assert ref == "surface:200"
-        # Split off the rightmost pane's surface — no focus, no naked new-pane.
-        mock_split.assert_called_once_with("surface:90", direction="right")
-        mock_open_surface.assert_called_once_with("pane:10", "http://localhost:3000")
-        # Placeholder terminal surface from the split is discarded.
-        mock_close.assert_called_once_with("surface:100")
-        mock_open_pane.assert_not_called()
-        # The core fix: no focus-pane (workspace-focus grab) and no focus-surface.
-        mock_focus_pane.assert_not_called()
-        mock_focus_surface.assert_not_called()
+        # Split via new-split --surface (no focus, no new-pane).
+        assert any(
+            c[0] == "new-split" and "--surface" in c for c in client.calls
+        )
+        assert not any(c[0] == "new-pane" for c in client.calls)
+        # Placeholder terminal surface discarded.
+        assert ("close-surface", "--surface", "surface:100") in client.calls
+        # No focus grab.
+        assert not any(c[0] == "focus-pane" for c in client.calls)
+        assert not any(c[0] == "focus-panel" for c in client.calls)
+
+    def test_opens_new_tab_when_navigate_fails(self):
+        def fn(*args):
+            if args[0] == "list-panels":
+                return '  surface:183  browser  "GitHub"'
+            if args[0] == "browser" and args[1] == "get-url":
+                return "https://github.com/owner/repo"
+            if args[0] == "browser" and "goto" in args:
+                return None  # navigation failed
+            if args[0] == "list-panes":
+                return "pane:0 pane:1 pane:2"
+            if args[0] == "new-surface":
+                return "OK surface:300 pane:2 workspace:13"
+            return None
+
+        lay, _ = _layout(fn)
+        ref = lay.ensure_browser(
+            2, BrowserTab("https://github.com/owner/repo/pull/9", match="https://github.com"),
+        )
+        assert ref == "surface:300"
+
+
+class TestEnsureAbsentBrowser:
+    """CmuxLayout.ensure_absent_browser — close a matching browser, if any."""
+
+    def test_closes_matching(self):
+        def fn(*args):
+            if args[0] == "list-panels":
+                return '  surface:183  browser  "App"'
+            if args[0] == "browser" and args[1] == "get-url":
+                return "http://localhost:3000"
+            if args[0] == "close-surface":
+                return "OK"
+            return None
+
+        lay, client = _layout(fn)
+        assert lay.ensure_absent_browser("http://localhost:3000") is True
+        assert ("close-surface", "--surface", "surface:183") in client.calls
+
+    def test_no_op_when_no_match(self):
+        def fn(*args):
+            if args[0] == "list-panels":
+                return '  surface:103  terminal  "Terminal"'
+            return None
+
+        lay, client = _layout(fn)
+        assert lay.ensure_absent_browser("http://localhost:3000") is False
+        assert not any(c[0] == "close-surface" for c in client.calls)
+
+
+class TestEnsureAbsentPane:
+    """CmuxLayout.ensure_absent_pane — collapse a pane, if present."""
+
+    def test_closes_present_pane(self):
+        def fn(*args):
+            if args[0] == "list-panes":
+                return "pane:0 pane:1 pane:2"
+            if args[0] == "list-pane-surfaces":
+                return '  surface:55  terminal  "x"'
+            if args[0] == "close-surface":
+                return "OK"
+            return None
+
+        lay, client = _layout(fn)
+        assert lay.ensure_absent_pane(2) is True
+        assert ("close-surface", "--surface", "surface:55") in client.calls
+
+    def test_no_op_when_pane_absent(self):
+        lay, client = _layout({("list-panes",): "pane:0 pane:1"})
+        assert lay.ensure_absent_pane(2) is False
+        assert not any(c[0] == "close-surface" for c in client.calls)
+
+
+class TestStatusAndClose:
+    """CmuxLayout.set_status / clear_status / close."""
+
+    def test_set_status(self):
+        lay, client = _layout({
+            ("set-status", "task", "Working", "--icon", "hammer"): "OK",
+        })
+        assert lay.set_status("Working") is True
+        assert (
+            "set-status", "task", "Working", "--icon", "hammer",
+        ) in client.calls
+
+    def test_set_status_false_on_failure(self):
+        lay, _ = _layout(lambda *a: None)
+        assert lay.set_status("Working") is False
+
+    def test_clear_status(self):
+        lay, client = _layout({("clear-status", "task"): "OK"})
+        assert lay.clear_status() is True
+        assert ("clear-status", "task") in client.calls
+
+    def test_close_closes_matching_workspace(self):
+        def fn(*args):
+            if args[0] == "list-workspaces":
+                return "* workspace:13  myproject-alpha  [selected]"
+            if args[0] == "close-workspace":
+                return "OK"
+            return None
+
+        lay, client = _layout(fn)
+        assert lay.close() is True
+        assert ("close-workspace", "--workspace", "workspace:13") in client.calls
+
+    def test_close_false_when_absent(self):
+        lay, _ = _layout({("list-workspaces",): "  workspace:14  other"})
+        assert lay.close() is False
+
+
+class TestListSurfaces:
+    """The browser-state parsing seam (_list_surfaces / Surface objects)."""
+
+    def test_parses_terminal_and_browser(self):
+        output = (
+            '  surface:103  terminal  "Terminal"\n'
+            '  surface:183  browser  "My App"\n'
+        )
+        lay, _ = _layout({("list-panels",): output})
+        surfaces = lay._list_surfaces()
+        assert surfaces == [
+            Surface(ref="surface:103", type="terminal", title="Terminal", focused=False),
+            Surface(ref="surface:183", type="browser", title="My App", focused=False),
+        ]
+
+    def test_parses_focused(self):
+        output = '* surface:104  terminal  [focused]  "Terminal"\n'
+        lay, _ = _layout({("list-panels",): output})
+        surfaces = lay._list_surfaces()
+        assert surfaces[0].focused is True
+        assert surfaces[0].ref == "surface:104"
+
+    def test_skips_malformed_and_blank(self):
+        output = (
+            '\n  surface:103  terminal  "Terminal"\n'
+            "  garbage line\n"
+            '  surface:104  browser  "App"\n\n'
+        )
+        lay, _ = _layout({("list-panels",): output})
+        assert len(lay._list_surfaces()) == 2
