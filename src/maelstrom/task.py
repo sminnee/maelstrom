@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 
 from . import branch_name
 from .task_store import GitFileStore, TaskStore
+from .util import now_iso
 
 
 # --- statuses (folder names) ---
@@ -82,10 +83,6 @@ _FRONTMATTER_ATTR = {
     "post-action": "post_action",
     "last-run": "last_run",
 }
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _today() -> str:
@@ -528,7 +525,7 @@ def create(
     as a child of ``parent`` or a fresh orphan. ``status`` places the task in a
     folder other than ``todo/`` (e.g. ``template/`` for a parked template).
     """
-    timestamp = now if now is not None else _now_iso()
+    timestamp = now if now is not None else now_iso()
     if id is None:
         if parent:
             id = allocate_child_id(store, project, parent)
@@ -862,7 +859,7 @@ def move(
         return task
 
     task.status = new_status
-    task.updated = now if now is not None else _now_iso()
+    task.updated = now if now is not None else now_iso()
     new_key = task_key(project, new_status, id)
     # One commit for the write-new + delete-old pair; the transaction owns the
     # message, so the per-call writes/deletes don't repeat it.
@@ -888,7 +885,7 @@ def append_log(
     if text is None:
         raise KeyError(f"Task not found: {project}/{id}")
     task = Task.from_markdown(text, status=status_from_key(key))
-    timestamp = now if now is not None else _now_iso()
+    timestamp = now if now is not None else now_iso()
     entry = f"- {timestamp} {msg}"
     task.log = f"{task.log}\n{entry}".strip() if task.log else entry
     task.updated = timestamp
@@ -943,7 +940,7 @@ def update(
         task.schedule = schedule
     if last_run is not None:
         task.last_run = last_run
-    task.updated = now if now is not None else _now_iso()
+    task.updated = now if now is not None else now_iso()
     store.write(key, task.to_markdown(), message=f"task: update {id}")
     return task
 
@@ -981,7 +978,7 @@ def edit_in_editor(
     if after == before:
         return Task.from_markdown(after, status=status_from_key(key)), False
     task = Task.from_markdown(after, status=status_from_key(key))
-    task.updated = _now_iso()
+    task.updated = now_iso()
     store.write(key, task.to_markdown(), message=f"task: edit {id}")
     return task, True
 

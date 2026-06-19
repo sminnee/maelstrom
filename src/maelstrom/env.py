@@ -15,6 +15,7 @@ from subprocess import DEVNULL, STDOUT, Popen
 
 from maelstrom.config import load_config_or_default
 from maelstrom.context import get_maelstrom_dir
+from maelstrom.util import now_iso
 from maelstrom.worktree import read_env_file, regenerate_env_file, run_install_cmd
 
 
@@ -390,7 +391,7 @@ def start_env(
     shared_services = [s for s in all_services if is_shared_service(s.name)]
 
     env = build_service_env(worktree_path)
-    now = datetime.now(timezone.utc).isoformat()
+    now = now_iso()
 
     # Handle shared services
     _start_or_subscribe_shared(
@@ -421,7 +422,7 @@ def _stop_services(
 
     Returns a list of status messages per service.
     """
-    stop_time = datetime.now(timezone.utc).isoformat()
+    stop_time = now_iso()
 
     # Write stop marker to log files
     for svc in services:

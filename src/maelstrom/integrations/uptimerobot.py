@@ -1,19 +1,16 @@
 """UptimeRobot monitor and outage query integration for maelstrom."""
 
-import json
-import os
 import re
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from pathlib import Path
 
 import click
 
-from .config import load_config_or_default
-from .context import resolve_context
-from .sentry import format_datetime, format_relative_time
+from ..config import load_config_or_default
+from ..context import resolve_context
+from ._auth import resolve_secret
+from ._format import format_datetime, format_relative_time
+from ._http import request_json
 
 UPTIMEROBOT_API_URL = "https://api.uptimerobot.com/v2"
 
@@ -36,27 +33,9 @@ LOG_TYPE_LABELS = {
 
 def get_uptimerobot_api_key() -> str:
     """Get the UptimeRobot API key from env var, .env file, or global config."""
-    if value := os.environ.get("UPTIMEROBOT_API_KEY"):
-        return value
-
-    # Find .env file in current directory or parents
-    current = Path.cwd()
-    while current != current.parent:
-        env_path = current / ".env"
-        if env_path.exists():
-            content = env_path.read_text()
-            pattern = r"^UPTIMEROBOT_API_KEY\s*=\s*[\"']?([^\"'\n]+)[\"']?"
-            if match := re.search(pattern, content, re.MULTILINE):
-                return match.group(1)
-            break
-        current = current.parent
-
-    # Fall back to global config
-    from .context import load_global_config
-
-    global_config = load_global_config()
-    if global_config.uptimerobot_api_key:
-        return global_config.uptimerobot_api_key
+    key = resolve_secret("UPTIMEROBOT_API_KEY", config_attr="uptimerobot_api_key")
+    if key:
+        return key
 
     raise click.ClickException(
         "UptimeRobot API key not found. Set UPTIMEROBOT_API_KEY env var or add to ~/.maelstrom/config.yaml:\n"
@@ -107,20 +86,15 @@ def api_request(endpoint: str, body: dict | None = None) -> dict:
     if body:
         form.update(body)
 
-    data = urllib.parse.urlencode(form).encode("utf-8")
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Cache-Control": "no-cache",
-    }
-
-    req = urllib.request.Request(url, data=data, method="POST", headers=headers)
-
-    try:
-        with urllib.request.urlopen(req) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode("utf-8")
-        raise click.ClickException(f"HTTP Error {e.code}: {error_body}")
+    payload = request_json(
+        url,
+        method="POST",
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Cache-Control": "no-cache",
+        },
+        form_body=form,
+    )
 
     if payload.get("stat") == "fail":
         error = payload.get("error", {})

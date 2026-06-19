@@ -155,7 +155,7 @@ class TestActionFlags:
 
 class TestStatusFiresActions:
     def test_status_done_fires_post_action(self, runner, store, monkeypatch):
-        from maelstrom import linear
+        from maelstrom.integrations import linear
 
         calls = []
         monkeypatch.setattr(

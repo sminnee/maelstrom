@@ -11,6 +11,7 @@ import click
 
 from .context import get_maelstrom_dir, resolve_context
 from .table import draw_table
+from .util import atomic_write_json, now_iso
 
 
 SESSIONS_SUBDIR = "sessions"
@@ -18,15 +19,6 @@ SESSIONS_SUBDIR = "sessions"
 
 def _sessions_dir() -> Path:
     return get_maelstrom_dir() / SESSIONS_SUBDIR
-
-
-def _atomic_write_json(path: Path, data: dict) -> None:
-    """Write JSON atomically by writing to a temp file and renaming."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with open(tmp, "w") as f:
-        json.dump(data, f, indent=2, sort_keys=True)
-    os.replace(tmp, path)
 
 
 def _read_session_file(path: Path) -> dict | None:
@@ -81,10 +73,6 @@ def _liveness_check(port: int) -> bool:
             return True
     except OSError:
         return False
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 # --- session-channel launcher ---
@@ -242,8 +230,8 @@ def session_record(event: str) -> None:
     # safely fire alongside state-setting hooks regardless of ordering.
     if event != HEARTBEAT_EVENT:
         data["state"] = _EVENT_TO_STATE[event]
-    data["updated_at"] = _now_iso()
-    _atomic_write_json(path, data)
+    data["updated_at"] = now_iso()
+    atomic_write_json(path, data)
 
 
 def _format_age(started_at: str) -> str:
@@ -335,7 +323,7 @@ def session_list() -> None:
         if _is_stale_processing(state, updated_at):
             state = "idle"
             data["state"] = state
-            _atomic_write_json(f, data)
+            atomic_write_json(f, data)
 
         cwd = data.get("cwd", "")
         project, worktree = _derive_project_worktree(cwd)

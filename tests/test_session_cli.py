@@ -312,7 +312,7 @@ class TestSessionEndAutoClose:
         )
 
         calls = []
-        from maelstrom import linear
+        from maelstrom.integrations import linear
 
         monkeypatch.setattr(
             linear, "set_issue_status", lambda i, s: calls.append((i, s))
