@@ -63,11 +63,13 @@ def launch(monkeypatch, tmp_path):
 
 
 class TestAddBranch:
-    def test_branch_defaults_to_task_slash_id(self, runner, store):
+    def test_branch_defaults_to_generated_slug(self, runner, store):
         result = runner.invoke(task_cli.task, ["add", "Smoke"])
         assert result.exit_code == 0, result.output
         new_id = result.output.strip()
-        assert model.load(store, "p", new_id).branch == f"task/{new_id}"
+        # Generated from the title; with the model call blocked in tests this is
+        # the deterministic fallback slug.
+        assert model.load(store, "p", new_id).branch == "feat/smoke"
 
     def test_branch_override(self, runner, store):
         result = runner.invoke(
@@ -357,8 +359,9 @@ class TestRun:
         result = runner.invoke(task_cli.task, ["run", t.id])
         assert result.exit_code == 0, result.output
 
-        # Core fn called with the task's branch (defaults to task/<id>).
-        assert launch.setup.call_args.args[2] == t.branch == f"task/{t.id}"
+        # Core fn called with the task's stored (generated) branch. The model
+        # call is blocked in tests, so this is the deterministic fallback slug.
+        assert launch.setup.call_args.args[2] == t.branch == "feat/plan"
 
         # Task is now in-progress.
         assert model.load(store, "p", t.id).status == model.STATUS_IN_PROGRESS
@@ -424,12 +427,13 @@ class TestAddRun:
         launch.session.assert_not_called()
         launch.setup.assert_not_called()
 
-    def test_add_run_passes_default_branch(self, runner, store, launch):
+    def test_add_run_passes_generated_branch(self, runner, store, launch):
         result = runner.invoke(task_cli.task, ["add", "Defaulted", "--run"])
         assert result.exit_code == 0, result.output
-        new_id = result.output.splitlines()[0].strip()
-        # branch defaults to task/<id> and is what the core fn receives.
-        assert launch.setup.call_args.args[2] == f"task/{new_id}"
+        # The branch is generated from the title; with the model call blocked in
+        # tests it falls back to the deterministic slug, which is what the core
+        # launch fn receives.
+        assert launch.setup.call_args.args[2] == "feat/defaulted"
 
 
 class TestAddEdit:

@@ -551,12 +551,20 @@ class TestLoadList:
 
 
 class TestBranchDefault:
-    def test_branch_defaults_to_task_slash_id(self):
+    # The conftest autouse fixture forces branch generation down the
+    # deterministic fallback (the ``claude`` CLI is blocked in tests), so these
+    # assertions cover the offline shapes. Model-path generation is covered in
+    # ``test_branch_name.py`` with an injected fake runner.
+
+    def test_branch_defaults_to_generated_slug(self):
+        # With the model call failing (autouse fixture), an orphan task falls
+        # back to ``<default_type>/<slugify(title)>``.
         store = InMemoryStore()
-        t = model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        assert t.branch == f"task/{t.id}"
-        assert t.branch == model.default_branch(t.id)
-        assert model.load(store, "p", t.id).branch == f"task/{t.id}"
+        t = model.create(
+            store, project="p", title="Fix flaky port test", now=NOW, today=TODAY
+        )
+        assert t.branch == "feat/fix-flaky-port-test"
+        assert model.load(store, "p", t.id).branch == "feat/fix-flaky-port-test"
 
     def test_branch_override_respected(self):
         store = InMemoryStore()
@@ -566,14 +574,16 @@ class TestBranchDefault:
         assert t.branch == "fix/login"
         assert model.load(store, "p", t.id).branch == "fix/login"
 
-    def test_linear_parent_yields_feat_branch(self):
+    def test_linear_parent_yields_feat_number_branch(self):
+        # Generic title + failing model call → the new deterministic Linear
+        # fallback splices the bare number into the desc (no NORT- prefix).
         store = InMemoryStore()
         t = model.create(
             store, project="p", title="a", parent="linear.NORT-123",
             now=NOW, today=TODAY,
         )
-        assert t.branch == "feat/NORT-123"
-        assert model.load(store, "p", t.id).branch == "feat/NORT-123"
+        assert t.branch == "feat/123-a"
+        assert model.load(store, "p", t.id).branch == "feat/123-a"
 
     def test_siblings_under_linear_parent_share_branch(self):
         store = InMemoryStore()
@@ -585,7 +595,8 @@ class TestBranchDefault:
             store, project="p", title="b", parent="linear.NORT-123",
             now=NOW, today=TODAY,
         )
-        assert a.branch == b.branch == "feat/NORT-123"
+        # Both fall back to the same number-led branch (one PR per parent).
+        assert a.branch == b.branch == "feat/123-a"
 
     def test_non_linear_parent_siblings_share_task_branch(self):
         store = InMemoryStore()
@@ -608,7 +619,8 @@ class TestBranchDefault:
         assert t.branch == "fix/login"
 
     def test_default_branch_unit_cases(self):
-        assert model.default_branch("x", "linear.NORT-123") == "feat/NORT-123"
+        # Linear parent without a title → the new number-led fallback (no NORT-).
+        assert model.default_branch("x", "linear.NORT-123") == "feat/123"
         assert model.default_branch("x", "linear.foo") == "task/linear.foo"
         assert model.default_branch("x", "2026-06-09.3") == "task/2026-06-09.3"
         assert model.default_branch("x") == "task/x"

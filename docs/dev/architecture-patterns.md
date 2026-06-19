@@ -40,10 +40,17 @@ raise — they don't read the environment, shell out, or print. Because the mode
 only touches the injected store, it can be exercised against an `InMemoryStore`
 with no git and no filesystem (see the task unit tests).
 
-> The one sanctioned exception is launching an interactive editor (e.g.
-> `edit_in_editor`, [`task.py`](../../src/maelstrom/task.py#L942)), which is inherently
-> a side effect on the user's terminal. Keep such cases rare, obvious, and
-> documented — they are not licence for general I/O in the model.
+> Sanctioned exceptions are rare, obvious, and documented — they are not licence
+> for general I/O in the model:
+>
+> - launching an interactive editor (e.g. `edit_in_editor`,
+>   [`task.py`](../../src/maelstrom/task.py#L942)), which is inherently a side
+>   effect on the user's terminal;
+> - generating a descriptive branch name
+>   ([`branch_name.py`](../../src/maelstrom/branch_name.py)), which shells out to
+>   `claude -p` for a slug. Contained because every path falls back to a
+>   deterministic offline slug and the subprocess is reached through an
+>   injectable `runner`, so the model stays exercisable with no CLI.
 
 ### 3. One error contract
 

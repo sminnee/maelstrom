@@ -22,6 +22,24 @@ def _block_real_cmux():
         os.environ["CMUX_SOCKET_PATH"] = saved
 
 
+@pytest.fixture(autouse=True)
+def _block_real_claude_branch_gen(monkeypatch):
+    """Prevent branch-name generation from shelling out to a live ``claude``.
+
+    ``branch_name._run_claude`` invokes ``claude -p`` to pick a descriptive
+    branch slug; in tests we force it to fail so generation falls back to the
+    deterministic offline slug. Tests that want to exercise the model path
+    inject a fake ``runner`` into ``generate_branch_name`` (or re-patch
+    ``_run_claude`` themselves) — the later ``monkeypatch.setattr`` wins.
+    """
+    from maelstrom import branch_name
+
+    def _unavailable(prompt: str) -> str:
+        raise FileNotFoundError("claude")
+
+    monkeypatch.setattr(branch_name, "_run_claude", _unavailable)
+
+
 @pytest.fixture()
 def mock_cmux_workspace():
     """Return a MagicMock pre-configured as a CmuxWorkspace.
