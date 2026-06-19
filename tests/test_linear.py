@@ -15,6 +15,9 @@ from maelstrom.task_store import InMemoryStore
 class TestCmdPlan:
     """Tests for ``mael linear plan`` — a thin wrapper over ``mael task add``."""
 
+    # Branch generation is forced down the deterministic fallback by the
+    # conftest autouse fixture (the ``claude`` CLI is blocked in tests).
+
     @patch("maelstrom.task_cli.add_task")
     @patch("maelstrom.linear.get_issue")
     def test_plan_assembles_brief_and_invokes_task_add(self, mock_get, mock_add):
@@ -36,6 +39,9 @@ class TestCmdPlan:
         assert kwargs["run"] is True
         assert kwargs["post_action"] == "linear.planned"
         assert kwargs["content"] == "# ME-99: Do the thing\n\nSome details."
+        # The branch is generated from the *issue* title/number (here the
+        # fallback, since the model call is forced to fail): number-led desc.
+        assert kwargs["branch"] == "feat/99-do-thing"
 
     @patch("maelstrom.task_cli.add_task")
     @patch("maelstrom.linear.get_issue")
@@ -77,9 +83,11 @@ class TestCmdPlan:
         assert mock_add.call_args.kwargs["project"] == "myproj"
 
     @patch("maelstrom.linear.get_issue")
-    def test_plan_creates_task_on_feat_branch(self, mock_get, monkeypatch):
-        """End-to-end: the real create path derives ``feat/<id>`` from the
-        ``linear.<id>`` parent that ``plan`` passes through."""
+    def test_plan_creates_task_on_generated_branch(self, mock_get, monkeypatch):
+        """End-to-end: ``plan`` computes a descriptive branch from the issue
+        title + bare number and persists it on the created task. With the model
+        call forced to fail (autouse fixture) this is the deterministic fallback:
+        ``feat/<number>-<slug>``."""
         mock_get.return_value = {
             "identifier": "NORT-123",
             "title": "Do the thing",
@@ -97,7 +105,7 @@ class TestCmdPlan:
         created = task_cli.model.list_tasks(store, project="p")
         assert len(created) == 1
         assert created[0].parent == "linear.NORT-123"
-        assert created[0].branch == "feat/NORT-123"
+        assert created[0].branch == "feat/123-do-thing"
 
 
 class TestCreateComment:

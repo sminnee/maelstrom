@@ -18,6 +18,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from . import branch_name
 from .task_store import GitFileStore, TaskStore
 
 
@@ -536,13 +537,21 @@ def create(
     # When mode is left unset, fall back to the global default; an explicit
     # ``mode`` always wins.
     resolved_mode = mode or DEFAULT_MODE
+    # One PR per parent: the first task under a parent owns the branch; later
+    # siblings reuse it rather than generating a fresh (and divergent) name.
+    # Only the branch-owning task pays the cost of generating a descriptive name.
+    resolved_branch = branch or _sibling_branch(store, project, parent)
+    if not resolved_branch:
+        resolved_branch = default_branch(
+            id, parent, title=title, content=content, generate=True
+        )
     task = Task(
         id=id,
         title=title,
         project=project,
         command=command,
         mode=resolved_mode,
-        branch=branch or default_branch(id, parent),
+        branch=resolved_branch,
         parent=parent,
         pre_action=pre_action,
         post_action=post_action,
@@ -1052,23 +1061,63 @@ def list_tasks(
 _LINEAR_PARENT_RE = re.compile(r"^linear\.([A-Z][A-Z0-9]*-\d+)$")
 
 
-def default_branch(id: str, parent: str = "") -> str:
+def _sibling_branch(store: TaskStore, project: str, parent: str) -> str:
+    """Return an existing sibling's branch under ``parent``, or ``""``.
+
+    Enforces "one PR per parent": once any task under ``parent`` has a branch,
+    later siblings reuse it instead of generating a fresh, divergent name. With
+    no ``parent`` (orphan task) or no existing sibling, returns ``""`` so the
+    caller falls back to :func:`default_branch`.
+    """
+    if not parent:
+        return ""
+    for sibling in list_tasks(store, project=project, parent=parent):
+        if sibling.branch:
+            return sibling.branch
+    return ""
+
+
+def default_branch(
+    id: str,
+    parent: str = "",
+    *,
+    title: str = "",
+    content: str = "",
+    generate: bool = False,
+) -> str:
     """Return the default branch name for a task.
 
     The branch derives from the *parent* when present, so all children of one
-    parent share a branch (one PR per parent):
+    parent share a branch (one PR per parent). When ``generate`` is set and a
+    ``title`` is supplied, the branch-owning cases (orphan, or first task under a
+    Linear parent) get a descriptive ``<type>/<desc>`` name generated from the
+    title/content; otherwise the cheap deterministic shapes are used:
 
-    - ``linear.NORT-123`` (virtual Linear parent) → ``feat/NORT-123``
-    - any other parent (e.g. ``2026-06-09.3``)     → ``task/2026-06-09.3``
-    - no parent                                     → ``task/<id>``
+    - ``linear.NORT-123`` (Linear parent), ``generate`` + title → e.g.
+      ``fix/123-flaky-port-test`` (bare issue number leads the desc)
+    - ``linear.NORT-123``, no generation                        → ``feat/123``
+    - any other parent (e.g. ``2026-06-09.3``)                  → ``task/2026-06-09.3``
+    - no parent, ``generate`` + title                           → e.g. ``fix/flaky-port-test``
+    - no parent, no generation                                  → ``task/<id>``
 
-    Only the immediate parent is resolved (no ancestor-chain walk).
+    ``generate`` is opt-in so call sites that don't have a meaningful title
+    (e.g. running an already-persisted task) keep the cheap deterministic path
+    and never invoke the model. Only the immediate parent is resolved (no
+    ancestor-chain walk).
     """
     if parent:
         m = _LINEAR_PARENT_RE.match(parent)
         if m:
-            return f"feat/{m.group(1)}"
+            number = m.group(1).split("-")[-1]  # "NORT-123" -> "123"
+            if generate and title:
+                return branch_name.generate_branch_name(
+                    title, content, prefix=number
+                )
+            return f"feat/{number}"
+        # Child of a non-Linear parent: keep sharing the parent's branch.
         return f"task/{parent}"
+    if generate and title:
+        return branch_name.generate_branch_name(title, content)
     return f"task/{id}"
 
 

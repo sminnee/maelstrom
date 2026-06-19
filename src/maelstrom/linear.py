@@ -704,7 +704,7 @@ def cmd_plan(issue_id: str, project: str | None, run: bool, here: bool) -> None:
     worktree/launch behaviour comes from the shared ``task add`` path — this
     command adds only the brief fetch and argument assembly.
     """
-    from . import task_cli
+    from . import branch_name, task_cli
 
     issue = get_issue(issue_id)
     identifier = issue["identifier"]
@@ -712,12 +712,21 @@ def cmd_plan(issue_id: str, project: str | None, run: bool, here: bool) -> None:
     description = issue.get("description") or ""
     brief = f"# {identifier}: {title}\n\n{description}"
 
+    # The meaningful title/description live on the *issue*, not on the "Plan
+    # NORT-123" task we create, so compute the descriptive branch here and pass
+    # it explicitly. The bare issue number leads the desc; an explicit branch
+    # wins over default_branch and is shared by all children of this parent.
+    branch = branch_name.generate_branch_name(
+        title, description, prefix=identifier.split("-")[-1]
+    )
+
     task_cli.add_task(
         title=f"Plan {identifier}",
         project=project,
         command="plan-task",
         mode="plan",  # planning always runs in plan mode, independent of DEFAULT_MODE
         parent=f"linear.{identifier}",
+        branch=branch,
         content=brief,
         # Finishing the planning session moves the Linear issue to Planned.
         post_action="linear.planned",
