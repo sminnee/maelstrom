@@ -89,42 +89,6 @@ def cmd_install(no_monitor):
         click.echo(msg)
 
 
-def _compute_app_build_hash(repo_root: Path) -> str:
-    """Compute a SHA-256 hash of the app-related source tree."""
-    import hashlib
-    import subprocess
-
-    result = subprocess.run(
-        ["git", "ls-tree", "-r", "HEAD", "app/", "agent-cli/", "pnpm-lock.yaml"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return hashlib.sha256(result.stdout.encode()).hexdigest()
-
-
-def _should_rebuild_app(repo_root: Path) -> tuple[bool, str]:
-    """Check if the app needs rebuilding by comparing build hashes.
-
-    Returns (should_rebuild, current_hash).
-    """
-    current_hash = _compute_app_build_hash(repo_root)
-    hash_file = repo_root / "app" / "src-tauri" / "target" / ".build-hash"
-    if hash_file.exists():
-        stored_hash = hash_file.read_text().strip()
-        if stored_hash == current_hash:
-            return False, current_hash
-    return True, current_hash
-
-
-def _store_build_hash(repo_root: Path, build_hash: str) -> None:
-    """Store the build hash after a successful build."""
-    hash_file = repo_root / "app" / "src-tauri" / "target" / ".build-hash"
-    hash_file.parent.mkdir(parents=True, exist_ok=True)
-    hash_file.write_text(build_hash + "\n")
-
-
 @cli.command("self-update")
 def cmd_self_update():
     """Update maelstrom to the latest version from git."""
@@ -159,77 +123,12 @@ def cmd_self_update():
     except subprocess.CalledProcessError as e:
         raise click.ClickException(f"Git pull failed: {e.stderr or e.stdout or str(e)}")
 
-    # Build the Tauri app if app/ directory exists
-    app_dir = repo_root / "app"
-    if app_dir.exists():
-        should_rebuild, current_hash = _should_rebuild_app(repo_root)
-        if not should_rebuild:
-            click.echo("App build is up to date, skipping rebuild.")
-        else:
-            click.echo("Building Tauri app...")
-            try:
-                subprocess.run(
-                    ["pnpm", "install", "--frozen-lockfile"],
-                    cwd=app_dir,
-                    check=True,
-                )
-                subprocess.run(
-                    ["pnpm", "tauri", "build"],
-                    cwd=app_dir,
-                    check=True,
-                )
-                _store_build_hash(repo_root, current_hash)
-                click.echo("App build complete.")
-            except FileNotFoundError:
-                click.echo("Warning: pnpm not found, skipping app build.", err=True)
-            except subprocess.CalledProcessError as e:
-                click.echo(f"Warning: App build failed: {e}", err=True)
-
     click.echo("Updating Claude Code integration...")
     messages = install_claude_integration()
     for msg in messages:
         click.echo(f"  {msg}")
 
     click.echo("Update complete.")
-
-
-@cli.command("ui")
-def cmd_ui():
-    """Launch the Maelstrom desktop UI."""
-    import platform
-    import subprocess
-
-    module_dir = Path(__file__).parent
-    repo_root = module_dir.parent.parent
-    app_dir = repo_root / "app"
-
-    if not app_dir.exists():
-        raise click.ClickException(
-            f"App directory not found at {app_dir}. "
-            "Make sure you are running from a git checkout of maelstrom."
-        )
-
-    system = platform.system()
-    if system == "Darwin":
-        app_bundle = app_dir / "src-tauri" / "target" / "release" / "bundle" / "macos" / "Maelstrom.app"
-    elif system == "Linux":
-        app_bundle = app_dir / "src-tauri" / "target" / "release" / "maelstrom-app"
-    elif system == "Windows":
-        app_bundle = app_dir / "src-tauri" / "target" / "release" / "maelstrom-app.exe"
-    else:
-        raise click.ClickException(f"Unsupported platform: {system}")
-
-    if not app_bundle.exists():
-        raise click.ClickException(
-            f"Maelstrom UI has not been built yet. Run 'mael self-update' to build it."
-        )
-
-    if system == "Darwin":
-        subprocess.Popen(["open", str(app_bundle)])
-    else:
-        subprocess.Popen([str(app_bundle)], start_new_session=True)
-
-    click.echo("Maelstrom UI launched.")
 
 
 @cli.command("add-project")
