@@ -8,7 +8,7 @@ import pytest
 from click.testing import CliRunner
 
 from maelstrom import task_cli
-from maelstrom.linear import create_comment, linear
+from maelstrom.integrations.linear import create_comment, linear
 from maelstrom.task_store import InMemoryStore
 
 
@@ -19,7 +19,7 @@ class TestCmdPlan:
     # conftest autouse fixture (the ``claude`` CLI is blocked in tests).
 
     @patch("maelstrom.task_cli.add_task")
-    @patch("maelstrom.linear.get_issue")
+    @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_assembles_brief_and_invokes_task_add(self, mock_get, mock_add):
         mock_get.return_value = {
             "identifier": "ME-99",
@@ -44,7 +44,7 @@ class TestCmdPlan:
         assert kwargs["branch"] == "feat/99-do-thing"
 
     @patch("maelstrom.task_cli.add_task")
-    @patch("maelstrom.linear.get_issue")
+    @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_run_forwards_run_flag(self, mock_get, mock_add):
         mock_get.return_value = {
             "identifier": "ME-99",
@@ -57,7 +57,7 @@ class TestCmdPlan:
         assert mock_add.call_args.kwargs["run"] is True
 
     @patch("maelstrom.task_cli.add_task")
-    @patch("maelstrom.linear.get_issue")
+    @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_no_run_forwards_run_flag(self, mock_get, mock_add):
         mock_get.return_value = {
             "identifier": "ME-99",
@@ -70,7 +70,7 @@ class TestCmdPlan:
         assert mock_add.call_args.kwargs["run"] is False
 
     @patch("maelstrom.task_cli.add_task")
-    @patch("maelstrom.linear.get_issue")
+    @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_forwards_project(self, mock_get, mock_add):
         mock_get.return_value = {
             "identifier": "ME-99",
@@ -82,7 +82,7 @@ class TestCmdPlan:
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["project"] == "myproj"
 
-    @patch("maelstrom.linear.get_issue")
+    @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_creates_task_on_generated_branch(self, mock_get, monkeypatch):
         """End-to-end: ``plan`` computes a descriptive branch from the issue
         title + bare number and persists it on the created task. With the model
@@ -111,7 +111,7 @@ class TestCmdPlan:
 class TestCreateComment:
     """Tests for create_comment function."""
 
-    @patch("maelstrom.linear.graphql_request")
+    @patch("maelstrom.integrations.linear.graphql_request")
     def test_create_comment_success(self, mock_graphql):
         """Test successful comment creation."""
         mock_graphql.return_value = {
@@ -133,7 +133,7 @@ class TestCreateComment:
             }
         }
 
-    @patch("maelstrom.linear.graphql_request")
+    @patch("maelstrom.integrations.linear.graphql_request")
     def test_create_comment_failure(self, mock_graphql):
         """Test comment creation failure raises ClickException."""
         mock_graphql.return_value = {
@@ -146,7 +146,7 @@ class TestCreateComment:
         with pytest.raises(click.ClickException, match="Failed to create comment"):
             create_comment("issue-456", "Some comment")
 
-    @patch("maelstrom.linear.graphql_request")
+    @patch("maelstrom.integrations.linear.graphql_request")
     def test_create_comment_sends_correct_mutation(self, mock_graphql):
         """Test that the correct GraphQL mutation is sent."""
         mock_graphql.return_value = {
@@ -166,10 +166,10 @@ class TestCreateComment:
 class TestCmdCreateTask:
     """Tests for cmd_create_task command."""
 
-    @patch("maelstrom.linear.get_product_label")
-    @patch("maelstrom.linear.get_labels")
-    @patch("maelstrom.linear.get_workflow_states")
-    @patch("maelstrom.linear.create_issue")
+    @patch("maelstrom.integrations.linear.get_product_label")
+    @patch("maelstrom.integrations.linear.get_labels")
+    @patch("maelstrom.integrations.linear.get_workflow_states")
+    @patch("maelstrom.integrations.linear.create_issue")
     def test_create_task_with_product_label(
         self, mock_create, mock_states, mock_labels, mock_product_label
     ):
@@ -198,9 +198,9 @@ class TestCmdCreateTask:
             label_ids=["label-1"],
         )
 
-    @patch("maelstrom.linear.get_product_label")
-    @patch("maelstrom.linear.get_workflow_states")
-    @patch("maelstrom.linear.create_issue")
+    @patch("maelstrom.integrations.linear.get_product_label")
+    @patch("maelstrom.integrations.linear.get_workflow_states")
+    @patch("maelstrom.integrations.linear.create_issue")
     def test_create_task_no_product_label(
         self, mock_create, mock_states, mock_product_label
     ):
@@ -226,7 +226,7 @@ class TestCmdCreateTask:
             label_ids=None,
         )
 
-    @patch("maelstrom.linear.get_workflow_states")
+    @patch("maelstrom.integrations.linear.get_workflow_states")
     def test_create_task_no_backlog_state(self, mock_states):
         """Test error when Backlog state is not found."""
         mock_states.return_value = {"Todo": "state-2", "Done": "state-3"}
@@ -241,9 +241,9 @@ class TestCmdCreateTask:
 class TestCmdSetStatus:
     """Tests for cmd_set_status command."""
 
-    @patch("maelstrom.linear.update_issue")
-    @patch("maelstrom.linear.get_workflow_states")
-    @patch("maelstrom.linear.get_issue")
+    @patch("maelstrom.integrations.linear.update_issue")
+    @patch("maelstrom.integrations.linear.get_workflow_states")
+    @patch("maelstrom.integrations.linear.get_issue")
     def test_set_status_planned(self, mock_get, mock_states, mock_update):
         mock_get.return_value = {
             "id": "issue-1",
@@ -259,9 +259,9 @@ class TestCmdSetStatus:
         assert "Todo -> Planned" in result.output
         mock_update.assert_called_once_with("issue-1", stateId="s-planned")
 
-    @patch("maelstrom.linear.update_issue")
-    @patch("maelstrom.linear.get_workflow_states")
-    @patch("maelstrom.linear.get_issue")
+    @patch("maelstrom.integrations.linear.update_issue")
+    @patch("maelstrom.integrations.linear.get_workflow_states")
+    @patch("maelstrom.integrations.linear.get_issue")
     def test_set_status_done_maps_to_unreleased(
         self, mock_get, mock_states, mock_update
     ):
@@ -285,9 +285,9 @@ class TestCmdSetStatus:
         assert "In Review -> Unreleased" in result.output
         mock_update.assert_called_once_with("issue-1", stateId="s-unrel")
 
-    @patch("maelstrom.linear.update_issue")
-    @patch("maelstrom.linear.get_workflow_states")
-    @patch("maelstrom.linear.get_issue")
+    @patch("maelstrom.integrations.linear.update_issue")
+    @patch("maelstrom.integrations.linear.get_workflow_states")
+    @patch("maelstrom.integrations.linear.get_issue")
     def test_set_status_noop_when_already(self, mock_get, mock_states, mock_update):
         mock_get.return_value = {
             "id": "issue-1",
@@ -311,8 +311,8 @@ class TestCmdSetStatus:
         assert result.exit_code != 0
         assert "Invalid value" in result.output
 
-    @patch("maelstrom.linear.get_workflow_states")
-    @patch("maelstrom.linear.get_issue")
+    @patch("maelstrom.integrations.linear.get_workflow_states")
+    @patch("maelstrom.integrations.linear.get_issue")
     def test_set_status_missing_workflow_state_errors(self, mock_get, mock_states):
         mock_get.return_value = {
             "id": "issue-1",
@@ -348,8 +348,8 @@ SAMPLE_DESCRIPTION_WITH_PLAN = (
 class TestCmdEditPlan:
     """Tests for cmd_edit_plan command."""
 
-    @patch("maelstrom.linear.update_issue")
-    @patch("maelstrom.linear.get_issue")
+    @patch("maelstrom.integrations.linear.update_issue")
+    @patch("maelstrom.integrations.linear.get_issue")
     def test_edit_plan_string_mode_success(self, mock_get, mock_update):
         """Test successful edit with string mode."""
         mock_get.return_value = {
@@ -374,8 +374,8 @@ class TestCmdEditPlan:
         assert "## Completed Iteration: Build the API" in new_desc
         assert "Built endpoints with validation." in new_desc
 
-    @patch("maelstrom.linear.update_issue")
-    @patch("maelstrom.linear.get_issue")
+    @patch("maelstrom.integrations.linear.update_issue")
+    @patch("maelstrom.integrations.linear.get_issue")
     def test_edit_plan_file_mode_success(self, mock_get, mock_update, tmp_path):
         """Test successful edit with file-based mode."""
         mock_get.return_value = {
@@ -401,7 +401,7 @@ class TestCmdEditPlan:
         new_desc = mock_update.call_args[1]["description"]
         assert "## Completed Iteration: Build the API" in new_desc
 
-    @patch("maelstrom.linear.get_issue")
+    @patch("maelstrom.integrations.linear.get_issue")
     def test_edit_plan_old_string_not_found(self, mock_get):
         """Test error when search string is not found in plan."""
         mock_get.return_value = {
@@ -420,7 +420,7 @@ class TestCmdEditPlan:
         assert result.exit_code != 0
         assert "not found" in result.output
 
-    @patch("maelstrom.linear.get_issue")
+    @patch("maelstrom.integrations.linear.get_issue")
     def test_edit_plan_ambiguous_match(self, mock_get):
         """Test error when search string matches multiple times in plan."""
         desc_with_dups = (
@@ -444,7 +444,7 @@ class TestCmdEditPlan:
         assert result.exit_code != 0
         assert "2 times" in result.output
 
-    @patch("maelstrom.linear.get_issue")
+    @patch("maelstrom.integrations.linear.get_issue")
     def test_edit_plan_no_plan(self, mock_get):
         """Test error when issue has no plan."""
         mock_get.return_value = {
@@ -463,8 +463,8 @@ class TestCmdEditPlan:
         assert result.exit_code != 0
         assert "No implementation plan found" in result.output
 
-    @patch("maelstrom.linear.update_issue")
-    @patch("maelstrom.linear.get_issue")
+    @patch("maelstrom.integrations.linear.update_issue")
+    @patch("maelstrom.integrations.linear.get_issue")
     def test_edit_plan_scoped_to_plan_section(self, mock_get, mock_update):
         """Test that edit only affects plan section, not text outside it."""
         mock_get.return_value = {

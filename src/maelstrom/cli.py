@@ -34,9 +34,9 @@ from .env_cli import (
 )
 from .git_cli import git as git_cli
 from .git_cli import print_rebase_conflict_help
-from .linear import linear
-from .sentry import sentry
-from .uptimerobot import uptimerobot
+from .integrations.linear import linear
+from .integrations.sentry import sentry
+from .integrations.uptimerobot import uptimerobot
 from .claude_integration import install_claude_integration
 from .claude_sessions import get_active_ide_sessions
 from .table import draw_table
@@ -1126,7 +1126,7 @@ def gh_create_pr(issue_id, draft, progress, wait, wait_for_review_flag, squash, 
     # If issue_id provided, update Linear task status
     if issue_id:
         try:
-            from .linear import (
+            from .integrations.linear import (
                 get_issue,
                 get_labels,
                 get_product_label,

@@ -1,51 +1,19 @@
 """Linear task management integration for maelstrom."""
 
-import json
-import os
 import re
 import subprocess
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
 import click
 
-from .config import load_config_or_default
-from .context import load_global_config, resolve_context
+from ..config import load_config_or_default
+from ..context import resolve_context
+from ._auth import resolve_secret
+from ._http import request_json
 
 LINEAR_API_URL = "https://api.linear.app/graphql"
-
-
-def get_env_var(name: str) -> str:
-    """Get environment variable from os.environ or .env file.
-
-    Args:
-        name: Environment variable name.
-
-    Returns:
-        The environment variable value.
-
-    Raises:
-        click.ClickException: If the variable is not found.
-    """
-    if value := os.environ.get(name):
-        return value
-
-    # Find .env file in current directory or parents
-    current = Path.cwd()
-    while current != current.parent:
-        env_path = current / ".env"
-        if env_path.exists():
-            content = env_path.read_text()
-            pattern = rf"^{re.escape(name)}\s*=\s*[\"']?([^\"'\n]+)[\"']?"
-            if match := re.search(pattern, content, re.MULTILINE):
-                return match.group(1)
-            break
-        current = current.parent
-
-    raise click.ClickException(f"{name} environment variable not set")
 
 
 def get_linear_api_key() -> str:
@@ -59,26 +27,9 @@ def get_linear_api_key() -> str:
     Raises:
         click.ClickException: If the key is not found.
     """
-    # Check env var and .env file
-    if value := os.environ.get("LINEAR_API_KEY"):
-        return value
-
-    # Check .env file
-    current = Path.cwd()
-    while current != current.parent:
-        env_path = current / ".env"
-        if env_path.exists():
-            content = env_path.read_text()
-            pattern = r"^LINEAR_API_KEY\s*=\s*[\"']?([^\"'\n]+)[\"']?"
-            if match := re.search(pattern, content, re.MULTILINE):
-                return match.group(1)
-            break
-        current = current.parent
-
-    # Check global config
-    global_config = load_global_config()
-    if global_config.linear_api_key:
-        return global_config.linear_api_key
+    key = resolve_secret("LINEAR_API_KEY", config_attr="linear_api_key")
+    if key:
+        return key
 
     raise click.ClickException(
         "LINEAR_API_KEY not found. Set it via:\n"
@@ -158,26 +109,15 @@ def graphql_request(query: str, variables: dict | None = None) -> dict:
     if variables:
         payload["variables"] = variables
 
-    data = json.dumps(payload).encode("utf-8")
-
-    req = urllib.request.Request(
+    result = request_json(
         LINEAR_API_URL,
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": api_key,
-        },
+        method="POST",
+        headers={"Authorization": api_key},
+        json_body=payload,
     )
-
-    try:
-        with urllib.request.urlopen(req) as response:
-            result = json.loads(response.read().decode("utf-8"))
-            if "errors" in result:
-                raise click.ClickException(f"GraphQL errors: {result['errors']}")
-            return result["data"]
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode("utf-8")
-        raise click.ClickException(f"HTTP Error {e.code}: {error_body}")
+    if "errors" in result:
+        raise click.ClickException(f"GraphQL errors: {result['errors']}")
+    return result["data"]
 
 
 def get_current_cycle() -> dict | None:
@@ -704,7 +644,7 @@ def cmd_plan(issue_id: str, project: str | None, run: bool, here: bool) -> None:
     worktree/launch behaviour comes from the shared ``task add`` path — this
     command adds only the brief fetch and argument assembly.
     """
-    from . import branch_name, task_cli
+    from .. import branch_name, task_cli
 
     issue = get_issue(issue_id)
     identifier = issue["identifier"]

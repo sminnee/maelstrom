@@ -51,7 +51,7 @@ class TestResolveRef:
 class TestRunAction:
     def test_linear_done_calls_set_issue_status(self, monkeypatch):
         calls = []
-        from maelstrom import linear
+        from maelstrom.integrations import linear
 
         monkeypatch.setattr(
             linear, "set_issue_status", lambda i, s: calls.append((i, s))
@@ -62,7 +62,7 @@ class TestRunAction:
 
     def test_sentry_resolve_calls_resolve_issue(self, monkeypatch):
         calls = []
-        from maelstrom import sentry
+        from maelstrom.integrations import sentry
 
         monkeypatch.setattr(sentry, "resolve_issue", lambda i: calls.append(i))
         t = Task(id="sentry.abc123", title="t", project="p")
@@ -70,7 +70,7 @@ class TestRunAction:
         assert calls == ["abc123"]
 
     def test_empty_code_is_noop(self, monkeypatch, capsys):
-        from maelstrom import linear
+        from maelstrom.integrations import linear
 
         monkeypatch.setattr(
             linear, "set_issue_status", _fail("should not be called")
@@ -87,7 +87,7 @@ class TestRunAction:
         assert "linear.bogus" in err
 
     def test_no_matching_ref_warns(self, monkeypatch, capsys):
-        from maelstrom import linear
+        from maelstrom.integrations import linear
 
         monkeypatch.setattr(
             linear, "set_issue_status", _fail("should not be called")
@@ -97,7 +97,7 @@ class TestRunAction:
         assert "no matching" in capsys.readouterr().err
 
     def test_runner_raising_is_swallowed_with_warning(self, monkeypatch, capsys):
-        from maelstrom import linear
+        from maelstrom.integrations import linear
 
         def boom(issue_id, status):
             raise RuntimeError("api exploded")
@@ -122,7 +122,7 @@ class TestMoveWithActions:
 
     def test_move_to_done_fires_post_action(self, monkeypatch):
         calls = []
-        from maelstrom import linear
+        from maelstrom.integrations import linear
 
         monkeypatch.setattr(
             linear, "set_issue_status", lambda i, s: calls.append((i, s))
@@ -136,7 +136,7 @@ class TestMoveWithActions:
 
     def test_move_to_in_progress_fires_pre_action(self, monkeypatch):
         calls = []
-        from maelstrom import linear
+        from maelstrom.integrations import linear
 
         monkeypatch.setattr(
             linear, "set_issue_status", lambda i, s: calls.append((i, s))
@@ -155,7 +155,7 @@ class TestMoveWithActions:
         [model.STATUS_TODO, model.STATUS_CANCELLED, model.STATUS_BLOCKED],
     )
     def test_other_destinations_fire_nothing(self, monkeypatch, status):
-        from maelstrom import linear
+        from maelstrom.integrations import linear
 
         monkeypatch.setattr(
             linear, "set_issue_status", _fail("should not be called")

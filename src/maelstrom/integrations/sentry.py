@@ -1,76 +1,25 @@
 """Sentry issue and event query integration for maelstrom."""
 
 import json
-import os
-import re
-import urllib.error
-import urllib.parse
-import urllib.request
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import click
 
-from .config import load_config_or_default
-from .context import resolve_context
+from ..config import load_config_or_default
+from ..context import resolve_context
+from ._auth import resolve_secret
+from ._format import format_datetime, format_relative_time
+from ._http import request_json
 
 SENTRY_API_URL = "https://sentry.io/api/0"
 
 
-def get_env_var(name: str) -> str:
-    """Get environment variable from os.environ or .env file.
-
-    Args:
-        name: Environment variable name.
-
-    Returns:
-        The environment variable value.
-
-    Raises:
-        click.ClickException: If the variable is not found.
-    """
-    if value := os.environ.get(name):
-        return value
-
-    # Find .env file in current directory or parents
-    current = Path.cwd()
-    while current != current.parent:
-        env_path = current / ".env"
-        if env_path.exists():
-            content = env_path.read_text()
-            pattern = rf"^{re.escape(name)}\s*=\s*[\"']?([^\"'\n]+)[\"']?"
-            if match := re.search(pattern, content, re.MULTILINE):
-                return match.group(1)
-            break
-        current = current.parent
-
-    raise click.ClickException(f"{name} environment variable not set")
-
-
 def get_sentry_api_key() -> str:
     """Get the Sentry API key from env var, .env file, or global config."""
-    if value := os.environ.get("SENTRY_API_KEY"):
-        return value
-
-    # Find .env file in current directory or parents
-    current = Path.cwd()
-    while current != current.parent:
-        env_path = current / ".env"
-        if env_path.exists():
-            content = env_path.read_text()
-            pattern = r"^SENTRY_API_KEY\s*=\s*[\"']?([^\"'\n]+)[\"']?"
-            if match := re.search(pattern, content, re.MULTILINE):
-                return match.group(1)
-            break
-        current = current.parent
-
-    # Fall back to global config
-    from .context import load_global_config
-
-    global_config = load_global_config()
-    if global_config.sentry_api_key:
-        return global_config.sentry_api_key
+    key = resolve_secret("SENTRY_API_KEY", config_attr="sentry_api_key")
+    if key:
+        return key
 
     raise click.ClickException(
         "Sentry API key not found. Set SENTRY_API_KEY env var or add to ~/.maelstrom/config.yaml:\n"
@@ -133,52 +82,13 @@ def api_request(
     api_key = get_sentry_api_key()
     url = f"{SENTRY_API_URL}{endpoint}"
 
-    if params:
-        query_string = urllib.parse.urlencode(params)
-        url = f"{url}?{query_string}"
-
-    data = json.dumps(body).encode("utf-8") if body else None
-    headers: dict[str, str] = {"Authorization": f"Bearer {api_key}"}
-    if data:
-        headers["Content-Type"] = "application/json"
-
-    req = urllib.request.Request(url, data=data, method=method, headers=headers)
-
-    try:
-        with urllib.request.urlopen(req) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode("utf-8")
-        raise click.ClickException(f"HTTP Error {e.code}: {error_body}")
-
-
-def format_relative_time(iso_timestamp: str) -> str:
-    """Convert ISO timestamp to relative time string.
-
-    Args:
-        iso_timestamp: ISO 8601 timestamp string.
-
-    Returns:
-        Human-readable relative time (e.g., "5m ago", "2d ago").
-    """
-    dt = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
-    now = datetime.now(UTC)
-    delta = now - dt
-
-    seconds = int(delta.total_seconds())
-    if seconds < 60:
-        return f"{seconds}s ago"
-    minutes = seconds // 60
-    if minutes < 60:
-        return f"{minutes}m ago"
-    hours = minutes // 60
-    if hours < 24:
-        return f"{hours}h ago"
-    days = hours // 24
-    if days < 30:
-        return f"{days}d ago"
-    months = days // 30
-    return f"{months}mo ago"
+    return request_json(
+        url,
+        method=method,
+        headers={"Authorization": f"Bearer {api_key}"},
+        json_body=body,
+        params=params,
+    )
 
 
 def calculate_trend(stats: dict) -> str:
@@ -208,19 +118,6 @@ def calculate_trend(stats: dict) -> str:
     if diff < 0:
         return f"down {abs(diff)}"
     return "steady"
-
-
-def format_datetime(iso_timestamp: str) -> str:
-    """Convert ISO timestamp to DD/MM/YYYY, HH:MM:SS format.
-
-    Args:
-        iso_timestamp: ISO 8601 timestamp string.
-
-    Returns:
-        Formatted datetime string.
-    """
-    dt = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
-    return dt.strftime("%d/%m/%Y, %H:%M:%S")
 
 
 def format_stacktrace(exception: dict) -> str:

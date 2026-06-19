@@ -22,7 +22,7 @@ _SENTRY_REF = re.compile(r"^sentry\.(.+)$")
 
 def _linear_set_status(status: str):
     def run(ref_id: str) -> None:
-        from maelstrom import linear
+        from maelstrom.integrations import linear
 
         linear.set_issue_status(ref_id, status)
 
@@ -30,7 +30,7 @@ def _linear_set_status(status: str):
 
 
 def _sentry_resolve(ref_id: str) -> None:
-    from maelstrom import sentry
+    from maelstrom.integrations import sentry
 
     sentry.resolve_issue(ref_id)
 
