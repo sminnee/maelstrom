@@ -678,27 +678,48 @@ class TestExecClaude:
 
 
 class TestOpenClaudeWorkspace:
-    """Tests for the cmux new-workspace placement peer."""
+    """Tests for the cmux new-workspace placement peer.
 
-    def test_returns_false_when_not_cmux(self):
-        with patch("maelstrom.cmux.is_cmux_mode", return_value=False), \
-             patch("maelstrom.cmux.create_cmux_workspace") as mock_create:
+    open_claude_workspace now delegates entirely to the policy seam
+    mael_layout.ensure_worktree_workspace (which owns the cmux-detection and
+    create-vs-reuse logic, tested in test_mael_layout.py). These tests guard the
+    translation: how it builds the command/install args and returns the seam's
+    placed result.
+    """
+
+    def test_returns_false_without_project_or_worktree(self):
+        # A workspace can't be named without project+worktree → no placement.
+        with patch(
+            "maelstrom.cmux.mael_layout.ensure_worktree_workspace"
+        ) as mock_ensure:
+            placed = open_claude_workspace(
+                None, "alpha", Path("/wt"), ["claude", "hi"]
+            )
+            assert placed is False
+            mock_ensure.assert_not_called()
+
+    def test_returns_seam_result(self):
+        # Outside cmux the seam returns False; open_claude_workspace passes it on.
+        with patch(
+            "maelstrom.cmux.mael_layout.ensure_worktree_workspace",
+            return_value=False,
+        ), patch(
+            "maelstrom.worktree.load_config_or_default",
+            return_value=SimpleNamespace(install_cmd=""),
+        ):
             placed = open_claude_workspace(
                 "proj", "alpha", Path("/wt"), ["claude", "hi"]
             )
             assert placed is False
-            mock_create.assert_not_called()
 
-    def test_calls_create_with_shell_line_when_cmux(self):
-        with patch("maelstrom.cmux.is_cmux_mode", return_value=True), \
-             patch("maelstrom.cmux.find_workspace", return_value=None), \
-             patch(
-                 "maelstrom.worktree.load_config_or_default",
-                 return_value=SimpleNamespace(install_cmd=""),
-             ), \
-             patch(
-                 "maelstrom.cmux.create_cmux_workspace", return_value="workspace:1"
-             ) as mock_create:
+    def test_passes_shell_line_and_install_to_seam(self):
+        with patch(
+            "maelstrom.cmux.mael_layout.ensure_worktree_workspace",
+            return_value=True,
+        ) as mock_ensure, patch(
+            "maelstrom.worktree.load_config_or_default",
+            return_value=SimpleNamespace(install_cmd="npm install"),
+        ):
             placed = open_claude_workspace(
                 "proj",
                 "alpha",
@@ -707,49 +728,24 @@ class TestOpenClaudeWorkspace:
                 env={"MAEL_TASK_ID": "t1"},
             )
             assert placed is True
-            command = mock_create.call_args.kwargs["command"]
-            assert command == (
-                "MAEL_TASK_ID=t1 claude --permission-mode plan 'hi there'"
-            )
-
-    def test_passes_install_cmd_as_shell_command_on_create(self):
-        with patch("maelstrom.cmux.is_cmux_mode", return_value=True), \
-             patch("maelstrom.cmux.find_workspace", return_value=None), \
-             patch(
-                 "maelstrom.worktree.load_config_or_default",
-                 return_value=SimpleNamespace(install_cmd="npm install"),
-             ), \
-             patch(
-                 "maelstrom.cmux.create_cmux_workspace", return_value="workspace:1"
-             ) as mock_create:
-            placed = open_claude_workspace(
-                "proj", "alpha", Path("/wt"), ["claude", "hi"]
-            )
-            assert placed is True
-            assert mock_create.call_args.kwargs["shell_command"] == "npm install"
-
-    def test_reuses_workspace_as_tab_when_live(self):
-        with patch("maelstrom.cmux.is_cmux_mode", return_value=True), \
-             patch(
-                 "maelstrom.cmux.find_workspace", return_value="workspace:7"
-             ), \
-             patch(
-                 "maelstrom.cmux.open_claude_tab", return_value="surface:9"
-             ) as mock_tab, \
-             patch("maelstrom.cmux.create_cmux_workspace") as mock_create:
-            placed = open_claude_workspace(
+            mock_ensure.assert_called_once_with(
                 "proj",
                 "alpha",
-                Path("/wt"),
-                ["claude", "--permission-mode", "plan", "hi there"],
-                env={"MAEL_TASK_ID": "t1"},
+                "/wt",
+                command="MAEL_TASK_ID=t1 claude --permission-mode plan 'hi there'",
+                install_cmd="npm install",
             )
-            assert placed is True
-            mock_create.assert_not_called()
-            mock_tab.assert_called_once()
-            assert mock_tab.call_args.kwargs["command"] == (
-                "MAEL_TASK_ID=t1 claude --permission-mode plan 'hi there'"
-            )
+
+    def test_empty_install_cmd_passed_as_none(self):
+        with patch(
+            "maelstrom.cmux.mael_layout.ensure_worktree_workspace",
+            return_value=True,
+        ) as mock_ensure, patch(
+            "maelstrom.worktree.load_config_or_default",
+            return_value=SimpleNamespace(install_cmd=""),
+        ):
+            open_claude_workspace("proj", "alpha", Path("/wt"), ["claude", "hi"])
+            assert mock_ensure.call_args.kwargs["install_cmd"] is None
 
 
 class TestLaunchClaudeInWorktree:

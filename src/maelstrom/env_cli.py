@@ -5,7 +5,7 @@ from pathlib import Path
 
 import click
 
-from .cmux import CmuxWorkspace
+from .cmux import mael_layout
 from .context import resolve_context
 from .env import (
     EnvState,
@@ -60,9 +60,6 @@ def print_copy_back_result(result: CopyBackResult, project_path: Path) -> None:
 
 def _ensure_cmux_browser(state: EnvState, project_path: Path, worktree: str) -> None:
     """Ensure a cmux browser pane exists for this env's app URL."""
-    ws = CmuxWorkspace.current()
-    if not ws:
-        return
     app_info = get_app_url(project_path, worktree)
     if not app_info:
         return
@@ -70,7 +67,7 @@ def _ensure_cmux_browser(state: EnvState, project_path: Path, worktree: str) -> 
     port_base = get_port_allocation(project_path, worktree)
     if port_base is not None:
         wait_for_port(port_base * 10)
-    ref = ws.ensure_browser(url)
+    ref = mael_layout.show_app_browser(state.project, worktree, url)
     if ref:
         state.cmux_browser_surface = ref
         save_env_state(state)
@@ -250,11 +247,9 @@ def env_stop(target):
     assert ctx.project_path is not None
 
     # Close cmux browser pane if one was opened
-    ws = CmuxWorkspace.current()
-    if ws:
-        app_info = get_app_url(ctx.project_path, ctx.worktree)
-        if app_info:
-            ws.close_browser(app_info[0])
+    app_info = get_app_url(ctx.project_path, ctx.worktree)
+    if app_info:
+        mael_layout.hide_app_browser(ctx.project, ctx.worktree, app_info[0])
 
     messages = stop_env(ctx.project, ctx.worktree)
     for msg in messages:

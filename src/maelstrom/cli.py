@@ -20,7 +20,7 @@ from .github import (
     wait_for_merge,
     wait_for_review,
 )
-from .cmux import is_cmux_mode, set_status, clear_status
+from .cmux import mael_layout
 from .review_prepare import cmd_review_prepare
 from .session_cli import session as session_cli, session_channel as session_channel_cmd
 from .task_cli import task as task_cli
@@ -789,9 +789,8 @@ def cmd_close(targets, wait, timeout, interval):
         if result.success:
             click.echo(result.message)
             # Close cmux workspace after successful worktree close
-            from maelstrom.cmux import close_workspace, workspace_name
-            ws_name = workspace_name(ctx.project, ctx.worktree)
-            if close_workspace(ws_name):
+            if mael_layout.close_workspace(ctx.project, ctx.worktree):
+                ws_name = mael_layout.workspace_name(ctx.project, ctx.worktree)
                 click.echo(f"Closed cmux workspace '{ws_name}'.")
             continue
 
@@ -1080,10 +1079,7 @@ def _handle_wait_for_review(cwd: Path) -> None:
 
 def _open_pr_in_cmux(url: str) -> None:
     """Open a PR URL in a cmux browser, recycling any github.com browser. No-op outside cmux."""
-    from .cmux import CmuxWorkspace
-    ws = CmuxWorkspace.current()   # None when not in cmux mode
-    if ws:
-        ws.open_github_url(url)
+    mael_layout.show_pr_browser(url)
 
 
 @gh.command("create-pr")
@@ -1559,17 +1555,13 @@ def status():
 @click.argument("text")
 def status_set(text):
     """Set the workspace status text."""
-    if not is_cmux_mode():
-        return
-    set_status(text)
+    mael_layout.set_status(text)  # no-op outside cmux
 
 
 @status.command("clear")
 def status_clear():
     """Clear the workspace status."""
-    if not is_cmux_mode():
-        return
-    clear_status()
+    mael_layout.clear_status()  # no-op outside cmux
 
 
 # --- Subcommand groups ---
