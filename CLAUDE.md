@@ -24,7 +24,7 @@ bin/lint                           # Run pyright type checking (gate before comm
 
 See `docs/dev/` for detailed architecture and design docs:
 
-- `docs/dev/architecture.md` - Communication architecture between the desktop app and agent-cli (IPC protocol, message types, sequence diagrams)
+- `docs/dev/architecture-patterns.md` - Canonical layered-architecture conventions for the Python core (storage / model / CLI layers), using the task subsystem as the worked reference
 
 ## Architecture
 

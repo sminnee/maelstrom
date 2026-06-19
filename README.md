@@ -252,10 +252,6 @@ uv run pytest
 uv run pytest --cov=maelstrom
 ```
 
-## Desktop UI & Agent-CLI (Incomplete)
-
-A Tauri desktop app (`app/`) and Node.js agent-CLI bridge (`agent-cli/`) are in development. These will provide a graphical interface for managing sessions and interacting with Claude Code via a Unix domain socket protocol. They are not yet functional.
-
 ## Notes for Contributors
 
 ### Publishing to PyPI
