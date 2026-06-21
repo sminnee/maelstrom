@@ -8,7 +8,8 @@ from unittest.mock import patch, MagicMock
 from click.testing import CliRunner
 
 from maelstrom.cli import cli
-from maelstrom.worktree import CopyBackResult, WorktreeInfo
+from maelstrom.worktree import WorktreeInfo
+from maelstrom.worktree_model import CopyBackResult
 
 
 class TestListAllJson:

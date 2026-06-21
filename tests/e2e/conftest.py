@@ -11,7 +11,8 @@ import pytest
 from click.testing import CliRunner
 
 from maelstrom.context import GlobalConfig
-from maelstrom.worktree import add_project, get_worktree_folder_name
+from maelstrom.worktree import add_project
+from maelstrom.worktree_model import get_worktree_folder_name
 
 from tests.git_helpers import create_commit, run_git, setup_git_repo
 

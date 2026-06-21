@@ -41,17 +41,13 @@ from .claude_integration import install_claude_integration
 from .claude_sessions import get_active_ide_sessions
 from .table import draw_table
 from .worktree import (
-    MAIN_BRANCH,
     add_project,
     close_worktree,
     copy_back_new_env_vars,
     create_worktree,
-    extract_project_name,
-    extract_worktree_name_from_folder,
     find_all_projects,
     get_local_only_commits,
     get_pushed_commit_count,
-    get_worktree_folder_name,
     get_worktree_dirty_files,
     is_worktree_closed,
     list_worktrees,
@@ -64,6 +60,12 @@ from .worktree import (
     sync_worktree,
     tidy_branches,
     update_claude_local_md,
+)
+from .worktree_model import (
+    MAIN_BRANCH,
+    extract_project_name,
+    extract_worktree_name_from_folder,
+    get_worktree_folder_name,
 )
 
 
