@@ -79,7 +79,7 @@ class ResolvedContext:
     def worktree_path(self) -> Path | None:
         """Full path to worktree directory."""
         if self.project and self.worktree:
-            from .worktree import get_worktree_folder_name
+            from .worktree_model import get_worktree_folder_name
             folder_name = get_worktree_folder_name(self.project, self.worktree)
             return self.projects_dir / self.project / folder_name
         return None
@@ -172,14 +172,14 @@ def parse_target_arg(arg: str | None) -> tuple[str | None, str | None]:
         validate_project_name(project)
 
         # Resolve single-letter shortcodes (e.g., "proj.a" -> "proj.alpha")
-        from .worktree import resolve_worktree_shortcode
+        from .worktree_model import resolve_worktree_shortcode
         worktree = resolve_worktree_shortcode(worktree)
 
         return (project, worktree)
 
     # No dot - this is just a project or worktree name (determined by context)
     # Resolve single-letter shortcodes (e.g., "a" -> "alpha")
-    from .worktree import resolve_worktree_shortcode
+    from .worktree_model import resolve_worktree_shortcode
     return (resolve_worktree_shortcode(arg), None)
 
 
@@ -229,7 +229,7 @@ def detect_context_from_cwd(
     folder_name = parts[1]
 
     # Try to extract worktree name from folder (handles "project-alpha" format)
-    from .worktree import extract_worktree_name_from_folder, WORKTREE_NAMES
+    from .worktree_model import extract_worktree_name_from_folder, WORKTREE_NAMES
     worktree = extract_worktree_name_from_folder(project, folder_name)
 
     # Fall back to checking if folder_name itself is a valid worktree name

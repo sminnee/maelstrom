@@ -26,10 +26,10 @@ from .env import (
 from .ports import get_app_url, get_port_allocation, wait_for_port
 from .table import draw_table
 from .worktree import (
-    CopyBackResult,
     copy_back_new_env_vars,
     update_claude_local_md,
 )
+from .worktree_model import CopyBackResult
 
 
 def print_copy_back_result(result: CopyBackResult, project_path: Path) -> None:

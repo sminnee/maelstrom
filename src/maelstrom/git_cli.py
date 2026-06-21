@@ -8,13 +8,13 @@ import click
 
 from .context import resolve_context
 from .worktree import (
-    MAIN_BRANCH,
     SyncResult,
     get_commits_ahead,
     get_current_branch,
     get_local_only_commits,
     squash_worktree,
 )
+from .worktree_model import MAIN_BRANCH
 
 
 def print_rebase_conflict_help(result: SyncResult) -> None:

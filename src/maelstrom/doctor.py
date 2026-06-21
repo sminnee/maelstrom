@@ -7,14 +7,16 @@ from pathlib import Path
 
 from .ports import load_port_allocations, remove_port_allocation
 from .worktree import (
-    ENV_SECTION_END,
-    ENV_SECTION_START,
-    MAIN_BRANCH,
-    extract_worktree_name_from_folder,
     list_worktrees,
     run_cmd,
     run_git,
     update_local_main,
+)
+from .worktree_model import (
+    ENV_SECTION_END,
+    ENV_SECTION_START,
+    MAIN_BRANCH,
+    extract_worktree_name_from_folder,
 )
 
 

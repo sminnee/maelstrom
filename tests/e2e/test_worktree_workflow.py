@@ -12,13 +12,13 @@ from maelstrom.ports import get_port_allocation, load_port_allocations
 from maelstrom.worktree import (
     close_worktree,
     create_worktree,
-    get_worktree_folder_name,
     list_worktrees,
     recycle_worktree,
     remove_worktree_by_path,
     sync_worktree,
     read_env_file,
 )
+from maelstrom.worktree_model import get_worktree_folder_name
 
 from .conftest import create_commit, run_git
 
