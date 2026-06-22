@@ -23,6 +23,7 @@ from .env import (
     stop_all_envs,
     stop_env,
 )
+from .env_store import JsonEnvStore
 from .ports import get_app_url, get_port_allocation, wait_for_port
 from .table import draw_table
 from .worktree import (
@@ -30,6 +31,11 @@ from .worktree import (
     update_claude_local_md,
 )
 from .worktree_model import CopyBackResult
+
+
+def make_store() -> JsonEnvStore:
+    """Build the persistent env store. The single factory for the CLI layer."""
+    return JsonEnvStore()
 
 
 def print_copy_back_result(result: CopyBackResult, project_path: Path) -> None:
@@ -70,15 +76,16 @@ def _ensure_cmux_browser(state: EnvState, project_path: Path, worktree: str) -> 
     ref = mael_layout.show_app_browser(state.project, worktree, url)
     if ref:
         state.cmux_browser_surface = ref
-        save_env_state(state)
+        save_env_state(make_store(), state)
 
 
 def _env_service_columns(state: EnvState) -> tuple[str, str]:
     """Return (running_services, stopped_services) as comma-separated names."""
-    statuses = list(get_env_status(state.project, state.worktree) or [])
+    store = make_store()
+    statuses = list(get_env_status(store, state.project, state.worktree) or [])
 
     # Include shared services
-    shared_statuses = get_shared_status(state.project)
+    shared_statuses = get_shared_status(store, state.project)
     if shared_statuses:
         statuses.extend(shared_statuses)
 
@@ -107,12 +114,13 @@ def _print_service_status(
     project: str, worktree: str, project_path: Path | None = None,
 ) -> None:
     """Print a SERVICE/PID/STATUS/LOG table for an environment."""
-    state = load_env_state(project, worktree)
+    store = make_store()
+    state = load_env_state(store, project, worktree)
     if not state:
         click.echo(f"No environment state for {project}/{worktree}.")
         return
 
-    statuses = get_env_status(project, worktree)
+    statuses = get_env_status(store, project, worktree)
 
     header_parts = []
     if project_path:
@@ -133,7 +141,7 @@ def _print_service_status(
         })
 
     # Add shared services
-    shared_statuses = get_shared_status(project)
+    shared_statuses = get_shared_status(store, project)
     if shared_statuses:
         for s in shared_statuses:
             rows.append({
@@ -163,7 +171,7 @@ def env_open(target):
     assert ctx.worktree is not None
     assert ctx.project_path is not None
 
-    state = load_env_state(ctx.project, ctx.worktree)
+    state = load_env_state(make_store(), ctx.project, ctx.worktree)
     if not state:
         raise click.ClickException(
             f"No running environment for {ctx.project}/{ctx.worktree}."
@@ -196,6 +204,7 @@ def env_start(target, skip_install):
 
     try:
         state = start_env(
+            make_store(),
             ctx.project,
             ctx.worktree,
             worktree_path,
@@ -251,7 +260,7 @@ def env_stop(target):
     if app_info:
         mael_layout.hide_app_browser(ctx.project, ctx.worktree, app_info[0])
 
-    messages = stop_env(ctx.project, ctx.worktree)
+    messages = stop_env(make_store(), ctx.project, ctx.worktree)
     for msg in messages:
         click.echo(msg)
     click.echo(f"Environment stopped for {ctx.project}/{ctx.worktree}.")
@@ -279,15 +288,17 @@ def env_restart(target, install):
     if not worktree_path or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
-    state = load_env_state(ctx.project, ctx.worktree)
+    store = make_store()
+    state = load_env_state(store, ctx.project, ctx.worktree)
     if state:
-        messages = stop_env(ctx.project, ctx.worktree)
+        messages = stop_env(store, ctx.project, ctx.worktree)
         for msg in messages:
             click.echo(msg)
         click.echo(f"Environment stopped for {ctx.project}/{ctx.worktree}.")
 
     try:
         state = start_env(
+            store,
             ctx.project,
             ctx.worktree,
             worktree_path,
@@ -329,7 +340,7 @@ def env_reset(target):
 
     try:
         stop_messages, new_state = regenerate_and_restart_if_running(
-            ctx.project, ctx.worktree, ctx.project_path, worktree_path,
+            make_store(), ctx.project, ctx.worktree, ctx.project_path, worktree_path,
         )
     except RuntimeError as e:
         raise click.ClickException(str(e))
@@ -365,7 +376,7 @@ def env_list(project):
     assert ctx.project is not None
     assert ctx.project_path is not None
 
-    envs = list_project_envs(ctx.project)
+    envs = list_project_envs(make_store(), ctx.project)
     if not envs:
         click.echo(f"No running environments for {ctx.project}.")
         return
@@ -388,7 +399,7 @@ def env_list(project):
 @env.command("list-all")
 def env_list_all():
     """List all running environments across all projects."""
-    envs = list_all_envs()
+    envs = list_all_envs(make_store())
     if not envs:
         click.echo("No running environments.")
         return
@@ -413,7 +424,7 @@ def env_list_all():
 @env.command("stop-all")
 def env_stop_all():
     """Stop all running environments across all projects."""
-    results = stop_all_envs()
+    results = stop_all_envs(make_store())
     if not results:
         click.echo("No running environments.")
         return
@@ -425,14 +436,18 @@ def env_stop_all():
 
 
 def _follow_logs(
-    project: str, worktree: str, service: str | None, multi: bool,
+    store: JsonEnvStore,
+    project: str,
+    worktree: str,
+    service: str | None,
+    multi: bool,
 ) -> None:
     """Poll log files and print new lines as they appear.
 
     Polls every 0.5s using file size tracking. Handles file truncation
     (resets position). Catches KeyboardInterrupt for clean Ctrl+C exit.
     """
-    log_files = get_log_files(project, worktree)
+    log_files = get_log_files(store, project, worktree)
     if not log_files:
         return
 
@@ -491,12 +506,13 @@ def env_logs(target, service, num_lines, follow):
     assert ctx.project is not None
     assert ctx.worktree is not None
 
+    store = make_store()
     try:
-        lines = read_service_logs(ctx.project, ctx.worktree, service, num_lines)
+        lines = read_service_logs(store, ctx.project, ctx.worktree, service, num_lines)
     except ValueError as e:
         raise click.ClickException(str(e))
 
-    multi = service is None and len(get_log_files(ctx.project, ctx.worktree)) > 1
+    multi = service is None and len(get_log_files(store, ctx.project, ctx.worktree)) > 1
     for svc_name, line in lines:
         if multi:
             click.echo(f"[{svc_name}] {line}")
@@ -504,4 +520,4 @@ def env_logs(target, service, num_lines, follow):
             click.echo(line)
 
     if follow:
-        _follow_logs(ctx.project, ctx.worktree, service, multi)
+        _follow_logs(store, ctx.project, ctx.worktree, service, multi)
