@@ -1,10 +1,8 @@
 """Tests for maelstrom.env module."""
 
-import json
-import os
 import signal
 from pathlib import Path
-from unittest.mock import MagicMock, call, mock_open, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -40,6 +38,7 @@ from maelstrom.env import (
     tail_log_file,
 )
 from maelstrom.env import regenerate_and_restart_if_running
+from maelstrom.env_store import InMemoryEnvStore, JsonEnvStore
 
 
 class TestParseProcfile:
@@ -159,13 +158,12 @@ class TestEnvStateRoundTrip:
             ],
         )
 
-    @patch("maelstrom.env.get_maelstrom_dir")
-    def test_save_and_load(self, mock_dir, tmp_path):
+    def test_save_and_load(self):
         """State round-trips through save/load."""
-        mock_dir.return_value = tmp_path
+        store = InMemoryEnvStore()
         state = self._make_state()
-        save_env_state(state)
-        loaded = load_env_state("myproject", "bravo")
+        save_env_state(store, state)
+        loaded = load_env_state(store, "myproject", "bravo")
         assert loaded is not None
         assert loaded.project == state.project
         assert loaded.worktree == state.worktree
@@ -175,45 +173,39 @@ class TestEnvStateRoundTrip:
         assert loaded.services[0].name == "web"
         assert loaded.services[0].pid == 12345
 
-    @patch("maelstrom.env.get_maelstrom_dir")
-    def test_load_missing_file(self, mock_dir, tmp_path):
+    def test_load_missing_file(self):
         """Returns None for missing state file."""
-        mock_dir.return_value = tmp_path
-        assert load_env_state("noproject", "alpha") is None
+        store = InMemoryEnvStore()
+        assert load_env_state(store, "noproject", "alpha") is None
 
-    @patch("maelstrom.env.get_maelstrom_dir")
-    def test_load_corrupt_json(self, mock_dir, tmp_path):
+    def test_load_corrupt_json(self, tmp_path):
         """Returns None for corrupt JSON."""
-        mock_dir.return_value = tmp_path
-        state_dir = tmp_path / "envs" / "myproject"
+        store = JsonEnvStore(root=tmp_path)
+        state_dir = tmp_path / "myproject"
         state_dir.mkdir(parents=True)
         (state_dir / "bravo.json").write_text("not valid json{{{")
-        assert load_env_state("myproject", "bravo") is None
+        assert load_env_state(store, "myproject", "bravo") is None
 
-    @patch("maelstrom.env.get_maelstrom_dir")
-    def test_remove(self, mock_dir, tmp_path):
-        """State file is deleted by remove_env_state."""
-        mock_dir.return_value = tmp_path
+    def test_remove(self):
+        """State entry is deleted by remove_env_state."""
+        store = InMemoryEnvStore()
         state = self._make_state()
-        save_env_state(state)
-        path = tmp_path / "envs" / "myproject" / "bravo.json"
-        assert path.exists()
-        remove_env_state("myproject", "bravo")
-        assert not path.exists()
+        save_env_state(store, state)
+        assert store.exists("myproject/bravo.json")
+        remove_env_state(store, "myproject", "bravo")
+        assert not store.exists("myproject/bravo.json")
 
-    @patch("maelstrom.env.get_maelstrom_dir")
-    def test_remove_nonexistent(self, mock_dir, tmp_path):
-        """remove_env_state is a no-op if file doesn't exist."""
-        mock_dir.return_value = tmp_path
-        remove_env_state("noproject", "alpha")  # should not raise
+    def test_remove_nonexistent(self):
+        """remove_env_state is a no-op if entry doesn't exist."""
+        store = InMemoryEnvStore()
+        remove_env_state(store, "noproject", "alpha")  # should not raise
 
-    @patch("maelstrom.env.get_maelstrom_dir")
-    def test_creates_parent_dirs(self, mock_dir, tmp_path):
-        """save_env_state creates parent directories."""
-        mock_dir.return_value = tmp_path
+    def test_creates_parent_dirs(self):
+        """save_env_state persists the state entry."""
+        store = InMemoryEnvStore()
         state = self._make_state()
-        save_env_state(state)
-        assert (tmp_path / "envs" / "myproject" / "bravo.json").exists()
+        save_env_state(store, state)
+        assert store.exists("myproject/bravo.json")
 
 
 class TestBuildServiceEnv:
@@ -295,7 +287,8 @@ class TestStartEnv:
         mock_popen.return_value = mock_proc
 
         wt_path = Path("/project/bravo")
-        state = start_env("proj", "bravo", wt_path)
+        store = InMemoryEnvStore()
+        state = start_env(store, "proj", "bravo", wt_path)
 
         assert len(state.services) == 2
         assert state.services[0].name == "web"
@@ -334,7 +327,8 @@ class TestStartEnv:
         mock_popen.return_value = MagicMock(pid=1)
         wt_path = Path("/project/bravo")
 
-        start_env("proj", "bravo", wt_path)
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", wt_path)
         mock_install.assert_called_once_with(wt_path)
 
     @patch("maelstrom.env.save_env_state")
@@ -362,7 +356,8 @@ class TestStartEnv:
         mock_services.return_value = [ProcfileEntry(name="app", command="echo hi")]
         mock_popen.return_value = MagicMock(pid=1)
 
-        start_env("proj", "bravo", Path("/project/bravo"), skip_install=True)
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"), skip_install=True)
         mock_install.assert_not_called()
 
     @patch("maelstrom.env.get_env_status")
@@ -375,8 +370,9 @@ class TestStartEnv:
                 log_file="/tmp/x.log", started_at="2025-01-01T00:00:00+00:00",
             )
         ]
+        store = InMemoryEnvStore()
         with pytest.raises(RuntimeError, match="already running"):
-            start_env("proj", "bravo", Path("/project/bravo"))
+            start_env(store, "proj", "bravo", Path("/project/bravo"))
 
     @patch("maelstrom.env.save_env_state")
     @patch("maelstrom.env.Popen")
@@ -403,8 +399,9 @@ class TestStartEnv:
         mock_services.return_value = [ProcfileEntry(name="app", command="echo hi")]
         mock_popen.return_value = MagicMock(pid=99)
 
-        state = start_env("proj", "bravo", Path("/project/bravo"))
-        mock_save.assert_called_once_with(state)
+        store = InMemoryEnvStore()
+        state = start_env(store, "proj", "bravo", Path("/project/bravo"))
+        mock_save.assert_called_once_with(store, state)
         assert state.project == "proj"
         assert state.worktree == "bravo"
 
@@ -434,7 +431,8 @@ class TestStartEnv:
         mock_services.return_value = [ProcfileEntry(name="app", command="echo hi")]
         mock_popen.return_value = MagicMock(pid=1)
 
-        start_env("proj", "bravo", Path("/project/bravo"))
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"))
         assert log_dir.exists()
 
     @patch("maelstrom.env.save_env_state")
@@ -460,8 +458,9 @@ class TestStartEnv:
         mock_services.return_value = [ProcfileEntry(name="app", command="echo hi")]
         mock_popen.return_value = MagicMock(pid=1)
 
-        start_env("proj", "bravo", Path("/project/bravo"))
-        mock_cleanup.assert_called_once_with("proj", "bravo")
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"))
+        mock_cleanup.assert_called_once_with(store, "proj", "bravo")
 
 
 class TestStopEnv:
@@ -486,7 +485,8 @@ class TestStopEnv:
             ],
         )
 
-        messages = stop_env("proj", "bravo")
+        store = InMemoryEnvStore()
+        messages = stop_env(store, "proj", "bravo")
         mock_killpg.assert_called_with(100, signal.SIGTERM)
         assert any("stopped" in m for m in messages)
 
@@ -517,7 +517,8 @@ class TestStopEnv:
         # Simulate time passing: first call sets deadline, then exceed it
         mock_monotonic.side_effect = [0.0, 11.0]
 
-        messages = stop_env("proj", "bravo", timeout=10.0)
+        store = InMemoryEnvStore()
+        messages = stop_env(store, "proj", "bravo", timeout=10.0)
         # Should have called killpg with both SIGTERM and SIGKILL
         assert call(100, signal.SIGTERM) in mock_killpg.call_args_list
         assert call(100, signal.SIGKILL) in mock_killpg.call_args_list
@@ -526,7 +527,8 @@ class TestStopEnv:
     @patch("maelstrom.env.load_env_state", return_value=None)
     def test_no_state(self, mock_load):
         """Returns message when no state file exists."""
-        messages = stop_env("proj", "bravo")
+        store = InMemoryEnvStore()
+        messages = stop_env(store, "proj", "bravo")
         assert len(messages) == 1
         assert "No running environment" in messages[0]
 
@@ -548,8 +550,9 @@ class TestStopEnv:
                 )
             ],
         )
-        stop_env("proj", "bravo")
-        mock_remove.assert_called_once_with("proj", "bravo")
+        store = InMemoryEnvStore()
+        stop_env(store, "proj", "bravo")
+        mock_remove.assert_called_once_with(store, "proj", "bravo")
 
     @patch("maelstrom.env.remove_env_state")
     @patch("maelstrom.env.is_service_alive", return_value=False)
@@ -570,7 +573,8 @@ class TestStopEnv:
             ],
         )
         mock_killpg.side_effect = ProcessLookupError
-        messages = stop_env("proj", "bravo")
+        store = InMemoryEnvStore()
+        messages = stop_env(store, "proj", "bravo")
         assert any("stopped" in m for m in messages)
 
 
@@ -599,7 +603,8 @@ class TestGetEnvStatus:
         )
         mock_alive.side_effect = [True, False]
 
-        result = get_env_status("proj", "bravo")
+        store = InMemoryEnvStore()
+        result = get_env_status(store, "proj", "bravo")
         assert result is not None
         assert len(result) == 2
         assert result[0].name == "web"
@@ -610,7 +615,8 @@ class TestGetEnvStatus:
     @patch("maelstrom.env.load_env_state", return_value=None)
     def test_none_when_no_state(self, mock_load):
         """Returns None when no state file exists."""
-        assert get_env_status("proj", "bravo") is None
+        store = InMemoryEnvStore()
+        assert get_env_status(store, "proj", "bravo") is None
 
 
 class TestCleanupStaleEnv:
@@ -626,8 +632,9 @@ class TestCleanupStaleEnv:
                 log_file="/tmp/x.log", started_at="2025-01-01T00:00:00+00:00",
             )
         ]
-        assert cleanup_stale_env("proj", "bravo") is True
-        mock_remove.assert_called_once_with("proj", "bravo")
+        store = InMemoryEnvStore()
+        assert cleanup_stale_env(store, "proj", "bravo") is True
+        mock_remove.assert_called_once_with(store, "proj", "bravo")
 
     @patch("maelstrom.env.remove_env_state")
     @patch("maelstrom.env.get_env_status")
@@ -639,13 +646,15 @@ class TestCleanupStaleEnv:
                 log_file="/tmp/x.log", started_at="2025-01-01T00:00:00+00:00",
             )
         ]
-        assert cleanup_stale_env("proj", "bravo") is False
+        store = InMemoryEnvStore()
+        assert cleanup_stale_env(store, "proj", "bravo") is False
         mock_remove.assert_not_called()
 
     @patch("maelstrom.env.get_env_status", return_value=None)
     def test_no_state(self, mock_status):
         """Returns False when no state file exists."""
-        assert cleanup_stale_env("proj", "bravo") is False
+        store = InMemoryEnvStore()
+        assert cleanup_stale_env(store, "proj", "bravo") is False
 
 
 class TestListProjectEnvs:
@@ -665,47 +674,42 @@ class TestListProjectEnvs:
             ],
         )
 
-    @patch("maelstrom.env.get_maelstrom_dir")
     @patch("maelstrom.env.is_service_alive", return_value=True)
-    def test_lists_running_envs(self, mock_alive, mock_dir, tmp_path):
+    def test_lists_running_envs(self, mock_alive):
         """Returns states for running environments."""
-        mock_dir.return_value = tmp_path
+        store = InMemoryEnvStore()
         state = self._make_state("proj", "alpha")
-        save_env_state(state)
+        save_env_state(store, state)
         state2 = self._make_state("proj", "bravo", pid=200)
-        save_env_state(state2)
+        save_env_state(store, state2)
 
-        result = list_project_envs("proj")
+        result = list_project_envs(store, "proj")
         assert len(result) == 2
         worktrees = [s.worktree for s in result]
         assert "alpha" in worktrees
         assert "bravo" in worktrees
 
-    @patch("maelstrom.env.get_maelstrom_dir")
-    def test_empty_project_dir(self, mock_dir, tmp_path):
+    def test_empty_project_dir(self):
         """Returns empty list for project with no env files."""
-        mock_dir.return_value = tmp_path
-        (tmp_path / "envs" / "proj").mkdir(parents=True)
-        assert list_project_envs("proj") == []
+        store = InMemoryEnvStore()
+        assert list_project_envs(store, "proj") == []
 
-    @patch("maelstrom.env.get_maelstrom_dir")
-    def test_nonexistent_project(self, mock_dir, tmp_path):
+    def test_nonexistent_project(self):
         """Returns empty list for nonexistent project dir."""
-        mock_dir.return_value = tmp_path
-        assert list_project_envs("noproject") == []
+        store = InMemoryEnvStore()
+        assert list_project_envs(store, "noproject") == []
 
-    @patch("maelstrom.env.get_maelstrom_dir")
     @patch("maelstrom.env.is_service_alive", return_value=False)
-    def test_stale_cleanup_during_listing(self, mock_alive, mock_dir, tmp_path):
+    def test_stale_cleanup_during_listing(self, mock_alive):
         """Stale envs are cleaned up and excluded from results."""
-        mock_dir.return_value = tmp_path
+        store = InMemoryEnvStore()
         state = self._make_state("proj", "alpha")
-        save_env_state(state)
+        save_env_state(store, state)
 
-        result = list_project_envs("proj")
+        result = list_project_envs(store, "proj")
         assert result == []
-        # State file should have been cleaned up
-        assert not (tmp_path / "envs" / "proj" / "alpha.json").exists()
+        # State entry should have been cleaned up
+        assert not store.exists("proj/alpha.json")
 
 
 class TestListAllEnvs:
@@ -725,24 +729,22 @@ class TestListAllEnvs:
             ],
         )
 
-    @patch("maelstrom.env.get_maelstrom_dir")
     @patch("maelstrom.env.is_service_alive", return_value=True)
-    def test_lists_across_projects(self, mock_alive, mock_dir, tmp_path):
+    def test_lists_across_projects(self, mock_alive):
         """Returns states from multiple projects."""
-        mock_dir.return_value = tmp_path
-        save_env_state(self._make_state("projA", "alpha", pid=100))
-        save_env_state(self._make_state("projB", "bravo", pid=200))
+        store = InMemoryEnvStore()
+        save_env_state(store, self._make_state("projA", "alpha", pid=100))
+        save_env_state(store, self._make_state("projB", "bravo", pid=200))
 
-        result = list_all_envs()
+        result = list_all_envs(store)
         assert len(result) == 2
         projects = {s.project for s in result}
         assert projects == {"projA", "projB"}
 
-    @patch("maelstrom.env.get_maelstrom_dir")
-    def test_empty_state_dir(self, mock_dir, tmp_path):
+    def test_empty_state_dir(self):
         """Returns empty list when no envs dir exists."""
-        mock_dir.return_value = tmp_path
-        assert list_all_envs() == []
+        store = InMemoryEnvStore()
+        assert list_all_envs(store) == []
 
 
 class TestStopAllEnvs:
@@ -771,13 +773,14 @@ class TestStopAllEnvs:
             ["app (pid 200): stopped"],
         ]
 
-        results = stop_all_envs()
+        store = InMemoryEnvStore()
+        results = stop_all_envs(store)
         assert len(results) == 2
         assert results[0] == ("projA", "alpha", ["web (pid 100): stopped"])
         assert results[1] == ("projB", "bravo", ["app (pid 200): stopped"])
         assert mock_stop.call_args_list == [
-            call("projA", "alpha", timeout=10.0),
-            call("projB", "bravo", timeout=10.0),
+            call(store, "projA", "alpha", timeout=10.0),
+            call(store, "projB", "bravo", timeout=10.0),
         ]
 
     @patch("maelstrom.env.stop_env")
@@ -785,7 +788,8 @@ class TestStopAllEnvs:
     def test_no_envs(self, mock_list, mock_stop):
         """Returns empty list when no environments running."""
         mock_list.return_value = []
-        results = stop_all_envs()
+        store = InMemoryEnvStore()
+        results = stop_all_envs(store)
         assert results == []
         mock_stop.assert_not_called()
 
@@ -870,7 +874,8 @@ class TestGetLogFiles:
                 )
             ],
         )
-        result = get_log_files("proj", "bravo")
+        store = InMemoryEnvStore()
+        result = get_log_files(store, "proj", "bravo")
         assert result == {"web": log_file}
 
     @patch("maelstrom.env._get_log_dir")
@@ -883,7 +888,8 @@ class TestGetLogFiles:
         (log_dir / "worker.log").write_text("worker logs")
         mock_log_dir.return_value = log_dir
 
-        result = get_log_files("proj", "bravo")
+        store = InMemoryEnvStore()
+        result = get_log_files(store, "proj", "bravo")
         assert set(result.keys()) == {"web", "worker"}
 
     @patch("maelstrom.env._get_log_dir")
@@ -891,7 +897,8 @@ class TestGetLogFiles:
     def test_no_state_no_dir(self, mock_load, mock_log_dir, tmp_path):
         """Returns empty dict when no state and no log dir."""
         mock_log_dir.return_value = tmp_path / "nonexistent"
-        result = get_log_files("proj", "bravo")
+        store = InMemoryEnvStore()
+        result = get_log_files(store, "proj", "bravo")
         assert result == {}
 
     @patch("maelstrom.env._get_log_dir")
@@ -901,7 +908,8 @@ class TestGetLogFiles:
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
         mock_log_dir.return_value = log_dir
-        result = get_log_files("proj", "bravo")
+        store = InMemoryEnvStore()
+        result = get_log_files(store, "proj", "bravo")
         assert result == {}
 
     @patch("maelstrom.env._get_log_dir")
@@ -926,7 +934,8 @@ class TestGetLogFiles:
         (log_dir / "web.log").write_text("fallback logs")
         mock_log_dir.return_value = log_dir
 
-        result = get_log_files("proj", "bravo")
+        store = InMemoryEnvStore()
+        result = get_log_files(store, "proj", "bravo")
         assert "web" in result
 
 
@@ -971,7 +980,8 @@ class TestReadServiceLogs:
         log.write_text("request 1\nrequest 2\n")
         mock_files.return_value = {"web": log, "worker": tmp_path / "worker.log"}
 
-        result = read_service_logs("proj", "bravo", service="web")
+        store = InMemoryEnvStore()
+        result = read_service_logs(store, "proj", "bravo", service="web")
         assert all(name == "web" for name, _ in result)
         assert len(result) == 2
 
@@ -984,7 +994,8 @@ class TestReadServiceLogs:
         worker_log.write_text("worker line\n")
         mock_files.return_value = {"web": web_log, "worker": worker_log}
 
-        result = read_service_logs("proj", "bravo")
+        store = InMemoryEnvStore()
+        result = read_service_logs(store, "proj", "bravo")
         names = [name for name, _ in result]
         assert "web" in names
         assert "worker" in names
@@ -993,15 +1004,17 @@ class TestReadServiceLogs:
     def test_service_not_found(self, mock_files, tmp_path):
         """Raises ValueError for unknown service."""
         mock_files.return_value = {"web": tmp_path / "web.log"}
+        store = InMemoryEnvStore()
         with pytest.raises(ValueError, match="Service 'db' not found"):
-            read_service_logs("proj", "bravo", service="db")
+            read_service_logs(store, "proj", "bravo", service="db")
 
     @patch("maelstrom.env.get_log_files")
     def test_no_logs(self, mock_files):
         """Raises ValueError when no logs exist."""
         mock_files.return_value = {}
+        store = InMemoryEnvStore()
         with pytest.raises(ValueError, match="No logs found"):
-            read_service_logs("proj", "bravo")
+            read_service_logs(store, "proj", "bravo")
 
 
 # --- Shared Services Tests ---
@@ -1047,13 +1060,12 @@ class TestSharedEnvStateRoundTrip:
             subscribers=["alpha", "bravo"],
         )
 
-    @patch("maelstrom.env.get_maelstrom_dir")
-    def test_save_and_load(self, mock_dir, tmp_path):
+    def test_save_and_load(self):
         """Shared state round-trips through save/load."""
-        mock_dir.return_value = tmp_path
+        store = InMemoryEnvStore()
         state = self._make_shared_state()
-        save_shared_state(state)
-        loaded = load_shared_state("myproject")
+        save_shared_state(store, state)
+        loaded = load_shared_state(store, "myproject")
         assert loaded is not None
         assert loaded.project == state.project
         assert loaded.worktree_path == state.worktree_path
@@ -1062,37 +1074,32 @@ class TestSharedEnvStateRoundTrip:
         assert loaded.services[0].name == "db-shared"
         assert loaded.subscribers == ["alpha", "bravo"]
 
-    @patch("maelstrom.env.get_maelstrom_dir")
-    def test_load_missing(self, mock_dir, tmp_path):
+    def test_load_missing(self):
         """Returns None for missing shared state."""
-        mock_dir.return_value = tmp_path
-        assert load_shared_state("noproject") is None
+        store = InMemoryEnvStore()
+        assert load_shared_state(store, "noproject") is None
 
-    @patch("maelstrom.env.get_maelstrom_dir")
-    def test_load_corrupt(self, mock_dir, tmp_path):
+    def test_load_corrupt(self, tmp_path):
         """Returns None for corrupt JSON."""
-        mock_dir.return_value = tmp_path
-        state_dir = tmp_path / "envs" / "myproject"
+        store = JsonEnvStore(root=tmp_path)
+        state_dir = tmp_path / "myproject"
         state_dir.mkdir(parents=True)
         (state_dir / "_shared.json").write_text("not valid json{{{")
-        assert load_shared_state("myproject") is None
+        assert load_shared_state(store, "myproject") is None
 
-    @patch("maelstrom.env.get_maelstrom_dir")
-    def test_remove(self, mock_dir, tmp_path):
-        """Shared state file is deleted by remove_shared_state."""
-        mock_dir.return_value = tmp_path
+    def test_remove(self):
+        """Shared state entry is deleted by remove_shared_state."""
+        store = InMemoryEnvStore()
         state = self._make_shared_state()
-        save_shared_state(state)
-        path = tmp_path / "envs" / "myproject" / "_shared.json"
-        assert path.exists()
-        remove_shared_state("myproject")
-        assert not path.exists()
+        save_shared_state(store, state)
+        assert store.exists("myproject/_shared.json")
+        remove_shared_state(store, "myproject")
+        assert not store.exists("myproject/_shared.json")
 
-    @patch("maelstrom.env.get_maelstrom_dir")
-    def test_remove_nonexistent(self, mock_dir, tmp_path):
-        """remove_shared_state is a no-op if file doesn't exist."""
-        mock_dir.return_value = tmp_path
-        remove_shared_state("noproject")  # should not raise
+    def test_remove_nonexistent(self):
+        """remove_shared_state is a no-op if entry doesn't exist."""
+        store = InMemoryEnvStore()
+        remove_shared_state(store, "noproject")  # should not raise
 
 
 class TestGetSharedStatus:
@@ -1116,7 +1123,8 @@ class TestGetSharedStatus:
         )
         mock_alive.return_value = True
 
-        result = get_shared_status("proj")
+        store = InMemoryEnvStore()
+        result = get_shared_status(store, "proj")
         assert result is not None
         assert len(result) == 1
         assert result[0].name == "db-shared"
@@ -1125,7 +1133,8 @@ class TestGetSharedStatus:
     @patch("maelstrom.env.load_shared_state", return_value=None)
     def test_none_when_no_state(self, mock_load):
         """Returns None when no shared state exists."""
-        assert get_shared_status("proj") is None
+        store = InMemoryEnvStore()
+        assert get_shared_status(store, "proj") is None
 
 
 class TestCleanupStaleShared:
@@ -1148,8 +1157,9 @@ class TestCleanupStaleShared:
             ],
             subscribers=["alpha"],
         )
-        assert cleanup_stale_shared("proj") is True
-        mock_remove.assert_called_once_with("proj")
+        store = InMemoryEnvStore()
+        assert cleanup_stale_shared(store, "proj") is True
+        mock_remove.assert_called_once_with(store, "proj")
 
     @patch("maelstrom.env.remove_shared_state")
     @patch("maelstrom.env.is_service_alive", return_value=True)
@@ -1168,13 +1178,15 @@ class TestCleanupStaleShared:
             ],
             subscribers=["alpha"],
         )
-        assert cleanup_stale_shared("proj") is False
+        store = InMemoryEnvStore()
+        assert cleanup_stale_shared(store, "proj") is False
         mock_remove.assert_not_called()
 
     @patch("maelstrom.env.load_shared_state", return_value=None)
     def test_no_state(self, mock_load):
         """Returns False when no shared state exists."""
-        assert cleanup_stale_shared("proj") is False
+        store = InMemoryEnvStore()
+        assert cleanup_stale_shared(store, "proj") is False
 
 
 class TestStartEnvShared:
@@ -1219,7 +1231,8 @@ class TestStartEnvShared:
         mock_proc.pid = 42
         mock_popen.return_value = mock_proc
 
-        state = start_env("proj", "bravo", Path("/project/bravo"))
+        store = InMemoryEnvStore()
+        state = start_env(store, "proj", "bravo", Path("/project/bravo"))
 
         # Local state should only contain non-shared services
         assert len(state.services) == 1
@@ -1227,7 +1240,7 @@ class TestStartEnvShared:
 
         # Shared state should have been saved with the shared service
         mock_shared_save.assert_called_once()
-        shared_state = mock_shared_save.call_args[0][0]
+        shared_state = mock_shared_save.call_args[0][1]
         assert len(shared_state.services) == 1
         assert shared_state.services[0].name == "db-shared"
         assert shared_state.subscribers == ["bravo"]
@@ -1282,7 +1295,8 @@ class TestStartEnvShared:
         mock_proc.pid = 42
         mock_popen.return_value = mock_proc
 
-        state = start_env("proj", "bravo", Path("/project/bravo"))
+        store = InMemoryEnvStore()
+        state = start_env(store, "proj", "bravo", Path("/project/bravo"))
 
         # Only local service should be spawned (1 Popen call for "web")
         assert mock_popen.call_count == 1
@@ -1290,7 +1304,7 @@ class TestStartEnvShared:
 
         # Shared state should be updated with bravo as subscriber
         mock_shared_save.assert_called_once()
-        saved = mock_shared_save.call_args[0][0]
+        saved = mock_shared_save.call_args[0][1]
         assert saved.subscribers == ["alpha", "bravo"]
 
 
@@ -1332,7 +1346,8 @@ class TestStopEnvShared:
             subscribers=["alpha", "bravo"],
         )
 
-        messages = stop_env("proj", "bravo")
+        store = InMemoryEnvStore()
+        messages = stop_env(store, "proj", "bravo")
         assert any("stopped" in m for m in messages)
         assert any("still used by 1" in m for m in messages)
         # Shared services should NOT be killed
@@ -1373,11 +1388,12 @@ class TestStopEnvShared:
             subscribers=["bravo"],
         )
 
-        messages = stop_env("proj", "bravo")
+        store = InMemoryEnvStore()
+        messages = stop_env(store, "proj", "bravo")
         # Both local and shared should be stopped
         assert any("web" in m and "stopped" in m for m in messages)
         assert any("db-shared" in m and "stopped" in m for m in messages)
-        mock_shared_remove.assert_called_once_with("proj")
+        mock_shared_remove.assert_called_once_with(store, "proj")
 
     @patch("maelstrom.env.load_shared_state", return_value=None)
     @patch("maelstrom.env.remove_env_state")
@@ -1400,7 +1416,8 @@ class TestStopEnvShared:
             ],
         )
 
-        messages = stop_env("proj", "bravo")
+        store = InMemoryEnvStore()
+        messages = stop_env(store, "proj", "bravo")
         assert any("stopped" in m for m in messages)
         assert not any("shared" in m for m in messages)
 
@@ -1408,14 +1425,13 @@ class TestStopEnvShared:
 class TestListProjectEnvsShared:
     """Tests for list_project_envs skipping shared state."""
 
-    @patch("maelstrom.env.get_maelstrom_dir")
     @patch("maelstrom.env.is_service_alive", return_value=True)
-    def test_skips_shared_state_file(self, mock_alive, mock_dir, tmp_path):
+    def test_skips_shared_state_file(self, mock_alive):
         """_shared.json is not returned as a worktree env."""
-        mock_dir.return_value = tmp_path
+        store = InMemoryEnvStore()
 
         # Save a regular env
-        save_env_state(EnvState(
+        save_env_state(store, EnvState(
             project="proj", worktree="alpha",
             worktree_path="/project/alpha",
             started_at="2025-01-01T00:00:00+00:00",
@@ -1428,7 +1444,7 @@ class TestListProjectEnvsShared:
         ))
 
         # Save shared state
-        save_shared_state(SharedEnvState(
+        save_shared_state(store, SharedEnvState(
             project="proj",
             worktree_path="/project/alpha",
             started_at="2025-01-01T00:00:00+00:00",
@@ -1441,7 +1457,7 @@ class TestListProjectEnvsShared:
             subscribers=["alpha"],
         ))
 
-        result = list_project_envs("proj")
+        result = list_project_envs(store, "proj")
         assert len(result) == 1
         assert result[0].worktree == "alpha"
 
@@ -1455,8 +1471,9 @@ class TestRegenerateAndRestartIfRunning:
     @patch("maelstrom.env.load_env_state", return_value=None)
     def test_when_stopped(self, mock_load, mock_regen, mock_stop, mock_start, tmp_path):
         """When env not running: regenerate .env, no stop/start, returns ([], None)."""
+        store = InMemoryEnvStore()
         result = regenerate_and_restart_if_running(
-            "proj", "bravo", tmp_path / "proj", tmp_path / "wt",
+            store, "proj", "bravo", tmp_path / "proj", tmp_path / "wt",
         )
         assert result == ([], None)
         mock_regen.assert_called_once_with(tmp_path / "proj", tmp_path / "wt", "bravo")
@@ -1497,16 +1514,17 @@ class TestRegenerateAndRestartIfRunning:
         )
         mock_start.return_value = new_state
 
+        store = InMemoryEnvStore()
         stop_messages, returned_state = regenerate_and_restart_if_running(
-            "proj", "bravo", tmp_path / "proj", tmp_path / "wt",
+            store, "proj", "bravo", tmp_path / "proj", tmp_path / "wt",
         )
 
         assert stop_messages == ["web (pid 100): stopped"]
         assert returned_state is new_state
-        mock_stop.assert_called_once_with("proj", "bravo")
+        mock_stop.assert_called_once_with(store, "proj", "bravo")
         mock_regen.assert_called_once_with(tmp_path / "proj", tmp_path / "wt", "bravo")
         mock_start.assert_called_once_with(
-            "proj", "bravo", tmp_path / "wt", skip_install=True,
+            store, "proj", "bravo", tmp_path / "wt", skip_install=True,
         )
 
     @patch("maelstrom.env.is_service_alive", return_value=False)
@@ -1533,8 +1551,9 @@ class TestRegenerateAndRestartIfRunning:
         )
         mock_load.return_value = state
 
+        store = InMemoryEnvStore()
         stop_messages, returned_state = regenerate_and_restart_if_running(
-            "proj", "bravo", tmp_path / "proj", tmp_path / "wt",
+            store, "proj", "bravo", tmp_path / "proj", tmp_path / "wt",
         )
 
         assert stop_messages == []

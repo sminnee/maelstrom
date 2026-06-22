@@ -105,6 +105,7 @@ def isolated_maelstrom(tmp_path, monkeypatch):
     fake_get_dir = lambda: maelstrom_dir
     monkeypatch.setattr("maelstrom.context.get_maelstrom_dir", fake_get_dir)
     monkeypatch.setattr("maelstrom.env.get_maelstrom_dir", fake_get_dir)
+    monkeypatch.setattr("maelstrom.env_store.get_maelstrom_dir", fake_get_dir)
 
     monkeypatch.setattr(
         "maelstrom.context.load_global_config",
@@ -127,6 +128,7 @@ def isolated_maelstrom_module(tmp_path_factory):
     fake_get_dir = lambda: maelstrom_dir
     mp.setattr("maelstrom.context.get_maelstrom_dir", fake_get_dir)
     mp.setattr("maelstrom.env.get_maelstrom_dir", fake_get_dir)
+    mp.setattr("maelstrom.env_store.get_maelstrom_dir", fake_get_dir)
     mp.setattr(
         "maelstrom.context.load_global_config",
         lambda: GlobalConfig(projects_dir=projects_dir),

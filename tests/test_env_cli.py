@@ -1,7 +1,7 @@
 """Tests for maelstrom.env_cli module."""
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from click.testing import CliRunner
 
@@ -76,7 +76,7 @@ class TestEnvStart:
         assert "running" in result.output
         assert "UPTIME:" in result.output
         mock_start.assert_called_once_with(
-            "proj", "bravo", ctx.worktree_path, skip_install=False,
+            ANY, "proj", "bravo", ctx.worktree_path, skip_install=False,
         )
 
     @patch("maelstrom.env_cli.get_app_url", return_value=None)
@@ -97,7 +97,7 @@ class TestEnvStart:
         result = runner.invoke(cli, ["env", "start", "--skip-install"])
         assert result.exit_code == 0
         mock_start.assert_called_once_with(
-            "proj", "bravo", ctx.worktree_path, skip_install=True,
+            ANY, "proj", "bravo", ctx.worktree_path, skip_install=True,
         )
 
     @patch("maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True))
@@ -496,7 +496,7 @@ class TestEnvLogs:
         runner = CliRunner()
         result = runner.invoke(cli, ["env", "logs", "-n", "50"])
         assert result.exit_code == 0
-        mock_read.assert_called_once_with("proj", "bravo", None, 50)
+        mock_read.assert_called_once_with(ANY, "proj", "bravo", None, 50)
 
     @patch("maelstrom.env_cli.read_service_logs")
     @patch("maelstrom.env_cli.resolve_context")
@@ -545,7 +545,7 @@ class TestEnvLogs:
         runner = CliRunner()
         result = runner.invoke(cli, ["env", "logs", "-f"])
         assert result.exit_code == 0
-        mock_follow.assert_called_once_with("proj", "bravo", None, False)
+        mock_follow.assert_called_once_with(ANY, "proj", "bravo", None, False)
 
 
 class TestEnvStatusShared:
@@ -651,9 +651,9 @@ class TestEnvRestart:
         result = runner.invoke(cli, ["env", "restart"])
         assert result.exit_code == 0
         assert "Environment stopped" in result.output
-        mock_stop.assert_called_once_with("proj", "bravo")
+        mock_stop.assert_called_once_with(ANY, "proj", "bravo")
         mock_start.assert_called_once_with(
-            "proj", "bravo", ctx.worktree_path, skip_install=True,
+            ANY, "proj", "bravo", ctx.worktree_path, skip_install=True,
         )
 
     @patch("maelstrom.env_cli.get_app_url", return_value=None)
@@ -678,7 +678,7 @@ class TestEnvRestart:
         result = runner.invoke(cli, ["env", "restart", "--install"])
         assert result.exit_code == 0
         mock_start.assert_called_once_with(
-            "proj", "bravo", ctx.worktree_path, skip_install=False,
+            ANY, "proj", "bravo", ctx.worktree_path, skip_install=False,
         )
 
     @patch("maelstrom.env_cli.env_status")
@@ -731,7 +731,7 @@ class TestEnvReset:
         assert result.exit_code == 0
         assert "Regenerated .env" in result.output
         mock_helper.assert_called_once_with(
-            "proj", "bravo", ctx.project_path, ctx.worktree_path,
+            ANY, "proj", "bravo", ctx.project_path, ctx.worktree_path,
         )
 
     @patch("maelstrom.env_cli.get_app_url", return_value=None)
@@ -756,7 +756,7 @@ class TestEnvReset:
         assert "Environment stopped" in result.output
         assert "Regenerated .env" in result.output
         mock_helper.assert_called_once_with(
-            "proj", "bravo", ctx.project_path, ctx.worktree_path,
+            ANY, "proj", "bravo", ctx.project_path, ctx.worktree_path,
         )
 
     @patch("maelstrom.env_cli.regenerate_and_restart_if_running", return_value=([], None))
