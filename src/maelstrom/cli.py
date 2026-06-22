@@ -30,6 +30,7 @@ from .env_cli import (
     _ensure_cmux_browser,
     _print_service_status,
     env as env_cli,
+    make_store,
     print_copy_back_result,
 )
 from .git_cli import git as git_cli
@@ -241,7 +242,7 @@ def cmd_add(branch, project, open, no_recycle):
         print_copy_back_result(copy_back, project_path)
         try:
             stop_messages, new_state = regenerate_and_restart_if_running(
-                ctx.project, wt_name, project_path, worktree_path,
+                make_store(), ctx.project, wt_name, project_path, worktree_path,
             )
         except RuntimeError as e:
             raise click.ClickException(str(e))
@@ -329,10 +330,11 @@ def cmd_remove(targets, force):
         # Stop running environment if any
         project_name = ctx.project
         assert project_name is not None
-        env_status = get_env_status(project_name, worktree_name)
+        env_store = make_store()
+        env_status = get_env_status(env_store, project_name, worktree_name)
         if env_status and any(s.alive for s in env_status):
             click.echo(f"Stopping environment for '{worktree_name}'...")
-            for msg in stop_env(project_name, worktree_name):
+            for msg in stop_env(env_store, project_name, worktree_name):
                 click.echo(f"  {msg}")
 
         click.echo(f"Removing worktree '{worktree_name}'...")
@@ -773,10 +775,11 @@ def cmd_close(targets, wait, timeout, interval):
                 continue
 
         # Stop running environment if any
-        env_status = get_env_status(ctx.project, ctx.worktree)
+        env_store = make_store()
+        env_status = get_env_status(env_store, ctx.project, ctx.worktree)
         if env_status and any(s.alive for s in env_status):
             click.echo(f"Stopping environment for '{ctx.worktree}'...")
-            for msg in stop_env(ctx.project, ctx.worktree):
+            for msg in stop_env(env_store, ctx.project, ctx.worktree):
                 click.echo(f"  {msg}")
 
         # Rescue any vars added to this worktree's .env back to the parent before
