@@ -4,7 +4,6 @@ Manages starting, stopping, and monitoring development services
 defined in Procfiles or via start_cmd configuration.
 """
 
-import json
 import os
 import signal
 import time
@@ -15,6 +14,7 @@ from subprocess import DEVNULL, STDOUT, Popen
 
 from maelstrom.config import load_config_or_default
 from maelstrom.context import get_maelstrom_dir
+from maelstrom.env_store import EnvStore
 from maelstrom.util import now_iso
 from maelstrom.worktree import read_env_file, regenerate_env_file, run_install_cmd
 
@@ -135,14 +135,9 @@ def get_services(worktree_path: Path) -> list[ProcfileEntry]:
 # --- State File Persistence ---
 
 
-def get_state_dir() -> Path:
-    """Return the directory for environment state files."""
-    return get_maelstrom_dir() / "envs"
-
-
-def _get_state_path(project: str, worktree: str) -> Path:
-    """Return the path to a specific environment state file."""
-    return get_state_dir() / project / f"{worktree}.json"
+def _env_key(project: str, worktree: str) -> str:
+    """Build the store key for a worktree's environment state."""
+    return f"{project}/{worktree}.json"
 
 
 def _get_log_dir(project: str, worktree: str) -> Path:
@@ -150,17 +145,15 @@ def _get_log_dir(project: str, worktree: str) -> Path:
     return get_maelstrom_dir() / "logs" / project / worktree
 
 
-def load_env_state(project: str, worktree: str) -> EnvState | None:
-    """Load environment state from disk.
+def load_env_state(store: EnvStore, project: str, worktree: str) -> EnvState | None:
+    """Load environment state from the store.
 
-    Returns None if the state file is missing or corrupt.
+    Returns None if the state is missing or corrupt.
     """
-    path = _get_state_path(project, worktree)
-    if not path.exists():
+    data = store.read(_env_key(project, worktree))
+    if data is None:
         return None
     try:
-        with open(path) as f:
-            data = json.load(f)
         return EnvState(
             project=data["project"],
             worktree=data["worktree"],
@@ -169,23 +162,18 @@ def load_env_state(project: str, worktree: str) -> EnvState | None:
             services=[ServiceState(**s) for s in data["services"]],
             cmux_browser_surface=data.get("cmux_browser_surface"),
         )
-    except (json.JSONDecodeError, KeyError, TypeError, OSError):
+    except (KeyError, TypeError):
         return None
 
 
-def save_env_state(state: EnvState) -> None:
-    """Write environment state to disk."""
-    path = _get_state_path(state.project, state.worktree)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(asdict(state), f, indent=2, sort_keys=True)
+def save_env_state(store: EnvStore, state: EnvState) -> None:
+    """Write environment state through the store."""
+    store.write(_env_key(state.project, state.worktree), asdict(state))
 
 
-def remove_env_state(project: str, worktree: str) -> None:
-    """Delete an environment state file if it exists."""
-    path = _get_state_path(project, worktree)
-    if path.exists():
-        path.unlink()
+def remove_env_state(store: EnvStore, project: str, worktree: str) -> None:
+    """Delete an environment state entry if it exists."""
+    store.delete(_env_key(project, worktree))
 
 
 # --- Shared State Persistence ---
@@ -193,9 +181,9 @@ def remove_env_state(project: str, worktree: str) -> None:
 SHARED_STATE_FILENAME = "_shared.json"
 
 
-def _get_shared_state_path(project: str) -> Path:
-    """Return the path to the shared services state file."""
-    return get_state_dir() / project / SHARED_STATE_FILENAME
+def _shared_key(project: str) -> str:
+    """Build the store key for a project's shared services state."""
+    return f"{project}/{SHARED_STATE_FILENAME}"
 
 
 def _get_shared_log_dir(project: str) -> Path:
@@ -203,17 +191,15 @@ def _get_shared_log_dir(project: str) -> Path:
     return get_maelstrom_dir() / "logs" / project / "_shared"
 
 
-def load_shared_state(project: str) -> SharedEnvState | None:
-    """Load shared services state from disk.
+def load_shared_state(store: EnvStore, project: str) -> SharedEnvState | None:
+    """Load shared services state from the store.
 
-    Returns None if the state file is missing or corrupt.
+    Returns None if the state is missing or corrupt.
     """
-    path = _get_shared_state_path(project)
-    if not path.exists():
+    data = store.read(_shared_key(project))
+    if data is None:
         return None
     try:
-        with open(path) as f:
-            data = json.load(f)
         return SharedEnvState(
             project=data["project"],
             worktree_path=data["worktree_path"],
@@ -221,23 +207,18 @@ def load_shared_state(project: str) -> SharedEnvState | None:
             services=[ServiceState(**s) for s in data["services"]],
             subscribers=data["subscribers"],
         )
-    except (json.JSONDecodeError, KeyError, TypeError, OSError):
+    except (KeyError, TypeError):
         return None
 
 
-def save_shared_state(state: SharedEnvState) -> None:
-    """Write shared services state to disk."""
-    path = _get_shared_state_path(state.project)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(asdict(state), f, indent=2, sort_keys=True)
+def save_shared_state(store: EnvStore, state: SharedEnvState) -> None:
+    """Write shared services state through the store."""
+    store.write(_shared_key(state.project), asdict(state))
 
 
-def remove_shared_state(project: str) -> None:
-    """Delete the shared services state file if it exists."""
-    path = _get_shared_state_path(project)
-    if path.exists():
-        path.unlink()
+def remove_shared_state(store: EnvStore, project: str) -> None:
+    """Delete the shared services state entry if it exists."""
+    store.delete(_shared_key(project))
 
 
 # --- Environment Building & Liveness ---
@@ -315,6 +296,7 @@ def _spawn_services(
 
 
 def _start_or_subscribe_shared(
+    store: EnvStore,
     project: str,
     worktree: str,
     worktree_path: Path,
@@ -326,14 +308,14 @@ def _start_or_subscribe_shared(
     if not shared_services:
         return
 
-    cleanup_stale_shared(project)
-    shared_state = load_shared_state(project)
+    cleanup_stale_shared(store, project)
+    shared_state = load_shared_state(store, project)
 
     if shared_state is not None:
         # Shared services already running — just subscribe
         if worktree not in shared_state.subscribers:
             shared_state.subscribers.append(worktree)
-            save_shared_state(shared_state)
+            save_shared_state(store, shared_state)
         return
 
     # Start shared services
@@ -349,10 +331,11 @@ def _start_or_subscribe_shared(
         services=service_states,
         subscribers=[worktree],
     )
-    save_shared_state(shared_state)
+    save_shared_state(store, shared_state)
 
 
 def start_env(
+    store: EnvStore,
     project: str,
     worktree: str,
     worktree_path: Path,
@@ -372,9 +355,9 @@ def start_env(
     Raises:
         RuntimeError: If services are already running, or no services defined.
     """
-    cleanup_stale_env(project, worktree)
+    cleanup_stale_env(store, project, worktree)
 
-    status = get_env_status(project, worktree)
+    status = get_env_status(store, project, worktree)
     if status is not None:
         alive = [s for s in status if s.alive]
         if alive:
@@ -395,7 +378,7 @@ def start_env(
 
     # Handle shared services
     _start_or_subscribe_shared(
-        project, worktree, worktree_path, shared_services, env, now,
+        store, project, worktree, worktree_path, shared_services, env, now,
     )
 
     # Start local services
@@ -411,7 +394,7 @@ def start_env(
         started_at=now,
         services=service_states,
     )
-    save_env_state(state)
+    save_env_state(store, state)
     return state
 
 
@@ -463,14 +446,14 @@ def _stop_services(
 
 
 def _unsubscribe_shared(
-    project: str, worktree: str, *, timeout: float = 10.0,
+    store: EnvStore, project: str, worktree: str, *, timeout: float = 10.0,
 ) -> list[str]:
     """Unsubscribe a worktree from shared services.
 
     If this was the last subscriber, stops the shared services.
     Returns a list of status messages.
     """
-    shared_state = load_shared_state(project)
+    shared_state = load_shared_state(store, project)
     if shared_state is None:
         return []
 
@@ -481,7 +464,7 @@ def _unsubscribe_shared(
 
     if shared_state.subscribers:
         # Other worktrees still using shared services
-        save_shared_state(shared_state)
+        save_shared_state(store, shared_state)
         remaining = len(shared_state.subscribers)
         return [f"Shared services still used by {remaining} other environment(s)"]
 
@@ -489,12 +472,12 @@ def _unsubscribe_shared(
     messages = _stop_services(
         shared_state.services, timeout=timeout, label="shared",
     )
-    remove_shared_state(project)
+    remove_shared_state(store, project)
     return messages
 
 
 def stop_env(
-    project: str, worktree: str, *, timeout: float = 10.0
+    store: EnvStore, project: str, worktree: str, *, timeout: float = 10.0
 ) -> list[str]:
     """Stop all services for a worktree environment.
 
@@ -504,25 +487,26 @@ def stop_env(
 
     Returns a list of status messages per service.
     """
-    state = load_env_state(project, worktree)
+    state = load_env_state(store, project, worktree)
     if state is None:
         # Still try to unsubscribe from shared services
-        shared_msgs = _unsubscribe_shared(project, worktree, timeout=timeout)
+        shared_msgs = _unsubscribe_shared(store, project, worktree, timeout=timeout)
         if not shared_msgs:
             return [f"No running environment for {project}/{worktree}"]
         return shared_msgs
 
     messages = _stop_services(state.services, timeout=timeout)
-    remove_env_state(project, worktree)
+    remove_env_state(store, project, worktree)
 
     # Handle shared services
-    shared_msgs = _unsubscribe_shared(project, worktree, timeout=timeout)
+    shared_msgs = _unsubscribe_shared(store, project, worktree, timeout=timeout)
     messages.extend(shared_msgs)
 
     return messages
 
 
 def regenerate_and_restart_if_running(
+    store: EnvStore,
     project: str,
     worktree: str,
     project_path: Path,
@@ -533,32 +517,34 @@ def regenerate_and_restart_if_running(
     Returns (stop_messages, new_state). new_state is None if the env was
     not running. stop_messages is empty if nothing was stopped.
     """
-    state = load_env_state(project, worktree)
+    state = load_env_state(store, project, worktree)
     was_running = state is not None and any(
         is_service_alive(s.pid) for s in state.services
     )
 
     stop_messages: list[str] = []
     if was_running:
-        stop_messages = stop_env(project, worktree)
+        stop_messages = stop_env(store, project, worktree)
 
     regenerate_env_file(project_path, worktree_path, worktree)
 
     if was_running:
-        new_state = start_env(project, worktree, worktree_path, skip_install=True)
+        new_state = start_env(
+            store, project, worktree, worktree_path, skip_install=True
+        )
         return stop_messages, new_state
 
     return stop_messages, None
 
 
 def get_env_status(
-    project: str, worktree: str
+    store: EnvStore, project: str, worktree: str
 ) -> list[ServiceStatus] | None:
     """Get the live status of all services in an environment.
 
     Returns None if no state file exists.
     """
-    state = load_env_state(project, worktree)
+    state = load_env_state(store, project, worktree)
     if state is None:
         return None
 
@@ -575,28 +561,28 @@ def get_env_status(
     ]
 
 
-def cleanup_stale_env(project: str, worktree: str) -> bool:
+def cleanup_stale_env(store: EnvStore, project: str, worktree: str) -> bool:
     """Remove state file if all tracked processes are dead.
 
     Returns True if stale state was cleaned up, False otherwise.
     """
-    status = get_env_status(project, worktree)
+    status = get_env_status(store, project, worktree)
     if status is None:
         return False
 
     if all(not s.alive for s in status):
-        remove_env_state(project, worktree)
+        remove_env_state(store, project, worktree)
         return True
 
     return False
 
 
-def get_shared_status(project: str) -> list[ServiceStatus] | None:
+def get_shared_status(store: EnvStore, project: str) -> list[ServiceStatus] | None:
     """Get the live status of shared services for a project.
 
     Returns None if no shared state file exists.
     """
-    state = load_shared_state(project)
+    state = load_shared_state(store, project)
     if state is None:
         return None
 
@@ -613,17 +599,17 @@ def get_shared_status(project: str) -> list[ServiceStatus] | None:
     ]
 
 
-def cleanup_stale_shared(project: str) -> bool:
+def cleanup_stale_shared(store: EnvStore, project: str) -> bool:
     """Remove shared state if all tracked shared processes are dead.
 
     Returns True if stale state was cleaned up, False otherwise.
     """
-    state = load_shared_state(project)
+    state = load_shared_state(store, project)
     if state is None:
         return False
 
     if all(not is_service_alive(s.pid) for s in state.services):
-        remove_shared_state(project)
+        remove_shared_state(store, project)
         return True
 
     return False
@@ -632,61 +618,58 @@ def cleanup_stale_shared(project: str) -> bool:
 # --- Listing & Utilities ---
 
 
-def list_project_envs(project: str) -> list[EnvState]:
+def list_project_envs(store: EnvStore, project: str) -> list[EnvState]:
     """List all running environments for a project.
 
-    Iterates state files in ~/.maelstrom/envs/<project>/, cleans up stale
-    entries, and returns the remaining live states.
+    Enumerates state keys under ``<project>/``, cleans up stale entries, and
+    returns the remaining live states.
     """
-    project_dir = get_state_dir() / project
-    if not project_dir.is_dir():
-        return []
-
     results = []
-    for state_file in sorted(project_dir.glob("*.json")):
-        if state_file.name == SHARED_STATE_FILENAME:
+    for key in sorted(store.list_dir(f"{project}/")):
+        filename = key.split("/")[-1]
+        if filename == SHARED_STATE_FILENAME:
             continue
-        worktree = state_file.stem
-        cleanup_stale_env(project, worktree)
-        state = load_env_state(project, worktree)
+        worktree = filename.removesuffix(".json")
+        cleanup_stale_env(store, project, worktree)
+        state = load_env_state(store, project, worktree)
         if state is not None:
             results.append(state)
     return results
 
 
-def list_all_envs() -> list[EnvState]:
+def list_all_envs(store: EnvStore) -> list[EnvState]:
     """List all running environments across all projects."""
-    state_dir = get_state_dir()
-    if not state_dir.is_dir():
-        return []
-
+    projects = sorted({
+        key.split("/")[0] for key in store.list_dir("") if "/" in key
+    })
     results = []
-    for project_dir in sorted(state_dir.iterdir()):
-        if project_dir.is_dir():
-            results.extend(list_project_envs(project_dir.name))
+    for project in projects:
+        results.extend(list_project_envs(store, project))
     return results
 
 
-def stop_all_envs(*, timeout: float = 10.0) -> list[tuple[str, str, list[str]]]:
+def stop_all_envs(
+    store: EnvStore, *, timeout: float = 10.0
+) -> list[tuple[str, str, list[str]]]:
     """Stop all running environments across all projects.
 
     Returns a list of (project, worktree, messages) tuples.
     """
     results = []
-    for state in list_all_envs():
-        messages = stop_env(state.project, state.worktree, timeout=timeout)
+    for state in list_all_envs(store):
+        messages = stop_env(store, state.project, state.worktree, timeout=timeout)
         results.append((state.project, state.worktree, messages))
     return results
 
 
-def get_log_files(project: str, worktree: str) -> dict[str, Path]:
+def get_log_files(store: EnvStore, project: str, worktree: str) -> dict[str, Path]:
     """Get log file paths for an environment's services.
 
     First tries loading state to get paths from ServiceState.log_file,
     then falls back to scanning the log directory for *.log files.
     Returns {service_name: log_file_path}, empty dict if nothing found.
     """
-    state = load_env_state(project, worktree)
+    state = load_env_state(store, project, worktree)
     if state is not None:
         result = {}
         for svc in state.services:
@@ -716,6 +699,7 @@ def tail_log_file(log_path: Path, n: int = 100) -> list[str]:
 
 
 def read_service_logs(
+    store: EnvStore,
     project: str,
     worktree: str,
     service: str | None = None,
@@ -730,7 +714,7 @@ def read_service_logs(
     Raises:
         ValueError: If no logs found or service not recognized.
     """
-    log_files = get_log_files(project, worktree)
+    log_files = get_log_files(store, project, worktree)
     if not log_files:
         raise ValueError(f"No logs found for {project}/{worktree}")
 
