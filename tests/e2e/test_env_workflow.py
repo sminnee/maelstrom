@@ -15,9 +15,9 @@ from maelstrom.env import (
     load_shared_state,
     start_env,
     stop_env,
-    stop_all_envs,
 )
 from maelstrom.env_cli import env
+from maelstrom.env_store import JsonEnvStore
 
 from .conftest import assert_process_dead, wait_for, write_procfile
 
@@ -34,10 +34,11 @@ class TestSingleEnvWorkflow:
     def test_single_env_workflow(self, test_project, cli_runner):
         """Exercise the full env lifecycle in a single test."""
         proj = test_project
+        store = JsonEnvStore()
 
         # --- Phase 1: Start and verify ---
         state = start_env(
-            proj.project_name, proj.worktree_name,
+            store, proj.project_name, proj.worktree_name,
             proj.worktree_path, skip_install=True,
         )
         assert len(state.services) == 1
@@ -46,7 +47,7 @@ class TestSingleEnvWorkflow:
         assert is_service_alive(pid)
 
         # State file persisted
-        loaded = load_env_state(proj.project_name, proj.worktree_name)
+        loaded = load_env_state(store, proj.project_name, proj.worktree_name)
         assert loaded is not None
         assert loaded.services[0].pid == pid
 
@@ -68,15 +69,15 @@ class TestSingleEnvWorkflow:
         # --- Phase 3: Already-running check ---
         with pytest.raises(RuntimeError, match="already running"):
             start_env(
-                proj.project_name, proj.worktree_name,
+                store, proj.project_name, proj.worktree_name,
                 proj.worktree_path, skip_install=True,
             )
 
         # --- Phase 4: Stop and verify cleanup ---
-        messages = stop_env(proj.project_name, proj.worktree_name)
+        messages = stop_env(store, proj.project_name, proj.worktree_name)
         assert any("stopped" in m or "killed" in m for m in messages)
         assert_process_dead(pid)
-        assert load_env_state(proj.project_name, proj.worktree_name) is None
+        assert load_env_state(store, proj.project_name, proj.worktree_name) is None
 
         # --- Phase 5: Skip-install with failing install_cmd ---
         (proj.worktree_path / ".maelstrom.yaml").write_text(
@@ -84,11 +85,11 @@ class TestSingleEnvWorkflow:
         )
         write_procfile(proj.worktree_path, {"web": "sleep 3600"})
         state = start_env(
-            proj.project_name, proj.worktree_name,
+            store, proj.project_name, proj.worktree_name,
             proj.worktree_path, skip_install=True,
         )
         assert len(state.services) == 1
-        stop_env(proj.project_name, proj.worktree_name)
+        stop_env(store, proj.project_name, proj.worktree_name)
 
         # --- Phase 6: Multi-service with logs ---
         (proj.worktree_path / ".maelstrom.yaml").write_text("port_names: []\n")
@@ -97,7 +98,7 @@ class TestSingleEnvWorkflow:
             "worker": "sh -c 'echo worker-hello && sleep 3600'",
         })
         state = start_env(
-            proj.project_name, proj.worktree_name,
+            store, proj.project_name, proj.worktree_name,
             proj.worktree_path, skip_install=True,
         )
         assert len(state.services) == 2
@@ -134,7 +135,7 @@ class TestSingleEnvWorkflow:
         assert "not found" in result.output.lower() or "Not found" in result.output
 
         # Stop multi-service
-        stop_env(proj.project_name, proj.worktree_name)
+        stop_env(store, proj.project_name, proj.worktree_name)
         for p in pids:
             assert_process_dead(p)
 
@@ -143,7 +144,7 @@ class TestSingleEnvWorkflow:
             "counter": "sh -c 'for i in $(seq 1 20); do echo line$i; done && sleep 3600'",
         })
         start_env(
-            proj.project_name, proj.worktree_name,
+            store, proj.project_name, proj.worktree_name,
             proj.worktree_path, skip_install=True,
         )
         counter_log = log_dir / "counter.log"
@@ -154,12 +155,12 @@ class TestSingleEnvWorkflow:
         lines = [l for l in result.output.strip().splitlines() if l.strip()]
         assert len(lines) <= 5
 
-        stop_env(proj.project_name, proj.worktree_name)
+        stop_env(store, proj.project_name, proj.worktree_name)
 
         # --- Phase 8: Stop handles already-dead processes ---
         write_procfile(proj.worktree_path, {"web": "sleep 3600"})
         state = start_env(
-            proj.project_name, proj.worktree_name,
+            store, proj.project_name, proj.worktree_name,
             proj.worktree_path, skip_install=True,
         )
         pid = state.services[0].pid
@@ -171,9 +172,9 @@ class TestSingleEnvWorkflow:
             pass
         assert_process_dead(pid)
 
-        messages = stop_env(proj.project_name, proj.worktree_name)
+        messages = stop_env(store, proj.project_name, proj.worktree_name)
         assert any("stopped" in m or "killed" in m for m in messages)
-        assert load_env_state(proj.project_name, proj.worktree_name) is None
+        assert load_env_state(store, proj.project_name, proj.worktree_name) is None
 
         # --- Phase 9: Start/stop via CLI ---
         write_procfile(proj.worktree_path, {"web": "sleep 3600"})
@@ -201,6 +202,7 @@ class TestMultiEnvWorkflow:
         """Exercise multi-env lifecycle with shared services in a single test."""
         proj = test_project
         bravo_path = second_worktree
+        store = JsonEnvStore()
 
         # Set up shared services on both worktrees
         procfile = {"web": "sleep 3600", "db-shared": "sleep 3600"}
@@ -209,13 +211,13 @@ class TestMultiEnvWorkflow:
 
         # --- Phase 1: Start alpha, verify shared service ---
         state_alpha = start_env(
-            proj.project_name, "alpha",
+            store, proj.project_name, "alpha",
             proj.worktree_path, skip_install=True,
         )
         assert len(state_alpha.services) == 1  # Only local "web"
         assert state_alpha.services[0].name == "web"
 
-        shared = load_shared_state(proj.project_name)
+        shared = load_shared_state(store, proj.project_name)
         assert shared is not None
         assert len(shared.services) == 1
         assert shared.services[0].name == "db-shared"
@@ -225,12 +227,12 @@ class TestMultiEnvWorkflow:
 
         # --- Phase 2: Start bravo, verify shared NOT re-spawned ---
         state_bravo = start_env(
-            proj.project_name, "bravo",
+            store, proj.project_name, "bravo",
             bravo_path, skip_install=True,
         )
         assert len(state_bravo.services) == 1  # Only local "web"
 
-        shared = load_shared_state(proj.project_name)
+        shared = load_shared_state(store, proj.project_name)
         assert set(shared.subscribers) == {"alpha", "bravo"}
         assert shared.services[0].pid == shared_pid  # Same PID
 
@@ -241,17 +243,17 @@ class TestMultiEnvWorkflow:
         assert "bravo" in result.output
 
         # --- Phase 4: Stop alpha, shared survives ---
-        messages = stop_env(proj.project_name, "alpha")
+        messages = stop_env(store, proj.project_name, "alpha")
         assert is_service_alive(shared_pid)
-        shared = load_shared_state(proj.project_name)
+        shared = load_shared_state(store, proj.project_name)
         assert shared is not None
         assert shared.subscribers == ["bravo"]
         assert any("still used by" in m for m in messages)
 
         # --- Phase 5: Stop bravo, shared dies ---
-        stop_env(proj.project_name, "bravo")
+        stop_env(store, proj.project_name, "bravo")
         assert_process_dead(shared_pid)
-        assert load_shared_state(proj.project_name) is None
+        assert load_shared_state(store, proj.project_name) is None
 
         # --- Phase 6: List-all across multiple projects ---
         projects_dir = isolated_maelstrom.projects_dir
@@ -263,26 +265,26 @@ class TestMultiEnvWorkflow:
             write_procfile(wt, {"app": "sleep 3600"})
             (wt / ".maelstrom.yaml").write_text("port_names: []\n")
             (wt / ".env").write_text("WORKTREE=alpha\n")
-            start_env(extra_proj, "alpha", wt, skip_install=True)
+            start_env(store, extra_proj, "alpha", wt, skip_install=True)
 
         result = cli_runner.invoke(env, ["list-all"])
         assert result.exit_code == 0
         assert "proj1" in result.output
         assert "proj2" in result.output
 
-        stop_env("proj1", "alpha")
-        stop_env("proj2", "alpha")
+        stop_env(store, "proj1", "alpha")
+        stop_env(store, "proj2", "alpha")
 
         # --- Phase 7: Stop-all ---
         # Restart alpha and bravo
         write_procfile(proj.worktree_path, {"web": "sleep 3600"})
         write_procfile(bravo_path, {"web": "sleep 3600"})
         state1 = start_env(
-            proj.project_name, "alpha",
+            store, proj.project_name, "alpha",
             proj.worktree_path, skip_install=True,
         )
         state2 = start_env(
-            proj.project_name, "bravo",
+            store, proj.project_name, "bravo",
             bravo_path, skip_install=True,
         )
         pids = [state1.services[0].pid, state2.services[0].pid]

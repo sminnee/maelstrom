@@ -3,7 +3,7 @@
 import json
 import os
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import ANY, patch, MagicMock
 
 from click.testing import CliRunner
 
@@ -191,7 +191,7 @@ class TestRemoveMultiTarget:
                  patch.object(Path, "exists", return_value=True):
                 result = runner.invoke(cli, ["rm", "myproject.alpha"])
 
-            mock_stop.assert_called_once_with("myproject", "alpha")
+            mock_stop.assert_called_once_with(ANY, "myproject", "alpha")
             assert "Stopping environment" in result.output
 
     def test_rm_skips_stop_when_no_env(self):
@@ -289,7 +289,7 @@ class TestCloseMultiTarget:
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 result = runner.invoke(cli, ["close", "myproject.alpha"])
 
-            mock_stop.assert_called_once_with("myproject", "alpha")
+            mock_stop.assert_called_once_with(ANY, "myproject", "alpha")
             assert "Stopping environment" in result.output
 
     def test_close_skips_stop_when_no_env(self):
@@ -632,7 +632,7 @@ class TestCmdAddRecycle:
             result = runner.invoke(cli, ["add", "feat-x"])
             assert result.exit_code == 0, result.output
             helper.assert_called_once_with(
-                "proj", "bravo", project_path, worktree_path,
+                ANY, "proj", "bravo", project_path, worktree_path,
             )
             assert "Regenerated .env for proj/bravo." in result.output
 
