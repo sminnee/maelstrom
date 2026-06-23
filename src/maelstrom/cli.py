@@ -53,15 +53,17 @@ from .worktree import (
     get_worktree_dirty_files,
     is_worktree_closed,
     list_worktrees,
-    open_worktree,
     remove_worktree_by_path,
     run_git,
     run_install_cmd,
-    launch_claude_in_worktree,
     setup_worktree_for_branch,
     sync_worktree,
     tidy_branches,
     update_claude_local_md,
+)
+from .worktree_launcher import (
+    launch_claude_in_worktree,
+    open_worktree,
 )
 from .worktree_model import (
     MAIN_BRANCH,
