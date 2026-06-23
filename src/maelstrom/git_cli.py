@@ -12,6 +12,7 @@ from .worktree import (
     get_commits_ahead,
     get_current_branch,
     get_local_only_commits,
+    merge_to_main,
     squash_worktree,
 )
 from .worktree_model import MAIN_BRANCH
@@ -310,6 +311,48 @@ def git_squash(target):
 
     if result.success:
         click.echo(result.message)
+        return
+
+    if result.had_conflicts:
+        print_rebase_conflict_help(result)
+        raise SystemExit(1)
+
+    raise click.ClickException(result.message)
+
+
+@git.command("merge")
+@click.argument("target", required=False, default=None)
+@click.option(
+    "--close",
+    is_flag=True,
+    help="After merging, close the worktree and delete the feature branch",
+)
+@click.option(
+    "--no-squash",
+    is_flag=True,
+    help="Skip autosquashing fixup! commits during the rebase",
+)
+def git_merge(target, close, no_squash):
+    """Rebase the current branch onto main, fast-forward main to it, and push."""
+    try:
+        context = resolve_context(target, require_project=True, require_worktree=True)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    worktree_path = context.worktree_path
+    if worktree_path is None or not worktree_path.exists():
+        raise click.ClickException(f"Worktree not found at {worktree_path}")
+
+    branch = get_current_branch(worktree_path)
+    if branch == MAIN_BRANCH:
+        raise click.ClickException(f"Already on {MAIN_BRANCH}; nothing to merge")
+
+    result = merge_to_main(worktree_path, squash=not no_squash, close=close)
+
+    if result.success:
+        click.echo(result.message)
+        if result.push_message:
+            click.echo(result.push_message)
         return
 
     if result.had_conflicts:

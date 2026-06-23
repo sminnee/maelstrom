@@ -580,6 +580,93 @@ def sync_worktree(worktree_path: Path, skip_fetch: bool = False, squash: bool = 
     )
 
 
+def merge_to_main(worktree_path: Path, *, squash: bool = True, close: bool = False) -> SyncResult:
+    """Merge the current feature branch back into ``main`` for local workflows.
+
+    Rebases the branch onto an up-to-date ``origin/main`` (autosquashing
+    ``fixup!`` commits by default), fast-forwards local ``main`` to the rebased
+    branch tip, and pushes ``main`` to origin. With ``close=True`` it then tears
+    down the worktree and deletes the feature branch.
+
+    Built on the existing primitives — :func:`squash_worktree`,
+    :func:`close_worktree`, :func:`delete_branch` — so there are no new
+    subprocess idioms here.
+
+    Args:
+        worktree_path: Path to the feature worktree directory.
+        squash: If True, autosquash ``fixup!`` commits during the rebase.
+        close: If True, close the worktree and delete the feature branch
+            (local + remote) after the merge succeeds.
+
+    Returns:
+        SyncResult with status and message. On a rebase conflict the result
+        carries ``had_conflicts`` plus the merge-base/upstream SHAs for guidance.
+    """
+    worktree_path = worktree_path.resolve()
+    project_path = worktree_path.parent
+    branch = get_current_branch(worktree_path)
+
+    # 1. fetch + sync main + rebase/autosquash onto origin/main
+    result = squash_worktree(worktree_path, squash=squash)
+    if not result.success:
+        return result  # conflicts / fetch failure already populated
+
+    # 2. fast-forward local main to the rebased branch tip. main is not checked
+    #    out in the feature worktree, so manipulate the ref directly from the
+    #    project root (same approach as update_local_main).
+    branch_sha = run_git(["rev-parse", "HEAD"], cwd=worktree_path, quiet=True).stdout.strip()
+    run_git(["update-ref", f"refs/heads/{MAIN_BRANCH}", branch_sha], cwd=project_path)
+
+    # 3. push main (carries any local-only commits)
+    push = run_cmd(["git", "push", "origin", MAIN_BRANCH], cwd=project_path, check=False)
+    if push.returncode != 0:
+        return SyncResult(
+            success=False,
+            branch=branch,
+            message=f"Merged to local {MAIN_BRANCH} but push failed: {push.stderr or push.stdout}",
+        )
+
+    pushed, push_message = True, f"Pushed {MAIN_BRANCH} to origin"
+
+    # 4. optional teardown (close + delete branch together)
+    close_suffix = ""
+    if close:
+        close_result = close_worktree(worktree_path)
+        if not close_result.success:
+            return SyncResult(
+                success=False,
+                branch=branch,
+                message=f"Merged and pushed, but close failed: {close_result.message}",
+                pushed=pushed,
+                push_message=push_message,
+            )
+
+        # delete_branch uses check=False and never raises; a failed delete
+        # (local or remote) would otherwise leave an orphaned branch unreported.
+        local_deleted, remote_deleted = delete_branch(project_path, branch, delete_remote=True)
+        if not local_deleted:
+            return SyncResult(
+                success=False,
+                branch=branch,
+                message=f"Merged, pushed, and closed worktree, but failed to delete local branch {branch}",
+                pushed=pushed,
+                push_message=push_message,
+            )
+        close_suffix = (
+            " and closed worktree"
+            if remote_deleted
+            else f" and closed worktree (origin/{branch} not deleted)"
+        )
+
+    return SyncResult(
+        success=True,
+        branch=branch,
+        message=f"Merged {branch} into {MAIN_BRANCH}{close_suffix}",
+        pushed=pushed,
+        push_message=push_message,
+    )
+
+
 def close_worktree(worktree_path: Path) -> CloseResult:
     """Close a worktree by syncing and resetting to origin/main.
 
