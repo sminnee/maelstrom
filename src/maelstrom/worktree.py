@@ -352,6 +352,9 @@ class SyncResult:
     upstream_head: str | None = None  # SHA of origin/main
     pushed: bool = False  # Whether the branch was pushed to remote
     push_message: str | None = None  # Push status message
+    aborted: bool = False  # rebase aborted on conflict (--abort)
+    closed: bool = False  # branch was empty: deleted + worktree closed (--close)
+    deleted_remote: bool = False  # remote branch also deleted
 
 
 @dataclass
@@ -425,7 +428,12 @@ def find_closed_worktree(project_path: Path) -> WorktreeInfo | None:
     return None
 
 
-def squash_worktree(worktree_path: Path, skip_fetch: bool = False, squash: bool = True) -> SyncResult:
+def squash_worktree(
+    worktree_path: Path,
+    skip_fetch: bool = False,
+    squash: bool = True,
+    abort_on_conflict: bool = False,
+) -> SyncResult:
     """Fetch and rebase a worktree onto origin/main, optionally autosquashing
     ``fixup!`` commits.
 
@@ -438,6 +446,9 @@ def squash_worktree(worktree_path: Path, skip_fetch: bool = False, squash: bool 
             worktrees that share the same repo, where fetch was already done).
         squash: If True, autosquash ``fixup!`` commits into their targets while
             rebasing (``git rebase --autosquash``).
+        abort_on_conflict: If True, on a rebase conflict run ``git rebase --abort``
+            to restore the worktree to its pre-rebase state instead of leaving the
+            rebase in progress.
 
     Returns:
         SyncResult with status and message. On success ``pushed``/``push_message``
@@ -506,6 +517,25 @@ def squash_worktree(worktree_path: Path, skip_fetch: bool = False, squash: bool 
 
     if result.returncode != 0:
         # Rebase failed - likely conflicts
+        if abort_on_conflict:
+            run_cmd(
+                ["git", "rebase", "--abort"],
+                cwd=worktree_path,
+                quiet=True,
+                check=False,
+            )
+            return SyncResult(
+                success=False,
+                branch=branch,
+                message=(
+                    f"Rebase of {branch} onto origin/main hit conflicts; "
+                    "aborted and restored worktree to its previous state."
+                ),
+                had_conflicts=True,
+                aborted=True,
+                merge_base=merge_base,
+                upstream_head=upstream_head,
+            )
         return SyncResult(
             success=False,
             branch=branch,
@@ -522,7 +552,13 @@ def squash_worktree(worktree_path: Path, skip_fetch: bool = False, squash: bool 
     )
 
 
-def sync_worktree(worktree_path: Path, skip_fetch: bool = False, squash: bool = False) -> SyncResult:
+def sync_worktree(
+    worktree_path: Path,
+    skip_fetch: bool = False,
+    squash: bool = False,
+    abort_on_conflict: bool = False,
+    close_if_empty: bool = False,
+) -> SyncResult:
     """Sync a worktree by rebasing against origin/main, then pushing.
 
     Builds on :func:`squash_worktree` (the fetch + rebase primitive) and adds the
@@ -534,16 +570,71 @@ def sync_worktree(worktree_path: Path, skip_fetch: bool = False, squash: bool = 
             worktrees that share the same repo, where fetch was already done).
         squash: If True, autosquash ``fixup!`` commits into their targets while
             rebasing (``git rebase --autosquash``).
+        abort_on_conflict: If True, abort the rebase on conflict and restore the
+            worktree (passed through to :func:`squash_worktree`).
+        close_if_empty: If True and the branch is empty after a successful rebase
+            (HEAD == origin/main), delete the branch (local + remote) and close the
+            worktree instead of pushing.
 
     Returns:
         SyncResult with status and message.
     """
-    result = squash_worktree(worktree_path, skip_fetch=skip_fetch, squash=squash)
+    result = squash_worktree(
+        worktree_path,
+        skip_fetch=skip_fetch,
+        squash=squash,
+        abort_on_conflict=abort_on_conflict,
+    )
     if not result.success:
         return result  # conflicts / fetch failure already populated
 
     worktree_path = worktree_path.resolve()
     branch = result.branch
+
+    # If the branch is now empty (fully merged), close it out before any push so a
+    # local-only empty branch is never pushed to origin just to be deleted.
+    if close_if_empty and is_branch_merged(worktree_path, branch, base=f"origin/{MAIN_BRANCH}"):
+        project_path = worktree_path.parent
+        delete_remote = branch_exists_on_remote(project_path, branch)  # compute before detach
+        detach_result = _detach_and_free_ports(worktree_path)  # frees the branch + ports first
+        if not detach_result.success:
+            return SyncResult(success=False, branch=branch, message=detach_result.message)
+        # delete_branch uses check=False and never raises; an orphaned branch left
+        # behind by a failed delete must be reported, not silently claimed as deleted.
+        local_deleted, remote_deleted = delete_branch(project_path, branch, delete_remote=delete_remote)
+        if not local_deleted:
+            return SyncResult(
+                success=False,
+                branch=branch,
+                message=(
+                    f"{branch} is empty (merged into origin/main) and the worktree was closed, "
+                    f"but deleting the local branch failed; it may need removing by hand."
+                ),
+                closed=True,
+                deleted_remote=remote_deleted,
+            )
+        if delete_remote and not remote_deleted:
+            return SyncResult(
+                success=False,
+                branch=branch,
+                message=(
+                    f"{branch} is empty (merged into origin/main); deleted the local branch and "
+                    f"closed the worktree, but deleting origin/{branch} failed; it may need "
+                    f"removing by hand."
+                ),
+                closed=True,
+                deleted_remote=False,
+            )
+        msg = f"{branch} is empty (merged into origin/main); deleted branch"
+        msg += " (local + remote)" if remote_deleted else " (local)"
+        msg += " and closed worktree."
+        return SyncResult(
+            success=True,
+            branch=branch,
+            message=msg,
+            closed=True,
+            deleted_remote=remote_deleted,
+        )
 
     # Rebase succeeded - check if remote branch exists and push
     pushed = False
@@ -713,6 +804,15 @@ def close_worktree(worktree_path: Path) -> CloseResult:
             had_unpushed_commits=True,
         )
 
+    return _detach_and_free_ports(worktree_path)
+
+
+def _detach_and_free_ports(worktree_path: Path) -> CloseResult:
+    """Detach HEAD at origin/main and free the worktree's port allocation.
+
+    Shared tail of close_worktree() and the sync --close path. Assumes the caller
+    has already verified the worktree is safe to close (clean / empty).
+    """
     # Detach HEAD at origin/main to mark as closed
     # This avoids branch conflicts when the branch might be checked out elsewhere
     try:
