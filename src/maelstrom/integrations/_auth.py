@@ -1,17 +1,19 @@
 """Shared secret resolution for service integrations.
 
 The three integrations resolve their API keys through the same chain:
-environment variable → ``.env`` file walked upward from the cwd → the global
-``~/.maelstrom/config.yaml``. This module parameterizes that chain. It returns
+environment variable → ``.env`` file walked upward from the cwd (continuing past
+``.env`` files that lack the key) → the global ``~/.maelstrom/config.yaml``. The
+``.env`` files are parsed with the shared ``parse_env_text`` so values match the
+rest of the codebase. This module parameterizes that chain. It returns
 ``None`` when nothing is found — converting a missing key into a user-facing
 ``click.ClickException`` is the caller's job, so the help text stays per-service.
 """
 
 import os
-import re
 from pathlib import Path
 
 from ..context import load_global_config
+from ..worktree_model import parse_env_text
 
 
 def resolve_secret(env_name: str, *, config_attr: str) -> str | None:
@@ -28,39 +30,16 @@ def resolve_secret(env_name: str, *, config_attr: str) -> str | None:
     if value := os.environ.get(env_name):
         return value
 
-    # Find .env file in current directory or parents
+    # Walk up from the cwd, parsing each ``.env`` with the canonical parser.
+    # Continue past ``.env`` files that lack the key — the walk only ends when
+    # the key is found or we reach the filesystem root.
     current = Path.cwd()
     while current != current.parent:
         env_path = current / ".env"
         if env_path.exists():
-            content = env_path.read_text()
-            pattern = rf"^{re.escape(env_name)}\s*=\s*[\"']?([^\"'\n]+)[\"']?"
-            if match := re.search(pattern, content, re.MULTILINE):
-                return match.group(1)
-            break
+            env_vars = parse_env_text(env_path.read_text())
+            if env_name in env_vars:
+                return env_vars[env_name]
         current = current.parent
 
     return getattr(load_global_config(), config_attr)
-
-
-def get_env_var(name: str) -> str | None:
-    """Resolve an env var from ``os.environ`` or an upward ``.env`` walk.
-
-    Returns ``None`` when the variable is not set anywhere; unlike
-    :func:`resolve_secret` there is no global-config fallback.
-    """
-    if value := os.environ.get(name):
-        return value
-
-    current = Path.cwd()
-    while current != current.parent:
-        env_path = current / ".env"
-        if env_path.exists():
-            content = env_path.read_text()
-            pattern = rf"^{re.escape(name)}\s*=\s*[\"']?([^\"'\n]+)[\"']?"
-            if match := re.search(pattern, content, re.MULTILINE):
-                return match.group(1)
-            break
-        current = current.parent
-
-    return None
