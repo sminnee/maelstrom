@@ -675,7 +675,19 @@ def cmd_claude(target):
 @cli.command("sync")
 @click.argument("target", required=False, default=None)
 @click.option("--squash", is_flag=True, help="Autosquash fixup! commits while rebasing onto origin/main")
-def cmd_sync(target, squash):
+@click.option(
+    "--abort",
+    "abort",
+    is_flag=True,
+    help="On conflict, abort the rebase and restore the worktree instead of leaving it in progress",
+)
+@click.option(
+    "--close",
+    "close",
+    is_flag=True,
+    help="If the branch is empty after rebasing, delete it (local + remote) and close the worktree",
+)
+def cmd_sync(target, squash, abort, close):
     """Rebase worktree against origin/main."""
     try:
         ctx = resolve_context(
@@ -695,9 +707,12 @@ def cmd_sync(target, squash):
         click.echo(f"Syncing {ctx.worktree} with origin/main (autosquashing fixup! commits)...")
     else:
         click.echo(f"Syncing {ctx.worktree} with origin/main...")
-    result = sync_worktree(worktree_path, squash=squash)
+    result = sync_worktree(worktree_path, squash=squash, abort_on_conflict=abort, close_if_empty=close)
 
     if result.success:
+        if result.closed:
+            click.echo(result.message)
+            return
         click.echo(result.message)
         if result.push_message:
             click.echo(result.push_message)
@@ -705,6 +720,9 @@ def cmd_sync(target, squash):
 
     # Handle conflicts
     if result.had_conflicts:
+        if result.aborted:
+            click.echo(result.message, err=True)
+            raise SystemExit(1)
         print_rebase_conflict_help(result)
         raise SystemExit(1)
 
