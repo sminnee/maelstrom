@@ -391,3 +391,115 @@ class TestGitSquashCommand:
         result = runner.invoke(cli, ["git", "squash"])
         assert result.exit_code != 0
         assert "Failed to fetch from origin: boom" in result.output
+
+
+class TestGitMergeCommand:
+    """Integration tests for mael git merge command."""
+
+    def _mock_worktree_path(self):
+        wt = MagicMock()
+        wt.exists.return_value = True
+        return wt
+
+    @patch("maelstrom.git_cli.merge_to_main")
+    @patch("maelstrom.git_cli.get_current_branch")
+    @patch("maelstrom.git_cli.resolve_context")
+    def test_success_echoes_merge_and_push_messages(self, mock_ctx, mock_branch, mock_merge):
+        from maelstrom.worktree import SyncResult
+
+        mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
+        mock_branch.return_value = "feat/test"
+        mock_merge.return_value = SyncResult(
+            success=True,
+            branch="feat/test",
+            message="Merged feat/test into main",
+            pushed=True,
+            push_message="Pushed main to origin",
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["git", "merge"])
+        assert result.exit_code == 0
+        assert "Merged feat/test into main" in result.output
+        assert "Pushed main to origin" in result.output
+        # Defaults: squash on, close off.
+        _, kwargs = mock_merge.call_args
+        assert kwargs.get("squash") is True
+        assert kwargs.get("close") is False
+
+    @patch("maelstrom.git_cli.merge_to_main")
+    @patch("maelstrom.git_cli.get_current_branch")
+    @patch("maelstrom.git_cli.resolve_context")
+    def test_close_flag_passes_close_true(self, mock_ctx, mock_branch, mock_merge):
+        from maelstrom.worktree import SyncResult
+
+        mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
+        mock_branch.return_value = "feat/test"
+        mock_merge.return_value = SyncResult(
+            success=True,
+            branch="feat/test",
+            message="Merged feat/test into main and closed worktree",
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["git", "merge", "--close"])
+        assert result.exit_code == 0
+        _, kwargs = mock_merge.call_args
+        assert kwargs.get("close") is True
+
+    @patch("maelstrom.git_cli.merge_to_main")
+    @patch("maelstrom.git_cli.get_current_branch")
+    @patch("maelstrom.git_cli.resolve_context")
+    def test_no_squash_flag_passes_squash_false(self, mock_ctx, mock_branch, mock_merge):
+        from maelstrom.worktree import SyncResult
+
+        mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
+        mock_branch.return_value = "feat/test"
+        mock_merge.return_value = SyncResult(
+            success=True,
+            branch="feat/test",
+            message="Merged feat/test into main",
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["git", "merge", "--no-squash"])
+        assert result.exit_code == 0
+        _, kwargs = mock_merge.call_args
+        assert kwargs.get("squash") is False
+
+    @patch("maelstrom.git_cli.merge_to_main")
+    @patch("maelstrom.git_cli.get_current_branch")
+    @patch("maelstrom.git_cli.resolve_context")
+    def test_conflicts_print_guidance_and_exit_1(self, mock_ctx, mock_branch, mock_merge):
+        from maelstrom.worktree import SyncResult
+
+        mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
+        mock_branch.return_value = "feat/test"
+        mock_merge.return_value = SyncResult(
+            success=False,
+            branch="feat/test",
+            message="CONFLICT (content): Merge conflict in feature.txt",
+            had_conflicts=True,
+            merge_base="abc1234",
+            upstream_head="def5678",
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["git", "merge"])
+        assert result.exit_code == 1
+        assert "Rebase encountered conflicts." in result.output
+        assert "git log abc1234..def5678 --oneline" in result.output
+        assert "git rebase --continue" in result.output
+
+    @patch("maelstrom.git_cli.merge_to_main")
+    @patch("maelstrom.git_cli.get_current_branch")
+    @patch("maelstrom.git_cli.resolve_context")
+    def test_on_main_refuses_without_merging(self, mock_ctx, mock_branch, mock_merge):
+        mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
+        mock_branch.return_value = "main"
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["git", "merge"])
+        assert result.exit_code != 0
+        assert "nothing to merge" in result.output
+        mock_merge.assert_not_called()
