@@ -38,7 +38,8 @@ from .git_cli import print_rebase_conflict_help
 from .integrations.linear import linear
 from .integrations.sentry import sentry
 from .integrations.uptimerobot import uptimerobot
-from .claude_integration import install_claude_integration
+from .status_cli import status as status_cli
+from .admin_cli import cmd_install, cmd_self_update
 from .claude_sessions import get_active_ide_sessions
 from .table import draw_table
 from .worktree import (
@@ -81,57 +82,6 @@ def cli(ctx, output_json):
 
 
 # --- Core worktree commands ---
-
-
-@cli.command("install")
-@click.option("--no-monitor", is_flag=True, help="Skip installing the session-tracking MCP channel, hooks, and channel dependencies.")
-def cmd_install(no_monitor):
-    """Install maelstrom's Claude Code skills and hooks."""
-    messages = install_claude_integration(monitor=not no_monitor)
-    for msg in messages:
-        click.echo(msg)
-
-
-@cli.command("self-update")
-def cmd_self_update():
-    """Update maelstrom to the latest version from git."""
-    import subprocess
-
-    # Get the maelstrom package root directory
-    module_dir = Path(__file__).parent
-    repo_root = module_dir.parent.parent
-    git_dir = repo_root / ".git"
-
-    # Check if it's a git checkout
-    if not git_dir.exists():
-        raise click.ClickException(
-            "Cannot self-update: maelstrom is not installed from a git checkout. "
-            "Please reinstall from git or use your package manager to update."
-        )
-
-    # Run git pull
-    click.echo(f"Updating maelstrom from {repo_root}...")
-    try:
-        result = subprocess.run(
-            ["git", "pull"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        if result.stdout.strip():
-            click.echo(result.stdout)
-        if result.stderr.strip():
-            click.echo(result.stderr, err=True)
-    except subprocess.CalledProcessError as e:
-        raise click.ClickException(f"Git pull failed: {e.stderr or e.stdout or str(e)}")
-
-    click.echo("Updating Claude Code integration...")
-    messages = install_claude_integration()
-    for msg in messages:
-        click.echo(f"  {msg}")
-
-    click.echo("Update complete.")
 
 
 @cli.command("add-project")
@@ -1566,27 +1516,6 @@ def gh_show_code(target, committed, uncommitted):
         click.echo("No commits or uncommitted changes found.")
 
 
-# --- Status commands ---
-
-
-@cli.group()
-def status():
-    """Manage workspace status display."""
-
-
-@status.command("set")
-@click.argument("text")
-def status_set(text):
-    """Set the workspace status text."""
-    mael_layout.set_status(text)  # no-op outside cmux
-
-
-@status.command("clear")
-def status_clear():
-    """Clear the workspace status."""
-    mael_layout.clear_status()  # no-op outside cmux
-
-
 # --- Subcommand groups ---
 
 cli.add_command(cmd_review_prepare)
@@ -1599,6 +1528,9 @@ cli.add_command(session_cli)
 cli.add_command(session_channel_cmd)
 cli.add_command(task_cli)
 cli.add_command(schedule_group)
+cli.add_command(status_cli)
+cli.add_command(cmd_install)
+cli.add_command(cmd_self_update)
 
 
 def main(argv: list[str] | None = None) -> int:
