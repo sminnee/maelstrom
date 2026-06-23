@@ -647,10 +647,10 @@ class TestCmdAddRecycle:
                 helper_return=(["web (pid 100): stopped"], new_state),
             )
             ensure_browser = stack.enter_context(patch(
-                "maelstrom.cli._ensure_cmux_browser",
+                "maelstrom.cli.ensure_cmux_browser",
             ))
             print_status = stack.enter_context(patch(
-                "maelstrom.cli._print_service_status",
+                "maelstrom.cli.print_service_status",
             ))
 
             runner = CliRunner()

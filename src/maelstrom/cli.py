@@ -27,11 +27,11 @@ from .task_cli import task as task_cli
 from .schedule_launchd import schedule_group
 from .env import get_env_status, regenerate_and_restart_if_running, stop_env
 from .env_cli import (
-    _ensure_cmux_browser,
-    _print_service_status,
+    ensure_cmux_browser,
     env as env_cli,
     make_store,
     print_copy_back_result,
+    print_service_status,
 )
 from .git_cli import git as git_cli
 from .git_cli import print_rebase_conflict_help
@@ -255,8 +255,8 @@ def cmd_add(branch, project, open, no_recycle):
         click.echo(f"Regenerated .env for {ctx.project}/{wt_name}.")
 
         if new_state is not None:
-            _ensure_cmux_browser(new_state, project_path, wt_name)
-            _print_service_status(ctx.project, wt_name, project_path)
+            ensure_cmux_browser(new_state, project_path, wt_name)
+            print_service_status(ctx.project, wt_name, project_path)
     elif result.action == "created":
         click.echo(f"Worktree created at: {worktree_path}")
         click.echo(f"  → {ctx.project}/{wt_name} (created)")

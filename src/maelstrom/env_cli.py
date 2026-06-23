@@ -64,7 +64,7 @@ def print_copy_back_result(result: CopyBackResult, project_path: Path) -> None:
             click.echo(f"  +{c.key}={c.resolved_parent_value}", err=True)
 
 
-def _ensure_cmux_browser(state: EnvState, project_path: Path, worktree: str) -> None:
+def ensure_cmux_browser(state: EnvState, project_path: Path, worktree: str) -> None:
     """Ensure a cmux browser pane exists for this env's app URL."""
     app_info = get_app_url(project_path, worktree)
     if not app_info:
@@ -110,7 +110,7 @@ def env():
     pass
 
 
-def _print_service_status(
+def print_service_status(
     project: str, worktree: str, project_path: Path | None = None,
 ) -> None:
     """Print a SERVICE/PID/STATUS/LOG table for an environment."""
@@ -177,7 +177,7 @@ def env_open(target):
             f"No running environment for {ctx.project}/{ctx.worktree}."
         )
 
-    _ensure_cmux_browser(state, ctx.project_path, ctx.worktree)
+    ensure_cmux_browser(state, ctx.project_path, ctx.worktree)
 
 
 @env.command("start")
@@ -213,9 +213,9 @@ def env_start(target, skip_install):
     except RuntimeError as e:
         raise click.ClickException(str(e))
 
-    _ensure_cmux_browser(state, ctx.project_path, ctx.worktree)
+    ensure_cmux_browser(state, ctx.project_path, ctx.worktree)
 
-    _print_service_status(ctx.project, ctx.worktree, ctx.project_path)
+    print_service_status(ctx.project, ctx.worktree, ctx.project_path)
 
 
 @env.command("status")
@@ -235,7 +235,7 @@ def env_status(target):
     assert ctx.worktree is not None
     assert ctx.project_path is not None
 
-    _print_service_status(ctx.project, ctx.worktree, ctx.project_path)
+    print_service_status(ctx.project, ctx.worktree, ctx.project_path)
 
 
 @env.command("stop")
@@ -307,9 +307,9 @@ def env_restart(target, install):
     except RuntimeError as e:
         raise click.ClickException(str(e))
 
-    _ensure_cmux_browser(state, ctx.project_path, ctx.worktree)
+    ensure_cmux_browser(state, ctx.project_path, ctx.worktree)
 
-    _print_service_status(ctx.project, ctx.worktree, ctx.project_path)
+    print_service_status(ctx.project, ctx.worktree, ctx.project_path)
 
 
 @env.command("reset")
@@ -355,8 +355,8 @@ def env_reset(target):
     update_claude_local_md(ctx.project_path, worktree_path, ctx.worktree)
 
     if new_state is not None:
-        _ensure_cmux_browser(new_state, ctx.project_path, ctx.worktree)
-        _print_service_status(ctx.project, ctx.worktree, ctx.project_path)
+        ensure_cmux_browser(new_state, ctx.project_path, ctx.worktree)
+        print_service_status(ctx.project, ctx.worktree, ctx.project_path)
 
 
 @env.command("list")
