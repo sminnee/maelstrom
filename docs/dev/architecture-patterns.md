@@ -77,11 +77,12 @@ Import from the concrete module (`from .worktree import create_worktree`), never
 re-export through the package, and **never** import another module's `_private`
 helpers.
 
-Anti-pattern (to be removed in a later iteration): `cli.py` imports
-`_ensure_cmux_browser` and `_print_service_status` from `env_cli`. A leading
-underscore means "private to this module" — reaching across for it couples the two
-files. If two modules need a helper, promote it to a public function with a real
-name.
+If two modules need a helper, promote it to a public function with a real name.
+This was previously violated by `cli.py` importing `_ensure_cmux_browser` and
+`_print_service_status` from `env_cli`; both are now public
+([`ensure_cmux_browser`](../../src/maelstrom/env_cli.py) /
+[`print_service_status`](../../src/maelstrom/env_cli.py)). A leading underscore
+means "private to this module" — reaching across for it couples the two files.
 
 ### 5. All persistence goes through a store abstraction
 
@@ -90,10 +91,18 @@ not ad-hoc `json.dump`. A store gives you a swappable in-memory backend for test
 a single place for atomicity and locking, and (for `GitFileStore`) versioning and
 transactions for free.
 
-Counter-example to migrate: [`env.py`'s `save_env_state`](../../src/maelstrom/env.py#L175)
-writes JSON directly with `json.dump`, and is **not atomic** — a crash mid-write
-can leave a truncated state file. A JSON store mirroring `TaskStore` (atomic
-write-to-temp-then-rename, in-memory backend for tests) is the target.
+The env subsystem is the worked example of this convention beyond `task`:
+[`env_store.py`](../../src/maelstrom/env_store.py) defines the
+[`EnvStore` Protocol](../../src/maelstrom/env_store.py) with an `InMemoryEnvStore`
+and a `JsonEnvStore` (atomic write-to-temp-then-rename via
+[`util.atomic_write_json`](../../src/maelstrom/util.py)), and `env.py` writes only
+through it.
+
+Counter-example still to migrate: [`ports.py`](../../src/maelstrom/ports.py)
+reads and writes `~/.maelstrom/port_allocations.json` directly with `json.load` /
+`json.dump`, and the write is **not atomic** — a crash mid-write can leave a
+truncated allocations file. A `PortStore` mirroring `EnvStore` (atomic write,
+in-memory backend for tests) is the target.
 
 ### 6. Imports at the top of the file
 
