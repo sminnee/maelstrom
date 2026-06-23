@@ -23,9 +23,19 @@ from __future__ import annotations
 
 import re
 import subprocess
+import tempfile
 from collections.abc import Callable
 
 TYPES = ("fix", "feat", "chore", "refactor")
+
+# Minimal system prompt forced onto the headless call so an inherited project
+# ``CLAUDE.md`` / SessionStart hook can't frame the model as mid-workflow and
+# nudge it to editorialize instead of emitting a slug.
+_SYSTEM_PROMPT = (
+    "You are a branch-name generator. Your only job is to emit a single "
+    "git branch-name line in the requested format. Do not explain, do not "
+    "ask questions, do not run tools — output one line and nothing else."
+)
 
 # Output the model is allowed to produce: ``<type>/<2-4-word-kebab-desc>``.
 _OUTPUT_RE = re.compile(r"^(fix|feat|chore|refactor)/[a-z0-9]+(-[a-z0-9]+){0,3}$")
@@ -66,14 +76,28 @@ def _run_claude(prompt: str) -> str:
 
     Raises on any failure (missing binary, non-zero exit, timeout) — the caller
     treats every exception as "use the deterministic fallback".
+
+    Isolated from the cwd so a one-line naming prompt is reproducible wherever
+    it runs: a minimal ``--system-prompt`` overrides inherited workflow framing,
+    ``--strict-mcp-config`` skips project MCP servers, and running in a neutral
+    tempdir means no project ``CLAUDE.md`` / SessionStart hook is discovered.
     """
-    result = subprocess.run(
-        ["claude", "-p", prompt],
-        capture_output=True,
-        text=True,
-        timeout=_CLAUDE_TIMEOUT,
-        check=True,
-    )
+    with tempfile.TemporaryDirectory() as neutral_cwd:
+        result = subprocess.run(
+            [
+                "claude",
+                "-p",
+                "--strict-mcp-config",
+                "--system-prompt",
+                _SYSTEM_PROMPT,
+                prompt,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=_CLAUDE_TIMEOUT,
+            check=True,
+            cwd=neutral_cwd,
+        )
     return result.stdout.strip()
 
 
@@ -91,7 +115,9 @@ def _build_prompt(title: str, content: str) -> str:
         "no-behaviour-change restructuring, chore for everything else).\n"
         "- <desc> is a 2-4 word kebab-case summary (lowercase a-z0-9 and "
         "hyphens only, no leading number, no team prefix).\n"
-        "Example: fix/flaky-port-test\n\n"
+        "Example: fix/flaky-port-test\n"
+        "If you cannot infer a sensible name from the title and details, reply "
+        "with exactly `unknown` and nothing else.\n\n"
         f"{body}"
     )
 
@@ -100,6 +126,22 @@ def _compose(type_: str, prefix: str, desc: str) -> str:
     """Assemble ``<type>/<prefix>-<desc>`` (prefix optional)."""
     desc = f"{prefix}-{desc}" if prefix else desc
     return f"{type_}/{desc}"
+
+
+def _shares_token(desc: str, title: str, content: str) -> bool:
+    """Whether the model's kebab desc shares any token with the task text.
+
+    A well-formed slug that overlaps nothing in the title/details is almost
+    always the model editorializing (e.g. ``branch-name-not-applicable`` for
+    "Mermaid charts") rather than naming the work, so we reject it. Uses the
+    same tokenizer as :func:`slugify` for the task text — stopwords dropped —
+    and splits the desc on hyphens.
+    """
+    desc_tokens = set(desc.split("-"))
+    # max_words is effectively unbounded here (unlike slugify's 4-word default):
+    # we want every task-text token for the overlap check, not just the slug head.
+    text_tokens = set(slugify(f"{title} {content}", max_words=1000).split("-"))
+    return bool(desc_tokens & text_tokens)
 
 
 def generate_branch_name(
@@ -113,8 +155,12 @@ def generate_branch_name(
     """Return ``<type>/<desc>`` for a task.
 
     Calls ``claude -p`` (via ``runner``) to pick the type and a 2–4 word kebab
-    slug. On any failure — CLI missing, timeout, non-zero exit, or output that
-    fails strict validation — falls back to ``f"{default_type}/{slugify(title)}"``.
+    slug. Output is "not good" when it is the literal ``unknown``, empty, an
+    exception, fails strict validation, or is a well-formed slug that shares no
+    token with the task text (the model editorializing rather than naming the
+    work). A not-good result triggers **one retry** — LLM sampling is
+    non-deterministic, so a second draw frequently succeeds — and if that is
+    also not good, falls back to ``f"{default_type}/{slugify(title)}"``.
 
     When ``prefix`` is set it leads the desc: ``<type>/<prefix>-<desc>`` (e.g.
     ``fix/123-flaky-port-test``). The prefix is spliced in here rather than
@@ -133,14 +179,22 @@ def generate_branch_name(
     if not title.strip():
         return fallback
 
-    try:
-        raw = run(_build_prompt(title, content))
-    except Exception:
-        return fallback
+    prompt = _build_prompt(title, content)
+    # Two attempts: the model's first draw is sometimes refusal-shaped garbage;
+    # a fresh draw usually slugs a clear title fine. If both miss, use fallback.
+    for _ in range(2):
+        try:
+            raw = run(prompt)
+        except Exception:
+            continue
 
-    line = raw.strip().splitlines()[0].strip() if raw.strip() else ""
-    if not _OUTPUT_RE.match(line):
-        return fallback
+        line = raw.strip().splitlines()[0].strip() if raw.strip() else ""
+        if line == "unknown" or not _OUTPUT_RE.match(line):
+            continue
 
-    type_, desc = line.split("/", 1)
-    return _compose(type_, prefix, desc)
+        type_, desc = line.split("/", 1)
+        if not _shares_token(desc, title, content):
+            continue
+        return _compose(type_, prefix, desc)
+
+    return fallback

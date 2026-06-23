@@ -130,6 +130,54 @@ class TestGenerateBranchName:
         )
         assert result == "feat/task"
 
+    def test_unrelated_slug_is_rejected_and_falls_back(self):
+        # Regression for NORT-907: the model returned a well-formed but unrelated
+        # slug ("not applicable" refusal) for "Mermaid charts". Shares no token
+        # with the title → rejected → deterministic fallback.
+        result = branch_name.generate_branch_name(
+            "Mermaid charts",
+            runner=lambda _prompt: "fix/branch-name-not-applicable",
+            prefix="907",
+        )
+        assert result == "feat/907-mermaid-charts"
+
+    def test_unknown_sentinel_falls_back_to_slug(self):
+        result = branch_name.generate_branch_name(
+            "Mermaid charts",
+            runner=lambda _prompt: "unknown",
+            prefix="907",
+        )
+        assert result == "feat/907-mermaid-charts"
+
+    def test_retry_after_unknown_uses_second_attempt(self):
+        # First draw is the refusal sentinel; the retried draw slugs fine. The
+        # result comes from the model, proving the retry (not just fallback).
+        calls: list[str] = []
+
+        def _runner(_prompt: str) -> str:
+            calls.append(_prompt)
+            return "unknown" if len(calls) == 1 else "feat/mermaid-charts"
+
+        result = branch_name.generate_branch_name(
+            "Mermaid charts", runner=_runner, prefix="907"
+        )
+        assert len(calls) == 2
+        assert result == "feat/907-mermaid-charts"
+
+    def test_token_overlap_accepts_related_slug(self):
+        result = branch_name.generate_branch_name(
+            "Fix flaky port allocation test",
+            runner=lambda _prompt: "fix/flaky-port-test",
+        )
+        assert result == "fix/flaky-port-test"
+
+    def test_token_overlap_rejects_unrelated_slug(self):
+        result = branch_name.generate_branch_name(
+            "Fix flaky port allocation test",
+            runner=lambda _prompt: "fix/totally-unrelated-words",
+        )
+        assert result == "feat/fix-flaky-port-allocation"
+
 
 # --- default_branch generation wiring ---
 
