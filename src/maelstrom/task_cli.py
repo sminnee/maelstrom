@@ -19,11 +19,13 @@ from .context import resolve_context
 from .table import draw_table
 from .task_store import GitFileStore
 from .worktree import (
+    get_current_branch,
+    setup_worktree_for_branch,
+)
+from .worktree_launcher import (
     build_task_launch_line,
     exec_claude,
-    get_current_branch,
     launch_claude_in_worktree,
-    setup_worktree_for_branch,
 )
 
 
