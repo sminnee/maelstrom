@@ -7,6 +7,7 @@ from maelstrom.worktree_model import (
     WORKTREE_SHORTCODES,
     _sanitise_path_for_claude,
     claude_shell_line,
+    env_prefixed,
     extract_project_name,
     extract_worktree_name_from_folder,
     get_worktree_folder_name,
@@ -139,6 +140,19 @@ class TestClaudeShellLine:
             ["claude", "hi"], env={"MAEL_TASK_ID": "a b"}
         )
         assert line == "MAEL_TASK_ID='a b' claude hi"
+
+
+class TestEnvPrefixed:
+    """Tests for the env-prefix helper shared by argv and pipeline commands."""
+
+    def test_no_env_returns_command_verbatim(self):
+        assert env_prefixed("foo | bar") == "foo | bar"
+
+    def test_prepends_quoted_env(self):
+        line = env_prefixed(
+            "mael task prompt t1 | claude", env={"MAEL_TASK_ID": "a b"}
+        )
+        assert line == "MAEL_TASK_ID='a b' mael task prompt t1 | claude"
 
 
 class TestSanitisePathForClaude:

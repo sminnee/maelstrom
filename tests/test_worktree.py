@@ -15,6 +15,7 @@ from maelstrom.worktree import (
     WorktreeInfo,
     _setup_claude_memory_symlink,
     build_claude_command,
+    build_task_launch_line,
     close_worktree,
     copy_back_new_env_vars,
     locked_file,
@@ -494,7 +495,7 @@ class TestOpenWorktree:
 
 
 class TestBuildClaudeCommand:
-    """Tests for the pure command-builder."""
+    """Tests for the pure command-builder (trailing ``claude`` argv only)."""
 
     def test_bare(self):
         assert build_claude_command() == ["claude"]
@@ -506,16 +507,29 @@ class TestBuildClaudeCommand:
             "plan",
         ]
 
-    def test_with_prompt(self):
-        assert build_claude_command("Do it") == ["claude", "Do it"]
 
-    def test_with_both(self):
-        assert build_claude_command("Do it", "plan") == [
-            "claude",
-            "--permission-mode",
-            "plan",
-            "Do it",
-        ]
+class TestBuildTaskLaunchLine:
+    """Tests for the ``mael task prompt <id> | claude`` pipeline builder."""
+
+    def test_no_permission_mode(self):
+        assert build_task_launch_line("proj", "t1") == (
+            "mael task prompt t1 --project proj | claude"
+        )
+
+    def test_with_permission_mode(self):
+        assert build_task_launch_line("proj", "t1", "plan") == (
+            "mael task prompt t1 --project proj | claude --permission-mode plan"
+        )
+
+    def test_auto_permission_mode(self):
+        assert build_task_launch_line("proj", "t1", "auto") == (
+            "mael task prompt t1 --project proj | claude --permission-mode auto"
+        )
+
+    def test_quotes_ids_and_projects_with_spaces(self):
+        assert build_task_launch_line("my proj", "task one") == (
+            "mael task prompt 'task one' --project 'my proj' | claude"
+        )
 
 
 class TestExecClaude:
@@ -543,6 +557,17 @@ class TestExecClaude:
              patch.dict("maelstrom.worktree.os.environ", {}, clear=True):
             exec_claude(["claude"], cwd=None, env={"MAEL_TASK_ID": "x"})
             assert os.environ["MAEL_TASK_ID"] == "x"
+
+    def test_pipeline_string_execs_via_sh(self):
+        # A pipeline string runs through ``sh -c "exec ..."`` so the process is
+        # replaced while stdin/stdout stay inherited (stdout = TTY → interactive).
+        with patch("maelstrom.worktree.os.chdir"), \
+             patch("maelstrom.worktree.os.execvp") as mock_execvp:
+            exec_claude("mael task prompt t1 --project p | claude", cwd=None)
+            mock_execvp.assert_called_once_with(
+                "sh",
+                ["sh", "-c", "exec mael task prompt t1 --project p | claude"],
+            )
 
 
 class TestOpenClaudeWorkspace:
@@ -604,6 +629,29 @@ class TestOpenClaudeWorkspace:
                 install_cmd="npm install",
             )
 
+    def test_passes_env_prefixed_pipeline_to_seam(self):
+        # A pipeline string body gets the env prefix prepended verbatim (no
+        # re-quoting of the pipeline itself).
+        with patch(
+            "maelstrom.cmux.mael_layout.ensure_worktree_workspace",
+            return_value=True,
+        ) as mock_ensure, patch(
+            "maelstrom.worktree.load_config_or_default",
+            return_value=SimpleNamespace(install_cmd=""),
+        ):
+            placed = open_claude_workspace(
+                "proj",
+                "alpha",
+                Path("/wt"),
+                "mael task prompt t1 --project proj | claude --permission-mode plan",
+                env={"MAEL_TASK_ID": "t1"},
+            )
+            assert placed is True
+            assert mock_ensure.call_args.kwargs["command"] == (
+                "MAEL_TASK_ID=t1 mael task prompt t1 --project proj "
+                "| claude --permission-mode plan"
+            )
+
     def test_empty_install_cmd_passed_as_none(self):
         with patch(
             "maelstrom.cmux.mael_layout.ensure_worktree_workspace",
@@ -632,7 +680,7 @@ class TestLaunchClaudeInWorktree:
                 mock_open.assert_called_once()
                 mock_exec.assert_not_called()
 
-    def test_execs_in_worktree_when_no_workspace(self):
+    def test_execs_task_pipeline_when_no_workspace(self):
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
             order = []
@@ -649,18 +697,35 @@ class TestLaunchClaudeInWorktree:
                     worktree_path,
                     project="proj",
                     worktree="alpha",
-                    initial_prompt="hi",
+                    task_id="t1",
                     permission_mode="plan",
                     env={"MAEL_TASK_ID": "t1"},
                 )
-                # Non-cmux: install runs blocking, then exec, in that order.
+                # Non-cmux: install runs blocking, then exec the pipeline string.
                 mock_install.assert_called_once_with(worktree_path)
                 mock_exec.assert_called_once_with(
-                    ["claude", "--permission-mode", "plan", "hi"],
+                    "mael task prompt t1 --project proj "
+                    "| claude --permission-mode plan",
                     cwd=worktree_path,
                     env={"MAEL_TASK_ID": "t1"},
                 )
                 assert order == ["install", "exec"]
+
+    def test_execs_plain_claude_when_no_task(self):
+        # cli.py opens a worktree with no task → plain ``claude`` argv, no pipeline.
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            with patch(
+                "maelstrom.worktree.open_claude_workspace", return_value=False
+            ), patch("maelstrom.worktree.run_install_cmd"), patch(
+                "maelstrom.worktree.exec_claude"
+            ) as mock_exec:
+                launch_claude_in_worktree(
+                    worktree_path, project="proj", worktree="alpha"
+                )
+                mock_exec.assert_called_once_with(
+                    ["claude"], cwd=worktree_path, env=None
+                )
 
 
 class TestIsWorktreeClosed:
