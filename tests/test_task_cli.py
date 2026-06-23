@@ -366,9 +366,11 @@ class TestRun:
         # Task is now in-progress.
         assert model.load(store, "p", t.id).status == model.STATUS_IN_PROGRESS
 
-        # Session launched with the right prompt / mode / worktree / project.
+        # Session launched with the right task id / mode / worktree / project.
+        # The prompt is produced lazily by `mael task prompt` inside the pipeline,
+        # so the launcher gets the id, not the built prompt.
         kwargs = launch.session.call_args.kwargs
-        assert kwargs["initial_prompt"] == model.build_prompt(t)
+        assert kwargs["task_id"] == t.id
         assert kwargs["permission_mode"] == "plan"
         assert kwargs["project"] == "p"
         assert kwargs["worktree"] == "bravo"
@@ -542,8 +544,12 @@ class TestRunHere:
         # Task still moves to in-progress (parity with --run).
         assert model.load(store, "p", t.id).status == model.STATUS_IN_PROGRESS
 
-        # Execs claude in the current shell (cwd=None) with the task env.
+        # Execs the launch pipeline in the current shell (cwd=None) with task env.
         launch.exec.assert_called_once()
+        command = launch.exec.call_args.args[0]
+        assert command == (
+            f"mael task prompt {t.id} --project p | claude --permission-mode plan"
+        )
         kwargs = launch.exec.call_args.kwargs
         assert kwargs["cwd"] is None
         assert kwargs["env"]["MAEL_TASK_ID"] == t.id
@@ -568,6 +574,41 @@ class TestRunHere:
         assert model.load(store, "p", a.id).status == model.STATUS_IN_PROGRESS
         assert launch.exec.call_args.kwargs["cwd"] is None
         assert launch.exec.call_args.kwargs["env"]["MAEL_TASK_ID"] == a.id
+
+
+class TestPrompt:
+    """``mael task prompt <id>`` prints exactly build_prompt(task)."""
+
+    def test_prints_command_title_and_content(self, runner, store):
+        t = model.create(
+            store,
+            project="p",
+            title="Plan it",
+            command="plan-task",
+            content="do the thing",
+        )
+        result = runner.invoke(task_cli.task, ["prompt", t.id])
+        assert result.exit_code == 0, result.output
+        assert result.output == model.build_prompt(t)
+        assert result.output == "/plan-task Plan it\n\ndo the thing"
+
+    def test_no_command_no_content(self, runner, store):
+        t = model.create(store, project="p", title="Bare task")
+        result = runner.invoke(task_cli.task, ["prompt", t.id])
+        assert result.exit_code == 0, result.output
+        assert result.output == model.build_prompt(t)
+        assert result.output == "Bare task"
+
+    def test_content_without_command(self, runner, store):
+        t = model.create(store, project="p", title="Exec it", content="run plan")
+        result = runner.invoke(task_cli.task, ["prompt", t.id])
+        assert result.exit_code == 0, result.output
+        assert result.output == "Exec it\n\nrun plan"
+
+    def test_unknown_task_errors(self, runner, store):
+        result = runner.invoke(task_cli.task, ["prompt", "nope"])
+        assert result.exit_code != 0
+        assert "Task not found" in result.output
 
 
 class TestContentFile:

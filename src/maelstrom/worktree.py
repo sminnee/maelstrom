@@ -2,6 +2,7 @@
 
 import fcntl
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -36,6 +37,7 @@ from .worktree_model import (
     _sanitise_path_for_claude,
     _substitute_vars,
     claude_shell_line,
+    env_prefixed,
     extract_project_name,
     extract_worktree_name_from_folder,
     get_worktree_folder_name,
@@ -1828,41 +1830,64 @@ def open_worktree(worktree_path: Path, command: str) -> None:
         raise RuntimeError(f"Failed to open worktree: {e}")
 
 
-def build_claude_command(
-    initial_prompt: str | None = None,
-    permission_mode: str | None = None,
-) -> list[str]:
-    """The ``claude [...]`` argv shared by every placement (no env, no cwd)."""
+def build_claude_command(permission_mode: str | None = None) -> list[str]:
+    """The trailing ``claude [...]`` argv shared by every placement (no env, no cwd).
+
+    The initial prompt is no longer an argv argument — it is piped into ``claude``
+    on stdin via :func:`build_task_launch_line`.
+    """
     argv = ["claude"]
     if permission_mode:
         argv += ["--permission-mode", permission_mode]
-    if initial_prompt:
-        argv.append(initial_prompt)
     return argv
 
 
+def build_task_launch_line(
+    project: str,
+    task_id: str,
+    permission_mode: str | None = None,
+) -> str:
+    """The shell pipeline that launches a task: ``mael task prompt ... | claude ...``.
+
+    The prompt is produced lazily by ``mael task prompt`` and piped into ``claude``
+    on stdin, keeping the launch command line short. ``claude`` stays interactive
+    because stdout remains a TTY (only stdin is piped).
+    """
+    left = ["mael", "task", "prompt", task_id, "--project", project]
+    claude = build_claude_command(permission_mode)
+    return f"{shlex.join(left)} | {shlex.join(claude)}"
+
+
 def exec_claude(
-    argv: list[str],
+    command: list[str] | str,
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
 ) -> NoReturn:
-    """Replace this process with ``claude``. chdir to ``cwd`` first if given.
+    """Replace this process with the launch command. chdir to ``cwd`` first if given.
 
-    ``cwd=None`` means "right here" (the ``--here`` path); a worktree path
-    means the old execvp-fallback behaviour.
+    ``command`` is either a ``claude`` argv list (plain worktree open) or a shell
+    pipeline string (a task launch). A pipeline is run via ``sh -c "exec ..."`` so
+    the process is replaced while stdin/stdout/stderr are inherited — stdout stays
+    a TTY, so ``claude`` runs interactively.
+
+    ``cwd=None`` means "right here" (the ``--here`` path); a worktree path means
+    the old execvp-fallback behaviour.
     """
     if cwd is not None:
         os.chdir(cwd)
     if env:
         os.environ.update(env)
-    os.execvp("claude", argv)
+    if isinstance(command, str):
+        os.execvp("sh", ["sh", "-c", f"exec {command}"])
+    else:
+        os.execvp("claude", command)
 
 
 def open_claude_workspace(
     project: str | None,
     worktree: str | None,
     worktree_path: Path,
-    argv: list[str],
+    command: list[str] | str,
     env: dict[str, str] | None = None,
 ) -> bool:
     """cmux placement: open a new workspace running the command. True if placed.
@@ -1885,10 +1910,17 @@ def open_claude_workspace(
     # to a live one. Returns False outside cmux. The install command runs in the
     # shell pane (a reused workspace already installed, but the create path needs
     # it). Returns False so the caller falls back to ``exec_claude``.
+    # A pipeline string carries the env prefix as-is; an argv list is shell-quoted
+    # first. Both end up as ``KEY=val ... <command>`` for the pane.
+    shell_line = (
+        env_prefixed(command, env)
+        if isinstance(command, str)
+        else claude_shell_line(command, env)
+    )
     install_cmd = load_config_or_default(worktree_path).install_cmd
     return mael_layout.ensure_worktree_workspace(
         project, worktree, str(worktree_path),
-        command=claude_shell_line(argv, env),
+        command=shell_line,
         install_cmd=install_cmd or None,
     )
 
@@ -1897,7 +1929,7 @@ def launch_claude_in_worktree(
     worktree_path: Path,
     project: str | None,
     worktree: str | None,
-    initial_prompt: str | None = None,
+    task_id: str | None = None,
     permission_mode: str | None = None,
     env: dict[str, str] | None = None,
 ) -> None:
@@ -1906,12 +1938,21 @@ def launch_claude_in_worktree(
     The worktree-placement composition of the peers — the only thing the old
     ``start_claude_session`` actually provided. The ``--here`` path skips this
     wrapper and calls :func:`exec_claude` with ``cwd=None`` directly.
+
+    With ``task_id`` (and ``project``) set, the command is the
+    ``mael task prompt <id> | claude`` pipeline; otherwise it's a plain ``claude``
+    that just opens the worktree.
     """
-    argv = build_claude_command(initial_prompt, permission_mode)
-    if not open_claude_workspace(project, worktree, worktree_path, argv, env):
+    if task_id and project:
+        command: list[str] | str = build_task_launch_line(
+            project, task_id, permission_mode
+        )
+    else:
+        command = build_claude_command(permission_mode)
+    if not open_claude_workspace(project, worktree, worktree_path, command, env):
         # Non-cmux: no shell pane to run install in, so install blocking first.
         run_install_cmd(worktree_path)
-        exec_claude(argv, cwd=worktree_path, env=env)
+        exec_claude(command, cwd=worktree_path, env=env)
 
 
 CLAUDE_LOCAL_IMPORT = "@.claude/CLAUDE.local.md"

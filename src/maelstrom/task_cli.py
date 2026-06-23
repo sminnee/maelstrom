@@ -19,7 +19,7 @@ from .context import resolve_context
 from .table import draw_table
 from .task_store import GitFileStore
 from .worktree import (
-    build_claude_command,
+    build_task_launch_line,
     exec_claude,
     get_current_branch,
     launch_claude_in_worktree,
@@ -78,15 +78,20 @@ def _run_task(
     session_env = {"MAEL_TASK_ID": task.id}
     if task.parent:
         session_env["MAEL_TASK_PARENT"] = task.parent
-    prompt = model.build_prompt(task)
     perm = model._permission_mode_for(task.mode)
+    # The prompt is produced lazily by `mael task prompt` inside the launch
+    # pipeline, not passed here — keeps the launch command line short.
 
     if here:
         task_actions.move_with_actions(
             store, project, task.id, model.STATUS_IN_PROGRESS
         )  # write BEFORE launch; fires pre_action
         click.echo(f"Running {task.id} here (current shell)")
-        exec_claude(build_claude_command(prompt, perm), cwd=None, env=session_env)
+        exec_claude(
+            build_task_launch_line(project, task.id, perm),
+            cwd=None,
+            env=session_env,
+        )
         return
 
     ctx = resolve_context(project, require_project=True, arg_is_project=True)
@@ -109,7 +114,7 @@ def _run_task(
         result.path,
         project=project,
         worktree=result.name,
-        initial_prompt=prompt,
+        task_id=task.id,
         permission_mode=perm,
         env=session_env,
     )
@@ -683,6 +688,19 @@ def task_read(id: str, project: str | None) -> None:
     if text is None:
         raise click.ClickException(f"Task not found: {id}")
     click.echo(text, nl=False)
+
+
+@task.command("prompt")
+@click.argument("id")
+@click.option("--project", default=None, help="Project name (default: from cwd).")
+def task_prompt(id: str, project: str | None) -> None:
+    """Print the initial Claude prompt for a task (for ``... | claude``)."""
+    proj = _resolve_project(project)
+    try:
+        task = model.load(_store(), proj, id)  # raises if not found
+    except KeyError:
+        raise click.ClickException(f"Task not found: {id}")
+    click.echo(model.build_prompt(task), nl=False)
 
 
 @task.command("log")
