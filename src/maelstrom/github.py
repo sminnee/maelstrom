@@ -3,12 +3,13 @@
 import json
 import os
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, TypeVar
 
-from .worktree import run_cmd, run_git, sync_worktree
+from .worktree import run_cmd, run_git, sync_worktree, update_local_main
 
 
 @dataclass
@@ -233,7 +234,6 @@ def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None
     run_cmd(["git", "fetch", "origin"], cwd=cwd, check=False, quiet=True)
 
     # Fast-forward local main to match origin/main
-    from .worktree import update_local_main
     update_local_main(cwd.parent)
 
     # Push the branch
@@ -601,8 +601,6 @@ def download_artifact(cwd: Path, run_id: str, artifact_name: str) -> tuple[Path,
     Raises:
         RuntimeError: If download fails.
     """
-    import tempfile
-
     tmp_base = Path(os.environ.get("TMPDIR", tempfile.gettempdir()))
     output_dir = tmp_base / artifact_name
     if output_dir.exists():
