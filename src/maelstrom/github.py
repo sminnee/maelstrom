@@ -9,7 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, TypeVar
 
-from .worktree import run_cmd, run_git, sync_worktree, update_local_main
+from .shell import run_cmd
+from .worktree import run_git, sync_worktree, update_local_main
 
 
 @dataclass

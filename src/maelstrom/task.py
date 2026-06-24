@@ -968,6 +968,10 @@ def edit_in_editor(
         raise KeyError(f"Task not found: {project}/{id}")
     path = store._path(key)  # file already exists on disk in the git-fs store
     ed = editor or os.environ.get("EDITOR") or "vi"
+    # Left as a direct ``subprocess.run`` rather than routed through ``run_cmd``:
+    # this is the model layer, and importing ``run_cmd`` from the ``worktree`` IO
+    # adapter would invert the storage/model/CLI layering. It's already a bare
+    # argv with ``shell=False`` (no quoting, no injection surface).
     try:
         subprocess.run([ed, str(path)], check=True)
     except FileNotFoundError:

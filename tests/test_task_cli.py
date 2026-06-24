@@ -13,6 +13,7 @@ from click.testing import CliRunner
 
 from maelstrom import task as model
 from maelstrom import task_cli
+from maelstrom.shell import describe
 from maelstrom.task_store import InMemoryStore
 from maelstrom.worktree import WorktreeSetup
 
@@ -35,8 +36,9 @@ def launch(monkeypatch, tmp_path):
     """Stub the launch collaborators of ``_run_task``.
 
     Returns a namespace with the mocked ``setup`` and ``session`` (the
-    worktree-placement wrapper) callables, plus ``exec`` (the --here exec peer),
-    and the worktree path the fake setup returns.
+    worktree-placement wrapper) callables, plus ``exec`` (the --here
+    ``run_cmd(..., replace_process=True)`` peer), and the worktree path the fake
+    setup returns.
     """
     project_path = tmp_path / "proj"
     project_path.mkdir()
@@ -50,12 +52,12 @@ def launch(monkeypatch, tmp_path):
         return_value=WorktreeSetup(path=wt_path, name="bravo", action="created")
     )
     session = MagicMock()
-    exec_claude = MagicMock()
+    run_cmd = MagicMock()
     monkeypatch.setattr(task_cli, "setup_worktree_for_branch", setup)
     monkeypatch.setattr(task_cli, "launch_claude_in_worktree", session)
-    monkeypatch.setattr(task_cli, "exec_claude", exec_claude)
+    monkeypatch.setattr(task_cli, "run_cmd", run_cmd)
     return SimpleNamespace(
-        setup=setup, session=session, exec=exec_claude, wt_path=wt_path
+        setup=setup, session=session, exec=run_cmd, wt_path=wt_path
     )
 
 
@@ -544,19 +546,20 @@ class TestRunHere:
         # Task still moves to in-progress (parity with --run).
         assert model.load(store, "p", t.id).status == model.STATUS_IN_PROGRESS
 
-        # Execs the launch pipeline in the current shell (cwd=None) with task env.
-        # The env is baked onto the ``claude`` segment (right of the pipe) so the
-        # interactive session inherits it — a front prefix would only reach
+        # Replace-execs the launch pipeline in the current shell (cwd=None) with
+        # task env. The env rides on the ``claude`` Command (right of the pipe) so
+        # the interactive session inherits it — a front prefix would only reach
         # ``mael task prompt``.
         launch.exec.assert_called_once()
         command = launch.exec.call_args.args[0]
-        assert command == (
+        assert describe(command) == (
             f"mael task prompt {t.id} --project p "
             f"| MAEL_TASK_ID={t.id} claude --permission-mode plan"
         )
         kwargs = launch.exec.call_args.kwargs
         assert kwargs["cwd"] is None
         assert kwargs["env"]["MAEL_TASK_ID"] == t.id
+        assert kwargs["replace_process"] is True
         assert f"Running {t.id} here (current shell)" in result.output
 
     def test_add_run_here(self, runner, store, launch):

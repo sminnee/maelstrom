@@ -18,13 +18,13 @@ from . import task_actions
 from .context import resolve_context
 from .table import draw_table
 from .task_store import GitFileStore
+from .shell import run_cmd
 from .worktree import (
     get_current_branch,
     setup_worktree_for_branch,
 )
 from .worktree_launcher import (
     build_task_launch_line,
-    exec_claude,
     launch_claude_in_worktree,
 )
 
@@ -89,10 +89,11 @@ def _run_task(
             store, project, task.id, model.STATUS_IN_PROGRESS
         )  # write BEFORE launch; fires pre_action
         click.echo(f"Running {task.id} here (current shell)")
-        exec_claude(
+        run_cmd(
             build_task_launch_line(project, task.id, perm, env=session_env),
             cwd=None,
             env=session_env,
+            replace_process=True,
         )
         return
 

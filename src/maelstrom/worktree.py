@@ -1,7 +1,6 @@
 """Worktree management for maelstrom projects."""
 
 import fcntl
-import os
 import shutil
 import subprocess
 import sys
@@ -13,6 +12,7 @@ from typing import Iterator
 
 from .claude_integration import get_shared_dir
 from .config import load_config_or_default
+from .shell import run_cmd
 from .ports import (
     allocate_port_base,
     generate_port_env_vars,
@@ -50,25 +50,6 @@ class WorktreeInfo:
     commit: str
     is_dirty: bool = False
     commits_ahead: int = 0
-
-
-def run_cmd(cmd: list[str], cwd: Path | None = None, quiet: bool = False, check: bool = True, stream: bool = False, env: dict | None = None) -> subprocess.CompletedProcess:
-    """Run a shell command and return the result.
-
-    If ``env`` is provided, its keys are merged over the current process
-    environment (``os.environ``) rather than replacing it wholesale.
-    """
-    if not quiet:
-        print(f"$ {' '.join(cmd)}")
-    merged_env = {**os.environ, **env} if env is not None else None
-    return subprocess.run(
-        cmd,
-        cwd=cwd,
-        capture_output=not stream,
-        text=True,
-        check=check,
-        env=merged_env,
-    )
 
 
 def run_git(args: list[str], cwd: Path | None = None, quiet: bool = False) -> subprocess.CompletedProcess:
