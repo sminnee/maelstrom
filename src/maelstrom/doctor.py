@@ -6,9 +6,9 @@ from enum import Enum
 from pathlib import Path
 
 from .ports import load_port_allocations, remove_port_allocation
+from .shell import run_cmd
 from .worktree import (
     list_worktrees,
-    run_cmd,
     run_git,
     update_local_main,
 )

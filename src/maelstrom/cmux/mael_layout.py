@@ -46,7 +46,7 @@ def ensure_worktree_workspace(
       split a shell pane (pane 1) running ``install_cmd``.
 
     Returns True if placed (in cmux mode), False otherwise (caller falls back to
-    ``exec_claude``).
+    a process-replacing ``run_cmd``).
     """
     lay = CmuxLayout.current(workspace_name(project, worktree))
     if lay is None:

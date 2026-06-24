@@ -12,6 +12,7 @@ import click
 from .context import get_maelstrom_dir, resolve_context
 from .table import draw_table
 from .util import atomic_write_json, now_iso
+from .shell import run_cmd
 
 
 SESSIONS_SUBDIR = "sessions"
@@ -98,7 +99,7 @@ def session_channel() -> None:
         sys.exit(1)
 
     try:
-        os.execvp("bun", ["bun", "run", str(script)])
+        run_cmd(["bun", "run", str(script)], replace_process=True)
     except FileNotFoundError:
         click.echo(
             "bun is not installed or not on PATH. Install from https://bun.sh.",

@@ -28,7 +28,6 @@ from maelstrom.worktree import (
     recycle_worktree,
     remove_worktree,
     remove_worktree_by_path,
-    run_cmd,
     run_install_cmd,
     setup_worktree_for_branch,
     squash_worktree,
@@ -1661,30 +1660,6 @@ class TestSetupClaudeMemorySymlink:
         assert central.is_dir()
         assert wt_memory.is_symlink()
         assert wt_memory.resolve() == central.resolve()
-
-
-class TestRunCmdEnv:
-    """Tests for the env merging behaviour of run_cmd."""
-
-    def test_env_merges_over_os_environ(self, monkeypatch):
-        """A provided env dict is merged over os.environ, not used wholesale."""
-        monkeypatch.setenv("MAEL_PRESERVED", "from_parent")
-        result = run_cmd(
-            ["sh", "-c", "echo $MAEL_PRESERVED $MAEL_EXTRA"],
-            quiet=True,
-            env={"MAEL_EXTRA": "added"},
-        )
-        # Parent var survives the merge, and the override is applied.
-        assert result.stdout.strip() == "from_parent added"
-
-    def test_env_none_uses_inherited_environment(self, monkeypatch):
-        """With env=None the child inherits the parent environment unchanged."""
-        monkeypatch.setenv("MAEL_PRESERVED", "inherited")
-        result = run_cmd(
-            ["sh", "-c", "echo $MAEL_PRESERVED"],
-            quiet=True,
-        )
-        assert result.stdout.strip() == "inherited"
 
 
 class TestSyncWorktreeSquash:

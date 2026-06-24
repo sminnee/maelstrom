@@ -9,7 +9,6 @@ circular dependency).
 """
 
 import re
-import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -122,24 +121,6 @@ def _sanitise_path_for_claude(path: Path) -> str:
         Sanitised path string (e.g., '-Users-sminnee-Projects-foo').
     """
     return str(path.resolve()).replace("/", "-")
-
-
-def env_prefixed(command: str, env: dict[str, str] | None = None) -> str:
-    """Prefix a shell command with ``KEY=val ...`` exports for the cmux ``send`` path.
-
-    Only ever called on a single command (a plain ``claude`` argv line, or the
-    ``claude`` segment of a task pipeline) — never on a whole pipeline, where a
-    front prefix would scope to the first command only. ``command`` is taken
-    verbatim (already shell-safe); only the env values are quoted.
-    """
-    prefix = " ".join(f"{k}={shlex.quote(v)}" for k, v in (env or {}).items())
-    return f"{prefix} {command}".strip()
-
-
-def claude_shell_line(argv: list[str], env: dict[str, str] | None = None) -> str:
-    """Shell-quoted ``KEY=val ... claude ...`` line for the cmux ``send`` path."""
-    line = " ".join(shlex.quote(a) for a in argv)
-    return env_prefixed(line, env)
 
 
 def parse_env_text(text: str) -> dict[str, str]:
