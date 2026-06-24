@@ -88,6 +88,50 @@ class TestBuildTaskLaunchLine:
             "mael task prompt 'task one' --project 'my proj' | claude"
         )
 
+    def test_env_prefixes_claude_segment_not_prompt_segment(self):
+        # The env must land on the ``claude`` segment (right of the pipe) so the
+        # interactive session inherits it. A front-of-line prefix would only
+        # reach ``mael task prompt`` (POSIX scopes it to the first command).
+        line = build_task_launch_line(
+            "proj", "t1", "plan", env={"MAEL_TASK_ID": "t1"}
+        )
+        left, right = line.split(" | ", 1)
+        assert left == "mael task prompt t1 --project proj"
+        assert right == "MAEL_TASK_ID=t1 claude --permission-mode plan"
+        # The env assignment must NOT appear on the left (prompt) segment.
+        assert "MAEL_TASK_ID=" not in left
+
+    def test_no_env_leaves_segments_bare(self):
+        line = build_task_launch_line("proj", "t1", env=None)
+        assert line == "mael task prompt t1 --project proj | claude"
+
+    def test_env_reaches_claude_through_real_shell(self):
+        # Semantic regression guard: run the produced line through ``sh -c`` with
+        # a stub ``claude`` on PATH that echoes ``$MAEL_TASK_ID``. If a future
+        # refactor moves the env prefix back to the front of the pipe, the var
+        # won't reach the stub and this asserts the regression.
+        with TemporaryDirectory() as tmpdir:
+            stub_dir = Path(tmpdir)
+            # Stub stands in for both ``claude`` and ``mael`` so the line runs
+            # end to end without touching the real binaries.
+            for name in ("claude", "mael"):
+                stub = stub_dir / name
+                stub.write_text('#!/bin/sh\necho "$MAEL_TASK_ID"\n')
+                stub.chmod(0o755)
+            line = build_task_launch_line(
+                "proj", "t1", env={"MAEL_TASK_ID": "t1"}
+            )
+            env = {**os.environ, "PATH": f"{stub_dir}:{os.environ['PATH']}"}
+            result = subprocess.run(
+                ["sh", "-c", line],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            # The right-hand stub (``claude``) prints the task id it inherited.
+            assert result.stdout.strip().splitlines()[-1] == "t1"
+
 
 class TestExecClaude:
     """Tests for the execvp placement peer."""
@@ -186,9 +230,16 @@ class TestOpenClaudeWorkspace:
                 install_cmd="npm install",
             )
 
-    def test_passes_env_prefixed_pipeline_to_seam(self):
-        # A pipeline string body gets the env prefix prepended verbatim (no
-        # re-quoting of the pipeline itself).
+    def test_passes_pipeline_to_seam_verbatim(self):
+        # A pipeline string already carries the env prefix on its ``claude``
+        # segment (the right of the pipe); ``open_claude_workspace`` passes it
+        # through verbatim — it must NOT re-prefix the front of the pipeline,
+        # which would only export into ``mael task prompt`` (POSIX scopes a
+        # front prefix to the first command of the pipe).
+        pipeline = (
+            "mael task prompt t1 --project proj "
+            "| MAEL_TASK_ID=t1 claude --permission-mode plan"
+        )
         with patch(
             "maelstrom.cmux.mael_layout.ensure_worktree_workspace",
             return_value=True,
@@ -200,14 +251,11 @@ class TestOpenClaudeWorkspace:
                 "proj",
                 "alpha",
                 Path("/wt"),
-                "mael task prompt t1 --project proj | claude --permission-mode plan",
+                pipeline,
                 env={"MAEL_TASK_ID": "t1"},
             )
             assert placed is True
-            assert mock_ensure.call_args.kwargs["command"] == (
-                "MAEL_TASK_ID=t1 mael task prompt t1 --project proj "
-                "| claude --permission-mode plan"
-            )
+            assert mock_ensure.call_args.kwargs["command"] == pipeline
 
     def test_empty_install_cmd_passed_as_none(self):
         with patch(
@@ -259,10 +307,13 @@ class TestLaunchClaudeInWorktree:
                     env={"MAEL_TASK_ID": "t1"},
                 )
                 # Non-cmux: install runs blocking, then exec the pipeline string.
+                # The env is baked onto the ``claude`` segment (right of the
+                # pipe) so the session inherits it; exec_claude still gets ``env``
+                # too as the os.environ.update backstop.
                 mock_install.assert_called_once_with(worktree_path)
                 mock_exec.assert_called_once_with(
                     "mael task prompt t1 --project proj "
-                    "| claude --permission-mode plan",
+                    "| MAEL_TASK_ID=t1 claude --permission-mode plan",
                     cwd=worktree_path,
                     env={"MAEL_TASK_ID": "t1"},
                 )

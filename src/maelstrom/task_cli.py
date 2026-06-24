@@ -90,7 +90,7 @@ def _run_task(
         )  # write BEFORE launch; fires pre_action
         click.echo(f"Running {task.id} here (current shell)")
         exec_claude(
-            build_task_launch_line(project, task.id, perm),
+            build_task_launch_line(project, task.id, perm, env=session_env),
             cwd=None,
             env=session_env,
         )

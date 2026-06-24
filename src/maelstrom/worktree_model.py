@@ -127,9 +127,10 @@ def _sanitise_path_for_claude(path: Path) -> str:
 def env_prefixed(command: str, env: dict[str, str] | None = None) -> str:
     """Prefix a shell command with ``KEY=val ...`` exports for the cmux ``send`` path.
 
-    The env prefix applies to the whole command — for a pipeline that means both
-    sides see the vars, which is harmless. ``command`` is taken verbatim (already
-    shell-safe); only the env values are quoted.
+    Only ever called on a single command (a plain ``claude`` argv line, or the
+    ``claude`` segment of a task pipeline) — never on a whole pipeline, where a
+    front prefix would scope to the first command only. ``command`` is taken
+    verbatim (already shell-safe); only the env values are quoted.
     """
     prefix = " ".join(f"{k}={shlex.quote(v)}" for k, v in (env or {}).items())
     return f"{prefix} {command}".strip()

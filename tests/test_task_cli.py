@@ -545,10 +545,14 @@ class TestRunHere:
         assert model.load(store, "p", t.id).status == model.STATUS_IN_PROGRESS
 
         # Execs the launch pipeline in the current shell (cwd=None) with task env.
+        # The env is baked onto the ``claude`` segment (right of the pipe) so the
+        # interactive session inherits it — a front prefix would only reach
+        # ``mael task prompt``.
         launch.exec.assert_called_once()
         command = launch.exec.call_args.args[0]
         assert command == (
-            f"mael task prompt {t.id} --project p | claude --permission-mode plan"
+            f"mael task prompt {t.id} --project p "
+            f"| MAEL_TASK_ID={t.id} claude --permission-mode plan"
         )
         kwargs = launch.exec.call_args.kwargs
         assert kwargs["cwd"] is None

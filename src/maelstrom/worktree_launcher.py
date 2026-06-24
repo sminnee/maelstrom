@@ -55,20 +55,31 @@ def build_claude_command(permission_mode: str | None = None) -> list[str]:
     return argv
 
 
+def pipe_cmd(*segments: str) -> str:
+    """Join already-shell-safe command strings into a pipeline."""
+    return " | ".join(segments)
+
+
 def build_task_launch_line(
     project: str,
     task_id: str,
     permission_mode: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> str:
-    """The shell pipeline that launches a task: ``mael task prompt ... | claude ...``.
+    """The shell pipeline that launches a task: ``mael task prompt ... | <env> claude ...``.
 
     The prompt is produced lazily by ``mael task prompt`` and piped into ``claude``
     on stdin, keeping the launch command line short. ``claude`` stays interactive
     because stdout remains a TTY (only stdin is piped).
+
+    ``env`` vars are prefixed onto the ``claude`` segment (the right of the pipe) so
+    the interactive session inherits them — a front-of-line prefix would only reach
+    ``mael task prompt`` (POSIX scopes a ``KEY=val`` prefix to the first command of a
+    pipeline).
     """
-    left = ["mael", "task", "prompt", task_id, "--project", project]
-    claude = build_claude_command(permission_mode)
-    return f"{shlex.join(left)} | {shlex.join(claude)}"
+    task_cmd = shlex.join(["mael", "task", "prompt", task_id, "--project", project])
+    claude = env_prefixed(shlex.join(build_claude_command(permission_mode)), env)
+    return pipe_cmd(task_cmd, claude)
 
 
 def exec_claude(
@@ -121,10 +132,12 @@ def open_claude_workspace(
     # to a live one. Returns False outside cmux. The install command runs in the
     # shell pane (a reused workspace already installed, but the create path needs
     # it). Returns False so the caller falls back to ``exec_claude``.
-    # A pipeline string carries the env prefix as-is; an argv list is shell-quoted
-    # first. Both end up as ``KEY=val ... <command>`` for the pane.
+    # A pipeline string already carries the env prefix on its ``claude`` segment
+    # (the right of the pipe, where the interactive session needs it); a plain
+    # argv list is shell-quoted with a front prefix, which is correct because
+    # there is no pipe to scope it away.
     shell_line = (
-        env_prefixed(command, env)
+        command
         if isinstance(command, str)
         else claude_shell_line(command, env)
     )
@@ -156,7 +169,7 @@ def launch_claude_in_worktree(
     """
     if task_id and project:
         command: list[str] | str = build_task_launch_line(
-            project, task_id, permission_mode
+            project, task_id, permission_mode, env=env
         )
     else:
         command = build_claude_command(permission_mode)
