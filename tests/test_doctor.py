@@ -4,6 +4,8 @@ import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import pytest
+
 from maelstrom.doctor import CheckStatus, run_doctor
 from maelstrom.worktree import update_local_main
 
@@ -153,6 +155,12 @@ class TestUpdateLocalMain:
 class TestDoctor:
     """Tests for run_doctor()."""
 
+    @pytest.fixture(autouse=True)
+    def _isolate_home(self, tmp_path, monkeypatch):
+        """Point ~ at a scratch dir so the secret-perms check never reads or
+        chmods the developer's real ~/.maelstrom during the suite."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
     def test_healthy_project(self):
         """All checks pass on a healthy project."""
         tmpdir, project_path = _create_project_repo()
@@ -201,3 +209,97 @@ class TestDoctor:
             assert main_check[0].status == CheckStatus.WARNING
 
             run_git(project_path, "worktree", "remove", str(wt_path))
+
+
+class TestCheckSecretFilePerms:
+    """Tests for the _check_secret_file_perms doctor check."""
+
+    @staticmethod
+    def _mode(path) -> int:
+        import os
+        import stat
+
+        return stat.S_IMODE(os.stat(path).st_mode)
+
+    def _setup(self, tmp_path, monkeypatch):
+        """Wire up a fake home + a single worktree under project_path."""
+        from types import SimpleNamespace
+
+        import maelstrom.doctor as doctor
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        mael_dir = tmp_path / ".maelstrom"
+        mael_dir.mkdir()
+        config = mael_dir / "config.yaml"
+        config.write_text("linear:\n  api_key: secret\n")
+        allocations = mael_dir / "port_allocations.json"
+        allocations.write_text("{}\n")
+
+        project_path = tmp_path / "proj"
+        project_path.mkdir()
+        wt_path = project_path / "proj-bravo"
+        wt_path.mkdir()
+        env_file = wt_path / ".env"
+        env_file.write_text("PORT_BASE=300\n")
+
+        # Stub enumeration: project root + one worktree.
+        worktrees = [
+            SimpleNamespace(path=project_path),
+            SimpleNamespace(path=wt_path),
+        ]
+        monkeypatch.setattr(doctor, "list_worktrees", lambda _p: worktrees)
+        return project_path, mael_dir, config, allocations, env_file
+
+    def test_ok_when_all_tight(self, tmp_path, monkeypatch):
+        import os
+
+        from maelstrom.doctor import _check_secret_file_perms
+
+        project_path, mael_dir, config, allocations, env_file = self._setup(
+            tmp_path, monkeypatch
+        )
+        os.chmod(mael_dir, 0o700)
+        os.chmod(config, 0o600)
+        os.chmod(allocations, 0o600)
+        os.chmod(env_file, 0o600)
+
+        result = _check_secret_file_perms(project_path)
+        assert result.status == CheckStatus.OK
+
+    def test_fixes_loose_files_and_names_them(self, tmp_path, monkeypatch):
+        import os
+
+        from maelstrom.doctor import _check_secret_file_perms
+
+        project_path, mael_dir, config, allocations, env_file = self._setup(
+            tmp_path, monkeypatch
+        )
+        os.chmod(mael_dir, 0o700)
+        os.chmod(allocations, 0o600)
+        os.chmod(config, 0o644)
+        os.chmod(env_file, 0o644)
+
+        result = _check_secret_file_perms(project_path)
+
+        assert result.status == CheckStatus.FIXED
+        assert "config.yaml" in result.message
+        assert "bravo/.env" in result.message
+        # Files actually tightened.
+        assert self._mode(config) == 0o600
+        assert self._mode(env_file) == 0o600
+
+    def test_rerun_after_fix_reports_ok(self, tmp_path, monkeypatch):
+        import os
+
+        from maelstrom.doctor import _check_secret_file_perms
+
+        project_path, mael_dir, config, allocations, env_file = self._setup(
+            tmp_path, monkeypatch
+        )
+        os.chmod(mael_dir, 0o700)
+        os.chmod(allocations, 0o600)
+        os.chmod(config, 0o600)
+        os.chmod(env_file, 0o644)
+
+        assert _check_secret_file_perms(project_path).status == CheckStatus.FIXED
+        assert _check_secret_file_perms(project_path).status == CheckStatus.OK

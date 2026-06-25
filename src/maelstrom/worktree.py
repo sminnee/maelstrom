@@ -1,18 +1,15 @@
 """Worktree management for maelstrom projects."""
 
-import fcntl
 import shutil
 import subprocess
 import sys
-import time
-from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
 
 from .claude_integration import get_shared_dir
 from .config import load_config_or_default
 from .shell import run_cmd
+from .util import locked_file
 from .ports import (
     allocate_port_base,
     generate_port_env_vars,
@@ -1479,85 +1476,6 @@ def read_env_file(worktree_path: Path) -> dict[str, str]:
     return parse_env_text(env_file.read_text())
 
 
-# --- Locked file transactions -------------------------------------------------
-
-
-class _Txn:
-    """Buffer for a :func:`locked_file` transaction.
-
-    ``text`` starts as the file's current contents; assigning to it buffers a
-    rewrite that is flushed only on clean exit of the ``with`` block, and only
-    if the value actually changed.
-    """
-
-    def __init__(self, initial: str) -> None:
-        self._initial = initial
-        self.text = initial
-
-
-@contextmanager
-def locked_file(
-    path: Path, *, timeout: float = 10.0, create: bool = True
-) -> Iterator[_Txn]:
-    """Open *path* under an exclusive advisory lock as a read/rewrite transaction.
-
-    The file is its own lockfile: we ``flock`` its open fd directly (no separate
-    lockfile, no atomic rename). The yielded transaction exposes the current
-    ``text``; assigning ``txn.text`` buffers a rewrite that is flushed in place on
-    clean exit, and only when the contents changed. On an exception inside the
-    block nothing is written. The lock is always released in ``finally``.
-
-    Because we lock the target fd, the rewrite is truncate-in-place rather than
-    temp+``os.replace`` — replacing the inode would orphan a second waiter's
-    already-open fd.
-
-    Args:
-        path: File to lock and (optionally) rewrite.
-        timeout: Seconds to wait for the lock before raising ``TimeoutError``.
-        create: Create the file if missing (open ``a+`` never truncates).
-
-    Raises:
-        TimeoutError: If the lock cannot be acquired within *timeout* seconds.
-        FileNotFoundError: If the file is missing and *create* is False.
-    """
-    if not create and not path.exists():
-        raise FileNotFoundError(path)
-
-    # "a+" creates the file if missing and never truncates on open. Seek to 0 to
-    # read existing contents.
-    fd = open(path, "a+")
-    try:
-        deadline = time.monotonic() + timeout
-        # Non-blocking acquire + sleep-poll so the deadline is portable; a plain
-        # blocking LOCK_EX can't be time-bounded across platforms. Mirrors
-        # task_store._locked.
-        while True:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                if time.monotonic() >= deadline:
-                    raise TimeoutError(
-                        f"{path} is locked by another process; "
-                        f"gave up after {int(timeout)}s."
-                    )
-                time.sleep(0.1)
-
-        fd.seek(0)
-        txn = _Txn(initial=fd.read())
-        try:
-            yield txn
-            if txn.text != txn._initial:
-                fd.seek(0)
-                fd.truncate()
-                fd.write(txn.text)
-                fd.flush()
-        finally:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-    finally:
-        fd.close()
-
-
 # --- Copy-back of new worktree env vars to the parent .env --------------------
 
 
@@ -1684,10 +1602,22 @@ def write_env_file(
     managed_section = _build_managed_section(generated_vars)
     env_file = worktree_path / ".env"
 
-    if env_file.exists():
-        existing_content = env_file.read_text()
+    # One locked, 0o600 read-modify-write replaces the previous unlocked
+    # default-mode read_text()+write_text() pair. txn.text holds the current
+    # contents (empty string when the file is freshly created).
+    with locked_file(env_file) as txn:
+        existing_content = txn.text
 
-        if ENV_SECTION_START in existing_content and ENV_SECTION_END in existing_content:
+        if existing_content == "":
+            # First-time creation
+            parts = [managed_section]
+            if template_text:
+                parts.append("")  # blank line separator
+                parts.append(
+                    _resolve_template_lines(template_text.rstrip("\n"), generated_vars)
+                )
+            new_content = "\n".join(parts) + "\n"
+        elif ENV_SECTION_START in existing_content and ENV_SECTION_END in existing_content:
             # Replace the managed section, preserve everything else
             start_idx = existing_content.index(ENV_SECTION_START)
             end_idx = existing_content.index(ENV_SECTION_END) + len(ENV_SECTION_END)
@@ -1720,16 +1650,7 @@ def write_env_file(
             else:
                 new_content = managed_section + "\n"
 
-        env_file.write_text(new_content)
-    else:
-        # First-time creation
-        parts = [managed_section]
-        if template_text:
-            parts.append("")  # blank line separator
-            parts.append(
-                _resolve_template_lines(template_text.rstrip("\n"), generated_vars)
-            )
-        env_file.write_text("\n".join(parts) + "\n")
+        txn.text = new_content
 
 
 def find_worktree_by_branch(project_path: Path, branch: str) -> Path | None:

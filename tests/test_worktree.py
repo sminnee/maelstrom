@@ -1,7 +1,6 @@
 """Tests for maelstrom.worktree module."""
 
 import subprocess
-import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -14,7 +13,6 @@ from maelstrom.worktree import (
     _setup_claude_memory_symlink,
     close_worktree,
     copy_back_new_env_vars,
-    locked_file,
     managed_keys_in_env,
     create_worktree,
     find_closed_worktree,
@@ -66,6 +64,10 @@ class TestWriteEnvFile:
 
             env_file = worktree_path / ".env"
             assert env_file.exists()
+            # Created at 0o600 — the .env can carry the same secrets as config.
+            import os
+            import stat
+            assert stat.S_IMODE(os.stat(env_file).st_mode) == 0o600
 
             content = env_file.read_text()
             assert ENV_SECTION_START in content
@@ -73,6 +75,25 @@ class TestWriteEnvFile:
             assert "PORT_BASE=100" in content
             assert "FRONTEND_PORT=1000" in content
             assert "SERVER_PORT=1001" in content
+
+    def test_tightens_existing_loose_env_file(self):
+        """Rewriting an existing 0o644 .env tightens it to 0o600."""
+        import os
+        import stat
+
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            env_file = worktree_path / ".env"
+            env_file.write_text(
+                f"{ENV_SECTION_START}\nPORT_BASE=100\n{ENV_SECTION_END}\n\nKEEP=1\n"
+            )
+            os.chmod(env_file, 0o644)
+
+            write_env_file(worktree_path, {"PORT_BASE": "200"})
+
+            assert stat.S_IMODE(os.stat(env_file).st_mode) == 0o600
+            # User content preserved through the locked rewrite.
+            assert "KEEP=1" in env_file.read_text()
 
     def test_sorts_variables_within_section(self):
         """Test that environment variables are sorted within the managed section."""
@@ -1797,73 +1818,6 @@ class TestManagedKeysInEnv:
             user_lines="FOO=bar",
         )
         assert managed_keys_in_env(tmp_path) == {"WORKTREE", "PORT_BASE", "WEB_PORT"}
-
-
-class TestLockedFile:
-    """Tests for the locked_file transaction context manager."""
-
-    def test_writes_buffered_text_on_clean_exit(self, tmp_path):
-        path = tmp_path / "f.env"
-        path.write_text("A=1\n")
-        with locked_file(path) as txn:
-            assert txn.text == "A=1\n"
-            txn.text = "A=1\nB=2\n"
-        assert path.read_text() == "A=1\nB=2\n"
-
-    def test_no_write_when_unchanged(self, tmp_path):
-        path = tmp_path / "f.env"
-        path.write_text("A=1\n")
-        mtime_before = path.stat().st_mtime_ns
-        time.sleep(0.01)
-        with locked_file(path) as txn:
-            _ = txn.text  # read but do not modify
-        assert path.read_text() == "A=1\n"
-        assert path.stat().st_mtime_ns == mtime_before
-
-    def test_no_write_on_exception(self, tmp_path):
-        path = tmp_path / "f.env"
-        path.write_text("A=1\n")
-
-        class Boom(Exception):
-            pass
-
-        with pytest.raises(Boom):
-            with locked_file(path) as txn:
-                txn.text = "A=1\nB=2\n"
-                raise Boom()
-        # Buffered change not flushed; lock released so a re-acquire succeeds.
-        assert path.read_text() == "A=1\n"
-        with locked_file(path) as txn:
-            assert txn.text == "A=1\n"
-
-    def test_creates_missing_file(self, tmp_path):
-        path = tmp_path / "new.env"
-        with locked_file(path) as txn:
-            assert txn.text == ""
-            txn.text = "X=1\n"
-        assert path.read_text() == "X=1\n"
-
-    def test_missing_file_without_create_raises(self, tmp_path):
-        path = tmp_path / "absent.env"
-        with pytest.raises(FileNotFoundError):
-            with locked_file(path, create=False):
-                pass
-
-    def test_second_acquisition_times_out_while_held(self, tmp_path):
-        path = tmp_path / "f.env"
-        path.write_text("A=1\n")
-        # Hold the lock via a raw fd, then assert locked_file gives up.
-        import fcntl as _fcntl
-
-        held = open(path, "a+")
-        _fcntl.flock(held, _fcntl.LOCK_EX)
-        try:
-            with pytest.raises(TimeoutError):
-                with locked_file(path, timeout=0.3):
-                    pass
-        finally:
-            _fcntl.flock(held, _fcntl.LOCK_UN)
-            held.close()
 
 
 class TestCopyBackNewEnvVars:

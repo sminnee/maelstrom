@@ -55,6 +55,86 @@ class TestGlobalConfig:
         assert config.open_command == "vim"
 
 
+class TestLoadGlobalConfigDoesNotChmod:
+    """Loading the config is a pure read — it must never touch perms."""
+
+    def test_load_leaves_loose_perms_untouched(self, tmp_path, monkeypatch):
+        import os
+        import stat
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        mael_dir = tmp_path / ".maelstrom"
+        mael_dir.mkdir()
+        os.chmod(mael_dir, 0o755)
+        config = mael_dir / "config.yaml"
+        config.write_text("linear:\n  api_key: secret\n")
+        os.chmod(config, 0o644)
+
+        loaded = load_global_config()
+
+        # Parsed normally, but perms left exactly as found.
+        assert loaded.linear_api_key == "secret"
+        assert stat.S_IMODE(os.stat(config).st_mode) == 0o644
+        assert stat.S_IMODE(os.stat(mael_dir).st_mode) == 0o755
+
+
+class TestHardenGlobalConfig:
+    """harden_global_config is the explicit opt-in tightening path."""
+
+    def test_tightens_loose_config_and_dir(self, tmp_path, monkeypatch):
+        import os
+        import stat
+
+        from maelstrom.context import harden_global_config
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        mael_dir = tmp_path / ".maelstrom"
+        mael_dir.mkdir()
+        os.chmod(mael_dir, 0o755)
+        config = mael_dir / "config.yaml"
+        config.write_text("linear:\n  api_key: secret\n")
+        os.chmod(config, 0o644)
+
+        messages = harden_global_config()
+
+        assert stat.S_IMODE(os.stat(config).st_mode) == 0o600
+        assert stat.S_IMODE(os.stat(mael_dir).st_mode) == 0o700
+        # Reports what it tightened.
+        assert any("config.yaml" in m for m in messages)
+        assert any("~/.maelstrom" in m for m in messages)
+
+    def test_tightens_legacy_config_file(self, tmp_path, monkeypatch):
+        import os
+        import stat
+
+        from maelstrom.context import harden_global_config
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        legacy = tmp_path / ".maelstrom.yaml"
+        legacy.write_text("projects_dir: ~/Projects\n")
+        os.chmod(legacy, 0o644)
+
+        messages = harden_global_config()
+
+        assert stat.S_IMODE(os.stat(legacy).st_mode) == 0o600
+        assert any(".maelstrom.yaml" in m for m in messages)
+
+    def test_noop_when_already_tight_returns_no_messages(self, tmp_path, monkeypatch):
+        import os
+
+        from maelstrom.context import harden_global_config
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        mael_dir = tmp_path / ".maelstrom"
+        mael_dir.mkdir()
+        os.chmod(mael_dir, 0o700)
+        config = mael_dir / "config.yaml"
+        config.write_text("x: 1\n")
+        os.chmod(config, 0o600)
+
+        assert harden_global_config() == []
+
+
 class TestResolvedContext:
     """Tests for ResolvedContext class."""
 

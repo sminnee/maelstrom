@@ -6,6 +6,7 @@ from pathlib import Path
 import click
 
 from .claude_integration import install_claude_integration
+from .context import harden_global_config
 
 
 @click.command("install")
@@ -52,6 +53,12 @@ def cmd_self_update():
     click.echo("Updating Claude Code integration...")
     messages = install_claude_integration()
     for msg in messages:
+        click.echo(f"  {msg}")
+
+    # Tighten any loose perms on the global config / ~/.maelstrom while we're
+    # touching the install. The config carries plaintext API keys; doctor is the
+    # other place this runs, but self-update is a natural "tidy my install" hook.
+    for msg in harden_global_config():
         click.echo(f"  {msg}")
 
     click.echo("Update complete.")

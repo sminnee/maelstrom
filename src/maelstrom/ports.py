@@ -5,6 +5,8 @@ import socket
 import time
 from pathlib import Path
 
+from .util import locked_file
+
 
 ALLOCATIONS_FILENAME = "port_allocations.json"
 
@@ -91,24 +93,38 @@ def get_allocated_port_bases(allocations: dict[str, dict[str, int]]) -> set[int]
 
 
 def record_port_allocation(project_path: Path, worktree_name: str, port_base: int) -> None:
-    """Record a port allocation for a worktree."""
-    allocations = load_port_allocations()
+    """Record a port allocation for a worktree.
+
+    The load-modify-save runs as a single locked transaction so concurrent
+    ``mael add`` invocations can't double-allocate, and the file lands 0o600.
+    """
     project_key = str(project_path.resolve())
-    if project_key not in allocations:
-        allocations[project_key] = {}
-    allocations[project_key][worktree_name] = port_base
-    save_port_allocations(allocations)
+    path = _get_allocations_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with locked_file(path) as txn:
+        allocations = json.loads(txn.text) if txn.text.strip() else {}
+        if project_key not in allocations:
+            allocations[project_key] = {}
+        allocations[project_key][worktree_name] = port_base
+        txn.text = json.dumps(allocations, indent=2, sort_keys=True) + "\n"
 
 
 def remove_port_allocation(project_path: Path, worktree_name: str) -> None:
-    """Remove a port allocation for a worktree."""
-    allocations = load_port_allocations()
+    """Remove a port allocation for a worktree.
+
+    The load-modify-save runs as a single locked 0o600 transaction (see
+    :func:`record_port_allocation`).
+    """
     project_key = str(project_path.resolve())
-    if project_key in allocations and worktree_name in allocations[project_key]:
-        del allocations[project_key][worktree_name]
-        if not allocations[project_key]:
-            del allocations[project_key]
-        save_port_allocations(allocations)
+    path = _get_allocations_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with locked_file(path) as txn:
+        allocations = json.loads(txn.text) if txn.text.strip() else {}
+        if project_key in allocations and worktree_name in allocations[project_key]:
+            del allocations[project_key][worktree_name]
+            if not allocations[project_key]:
+                del allocations[project_key]
+            txn.text = json.dumps(allocations, indent=2, sort_keys=True) + "\n"
 
 
 def get_port_allocation(project_path: Path, worktree_name: str) -> int | None:

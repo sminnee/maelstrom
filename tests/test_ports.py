@@ -199,6 +199,25 @@ class TestPortAllocations:
         project_key = str(project_path.resolve())
         assert allocations[project_key]["alpha"] == 300
 
+    def test_record_writes_file_at_0o600(self, tmp_path, monkeypatch):
+        """record_port_allocation lands the JSON file at 0o600."""
+        import os
+        import stat
+
+        from maelstrom.ports import _get_allocations_path
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+
+        record_port_allocation(project_path, "alpha", 300)
+
+        path = _get_allocations_path()
+        assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+        # Round-trips unchanged.
+        project_key = str(project_path.resolve())
+        assert load_port_allocations()[project_key]["alpha"] == 300
+
     def test_record_multiple_worktrees(self, tmp_path, monkeypatch):
         """Test recording allocations for multiple worktrees."""
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
