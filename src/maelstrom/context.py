@@ -11,6 +11,8 @@ from pathlib import Path
 
 import yaml
 
+from .util import harden_path
+
 
 GLOBAL_CONFIG_DIR = ".maelstrom"
 GLOBAL_CONFIG_FILENAME = "config.yaml"
@@ -91,6 +93,12 @@ def load_global_config() -> GlobalConfig:
     Returns:
         GlobalConfig with projects_dir setting, or defaults if file doesn't exist.
     """
+    # Loading is a pure read: it never tightens permissions. The config holds
+    # plaintext API keys, so loose perms are a real risk — but fixing them lives
+    # in ``mael doctor`` (``_check_secret_file_perms``) and ``mael self-update``
+    # (which calls :func:`harden_global_config`), not on this hot read path that
+    # runs on nearly every command.
+
     # Try new location first
     new_config_path = get_maelstrom_dir() / GLOBAL_CONFIG_FILENAME
     if new_config_path.exists():
@@ -112,6 +120,43 @@ def load_global_config() -> GlobalConfig:
             return GlobalConfig.default()
 
     return GlobalConfig.default()
+
+
+def harden_global_config() -> list[str]:
+    """Tighten the global config file(s) and ~/.maelstrom dir to 0o600/0o700.
+
+    The config holds plaintext API keys; maelstrom never writes it (users create
+    it by hand), so this is the explicit, opt-in hardening path — called from
+    ``mael self-update`` (and mirrored by the ``mael doctor`` check). It is *not*
+    run on the config load path, which stays a pure read.
+
+    Tightens both the new-location ``~/.maelstrom/config.yaml`` (plus its parent
+    dir) and the legacy ``~/.maelstrom.yaml``; the legacy file lives directly
+    under ``$HOME``, whose mode we must never touch. Best-effort and narrow-only
+    (see :func:`maelstrom.util.harden_path`): existing tighter perms are left
+    alone, and any ``OSError`` is swallowed so the caller never crashes.
+
+    Returns:
+        Human-readable messages for each path that was tightened (empty if
+        nothing was loose).
+    """
+    messages: list[str] = []
+    maelstrom_dir = get_maelstrom_dir()
+
+    targets: list[tuple[Path, int, str]] = [
+        (maelstrom_dir, 0o700, "~/.maelstrom"),
+        (maelstrom_dir / GLOBAL_CONFIG_FILENAME, 0o600, "~/.maelstrom/config.yaml"),
+        (Path.home() / GLOBAL_CONFIG_FILENAME_LEGACY, 0o600, "~/.maelstrom.yaml"),
+    ]
+    for path, mode, label in targets:
+        if not path.exists():
+            continue
+        try:
+            if harden_path(path, mode):
+                messages.append(f"tightened permissions on {label}")
+        except OSError:
+            pass
+    return messages
 
 
 def validate_project_name(name: str) -> None:

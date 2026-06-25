@@ -5,8 +5,14 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
-from .ports import load_port_allocations, remove_port_allocation
+from .context import (
+    GLOBAL_CONFIG_FILENAME,
+    GLOBAL_CONFIG_FILENAME_LEGACY,
+    get_maelstrom_dir,
+)
+from .ports import ALLOCATIONS_FILENAME, load_port_allocations, remove_port_allocation
 from .shell import run_cmd
+from .util import harden_path
 from .worktree import (
     list_worktrees,
     run_git,
@@ -246,6 +252,55 @@ def _check_env_markers(project_path: Path) -> CheckResult:
     )
 
 
+def _check_secret_file_perms(project_path: Path) -> CheckResult:
+    """Check (and auto-fix) that secret-bearing files are not group/other readable.
+
+    Tightens ``~/.maelstrom/`` to 0o700; ``config.yaml`` (and legacy
+    ``~/.maelstrom.yaml``) and ``port_allocations.json`` to 0o600; and every
+    worktree ``.env`` to 0o600. Only narrows perms (via :func:`util.harden_path`),
+    never widens. Returns OK when nothing was loose, FIXED listing what was
+    tightened, or WARNING naming any path that could not be fixed.
+    """
+    maelstrom_dir = get_maelstrom_dir()
+
+    # (path, target_mode, label) — label is what we report when tightened.
+    targets: list[tuple[Path, int, str]] = [
+        (maelstrom_dir, 0o700, "~/.maelstrom"),
+        (maelstrom_dir / GLOBAL_CONFIG_FILENAME, 0o600, "config.yaml"),
+        (Path.home() / GLOBAL_CONFIG_FILENAME_LEGACY, 0o600, "~/.maelstrom.yaml"),
+        (maelstrom_dir / ALLOCATIONS_FILENAME, 0o600, ALLOCATIONS_FILENAME),
+    ]
+
+    # Every worktree .env — enumerated exactly as _check_env_markers does.
+    for wt in list_worktrees(project_path):
+        if wt.path == project_path:
+            continue
+        targets.append((wt.path / ".env", 0o600, f"{wt.path.name}/.env"))
+
+    tightened: list[str] = []
+    unfixable: list[str] = []
+    for path, mode, label in targets:
+        if not path.exists():
+            continue
+        try:
+            if harden_path(path, mode):
+                tightened.append(label)
+        except OSError:
+            unfixable.append(label)
+
+    if unfixable:
+        return CheckResult(
+            CheckStatus.WARNING,
+            f"could not tighten perms on: {', '.join(unfixable)}",
+        )
+    if tightened:
+        return CheckResult(
+            CheckStatus.FIXED,
+            f"tightened perms on: {', '.join(tightened)}",
+        )
+    return CheckResult(CheckStatus.OK, "secret file permissions are restrictive")
+
+
 def run_doctor(project_path: Path) -> DoctorResult:
     """Run all health checks on a project.
 
@@ -268,6 +323,7 @@ def run_doctor(project_path: Path) -> DoctorResult:
         _check_stale_worktrees,
         _check_port_allocations,
         _check_env_markers,
+        _check_secret_file_perms,
     ]
 
     for check in checks:
