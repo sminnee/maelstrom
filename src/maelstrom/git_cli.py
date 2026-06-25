@@ -1,12 +1,12 @@
 """CLI commands for git operations."""
 
 import json
-import subprocess
 from pathlib import Path
 
 import click
 
 from .context import resolve_context
+from .shell import run_cmd
 from .worktree import (
     SyncResult,
     get_commits_ahead,
@@ -55,13 +55,7 @@ def get_worktree_file_status(path: Path) -> dict[str, list[str]]:
     Returns:
         Dict with keys 'staged', 'modified', 'untracked', each a list of file paths.
     """
-    result = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=path,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    result = run_cmd(["git", "status", "--porcelain"], cwd=path, quiet=True, check=False)
     staged = []
     modified = []
     untracked = []
@@ -96,13 +90,7 @@ def get_diff_stat_summary(path: Path) -> tuple[int, int, int] | None:
         Tuple of (files_changed, insertions, deletions) or None if no changes.
     """
     # Diff of staged + unstaged against HEAD
-    result = subprocess.run(
-        ["git", "diff", "--stat", "HEAD"],
-        cwd=path,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    result = run_cmd(["git", "diff", "--stat", "HEAD"], cwd=path, quiet=True, check=False)
     if result.returncode != 0 or not result.stdout.strip():
         return None
 
@@ -134,13 +122,7 @@ def get_diff_stat_summary(path: Path) -> tuple[int, int, int] | None:
 
 def get_recent_commits(path: Path, count: int = 5) -> list[dict[str, str]]:
     """Get recent commits as list of {hash, message} dicts."""
-    result = subprocess.run(
-        ["git", "log", f"--oneline", f"-{count}"],
-        cwd=path,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    result = run_cmd(["git", "log", "--oneline", f"-{count}"], cwd=path, quiet=True, check=False)
     if result.returncode != 0 or not result.stdout.strip():
         return []
 

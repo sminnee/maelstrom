@@ -152,13 +152,7 @@ def get_worktree_dirty_files(worktree_path: Path) -> list[str]:
     if not worktree_path.is_dir():
         return []
 
-    result = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=worktree_path,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    result = run_cmd(["git", "status", "--porcelain"], cwd=worktree_path, quiet=True, check=False)
     if result.returncode != 0:
         return []
 
@@ -192,12 +186,9 @@ def get_commits_ahead(worktree_path: Path, base_branch: str = "origin/main") -> 
     if not worktree_path.is_dir():
         return 0
 
-    result = subprocess.run(
+    result = run_cmd(
         ["git", "rev-list", "--count", f"{base_branch}..HEAD"],
-        cwd=worktree_path,
-        capture_output=True,
-        text=True,
-        check=False,
+        cwd=worktree_path, quiet=True, check=False,
     )
     if result.returncode != 0:
         return 0
@@ -222,22 +213,16 @@ def get_local_only_commits(worktree_path: Path, branch: str | None) -> int:
 
     # Check if remote branch exists
     remote_branch = f"origin/{branch}"
-    result = subprocess.run(
+    result = run_cmd(
         ["git", "rev-parse", "--verify", remote_branch],
-        cwd=worktree_path,
-        capture_output=True,
-        text=True,
-        check=False,
+        cwd=worktree_path, quiet=True, check=False,
     )
 
     if result.returncode == 0:
         # Remote exists, count commits not on remote
-        result = subprocess.run(
+        result = run_cmd(
             ["git", "rev-list", "--count", f"{remote_branch}..HEAD"],
-            cwd=worktree_path,
-            capture_output=True,
-            text=True,
-            check=False,
+            cwd=worktree_path, quiet=True, check=False,
         )
         if result.returncode == 0:
             try:
@@ -263,24 +248,18 @@ def get_pushed_commit_count(worktree_path: Path, branch: str) -> int | None:
     remote_branch = f"origin/{branch}"
 
     # Check if remote branch exists
-    result = subprocess.run(
+    result = run_cmd(
         ["git", "rev-parse", "--verify", remote_branch],
-        cwd=worktree_path,
-        capture_output=True,
-        text=True,
-        check=False,
+        cwd=worktree_path, quiet=True, check=False,
     )
 
     if result.returncode != 0:
         return None  # Not pushed
 
     # Count commits on remote branch ahead of main
-    result = subprocess.run(
+    result = run_cmd(
         ["git", "rev-list", "--count", f"origin/{MAIN_BRANCH}..{remote_branch}"],
-        cwd=worktree_path,
-        capture_output=True,
-        text=True,
-        check=False,
+        cwd=worktree_path, quiet=True, check=False,
     )
 
     if result.returncode == 0:

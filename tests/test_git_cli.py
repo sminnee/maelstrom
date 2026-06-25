@@ -20,7 +20,7 @@ class TestGetWorktreeFileStatus:
     """Tests for get_worktree_file_status helper."""
 
     def test_staged_files(self):
-        with patch("maelstrom.git_cli.subprocess.run") as mock_run:
+        with patch("maelstrom.git_cli.run_cmd") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0, stdout="A  src/new.py\nM  src/changed.py\n"
             )
@@ -31,7 +31,7 @@ class TestGetWorktreeFileStatus:
         assert result["untracked"] == []
 
     def test_modified_files(self):
-        with patch("maelstrom.git_cli.subprocess.run") as mock_run:
+        with patch("maelstrom.git_cli.run_cmd") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0, stdout=" M src/routes.py\n"
             )
@@ -42,7 +42,7 @@ class TestGetWorktreeFileStatus:
         assert result["untracked"] == []
 
     def test_untracked_files(self):
-        with patch("maelstrom.git_cli.subprocess.run") as mock_run:
+        with patch("maelstrom.git_cli.run_cmd") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0, stdout="?? src/new_file.py\n"
             )
@@ -53,7 +53,7 @@ class TestGetWorktreeFileStatus:
         assert result["untracked"] == ["src/new_file.py"]
 
     def test_mixed_status(self):
-        with patch("maelstrom.git_cli.subprocess.run") as mock_run:
+        with patch("maelstrom.git_cli.run_cmd") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0,
                 stdout="A  src/new.py\n M src/routes.py\n?? src/todo.txt\nMM src/both.py\n",
@@ -68,14 +68,14 @@ class TestGetWorktreeFileStatus:
         assert "src/both.py" in result["modified"]
 
     def test_empty_output(self):
-        with patch("maelstrom.git_cli.subprocess.run") as mock_run:
+        with patch("maelstrom.git_cli.run_cmd") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="")
             result = get_worktree_file_status(Path("/tmp/claude/repo"))
 
         assert result == {"staged": [], "modified": [], "untracked": []}
 
     def test_git_failure(self):
-        with patch("maelstrom.git_cli.subprocess.run") as mock_run:
+        with patch("maelstrom.git_cli.run_cmd") as mock_run:
             mock_run.return_value = MagicMock(returncode=128, stdout="")
             result = get_worktree_file_status(Path("/tmp/claude/repo"))
 
@@ -91,7 +91,7 @@ class TestGetDiffStatSummary:
             " src/login.py | 5 +++++\n"
             " 2 files changed, 12 insertions(+), 3 deletions(-)\n"
         )
-        with patch("maelstrom.git_cli.subprocess.run") as mock_run:
+        with patch("maelstrom.git_cli.run_cmd") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout=stat_output)
             result = get_diff_stat_summary(Path("/tmp/claude/repo"))
 
@@ -99,14 +99,14 @@ class TestGetDiffStatSummary:
 
     def test_insertions_only(self):
         stat_output = " 1 file changed, 5 insertions(+)\n"
-        with patch("maelstrom.git_cli.subprocess.run") as mock_run:
+        with patch("maelstrom.git_cli.run_cmd") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout=stat_output)
             result = get_diff_stat_summary(Path("/tmp/claude/repo"))
 
         assert result == (1, 5, 0)
 
     def test_no_changes(self):
-        with patch("maelstrom.git_cli.subprocess.run") as mock_run:
+        with patch("maelstrom.git_cli.run_cmd") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="")
             result = get_diff_stat_summary(Path("/tmp/claude/repo"))
 
@@ -117,7 +117,7 @@ class TestGetRecentCommits:
     """Tests for get_recent_commits helper."""
 
     def test_with_commits(self):
-        with patch("maelstrom.git_cli.subprocess.run") as mock_run:
+        with patch("maelstrom.git_cli.run_cmd") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0,
                 stdout="a1b2c3d feat: add login page\nd4e5f6g fix: handle null user\n",
@@ -129,7 +129,7 @@ class TestGetRecentCommits:
         assert result[1] == {"hash": "d4e5f6g", "message": "fix: handle null user"}
 
     def test_no_commits(self):
-        with patch("maelstrom.git_cli.subprocess.run") as mock_run:
+        with patch("maelstrom.git_cli.run_cmd") as mock_run:
             mock_run.return_value = MagicMock(returncode=128, stdout="")
             result = get_recent_commits(Path("/tmp/claude/repo"))
 

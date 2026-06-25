@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from . import branch_name
+from .shell import run_cmd
 from .task_store import GitFileStore, TaskStore
 from .util import now_iso
 
@@ -968,12 +969,13 @@ def edit_in_editor(
         raise KeyError(f"Task not found: {project}/{id}")
     path = store._path(key)  # file already exists on disk in the git-fs store
     ed = editor or os.environ.get("EDITOR") or "vi"
-    # Left as a direct ``subprocess.run`` rather than routed through ``run_cmd``:
-    # this is the model layer, and importing ``run_cmd`` from the ``worktree`` IO
-    # adapter would invert the storage/model/CLI layering. It's already a bare
-    # argv with ``shell=False`` (no quoting, no injection surface).
+    # Routed through ``run_cmd`` in the ``shell.py`` leaf (stdlib-only, imports
+    # nothing from maelstrom), so there is no storage/model/CLI layering concern.
+    # The only behavioural change versus a bare ``subprocess.run`` is a benign
+    # ``$ <editor> <path>`` echo before the editor opens; ``check=True`` is the
+    # default, so the ``CalledProcessError`` wrapping below still applies.
     try:
-        subprocess.run([ed, str(path)], check=True)
+        run_cmd([ed, str(path)])
     except FileNotFoundError:
         raise RuntimeError(f"Editor not found: {ed}")
     except subprocess.CalledProcessError as e:
