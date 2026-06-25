@@ -16,6 +16,7 @@ from .cmux import mael_layout
 from .review_prepare import cmd_review_prepare
 from .session_cli import session as session_cli, session_channel as session_channel_cmd
 from .task_cli import task as task_cli
+from .task_cli import add_task
 from .schedule_launchd import schedule_group
 from .env import get_env_status, regenerate_and_restart_if_running, stop_env
 from .env_cli import (
@@ -679,7 +680,13 @@ def cmd_sync(target, squash, abort, close):
 @click.option("--wait", is_flag=True, help="Wait for the PR to merge before closing")
 @click.option("--timeout", default=3600, help="Max seconds to wait for merge (default: 3600)")
 @click.option("--interval", default=30, help="Poll interval in seconds (default: 30)")
-def cmd_close(targets, wait, timeout, interval):
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Close even with unmerged/unresolved work; aborts an in-progress sync and "
+    "creates a 'reopen the branch' task.",
+)
+def cmd_close(targets, wait, timeout, interval, force):
     """Close one or more worktrees (sync, verify clean, checkout main).
 
     Closes a worktree by:
@@ -694,6 +701,12 @@ def cmd_close(targets, wait, timeout, interval):
     With --wait, monitors the worktree's PR and only attempts the close once it
     has merged; if the PR is closed without merging or its CI fails, an error is
     raised instead. Waiting is bounded by --timeout (default 1 hour).
+
+    With --force, closes incomplete work too: a conflicting sync is aborted (not
+    left mid-rebase), and the worktree is freed even with unmerged commits or a
+    dirty tree. Nothing is discarded — uncommitted changes are committed onto the
+    branch as 'wip: uncommitted changes' first. The branch and its PR are never
+    deleted, and a 'Reopen <branch>' task is created so the work isn't forgotten.
     """
     # If no targets given, use cwd detection (original behavior)
     if not targets:
@@ -752,10 +765,35 @@ def cmd_close(targets, wait, timeout, interval):
             print_copy_back_result(copy_back, ctx.project_path)
 
         click.echo(f"Closing worktree '{ctx.worktree}'...")
-        result = close_worktree(worktree_path)
+        result = close_worktree(worktree_path, force=force)
 
         if result.success:
             click.echo(result.message)
+            # On a forced close that preserved unmerged work, create a "reopen the
+            # branch" task so the branch + PR aren't forgotten. Done before closing
+            # the cmux workspace. A real branch only (already-detached → "HEAD").
+            if force and result.had_unmerged_work and result.branch and result.branch != "HEAD":
+                try:
+                    add_task(
+                        project=ctx.project,
+                        title=f"Reopen {result.branch}",
+                        command="reopen-branch",
+                        branch=result.branch,
+                        content=(
+                            f"`{result.branch}` was force-closed with unmerged work (any "
+                            f"uncommitted changes were saved as a `wip: uncommitted changes` "
+                            f"commit). Reopening restores the worktree; review the PR and env "
+                            f"to decide what's left, and unwind the wip commit if there was one."
+                        ),
+                        run=False,
+                    )
+                except click.ClickException as e:
+                    # The worktree is already closed; a task-store hiccup must not fail
+                    # the close. Warn and move on.
+                    click.echo(
+                        f"Warning: could not create reopen task for '{result.branch}': {e}",
+                        err=True,
+                    )
             # Close cmux workspace after successful worktree close
             if mael_layout.close_workspace(ctx.project, ctx.worktree):
                 ws_name = mael_layout.workspace_name(ctx.project, ctx.worktree)
