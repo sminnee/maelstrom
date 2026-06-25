@@ -342,6 +342,8 @@ class CloseResult:
     message: str
     had_dirty_files: bool = False
     had_unpushed_commits: bool = False
+    branch: str = ""  # branch checked out before close (for reopen tasks under --force)
+    had_unmerged_work: bool = False  # --force closed over dirty/unmerged/conflicting work
 
 
 @dataclass
@@ -735,7 +737,7 @@ def merge_to_main(worktree_path: Path, *, squash: bool = True, close: bool = Fal
     )
 
 
-def close_worktree(worktree_path: Path) -> CloseResult:
+def close_worktree(worktree_path: Path, *, force: bool = False) -> CloseResult:
     """Close a worktree by syncing and resetting to origin/main.
 
     This operation:
@@ -747,41 +749,67 @@ def close_worktree(worktree_path: Path) -> CloseResult:
     After closing, the worktree's HEAD will point to the same commit as
     origin/main, making it available for recycling via is_worktree_closed().
 
+    With ``force=True`` the close becomes an escape hatch for *incomplete* work:
+    a conflicting sync is aborted (not left mid-rebase), and the worktree is torn
+    down even with unmerged commits or a dirty tree. Nothing is discarded — any
+    uncommitted/untracked changes are committed onto the branch as
+    ``wip: uncommitted changes`` first, so they ride along on the preserved branch
+    and reappear when it is reopened. The branch (and its PR) is never deleted; the
+    returned ``branch`` / ``had_unmerged_work`` let the caller create a reopen task.
+
     Args:
         worktree_path: Path to the worktree directory.
+        force: If True, close even with unmerged/dirty/conflicting work (see above).
 
     Returns:
         CloseResult with status and message.
     """
     worktree_path = worktree_path.resolve()
+    branch = get_current_branch(worktree_path)  # capture before any detach
 
-    # First sync the worktree
-    sync_result = sync_worktree(worktree_path)
-    if not sync_result.success:
+    # --force never loses work: commit any dirty/untracked changes onto the branch
+    # FIRST, so they survive the close and reappear when the branch is reopened.
+    committed_wip = False
+    if force and get_worktree_dirty_files(worktree_path):
+        run_git(["add", "-A"], cwd=worktree_path)
+        run_git(["commit", "-m", "wip: uncommitted changes"], cwd=worktree_path)
+        committed_wip = True
+
+    # Sync. With --force, abort a conflicting rebase instead of leaving it in progress.
+    sync_result = sync_worktree(worktree_path, abort_on_conflict=force)
+    if not sync_result.success and not force:
         return CloseResult(
             success=False,
             message=f"Sync failed: {sync_result.message}",
         )
+    # With force, a failed/aborted sync still falls through to teardown.
 
-    # Check for dirty files
+    # Check for dirty files (empty now under force — wip was committed above).
     dirty_files = get_worktree_dirty_files(worktree_path)
-    if dirty_files:
-        return CloseResult(
-            success=False,
-            message="Worktree has uncommitted changes",
-            had_dirty_files=True,
-        )
-
-    # Check for unmerged commits
     commits_ahead = get_commits_ahead(worktree_path)
-    if commits_ahead > 0:
-        return CloseResult(
-            success=False,
-            message=f"Worktree has {commits_ahead} commit(s) not merged to origin/main",
-            had_unpushed_commits=True,
-        )
+    had_unmerged = force and (committed_wip or commits_ahead > 0 or sync_result.had_conflicts)
 
-    return _detach_and_free_ports(worktree_path)
+    if not force:
+        if dirty_files:
+            return CloseResult(
+                success=False,
+                message="Worktree has uncommitted changes",
+                had_dirty_files=True,
+            )
+        if commits_ahead > 0:
+            return CloseResult(
+                success=False,
+                message=f"Worktree has {commits_ahead} commit(s) not merged to origin/main",
+                had_unpushed_commits=True,
+            )
+
+    # --force (or clean) → tear down. Branch is preserved (only HEAD detaches).
+    # Tree is clean by now (wip committed), so the normal detach works.
+    result = _detach_and_free_ports(worktree_path)
+    # Surface what the caller needs to create a reopen task.
+    result.branch = branch
+    result.had_unmerged_work = had_unmerged
+    return result
 
 
 def _detach_and_free_ports(worktree_path: Path) -> CloseResult:
