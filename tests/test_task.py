@@ -1220,6 +1220,25 @@ class TestEditInEditor:
         with pytest.raises(RuntimeError):
             model.edit_in_editor(store, "p", t.id, editor=editor)
 
+    def test_editor_launched_with_inherited_stdio(self, tmp_path, monkeypatch):
+        # The editor must inherit the terminal (``stream=True``) so a full-screen
+        # editor like ``vi`` can draw its screen; without it ``run_cmd`` captures
+        # stdout/stderr into pipes and the editor is unusable. Spy on ``run_cmd``
+        # to pin this contract — a non-interactive fake editor can't exercise it.
+        from unittest.mock import MagicMock
+
+        from maelstrom.task_store import GitFileStore
+
+        store = GitFileStore(root=tmp_path / "tasks")
+        t = model.create(store, project="p", title="orig", now=NOW)
+        spy = MagicMock()
+        monkeypatch.setattr(model, "run_cmd", spy)
+        # The mocked run_cmd leaves the file untouched, so edit_in_editor returns
+        # early with changed=False — irrelevant here; we only assert on the spy.
+        model.edit_in_editor(store, "p", t.id, editor="some-editor")
+        spy.assert_called_once()
+        assert spy.call_args.kwargs.get("stream") is True
+
 
 # --- duplicate + run-id (model-level) ---
 
