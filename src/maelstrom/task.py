@@ -971,11 +971,17 @@ def edit_in_editor(
     ed = editor or os.environ.get("EDITOR") or "vi"
     # Routed through ``run_cmd`` in the ``shell.py`` leaf (stdlib-only, imports
     # nothing from maelstrom), so there is no storage/model/CLI layering concern.
-    # The only behavioural change versus a bare ``subprocess.run`` is a benign
-    # ``$ <editor> <path>`` echo before the editor opens; ``check=True`` is the
-    # default, so the ``CalledProcessError`` wrapping below still applies.
+    # ``stream=True`` is required so the editor inherits the terminal's
+    # stdout/stderr; without it ``run_cmd`` captures the child's output into pipes
+    # (``capture_output=True``) and a full-screen editor like ``vi`` can't draw its
+    # screen, leaving it unusable. ``stream=True`` is the fork-and-wait equivalent
+    # of the original bare ``subprocess.run`` — same terminal inheritance, control
+    # returns here afterwards so the post-edit save logic below still runs. The only
+    # other change versus that bare call is a benign ``$ <editor> <path>`` echo
+    # before the editor opens; ``check=True`` is the default, so the
+    # ``CalledProcessError`` wrapping below still applies.
     try:
-        run_cmd([ed, str(path)])
+        run_cmd([ed, str(path)], stream=True)
     except FileNotFoundError:
         raise RuntimeError(f"Editor not found: {ed}")
     except subprocess.CalledProcessError as e:
