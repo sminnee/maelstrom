@@ -98,4 +98,7 @@ Run this loop. Each iteration is one CI cycle.
 - **Run the waits in the background** (`run_in_background: true`) so the session stays responsive
   while CI runs.
 - **`<ISSUE-ID>`** is the Linear identifier — it's in `$MAEL_TASK_PARENT` (`linear.<ID>`) when
-  launched from a notebook task, and usually in the branch name / recent commits otherwise.
+  launched from a Linear-rooted notebook task, and usually in the branch name / recent commits
+  otherwise. Guard the extraction on the `linear.` prefix: for an ad-hoc chain `$MAEL_TASK_PARENT`
+  is the planning task's own id (e.g. `2026-06-28.1`), not a Linear id — treat a non-`linear.` value
+  as "no Linear id" and fall back to the branch name / commits.

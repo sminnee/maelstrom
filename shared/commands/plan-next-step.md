@@ -146,9 +146,11 @@ product-level mirror only.
 ## Knowing your own task id
 
 The session exports `MAEL_TASK_ID` (this planning task) and `MAEL_TASK_PARENT` (the `linear.<ID>`
-parent). `mael task status done` with no id closes **this** task — it falls back to `$MAEL_TASK_ID`
+parent — or, for an ad-hoc chain with no Linear issue, the original planning task's own id).
+`mael task status done` with no id closes **this** task — it falls back to `$MAEL_TASK_ID`
 — so you never need to pass your own id. Block `parent` likewise defaults to `$MAEL_TASK_PARENT`, so
-blocks can omit it and chain with `follow-end: "*"` (append after siblings) / `follow: <block>`.
+blocks can omit it and chain with `follow-end: "*"` (append after siblings) / `follow: <block>`
+identically whether the parent is a Linear id or a planning task's own id.
 
 ## Implementation Notes
 
