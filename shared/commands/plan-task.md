@@ -76,10 +76,12 @@ chain) **then** `mael task status done` (close this planning task).
 ## Knowing your own task id
 
 The session exports `MAEL_TASK_ID` (this planning task) and `MAEL_TASK_PARENT` (the
-`linear.<ID>` parent). `mael task status done` with no id closes **this** task — it falls back to
+`linear.<ID>` parent — or, for an ad-hoc plan with no Linear issue, this planning task's own id).
+`mael task status done` with no id closes **this** task — it falls back to
 `$MAEL_TASK_ID` — so you never need to pass your own id. Block `parent` likewise defaults to
 `$MAEL_TASK_PARENT`, so blocks omit it and chain with `follow-end: "*"` (append after siblings) /
-`follow: <block>`; the Linear `<ID>` is also in the brief in your prompt if you need it.
+`follow: <block>` identically whether the parent is a Linear id or this planning task's own id;
+the Linear `<ID>` is also in the brief in your prompt if you need it.
 
 ## Plan Structure
 

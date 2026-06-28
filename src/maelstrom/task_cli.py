@@ -77,9 +77,13 @@ def _run_task(
     """
     # Skills running inside the session self-reference via these — e.g. to
     # `mael task done $MAEL_TASK_ID` and `--follow-end linear.<parent>`.
-    session_env = {"MAEL_TASK_ID": task.id}
-    if task.parent:
-        session_env["MAEL_TASK_PARENT"] = task.parent
+    session_env = {
+        "MAEL_TASK_ID": task.id,
+        # A parentless task self-parents: children it emits nest under it and
+        # share its branch (one PR per chain), instead of each becoming a fresh
+        # orphan. A real parent wins over the task.id fallback.
+        "MAEL_TASK_PARENT": task.parent or task.id,
+    }
     perm = model._permission_mode_for(task.mode)
     # The prompt is produced lazily by `mael task prompt` inside the launch
     # pipeline, not passed here — keeps the launch command line short.
@@ -145,9 +149,12 @@ def _resolve_task_id(id: str | None) -> str:
 def _default_parent(parent: str) -> str:
     """Default an unset ``--parent`` to the launching session's parent.
 
-    A session launched by ``mael task run`` exports ``MAEL_TASK_PARENT`` (the
-    Linear ``linear.<ID>`` the task hangs under), so chain tasks a skill emits
-    nest under the same parent without spelling it out. An explicit ``parent``
+    A session launched by ``mael task run`` exports ``MAEL_TASK_PARENT`` — the
+    launching task's parent, or the task's own id when it has none — so a
+    parentless planning session still chains its children under one
+    parent/branch (one PR per chain) instead of each becoming a fresh orphan.
+    For a Linear-rooted task this is the ``linear.<ID>`` parent. Chain tasks a
+    skill emits nest under it without spelling it out; an explicit ``parent``
     always wins.
     """
     return parent or os.environ.get("MAEL_TASK_PARENT", "")

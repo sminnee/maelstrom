@@ -552,13 +552,16 @@ class TestRunHere:
         # ``mael task prompt``.
         launch.exec.assert_called_once()
         command = launch.exec.call_args.args[0]
+        # Orphan task self-parents, so MAEL_TASK_PARENT rides alongside the id.
         assert describe(command) == (
             f"mael task prompt {t.id} --project p "
-            f"| MAEL_TASK_ID={t.id} claude --permission-mode plan"
+            f"| MAEL_TASK_ID={t.id} MAEL_TASK_PARENT={t.id} "
+            f"claude --permission-mode plan"
         )
         kwargs = launch.exec.call_args.kwargs
         assert kwargs["cwd"] is None
         assert kwargs["env"]["MAEL_TASK_ID"] == t.id
+        assert kwargs["env"]["MAEL_TASK_PARENT"] == t.id
         assert kwargs["replace_process"] is True
         assert f"Running {t.id} here (current shell)" in result.output
 
@@ -803,13 +806,15 @@ class TestEnvThreading:
         assert env["MAEL_TASK_ID"] == t.id
         assert env["MAEL_TASK_PARENT"] == "linear.ME-1"
 
-    def test_run_omits_parent_env_when_orphan(self, runner, store, launch):
+    def test_run_self_parents_when_orphan(self, runner, store, launch):
+        # A parentless task self-parents so the chain it emits nests under it
+        # and shares its branch, rather than each child becoming a fresh orphan.
         t = model.create(store, project="p", title="Orphan")
         result = runner.invoke(task_cli.task, ["run", t.id])
         assert result.exit_code == 0, result.output
         env = launch.session.call_args.kwargs["env"]
         assert env["MAEL_TASK_ID"] == t.id
-        assert "MAEL_TASK_PARENT" not in env
+        assert env["MAEL_TASK_PARENT"] == t.id  # self-parent, not omitted
 
 
 # --- list: BRANCH column ---

@@ -64,7 +64,10 @@ mael task rm <id>                        # delete and strip from dependents
 `--follow` / `--follow-end` build the chain (a task becomes actionable only once everything it
 follows is done); `--follow-end '*'` appends after the leaf of the parent's existing child-chain.
 `--parent` nests ids and **defaults to `$MAEL_TASK_PARENT`** when unset, so chain tasks a launched
-session emits nest under the same Linear issue without spelling it out. `--command` selects the skill
+session emits nest under the same parent without spelling it out. `$MAEL_TASK_PARENT` is the
+launching task's parent, or the task's own id when it has none — so a parentless planning session
+still chains its children under one parent/branch (for a Linear-rooted task it is the
+`linear.<ID>` parent). `--command` selects the skill
 the launched session runs; `--content-file` (or `-` for stdin) seeds the task's content. Launched
 sessions export `MAEL_TASK_ID` / `MAEL_TASK_PARENT` so skills can self-reference; `mael task status`
 and `--parent` both fall back to those env vars.
