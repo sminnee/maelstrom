@@ -1335,3 +1335,94 @@ class TestTemplateStatus:
         reloaded = model.load(store, "p", "t")
         assert reloaded.schedule == "0 9 * * *"
         assert reloaded.last_run == "2026-06-18T09:00:00+00:00"
+
+
+class TestSessionIdFor:
+    def test_deterministic(self):
+        a = model.session_id_for("proj", "2026-06-30.1")
+        b = model.session_id_for("proj", "2026-06-30.1")
+        assert a == b
+
+    def test_valid_uuid(self):
+        import uuid
+
+        # Round-trips through UUID() → it is a well-formed UUID string.
+        uid = model.session_id_for("proj", "2026-06-30.1")
+        assert str(uuid.UUID(uid)) == uid
+
+    def test_differs_across_tasks(self):
+        a = model.session_id_for("proj", "2026-06-30.1")
+        b = model.session_id_for("proj", "2026-06-30.2")
+        assert a != b
+
+    def test_differs_across_projects(self):
+        a = model.session_id_for("proj-a", "x")
+        b = model.session_id_for("proj-b", "x")
+        assert a != b
+
+
+class TestReconcile:
+    def _in_progress(self, store, project, title, **kw):
+        t = model.create(store, project=project, title=title, **kw)
+        model.move(store, project, t.id, model.STATUS_IN_PROGRESS)
+        return t
+
+    def test_ok_row_for_in_progress_with_session(self):
+        store = InMemoryStore()
+        t = self._in_progress(store, "p", "a", id="t1")
+        rows = model.reconcile(
+            store, "p", session_task_ids={t.id: {"pid": 1}}
+        )
+        assert len(rows) == 1
+        assert rows[0].state == model.RECONCILE_OK
+        assert rows[0].fix_status is None
+
+    def test_stale_in_progress_without_session(self):
+        store = InMemoryStore()
+        self._in_progress(store, "p", "a", id="t1")
+        rows = model.reconcile(store, "p", session_task_ids={})
+        assert len(rows) == 1
+        assert rows[0].state == model.RECONCILE_STALE
+        assert rows[0].fix_status == model.STATUS_DONE
+
+    def test_orphan_session_on_todo_task(self):
+        store = InMemoryStore()
+        t = model.create(store, project="p", title="a", id="t1")  # stays todo
+        rows = model.reconcile(
+            store, "p", session_task_ids={t.id: {"pid": 9}}
+        )
+        assert len(rows) == 1
+        assert rows[0].state == model.RECONCILE_ORPHAN
+        assert rows[0].fix_status == model.STATUS_IN_PROGRESS
+
+    def test_done_task_with_session_listed_but_not_flipped(self):
+        store = InMemoryStore()
+        t = model.create(store, project="p", title="a", id="t1")
+        model.move(store, "p", t.id, model.STATUS_DONE)
+        rows = model.reconcile(
+            store, "p", session_task_ids={t.id: {"pid": 9}}
+        )
+        assert len(rows) == 1
+        assert rows[0].state == model.RECONCILE_ORPHAN
+        assert rows[0].fix_status is None  # finished window — not a corruption
+
+    def test_missing_task_with_session_not_flipped(self):
+        store = InMemoryStore()
+        rows = model.reconcile(
+            store, "p", session_task_ids={"ghost": {"pid": 9}}
+        )
+        assert len(rows) == 1
+        assert rows[0].state == model.RECONCILE_ORPHAN
+        assert rows[0].task_status == "(missing)"
+        assert rows[0].fix_status is None
+
+    def test_mixed_rows_sorted_by_task_id(self):
+        store = InMemoryStore()
+        self._in_progress(store, "p", "a", id="t1")  # stale (no session)
+        t2 = self._in_progress(store, "p", "b", id="t2")  # ok
+        rows = model.reconcile(
+            store, "p", session_task_ids={t2.id: {"pid": 2}}
+        )
+        assert [r.task_id for r in rows] == ["t1", "t2"]
+        assert rows[0].state == model.RECONCILE_STALE
+        assert rows[1].state == model.RECONCILE_OK

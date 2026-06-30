@@ -56,6 +56,11 @@ def launch(monkeypatch, tmp_path):
     monkeypatch.setattr(task_cli, "setup_worktree_for_branch", setup)
     monkeypatch.setattr(task_cli, "launch_claude_in_worktree", session)
     monkeypatch.setattr(task_cli, "run_cmd", run_cmd)
+    # No live session for the task by default — the duplicate-launch pre-check
+    # reads the real ~/.maelstrom registry otherwise.
+    monkeypatch.setattr(
+        task_cli.session_store, "find_live_session_for_task", lambda *a, **k: None
+    )
     return SimpleNamespace(
         setup=setup, session=session, exec=run_cmd, wt_path=wt_path
     )
@@ -393,12 +398,102 @@ class TestRun:
             "resolve_context",
             lambda *a, **k: SimpleNamespace(project="p", project_path=missing),
         )
+        monkeypatch.setattr(
+            task_cli.session_store,
+            "find_live_session_for_task",
+            lambda *a, **k: None,
+        )
         session = MagicMock()
         monkeypatch.setattr(task_cli, "launch_claude_in_worktree", session)
         result = runner.invoke(task_cli.task, ["run", t.id])
         assert result.exit_code != 0
         assert "not found" in result.output
         session.assert_not_called()
+
+
+class TestDuplicateLaunchPrecheck:
+    def test_run_refuses_when_live_session_exists(
+        self, runner, store, launch, monkeypatch
+    ):
+        t = model.create(store, project="p", title="t")
+        monkeypatch.setattr(
+            task_cli.session_store,
+            "find_live_session_for_task",
+            lambda *a, **k: {"pid": 4242},
+        )
+        result = runner.invoke(task_cli.task, ["run", t.id])
+        assert result.exit_code != 0
+        assert "already has an open Claude session" in result.output
+        assert "4242" in result.output
+        # Aborts before any launch or status move.
+        launch.session.assert_not_called()
+        launch.setup.assert_not_called()
+        assert model.load(store, "p", t.id).status == model.STATUS_TODO
+
+    def test_run_here_also_refuses(self, runner, store, launch, monkeypatch):
+        t = model.create(store, project="p", title="t")
+        monkeypatch.setattr(
+            task_cli.session_store,
+            "find_live_session_for_task",
+            lambda *a, **k: {"pid": 9},
+        )
+        result = runner.invoke(task_cli.task, ["run", t.id, "--here"])
+        assert result.exit_code != 0
+        assert "already has an open Claude session" in result.output
+        launch.exec.assert_not_called()
+        assert model.load(store, "p", t.id).status == model.STATUS_TODO
+
+
+class TestReconcile:
+    def _live(self, monkeypatch, store, mapping):
+        monkeypatch.setattr(
+            task_cli, "_live_sessions_by_task", lambda s, p: mapping
+        )
+
+    def test_empty(self, runner, store, monkeypatch):
+        self._live(monkeypatch, store, {})
+        result = runner.invoke(task_cli.task, ["reconcile"])
+        assert result.exit_code == 0, result.output
+        assert "No in-progress tasks or live task sessions." in result.output
+
+    def test_dry_run_lists_states_and_hints(self, runner, store, monkeypatch):
+        # One OK, one stale, one orphan.
+        ok = model.create(store, project="p", title="ok", id="t1")
+        model.move(store, "p", ok.id, model.STATUS_IN_PROGRESS)
+        stale = model.create(store, project="p", title="stale", id="t2")
+        model.move(store, "p", stale.id, model.STATUS_IN_PROGRESS)
+        orphan = model.create(store, project="p", title="orphan", id="t3")  # todo
+        self._live(
+            monkeypatch, store,
+            {ok.id: {"pid": 1}, orphan.id: {"pid": 3}},
+        )
+        result = runner.invoke(task_cli.task, ["reconcile"])
+        assert result.exit_code == 0, result.output
+        assert "OK" in result.output
+        assert "NO SESSION" in result.output
+        assert "NO TASK" in result.output
+        assert "re-run with --fix" in result.output
+        # Nothing changed in dry-run.
+        assert model.load(store, "p", stale.id).status == model.STATUS_IN_PROGRESS
+        assert model.load(store, "p", orphan.id).status == model.STATUS_TODO
+
+    def test_fix_applies_corrections(self, runner, store, monkeypatch):
+        stale = model.create(store, project="p", title="stale", id="t1")
+        model.move(store, "p", stale.id, model.STATUS_IN_PROGRESS)
+        orphan = model.create(store, project="p", title="orphan", id="t2")  # todo
+        self._live(monkeypatch, store, {orphan.id: {"pid": 3}})
+        result = runner.invoke(task_cli.task, ["reconcile", "--fix"])
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", stale.id).status == model.STATUS_DONE
+        assert model.load(store, "p", orphan.id).status == model.STATUS_IN_PROGRESS
+
+    def test_fix_nothing_to_do(self, runner, store, monkeypatch):
+        ok = model.create(store, project="p", title="ok", id="t1")
+        model.move(store, "p", ok.id, model.STATUS_IN_PROGRESS)
+        self._live(monkeypatch, store, {ok.id: {"pid": 1}})
+        result = runner.invoke(task_cli.task, ["reconcile", "--fix"])
+        assert result.exit_code == 0, result.output
+        assert "Nothing to fix." in result.output
 
 
 class TestAddRun:
@@ -553,10 +648,12 @@ class TestRunHere:
         launch.exec.assert_called_once()
         command = launch.exec.call_args.args[0]
         # Orphan task self-parents, so MAEL_TASK_PARENT rides alongside the id.
+        # The deterministic --session-id pins the task's Claude session.
+        sid = model.session_id_for("p", t.id)
         assert describe(command) == (
             f"mael task prompt {t.id} --project p "
             f"| MAEL_TASK_ID={t.id} MAEL_TASK_PARENT={t.id} "
-            f"claude --permission-mode plan"
+            f"claude --permission-mode plan --session-id {sid}"
         )
         kwargs = launch.exec.call_args.kwargs
         assert kwargs["cwd"] is None

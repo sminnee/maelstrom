@@ -15,6 +15,7 @@ import click
 
 from . import task as model  # noqa: F401  (module, used as `model.*`)
 from . import task_actions
+from . import session_store
 from .context import resolve_context
 from .table import draw_table
 from .task_store import GitFileStore
@@ -75,6 +76,18 @@ def _run_task(
     MUST complete before they are called. With ``here=True`` the session runs
     in the current shell — no worktree reconciliation, no new cmux workspace.
     """
+    # Refuse a second parallel launch: the same task already has a live Claude
+    # session (one worktree, one PR — racing two sessions on it corrupts both).
+    # The deterministic --session-id below is a backstop; this is the friendly
+    # error. find_key/load already proved the task exists.
+    existing = session_store.find_live_session_for_task(project, task.id)
+    if existing is not None:
+        raise click.ClickException(
+            f"Task {task.id} already has an open Claude session "
+            f"(pid {existing.get('pid')}). Close it before relaunching, or run "
+            f"`mael task reconcile` to inspect."
+        )
+
     # Skills running inside the session self-reference via these — e.g. to
     # `mael task done $MAEL_TASK_ID` and `--follow-end linear.<parent>`.
     session_env = {
@@ -85,6 +98,9 @@ def _run_task(
         "MAEL_TASK_PARENT": task.parent or task.id,
     }
     perm = model._permission_mode_for(task.mode)
+    # Deterministic session id (same task → same id), passed to `claude
+    # --session-id` so the registry can map the live session back to the task.
+    session_id = model.session_id_for(project, task.id)
     # The prompt is produced lazily by `mael task prompt` inside the launch
     # pipeline, not passed here — keeps the launch command line short.
 
@@ -94,7 +110,9 @@ def _run_task(
         )  # write BEFORE launch; fires pre_action
         click.echo(f"Running {task.id} here (current shell)")
         run_cmd(
-            build_task_launch_line(project, task.id, perm, env=session_env),
+            build_task_launch_line(
+                project, task.id, perm, env=session_env, session_id=session_id
+            ),
             cwd=None,
             env=session_env,
             replace_process=True,
@@ -124,6 +142,7 @@ def _run_task(
         task_id=task.id,
         permission_mode=perm,
         env=session_env,
+        session_id=session_id,
     )
 
 
@@ -667,6 +686,98 @@ def task_run(id: str, project: str | None, here: bool) -> None:
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
     _run_task(store, proj, t, here=here)
+
+
+def _live_sessions_by_task(
+    store: GitFileStore, project: str
+) -> dict[str, dict]:
+    """Map ``task_id -> live session`` for every live session in ``project``.
+
+    Correlates the session registry to the task notebook: each task in the
+    project is matched (by deterministic ``session_id`` or recorded
+    ``mael_task_id``) to the live session it launched, whatever that task's
+    current status. The registry is indexed once in ``session_store`` so the
+    correlation is linear, not tasks×sessions. Sessions matching no task in
+    this project are dropped (they belong elsewhere).
+    """
+    task_ids = [t.id for t in model.list_tasks(store, project=project)]
+    return session_store.live_sessions_by_task_id(project, task_ids)
+
+
+@task.command("reconcile")
+@click.option("--project", default=None, help="Project name (default: from cwd).")
+@click.option(
+    "--fix",
+    is_flag=True,
+    help="Apply the suggested corrections (default: dry-run table only).",
+)
+def task_reconcile(project: str | None, fix: bool) -> None:
+    """Reconcile in-progress tasks against live Claude sessions.
+
+    Lists the full picture — healthy (OK) rows included — and flags two
+    mismatch classes: a stale ``in-progress`` task with no live session (→
+    ``done``) and a live session whose task isn't ``in-progress`` (→
+    ``in-progress``). With ``--fix`` the suggested moves are applied; without
+    it, nothing changes and a hint is printed if any fix is pending.
+    """
+    proj = _resolve_project(project)
+    store = _store()
+    session_task_ids = _live_sessions_by_task(store, proj)
+    rows = model.reconcile(store, proj, session_task_ids=session_task_ids)
+
+    if not rows:
+        click.echo("No in-progress tasks or live task sessions.")
+        return
+
+    _STATE_LABEL = {
+        model.RECONCILE_OK: "OK",
+        model.RECONCILE_STALE: "NO SESSION",
+        model.RECONCILE_ORPHAN: "NO TASK",
+    }
+    _FIX_LABEL = {
+        model.STATUS_DONE: "→ done",
+        model.STATUS_IN_PROGRESS: "→ in-progress",
+    }
+
+    table_rows = []
+    for r in rows:
+        if r.session is not None:
+            sess = str(r.session.get("pid", "")) or r.session.get(
+                "session_id", ""
+            )
+        else:
+            sess = ""
+        table_rows.append({
+            "STATE": _STATE_LABEL.get(r.state, r.state),
+            "TASK": f"{r.task_id} ({r.task_status})",
+            "SESSION/PID": sess,
+            "SUGGESTED FIX": _FIX_LABEL.get(r.fix_status or "", ""),
+        })
+    draw_table(
+        table_rows, ["STATE", "TASK", "SESSION/PID", "SUGGESTED FIX"]
+    )
+
+    fixable = [r for r in rows if r.fix_status is not None]
+    if not fix:
+        if fixable:
+            click.echo(
+                f"\n{len(fixable)} task(s) need correcting — re-run with --fix."
+            )
+        return
+
+    if not fixable:
+        click.echo("\nNothing to fix.")
+        return
+
+    for r in fixable:
+        try:
+            task_actions.move_with_actions(
+                store, proj, r.task_id, r.fix_status
+            )
+        except KeyError:
+            click.echo(f"  skipped {r.task_id}: task no longer exists", err=True)
+            continue
+        click.echo(f"  {r.task_id}: {r.task_status} -> {r.fix_status}")
 
 
 @task.command("show")

@@ -34,8 +34,8 @@ def _write_session(sessions_dir: Path, key: str, **overrides) -> Path:
 
 
 def _patch_maelstrom_dir(tmp_path: Path):
-    """Patch the ~/.maelstrom dir used by session_cli to tmp_path."""
-    return patch("maelstrom.session_cli.get_maelstrom_dir", return_value=tmp_path)
+    """Patch the ~/.maelstrom dir used by session reads to tmp_path."""
+    return patch("maelstrom.session_store.get_maelstrom_dir", return_value=tmp_path)
 
 
 class TestSessionRecord:

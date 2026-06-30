@@ -46,15 +46,21 @@ def open_worktree(worktree_path: Path, command: str) -> None:
         raise RuntimeError(f"Failed to open worktree: {e}")
 
 
-def build_claude_command(permission_mode: str | None = None) -> list[str]:
+def build_claude_command(
+    permission_mode: str | None = None, session_id: str | None = None
+) -> list[str]:
     """The trailing ``claude [...]`` argv shared by every placement (no env, no cwd).
 
     The initial prompt is no longer an argv argument — it is piped into ``claude``
-    on stdin via :func:`build_task_launch_line`.
+    on stdin via :func:`build_task_launch_line`. When ``session_id`` is given it
+    becomes ``--session-id``, pinning the task to a deterministic Claude session
+    (Claude then re-exports it as ``CLAUDE_SESSION_ID``).
     """
     argv = ["claude"]
     if permission_mode:
         argv += ["--permission-mode", permission_mode]
+    if session_id:
+        argv += ["--session-id", session_id]
     return argv
 
 
@@ -63,6 +69,7 @@ def build_task_launch_line(
     task_id: str,
     permission_mode: str | None = None,
     env: dict[str, str] | None = None,
+    session_id: str | None = None,
 ) -> ShellExpr:
     """The pipeline that launches a task: ``mael task prompt ... | <env> claude ...``.
 
@@ -73,11 +80,15 @@ def build_task_launch_line(
     ``env`` vars attach to the ``claude`` :class:`Command` (the right of the pipe)
     so the interactive session inherits them. The structure makes the
     front-of-line scoping bug unrepresentable: env is a property of a single
-    ``Command``, never of the whole ``Pipeline``.
+    ``Command``, never of the whole ``Pipeline``. ``session_id`` pins the task's
+    deterministic Claude session id (see :func:`build_claude_command`).
     """
     return Pipeline([
         Command(["mael", "task", "prompt", task_id, "--project", project]),
-        Command(build_claude_command(permission_mode), env=dict(env or {})),
+        Command(
+            build_claude_command(permission_mode, session_id),
+            env=dict(env or {}),
+        ),
     ])
 
 
@@ -120,6 +131,7 @@ def launch_claude_in_worktree(
     task_id: str | None = None,
     permission_mode: str | None = None,
     env: dict[str, str] | None = None,
+    session_id: str | None = None,
 ) -> None:
     """Launch Claude for a worktree: new cmux workspace, else replace-in-place.
 
@@ -130,14 +142,18 @@ def launch_claude_in_worktree(
 
     With ``task_id`` (and ``project``) set, the command is the
     ``mael task prompt <id> | claude`` pipeline; otherwise it's a plain ``claude``
-    that just opens the worktree. Either way env rides inside the ``ShellExpr``.
+    that just opens the worktree. ``session_id`` pins the deterministic Claude
+    session id on the task path. Either way env rides inside the ``ShellExpr``.
     """
     if task_id and project:
         command: ShellExpr = build_task_launch_line(
-            project, task_id, permission_mode, env=env
+            project, task_id, permission_mode, env=env, session_id=session_id
         )
     else:
-        command = Command(build_claude_command(permission_mode), env=dict(env or {}))
+        command = Command(
+            build_claude_command(permission_mode, session_id),
+            env=dict(env or {}),
+        )
     if not open_claude_workspace(project, worktree, worktree_path, command):
         # Non-cmux: no shell pane to run install in, so install blocking first.
         run_install_cmd(worktree_path)
