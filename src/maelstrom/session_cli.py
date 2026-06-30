@@ -2,32 +2,21 @@
 
 import json
 import os
-import socket
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import click
 
-from .context import get_maelstrom_dir, resolve_context
+from .context import resolve_context
+from .session_store import (
+    liveness_check as _liveness_check,
+    read_session_file as _read_session_file,
+    sessions_dir as _sessions_dir,
+)
 from .table import draw_table
 from .util import atomic_write_json, now_iso
 from .shell import run_cmd
-
-
-SESSIONS_SUBDIR = "sessions"
-
-
-def _sessions_dir() -> Path:
-    return get_maelstrom_dir() / SESSIONS_SUBDIR
-
-
-def _read_session_file(path: Path) -> dict | None:
-    try:
-        with open(path) as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return None
 
 
 def _find_session_file(
@@ -63,17 +52,6 @@ def _find_session_file(
                 return f
 
     return None
-
-
-def _liveness_check(port: int) -> bool:
-    """Return True if something is listening on 127.0.0.1:port."""
-    if not port:
-        return False
-    try:
-        with socket.create_connection(("127.0.0.1", port), timeout=0.1):
-            return True
-    except OSError:
-        return False
 
 
 # --- session-channel launcher ---
@@ -311,8 +289,7 @@ def session_list() -> None:
                 pass
             continue
 
-        port = data.get("channel_port", 0)
-        if not _liveness_check(int(port) if port else 0):
+        if not _liveness_check(data.get("channel_port", 0)):
             try:
                 f.unlink()
             except OSError:

@@ -64,6 +64,22 @@ class TestBuildClaudeCommand:
             "plan",
         ]
 
+    def test_with_session_id(self):
+        assert build_claude_command(session_id="abc-123") == [
+            "claude",
+            "--session-id",
+            "abc-123",
+        ]
+
+    def test_permission_mode_and_session_id(self):
+        assert build_claude_command("plan", "abc-123") == [
+            "claude",
+            "--permission-mode",
+            "plan",
+            "--session-id",
+            "abc-123",
+        ]
+
 
 class TestBuildTaskLaunchLine:
     """Tests for the ``mael task prompt <id> | claude`` pipeline builder."""
@@ -81,6 +97,14 @@ class TestBuildTaskLaunchLine:
     def test_auto_permission_mode(self):
         assert describe(build_task_launch_line("proj", "t1", "auto")) == (
             "mael task prompt t1 --project proj | claude --permission-mode auto"
+        )
+
+    def test_session_id_appended(self):
+        assert describe(
+            build_task_launch_line("proj", "t1", "plan", session_id="abc-123")
+        ) == (
+            "mael task prompt t1 --project proj | "
+            "claude --permission-mode plan --session-id abc-123"
         )
 
     def test_quotes_ids_and_projects_with_spaces(self):

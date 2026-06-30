@@ -14,6 +14,7 @@ only the injected store, so it can be exercised against an
 import os
 import re
 import subprocess
+import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -1153,6 +1154,117 @@ def _permission_mode_for(mode: str) -> str | None:
     unattended mode); anything else uses Claude's default (None, no flag).
     """
     return mode if mode in {"plan", "auto"} else None
+
+
+# Fixed namespace UUID for deriving per-task session ids. Generated once and
+# frozen here so the mapping (project, task-id) → session-id is stable across
+# machines and over time; changing it would orphan every existing session.
+_SESSION_NS = uuid.UUID("5b970d0a-51ab-49ae-ba93-0f7b0f615908")
+
+
+def session_id_for(project: str, task_id: str) -> str:
+    """Stable Claude ``--session-id`` for a task (same task → same id).
+
+    Deterministic uuid5 over ``project`` and ``task_id`` (NUL-separated so no
+    pair of distinct ids can collide by concatenation). This is the
+    first-class link between a task and its session: ``mael task run`` passes
+    it to ``claude --session-id``, the session channel records it, and
+    ``reconcile`` matches a live session back to its task by recomputing it.
+    """
+    return str(uuid.uuid5(_SESSION_NS, f"{project}\x00{task_id}"))
+
+
+# Reconcile classifications. Each in-progress task / live session is sorted into
+# exactly one of these states (see :func:`reconcile`).
+RECONCILE_OK = "ok"  # in-progress task with a live session — healthy, no fix
+RECONCILE_STALE = "stale-in-progress"  # in-progress task, no live session → done
+RECONCILE_ORPHAN = "orphan-session"  # live session, task not in-progress → start
+
+
+@dataclass
+class ReconcileRow:
+    """One reconcile finding: a task/session pair and its suggested correction.
+
+    ``state`` is one of the ``RECONCILE_*`` constants. ``fix_status`` is the
+    status the task should move to (``None`` for OK rows — nothing to do).
+    ``session`` is the matched live-session dict, or ``None`` for a
+    stale-in-progress task that has no session.
+    """
+
+    state: str
+    task_id: str
+    task_status: str
+    session: dict | None
+    fix_status: str | None
+
+
+def reconcile(
+    store: TaskStore,
+    project: str,
+    *,
+    session_task_ids: dict[str, dict],
+) -> list[ReconcileRow]:
+    """Classify in-progress tasks and live sessions into reconcile rows.
+
+    Pure: the caller supplies ``session_task_ids`` — a map from task id to the
+    live session dict that owns it (built from the session registry in the CLI
+    layer) — and this function reads only the injected store. It never moves
+    tasks; ``--fix`` application is the caller's job, driven off ``fix_status``.
+
+    Three states (see the ``RECONCILE_*`` constants):
+
+    - **OK**: an ``in-progress`` task that has a live session. No fix.
+    - **stale-in-progress**: an ``in-progress`` task with no live session.
+      Suggested fix → ``done`` (matches session-end auto-close behaviour).
+    - **orphan-session**: a live session whose task is *not* ``in-progress``
+      (todo/blocked/etc.). Suggested fix → ``in-progress``. A session whose
+      task is already terminal (done/cancelled) or missing is reported with no
+      fix — a finished task whose window lingers is not a corruption to flip.
+
+    Rows are returned id-sorted for stable rendering.
+    """
+    rows: list[ReconcileRow] = []
+    in_progress = list_tasks(store, project=project, status=STATUS_IN_PROGRESS)
+    in_progress_ids = {t.id for t in in_progress}
+
+    for task in in_progress:
+        session = session_task_ids.get(task.id)
+        if session is not None:
+            rows.append(ReconcileRow(
+                state=RECONCILE_OK,
+                task_id=task.id,
+                task_status=task.status,
+                session=session,
+                fix_status=None,
+            ))
+        else:
+            rows.append(ReconcileRow(
+                state=RECONCILE_STALE,
+                task_id=task.id,
+                task_status=task.status,
+                session=None,
+                fix_status=STATUS_DONE,
+            ))
+
+    for task_id, session in session_task_ids.items():
+        if task_id in in_progress_ids:
+            continue  # already an OK row above
+        key = find_key(store, project, task_id)
+        status = status_from_key(key) if key is not None else None
+        # Only flip a non-terminal task (todo/blocked) into in-progress. A
+        # terminal or missing task with a lingering session is listed, not
+        # auto-corrected.
+        fixable = status is not None and status not in (STATUS_DONE, STATUS_CANCELLED)
+        rows.append(ReconcileRow(
+            state=RECONCILE_ORPHAN,
+            task_id=task_id,
+            task_status=status or "(missing)",
+            session=session,
+            fix_status=STATUS_IN_PROGRESS if fixable else None,
+        ))
+
+    rows.sort(key=lambda r: r.task_id)
+    return rows
 
 
 def next_task(

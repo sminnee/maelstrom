@@ -78,6 +78,11 @@ async function main() {
     cwd: process.cwd(),
     pid: process.pid,
     model: process.env.CLAUDE_MODEL || null,
+    // The launching `mael task run` exports MAEL_TASK_ID; recording it here
+    // lets `mael task reconcile` map a live session back to its task without a
+    // live env var (the deterministic session_id is the primary key, this is a
+    // human-readable confirmation).
+    mael_task_id: process.env.MAEL_TASK_ID || null,
     state: "idle",
     started_at: startedAt,
     updated_at: startedAt,
