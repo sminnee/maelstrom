@@ -1,6 +1,8 @@
 """Tests for the Slack webhook posting integration."""
 
-from unittest.mock import patch
+import json
+
+from unittest.mock import Mock, patch
 
 import click
 import pytest
@@ -135,6 +137,27 @@ class TestPostCommand:
         assert result.exit_code == 0, result.output
         mock_post.assert_called_once_with("https://a", "hello")
 
+    @patch("maelstrom.integrations.slack.post_message")
+    @patch("maelstrom.integrations.slack.load_global_config")
+    def test_arg_with_tty_stdin_does_not_read(self, mock_cfg, mock_post):
+        # An interactive TTY has no pending input; reading it would block
+        # forever. With an arg given, the command must skip the stdin read
+        # entirely rather than hang or trip the "both" guard.
+        mock_cfg.return_value = _config(weekly="https://a")
+
+        tty_stream = Mock()
+        tty_stream.isatty.return_value = True
+
+        with patch(
+            "maelstrom.integrations.slack.click.get_text_stream",
+            return_value=tty_stream,
+        ):
+            result = CliRunner().invoke(slack, ["post", "hello"])
+
+        assert result.exit_code == 0, result.output
+        tty_stream.read.assert_not_called()
+        mock_post.assert_called_once_with("https://a", "hello")
+
     @patch("maelstrom.integrations.slack.load_global_config")
     def test_unknown_channel_exits_nonzero(self, mock_cfg):
         mock_cfg.return_value = _config(weekly="https://a")
@@ -147,7 +170,7 @@ class TestPostCommand:
 
 class TestPostMessageHttp:
     @patch("maelstrom.integrations._http.urllib.request.urlopen")
-    def test_post_message_sends_text_body(self, mock_urlopen):
+    def test_post_message_sends_section_block(self, mock_urlopen):
         from maelstrom.integrations.slack import post_message
 
         mock_urlopen.return_value.__enter__.return_value.read.return_value = b"ok"
@@ -157,5 +180,39 @@ class TestPostMessageHttp:
 
         mock_urlopen.assert_called_once()
         req = mock_urlopen.call_args[0][0]
-        assert req.data == b'{"text": "hi there"}'
+        # Parse rather than pin the serialized bytes (key order / whitespace).
+        payload = json.loads(req.data)
+        # Raw text is the notification fallback; the rendered body rides in a
+        # section block. Plain text needs no conversion, so mrkdwn == text here.
+        assert payload["text"] == "hi there"
+        assert payload["blocks"] == [
+            {"type": "section", "text": {"type": "mrkdwn", "text": "hi there"}}
+        ]
         assert req.method == "POST"
+
+    @patch("maelstrom.integrations._http.urllib.request.urlopen")
+    def test_post_message_converts_markdown_to_mrkdwn(self, mock_urlopen):
+        from maelstrom.integrations.slack import post_message
+
+        mock_urlopen.return_value.__enter__.return_value.read.return_value = b"ok"
+
+        # Standard Markdown the user types -> Slack mrkdwn in the section block.
+        post_message(
+            "https://hooks.slack.com/services/XXX",
+            "**bold**, *italic*, and a [link](https://example.com)",
+        )
+
+        req = mock_urlopen.call_args[0][0]
+        payload = json.loads(req.data)
+        # **bold** -> *bold*, *italic* -> _italic_, [t](u) -> <u|t>.
+        assert payload["blocks"] == [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*bold*, _italic_, and a <https://example.com|link>",
+                },
+            }
+        ]
+        # The unconverted Markdown is preserved as the notification fallback.
+        assert payload["text"] == "**bold**, *italic*, and a [link](https://example.com)"

@@ -2,6 +2,8 @@
 
 import click
 
+from markdown_to_mrkdwn import SlackMarkdownConverter
+
 from ..context import load_global_config
 from ._http import request_text
 
@@ -48,7 +50,16 @@ def resolve_webhook(channel: str | None) -> tuple[str, str]:
 
 
 def post_message(webhook_url: str, text: str) -> None:
-    """Post a plain-text message to a Slack incoming webhook.
+    """Post a Markdown message to a Slack incoming webhook.
+
+    Standard Markdown (``**bold**``, ``# headings``, ``[label](url)`` links,
+    ``-`` lists, ``> quotes``) is converted to Slack's *mrkdwn* dialect
+    (``*bold*``, ``<url|label>``, ``•`` bullets) and sent in a Block Kit
+    ``section`` block, which renders formatting over incoming webhooks. The
+    newer Block Kit ``markdown`` block renders standard Markdown directly but is
+    rejected (HTTP 500) by incoming-webhook URLs, so we convert + section
+    instead. The raw, unconverted ``text`` is retained as the top-level fallback
+    Slack uses for notifications and non-rendering clients.
 
     Slack replies with the literal body ``ok`` (not JSON) on success, so this
     uses :func:`request_text` rather than ``request_json``.
@@ -56,7 +67,17 @@ def post_message(webhook_url: str, text: str) -> None:
     Raises:
         click.ClickException: On an HTTP error (reused from the HTTP wrapper).
     """
-    request_text(webhook_url, method="POST", json_body={"text": text})
+    mrkdwn = SlackMarkdownConverter().convert(text)
+    request_text(
+        webhook_url,
+        method="POST",
+        json_body={
+            "text": text,
+            "blocks": [
+                {"type": "section", "text": {"type": "mrkdwn", "text": mrkdwn}}
+            ],
+        },
+    )
 
 
 @click.group("slack")
@@ -78,7 +99,13 @@ def cmd_post(message: str | None, channel: str | None) -> None:
     # "both" case. isatty() can't tell "piped-but-empty" from "no input" under
     # non-interactive runs (cron/CI/CliRunner), so we key off actual content:
     # stdin only counts as "provided" when it carries a non-blank body.
-    stdin_text = click.get_text_stream("stdin").read().rstrip("\n")
+    #
+    # But only read when stdin isn't an interactive terminal — a bare TTY has no
+    # pending input, so an unconditional read() blocks forever waiting for the
+    # user (e.g. `mael slack post "hi"` from a shell). A TTY can never be the
+    # "piped" side of the ambiguity, so skipping its read is always safe.
+    stdin = click.get_text_stream("stdin")
+    stdin_text = "" if stdin.isatty() else stdin.read().rstrip("\n")
     if message is not None and stdin_text:
         raise click.ClickException(
             "Provide the message as an argument OR via stdin, not both."
