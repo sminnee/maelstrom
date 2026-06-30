@@ -74,9 +74,16 @@ def slack():
 )
 def cmd_post(message: str | None, channel: str | None) -> None:
     """Post MESSAGE to Slack (reads from stdin when MESSAGE is omitted)."""
-    if message is None:
-        message = click.get_text_stream("stdin").read()
-    message = (message or "").rstrip("\n")
+    # Read stdin even when an argument is given so we can reject the ambiguous
+    # "both" case. isatty() can't tell "piped-but-empty" from "no input" under
+    # non-interactive runs (cron/CI/CliRunner), so we key off actual content:
+    # stdin only counts as "provided" when it carries a non-blank body.
+    stdin_text = click.get_text_stream("stdin").read().rstrip("\n")
+    if message is not None and stdin_text:
+        raise click.ClickException(
+            "Provide the message as an argument OR via stdin, not both."
+        )
+    message = (message if message is not None else stdin_text).rstrip("\n")
     if not message:
         raise click.ClickException(
             "No message provided (pass an argument or pipe via stdin)."
