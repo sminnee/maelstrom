@@ -6,7 +6,7 @@ This module handles resolving project and worktree context from:
 - Global configuration (~/.maelstrom/config.yaml)
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -33,6 +33,7 @@ class GlobalConfig:
     linear_api_key: str | None = None
     sentry_api_key: str | None = None
     uptimerobot_api_key: str | None = None
+    slack_webhooks: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def default(cls) -> "GlobalConfig":
@@ -53,12 +54,21 @@ class GlobalConfig:
         # Support nested uptimerobot config: uptimerobot.api_key
         ur_config = data.get("uptimerobot", {})
         uptimerobot_api_key = ur_config.get("api_key") if isinstance(ur_config, dict) else None
+        # Support nested slack config: slack.webhooks (named map of channel -> URL)
+        slack_config = data.get("slack", {})
+        slack_webhooks: dict[str, str] = {}
+        if isinstance(slack_config, dict):
+            raw = slack_config.get("webhooks", {})
+            if isinstance(raw, dict):
+                # dict preserves YAML insertion order — relied on for "first = default".
+                slack_webhooks = {str(k): str(v) for k, v in raw.items()}
         return cls(
             projects_dir=Path(projects_dir).expanduser(),
             open_command=open_command,
             linear_api_key=linear_api_key,
             sentry_api_key=sentry_api_key,
             uptimerobot_api_key=uptimerobot_api_key,
+            slack_webhooks=slack_webhooks,
         )
 
 

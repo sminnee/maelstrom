@@ -15,21 +15,23 @@ from typing import Any
 import click
 
 
-def request_json(
+def _read_response(
     url: str,
     *,
-    method: str = "GET",
-    headers: dict[str, str] | None = None,
-    json_body: Any = None,
-    form_body: dict | None = None,
-    params: dict | None = None,
-) -> Any:
-    """Make an HTTP request and return the decoded JSON response.
+    method: str,
+    headers: dict[str, str] | None,
+    json_body: Any,
+    form_body: dict | None,
+    params: dict | None,
+) -> str:
+    """Build and send the request, returning the raw response body as text.
 
-    Exactly one of ``json_body`` / ``form_body`` should be supplied (or neither
-    for a bodyless request). ``json_body`` sets ``Content-Type: application/json``
-    automatically; ``form_body`` is urlencoded and the caller is responsible for
-    the form content-type header. ``params`` is urlencoded onto the URL.
+    Shared by :func:`request_json` and :func:`request_text` — they differ only
+    in how they decode this body. Exactly one of ``json_body`` / ``form_body``
+    should be supplied (or neither for a bodyless request). ``json_body`` sets
+    ``Content-Type: application/json`` automatically; ``form_body`` is urlencoded
+    and the caller is responsible for the form content-type header. ``params`` is
+    urlencoded onto the URL.
 
     Raises:
         click.ClickException: On an HTTP error, with the response body inlined.
@@ -49,7 +51,62 @@ def request_json(
 
     try:
         with urllib.request.urlopen(req) as response:
-            return json.loads(response.read().decode("utf-8"))
+            return response.read().decode("utf-8")
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8")
         raise click.ClickException(f"HTTP Error {e.code}: {error_body}")
+
+
+def request_json(
+    url: str,
+    *,
+    method: str = "GET",
+    headers: dict[str, str] | None = None,
+    json_body: Any = None,
+    form_body: dict | None = None,
+    params: dict | None = None,
+) -> Any:
+    """Make an HTTP request and return the decoded JSON response.
+
+    See :func:`_read_response` for the body/params semantics.
+
+    Raises:
+        click.ClickException: On an HTTP error, with the response body inlined.
+    """
+    body = _read_response(
+        url,
+        method=method,
+        headers=headers,
+        json_body=json_body,
+        form_body=form_body,
+        params=params,
+    )
+    return json.loads(body)
+
+
+def request_text(
+    url: str,
+    *,
+    method: str = "GET",
+    headers: dict[str, str] | None = None,
+    json_body: Any = None,
+    form_body: dict | None = None,
+    params: dict | None = None,
+) -> str:
+    """Make an HTTP request and return the raw response body as text.
+
+    Like :func:`request_json` but skips JSON decoding — for endpoints that return
+    a non-JSON body on success (e.g. Slack incoming webhooks reply with the
+    literal string ``ok``).
+
+    Raises:
+        click.ClickException: On an HTTP error, with the response body inlined.
+    """
+    return _read_response(
+        url,
+        method=method,
+        headers=headers,
+        json_body=json_body,
+        form_body=form_body,
+        params=params,
+    )
