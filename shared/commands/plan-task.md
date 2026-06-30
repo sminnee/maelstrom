@@ -11,8 +11,10 @@ there.
 
 The brief is **already in your initial prompt** (the planning task's content). Your job is to
 research, plan interactively, then write a **load-many plan file** whose `---CREATE TASK ...---`
-blocks *are* the notebook chain — after approval, run two commands: `mael task load-many` (create the
-chain) **then** `mael task status done` (close this planning task).
+blocks *are* the notebook chain — after approval, run two commands: `mael task load-many … --run`
+(create the chain **and** auto-launch its head execute task in a separate session) **then**
+`mael task status done` (close this planning task). The head execute work runs in that new session —
+you must **not** implement it yourself.
 
 ## What This Command Does
 
@@ -21,8 +23,9 @@ chain) **then** `mael task status done` (close this planning task).
 3. **Classify** single-session vs multi-session.
 4. **Refine** the plan interactively with the user.
 5. **Write** the load-many plan file (preamble + `---CREATE TASK ...---` blocks), then present it
-   with ExitPlanMode. Approving it runs `mael task load-many <plan-file>` and marks this task done.
-   Do **not** implement.
+   with ExitPlanMode. Approving it runs `mael task load-many <plan-file> --run` (which also
+   auto-launches the head execute task in a separate session) and marks this task done.
+   Do **not** implement — the new session owns the work.
 
 ## Command Logic
 
@@ -59,9 +62,15 @@ chain) **then** `mael task status done` (close this planning task).
    The plan file you wrote *is* the chain: approving it runs the three post-approval commands —
    ```bash
    mael linear set-status <ID> planned      # mirror the plan to Linear (no plan body written)
-   mael task load-many <plan-file>          # create every block's task in one atomic commit
+   mael task load-many <plan-file> --run    # create every block's task, then launch the head
    mael task status done                    # close this planning task ($MAEL_TASK_ID)
    ```
+   `--run` auto-launches the head execute task (the first created block) in a **separate** claude
+   session as soon as the chain is created. That session owns the implementation — you must **not**
+   write code yourself. `load-many --run` prints a line naming the launched task; the head runs
+   independently while this planning session closes via `mael task status done`. No reordering of the
+   post-approval commands is needed: `--run` launches the head in its own session, so closing this
+   planning task does not interfere.
    `<plan-file>` is a placeholder — substitute the **actual path you wrote the plan file to** (the
    path from system context). There is no plan-file env var; the only source of the path is the file
    you just created. Run `mael task load-many <that-literal-path>`, not `mael task load-many <plan-file>`.
@@ -71,7 +80,8 @@ chain) **then** `mael task status done` (close this planning task).
    Each execute block's task has an empty `command` and `mode: auto`, so it's a plain unattended
    execute that runs **no skill** (not a re-plan) and finishes via the project's always-on "Finishing a task" rule
    (commit → `/code-review` → fixups → `create-pr --squash` → `/watch-pr` → `task status done`). **Do NOT implement** — do not write code, edit source files, or create branches;
-   implementation happens in a later session via `mael task next --run`.
+   the head execute session is launched automatically by `--run`, and subsequent increments still
+   advance via `mael task next --run`.
 
 ## Knowing your own task id
 
@@ -132,8 +142,8 @@ implementation plan:
 
 ```markdown
 This plan creates the notebook chain for <ID>. After approval, run:
-    mael task load-many <this file>   # create the chain
-    mael task status done             # close this planning task
+    mael task load-many <this file> --run   # create the chain, launch the head task
+    mael task status done                   # close this planning task
 
 ---CREATE TASK iter---
 title: "Execute: <ID> — <short desc>"
@@ -175,8 +185,8 @@ its **body** — it must not be an empty placeholder:
 
 ```markdown
 This plan creates the notebook chain for <ID>. After approval, run:
-    mael task load-many <this file>   # create the chain
-    mael task status done             # close this planning task
+    mael task load-many <this file> --run   # create the chain, launch the head task
+    mael task status done                   # close this planning task
 
 ---CREATE TASK iter1---
 title: "Execute: <iteration-1 desc>"
@@ -244,4 +254,5 @@ description. Each iteration should:
   the project's always-on "Finishing a task" rule.
 - For multi-session work, `plan-next-step` (re)plans each subsequent increment, consuming the
   remaining-work tail this skill seeded and handing a refreshed tail to the next one.
-- Advance the chain with `mael task next --run`.
+- The head execute session is launched automatically by `mael task load-many … --run`; advance the
+  chain beyond it with `mael task next --run`.

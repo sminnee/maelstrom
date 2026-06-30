@@ -1165,16 +1165,13 @@ def next_task(
 ) -> Task | None:
     """Return the next actionable task, or ``None`` if there isn't one.
 
-    Considers ``todo`` and ``in-progress`` tasks (id-sorted), optionally
-    filtered to a ``parent``. When ``branch`` is given, prefers actionable
-    tasks whose ``branch`` matches; if none and ``fallback`` is true, falls
-    back to the next actionable task on any branch. In-progress tasks are
-    included so an interrupted session re-surfaces.
+    Considers only ``todo`` tasks (id-sorted), optionally filtered to a
+    ``parent``. When ``branch`` is given, prefers actionable tasks whose
+    ``branch`` matches; if none and ``fallback`` is true, falls back to the
+    next actionable task on any branch. In-progress tasks are **excluded** so
+    an already-running task is not re-offered.
     """
     candidates = list_tasks(store, project=project, status=STATUS_TODO, parent=parent)
-    candidates += list_tasks(
-        store, project=project, status=STATUS_IN_PROGRESS, parent=parent
-    )
     candidates.sort(key=lambda t: t.id)
     actionable = [t for t in candidates if is_actionable(t, store)]
     if branch is not None:

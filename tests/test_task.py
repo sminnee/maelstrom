@@ -691,12 +691,15 @@ class TestNextTask:
         model.move(store, "p", a.id, "done", now=NOW)
         assert model.next_task(store, "p").id == b.id
 
-    def test_includes_in_progress(self):
+    def test_excludes_in_progress(self):
         store = InMemoryStore()
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         model.move(store, "p", a.id, "in-progress", now=NOW)
-        # An interrupted (in-progress) task re-surfaces as next.
-        assert model.next_task(store, "p").id == a.id
+        # An in-progress (already-running) task is not re-offered.
+        assert model.next_task(store, "p") is None
+        # A todo task is still returned alongside an unrelated in-progress one.
+        b = model.create(store, project="p", title="b", now=NOW, today=TODAY)
+        assert model.next_task(store, "p").id == b.id
 
     def test_excludes_terminal(self):
         store = InMemoryStore()
