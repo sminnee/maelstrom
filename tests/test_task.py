@@ -583,6 +583,130 @@ class TestDelete:
         assert len(store.writes) == 0
 
 
+# --- rename ---
+
+
+class TestRename:
+    def test_rename_relocates_file_key(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        renamed = model.rename(store, "p", a.id, "new-id")
+        assert not store.exists(f"p/todo/{a.id}.md")
+        assert store.exists("p/todo/new-id.md")
+        loaded = model.load(store, "p", "new-id")
+        assert loaded.id == "new-id"
+        assert renamed.id == "new-id"
+
+    def test_rename_preserves_status_content_log(self):
+        store = InMemoryStore()
+        a = model.create(
+            store, project="p", title="a", content="body text", now=NOW, today=TODAY
+        )
+        model.move(store, "p", a.id, "in-progress", now=NOW)
+        model.append_log(store, "p", a.id, "did a thing", now=NOW)
+        model.rename(store, "p", a.id, "new-id")
+        loaded = model.load(store, "p", "new-id")
+        assert loaded.status == "in-progress"
+        assert loaded.content.strip() == "body text"
+        assert "did a thing" in loaded.log
+        assert store.exists("p/in-progress/new-id.md")
+
+    def test_rename_bumps_updated(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        later = "2026-07-02T00:00:00Z"
+        model.rename(store, "p", a.id, "new-id", now=later)
+        assert model.load(store, "p", "new-id").updated == later
+
+    def test_rename_rewrites_dependent_follows(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        b = model.create(
+            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
+        )
+        model.rename(store, "p", a.id, "new-id")
+        assert model.load(store, "p", b.id).follows == ["new-id"]
+
+    def test_rename_keeps_other_follows_entries(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        b = model.create(store, project="p", title="b", now=NOW, today=TODAY)
+        c = model.create(
+            store, project="p", title="c", follows=[a.id, b.id], now=NOW, today=TODAY
+        )
+        model.rename(store, "p", a.id, "new-id")
+        assert model.load(store, "p", c.id).follows == ["new-id", b.id]
+
+    def test_rename_reparents_child(self):
+        store = InMemoryStore()
+        parent = model.create(store, project="p", title="parent", now=NOW, today=TODAY)
+        child = model.create(
+            store, project="p", title="child", parent=parent.id, now=NOW, today=TODAY
+        )
+        model.rename(store, "p", parent.id, "new-parent")
+        loaded = model.load(store, "p", child.id)
+        assert loaded.parent == "new-parent"
+        # Child's own id is NOT cascaded.
+        assert loaded.id == child.id
+
+    def test_rename_ignores_terminal_dependents(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        b = model.create(
+            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
+        )
+        model.move(store, "p", b.id, "done", now=NOW)
+        model.rename(store, "p", a.id, "new-id")
+        # b is terminal; its historical follows is preserved.
+        assert model.load(store, "p", b.id).follows == [a.id]
+
+    def test_rename_missing_raises_keyerror(self):
+        store = InMemoryStore()
+        with pytest.raises(KeyError):
+            model.rename(store, "p", "nope", "new-id")
+
+    def test_rename_unsafe_new_id_raises_valueerror(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        with pytest.raises(ValueError):
+            model.rename(store, "p", a.id, "../escape")
+
+    def test_rename_collision_raises_valueerror(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        b = model.create(store, project="p", title="b", now=NOW, today=TODAY)
+        with pytest.raises(ValueError):
+            model.rename(store, "p", a.id, b.id)
+
+    def test_rename_same_id_is_noop(self):
+        store = RecordingStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        store.writes.clear()
+        store.deletes.clear()
+        result = model.rename(store, "p", a.id, a.id)
+        assert result.id == a.id
+        assert len(store.writes) == 0
+        assert len(store.deletes) == 0
+
+    def test_rename_mutation_accounting(self):
+        # One write (new key) + one delete (old key) + one write per changed dependent.
+        store = RecordingStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
+        child = model.create(
+            store, project="p", title="c", parent=a.id, now=NOW, today=TODAY
+        )
+        store.writes.clear()
+        store.deletes.clear()
+        model.rename(store, "p", a.id, "new-id")
+        assert len(store.deletes) == 1
+        assert a.id in store.deletes[0][0]
+        # 1 write for the relocated task + b (follows) + child (parent) = 3.
+        assert len(store.writes) == 3
+        # Sanity: the child kept its own id but got re-parented.
+        assert model.load(store, "p", child.id).parent == "new-id"
+
+
 # --- load / list ---
 
 
