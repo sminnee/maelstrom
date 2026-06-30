@@ -184,6 +184,39 @@ class TestStatusFiresActions:
         assert calls == [("NORT-12", "done")]
 
 
+class TestStatusDoneFollowerHint:
+    def test_done_suggests_actionable_follower(self, runner, store):
+        a = model.create(store, project="p", title="a")
+        b = model.create(store, project="p", title="Plan next step", follows=[a.id])
+        result = runner.invoke(task_cli.task, ["status", "done", a.id])
+        assert result.exit_code == 0, result.output
+        assert "mael task next --run will run the following task" in result.output
+        assert f"{b.id} - Plan next step" in result.output
+
+    def test_done_no_follower_is_silent(self, runner, store):
+        a = model.create(store, project="p", title="a")
+        result = runner.invoke(task_cli.task, ["status", "done", a.id])
+        assert result.exit_code == 0, result.output
+        assert result.output.strip() == f"{a.id} -> done"
+
+    def test_done_in_progress_follower_reports_running(self, runner, store):
+        a = model.create(store, project="p", title="a")
+        b = model.create(store, project="p", title="Plan next step", follows=[a.id])
+        model.move(store, "p", b.id, model.STATUS_IN_PROGRESS)
+        result = runner.invoke(task_cli.task, ["status", "done", a.id])
+        assert result.exit_code == 0, result.output
+        assert "already in-progress" in result.output
+        assert f"{b.id} - Plan next step" in result.output
+        assert "mael task next --run" not in result.output
+
+    def test_cancel_does_not_suggest_follower(self, runner, store):
+        a = model.create(store, project="p", title="a")
+        model.create(store, project="p", title="b", follows=[a.id])
+        result = runner.invoke(task_cli.task, ["status", "cancel", a.id])
+        assert result.exit_code == 0, result.output
+        assert result.output.strip() == f"{a.id} -> cancelled"
+
+
 # --- next: selection ---
 
 
