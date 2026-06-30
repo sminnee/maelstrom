@@ -113,6 +113,28 @@ class TestPostCommand:
         assert "No message provided" in result.output
         mock_post.assert_not_called()
 
+    @patch("maelstrom.integrations.slack.post_message")
+    @patch("maelstrom.integrations.slack.load_global_config")
+    def test_arg_and_stdin_both_provided_errors(self, mock_cfg, mock_post):
+        mock_cfg.return_value = _config(weekly="https://a")
+
+        result = CliRunner().invoke(slack, ["post", "hello"], input="from stdin\n")
+
+        assert result.exit_code != 0
+        assert "not both" in result.output
+        mock_post.assert_not_called()
+
+    @patch("maelstrom.integrations.slack.post_message")
+    @patch("maelstrom.integrations.slack.load_global_config")
+    def test_arg_with_empty_stdin_is_fine(self, mock_cfg, mock_post):
+        # A non-tty-but-empty stdin (cron/CI) must not trip the "both" guard.
+        mock_cfg.return_value = _config(weekly="https://a")
+
+        result = CliRunner().invoke(slack, ["post", "hello"], input="")
+
+        assert result.exit_code == 0, result.output
+        mock_post.assert_called_once_with("https://a", "hello")
+
     @patch("maelstrom.integrations.slack.load_global_config")
     def test_unknown_channel_exits_nonzero(self, mock_cfg):
         mock_cfg.return_value = _config(weekly="https://a")
