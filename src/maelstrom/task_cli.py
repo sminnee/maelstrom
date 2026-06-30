@@ -963,6 +963,23 @@ def _status_command(name: str, status: str, help_text: str):
         except KeyError:
             raise click.ClickException(f"Task not found: {task_id}")
         click.echo(f"{task_id} -> {status}")
+        if status == model.STATUS_DONE:
+            running = model.running_follower(store, proj, task_id)
+            if running is not None:
+                title = f" - {running.title}" if running.title else ""
+                click.echo()
+                click.echo(
+                    f"The following task is already in-progress:\n  {running.id}{title}"
+                )
+            else:
+                nxt = model.next_follower(store, proj, task_id)
+                if nxt is not None:
+                    title = f" - {nxt.title}" if nxt.title else ""
+                    click.echo()
+                    click.echo(
+                        "mael task next --run will run the following task in a new session:"
+                    )
+                    click.echo(f"  {nxt.id}{title}")
 
     _cmd.__doc__ = help_text
     return _cmd

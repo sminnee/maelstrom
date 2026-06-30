@@ -1293,3 +1293,38 @@ def next_task(
         if not fallback:
             return None
     return actionable[0] if actionable else None
+
+
+def next_follower(store: TaskStore, project: str, done_id: str) -> Task | None:
+    """Return the next actionable task that directly follows ``done_id``.
+
+    A *direct follower* is a todo task whose ``follows`` list contains
+    ``done_id`` and that is now actionable (all of its dependencies are done).
+    Returns the id-sorted first such task, or ``None`` when nothing actionable
+    directly follows ``done_id``. Unlike :func:`next_task`, this is scoped to the
+    completed task's own successors — it never falls back to unrelated global work.
+    Followers are matched across all parents: a ``follows`` edge is not constrained
+    to a single parent, so no ``parent`` filter is applied.
+    """
+    candidates = list_tasks(store, project=project, status=STATUS_TODO)
+    candidates.sort(key=lambda t: t.id)
+    for t in candidates:
+        if done_id in t.follows and is_actionable(t, store):
+            return t
+    return None
+
+
+def running_follower(store: TaskStore, project: str, done_id: str) -> Task | None:
+    """Return an in-progress task that directly follows ``done_id``.
+
+    A *direct follower* whose ``follows`` list contains ``done_id`` and which is
+    already ``in-progress`` — i.e. its session is already running, so a new one
+    should **not** be launched. Returns the id-sorted first such task, or
+    ``None`` when no direct follower is in progress.
+    """
+    candidates = list_tasks(store, project=project, status=STATUS_IN_PROGRESS)
+    candidates.sort(key=lambda t: t.id)
+    for t in candidates:
+        if done_id in t.follows:
+            return t
+    return None

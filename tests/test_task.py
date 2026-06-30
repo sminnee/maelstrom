@@ -260,6 +260,90 @@ class TestChildChainLeaves:
         assert model.child_chain_leaves(store, "p", "linear.X") == [mine.id]
 
 
+# --- next_follower / running_follower ---
+
+
+class TestNextFollower:
+    def test_linear_chain_returns_follower(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
+        model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
+        nxt = model.next_follower(store, "p", a.id)
+        assert nxt is not None and nxt.id == b.id
+
+    def test_follower_not_actionable_returns_none(self):
+        # b follows a and a second dep that is still todo -> not actionable.
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        dep2 = model.create(store, project="p", title="dep2", now=NOW, today=TODAY)
+        model.create(store, project="p", title="b", follows=[a.id, dep2.id], now=NOW, today=TODAY)
+        model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
+        assert model.next_follower(store, "p", a.id) is None
+
+    def test_nothing_follows_returns_none(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        model.create(store, project="p", title="b", now=NOW, today=TODAY)
+        model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
+        assert model.next_follower(store, "p", a.id) is None
+
+    def test_branching_returns_id_sorted_first(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
+        c = model.create(store, project="p", title="c", follows=[a.id], now=NOW, today=TODAY)
+        model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
+        nxt = model.next_follower(store, "p", a.id)
+        assert nxt is not None and nxt.id == sorted([b.id, c.id])[0]
+
+    def test_non_todo_follower_excluded(self):
+        # A follower already in-progress is not a todo, so next_follower skips it.
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
+        model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
+        model.move(store, "p", b.id, model.STATUS_IN_PROGRESS, now=NOW2)
+        assert model.next_follower(store, "p", a.id) is None
+
+
+class TestRunningFollower:
+    def test_returns_in_progress_follower(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
+        model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
+        model.move(store, "p", b.id, model.STATUS_IN_PROGRESS, now=NOW2)
+        running = model.running_follower(store, "p", a.id)
+        assert running is not None and running.id == b.id
+
+    def test_todo_follower_not_returned(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
+        model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
+        assert model.running_follower(store, "p", a.id) is None
+
+    def test_unrelated_in_progress_not_returned(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        other = model.create(store, project="p", title="other", now=NOW, today=TODAY)
+        model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
+        model.move(store, "p", other.id, model.STATUS_IN_PROGRESS, now=NOW2)
+        assert model.running_follower(store, "p", a.id) is None
+
+    def test_branching_returns_id_sorted_first(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
+        c = model.create(store, project="p", title="c", follows=[a.id], now=NOW, today=TODAY)
+        model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
+        model.move(store, "p", b.id, model.STATUS_IN_PROGRESS, now=NOW2)
+        model.move(store, "p", c.id, model.STATUS_IN_PROGRESS, now=NOW2)
+        running = model.running_follower(store, "p", a.id)
+        assert running is not None and running.id == sorted([b.id, c.id])[0]
+
+
 # --- is_actionable / terminal ---
 
 
