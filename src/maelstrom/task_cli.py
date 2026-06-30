@@ -387,7 +387,17 @@ def add_task(
 @task.command("load-many")
 @click.argument("file")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
-def task_load_many(file: str, project: str | None) -> None:
+@click.option(
+    "--run",
+    is_flag=True,
+    help="Launch the head task (first created) into a session.",
+)
+@click.option(
+    "--here",
+    is_flag=True,
+    help="With --run, launch in the current shell (no worktree, no new workspace).",
+)
+def task_load_many(file: str, project: str | None, run: bool, here: bool) -> None:
     """Create one or more tasks from a marked plan file ('-' reads stdin)."""
     text = _read_content_file(file)
     try:
@@ -402,6 +412,15 @@ def task_load_many(file: str, project: str | None) -> None:
     )
     for t in created:
         click.echo(f"{t.id}\t{t.title}")
+    if run and created:
+        head = created[0]
+        # Print BEFORE _run_task — the non-cmux launcher execvp's, so anything
+        # after the call never reaches the terminal.
+        click.echo(
+            f"{head.id} started in a separate claude session "
+            "— do *not* work on it yourself."
+        )
+        _run_task(_store(), proj, head, here=here)
 
 
 def _scheduled_projects(project: str | None, all_projects: bool) -> list[str]:

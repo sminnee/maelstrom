@@ -713,6 +713,70 @@ class TestLoadMany:
         assert created.parent == "linear.NORT-9"
         assert created.follows == [existing.id]
 
+    def _two_block_plan(self, tmp_path):
+        f = tmp_path / "plan.md"
+        f.write_text(
+            "---CREATE TASK iter1---\n"
+            "title: First step\n"
+            "---\n"
+            "do the first thing\n"
+            "---CREATE TASK tail---\n"
+            "title: Plan next step\n"
+            "follow: iter1\n"
+            "---\n"
+            "the rest\n"
+        )
+        return f
+
+    def test_load_many_run_launches_head_task(self, runner, store, launch, tmp_path):
+        f = self._two_block_plan(tmp_path)
+        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
+        assert result.exit_code == 0, result.output
+        lines = [ln for ln in result.output.strip().split("\n") if ln]
+        # Two task lines + the announcement line.
+        head_id = lines[0].split("\t")[0]
+        tail_id = lines[1].split("\t")[0]
+        assert any(head_id in ln and "do *not* work on it" in ln for ln in lines)
+        # The head (first created) launched, by explicit id — not the tail.
+        launch.session.assert_called_once()
+        assert launch.session.call_args.kwargs["task_id"] == head_id
+        # Move-before-launch parity: head is in-progress, tail still blocked.
+        assert model.load(store, "p", head_id).status == model.STATUS_IN_PROGRESS
+        assert model.load(store, "p", tail_id).status == model.STATUS_TODO
+
+    def test_load_many_without_run_does_not_launch(
+        self, runner, store, launch, tmp_path
+    ):
+        f = self._two_block_plan(tmp_path)
+        result = runner.invoke(task_cli.task, ["load-many", str(f)])
+        assert result.exit_code == 0, result.output
+        launch.session.assert_not_called()
+        launch.setup.assert_not_called()
+
+    def test_load_many_run_announces_head_and_not_implement(
+        self, runner, store, launch, tmp_path
+    ):
+        f = self._two_block_plan(tmp_path)
+        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
+        assert result.exit_code == 0, result.output
+        head_id = result.output.strip().split("\n")[0].split("\t")[0]
+        announce = next(
+            ln for ln in result.output.split("\n") if "separate claude session" in ln
+        )
+        assert head_id in announce
+        assert "do *not* work on it yourself" in announce
+
+    def test_load_many_run_then_next_skips_head(self, runner, store, launch, tmp_path):
+        # A+B end-to-end: load-many --run marks the head in-progress, so
+        # `task next` steps past it. Here the only follow-up is blocked behind
+        # the head, so next has nothing actionable.
+        f = self._two_block_plan(tmp_path)
+        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
+        assert result.exit_code == 0, result.output
+        head_id = result.output.strip().split("\n")[0].split("\t")[0]
+        nxt = model.next_task(store, "p")
+        assert nxt is None or nxt.id != head_id
+
 
 class TestAddParentDefault:
     def test_add_defaults_parent_from_env(self, runner, store, monkeypatch):
