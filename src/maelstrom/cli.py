@@ -31,6 +31,7 @@ from .git_cli import print_rebase_conflict_help
 from .github_cli import gh as gh_cli
 from .integrations.linear import linear
 from .integrations.sentry import sentry
+from .integrations.slack import slack
 from .integrations.uptimerobot import uptimerobot
 from .status_cli import status as status_cli
 from .admin_cli import cmd_install, cmd_self_update
@@ -1057,6 +1058,7 @@ cli.add_command(git_cli)
 cli.add_command(gh_cli)
 cli.add_command(linear)
 cli.add_command(sentry)
+cli.add_command(slack)
 cli.add_command(uptimerobot)
 cli.add_command(session_cli)
 cli.add_command(session_channel_cmd)
