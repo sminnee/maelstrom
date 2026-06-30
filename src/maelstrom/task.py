@@ -1035,6 +1035,79 @@ def delete(store: TaskStore, project: str, id: str) -> Task:
     return deleted
 
 
+def rename(
+    store: TaskStore,
+    project: str,
+    old_id: str,
+    new_id: str,
+    *,
+    now: str | None = None,
+) -> Task:
+    """Re-key a task and fix every reference that points at it.
+
+    Moves the task file to the new key (preserving status/content/log, bumping
+    ``updated`` and rewriting the ``id`` field), then in the same transaction
+    rewrites non-terminal dependents' ``follows`` (old->new) and non-terminal
+    direct children's ``parent`` (old->new). Terminal tasks (done/cancelled) are
+    left untouched, mirroring :func:`delete`. Children's own ids are NOT cascaded.
+
+    Raises ``KeyError`` (task not found), ``ValueError`` (unsafe ``new_id`` or
+    ``new_id`` already taken). Returns the renamed task unchanged when
+    ``new_id == old_id``.
+    """
+    old_key = find_key(store, project, old_id)
+    if old_key is None:
+        raise KeyError(f"Task not found: {project}/{old_id}")
+    if not is_safe_id(new_id):
+        raise ValueError(f"Unsafe task id: {new_id!r}")
+    if new_id == old_id:
+        text = store.read(old_key)
+        if text is None:
+            raise KeyError(f"Task not found: {project}/{old_id}")
+        return Task.from_markdown(text, status=status_from_key(old_key))
+    if find_key(store, project, new_id) is not None:
+        raise ValueError(f"Task already exists: {project}/{new_id}")
+
+    text = store.read(old_key)
+    if text is None:
+        raise KeyError(f"Task not found: {project}/{old_id}")
+    status = status_from_key(old_key)
+    task = Task.from_markdown(text, status=status)
+    task.id = new_id
+    task.updated = now if now is not None else now_iso()
+    new_key = task_key(project, status, new_id)
+
+    # One commit for the relocation plus every dependent rewrite; the transaction
+    # owns the message. The store mutates eagerly, so the list_dir scan below
+    # sees the post-write/delete view.
+    with store.transaction(message=f"task: rename {old_id} -> {new_id}"):
+        store.write(new_key, task.to_markdown())
+        store.delete(old_key)
+
+        # Fix cross-references in non-terminal tasks: rewrite follows (old->new)
+        # and re-parent direct children (old->new). The renamed task itself is
+        # already at new_key and never references its old id, so skip it.
+        for dep_key in store.list_dir(f"{project}/"):
+            if not dep_key.endswith(".md") or dep_key == new_key:
+                continue
+            if is_terminal(status_from_key(dep_key)):
+                continue
+            dep_text = store.read(dep_key)
+            if dep_text is None:
+                continue
+            dep = Task.from_markdown(dep_text, status=status_from_key(dep_key))
+            changed = False
+            if old_id in dep.follows:
+                dep.follows = [new_id if f == old_id else f for f in dep.follows]
+                changed = True
+            if dep.parent == old_id:
+                dep.parent = new_id
+                changed = True
+            if changed:
+                store.write(dep_key, dep.to_markdown())
+    return task
+
+
 def list_tasks(
     store: TaskStore,
     *,

@@ -862,6 +862,12 @@ def task_log(id: str, msg: str, project: str | None) -> None:
 @click.argument("id")
 @click.argument("title", required=False)
 @click.option("--project", default=None, help="Project name (default: from cwd).")
+@click.option(
+    "--id",
+    "new_id",
+    default=None,
+    help="Re-key the task to this id, rewriting follows/parent references.",
+)
 @click.option("--branch", default=None, help="Set the task's branch.")
 @click.option("--command", default=None, help="Set the task's command/skill the session launches with.")
 @click.option("--mode", default=None, help="Set the task's mode (e.g. normal, plan).")
@@ -891,6 +897,7 @@ def task_update(
     id: str,
     title: str | None,
     project: str | None,
+    new_id: str | None,
     branch: str | None,
     command: str | None,
     mode: str | None,
@@ -899,20 +906,54 @@ def task_update(
     schedule: str | None,
     content_file: str | None,
 ) -> None:
-    """Update a task's fields (title, branch, command, mode, actions, schedule, content)."""
+    """Update a task's fields (title, branch, command, mode, actions, schedule, content).
+
+    With ``--id`` the task is re-keyed first (rewriting follows/parent references
+    that point at it), then the remaining field updates apply to the new id.
+    """
     proj = _resolve_project(project)
     store = _store()
     content = _read_content_file(content_file) if content_file is not None else None
+
+    target = id
+    renamed = False
+    if new_id is not None and new_id != id:
+        # Refuse re-keying a running task — its deterministic session_id and its
+        # worktree/branch are tied to the old id, so renaming would orphan a live
+        # Claude session.
+        try:
+            t = model.load(store, proj, id)
+        except KeyError:
+            raise click.ClickException(f"Task not found: {id}")
+        if t.status == model.STATUS_IN_PROGRESS:
+            raise click.ClickException(
+                f"Cannot change the id of in-progress task {id}; move it back to todo first."
+            )
+        if session_store.find_live_session_for_task(proj, id) is not None:
+            raise click.ClickException(
+                f"Task {id} has an open Claude session; close it before changing its id."
+            )
+        try:
+            model.rename(store, proj, id, new_id)
+        except KeyError:
+            raise click.ClickException(f"Task not found: {id}")
+        except ValueError as e:
+            raise click.ClickException(str(e))
+        target = new_id
+        renamed = True
+
     try:
         model.update(
-            store, proj, id, title=title, branch=branch, content=content,
+            store, proj, target, title=title, branch=branch, content=content,
             command=command, mode=mode,
             pre_action=pre_action, post_action=post_action,
             schedule=schedule,
         )
     except KeyError:
-        raise click.ClickException(f"Task not found: {id}")
-    click.echo(f"Updated {id}.")
+        raise click.ClickException(f"Task not found: {target}")
+    if renamed:
+        click.echo(f"Renamed {id} -> {target}.")
+    click.echo(f"Updated {target}.")
 
 
 @task.command("edit")

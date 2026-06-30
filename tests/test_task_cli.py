@@ -160,6 +160,83 @@ class TestActionFlags:
         assert model.load(store, "p", new_id).post_action == "linear.done"
 
 
+class TestUpdateRename:
+    @pytest.fixture(autouse=True)
+    def _no_live_session(self, monkeypatch):
+        # The --id re-key path consults the session registry; default to "no
+        # live session" so it doesn't read the real ~/.maelstrom registry.
+        monkeypatch.setattr(
+            task_cli.session_store, "find_live_session_for_task", lambda *a, **k: None
+        )
+
+    def test_update_id_rekeys_task(self, runner, store):
+        old_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
+        result = runner.invoke(task_cli.task, ["update", old_id, "--id", "new-id"])
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", "new-id").id == "new-id"
+        with pytest.raises(KeyError):
+            model.load(store, "p", old_id)
+        assert "Renamed" in result.output
+        assert "new-id" in result.output
+
+    def test_update_id_with_branch_in_one_call(self, runner, store):
+        old_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
+        result = runner.invoke(
+            task_cli.task,
+            ["update", old_id, "--id", "new-id", "--branch", "choose/foo"],
+        )
+        assert result.exit_code == 0, result.output
+        loaded = model.load(store, "p", "new-id")
+        assert loaded.branch == "choose/foo"
+
+    def test_update_id_rewrites_dependent_follows(self, runner, store):
+        a = runner.invoke(task_cli.task, ["add", "A"]).output.strip()
+        b = runner.invoke(
+            task_cli.task, ["add", "B", "--follow", a]
+        ).output.strip()
+        result = runner.invoke(task_cli.task, ["update", a, "--id", "new-a"])
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", b).follows == ["new-a"]
+
+    def test_update_id_not_found_errors(self, runner, store):
+        result = runner.invoke(task_cli.task, ["update", "nope", "--id", "new-id"])
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower()
+
+    def test_update_id_refuses_in_progress(self, runner, store):
+        old_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
+        model.move(store, "p", old_id, model.STATUS_IN_PROGRESS)
+        result = runner.invoke(task_cli.task, ["update", old_id, "--id", "new-id"])
+        assert result.exit_code != 0
+        assert "in-progress" in result.output
+        # Untouched.
+        assert model.load(store, "p", old_id).id == old_id
+
+    def test_update_id_refuses_live_session(self, runner, store, monkeypatch):
+        old_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
+        monkeypatch.setattr(
+            task_cli.session_store,
+            "find_live_session_for_task",
+            lambda *a, **k: {"pid": 123},
+        )
+        result = runner.invoke(task_cli.task, ["update", old_id, "--id", "new-id"])
+        assert result.exit_code != 0
+        assert "open Claude session" in result.output
+        assert model.load(store, "p", old_id).id == old_id
+
+    def test_update_same_id_applies_field_changes(self, runner, store):
+        old_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
+        result = runner.invoke(
+            task_cli.task,
+            ["update", old_id, "still works", "--id", old_id],
+        )
+        assert result.exit_code == 0, result.output
+        loaded = model.load(store, "p", old_id)
+        assert loaded.title == "still works"
+        # Same-id is not a rename, so no "Renamed" line.
+        assert "Renamed" not in result.output
+
+
 class TestStatusFiresActions:
     def test_status_done_fires_post_action(self, runner, store, monkeypatch):
         from maelstrom.integrations import linear
