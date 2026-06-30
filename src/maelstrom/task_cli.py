@@ -520,6 +520,9 @@ def task_add_scheduled(
     from datetime import timezone
 
     now = datetime.now(timezone.utc)
+    # Stamp every run so schedule.log records when the agent fired, even when
+    # nothing is due — the answer to "did the scheduler run?" at diagnosis time.
+    click.echo(f"[{now.isoformat(timespec='seconds')}] add-scheduled")
     store = _store()
     total = 0
     for proj in _scheduled_projects(project, all_projects):
