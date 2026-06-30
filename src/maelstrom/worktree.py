@@ -1309,25 +1309,39 @@ def regenerate_env_file(project_path: Path, worktree_path: Path, worktree_name: 
         env_file.unlink()
     _build_env_file(project_path, worktree_path, worktree_name, reuse_ports=True)
 
-    # Restore the worktree's own values for blank-sentinel vars, replacing the
-    # blank line the parent template produced.
+    # Re-add the worktree's own values for blank-sentinel vars. The regenerated
+    # template no longer emits a blank ``KEY=`` line for these (it is dropped as
+    # a parent-side sentinel), so the preserved value would otherwise be lost.
     if preserved:
         _restore_blank_sentinel_values(env_file, preserved)
 
 
 def _restore_blank_sentinel_values(env_file: Path, preserved: dict[str, str]) -> None:
-    """Replace blank ``KEY=`` lines in *env_file* with their preserved values."""
+    """Re-add preserved values for blank-sentinel keys in *env_file*.
+
+    The regenerated template drops blank ``KEY=`` sentinel lines, so each
+    preserved key is normally missing and gets appended as ``KEY=value``. Legacy
+    ``.env`` files that still contain a literal blank ``KEY=`` line have it
+    rewritten in place instead, so no duplicate is produced.
+    """
     if not env_file.exists():
         return
     out: list[str] = []
+    rewritten: set[str] = set()
     for line in env_file.read_text().splitlines():
         stripped = line.strip()
         if stripped and not stripped.startswith("#") and "=" in stripped:
             key = stripped.split("=", 1)[0].strip()
             if key in preserved:
                 out.append(f"{key}={preserved[key]}")
+                rewritten.add(key)
                 continue
         out.append(line)
+    # Append any preserved key not already present (the common post-fix path,
+    # where the template emitted no blank line to rewrite).
+    for key, value in preserved.items():
+        if key not in rewritten:
+            out.append(f"{key}={value}")
     env_file.write_text("\n".join(out) + "\n")
 
 

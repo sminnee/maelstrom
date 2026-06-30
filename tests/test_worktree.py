@@ -138,6 +138,30 @@ class TestWriteEnvFile:
             template_pos = content.index("DATABASE_URL")
             assert section_end_pos < template_pos
 
+    def test_blank_value_dropped_on_first_creation(self):
+        """A bare ``KEY=`` marker in the parent template is dropped, valued entries survive."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            write_env_file(
+                worktree_path, {"PORT_BASE": "100"}, "MARKER=\nREAL=value\n"
+            )
+
+            content = (worktree_path / ".env").read_text()
+            assert "REAL=value" in content
+            assert "MARKER" not in content
+
+    def test_blank_value_with_whitespace_dropped_on_first_creation(self):
+        """A ``KEY=`` whose value is only whitespace is also dropped."""
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            write_env_file(
+                worktree_path, {"PORT_BASE": "100"}, "EMPTY=   \nREAL=value\n"
+            )
+
+            content = (worktree_path / ".env").read_text()
+            assert "REAL=value" in content
+            assert "EMPTY" not in content
+
     def test_updates_managed_section_preserves_user_content(self):
         """Test that updating replaces only the managed section."""
         with TemporaryDirectory() as tmpdir:
@@ -1520,6 +1544,34 @@ class TestRegenerateEnvFile:
         assert worktree_vars["TEST"] == "bravo-foo"
         # Parent untouched.
         assert (project_path / ".env").read_text() == "YAY=\nTEST=${WORKTREE}-foo\n"
+        # The blank parent marker leaves no separate empty line behind: exactly
+        # one YAY= line and its value is the preserved one.
+        yay_lines = [
+            line
+            for line in (worktree_path / ".env").read_text().splitlines()
+            if line.strip().split("=", 1)[0].strip() == "YAY"
+        ]
+        assert yay_lines == ["YAY=install_secret"]
+
+    def test_blank_sentinel_without_prior_value_yields_no_line(self, tmp_path):
+        """A parent-only blank marker never leaks into a worktree with no prior value."""
+        from maelstrom.worktree import regenerate_env_file
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        worktree_path = project_path / "project-bravo"
+        worktree_path.mkdir()
+
+        # Parent declares SECRET as a blank sentinel; the worktree has no value.
+        (project_path / ".env").write_text("SECRET=\n")
+        _write_worktree_env(
+            worktree_path,
+            {"WORKTREE": "bravo", "WORKTREE_NUM": "1"},
+        )
+
+        regenerate_env_file(project_path, worktree_path, "bravo")
+
+        assert "SECRET" not in read_env_file(worktree_path)
 
 
 class TestStaleWorktreeHandling:
