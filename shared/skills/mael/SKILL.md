@@ -259,6 +259,23 @@ Unreleased -> Done           (release)
 the named issue only — no automatic parent/subtask transitions. Move a parent to "Unreleased"
 explicitly with `mael linear set-status <parent> done` once its subtasks are complete.
 
+## Scheduled (template) tasks
+
+The hourly launchd agent that runs scheduled templates is **opt-in per machine**.
+
+```bash
+mael schedule install              # opt in (write marker + load agent)
+mael schedule install --wake-at 09:00   # also wake a sleeping Mac via pmset (needs sudo)
+mael schedule uninstall            # opt out (remove marker, unload, clear wake)
+mael schedule status               # diagnose: marker / plist / loaded / pmset wake / log tail
+```
+
+Fires hourly + once on load (`RunAtLoad`); one coalesced catch-up on wake, **no
+backfill**. `--wake-at HH:MM` adds a single daily `pmset` wake (one system-wide
+recurring wake only, fixed time, clamshell-on-battery may ignore it). Run
+`mael schedule status` first when a scheduled task didn't fire. See
+`docs/dev/scheduled-tasks.md`.
+
 ## Workspace Status
 
 ```bash
