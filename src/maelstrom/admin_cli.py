@@ -1,5 +1,6 @@
 """CLI commands for maelstrom self-management (install, self-update)."""
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -49,6 +50,47 @@ def cmd_self_update():
             click.echo(result.stderr, err=True)
     except subprocess.CalledProcessError as e:
         raise click.ClickException(f"Git pull failed: {e.stderr or e.stdout or str(e)}")
+
+    # Re-sync dependencies. `git pull` updates the source, but a new dependency
+    # in pyproject.toml is invisible to the installed environment until uv
+    # re-resolves it — so commands that import the new package crash with
+    # ModuleNotFoundError after an otherwise-successful self-update. Reinstall
+    # the editable tool to pick up dependency changes.
+    #
+    # This is best-effort: the pull already landed, so a missing/failing uv must
+    # warn rather than abort. Installs that aren't uv tools (plain `uv run`, a
+    # system package manager) handle their own deps and simply skip this.
+    uv = shutil.which("uv")
+    if uv is None:
+        click.echo(
+            "  Warning: 'uv' not found; skipping dependency sync. If a new "
+            "dependency was added, reinstall maelstrom to pick it up.",
+            err=True,
+        )
+    else:
+        click.echo("Syncing dependencies...")
+        # --force overwrites the existing `mael` entrypoint: self-update always
+        # reinstalls over a live install, and without it uv aborts with
+        # "Executable already exists: mael".
+        sync = subprocess.run(
+            [
+                uv, "tool", "install",
+                "--editable", str(repo_root),
+                "--reinstall", "--force",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        # uv writes its progress to stderr; surface it whatever the outcome.
+        if sync.stderr.strip():
+            click.echo(sync.stderr, err=True)
+        if sync.returncode != 0:
+            click.echo(
+                "  Warning: dependency sync failed. The code updated, but new "
+                "dependencies may be missing — reinstall maelstrom manually if "
+                "commands fail.",
+                err=True,
+            )
 
     click.echo("Updating Claude Code integration...")
     messages = install_claude_integration()
