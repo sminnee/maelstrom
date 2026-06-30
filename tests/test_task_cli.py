@@ -1381,6 +1381,29 @@ class TestAddScheduled:
         result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
         assert "No scheduled tasks due." in result.output
 
+    def test_run_is_timestamped(self, runner, store, monkeypatch):
+        """Every run emits a dated header so schedule.log records when it fired."""
+        from datetime import datetime, timezone
+
+        _make_template(
+            store,
+            schedule="0 9 * * *",
+            last_run="2026-06-18T09:00:00+00:00",
+            created="2026-06-01T00:00:00+00:00",
+        )
+        real_dt = datetime
+
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+
+        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
+        result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
+        # Header is the first line, carries the ISO firing time (no nothing-due
+        # template here so the timestamp prefixes the whole run unconditionally).
+        assert result.output.startswith("[2026-06-18T10:00:00+00:00] add-scheduled")
+
     def test_run_launches_into_workspace(self, runner, store, monkeypatch, launch):
         from datetime import datetime, timezone
 

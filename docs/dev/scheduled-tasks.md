@@ -25,6 +25,10 @@ scheduled task didn't fire. It reports whether the marker and plist exist,
 whether launchd has the job loaded, the `pmset` repeating-wake line, and the
 tail of `~/.maelstrom/schedule.log`.
 
+Every `add-scheduled` run writes a dated header line
+(`[2026-07-01T09:00:00+00:00] add-scheduled`) to that log before anything else,
+so the log records *when* the agent last fired even when nothing was due.
+
 ## Firing behaviour
 
 - **While awake:** fires hourly at `:00` (`StartCalendarInterval`) plus once on
