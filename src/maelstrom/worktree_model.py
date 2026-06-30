@@ -250,10 +250,32 @@ def _resolve_env_line(line: str, generated_vars: dict[str, str]) -> str:
     return line
 
 
+def _is_blank_value_assignment(line: str) -> bool:
+    """True if *line* is a ``KEY=`` assignment whose value is empty/whitespace.
+
+    Such an entry is a parent-side sentinel marking a var the worktree owns
+    independently. It is copied neither back nor forward, so it must be dropped
+    when materialising the worktree template (mirrors ``_blank_sentinel_keys``).
+    Comments and blank separator lines are not assignments and return ``False``.
+    """
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#") or "=" not in stripped:
+        return False
+    _, value = stripped.split("=", 1)
+    return value.strip() == ""
+
+
 def _resolve_template_lines(text: str, generated_vars: dict[str, str]) -> str:
-    """Apply variable resolution to every line in *text*."""
-    lines = text.splitlines()
-    resolved = [_resolve_env_line(line, generated_vars) for line in lines]
+    """Apply variable resolution to every line in *text*.
+
+    Blank-value assignments (``KEY=`` with no value) are parent-side sentinels
+    and are dropped rather than emitted as literal empty lines in the worktree.
+    """
+    resolved = [
+        _resolve_env_line(line, generated_vars)
+        for line in text.splitlines()
+        if not _is_blank_value_assignment(line)
+    ]
     return "\n".join(resolved)
 
 
