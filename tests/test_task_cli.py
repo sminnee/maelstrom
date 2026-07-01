@@ -1404,6 +1404,30 @@ class TestAddScheduled:
         # template here so the timestamp prefixes the whole run unconditionally).
         assert result.output.startswith("[2026-06-18T10:00:00+00:00] add-scheduled")
 
+    def test_run_inherits_template_branch(self, runner, store, monkeypatch):
+        """A scheduled run lands on the template's own branch, not task/<tmpl-id>."""
+        from datetime import datetime, timezone
+
+        model.create(
+            store, project="p", title="Maintenance", command="",
+            schedule="0 9 * * *", last_run="2026-06-17T09:00:00+00:00",
+            branch="chore/maint", status=model.STATUS_TEMPLATE,
+            id="maintenance", now="2026-06-01T00:00:00+00:00",
+        )
+        real_dt = datetime
+
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+
+        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
+        result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
+        assert result.exit_code == 0, result.output
+        run = model.load(store, "p", "maintenance.2026-06-18")
+        assert run.parent == "maintenance"
+        assert run.branch == "chore/maint"
+
     def test_run_launches_into_workspace(self, runner, store, monkeypatch, launch):
         from datetime import datetime, timezone
 

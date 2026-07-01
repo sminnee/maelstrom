@@ -1509,8 +1509,21 @@ class TestDuplicate:
         )
         assert dup.id == "maintenance.2026-06-18"
         assert dup.parent == "maintenance"
-        # Shared branch via parent.
+        # With no branch override, a bare duplicate() derives the branch from parent.
         assert dup.branch == model.default_branch(run_id, "maintenance")
+
+    def test_branch_override_is_honored(self):
+        store = InMemoryStore()
+        model.create(
+            store, project="p", title="Maint", status=model.STATUS_TEMPLATE,
+            id="maintenance",
+        )
+        run_id = model.allocate_run_id("maintenance", "2026-06-18")
+        dup = model.duplicate(
+            store, "p", "maintenance", parent="maintenance",
+            branch="chore/maint", id=run_id,
+        )
+        assert dup.branch == "chore/maint"
 
 
 class TestTemplateStatus:
