@@ -15,6 +15,7 @@ import click
 
 from . import task as model  # noqa: F401  (module, used as `model.*`)
 from . import task_actions
+from . import session_discovery
 from . import session_store
 from .context import resolve_context
 from .table import draw_table
@@ -76,15 +77,19 @@ def _run_task(
     MUST complete before they are called. With ``here=True`` the session runs
     in the current shell — no worktree reconciliation, no new cmux workspace.
     """
-    # Refuse a second parallel launch: the same task already has a live Claude
+    # Refuse a second parallel launch: the same task already has a *live* Claude
     # session (one worktree, one PR — racing two sessions on it corrupts both).
-    # The deterministic --session-id below is a backstop; this is the friendly
-    # error. find_key/load already proved the task exists.
-    existing = session_store.find_live_session_for_task(project, task.id)
-    if existing is not None:
+    # We mirror Claude's own uniqueness rule — find the transcript for the
+    # deterministic --session-id, identify its owning pid, check the pid is
+    # alive — so we catch exactly the collision that would otherwise crash at
+    # `claude` start. A *finished* task whose transcript persists (no live
+    # holder) is deliberately NOT blocked: it must stay re-runnable.
+    existing = session_discovery.active_session_for_task(project, task.id)
+    if existing is not None and existing.is_live:
+        where = f" in worktree {existing.cwd}" if existing.cwd else ""
         raise click.ClickException(
-            f"Task {task.id} already has an open Claude session "
-            f"(pid {existing.get('pid')}). Close it before relaunching, or run "
+            f"Task {task.id} already has a live Claude session "
+            f"(pid {existing.pid}){where}. Close it before relaunching, or run "
             f"`mael task reconcile` to inspect."
         )
 
@@ -938,6 +943,11 @@ def task_update(
             raise click.ClickException(
                 f"Cannot change the id of in-progress task {id}; move it back to todo first."
             )
+        # Rename intentionally uses the registry check (any *registered*
+        # session, not just a live one): re-keying a task out from under a
+        # session that recorded the old id — even a stale entry — is unsafe,
+        # whereas a relaunch (which uses the stricter is_live discovery) only
+        # needs to avoid a genuinely racing process.
         if session_store.find_live_session_for_task(proj, id) is not None:
             raise click.ClickException(
                 f"Task {id} has an open Claude session; close it before changing its id."

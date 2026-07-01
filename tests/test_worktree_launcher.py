@@ -100,11 +100,14 @@ class TestBuildTaskLaunchLine:
         )
 
     def test_session_id_appended(self):
+        # session_id also rides as MAEL_SESSION_ID on the claude segment so the
+        # session-channel can record the real id (the harness doesn't export
+        # CLAUDE_SESSION_ID to subprocesses).
         assert describe(
             build_task_launch_line("proj", "t1", "plan", session_id="abc-123")
         ) == (
             "mael task prompt t1 --project proj | "
-            "claude --permission-mode plan --session-id abc-123"
+            "MAEL_SESSION_ID=abc-123 claude --permission-mode plan --session-id abc-123"
         )
 
     def test_quotes_ids_and_projects_with_spaces(self):

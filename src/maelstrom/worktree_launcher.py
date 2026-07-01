@@ -81,13 +81,20 @@ def build_task_launch_line(
     so the interactive session inherits them. The structure makes the
     front-of-line scoping bug unrepresentable: env is a property of a single
     ``Command``, never of the whole ``Pipeline``. ``session_id`` pins the task's
-    deterministic Claude session id (see :func:`build_claude_command`).
+    deterministic Claude session id (see :func:`build_claude_command`) and also
+    rides as ``MAEL_SESSION_ID`` so the session-channel records the real id in
+    the ``~/.maelstrom`` registry — the harness does not export
+    ``CLAUDE_SESSION_ID`` to subprocesses, so this restores the registry's
+    primary key for ``reconcile`` / ``session list``.
     """
+    claude_env = dict(env or {})
+    if session_id:
+        claude_env["MAEL_SESSION_ID"] = session_id
     return Pipeline([
         Command(["mael", "task", "prompt", task_id, "--project", project]),
         Command(
             build_claude_command(permission_mode, session_id),
-            env=dict(env or {}),
+            env=claude_env,
         ),
     ])
 

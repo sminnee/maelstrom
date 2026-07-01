@@ -5,6 +5,7 @@ to return a shared :class:`InMemoryStore` and ``_resolve_project`` to a fixed
 project, so no git or cwd resolution happens.
 """
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -57,9 +58,9 @@ def launch(monkeypatch, tmp_path):
     monkeypatch.setattr(task_cli, "launch_claude_in_worktree", session)
     monkeypatch.setattr(task_cli, "run_cmd", run_cmd)
     # No live session for the task by default — the duplicate-launch pre-check
-    # reads the real ~/.maelstrom registry otherwise.
+    # reads the real ~/.claude transcripts / ~/.maelstrom registry otherwise.
     monkeypatch.setattr(
-        task_cli.session_store, "find_live_session_for_task", lambda *a, **k: None
+        task_cli.session_discovery, "active_session_for_task", lambda *a, **k: None
     )
     return SimpleNamespace(
         setup=setup, session=session, exec=run_cmd, wt_path=wt_path
@@ -509,8 +510,8 @@ class TestRun:
             lambda *a, **k: SimpleNamespace(project="p", project_path=missing),
         )
         monkeypatch.setattr(
-            task_cli.session_store,
-            "find_live_session_for_task",
+            task_cli.session_discovery,
+            "active_session_for_task",
             lambda *a, **k: None,
         )
         session = MagicMock()
@@ -521,20 +522,38 @@ class TestRun:
         session.assert_not_called()
 
 
+def _live_session(**kwargs):
+    """A minimal :class:`ActiveSession` stand-in with the given fields."""
+    from maelstrom.session_discovery import ActiveSession
+
+    defaults = dict(
+        session_id="sid",
+        transcript=Path("/x/sid.jsonl"),
+        pid=None,
+        cwd=None,
+        is_live=False,
+    )
+    defaults.update(kwargs)
+    return ActiveSession(**defaults)
+
+
 class TestDuplicateLaunchPrecheck:
     def test_run_refuses_when_live_session_exists(
         self, runner, store, launch, monkeypatch
     ):
         t = model.create(store, project="p", title="t")
         monkeypatch.setattr(
-            task_cli.session_store,
-            "find_live_session_for_task",
-            lambda *a, **k: {"pid": 4242},
+            task_cli.session_discovery,
+            "active_session_for_task",
+            lambda *a, **k: _live_session(
+                pid=4242, cwd=Path("/work/tree-bravo"), is_live=True
+            ),
         )
         result = runner.invoke(task_cli.task, ["run", t.id])
         assert result.exit_code != 0
-        assert "already has an open Claude session" in result.output
+        assert "already has a live Claude session" in result.output
         assert "4242" in result.output
+        assert "/work/tree-bravo" in result.output
         # Aborts before any launch or status move.
         launch.session.assert_not_called()
         launch.setup.assert_not_called()
@@ -543,15 +562,31 @@ class TestDuplicateLaunchPrecheck:
     def test_run_here_also_refuses(self, runner, store, launch, monkeypatch):
         t = model.create(store, project="p", title="t")
         monkeypatch.setattr(
-            task_cli.session_store,
-            "find_live_session_for_task",
-            lambda *a, **k: {"pid": 9},
+            task_cli.session_discovery,
+            "active_session_for_task",
+            lambda *a, **k: _live_session(pid=9, is_live=True),
         )
         result = runner.invoke(task_cli.task, ["run", t.id, "--here"])
         assert result.exit_code != 0
-        assert "already has an open Claude session" in result.output
+        assert "already has a live Claude session" in result.output
         launch.exec.assert_not_called()
         assert model.load(store, "p", t.id).status == model.STATUS_TODO
+
+    def test_run_proceeds_when_transcript_not_live(
+        self, runner, store, launch, monkeypatch
+    ):
+        # A finished task's transcript persists but has no live holder — it must
+        # stay re-runnable, so the guard does NOT block.
+        t = model.create(store, project="p", title="t")
+        monkeypatch.setattr(
+            task_cli.session_discovery,
+            "active_session_for_task",
+            lambda *a, **k: _live_session(pid=None, is_live=False),
+        )
+        result = runner.invoke(task_cli.task, ["run", t.id])
+        assert result.exit_code == 0, result.output
+        launch.session.assert_called_once()
+        assert model.load(store, "p", t.id).status == model.STATUS_IN_PROGRESS
 
 
 class TestReconcile:
@@ -758,11 +793,13 @@ class TestRunHere:
         launch.exec.assert_called_once()
         command = launch.exec.call_args.args[0]
         # Orphan task self-parents, so MAEL_TASK_PARENT rides alongside the id.
-        # The deterministic --session-id pins the task's Claude session.
+        # The deterministic --session-id pins the task's Claude session and is
+        # also exported as MAEL_SESSION_ID for the session-channel registry.
         sid = model.session_id_for("p", t.id)
         assert describe(command) == (
             f"mael task prompt {t.id} --project p "
             f"| MAEL_TASK_ID={t.id} MAEL_TASK_PARENT={t.id} "
+            f"MAEL_SESSION_ID={sid} "
             f"claude --permission-mode plan --session-id {sid}"
         )
         kwargs = launch.exec.call_args.kwargs

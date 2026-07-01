@@ -16,12 +16,32 @@ import { join } from "node:path";
 
 const SESSIONS_DIR = join(homedir(), ".maelstrom", "sessions");
 
-function sessionKey(): string {
-  const envId = process.env.CLAUDE_SESSION_ID;
+type Env = Record<string, string | undefined>;
+
+// The deterministic Claude session id for this session, if known. Claude Code
+// does NOT export CLAUDE_SESSION_ID to channel subprocesses, so `mael task run`
+// exports the id it computed as MAEL_SESSION_ID; that is the real primary key
+// the registry records. CLAUDE_SESSION_ID is kept as a fallback for sessions
+// launched some other way. Exported (with an injectable `env`) so it is unit
+// testable without spawning a real channel.
+export function sessionId(env: Env = process.env): string | null {
+  const maelId = env.MAEL_SESSION_ID;
+  if (maelId && maelId.length > 0) {
+    return maelId;
+  }
+  const envId = env.CLAUDE_SESSION_ID;
   if (envId && envId.length > 0) {
     return envId;
   }
-  return `claude-${process.pid}`;
+  return null;
+}
+
+export function sessionKey(env: Env = process.env, pid: number = process.pid): string {
+  const id = sessionId(env);
+  if (id) {
+    return id;
+  }
+  return `claude-${pid}`;
 }
 
 function nowIso(): string {
@@ -74,7 +94,7 @@ async function main() {
 
   const data = {
     session_key: key,
-    session_id: process.env.CLAUDE_SESSION_ID || null,
+    session_id: sessionId(),
     cwd: process.cwd(),
     pid: process.pid,
     model: process.env.CLAUDE_MODEL || null,
@@ -128,10 +148,14 @@ async function main() {
   await server.connect(transport);
 }
 
-main().catch((err) => {
-  // Best-effort: log and exit cleanly so Claude Code surfaces the error.
-  // The registry file may or may not have been written; the GC will clear
-  // it on the next `mael session list`.
-  console.error("[mael-session-channel] fatal:", err);
-  process.exit(1);
-});
+// Only spawn the channel when run as the entrypoint, so importing this module
+// in a test (to exercise sessionId/sessionKey) does not start a real server.
+if (import.meta.main) {
+  main().catch((err) => {
+    // Best-effort: log and exit cleanly so Claude Code surfaces the error.
+    // The registry file may or may not have been written; the GC will clear
+    // it on the next `mael session list`.
+    console.error("[mael-session-channel] fatal:", err);
+    process.exit(1);
+  });
+}
