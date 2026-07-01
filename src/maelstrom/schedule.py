@@ -15,7 +15,7 @@ schedules ("every weekday at 9", "hourly") never set both, so the distinction
 from cron's OR-semantics does not bite.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from .task import STATUS_TEMPLATE, Task, list_tasks
 from .task_store import TaskStore
@@ -147,13 +147,18 @@ def next_fire(expr: str, now: datetime) -> datetime | None:
 
 
 def _parse_iso(value: str) -> datetime | None:
-    """Parse an ISO timestamp to an aware UTC datetime, or ``None`` if empty."""
+    """Parse an ISO timestamp to an aware local datetime, or ``None`` if empty.
+
+    Normalising to local (rather than UTC) keeps the stored ``last-run``
+    watermark and the incoming local ``now`` in the same zone, so the
+    ``date_of()`` boundary key aligns with the local calendar day — matching
+    the local date inference used for task ids and ``--wake-at``.
+    """
     if not value:
         return None
-    dt = datetime.fromisoformat(value)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+    # astimezone() handles both: a naive value is assumed local wall-clock, an
+    # aware value (e.g. the UTC `created` stamp) is converted to local.
+    return datetime.fromisoformat(value).astimezone()
 
 
 def date_of(dt: datetime) -> str:

@@ -1,6 +1,6 @@
 """Tests for the pure scheduler (cron math + due-template computation)."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -161,4 +161,25 @@ class TestDueTemplates:
         )
         due = sched.due_templates(store, "p", now=_dt("2026-06-18T10:00:00"))
         assert len(due) == 1
+        assert due[0][1] == "2026-06-18"
+
+    def test_due_matches_local_wall_clock_not_utc(self):
+        # A "0 9 * * *" template fires against the wall-clock fields of the
+        # local-aware `now` the CLI passes in — 09:00 *local*, not 09:00 UTC.
+        # Model a +12 zone (e.g. NZ): at 09:30 local it's still 21:30 the
+        # previous day in UTC, so a UTC-based scheduler would consider the
+        # 09:00 boundary un-reached. It must be due here.
+        store = InMemoryStore()
+        tz = timezone(timedelta(hours=12))
+        _add_template(
+            store,
+            "p",
+            schedule="0 9 * * *",
+            last_run="2026-06-17T09:00:00+12:00",
+            created="2026-06-01T00:00:00+12:00",
+        )
+        now_local = datetime(2026, 6, 18, 9, 30, tzinfo=tz)
+        due = sched.due_templates(store, "p", now=now_local)
+        assert len(due) == 1
+        # Boundary date is the local calendar day, keyed off local 09:00.
         assert due[0][1] == "2026-06-18"

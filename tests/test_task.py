@@ -183,6 +183,25 @@ class TestIdAllocation:
         )
         assert child.id == "linear.NORT-123.1"
 
+    def test_today_uses_local_date(self, monkeypatch):
+        # The id date prefix follows the machine's *local* calendar day, not
+        # UTC — so near midnight the id doesn't jump to the wrong day. Freeze a
+        # UTC instant that is a *different* calendar day locally (23:30 UTC ->
+        # next day in any positive-offset zone) and assert the local date wins.
+        from datetime import datetime, timezone
+
+        real_dt = datetime
+        # 2026-06-08 23:30 UTC — in +12 (NZ) this is 2026-06-09 local.
+        frozen_utc = real_dt(2026, 6, 8, 23, 30, tzinfo=timezone.utc)
+
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return frozen_utc
+
+        monkeypatch.setattr(model, "datetime", FrozenDateTime)
+        assert model._today() == frozen_utc.astimezone().date().isoformat()
+
 
 # --- follow_end_leaves ---
 
