@@ -199,6 +199,8 @@ class TestWakeReconciliation:
         self, home, darwin, launchctl, monkeypatch
     ):
         monkeypatch.setattr(sl, "_mael_path", lambda: "/abs/bin/mael")
+        # Force a mismatch so the real pmset read isn't hit and the set path fires.
+        monkeypatch.setattr(sl, "_pmset_wake_hhmm", lambda: None)
         sl.install_marker("09:00")
         msgs = sl.ensure_schedule_agent()
         # Wake scheduled one minute before the intended fire.
@@ -225,6 +227,7 @@ class TestWakeReconciliation:
         self, home, darwin, launchctl, monkeypatch
     ):
         monkeypatch.setattr(sl, "_mael_path", lambda: "/abs/bin/mael")
+        monkeypatch.setattr(sl, "_pmset_wake_hhmm", lambda: None)
         launchctl.schedule_wake.side_effect = subprocess.CalledProcessError(
             1, ["sudo", "pmset"]
         )
@@ -233,6 +236,68 @@ class TestWakeReconciliation:
         msgs = sl.ensure_schedule_agent()
         assert any("loaded" in m for m in msgs)
         assert any("pmset failed" in m for m in msgs)
+
+    def test_skips_pmset_when_already_set(
+        self, home, darwin, launchctl, monkeypatch
+    ):
+        """The core fix: skip the sudo pmset call when the wake already matches."""
+        monkeypatch.setattr(sl, "_mael_path", lambda: "/abs/bin/mael")
+        # Current repeating wake already equals _minute_before("09:00").
+        monkeypatch.setattr(sl, "_pmset_wake_hhmm", lambda: "08:59")
+        sl.install_marker("09:00")
+        msgs = sl.ensure_schedule_agent()
+        launchctl.schedule_wake.assert_not_called()
+        assert any("unchanged" in m for m in msgs)
+
+    def test_reapplies_pmset_when_time_differs(
+        self, home, darwin, launchctl, monkeypatch
+    ):
+        monkeypatch.setattr(sl, "_mael_path", lambda: "/abs/bin/mael")
+        monkeypatch.setattr(sl, "_pmset_wake_hhmm", lambda: "07:59")
+        sl.install_marker("09:00")
+        sl.ensure_schedule_agent()
+        launchctl.schedule_wake.assert_called_once_with("09:00")
+
+    def test_reapplies_pmset_when_none_set(
+        self, home, darwin, launchctl, monkeypatch
+    ):
+        monkeypatch.setattr(sl, "_mael_path", lambda: "/abs/bin/mael")
+        monkeypatch.setattr(sl, "_pmset_wake_hhmm", lambda: None)
+        sl.install_marker("09:00")
+        sl.ensure_schedule_agent()
+        launchctl.schedule_wake.assert_called_once_with("09:00")
+
+    def test_skips_pmset_via_real_parse(self, home, darwin, launchctl, monkeypatch):
+        """End-to-end: a realistic pmset line matching the target skips the sudo call.
+
+        Stubs _pmset_wake_line (not _pmset_wake_hhmm) so the real parse-and-compare
+        path is exercised: '8:59AM' must normalise to '08:59' == _minute_before('09:00').
+        """
+        monkeypatch.setattr(sl, "_mael_path", lambda: "/abs/bin/mael")
+        monkeypatch.setattr(
+            sl, "_pmset_wake_line", lambda: "wakepoweron at 8:59AM every day"
+        )
+        sl.install_marker("09:00")
+        msgs = sl.ensure_schedule_agent()
+        launchctl.schedule_wake.assert_not_called()
+        assert any("unchanged" in m for m in msgs)
+
+
+class TestPmsetWakeHhmm:
+    @pytest.mark.parametrize(
+        "line,expected",
+        [
+            ("wakepoweron at 7:59AM every day", "07:59"),
+            ("wakepoweron at 12:00AM every day", "00:00"),
+            ("wakepoweron at 12:30PM every day", "12:30"),
+            ("wakepoweron at 1:05PM every day", "13:05"),
+            (None, None),
+            ("some unparseable line", None),
+        ],
+    )
+    def test_parses_repeating_wake_time(self, monkeypatch, line, expected):
+        monkeypatch.setattr(sl, "_pmset_wake_line", lambda: line)
+        assert sl._pmset_wake_hhmm() == expected
 
 
 # --- _bootstrap tolerates the already-loaded race ---
