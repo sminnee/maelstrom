@@ -264,21 +264,32 @@ def ensure_schedule_agent() -> list[str]:
     msgs = [f"Schedule agent: loaded ({mael})."]
     wake = wake_time()
     if wake:
-        try:
-            _schedule_wake(wake)
-        except (subprocess.CalledProcessError, OSError) as e:
-            # The launchd agent is loaded regardless; report the wake failure
-            # without aborting. The marker keeps the wake intent, so the next
-            # install / self-update re-attempts it.
+        # Compare against the actual pmset target (_minute_before(wake)), not
+        # `wake` itself — _pmset_wake_hhmm() reports the wake pmset holds, which
+        # is one minute before the fire time.
+        desired = _minute_before(wake)
+        if _pmset_wake_hhmm() == desired:
+            # Already exactly what we'd set — skip the sudo pmset call (and its
+            # password prompt) on the common "nothing changed" path.
             msgs.append(
-                f"Schedule wake: pmset failed ({e}); agent loaded but no wake "
-                f"set. Re-run `mael schedule install --wake-at {wake}` with sudo."
+                f"Schedule wake: pmset already set for {desired} (unchanged)."
             )
         else:
-            msgs.append(
-                f"Schedule wake: pmset set for {_minute_before(wake)} "
-                f"(one minute before {wake})."
-            )
+            try:
+                _schedule_wake(wake)
+            except (subprocess.CalledProcessError, OSError) as e:
+                # The launchd agent is loaded regardless; report the wake failure
+                # without aborting. The marker keeps the wake intent, so the next
+                # install / self-update re-attempts it.
+                msgs.append(
+                    f"Schedule wake: pmset failed ({e}); agent loaded but no wake "
+                    f"set. Re-run `mael schedule install --wake-at {wake}` with sudo."
+                )
+            else:
+                msgs.append(
+                    f"Schedule wake: pmset set for {desired} "
+                    f"(one minute before {wake})."
+                )
     else:
         _clear_wake()
         msgs.append("Schedule wake: none configured.")
@@ -344,6 +355,28 @@ def _pmset_wake_line() -> str | None:
         if in_repeating and line.strip():
             return line.strip()
     return None
+
+
+def _pmset_wake_hhmm() -> str | None:
+    """Return the current repeating-wake time as 24-hour ``HH:MM``, if any.
+
+    Parses the ``pmset -g sched`` repeating line (e.g. ``wakepoweron at 7:59AM
+    every day``) and normalises the ``H:MMAM`` token to ``HH:MM`` so it can be
+    compared against :func:`_minute_before`. Returns ``None`` when there is no
+    repeating wake or the line doesn't parse (unknown -> treat as "re-apply").
+    """
+    line = _pmset_wake_line()
+    if line is None:
+        return None
+    m = re.search(r"\bat\s+(\d{1,2}):(\d{2})\s*([AP]M)\b", line, re.IGNORECASE)
+    if not m:
+        return None
+    hh, mm, meridiem = int(m.group(1)), int(m.group(2)), m.group(3).upper()
+    if hh == 12:
+        hh = 0
+    if meridiem == "PM":
+        hh += 12
+    return f"{hh:02d}:{mm:02d}"
 
 
 def _log_tail(n: int = 5) -> list[str]:
