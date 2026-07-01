@@ -17,7 +17,7 @@ import subprocess
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 
 from . import branch_name
 from .shell import run_cmd
@@ -88,7 +88,10 @@ _FRONTMATTER_ATTR = {
 
 
 def _today() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
+    # Local calendar date: .astimezone() yields an aware datetime in the
+    # machine's local zone, so the ID date prefix follows the user's day
+    # (matching --wake-at) rather than UTC.
+    return datetime.now().astimezone().date().isoformat()
 
 
 # --- safety / key construction ---

@@ -1303,22 +1303,23 @@ def _make_template(store, *, schedule, last_run="", created):
 
 class TestAddScheduled:
     def test_one_run_created_and_watermark_advances(self, runner, store, monkeypatch):
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         _make_template(
             store,
             schedule="0 9 * * *",
-            last_run="2026-06-11T09:00:00+00:00",
-            created="2026-06-01T00:00:00+00:00",
+            last_run="2026-06-11T09:00:00",
+            created="2026-06-01T00:00:00",
         )
-        # Freeze "now" inside the command.
-        import maelstrom.task_cli as tc
+        # Freeze "now" to a fixed *local* wall-clock — the command uses
+        # datetime.now().astimezone(), so the scheduler matches local time.
         real_dt = datetime
+        frozen_local = real_dt(2026, 6, 18, 10, 0).astimezone()
 
         class FrozenDateTime(datetime):
             @classmethod
             def now(cls, tz=None):
-                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+                return frozen_local
 
         monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
         result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
@@ -1331,9 +1332,10 @@ class TestAddScheduled:
             if t.parent == "maintenance"
         ]
         assert len(runs) == 1
-        # Watermark advanced to today's 09:00 boundary.
+        # Watermark advanced to today's 09:00 *local* boundary.
         tmpl = model.load(store, "p", "maintenance")
-        assert tmpl.last_run == "2026-06-18T09:00:00+00:00"
+        expected = real_dt(2026, 6, 18, 9, 0).astimezone().isoformat()
+        assert tmpl.last_run == expected
 
     def test_idempotent_second_call_creates_nothing(self, runner, store, monkeypatch):
         from datetime import datetime, timezone
@@ -1383,26 +1385,28 @@ class TestAddScheduled:
 
     def test_run_is_timestamped(self, runner, store, monkeypatch):
         """Every run emits a dated header so schedule.log records when it fired."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         _make_template(
             store,
             schedule="0 9 * * *",
-            last_run="2026-06-18T09:00:00+00:00",
-            created="2026-06-01T00:00:00+00:00",
+            last_run="2026-06-18T09:00:00",
+            created="2026-06-01T00:00:00",
         )
         real_dt = datetime
+        frozen_local = real_dt(2026, 6, 18, 10, 0).astimezone()
 
         class FrozenDateTime(datetime):
             @classmethod
             def now(cls, tz=None):
-                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+                return frozen_local
 
         monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
         result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
-        # Header is the first line, carries the ISO firing time (no nothing-due
-        # template here so the timestamp prefixes the whole run unconditionally).
-        assert result.output.startswith("[2026-06-18T10:00:00+00:00] add-scheduled")
+        # Header is the first line, carries the *local* ISO firing time (no
+        # nothing-due template here so the timestamp prefixes the run).
+        stamp = frozen_local.isoformat(timespec="seconds")
+        assert result.output.startswith(f"[{stamp}] add-scheduled")
 
     def test_run_inherits_template_branch(self, runner, store, monkeypatch):
         """A scheduled run lands on the template's own branch, not task/<tmpl-id>."""

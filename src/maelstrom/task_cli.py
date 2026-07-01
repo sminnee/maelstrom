@@ -518,9 +518,7 @@ def task_add_scheduled(
     due templates and reuses the canonical duplicate/launch path — it owns only
     the cron/last-run/catch-up logic, never creation or launch.
     """
-    from datetime import timezone
-
-    now = datetime.now(timezone.utc)
+    now = datetime.now().astimezone()
     # Stamp every run so schedule.log records when the agent fired, even when
     # nothing is due — the answer to "did the scheduler run?" at diagnosis time.
     click.echo(f"[{now.isoformat(timespec='seconds')}] add-scheduled")
@@ -617,12 +615,10 @@ def _next_fire_display(task: "model.Task") -> str:
     """Render a template's next scheduled fire for the listing, or ''."""
     if not task.schedule:
         return ""
-    from datetime import timezone
-
     from . import schedule as sched
 
     try:
-        nxt = sched.next_fire(task.schedule, datetime.now(timezone.utc))
+        nxt = sched.next_fire(task.schedule, datetime.now().astimezone())
     except ValueError:
         return "(invalid)"
     return nxt.isoformat(timespec="minutes") if nxt else ""
