@@ -1324,11 +1324,14 @@ class TestAddScheduled:
         result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
         assert result.exit_code == 0, result.output
         run = model.load(store, "p", "maintenance.2026-06-18")
-        assert run.parent == "maintenance"
+        # The run is parentless: its dot-id names it under the template, but its
+        # empty parent lets it root its own chain (follow-ups nest under the run).
+        assert run.parent == ""
+        assert run.id == "maintenance.2026-06-18"
         # Exactly one run (catch-up is a single boundary, not 7).
         runs = [
             t for t in model.list_tasks(store, project="p")
-            if t.parent == "maintenance"
+            if t.id.startswith("maintenance.")
         ]
         assert len(runs) == 1
         # Watermark advanced to today's 09:00 boundary.
@@ -1357,7 +1360,7 @@ class TestAddScheduled:
         assert "No scheduled tasks due." in result.output
         runs = [
             t for t in model.list_tasks(store, project="p")
-            if t.parent == "maintenance"
+            if t.id.startswith("maintenance.")
         ]
         assert len(runs) == 1
 
@@ -1425,7 +1428,7 @@ class TestAddScheduled:
         result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
         assert result.exit_code == 0, result.output
         run = model.load(store, "p", "maintenance.2026-06-18")
-        assert run.parent == "maintenance"
+        assert run.parent == ""
         assert run.branch == "chore/maint"
 
     def test_run_launches_into_workspace(self, runner, store, monkeypatch, launch):
@@ -1448,3 +1451,8 @@ class TestAddScheduled:
         result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p", "--run"])
         assert result.exit_code == 0, result.output
         launch.session.assert_called_once()
+        # The run is parentless, so the launched session exports its own id as the
+        # chain parent — follow-ups nest under the run, not the template.
+        env = launch.session.call_args.kwargs["env"]
+        assert env["MAEL_TASK_ID"] == "maintenance.2026-06-18"
+        assert env["MAEL_TASK_PARENT"] == "maintenance.2026-06-18"

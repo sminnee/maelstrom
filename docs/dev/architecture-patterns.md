@@ -4,9 +4,11 @@ Conventions for the maelstrom Python core. New features should follow these; the
 existing code is being converged onto them iteratively. The **task subsystem** is
 the worked reference — when in doubt, copy how it is built.
 
-This document covers *structure*. For Python style and Click rules (imports at
-top, `pathlib` over `os.path`, `click.ClickException` for user errors, docstrings,
-type hints), see [`.claude/review-guides/python.md`](../../.claude/review-guides/python.md).
+This document covers *structure* (the layering view). For the task *domain model*
+— what `parent`, `follows`, and dotted ids mean — see [`tasks.md`](tasks.md). For
+Python style and Click rules (imports at top, `pathlib` over `os.path`,
+`click.ClickException` for user errors, docstrings, type hints), see
+[`.claude/review-guides/python.md`](../../.claude/review-guides/python.md).
 
 ## The three layers
 

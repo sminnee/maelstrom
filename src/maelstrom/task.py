@@ -144,6 +144,9 @@ class Task:
     command: str = ""
     mode: str = DEFAULT_MODE
     branch: str = ""
+    # Groups this task into a linear PR-sharing chain (one PR per parent); empty
+    # = roots its own chain. Dots in `id` express nesting independently — see
+    # docs/dev/tasks.md.
     parent: str = ""
     pre_action: str = ""
     post_action: str = ""
@@ -597,9 +600,11 @@ def duplicate(
     explicit override (so a run never inherits its template's cron).
 
     ``branch``/``follows``/``status`` compose the remaining ``add`` flags onto the
-    duplicate. For a scheduled run pass ``parent=<template-id>`` and
-    ``id=allocate_run_id(...)`` to land a date-keyed child on the template's
-    shared branch; ad-hoc duplicates omit both and get a normal id.
+    duplicate. For a scheduled run pass ``parent=""`` and
+    ``id=allocate_run_id(...)``: the dot-id (``<tmpl>.<date>``) names and dedups the
+    run under its template, while the empty ``parent`` roots its own chain so each
+    firing's follow-ups nest under the run (see docs/dev/tasks.md). Ad-hoc
+    duplicates omit both and get a normal id.
     """
     src = load(store, project, src_id)
     return create(
