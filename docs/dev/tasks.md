@@ -72,3 +72,39 @@ rather than piling onto the template's chain. The trade-offs (a generated branch
 and PR per firing; the run is not listed under `list --parent <template>`) are
 deliberate. See [`scheduled-tasks.md`](scheduled-tasks.md) for the launchd
 firing mechanics.
+
+## Session discovery — one live session per task
+
+Each task maps to a **deterministic Claude session id**: `session_id_for(project,
+task_id)` (a `uuid5` over `project` and `task_id`). `mael task run` passes it as
+`claude --session-id <id>`, so the same task always resolves to the same session.
+
+Claude Code's own uniqueness rule for that id is **file-based**: it stores the
+session transcript at `~/.claude/projects/<sanitised-cwd>/<session-id>.jsonl` and
+**refuses to start** `claude --session-id <id>` when that file already exists for
+the cwd — whether or not the owning process is still alive. So a leftover
+transcript from a finished run would make a relaunch die at `claude` start.
+
+`session_discovery.py` answers "is there a **live** session for this task?" the
+way Claude itself decides, in three steps — **find the transcript file →
+identify the owning pid → check the pid is alive**:
+
+1. **find** — glob `~/.claude/projects/*/<id>.jsonl`. A session id is globally
+   unique, so we match by id and never depend on reconstructing the cwd slug.
+2. **pid** — ask the OS who holds the transcript open (`lsof`), using the
+   `~/.maelstrom` session registry as a cheap `pid`/`cwd` hint first.
+3. **live** — `os.kill(pid, 0)`.
+
+`mael task run` consults this before launching and **refuses only when the
+session is live** (naming the pid and worktree, hinting `mael task reconcile`). A
+*finished* task whose transcript persists but has no live holder is deliberately
+**not** blocked — it must stay re-runnable. (`reconcile` and `session list` still
+read the port-probe registry directly; only `mael task run` uses this
+transcript-based discovery today.)
+
+The registry's primary key is the same deterministic id: because the Claude
+harness does **not** export `CLAUDE_SESSION_ID` to channel subprocesses, `mael
+task run` exports it as `MAEL_SESSION_ID` on the `claude` command, and the
+session-channel records that as the registry `session_id`. Discovery does not
+depend on this (it globs by id), but it keeps the registry-hint fast-path and
+`reconcile`'s primary-key match trustworthy.

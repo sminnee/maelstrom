@@ -30,12 +30,12 @@ from .worktree_model import (
     _build_managed_section,
     _format_copy_back_block,
     _resolve_template_lines,
-    _sanitise_path_for_claude,
     _substitute_vars,
     extract_project_name,
     extract_worktree_name_from_folder,
     get_worktree_folder_name,
     parse_env_text,
+    sanitise_path_for_claude,
 )
 
 @dataclass
@@ -1211,8 +1211,8 @@ def _setup_claude_memory_symlink(project_path: Path, worktree_path: Path) -> Non
         if not claude_projects_dir.is_dir():
             return
 
-        project_sanitised = _sanitise_path_for_claude(project_path)
-        worktree_sanitised = _sanitise_path_for_claude(worktree_path)
+        project_sanitised = sanitise_path_for_claude(project_path)
+        worktree_sanitised = sanitise_path_for_claude(worktree_path)
 
         central_memory = claude_projects_dir / project_sanitised / "memory"
         worktree_claude_dir = claude_projects_dir / worktree_sanitised

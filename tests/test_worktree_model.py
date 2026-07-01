@@ -5,12 +5,12 @@ from pathlib import Path
 from maelstrom.worktree_model import (
     WORKTREE_NAMES,
     WORKTREE_SHORTCODES,
-    _sanitise_path_for_claude,
     extract_project_name,
     extract_worktree_name_from_folder,
     get_worktree_folder_name,
     parse_env_text,
     resolve_worktree_shortcode,
+    sanitise_path_for_claude,
     sanitize_branch_name,
 )
 
@@ -127,15 +127,22 @@ class TestExtractProjectName:
 
 
 class TestSanitisePathForClaude:
-    """Tests for _sanitise_path_for_claude."""
+    """Tests for sanitise_path_for_claude."""
 
     def test_basic_path(self):
-        result = _sanitise_path_for_claude(Path("/Users/sminnee/Projects/foo"))
+        result = sanitise_path_for_claude(Path("/Users/sminnee/Projects/foo"))
         assert result == "-Users-sminnee-Projects-foo"
 
     def test_worktree_path(self):
-        result = _sanitise_path_for_claude(Path("/Users/sminnee/Projects/foo/foo-alpha"))
+        result = sanitise_path_for_claude(Path("/Users/sminnee/Projects/foo/foo-alpha"))
         assert result == "-Users-sminnee-Projects-foo-foo-alpha"
+
+    def test_collapses_dot_like_claude(self):
+        # Claude's own slug replaces '.' with '-' too, so a real temp path like
+        # /private/tmp/claude.501/... must match. Pinning this locks the fix
+        # against regressing back to a '/'-only replacement.
+        result = sanitise_path_for_claude(Path("/private/tmp/claude.501/x"))
+        assert result == "-private-tmp-claude-501-x"
 
 
 class TestParseEnvText:

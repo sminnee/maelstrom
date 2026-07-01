@@ -1,8 +1,9 @@
 """Claude Code IDE session tracking."""
 
 import json
-import os
 from pathlib import Path
+
+from .process import is_process_running
 
 
 def get_active_ide_sessions() -> dict[Path, int]:
@@ -20,7 +21,7 @@ def get_active_ide_sessions() -> dict[Path, int]:
             folders = data.get("workspaceFolders", [])
 
             # Check if process is running
-            if pid and _is_process_running(pid):
+            if pid and is_process_running(pid):
                 for folder in folders:
                     folder_path = Path(folder)
                     sessions[folder_path] = sessions.get(folder_path, 0) + 1
@@ -28,12 +29,3 @@ def get_active_ide_sessions() -> dict[Path, int]:
             continue
 
     return sessions
-
-
-def _is_process_running(pid: int) -> bool:
-    """Check if a process is running."""
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False

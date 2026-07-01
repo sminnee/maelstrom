@@ -108,11 +108,14 @@ def extract_project_name(git_url: str) -> str:
     return url
 
 
-def _sanitise_path_for_claude(path: Path) -> str:
+def sanitise_path_for_claude(path: Path) -> str:
     """Convert a filesystem path to Claude Code's sanitised project directory name.
 
     Claude Code stores per-project data in ~/.claude/projects/<sanitised>/
-    where the sanitised name is the absolute path with '/' replaced by '-'.
+    where the sanitised name is the absolute path with both '/' and '.'
+    replaced by '-'. The '.' substitution matters for real temp paths like
+    ``/private/tmp/claude.501`` (→ ``-private-tmp-claude-501``); omitting it
+    was a latent mismatch against Claude's own slug.
 
     Args:
         path: Absolute path to sanitise.
@@ -120,7 +123,7 @@ def _sanitise_path_for_claude(path: Path) -> str:
     Returns:
         Sanitised path string (e.g., '-Users-sminnee-Projects-foo').
     """
-    return str(path.resolve()).replace("/", "-")
+    return str(path.resolve()).replace("/", "-").replace(".", "-")
 
 
 def parse_env_text(text: str) -> dict[str, str]:
