@@ -463,9 +463,9 @@ def _fire_due_templates(
     """Create (and optionally launch) one run per due template in ``project``.
 
     Each fired template, in its own transaction: duplicate it into a date-keyed
-    child run (skipped if that id already exists → idempotent across
-    RunAtLoad+interval double-fires) and advance its ``last-run`` watermark to the
-    boundary. Returns the run tasks that were created this call.
+    child run on the template's own ``branch`` (skipped if that id already exists →
+    idempotent across RunAtLoad+interval double-fires) and advance its ``last-run``
+    watermark to the boundary. Returns the run tasks that were created this call.
     """
     from . import schedule as sched
 
@@ -482,6 +482,7 @@ def _fire_due_templates(
                 project,
                 tmpl.id,
                 parent=tmpl.id,
+                branch=tmpl.branch,
                 id=run_id,
             )
             model.update(store, project, tmpl.id, last_run=prev.isoformat())
