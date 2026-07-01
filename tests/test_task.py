@@ -1496,7 +1496,10 @@ class TestDuplicate:
         model.duplicate(store, "p", "s", title="other")
         assert model.load(store, "p", "s").title == "Src"
 
-    def test_run_id_child_of_template(self):
+    def test_run_id_names_run_under_template_but_parent_is_blank(self):
+        # A scheduled run is duplicated with parent="" and id=allocate_run_id:
+        # the dot-id names/dedups it under the template, while the empty parent
+        # lets it root its own chain (see docs/dev/tasks.md).
         store = InMemoryStore()
         model.create(
             store, project="p", title="Maint", status=model.STATUS_TEMPLATE,
@@ -1505,12 +1508,16 @@ class TestDuplicate:
         run_id = model.allocate_run_id("maintenance", "2026-06-18")
         assert run_id == "maintenance.2026-06-18"
         dup = model.duplicate(
-            store, "p", "maintenance", parent="maintenance", id=run_id
+            store, "p", "maintenance", parent="", id=run_id
         )
         assert dup.id == "maintenance.2026-06-18"
-        assert dup.parent == "maintenance"
-        # With no branch override, a bare duplicate() derives the branch from parent.
-        assert dup.branch == model.default_branch(run_id, "maintenance")
+        assert dup.parent == ""
+        # With no branch override and no parent, create() generates a descriptive
+        # <type>/<desc> branch from the title (an accepted consequence of blanking
+        # the parent: each firing gets its own branch/PR — see docs/dev/tasks.md).
+        assert dup.branch == model.default_branch(
+            run_id, "", title="Maint", generate=True
+        )
 
     def test_branch_override_is_honored(self):
         store = InMemoryStore()
@@ -1520,7 +1527,7 @@ class TestDuplicate:
         )
         run_id = model.allocate_run_id("maintenance", "2026-06-18")
         dup = model.duplicate(
-            store, "p", "maintenance", parent="maintenance",
+            store, "p", "maintenance", parent="",
             branch="chore/maint", id=run_id,
         )
         assert dup.branch == "chore/maint"

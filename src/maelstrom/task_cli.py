@@ -94,7 +94,10 @@ def _run_task(
         "MAEL_TASK_ID": task.id,
         # A parentless task self-parents: children it emits nest under it and
         # share its branch (one PR per chain), instead of each becoming a fresh
-        # orphan. A real parent wins over the task.id fallback.
+        # orphan. A real parent wins over the task.id fallback. A scheduled run is
+        # an intended case of this: it is created parentless (its dot-id already
+        # names it under its template), so `task.id` becomes MAEL_TASK_PARENT and
+        # its follow-ups nest under the run, not the template. See docs/dev/tasks.md.
         "MAEL_TASK_PARENT": task.parent or task.id,
     }
     perm = model._permission_mode_for(task.mode)
@@ -463,9 +466,15 @@ def _fire_due_templates(
     """Create (and optionally launch) one run per due template in ``project``.
 
     Each fired template, in its own transaction: duplicate it into a date-keyed
-    child run on the template's own ``branch`` (skipped if that id already exists →
-    idempotent across RunAtLoad+interval double-fires) and advance its ``last-run``
-    watermark to the boundary. Returns the run tasks that were created this call.
+    run (skipped if that id already exists → idempotent across RunAtLoad+interval
+    double-fires) and advance its ``last-run`` watermark to the boundary. Returns
+    the run tasks that were created this call.
+
+    The run's id (``<tmpl>.<date>``) names it as a dot-child of the template, but
+    its ``parent`` is deliberately left **empty** so it roots its own chain: the
+    launcher exports ``MAEL_TASK_PARENT = run.id`` (via ``task.parent or task.id``),
+    making each firing's follow-ups grandchildren of the template rather than
+    piling onto the template's own chain. See docs/dev/tasks.md.
     """
     from . import schedule as sched
 
@@ -481,7 +490,7 @@ def _fire_due_templates(
                 store,
                 project,
                 tmpl.id,
-                parent=tmpl.id,
+                parent="",  # parentless → run roots its own chain (see docstring)
                 branch=tmpl.branch,
                 id=run_id,
             )

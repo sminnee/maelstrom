@@ -63,7 +63,8 @@ mael task rm <id>                        # delete and strip from dependents
 
 `--follow` / `--follow-end` build the chain (a task becomes actionable only once everything it
 follows is done); `--follow-end '*'` appends after the leaf of the parent's existing child-chain.
-`--parent` nests ids and **defaults to `$MAEL_TASK_PARENT`** when unset, so chain tasks a launched
+`--parent` groups the task into a linear chain sharing one branch/PR (ids nest via dots) and
+**defaults to `$MAEL_TASK_PARENT`** when unset, so chain tasks a launched
 session emits nest under the same parent without spelling it out. `$MAEL_TASK_PARENT` is the
 launching task's parent, or the task's own id when it has none — so a parentless planning session
 still chains its children under one parent/branch (for a Linear-rooted task it is the

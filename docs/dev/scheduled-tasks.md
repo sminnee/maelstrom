@@ -39,6 +39,12 @@ so the log records *when* the agent last fired even when nothing was due.
 - **While asleep, with `--wake-at HH:MM`:** a `pmset` wake brings the Mac up so
   the next launchd tick runs the job.
 
+Each firing duplicates the template into a run keyed `<template>.<date>`. The run
+is created **parentless but dot-named**: its id names it under the template, while
+its empty `parent` roots its own chain, so the run's follow-ups nest under the run
+rather than piling onto the template's chain. See
+[`tasks.md`](tasks.md#scheduled-runs) for the `parent`-vs-dot-id distinction.
+
 A user LaunchAgent alone cannot wake the machine — only the OS power scheduler
 (`pmset`) can — which is why wake support is a separate, sudo-requiring step.
 
