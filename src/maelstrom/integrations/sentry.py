@@ -9,7 +9,7 @@ import click
 from ..config import load_config_or_default
 from ..context import resolve_context
 from ._auth import resolve_secret
-from ._format import format_datetime, format_relative_time
+from ._format import format_datetime, format_relative_time, parse_since
 from ._http import request_json
 
 SENTRY_API_URL = "https://sentry.io/api/0"
@@ -205,23 +205,39 @@ def sentry():
 
 @sentry.command("list-issues")  # type: ignore[attr-defined]
 @click.option("--env", "environment", default="prod", help="Environment filter (default: prod)")
-def cmd_list_issues(environment):
+@click.option(
+    "--since",
+    default=None,
+    help="Only issues last seen within this window (e.g. 30m, 24h, 7d). Default: all unresolved issues",
+)
+def cmd_list_issues(environment, since):
     """List unresolved issues for the project."""
     sentry_org, sentry_project = get_sentry_config()
 
+    query = f"is:unresolved environment:{environment}"
+    if since is not None:
+        # Validate the duration (raises the standard 'Invalid --since' error on
+        # bad input). parse_since permits surrounding whitespace, so normalize to
+        # the bare token before interpolating it into the query / display strings.
+        parse_since(since)
+        since = "".join(since.split())
+        query = f"{query} lastSeen:-{since}"
+
     endpoint = f"/projects/{sentry_org}/{sentry_project}/issues/"
     params = {
-        "query": f"is:unresolved environment:{environment}",
+        "query": query,
         "statsPeriod": "24h",
     }
 
     issues = api_request(endpoint, params)
 
+    window = f" in the last {since}" if since is not None else ""
     if not issues:
-        click.echo(f"No unresolved issues found in environment '{environment}'.")
+        click.echo(f"No unresolved issues found in environment '{environment}'{window}.")
         return
 
-    click.echo(f"# Unresolved Issues (environment: {environment})")
+    heading_window = f", last {since}" if since is not None else ""
+    click.echo(f"# Unresolved Issues (environment: {environment}{heading_window})")
     click.echo("")
     click.echo("- **Count**: Total number of events for this issue (all time)")
     click.echo("- **Trend**: Change in events over last 12h vs previous 12h")

@@ -1,6 +1,5 @@
 """UptimeRobot monitor and outage query integration for maelstrom."""
 
-import re
 import time
 from pathlib import Path
 
@@ -9,7 +8,7 @@ import click
 from ..config import load_config_or_default
 from ..context import resolve_context
 from ._auth import resolve_secret
-from ._format import format_datetime, format_relative_time
+from ._format import format_datetime, format_relative_time, parse_since
 from ._http import request_json
 
 UPTIMEROBOT_API_URL = "https://api.uptimerobot.com/v2"
@@ -139,22 +138,6 @@ def format_duration(seconds: int) -> str:
     return f"{days}d"
 
 
-def _parse_since(since: str) -> int:
-    """Parse a `--since` duration like '24h' or '7d' into seconds.
-
-    Supported suffixes: s, m, h, d.
-    """
-    match = re.fullmatch(r"\s*(\d+)\s*([smhd])\s*", since)
-    if not match:
-        raise click.ClickException(
-            f"Invalid --since value '{since}'. Use forms like '30m', '24h', '7d'."
-        )
-    value = int(match.group(1))
-    unit = match.group(2)
-    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400}
-    return value * multipliers[unit]
-
-
 def _epoch_to_iso(ts: int) -> str:
     """Convert UptimeRobot epoch seconds to ISO 8601 UTC."""
     from datetime import UTC, datetime
@@ -280,7 +263,7 @@ def cmd_status() -> None:
 @click.option("--limit", default=20, type=int, help="Max log entries per monitor. Default: 20")
 def cmd_outages(since: str, limit: int) -> None:
     """List recent outage log entries across configured monitors."""
-    window_seconds = _parse_since(since)
+    window_seconds = parse_since(since)
     cutoff = int(time.time()) - window_seconds
 
     monitor_ids = get_uptimerobot_monitors()
