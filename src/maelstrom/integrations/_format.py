@@ -5,7 +5,26 @@
 to remove the ``uptimerobot → sentry`` cross-import. Bodies are unchanged.
 """
 
+import re
 from datetime import UTC, datetime
+
+import click
+
+
+def parse_since(since: str) -> int:
+    """Parse a `--since` duration like '24h' or '7d' into seconds.
+
+    Supported suffixes: s, m, h, d.
+    """
+    match = re.fullmatch(r"\s*(\d+)\s*([smhd])\s*", since)
+    if not match:
+        raise click.ClickException(
+            f"Invalid --since value '{since}'. Use forms like '30m', '24h', '7d'."
+        )
+    value = int(match.group(1))
+    unit = match.group(2)
+    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    return value * multipliers[unit]
 
 
 def format_relative_time(iso_timestamp: str) -> str:
