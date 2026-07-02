@@ -100,114 +100,107 @@ class TestAllLiveSessions:
         ]
 
 
-def _wt(path: str, branch: str = "b"):
-    """A stand-in worktree with the fields the tiebreak reads."""
-    from maelstrom.worktree import WorktreeInfo
+def _make_worktree(root: Path, name: str, *, bare: bool = False) -> Path:
+    """Create a worktree dir under ``root`` with a ``.git`` marker.
 
-    return WorktreeInfo(path=Path(path), branch=branch, commit="deadbeef")
-
-
-def _patch_worktrees(monkeypatch, *paths):
-    """Stub ``list_worktrees`` to return a fixed set of worktrees.
-
-    ``list_worktrees(cwd)`` in reality returns every worktree of ``cwd``'s repo
-    (always including the one ``cwd`` sits in), so tests must provide the
-    candidate paths for the longest-prefix attribution to resolve against.
+    A linked worktree carries a ``.git`` *file* (the gitdir pointer); the main
+    checkout carries a ``.git`` *dir*. :attr:`LiveSession.worktree` only checks
+    existence, so ``bare`` picks which kind to lay down.
     """
-    worktrees = [_wt(p) for p in paths]
-    monkeypatch.setattr(session_discovery, "list_worktrees", lambda p: worktrees)
+    wt = root / name
+    wt.mkdir(parents=True, exist_ok=True)
+    if bare:
+        (wt / ".git").mkdir()
+    else:
+        (wt / ".git").write_text("gitdir: /somewhere\n")
+    return wt
 
 
-class TestLiveSessionCountForWorktree:
-    def test_counts_matching_cwds(self, monkeypatch):
-        _patch_worktrees(monkeypatch, "/w/alpha", "/w/echo")
+class TestLiveSessionWorktree:
+    def test_cwd_at_worktree_root(self, tmp_path):
+        alpha = _make_worktree(tmp_path, "alpha")
+        sess = session_discovery.LiveSession(pid=1, cwd=alpha)
+        assert sess.worktree == alpha
+
+    def test_cwd_in_subdir_walks_up(self, tmp_path):
+        # A session cd'd into a subdir attributes to the worktree root.
+        alpha = _make_worktree(tmp_path, "alpha")
+        (alpha / "src").mkdir()
+        sess = session_discovery.LiveSession(pid=1, cwd=alpha / "src")
+        assert sess.worktree == alpha
+
+    def test_nested_worktree_wins_over_parent(self, tmp_path):
+        # A nested worktree has its own .git, so the nearest-.git walk stops
+        # there rather than attributing to the parent worktree.
+        main = _make_worktree(tmp_path, "_main", bare=True)
+        nested = _make_worktree(main, "nested")
+        sess = session_discovery.LiveSession(pid=1, cwd=nested)
+        assert sess.worktree == nested
+
+    def test_none_when_no_git_ancestor(self, tmp_path):
+        loose = tmp_path / "loose"
+        loose.mkdir()
+        sess = session_discovery.LiveSession(pid=1, cwd=loose)
+        assert sess.worktree is None
+
+
+class TestLiveSessionSet:
+    def test_all_for_returns_every_match(self, tmp_path):
+        alpha = _make_worktree(tmp_path, "alpha")
+        echo = _make_worktree(tmp_path, "echo")
+        (alpha / "src").mkdir()
         sessions = [
-            session_discovery.LiveSession(pid=1, cwd=Path("/w/alpha")),
-            session_discovery.LiveSession(pid=2, cwd=Path("/w/alpha")),
-            session_discovery.LiveSession(pid=3, cwd=Path("/w/echo")),
+            session_discovery.LiveSession(pid=1, cwd=alpha),
+            session_discovery.LiveSession(pid=2, cwd=echo),
+            session_discovery.LiveSession(pid=3, cwd=alpha / "src"),
         ]
-        assert session_discovery.live_session_count_for_worktree(
-            Path("/w/alpha"), sessions
-        ) == 2
+        result = session_discovery.LiveSessionSet(sessions).all_for(alpha)
+        assert [s.pid for s in result] == [1, 3]
 
-    def test_zero_when_none_match(self, monkeypatch):
-        _patch_worktrees(monkeypatch, "/w/alpha", "/w/echo")
-        sessions = [session_discovery.LiveSession(pid=1, cwd=Path("/w/echo"))]
-        assert session_discovery.live_session_count_for_worktree(
-            Path("/w/alpha"), sessions
-        ) == 0
-
-    def test_counts_nested_cwd(self, monkeypatch):
-        # A session cwd'd into a subdir of the worktree still counts.
-        _patch_worktrees(monkeypatch, "/w/alpha")
+    def test_active_for_returns_first_match(self, tmp_path):
+        alpha = _make_worktree(tmp_path, "alpha")
+        echo = _make_worktree(tmp_path, "echo")
         sessions = [
-            session_discovery.LiveSession(pid=1, cwd=Path("/w/alpha/src"))
+            session_discovery.LiveSession(pid=1, cwd=echo),
+            session_discovery.LiveSession(pid=2, cwd=alpha),
         ]
-        assert session_discovery.live_session_count_for_worktree(
-            Path("/w/alpha"), sessions
-        ) == 1
+        s = session_discovery.LiveSessionSet(sessions).active_for(alpha)
+        assert s is not None and s.pid == 2
 
-    def test_nested_worktree_tiebreak(self, monkeypatch):
-        # /w/_main and /w/_main/nested are both worktrees; a session in the
-        # nested one must count only for /w/_main/nested, not /w/_main.
-        _patch_worktrees(monkeypatch, "/w/_main", "/w/_main/nested")
+    def test_active_for_none_when_no_match(self, tmp_path):
+        alpha = _make_worktree(tmp_path, "alpha")
+        echo = _make_worktree(tmp_path, "echo")
+        sessions = [session_discovery.LiveSession(pid=1, cwd=echo)]
+        assert session_discovery.LiveSessionSet(sessions).active_for(alpha) is None
+
+    def test_count_for(self, tmp_path):
+        alpha = _make_worktree(tmp_path, "alpha")
+        echo = _make_worktree(tmp_path, "echo")
         sessions = [
-            session_discovery.LiveSession(pid=1, cwd=Path("/w/_main/nested"))
+            session_discovery.LiveSession(pid=1, cwd=alpha),
+            session_discovery.LiveSession(pid=2, cwd=alpha),
+            session_discovery.LiveSession(pid=3, cwd=echo),
         ]
-        assert session_discovery.live_session_count_for_worktree(
-            Path("/w/_main"), sessions
-        ) == 0
-        assert session_discovery.live_session_count_for_worktree(
-            Path("/w/_main/nested"), sessions
-        ) == 1
+        assert session_discovery.LiveSessionSet(sessions).count_for(alpha) == 2
 
-    def test_worktree_list_memoised_across_rows(self, monkeypatch):
-        # The shared cache must collapse repeated list_worktrees calls: one
-        # sweep over two worktree rows should shell git once per distinct cwd.
+    def test_nested_worktree_not_attributed_to_parent(self, tmp_path):
+        main = _make_worktree(tmp_path, "_main", bare=True)
+        nested = _make_worktree(main, "nested")
+        sessions = [session_discovery.LiveSession(pid=1, cwd=nested)]
+        live = session_discovery.LiveSessionSet(sessions)
+        assert live.count_for(main) == 0
+        assert [s.pid for s in live.all_for(nested)] == [1]
+
+    def test_sweeps_lazily_when_no_sessions_passed(self, monkeypatch, tmp_path):
+        alpha = _make_worktree(tmp_path, "alpha")
         calls = []
         monkeypatch.setattr(
             session_discovery,
-            "list_worktrees",
-            lambda p: calls.append(p) or [_wt("/w/alpha"), _wt("/w/echo")],
-        )
-        sessions = [session_discovery.LiveSession(pid=1, cwd=Path("/w/alpha"))]
-        cache: dict = {}
-        session_discovery.live_session_count_for_worktree(
-            Path("/w/alpha"), sessions, cache
-        )
-        session_discovery.live_session_count_for_worktree(
-            Path("/w/echo"), sessions, cache
-        )
-        assert calls == [Path("/w/alpha")]  # one call for the one distinct cwd
-
-    def test_sweeps_when_no_sessions_passed(self, monkeypatch):
-        _patch_worktrees(monkeypatch, "/w/alpha")
-        monkeypatch.setattr(
-            session_discovery,
             "all_live_sessions",
-            lambda: [session_discovery.LiveSession(pid=1, cwd=Path("/w/alpha"))],
+            lambda: calls.append(1)
+            or [session_discovery.LiveSession(pid=1, cwd=alpha)],
         )
-        assert session_discovery.live_session_count_for_worktree(
-            Path("/w/alpha")
-        ) == 1
-
-
-class TestActiveSessionForWorktree:
-    def test_returns_first_match(self, monkeypatch):
-        _patch_worktrees(monkeypatch, "/w/alpha", "/w/echo")
-        sessions = [
-            session_discovery.LiveSession(pid=1, cwd=Path("/w/echo")),
-            session_discovery.LiveSession(pid=2, cwd=Path("/w/alpha")),
-        ]
-        s = session_discovery.active_session_for_worktree(
-            Path("/w/alpha"), sessions
-        )
-        assert s is not None
-        assert s.pid == 2
-
-    def test_none_when_no_match(self, monkeypatch):
-        _patch_worktrees(monkeypatch, "/w/alpha", "/w/echo")
-        sessions = [session_discovery.LiveSession(pid=1, cwd=Path("/w/echo"))]
-        assert session_discovery.active_session_for_worktree(
-            Path("/w/alpha"), sessions
-        ) is None
+        live = session_discovery.LiveSessionSet()
+        assert live.count_for(alpha) == 1
+        assert live.all_for(alpha)[0].pid == 1
+        assert calls == [1]  # swept once, then reused

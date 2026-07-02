@@ -348,11 +348,10 @@ def cmd_list(project):
         return
 
     # One live-session sweep shared across every row (a `pgrep`+`lsof` pair),
-    # rather than a system-wide scan per worktree. `session_cache` memoises the
+    # rather than a system-wide scan per worktree. The instance also memoises the
     # per-session worktree-list lookup so `git worktree list` runs once, not
     # once per (worktree row × session).
-    live_sessions = session_discovery.all_live_sessions()
-    session_cache: dict = {}
+    live_sessions = session_discovery.LiveSessionSet()
 
     # Gather extended info for each open worktree
     rows = []
@@ -379,9 +378,7 @@ def cmd_list(project):
             pr_display = ""
 
         # Live Claude session count for this worktree
-        session_count = session_discovery.live_session_count_for_worktree(
-            wt.path, live_sessions, session_cache
-        )
+        session_count = live_sessions.count_for(wt.path)
         session_display = str(session_count) if session_count else ""
 
         # App URL with running status
@@ -425,8 +422,7 @@ def cmd_list_all():
 
     # One live-session sweep shared across every project/worktree row, plus a
     # memo so the per-session worktree-list lookup runs once, not per row.
-    live_sessions = session_discovery.all_live_sessions()
-    session_cache: dict = {}
+    live_sessions = session_discovery.LiveSessionSet()
 
     # Collect structured data for all worktrees
     projects_data = []
@@ -491,9 +487,7 @@ def cmd_list_all():
                 pr_display = ""
 
             # Live Claude session count for this worktree
-            session_count = session_discovery.live_session_count_for_worktree(
-                wt.path, live_sessions, session_cache
-            )
+            session_count = live_sessions.count_for(wt.path)
             session_display = str(session_count) if session_count else ""
 
             # App URL with running status
