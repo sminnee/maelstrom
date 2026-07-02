@@ -48,7 +48,7 @@ class TestListAllJson:
                         with patch("maelstrom.cli.get_worktree_dirty_files", return_value=["file.txt"]):
                             with patch("maelstrom.cli.get_local_only_commits", return_value=2):
                                 with patch("maelstrom.cli.get_pr_number_and_commits", return_value=(42, 5)):
-                                    with patch("maelstrom.cli.get_active_ide_sessions", return_value={wt_path: 1}):
+                                    with patch("maelstrom.session_discovery.live_session_count_for_worktree", return_value=1):
                                         result = runner.invoke(cli, ["--json", "list-all"])
 
         assert result.exit_code == 0
@@ -69,7 +69,38 @@ class TestListAllJson:
         assert wt["local_commits"] == 2
         assert wt["pr_number"] == 42
         assert wt["pr_commits"] == 5
-        assert wt["ide_active"] is True
+        assert wt["session_count"] == 1
+
+    def test_json_output_multiple_sessions(self):
+        """A worktree with several live sessions reports the full count."""
+        runner = CliRunner()
+        project_path = Path("/tmp/claude/projects/myproject")
+        wt_path = project_path / "myproject-alpha"
+
+        mock_wt = WorktreeInfo(
+            path=wt_path,
+            branch="feat/test",
+            commit="abc123",
+            is_dirty=False,
+            commits_ahead=0,
+        )
+
+        with patch("maelstrom.cli.load_global_config") as mock_config:
+            mock_config.return_value = MagicMock(projects_dir=Path("/tmp/claude/projects"))
+            with patch("maelstrom.cli.find_all_projects", return_value=[project_path]):
+                with patch("maelstrom.cli.list_worktrees", return_value=[mock_wt]):
+                    with patch("maelstrom.cli.is_worktree_closed", return_value=False):
+                        with patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]):
+                            with patch("maelstrom.cli.get_local_only_commits", return_value=0):
+                                with patch("maelstrom.cli.get_pr_number_and_commits", return_value=(None, None)):
+                                    with patch("maelstrom.cli.get_pushed_commit_count", return_value=0):
+                                        with patch("maelstrom.session_discovery.live_session_count_for_worktree", return_value=3):
+                                            result = runner.invoke(cli, ["--json", "list-all"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        wt = data["projects"][0]["worktrees"][0]
+        assert wt["session_count"] == 3
 
     def test_json_output_closed_worktree(self):
         """Test JSON output for a closed worktree."""
@@ -89,7 +120,7 @@ class TestListAllJson:
                 with patch("maelstrom.cli.list_worktrees", return_value=[mock_wt]):
                     with patch("maelstrom.cli.is_worktree_closed", return_value=True):
                         with patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]):
-                            with patch("maelstrom.cli.get_active_ide_sessions", return_value={}):
+                            with patch("maelstrom.session_discovery.live_session_count_for_worktree", return_value=0):
                                 result = runner.invoke(cli, ["--json", "list-all"])
 
         assert result.exit_code == 0
@@ -99,6 +130,7 @@ class TestListAllJson:
         assert wt["branch"] is None
         assert wt["dirty_files"] == 0
         assert wt["local_commits"] == 0
+        assert wt["session_count"] == 0
 
     def test_table_output_still_works(self):
         """Test that table output (without --json) still works."""

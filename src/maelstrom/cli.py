@@ -35,7 +35,7 @@ from .integrations.slack import slack
 from .integrations.uptimerobot import uptimerobot
 from .status_cli import status as status_cli
 from .admin_cli import cmd_install, cmd_self_update
-from .claude_sessions import get_active_ide_sessions
+from . import session_discovery
 from .table import draw_table
 from .worktree import (
     add_project,
@@ -347,9 +347,6 @@ def cmd_list(project):
             click.echo("No worktrees found.")
         return
 
-    # Get active IDE sessions
-    active_sessions = get_active_ide_sessions()
-
     # Gather extended info for each open worktree
     rows = []
     for wt, display_name in open_worktrees:
@@ -374,8 +371,9 @@ def cmd_list(project):
         else:
             pr_display = ""
 
-        # IDE session indicator
-        ide_display = "Y" if active_sessions.get(wt.path, 0) > 0 else ""
+        # Live Claude session count for this worktree
+        session_count = session_discovery.live_session_count_for_worktree(wt.path)
+        session_display = str(session_count) if session_count else ""
 
         # App URL with running status
         app_display = ""
@@ -392,10 +390,10 @@ def cmd_list(project):
             "LOCAL COMMITS": local_display,
             "PR (COMMITS)": pr_display,
             "APP": app_display,
-            "IDE": ide_display,
+            "SESSION": session_display,
         })
 
-    draw_table(rows, ["WORKTREE", "BRANCH", "DIRTY FILES", "LOCAL COMMITS", "PR (COMMITS)", "APP", "IDE"])
+    draw_table(rows, ["WORKTREE", "BRANCH", "DIRTY FILES", "LOCAL COMMITS", "PR (COMMITS)", "APP", "SESSION"])
 
     if closed_names:
         click.echo(f"\nClosed environments: {', '.join(closed_names)}")
@@ -415,9 +413,6 @@ def cmd_list_all():
         else:
             click.echo("No projects found.")
         return
-
-    # Get active IDE sessions once for all projects
-    active_sessions = get_active_ide_sessions()
 
     # Collect structured data for all worktrees
     projects_data = []
@@ -454,7 +449,7 @@ def cmd_list_all():
                     "pushed_commits": None,
                     "app_url": None,
                     "app_running": False,
-                    "ide_active": False,
+                    "session_count": 0,
                 })
                 continue
 
@@ -481,9 +476,9 @@ def cmd_list_all():
             else:
                 pr_display = ""
 
-            # IDE session indicator
-            ide_active = active_sessions.get(wt.path, 0) > 0
-            ide_display = "Y" if ide_active else ""
+            # Live Claude session count for this worktree
+            session_count = session_discovery.live_session_count_for_worktree(wt.path)
+            session_display = str(session_count) if session_count else ""
 
             # App URL with running status
             app_display = ""
@@ -510,7 +505,7 @@ def cmd_list_all():
                 "pushed_commits": pushed_commits,
                 "app_url": app_url,
                 "app_running": app_running,
-                "ide_active": ide_active,
+                "session_count": session_count,
             })
 
             rows.append({
@@ -521,7 +516,7 @@ def cmd_list_all():
                 "LOCAL COMMITS": local_display,
                 "PR (COMMITS)": pr_display,
                 "APP": app_display,
-                "IDE": ide_display,
+                "SESSION": session_display,
             })
 
         projects_data.append({
@@ -544,7 +539,7 @@ def cmd_list_all():
             click.echo("No worktrees found.")
         return
 
-    draw_table(rows, ["PROJECT", "WORKTREE", "BRANCH", "DIRTY FILES", "LOCAL COMMITS", "PR (COMMITS)", "APP", "IDE"])
+    draw_table(rows, ["PROJECT", "WORKTREE", "BRANCH", "DIRTY FILES", "LOCAL COMMITS", "PR (COMMITS)", "APP", "SESSION"])
 
     if closed_by_project:
         click.echo("\nClosed environments:")

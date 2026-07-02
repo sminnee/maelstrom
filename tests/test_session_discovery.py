@@ -220,3 +220,99 @@ class TestByWorktreeAndBranch:
     def test_by_branch_none_when_branch_absent(self, monkeypatch, _claude_root):
         monkeypatch.setattr(session_discovery, "list_worktrees", lambda p: [])
         assert session_discovery.active_session_for_branch(Path("/proj"), "feat/x") is None
+
+
+# --- Public API: batch by task id (reconcile) ---
+
+
+class TestLiveSessionsByTaskId:
+    def test_empty_task_ids(self):
+        assert session_discovery.live_sessions_by_task_id("p", []) == {}
+
+    def test_maps_a_live_task(self, monkeypatch, _claude_root):
+        sid = model.session_id_for("p", "t")
+        _write_transcript(_claude_root, "-wt", sid)
+        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: 100)
+        monkeypatch.setattr(session_discovery, "is_process_running", lambda p: True)
+        m = session_discovery.live_sessions_by_task_id("p", ["t"])
+        assert set(m) == {"t"}
+        assert m["t"].session_id == sid
+        assert m["t"].is_live is True
+        assert m["t"].pid == 100
+
+    def test_excludes_finished_transcript(self, monkeypatch, _claude_root):
+        # A persisted-but-dead transcript must NOT map — that's what lets a
+        # finished in-progress task read as STALE → done.
+        sid = model.session_id_for("p", "t")
+        _write_transcript(_claude_root, "-wt", sid)
+        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: None)
+        assert session_discovery.live_sessions_by_task_id("p", ["t"]) == {}
+
+    def test_ignores_unmatched_transcripts(self, monkeypatch, _claude_root):
+        # A live transcript that belongs to no requested task is dropped.
+        _write_transcript(_claude_root, "-wt", "unrelated-session")
+        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: 100)
+        monkeypatch.setattr(session_discovery, "is_process_running", lambda p: True)
+        assert session_discovery.live_sessions_by_task_id("p", ["t"]) == {}
+
+    def test_single_registry_scan_for_many_tasks(self, monkeypatch, _claude_root):
+        # Batch guard: the registry is snapshotted once, not once per task.
+        for tid in ("t1", "t2", "t3"):
+            _write_transcript(_claude_root, "-wt", model.session_id_for("p", tid))
+        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: 100)
+        monkeypatch.setattr(session_discovery, "is_process_running", lambda p: True)
+        calls = {"n": 0}
+
+        def _counting():
+            calls["n"] += 1
+            return []
+
+        monkeypatch.setattr(
+            session_discovery.session_store, "live_sessions", _counting
+        )
+        m = session_discovery.live_sessions_by_task_id("p", ["t1", "t2", "t3"])
+        assert set(m) == {"t1", "t2", "t3"}
+        assert calls["n"] == 1
+
+    def test_cwd_and_pid_from_registry_hint(self, monkeypatch, _claude_root):
+        sid = model.session_id_for("p", "t")
+        slug = session_discovery.sanitise_path_for_claude(Path("/work/tree"))
+        _write_transcript(_claude_root, slug, sid)
+        monkeypatch.setattr(
+            session_discovery.session_store,
+            "live_sessions",
+            lambda: [{"cwd": "/work/tree", "pid": 55}],
+        )
+        monkeypatch.setattr(session_discovery, "is_process_running", lambda p: True)
+        m = session_discovery.live_sessions_by_task_id("p", ["t"])
+        assert m["t"].pid == 55
+        assert m["t"].cwd == Path("/work/tree")
+
+
+# --- Public API: live session count per worktree (mael list) ---
+
+
+class TestLiveSessionCountForWorktree:
+    def test_zero_when_dir_absent(self, _claude_root):
+        assert (
+            session_discovery.live_session_count_for_worktree(
+                Path("/work/never-launched")
+            )
+            == 0
+        )
+
+    def test_zero_when_only_finished(self, monkeypatch, _claude_root):
+        wt = Path("/work/tree-alpha")
+        slug = session_discovery.sanitise_path_for_claude(wt)
+        _write_transcript(_claude_root, slug, "sid")
+        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: None)
+        assert session_discovery.live_session_count_for_worktree(wt) == 0
+
+    def test_counts_live_transcripts(self, monkeypatch, _claude_root):
+        wt = Path("/work/tree-alpha")
+        slug = session_discovery.sanitise_path_for_claude(wt)
+        for sid in ("s1", "s2", "s3"):
+            _write_transcript(_claude_root, slug, sid)
+        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: 100)
+        monkeypatch.setattr(session_discovery, "is_process_running", lambda p: True)
+        assert session_discovery.live_session_count_for_worktree(wt) == 3
