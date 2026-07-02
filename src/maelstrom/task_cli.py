@@ -70,7 +70,7 @@ def _active_session_for_task_worktree(
     branch = task.branch or model.default_branch(task.id, task.parent)
     for wt in list_worktrees(project_path):
         if wt.branch == branch:
-            return session_discovery.active_session_for_worktree(wt.path)
+            return session_discovery.LiveSessionSet().active_for(wt.path)
     return None
 
 
@@ -756,21 +756,18 @@ def _live_sessions_by_task(
     if project_path is None or not project_path.exists():
         return {}
 
-    sessions = session_discovery.all_live_sessions()
-    if not sessions:
+    live = session_discovery.LiveSessionSet()
+    if not live.sessions:
         return {}
 
     # branch -> the live session running in its worktree (first match wins).
-    # One shared worktree-list memo so `git worktree list` runs once, not per
-    # branch resolved.
-    cache: dict = {}
+    # The shared instance memoises the worktree-list lookup so `git worktree
+    # list` runs once, not per branch resolved.
     branch_session: dict[str, session_discovery.LiveSession] = {}
     for wt in list_worktrees(project_path):
         if not wt.branch or wt.branch in branch_session:
             continue
-        session = session_discovery.active_session_for_worktree(
-            wt.path, sessions, cache
-        )
+        session = live.active_for(wt.path)
         if session is not None:
             branch_session[wt.branch] = session
 
