@@ -1,318 +1,213 @@
-"""Tests for maelstrom.session_discovery: find transcript → pid → liveness.
+"""Tests for maelstrom.session_discovery: live claude processes → cwd → worktree.
 
-The subsystem mirrors Claude Code's own file-based uniqueness rule. Tests point
-``CLAUDE_CONFIG_DIR`` at ``tmp_path`` so no real ``~/.claude`` is touched, fake
-transcript files by writing ``<id>.jsonl`` under a projects dir, and monkeypatch
-liveness / ``lsof`` rather than spawning real processes.
+Liveness is the set of running ``claude`` CLI processes and their cwds, obtained
+via one ``pgrep -x claude`` plus one batched ``lsof -a -d cwd``. Tests fake those
+two external calls by monkeypatching :func:`maelstrom.session_discovery.run_cmd`
+rather than spawning real processes, and stub ``list_worktrees`` for the
+worktree-prefix tiebreak.
 """
 
+import subprocess
 from pathlib import Path
 
-import pytest
-
 from maelstrom import session_discovery
-from maelstrom import task as model
 
 
-@pytest.fixture(autouse=True)
-def _claude_root(monkeypatch, tmp_path) -> Path:
-    """Point the Claude config root at ``tmp_path`` for every test."""
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
-    return tmp_path / "claude"
+def _completed(stdout: str) -> subprocess.CompletedProcess:
+    """A CompletedProcess carrying ``stdout`` (the only field callers read)."""
+    return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr="")
 
 
-@pytest.fixture(autouse=True)
-def _no_registry(monkeypatch):
-    """Default to an empty ``~/.maelstrom`` registry (no hints).
+def _fake_run_cmd(pgrep_out: str, lsof_out: str):
+    """A ``run_cmd`` stand-in that answers pgrep and lsof from fixed output.
 
-    Tests that want a registry hint re-patch ``live_sessions`` themselves.
+    Dispatches on the argv's first token so a single stub serves both calls
+    ``all_live_sessions`` makes.
     """
-    monkeypatch.setattr(session_discovery.session_store, "live_sessions", lambda: [])
+    def run(cmd, *args, **kwargs):
+        if cmd[0] == "pgrep":
+            return _completed(pgrep_out)
+        if cmd[0] == "lsof":
+            return _completed(lsof_out)
+        raise AssertionError(f"unexpected command: {cmd}")
+    return run
 
 
-def _write_transcript(claude_root: Path, slug: str, session_id: str) -> Path:
-    project_dir = claude_root / "projects" / slug
-    project_dir.mkdir(parents=True, exist_ok=True)
-    path = project_dir / f"{session_id}.jsonl"
-    path.write_text('{"type":"session"}\n')
-    return path
+def _lsof_records(pairs: list[tuple[int, str]]) -> str:
+    """Render ``(pid, cwd)`` pairs as ``lsof -F pn`` output."""
+    lines = []
+    for pid, cwd in pairs:
+        lines.append(f"p{pid}")
+        lines.append(f"n{cwd}")
+    return "\n".join(lines) + "\n"
 
 
-# --- Step 1: find the transcript file ---
-
-
-class TestTranscriptForSessionId:
-    def test_finds_unique_transcript(self, _claude_root):
-        path = _write_transcript(_claude_root, "-some-proj", "abc-123")
-        assert session_discovery.transcript_for_session_id("abc-123") == path
-
-    def test_none_when_absent(self, _claude_root):
-        _write_transcript(_claude_root, "-some-proj", "abc-123")
-        assert session_discovery.transcript_for_session_id("other") is None
-
-    def test_none_when_no_projects_dir(self):
-        # CLAUDE_CONFIG_DIR points at a tmp dir that has no projects/ yet.
-        assert session_discovery.transcript_for_session_id("abc-123") is None
-
-    def test_found_regardless_of_slug(self, _claude_root):
-        # The id is globally unique, so a deliberately mis-slugged directory
-        # (one that no path-sanitiser would produce) is still matched by id.
-        path = _write_transcript(_claude_root, "totally-wrong-slug", "xyz")
-        assert session_discovery.transcript_for_session_id("xyz") == path
-
-
-# --- Step 2: identify the owning pid ---
-
-
-class TestPidHolding:
-    def test_registry_hint_returns_recorded_pid(self, monkeypatch, _claude_root):
-        path = _write_transcript(_claude_root, "-work-tree", "sid")
+class TestAllLiveSessions:
+    def test_empty_when_no_claude(self, monkeypatch):
+        # pgrep exits 1 / prints nothing when nothing matches.
         monkeypatch.setattr(
-            session_discovery.session_store,
-            "live_sessions",
-            lambda: [{"cwd": "/work/tree", "pid": 777}],
+            session_discovery, "run_cmd", _fake_run_cmd("", "")
         )
-        # No lsof should be needed — force it to blow up if called.
+        assert session_discovery.all_live_sessions() == []
+
+    def test_parses_pid_and_cwd(self, monkeypatch):
         monkeypatch.setattr(
             session_discovery,
-            "_lsof_pid",
-            lambda p: pytest.fail("lsof should not run when a hint matches"),
+            "run_cmd",
+            _fake_run_cmd("42\n99\n", _lsof_records([(42, "/w/alpha"), (99, "/w/echo")])),
         )
-        assert session_discovery.pid_holding(path) == 777
+        sessions = session_discovery.all_live_sessions()
+        assert sessions == [
+            session_discovery.LiveSession(pid=42, cwd=Path("/w/alpha")),
+            session_discovery.LiveSession(pid=99, cwd=Path("/w/echo")),
+        ]
 
-    def test_lsof_fallback_when_no_hint(self, monkeypatch, _claude_root):
-        path = _write_transcript(_claude_root, "-work-tree", "sid")
-        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: 999)
-        assert session_discovery.pid_holding(path) == 999
-
-    def test_none_when_nothing_holds(self, monkeypatch, _claude_root):
-        path = _write_transcript(_claude_root, "-work-tree", "sid")
-        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: None)
-        assert session_discovery.pid_holding(path) is None
-
-
-# --- Step 3: liveness ---
-
-
-class TestLiveness:
-    def _session(self, monkeypatch, _claude_root, *, pid, alive):
-        _write_transcript(_claude_root, "-work-tree", "sid")
+    def test_skips_pid_without_cwd(self, monkeypatch):
+        # lsof reports pid 42's cwd but not pid 99's.
         monkeypatch.setattr(
             session_discovery,
-            "_lsof_pid",
-            lambda p: pid,
+            "run_cmd",
+            _fake_run_cmd("42\n99\n", _lsof_records([(42, "/w/alpha")])),
         )
-        monkeypatch.setattr(session_discovery, "is_process_running", lambda p: alive)
-        transcript = session_discovery.transcript_for_session_id("sid")
-        assert transcript is not None
-        return session_discovery._active_session_from_transcript("sid", transcript)
+        sessions = session_discovery.all_live_sessions()
+        assert sessions == [
+            session_discovery.LiveSession(pid=42, cwd=Path("/w/alpha"))
+        ]
 
-    def test_alive_pid_is_live(self, monkeypatch, _claude_root):
-        s = self._session(monkeypatch, _claude_root, pid=42, alive=True)
-        assert s.is_live is True
-        assert s.pid == 42
+    def test_pgrep_missing_binary_is_empty(self, monkeypatch):
+        def raise_oserror(cmd, *a, **k):
+            raise OSError("pgrep not found")
+        monkeypatch.setattr(session_discovery, "run_cmd", raise_oserror)
+        assert session_discovery.all_live_sessions() == []
 
-    def test_dead_pid_not_live(self, monkeypatch, _claude_root):
-        s = self._session(monkeypatch, _claude_root, pid=42, alive=False)
-        assert s.is_live is False
-        assert s.pid is None  # a dead holder is reported as no live owner
+    def test_lsof_missing_binary_is_empty(self, monkeypatch):
+        def run(cmd, *a, **k):
+            if cmd[0] == "pgrep":
+                return _completed("42\n")
+            raise OSError("lsof not found")
+        monkeypatch.setattr(session_discovery, "run_cmd", run)
+        assert session_discovery.all_live_sessions() == []
 
-    def test_no_pid_not_live(self, monkeypatch, _claude_root):
-        s = self._session(monkeypatch, _claude_root, pid=None, alive=True)
-        assert s.is_live is False
-        assert s.pid is None
-
-
-# --- Public API: by task ---
-
-
-class TestActiveSessionForTask:
-    def _transcript_for_task(self, _claude_root, project, task_id):
-        sid = model.session_id_for(project, task_id)
-        return _write_transcript(_claude_root, "-wt", sid), sid
-
-    def test_none_when_no_transcript(self):
-        assert session_discovery.active_session_for_task("p", "t") is None
-
-    def test_live_session_reported(self, monkeypatch, _claude_root):
-        _, sid = self._transcript_for_task(_claude_root, "p", "t")
-        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: 100)
-        monkeypatch.setattr(session_discovery, "is_process_running", lambda p: True)
-        s = session_discovery.active_session_for_task("p", "t")
-        assert s is not None
-        assert s.session_id == sid
-        assert s.is_live is True
-        assert s.pid == 100
-
-    def test_finished_transcript_not_live(self, monkeypatch, _claude_root):
-        # Transcript persists but its holder has exited → safe to re-run.
-        self._transcript_for_task(_claude_root, "p", "t")
-        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: None)
-        s = session_discovery.active_session_for_task("p", "t")
-        assert s is not None
-        assert s.is_live is False
-
-    def test_cwd_from_registry_hint(self, monkeypatch, _claude_root):
-        # When the registry records the session, the real worktree cwd (not the
-        # slugified project dir) is surfaced for the friendly error message.
-        sid = model.session_id_for("p", "t")
-        slug = session_discovery.sanitise_path_for_claude(Path("/work/tree"))
-        _write_transcript(_claude_root, slug, sid)
+    def test_ignores_non_numeric_pgrep_lines(self, monkeypatch):
         monkeypatch.setattr(
-            session_discovery.session_store,
-            "live_sessions",
-            lambda: [{"cwd": "/work/tree", "pid": 55}],
+            session_discovery,
+            "run_cmd",
+            _fake_run_cmd("garbage\n42\n", _lsof_records([(42, "/w/alpha")])),
         )
-        monkeypatch.setattr(session_discovery, "is_process_running", lambda p: True)
-        s = session_discovery.active_session_for_task("p", "t")
-        assert s is not None
-        assert s.pid == 55
-        assert s.cwd == Path("/work/tree")
-
-    def test_cwd_none_without_registry_hint(self, monkeypatch, _claude_root):
-        # No registry entry → cwd is None, not the slugified Claude project dir
-        # (which is not a real path and would mislead the error message).
-        self._transcript_for_task(_claude_root, "p", "t")
-        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: 100)
-        monkeypatch.setattr(session_discovery, "is_process_running", lambda p: True)
-        s = session_discovery.active_session_for_task("p", "t")
-        assert s is not None
-        assert s.is_live is True
-        assert s.cwd is None
+        sessions = session_discovery.all_live_sessions()
+        assert sessions == [
+            session_discovery.LiveSession(pid=42, cwd=Path("/w/alpha"))
+        ]
 
 
-# --- Public API: by worktree / by branch ---
+def _wt(path: str, branch: str = "b"):
+    """A stand-in worktree with the fields the tiebreak reads."""
+    from maelstrom.worktree import WorktreeInfo
+
+    return WorktreeInfo(path=Path(path), branch=branch, commit="deadbeef")
 
 
-class TestByWorktreeAndBranch:
-    def _setup_live_task(self, monkeypatch, _claude_root, wt_path):
-        sid = model.session_id_for("p", "t")
-        slug = session_discovery.sanitise_path_for_claude(wt_path)
-        _write_transcript(_claude_root, slug, sid)
-        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: 100)
-        monkeypatch.setattr(session_discovery, "is_process_running", lambda p: True)
-        return sid
+def _patch_worktrees(monkeypatch, *paths):
+    """Stub ``list_worktrees`` to return a fixed set of worktrees.
 
-    def test_by_worktree_matches_by_task(self, monkeypatch, _claude_root):
-        wt = Path("/work/tree-alpha")
-        sid = self._setup_live_task(monkeypatch, _claude_root, wt)
-        by_wt = session_discovery.active_session_for_worktree(wt)
-        by_task = session_discovery.active_session_for_task("p", "t")
-        assert by_wt is not None and by_task is not None
-        assert by_wt.session_id == by_task.session_id == sid
-
-    def test_by_worktree_none_when_only_finished(self, monkeypatch, _claude_root):
-        wt = Path("/work/tree-alpha")
-        self._setup_live_task(monkeypatch, _claude_root, wt)
-        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: None)
-        assert session_discovery.active_session_for_worktree(wt) is None
-
-    def test_by_branch_resolves_via_worktree(self, monkeypatch, _claude_root):
-        wt = Path("/work/tree-alpha")
-        sid = self._setup_live_task(monkeypatch, _claude_root, wt)
-        # Fake the worktree enumeration: branch → wt path.
-        info = type("WT", (), {"path": wt, "branch": "feat/x"})()
-        monkeypatch.setattr(session_discovery, "list_worktrees", lambda p: [info])
-        s = session_discovery.active_session_for_branch(Path("/proj"), "feat/x")
-        assert s is not None
-        assert s.session_id == sid
-
-    def test_by_branch_none_when_branch_absent(self, monkeypatch, _claude_root):
-        monkeypatch.setattr(session_discovery, "list_worktrees", lambda p: [])
-        assert session_discovery.active_session_for_branch(Path("/proj"), "feat/x") is None
-
-
-# --- Public API: batch by task id (reconcile) ---
-
-
-class TestLiveSessionsByTaskId:
-    def test_empty_task_ids(self):
-        assert session_discovery.live_sessions_by_task_id("p", []) == {}
-
-    def test_maps_a_live_task(self, monkeypatch, _claude_root):
-        sid = model.session_id_for("p", "t")
-        _write_transcript(_claude_root, "-wt", sid)
-        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: 100)
-        monkeypatch.setattr(session_discovery, "is_process_running", lambda p: True)
-        m = session_discovery.live_sessions_by_task_id("p", ["t"])
-        assert set(m) == {"t"}
-        assert m["t"].session_id == sid
-        assert m["t"].is_live is True
-        assert m["t"].pid == 100
-
-    def test_excludes_finished_transcript(self, monkeypatch, _claude_root):
-        # A persisted-but-dead transcript must NOT map — that's what lets a
-        # finished in-progress task read as STALE → done.
-        sid = model.session_id_for("p", "t")
-        _write_transcript(_claude_root, "-wt", sid)
-        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: None)
-        assert session_discovery.live_sessions_by_task_id("p", ["t"]) == {}
-
-    def test_ignores_unmatched_transcripts(self, monkeypatch, _claude_root):
-        # A live transcript that belongs to no requested task is dropped.
-        _write_transcript(_claude_root, "-wt", "unrelated-session")
-        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: 100)
-        monkeypatch.setattr(session_discovery, "is_process_running", lambda p: True)
-        assert session_discovery.live_sessions_by_task_id("p", ["t"]) == {}
-
-    def test_single_registry_scan_for_many_tasks(self, monkeypatch, _claude_root):
-        # Batch guard: the registry is snapshotted once, not once per task.
-        for tid in ("t1", "t2", "t3"):
-            _write_transcript(_claude_root, "-wt", model.session_id_for("p", tid))
-        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: 100)
-        monkeypatch.setattr(session_discovery, "is_process_running", lambda p: True)
-        calls = {"n": 0}
-
-        def _counting():
-            calls["n"] += 1
-            return []
-
-        monkeypatch.setattr(
-            session_discovery.session_store, "live_sessions", _counting
-        )
-        m = session_discovery.live_sessions_by_task_id("p", ["t1", "t2", "t3"])
-        assert set(m) == {"t1", "t2", "t3"}
-        assert calls["n"] == 1
-
-    def test_cwd_and_pid_from_registry_hint(self, monkeypatch, _claude_root):
-        sid = model.session_id_for("p", "t")
-        slug = session_discovery.sanitise_path_for_claude(Path("/work/tree"))
-        _write_transcript(_claude_root, slug, sid)
-        monkeypatch.setattr(
-            session_discovery.session_store,
-            "live_sessions",
-            lambda: [{"cwd": "/work/tree", "pid": 55}],
-        )
-        monkeypatch.setattr(session_discovery, "is_process_running", lambda p: True)
-        m = session_discovery.live_sessions_by_task_id("p", ["t"])
-        assert m["t"].pid == 55
-        assert m["t"].cwd == Path("/work/tree")
-
-
-# --- Public API: live session count per worktree (mael list) ---
+    ``list_worktrees(cwd)`` in reality returns every worktree of ``cwd``'s repo
+    (always including the one ``cwd`` sits in), so tests must provide the
+    candidate paths for the longest-prefix attribution to resolve against.
+    """
+    worktrees = [_wt(p) for p in paths]
+    monkeypatch.setattr(session_discovery, "list_worktrees", lambda p: worktrees)
 
 
 class TestLiveSessionCountForWorktree:
-    def test_zero_when_dir_absent(self, _claude_root):
-        assert (
-            session_discovery.live_session_count_for_worktree(
-                Path("/work/never-launched")
-            )
-            == 0
+    def test_counts_matching_cwds(self, monkeypatch):
+        _patch_worktrees(monkeypatch, "/w/alpha", "/w/echo")
+        sessions = [
+            session_discovery.LiveSession(pid=1, cwd=Path("/w/alpha")),
+            session_discovery.LiveSession(pid=2, cwd=Path("/w/alpha")),
+            session_discovery.LiveSession(pid=3, cwd=Path("/w/echo")),
+        ]
+        assert session_discovery.live_session_count_for_worktree(
+            Path("/w/alpha"), sessions
+        ) == 2
+
+    def test_zero_when_none_match(self, monkeypatch):
+        _patch_worktrees(monkeypatch, "/w/alpha", "/w/echo")
+        sessions = [session_discovery.LiveSession(pid=1, cwd=Path("/w/echo"))]
+        assert session_discovery.live_session_count_for_worktree(
+            Path("/w/alpha"), sessions
+        ) == 0
+
+    def test_counts_nested_cwd(self, monkeypatch):
+        # A session cwd'd into a subdir of the worktree still counts.
+        _patch_worktrees(monkeypatch, "/w/alpha")
+        sessions = [
+            session_discovery.LiveSession(pid=1, cwd=Path("/w/alpha/src"))
+        ]
+        assert session_discovery.live_session_count_for_worktree(
+            Path("/w/alpha"), sessions
+        ) == 1
+
+    def test_nested_worktree_tiebreak(self, monkeypatch):
+        # /w/_main and /w/_main/nested are both worktrees; a session in the
+        # nested one must count only for /w/_main/nested, not /w/_main.
+        _patch_worktrees(monkeypatch, "/w/_main", "/w/_main/nested")
+        sessions = [
+            session_discovery.LiveSession(pid=1, cwd=Path("/w/_main/nested"))
+        ]
+        assert session_discovery.live_session_count_for_worktree(
+            Path("/w/_main"), sessions
+        ) == 0
+        assert session_discovery.live_session_count_for_worktree(
+            Path("/w/_main/nested"), sessions
+        ) == 1
+
+    def test_worktree_list_memoised_across_rows(self, monkeypatch):
+        # The shared cache must collapse repeated list_worktrees calls: one
+        # sweep over two worktree rows should shell git once per distinct cwd.
+        calls = []
+        monkeypatch.setattr(
+            session_discovery,
+            "list_worktrees",
+            lambda p: calls.append(p) or [_wt("/w/alpha"), _wt("/w/echo")],
         )
+        sessions = [session_discovery.LiveSession(pid=1, cwd=Path("/w/alpha"))]
+        cache: dict = {}
+        session_discovery.live_session_count_for_worktree(
+            Path("/w/alpha"), sessions, cache
+        )
+        session_discovery.live_session_count_for_worktree(
+            Path("/w/echo"), sessions, cache
+        )
+        assert calls == [Path("/w/alpha")]  # one call for the one distinct cwd
 
-    def test_zero_when_only_finished(self, monkeypatch, _claude_root):
-        wt = Path("/work/tree-alpha")
-        slug = session_discovery.sanitise_path_for_claude(wt)
-        _write_transcript(_claude_root, slug, "sid")
-        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: None)
-        assert session_discovery.live_session_count_for_worktree(wt) == 0
+    def test_sweeps_when_no_sessions_passed(self, monkeypatch):
+        _patch_worktrees(monkeypatch, "/w/alpha")
+        monkeypatch.setattr(
+            session_discovery,
+            "all_live_sessions",
+            lambda: [session_discovery.LiveSession(pid=1, cwd=Path("/w/alpha"))],
+        )
+        assert session_discovery.live_session_count_for_worktree(
+            Path("/w/alpha")
+        ) == 1
 
-    def test_counts_live_transcripts(self, monkeypatch, _claude_root):
-        wt = Path("/work/tree-alpha")
-        slug = session_discovery.sanitise_path_for_claude(wt)
-        for sid in ("s1", "s2", "s3"):
-            _write_transcript(_claude_root, slug, sid)
-        monkeypatch.setattr(session_discovery, "_lsof_pid", lambda p: 100)
-        monkeypatch.setattr(session_discovery, "is_process_running", lambda p: True)
-        assert session_discovery.live_session_count_for_worktree(wt) == 3
+
+class TestActiveSessionForWorktree:
+    def test_returns_first_match(self, monkeypatch):
+        _patch_worktrees(monkeypatch, "/w/alpha", "/w/echo")
+        sessions = [
+            session_discovery.LiveSession(pid=1, cwd=Path("/w/echo")),
+            session_discovery.LiveSession(pid=2, cwd=Path("/w/alpha")),
+        ]
+        s = session_discovery.active_session_for_worktree(
+            Path("/w/alpha"), sessions
+        )
+        assert s is not None
+        assert s.pid == 2
+
+    def test_none_when_no_match(self, monkeypatch):
+        _patch_worktrees(monkeypatch, "/w/alpha", "/w/echo")
+        sessions = [session_discovery.LiveSession(pid=1, cwd=Path("/w/echo"))]
+        assert session_discovery.active_session_for_worktree(
+            Path("/w/alpha"), sessions
+        ) is None
