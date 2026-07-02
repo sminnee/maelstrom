@@ -58,9 +58,9 @@ def launch(monkeypatch, tmp_path):
     monkeypatch.setattr(task_cli, "launch_claude_in_worktree", session)
     monkeypatch.setattr(task_cli, "run_cmd", run_cmd)
     # No live session for the task by default — the duplicate-launch pre-check
-    # reads the real ~/.claude transcripts / ~/.maelstrom registry otherwise.
+    # would otherwise resolve the worktree and sweep live claude processes.
     monkeypatch.setattr(
-        task_cli.session_discovery, "active_session_for_task", lambda *a, **k: None
+        task_cli, "_active_session_for_task_worktree", lambda *a, **k: None
     )
     return SimpleNamespace(
         setup=setup, session=session, exec=run_cmd, wt_path=wt_path
@@ -510,9 +510,7 @@ class TestRun:
             lambda *a, **k: SimpleNamespace(project="p", project_path=missing),
         )
         monkeypatch.setattr(
-            task_cli.session_discovery,
-            "active_session_for_task",
-            lambda *a, **k: None,
+            task_cli, "_active_session_for_task_worktree", lambda *a, **k: None
         )
         session = MagicMock()
         monkeypatch.setattr(task_cli, "launch_claude_in_worktree", session)
@@ -522,19 +520,11 @@ class TestRun:
         session.assert_not_called()
 
 
-def _live_session(**kwargs):
-    """A minimal :class:`ActiveSession` stand-in with the given fields."""
-    from maelstrom.session_discovery import ActiveSession
+def _live_session(pid=1, cwd=Path("/work/tree")):
+    """A minimal :class:`LiveSession` stand-in (always live by construction)."""
+    from maelstrom.session_discovery import LiveSession
 
-    defaults = dict(
-        session_id="sid",
-        transcript=Path("/x/sid.jsonl"),
-        pid=None,
-        cwd=None,
-        is_live=False,
-    )
-    defaults.update(kwargs)
-    return ActiveSession(**defaults)
+    return LiveSession(pid=pid, cwd=cwd)
 
 
 class TestDuplicateLaunchPrecheck:
@@ -543,11 +533,9 @@ class TestDuplicateLaunchPrecheck:
     ):
         t = model.create(store, project="p", title="t")
         monkeypatch.setattr(
-            task_cli.session_discovery,
-            "active_session_for_task",
-            lambda *a, **k: _live_session(
-                pid=4242, cwd=Path("/work/tree-bravo"), is_live=True
-            ),
+            task_cli,
+            "_active_session_for_task_worktree",
+            lambda *a, **k: _live_session(pid=4242, cwd=Path("/work/tree-bravo")),
         )
         result = runner.invoke(task_cli.task, ["run", t.id])
         assert result.exit_code != 0
@@ -562,9 +550,9 @@ class TestDuplicateLaunchPrecheck:
     def test_run_here_also_refuses(self, runner, store, launch, monkeypatch):
         t = model.create(store, project="p", title="t")
         monkeypatch.setattr(
-            task_cli.session_discovery,
-            "active_session_for_task",
-            lambda *a, **k: _live_session(pid=9, is_live=True),
+            task_cli,
+            "_active_session_for_task_worktree",
+            lambda *a, **k: _live_session(pid=9),
         )
         result = runner.invoke(task_cli.task, ["run", t.id, "--here"])
         assert result.exit_code != 0
@@ -572,16 +560,14 @@ class TestDuplicateLaunchPrecheck:
         launch.exec.assert_not_called()
         assert model.load(store, "p", t.id).status == model.STATUS_TODO
 
-    def test_run_proceeds_when_transcript_not_live(
+    def test_run_proceeds_when_no_live_session(
         self, runner, store, launch, monkeypatch
     ):
-        # A finished task's transcript persists but has no live holder — it must
-        # stay re-runnable, so the guard does NOT block.
+        # A finished task leaves no live process in its worktree — it must stay
+        # re-runnable, so the guard does NOT block.
         t = model.create(store, project="p", title="t")
         monkeypatch.setattr(
-            task_cli.session_discovery,
-            "active_session_for_task",
-            lambda *a, **k: _live_session(pid=None, is_live=False),
+            task_cli, "_active_session_for_task_worktree", lambda *a, **k: None
         )
         result = runner.invoke(task_cli.task, ["run", t.id])
         assert result.exit_code == 0, result.output
@@ -611,8 +597,8 @@ class TestReconcile:
         self._live(
             monkeypatch, store,
             {
-                ok.id: _live_session(pid=1, is_live=True),
-                orphan.id: _live_session(pid=3, is_live=True),
+                ok.id: _live_session(pid=1),
+                orphan.id: _live_session(pid=3),
             },
         )
         result = runner.invoke(task_cli.task, ["reconcile"])
@@ -629,7 +615,7 @@ class TestReconcile:
         stale = model.create(store, project="p", title="stale", id="t1")
         model.move(store, "p", stale.id, model.STATUS_IN_PROGRESS)
         orphan = model.create(store, project="p", title="orphan", id="t2")  # todo
-        self._live(monkeypatch, store, {orphan.id: _live_session(pid=3, is_live=True)})
+        self._live(monkeypatch, store, {orphan.id: _live_session(pid=3)})
         result = runner.invoke(task_cli.task, ["reconcile", "--fix"])
         assert result.exit_code == 0, result.output
         assert model.load(store, "p", stale.id).status == model.STATUS_DONE
@@ -638,7 +624,7 @@ class TestReconcile:
     def test_fix_nothing_to_do(self, runner, store, monkeypatch):
         ok = model.create(store, project="p", title="ok", id="t1")
         model.move(store, "p", ok.id, model.STATUS_IN_PROGRESS)
-        self._live(monkeypatch, store, {ok.id: _live_session(pid=1, is_live=True)})
+        self._live(monkeypatch, store, {ok.id: _live_session(pid=1)})
         result = runner.invoke(task_cli.task, ["reconcile", "--fix"])
         assert result.exit_code == 0, result.output
         assert "Nothing to fix." in result.output

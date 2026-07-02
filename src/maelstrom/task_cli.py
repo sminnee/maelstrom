@@ -23,6 +23,7 @@ from .task_store import GitFileStore
 from .shell import run_cmd
 from .worktree import (
     get_current_branch,
+    list_worktrees,
     setup_worktree_for_branch,
 )
 from .worktree_launcher import (
@@ -51,6 +52,28 @@ def _store() -> GitFileStore:
     return GitFileStore()
 
 
+def _active_session_for_task_worktree(
+    project: str, task: "model.Task"
+) -> "session_discovery.LiveSession | None":
+    """The live Claude session running in ``task``'s worktree, or ``None``.
+
+    Resolves the task to its branch, the branch to its checked-out worktree via
+    the git worktree list, then asks :func:`session_discovery` whether a live
+    ``claude`` process is running there. ``None`` when the task has no worktree
+    checked out or that worktree has no live session. Used by the
+    duplicate-launch guard and shares its liveness source with ``reconcile``.
+    """
+    ctx = resolve_context(project, require_project=True, arg_is_project=True)
+    project_path = ctx.project_path
+    if project_path is None or not project_path.exists():
+        return None
+    branch = task.branch or model.default_branch(task.id, task.parent)
+    for wt in list_worktrees(project_path):
+        if wt.branch == branch:
+            return session_discovery.active_session_for_worktree(wt.path)
+    return None
+
+
 def _read_content_file(content_file: str | None) -> str:
     """Read the ``--content-file`` argument's contents.
 
@@ -77,20 +100,17 @@ def _run_task(
     MUST complete before they are called. With ``here=True`` the session runs
     in the current shell — no worktree reconciliation, no new cmux workspace.
     """
-    # Refuse a second parallel launch: the same task already has a *live* Claude
-    # session (one worktree, one PR — racing two sessions on it corrupts both).
-    # We mirror Claude's own uniqueness rule — find the transcript for the
-    # deterministic --session-id, identify its owning pid, check the pid is
-    # alive — so we catch exactly the collision that would otherwise crash at
-    # `claude` start. A *finished* task whose transcript persists (no live
-    # holder) is deliberately NOT blocked: it must stay re-runnable.
-    existing = session_discovery.active_session_for_task(project, task.id)
-    if existing is not None and existing.is_live:
-        where = f" in worktree {existing.cwd}" if existing.cwd else ""
+    # Refuse a second parallel launch: the task's worktree already has a *live*
+    # Claude session (one worktree, one PR — racing two sessions on it corrupts
+    # both). Liveness is a running `claude` process whose cwd is that worktree
+    # (see session_discovery); a *finished* session leaves nothing running, so a
+    # finished task stays re-runnable and is deliberately NOT blocked.
+    existing = _active_session_for_task_worktree(project, task)
+    if existing is not None:
         raise click.ClickException(
             f"Task {task.id} already has a live Claude session "
-            f"(pid {existing.pid}){where}. Close it before relaunching, or run "
-            f"`mael task reconcile` to inspect."
+            f"(pid {existing.pid}) in worktree {existing.cwd}. Close it before "
+            f"relaunching, or run `mael task reconcile` to inspect."
         )
 
     # Skills running inside the session self-reference via these — e.g. to
@@ -704,18 +724,48 @@ def task_run(id: str, project: str | None, here: bool) -> None:
 
 def _live_sessions_by_task(
     store: GitFileStore, project: str
-) -> dict[str, "session_discovery.ActiveSession"]:
-    """Map ``task_id -> live ActiveSession`` for every task in ``project``.
+) -> dict[str, "session_discovery.LiveSession"]:
+    """Map ``task_id -> live LiveSession`` for every task in ``project``.
 
-    Correlates Claude's transcript truth to the task notebook: each task is
-    matched (by deterministic ``session_id``) to the live session it launched,
-    whatever that task's current status. Delegates to
-    :func:`session_discovery.live_sessions_by_task_id`, the same transcript-file
-    liveness ``mael task run``'s duplicate-launch guard uses, so ``reconcile``
-    and the run-guard agree. Tasks with no live session are omitted.
+    Correlates live ``claude`` processes to the task notebook by worktree: a
+    session's cwd resolves to a worktree, which resolves to a branch, and every
+    in-progress task sharing that branch is attributed the session. Chain
+    siblings share one branch (one PR per parent), so a single live worktree can
+    map to several in-progress tasks — the right granularity for ``reconcile``,
+    which only distinguishes in-progress from not. This is the same liveness
+    source (:func:`session_discovery.all_live_sessions`) the run-guard uses, so
+    the two always agree. Tasks whose worktree has no live session are omitted.
     """
-    task_ids = [t.id for t in model.list_tasks(store, project=project)]
-    return session_discovery.live_sessions_by_task_id(project, task_ids)
+    ctx = resolve_context(project, require_project=True, arg_is_project=True)
+    project_path = ctx.project_path
+    if project_path is None or not project_path.exists():
+        return {}
+
+    sessions = session_discovery.all_live_sessions()
+    if not sessions:
+        return {}
+
+    # branch -> the live session running in its worktree (first match wins).
+    # One shared worktree-list memo so `git worktree list` runs once, not per
+    # branch resolved.
+    cache: dict = {}
+    branch_session: dict[str, session_discovery.LiveSession] = {}
+    for wt in list_worktrees(project_path):
+        if not wt.branch or wt.branch in branch_session:
+            continue
+        session = session_discovery.active_session_for_worktree(
+            wt.path, sessions, cache
+        )
+        if session is not None:
+            branch_session[wt.branch] = session
+
+    mapping: dict[str, session_discovery.LiveSession] = {}
+    for task in model.list_tasks(store, project=project):
+        branch = task.branch or model.default_branch(task.id, task.parent)
+        session = branch_session.get(branch)
+        if session is not None:
+            mapping[task.id] = session
+    return mapping
 
 
 @task.command("reconcile")
@@ -728,18 +778,18 @@ def _live_sessions_by_task(
 def task_reconcile(project: str | None, fix: bool) -> None:
     """Reconcile in-progress tasks against live Claude sessions.
 
-    Liveness comes from Claude's transcript files (via ``session_discovery``),
-    the same source ``mael task run``'s duplicate-launch guard uses, so the two
-    always agree. Lists the full picture — healthy (OK) rows included — and
-    flags two mismatch classes: a stale ``in-progress`` task with no live
-    session (→ ``done``) and a live session whose task isn't ``in-progress``
-    (→ ``in-progress``). With ``--fix`` the suggested moves are applied;
-    without it, nothing changes and a hint is printed if any fix is pending.
+    Liveness comes from live ``claude`` processes by cwd (via
+    ``session_discovery``), the same source ``mael task run``'s duplicate-launch
+    guard uses, so the two always agree. Lists the full picture — healthy (OK)
+    rows included — and flags two mismatch classes: a stale ``in-progress`` task
+    with no live session (→ ``done``) and a live session whose task isn't
+    ``in-progress`` (→ ``in-progress``). With ``--fix`` the suggested moves are
+    applied; without it, nothing changes and a hint is printed if any fix is
+    pending.
 
     Because correlation keys strictly off tasks that still exist, a live
-    session whose task was *deleted* mid-run is no longer surfaced as an orphan
-    (the old registry-scan behaviour); every existing task's session is still
-    reconciled.
+    session whose task was *deleted* mid-run is no longer surfaced as an orphan;
+    every existing task's session is still reconciled.
     """
     proj = _resolve_project(project)
     store = _store()
@@ -762,14 +812,7 @@ def task_reconcile(project: str | None, fix: bool) -> None:
 
     table_rows = []
     for r in rows:
-        if r.session is not None:
-            sess = (
-                str(r.session.pid)
-                if r.session.pid is not None
-                else r.session.session_id
-            )
-        else:
-            sess = ""
+        sess = str(r.session.pid) if r.session is not None else ""
         table_rows.append({
             "STATE": _STATE_LABEL.get(r.state, r.state),
             "TASK": f"{r.task_id} ({r.task_status})",

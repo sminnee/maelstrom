@@ -8,6 +8,7 @@ from pathlib import Path
 
 import click
 
+from . import session_discovery
 from .context import resolve_context
 from .session_store import (
     liveness_check as _liveness_check,
@@ -270,53 +271,97 @@ def _is_stale_processing(state: str, updated_at: str) -> bool:
     return age > STALE_PROCESSING_SECS
 
 
-@session.command("list")
-def session_list() -> None:
-    """List active Claude Code sessions."""
+def _scan_registry() -> list[dict]:
+    """Read the session registry once: GC dead/corrupt files, return live ones.
+
+    The registry (``~/.maelstrom/sessions/*.json``) is no longer the liveness
+    authority — live processes are — but its files still accumulate and still
+    carry the Claude hook ``state``/``started_at`` used to enrich the listing.
+    We read each file once (one ``liveness_check`` per file), unlink the corrupt
+    and dead-port ones as a best-effort side pass, and hand back the live
+    entries for enrichment. Doing both in one scan avoids a second connect per
+    port, which the caller relies on.
+    """
     sdir = _sessions_dir()
     if not sdir.is_dir():
-        click.echo("No active Claude Code sessions.")
-        return
-
-    rows = []
+        return []
+    live: list[dict] = []
     for f in sorted(sdir.glob("*.json")):
         data = _read_session_file(f)
-        if data is None:
-            # Corrupt file — remove it.
+        if data is None or not _liveness_check(data.get("channel_port", 0)):
             try:
                 f.unlink()
             except OSError:
                 pass
             continue
+        live.append(data)
+    return live
 
-        if not _liveness_check(data.get("channel_port", 0)):
-            try:
-                f.unlink()
-            except OSError:
-                pass
+
+def _registry_enrichment(pid: int, cwd: str, registry: list[dict]) -> dict | None:
+    """The registry entry in ``registry`` matching ``(pid, cwd)``, or ``None``.
+
+    Matches a live process to its recorded session so ``mael session list`` can
+    show the Claude hook ``state`` and ``started_at`` age the process itself
+    can't report. Prefers an exact pid+cwd match, falling back to cwd alone
+    (a session recorded before its pid was known). ``None`` when nothing
+    matches — enrichment is optional, not required.
+
+    The cwd-only fallback can misattribute when two live sessions share one cwd
+    (the first process may show the other's STATE/AGE). That is acceptable here:
+    STATE/AGE are best-effort display fields, and PID/CWD — which come from the
+    process itself — are always correct.
+    """
+    by_cwd: dict | None = None
+    for entry in registry:
+        if entry.get("cwd") != cwd:
             continue
+        if entry.get("pid") == pid:
+            return entry
+        if by_cwd is None:
+            by_cwd = entry
+    return by_cwd
 
-        state = data.get("state", "")
-        updated_at = data.get("updated_at", "")
-        if _is_stale_processing(state, updated_at):
-            state = "idle"
-            data["state"] = state
-            atomic_write_json(f, data)
 
-        cwd = data.get("cwd", "")
+@session.command("list")
+def session_list() -> None:
+    """List active Claude Code sessions.
+
+    Live sessions come from running ``claude`` processes and their cwd (the
+    same source ``mael list`` / ``task reconcile`` use), so the list is accurate
+    even when the registry is stale. STATE and AGE are registry-only fields, so
+    they are enriched from a matching registry entry when one exists and left
+    blank otherwise. The registry directory is GC'd in the same single scan.
+    """
+    registry = _scan_registry()
+
+    rows = []
+    for sess in session_discovery.all_live_sessions():
+        cwd = str(sess.cwd)
         project, worktree = _derive_project_worktree(cwd)
         pw = f"{project}/{worktree}" if project and worktree else (project or "")
+
+        state = ""
+        age = ""
+        entry = _registry_enrichment(sess.pid, cwd, registry)
+        if entry is not None:
+            state = entry.get("state", "")
+            updated_at = entry.get("updated_at", "")
+            if _is_stale_processing(state, updated_at):
+                state = "idle"  # display-only; ESC/interrupt leaves it stuck
+            age = _format_age(entry.get("started_at", ""))
 
         rows.append({
             "STATE": state,
             "PROJECT/WORKTREE": pw,
             "CWD": cwd,
-            "AGE": _format_age(data.get("started_at", "")),
-            "PID": str(data.get("pid", "")),
+            "AGE": age,
+            "PID": str(sess.pid),
         })
 
     if not rows:
         click.echo("No active Claude Code sessions.")
         return
 
+    rows.sort(key=lambda r: (r["PROJECT/WORKTREE"], r["PID"]))
     draw_table(rows, ["STATE", "PROJECT/WORKTREE", "CWD", "AGE", "PID"])

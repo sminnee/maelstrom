@@ -421,81 +421,96 @@ class TestSessionEndAutoClose:
         assert not path.exists()  # session file still unlinked
 
 
+def _patch_live(sessions):
+    """Patch the live-process sweep `session list` drives off."""
+    from maelstrom import session_discovery
+
+    return patch.object(
+        session_discovery, "all_live_sessions", return_value=list(sessions)
+    )
+
+
+def _live(pid, cwd):
+    from maelstrom.session_discovery import LiveSession
+
+    return LiveSession(pid=pid, cwd=Path(cwd))
+
+
 class TestSessionList:
-    def test_empty(self, tmp_path):
-        with _patch_maelstrom_dir(tmp_path):
+    def test_empty_when_no_live_processes(self, tmp_path):
+        with _patch_maelstrom_dir(tmp_path), _patch_live([]):
             runner = CliRunner()
             result = runner.invoke(cli, ["session", "list"])
         assert result.exit_code == 0
         assert "No active Claude Code sessions." in result.output
+
+    def test_live_process_listed_without_registry(self, tmp_path):
+        # A running claude with no registry entry still lists (PID + CWD),
+        # STATE/AGE simply blank.
+        with _patch_maelstrom_dir(tmp_path), _patch_live([_live(4242, "/w/alpha")]):
+            runner = CliRunner()
+            result = runner.invoke(cli, ["session", "list"])
+        assert result.exit_code == 0, result.output
+        assert "4242" in result.output
+        assert "/w/alpha" in result.output
+
+    def test_state_enriched_from_matching_registry_entry(self, tmp_path):
+        # Live channel port so the registry entry counts as live enrichment.
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        port = srv.getsockname()[1]
+        try:
+            sessions = tmp_path / "sessions"
+            now = datetime.now(timezone.utc).isoformat()
+            _write_session(
+                sessions, "live",
+                cwd="/w/alpha", pid=4242,
+                channel_port=port, state="processing", updated_at=now,
+            )
+            with _patch_maelstrom_dir(tmp_path), _patch_live([_live(4242, "/w/alpha")]):
+                runner = CliRunner()
+                result = runner.invoke(cli, ["session", "list"])
+            assert result.exit_code == 0, result.output
+            assert "processing" in result.output
+        finally:
+            srv.close()
+
+    def test_stale_processing_shown_as_idle(self, tmp_path):
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        port = srv.getsockname()[1]
+        try:
+            sessions = tmp_path / "sessions"
+            _write_session(
+                sessions, "stale",
+                cwd="/w/alpha", pid=4242,
+                channel_port=port, state="processing",
+                updated_at="2020-01-01T00:00:00+00:00",
+            )
+            with _patch_maelstrom_dir(tmp_path), _patch_live([_live(4242, "/w/alpha")]):
+                runner = CliRunner()
+                result = runner.invoke(cli, ["session", "list"])
+            assert result.exit_code == 0, result.output
+            assert "idle" in result.output
+            assert "processing" not in result.output
+        finally:
+            srv.close()
 
     def test_gc_removes_dead_port(self, tmp_path):
         sessions = tmp_path / "sessions"
         # Use a port that is almost certainly not listening.
         path = _write_session(sessions, "dead", channel_port=1)
 
-        with _patch_maelstrom_dir(tmp_path):
+        with _patch_maelstrom_dir(tmp_path), _patch_live([]):
             runner = CliRunner()
             result = runner.invoke(cli, ["session", "list"])
 
         assert result.exit_code == 0
-        assert "No active Claude Code sessions." in result.output
+        # GC is a side pass: the dead-port file is cleaned even though listing
+        # is driven by live processes.
         assert not path.exists()
-
-    def test_live_session_listed(self, tmp_path):
-        # Start a real listener so the liveness check passes.
-        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        srv.bind(("127.0.0.1", 0))
-        srv.listen(1)
-        port = srv.getsockname()[1]
-
-        try:
-            sessions = tmp_path / "sessions"
-            now = datetime.now(timezone.utc).isoformat()
-            _write_session(
-                sessions, "live",
-                channel_port=port,
-                state="processing",
-                updated_at=now,
-            )
-
-            with _patch_maelstrom_dir(tmp_path):
-                runner = CliRunner()
-                result = runner.invoke(cli, ["session", "list"])
-
-            assert result.exit_code == 0, result.output
-            assert "processing" in result.output
-            assert "STATE" in result.output  # header rendered
-        finally:
-            srv.close()
-
-    def test_stale_processing_rewritten_to_idle(self, tmp_path):
-        # Live channel port but stale updated_at — should be downgraded.
-        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        srv.bind(("127.0.0.1", 0))
-        srv.listen(1)
-        port = srv.getsockname()[1]
-
-        try:
-            sessions = tmp_path / "sessions"
-            path = _write_session(
-                sessions, "stale",
-                channel_port=port,
-                state="processing",
-                updated_at="2020-01-01T00:00:00+00:00",
-            )
-
-            with _patch_maelstrom_dir(tmp_path):
-                runner = CliRunner()
-                result = runner.invoke(cli, ["session", "list"])
-
-            assert result.exit_code == 0, result.output
-            assert "idle" in result.output
-            assert "processing" not in result.output
-            # File rewritten too.
-            assert json.loads(path.read_text())["state"] == "idle"
-        finally:
-            srv.close()
 
     def test_corrupt_file_removed(self, tmp_path):
         sessions = tmp_path / "sessions"
@@ -503,7 +518,7 @@ class TestSessionList:
         bad = sessions / "bad.json"
         bad.write_text("not-json")
 
-        with _patch_maelstrom_dir(tmp_path):
+        with _patch_maelstrom_dir(tmp_path), _patch_live([]):
             runner = CliRunner()
             result = runner.invoke(cli, ["session", "list"])
 
