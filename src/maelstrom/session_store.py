@@ -102,38 +102,3 @@ def find_live_session_for_task(project: str, task_id: str) -> dict | None:
         if session_matches_task(session, project, task_id):
             return session
     return None
-
-
-def live_sessions_by_task_id(
-    project: str, task_ids: list[str]
-) -> dict[str, dict]:
-    """Map each id in ``task_ids`` to its live session, if any.
-
-    Reads the registry once and indexes it by the keys a task can match on —
-    ``session_id``, ``session_key`` and recorded ``mael_task_id`` — so each
-    task is resolved with O(1) lookups rather than rescanning every session
-    per task. Ids with no live session are omitted from the result.
-    """
-    sessions = live_sessions()
-    if not sessions:
-        return {}
-    by_session_id: dict[str, dict] = {}
-    by_task_id: dict[str, dict] = {}
-    for s in sessions:
-        sid = s.get("session_id")
-        if sid:
-            by_session_id.setdefault(sid, s)
-        skey = s.get("session_key")
-        if skey:
-            by_session_id.setdefault(skey, s)
-        mtid = s.get("mael_task_id")
-        if mtid:
-            by_task_id.setdefault(mtid, s)
-    mapping: dict[str, dict] = {}
-    for task_id in task_ids:
-        match = by_session_id.get(model.session_id_for(project, task_id))
-        if match is None:
-            match = by_task_id.get(task_id)
-        if match is not None:
-            mapping[task_id] = match
-    return mapping

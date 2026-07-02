@@ -87,39 +87,6 @@ class TestLivenessCheck:
         assert session_store.liveness_check("1") is False
 
 
-class TestLiveSessionsByTaskId:
-    def test_indexes_by_deterministic_id(self, tmp_path):
-        srv, port = _listener()
-        try:
-            sid = model.session_id_for("proj", "t1")
-            _write_session(
-                tmp_path / "sessions", "s", session_id=sid, channel_port=port
-            )
-            with _patch_dir(tmp_path):
-                m = session_store.live_sessions_by_task_id("proj", ["t1", "t2"])
-            assert set(m) == {"t1"}
-            assert m["t1"]["session_id"] == sid
-        finally:
-            srv.close()
-
-    def test_indexes_by_recorded_task_id(self, tmp_path):
-        srv, port = _listener()
-        try:
-            _write_session(
-                tmp_path / "sessions", "s",
-                session_id="unrelated", mael_task_id="t1", channel_port=port,
-            )
-            with _patch_dir(tmp_path):
-                m = session_store.live_sessions_by_task_id("proj", ["t1"])
-            assert set(m) == {"t1"}
-        finally:
-            srv.close()
-
-    def test_empty_when_no_live_sessions(self, tmp_path):
-        with _patch_dir(tmp_path):
-            assert session_store.live_sessions_by_task_id("proj", ["t1"]) == {}
-
-
 class TestSessionMatchesTask:
     def test_matches_by_deterministic_session_id(self):
         sid = model.session_id_for("proj", "t1")

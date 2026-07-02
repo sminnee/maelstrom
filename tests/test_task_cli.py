@@ -610,7 +610,10 @@ class TestReconcile:
         orphan = model.create(store, project="p", title="orphan", id="t3")  # todo
         self._live(
             monkeypatch, store,
-            {ok.id: {"pid": 1}, orphan.id: {"pid": 3}},
+            {
+                ok.id: _live_session(pid=1, is_live=True),
+                orphan.id: _live_session(pid=3, is_live=True),
+            },
         )
         result = runner.invoke(task_cli.task, ["reconcile"])
         assert result.exit_code == 0, result.output
@@ -626,7 +629,7 @@ class TestReconcile:
         stale = model.create(store, project="p", title="stale", id="t1")
         model.move(store, "p", stale.id, model.STATUS_IN_PROGRESS)
         orphan = model.create(store, project="p", title="orphan", id="t2")  # todo
-        self._live(monkeypatch, store, {orphan.id: {"pid": 3}})
+        self._live(monkeypatch, store, {orphan.id: _live_session(pid=3, is_live=True)})
         result = runner.invoke(task_cli.task, ["reconcile", "--fix"])
         assert result.exit_code == 0, result.output
         assert model.load(store, "p", stale.id).status == model.STATUS_DONE
@@ -635,7 +638,7 @@ class TestReconcile:
     def test_fix_nothing_to_do(self, runner, store, monkeypatch):
         ok = model.create(store, project="p", title="ok", id="t1")
         model.move(store, "p", ok.id, model.STATUS_IN_PROGRESS)
-        self._live(monkeypatch, store, {ok.id: {"pid": 1}})
+        self._live(monkeypatch, store, {ok.id: _live_session(pid=1, is_live=True)})
         result = runner.invoke(task_cli.task, ["reconcile", "--fix"])
         assert result.exit_code == 0, result.output
         assert "Nothing to fix." in result.output

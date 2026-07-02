@@ -88,7 +88,9 @@ def transcript_for_session_id(session_id: str) -> Path | None:
     return matches[0] if matches else None
 
 
-def _registry_hint(transcript: Path) -> dict | None:
+def _registry_hint(
+    transcript: Path, registry: list[dict] | None = None
+) -> dict | None:
     """The ``~/.maelstrom`` registry entry matching ``transcript``, or ``None``.
 
     The registry records ``pid`` + real ``cwd`` per live session. When an
@@ -97,9 +99,17 @@ def _registry_hint(transcript: Path) -> dict | None:
     on the common path and its ``cwd`` gives the *real* worktree path (the
     transcript's parent is only the slugified form). A stale/absent entry
     yields ``None`` and the caller falls back to ``lsof``.
+
+    ``registry`` is an optional pre-fetched
+    :func:`~maelstrom.session_store.live_sessions` snapshot: batch callers pass
+    one so the registry is scanned once for many transcripts rather than once
+    per transcript. When ``None`` we fetch it ourselves (the single-transcript
+    path).
     """
     project_dir = transcript.parent.name
-    for entry in session_store.live_sessions():
+    if registry is None:
+        registry = session_store.live_sessions()
+    for entry in registry:
         cwd = entry.get("cwd")
         if not cwd:
             continue
@@ -146,7 +156,7 @@ def pid_holding(path: Path) -> int | None:
 
 
 def _active_session_from_transcript(
-    session_id: str, transcript: Path
+    session_id: str, transcript: Path, registry: list[dict] | None = None
 ) -> ActiveSession:
     """Build an :class:`ActiveSession` for an existing transcript file.
 
@@ -156,8 +166,12 @@ def _active_session_from_transcript(
     left ``None`` otherwise, since the transcript's parent is the slugified
     Claude project dir, not a real path (and the caller's error message treats
     ``None`` as "location unknown").
+
+    ``registry`` is passed straight to :func:`_registry_hint`: batch callers
+    supply one pre-fetched snapshot so the registry isn't rescanned per
+    transcript; ``None`` (the single-task/worktree/branch path) fetches once.
     """
-    hint = _registry_hint(transcript)
+    hint = _registry_hint(transcript, registry)
     if hint is not None and isinstance(hint.get("pid"), int):
         pid: int | None = hint["pid"]
     else:
@@ -189,27 +203,109 @@ def active_session_for_task(project: str, task_id: str) -> ActiveSession | None:
     return _active_session_from_transcript(session_id, transcript)
 
 
-def active_session_for_worktree(worktree_path: Path) -> ActiveSession | None:
-    """The live Claude session running in ``worktree_path``, or ``None``.
+def live_sessions_by_task_id(
+    project: str, task_ids: list[str]
+) -> dict[str, ActiveSession]:
+    """Map each id in ``task_ids`` to its **live** Claude session, if any.
 
-    Enumerates transcripts under the worktree's Claude project directory (the
-    ``sanitise_path_for_claude`` slug is a *hint* for which directory to look
-    in) and returns the first live one. A directory with only finished
-    transcripts, or none at all, yields ``None`` — we care about *live*
-    sessions here, not history.
+    The batch correlation ``mael task reconcile`` needs, giving it the same
+    transcript-truth liveness ``mael task run``'s duplicate-launch guard uses.
+    Rather than call :func:`active_session_for_task` per task (each re-globbing
+    and re-scanning the registry), this scans once:
+
+    - glob every ``<claude-root>/projects/*/*.jsonl`` into ``{stem -> Path}``;
+    - snapshot :func:`~maelstrom.session_store.live_sessions` once and thread it
+      through :func:`_active_session_from_transcript` for every task.
+
+    Only tasks whose deterministic ``session_id`` has a matching transcript get
+    liveness-resolved, and **only live sessions are kept** — a present entry
+    always means live (so ``reconcile`` reads it as OK/orphan), an absent one
+    means stale. Finished-but-persisted transcripts are therefore excluded,
+    which is what lets a finished in-progress task correctly read as STALE →
+    done. Tasks with no transcript at all are simply omitted.
+    """
+    if not task_ids:
+        return {}
+    projects = claude_root() / "projects"
+    transcripts: dict[str, Path] = {}
+    if projects.is_dir():
+        for path in projects.glob("*/*.jsonl"):
+            transcripts.setdefault(path.stem, path)
+    if not transcripts:
+        return {}
+    registry = session_store.live_sessions()
+    mapping: dict[str, ActiveSession] = {}
+    for task_id in task_ids:
+        session_id = model.session_id_for(project, task_id)
+        transcript = transcripts.get(session_id)
+        if transcript is None:
+            continue
+        session = _active_session_from_transcript(
+            session_id, transcript, registry
+        )
+        if session.is_live:
+            mapping[task_id] = session
+    return mapping
+
+
+def _worktree_transcripts(worktree_path: Path) -> list[Path]:
+    """Transcript files under ``worktree_path``'s Claude project dir, sorted.
+
+    The ``sanitise_path_for_claude`` slug is the *hint* for which project
+    directory Claude would store this worktree's transcripts in. Returns ``[]``
+    when the directory is absent (never launched here). Shared by
+    :func:`active_session_for_worktree` and
+    :func:`live_session_count_for_worktree` so the glob lives in one place.
     """
     project_dir = (
         claude_root() / "projects" / sanitise_path_for_claude(worktree_path)
     )
     if not project_dir.is_dir():
-        return None
-    for transcript in sorted(project_dir.glob("*.jsonl")):
+        return []
+    return sorted(project_dir.glob("*.jsonl"))
+
+
+def active_session_for_worktree(worktree_path: Path) -> ActiveSession | None:
+    """The live Claude session running in ``worktree_path``, or ``None``.
+
+    Enumerates transcripts under the worktree's Claude project directory and
+    returns the first live one. A directory with only finished transcripts, or
+    none at all, yields ``None`` — we care about *live* sessions here, not
+    history.
+    """
+    for transcript in _worktree_transcripts(worktree_path):
         session = _active_session_from_transcript(
             transcript.stem, transcript
         )
         if session.is_live:
             return session
     return None
+
+
+def live_session_count_for_worktree(worktree_path: Path) -> int:
+    """How many *live* Claude sessions are running in ``worktree_path``.
+
+    Resolves every transcript under the worktree's Claude project directory and
+    counts the ones a live process still owns (``is_live``). ``0`` when the
+    directory is absent or holds only finished transcripts. Drives the
+    ``SESSION`` column of ``mael list`` / ``mael list-all``.
+
+    Snapshots the registry once and threads it through every transcript (rather
+    than letting each transcript re-scan it via ``_registry_hint``) so a
+    worktree with many transcripts, called once per worktree by ``mael
+    list-all``, doesn't rescan the registry per transcript.
+    """
+    transcripts = _worktree_transcripts(worktree_path)
+    if not transcripts:
+        return 0
+    registry = session_store.live_sessions()
+    return sum(
+        1
+        for transcript in transcripts
+        if _active_session_from_transcript(
+            transcript.stem, transcript, registry
+        ).is_live
+    )
 
 
 def active_session_for_branch(

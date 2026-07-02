@@ -704,18 +704,18 @@ def task_run(id: str, project: str | None, here: bool) -> None:
 
 def _live_sessions_by_task(
     store: GitFileStore, project: str
-) -> dict[str, dict]:
-    """Map ``task_id -> live session`` for every live session in ``project``.
+) -> dict[str, "session_discovery.ActiveSession"]:
+    """Map ``task_id -> live ActiveSession`` for every task in ``project``.
 
-    Correlates the session registry to the task notebook: each task in the
-    project is matched (by deterministic ``session_id`` or recorded
-    ``mael_task_id``) to the live session it launched, whatever that task's
-    current status. The registry is indexed once in ``session_store`` so the
-    correlation is linear, not tasks×sessions. Sessions matching no task in
-    this project are dropped (they belong elsewhere).
+    Correlates Claude's transcript truth to the task notebook: each task is
+    matched (by deterministic ``session_id``) to the live session it launched,
+    whatever that task's current status. Delegates to
+    :func:`session_discovery.live_sessions_by_task_id`, the same transcript-file
+    liveness ``mael task run``'s duplicate-launch guard uses, so ``reconcile``
+    and the run-guard agree. Tasks with no live session are omitted.
     """
     task_ids = [t.id for t in model.list_tasks(store, project=project)]
-    return session_store.live_sessions_by_task_id(project, task_ids)
+    return session_discovery.live_sessions_by_task_id(project, task_ids)
 
 
 @task.command("reconcile")
@@ -728,11 +728,18 @@ def _live_sessions_by_task(
 def task_reconcile(project: str | None, fix: bool) -> None:
     """Reconcile in-progress tasks against live Claude sessions.
 
-    Lists the full picture — healthy (OK) rows included — and flags two
-    mismatch classes: a stale ``in-progress`` task with no live session (→
-    ``done``) and a live session whose task isn't ``in-progress`` (→
-    ``in-progress``). With ``--fix`` the suggested moves are applied; without
-    it, nothing changes and a hint is printed if any fix is pending.
+    Liveness comes from Claude's transcript files (via ``session_discovery``),
+    the same source ``mael task run``'s duplicate-launch guard uses, so the two
+    always agree. Lists the full picture — healthy (OK) rows included — and
+    flags two mismatch classes: a stale ``in-progress`` task with no live
+    session (→ ``done``) and a live session whose task isn't ``in-progress``
+    (→ ``in-progress``). With ``--fix`` the suggested moves are applied;
+    without it, nothing changes and a hint is printed if any fix is pending.
+
+    Because correlation keys strictly off tasks that still exist, a live
+    session whose task was *deleted* mid-run is no longer surfaced as an orphan
+    (the old registry-scan behaviour); every existing task's session is still
+    reconciled.
     """
     proj = _resolve_project(project)
     store = _store()
@@ -756,8 +763,10 @@ def task_reconcile(project: str | None, fix: bool) -> None:
     table_rows = []
     for r in rows:
         if r.session is not None:
-            sess = str(r.session.get("pid", "")) or r.session.get(
-                "session_id", ""
+            sess = (
+                str(r.session.pid)
+                if r.session.pid is not None
+                else r.session.session_id
             )
         else:
             sess = ""

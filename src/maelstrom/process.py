@@ -1,9 +1,8 @@
 """Tiny OS-process helpers shared across the session subsystems.
 
-Kept dependency-free (only ``os``) so both :mod:`maelstrom.claude_sessions`
-(IDE lock counting) and :mod:`maelstrom.session_discovery` (transcript→pid→live)
-share one liveness implementation rather than each rolling their own
-``os.kill(pid, 0)``.
+Kept dependency-free (only ``os``) so :mod:`maelstrom.session_discovery`
+(transcript→pid→live) has one liveness implementation to share rather than
+rolling its own ``os.kill(pid, 0)``.
 """
 
 import os

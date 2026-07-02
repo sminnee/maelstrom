@@ -18,11 +18,18 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from . import branch_name
 from .shell import run_cmd
 from .task_store import GitFileStore, TaskStore
 from .util import now_iso
+
+if TYPE_CHECKING:
+    # Runtime import would cycle: session_discovery imports this module. Only
+    # needed for the reconcile annotations, so keep it type-checking-only and
+    # reference ``ActiveSession`` as a string form below.
+    from .session_discovery import ActiveSession
 
 
 # --- statuses (folder names) ---
@@ -1268,14 +1275,14 @@ class ReconcileRow:
 
     ``state`` is one of the ``RECONCILE_*`` constants. ``fix_status`` is the
     status the task should move to (``None`` for OK rows — nothing to do).
-    ``session`` is the matched live-session dict, or ``None`` for a
-    stale-in-progress task that has no session.
+    ``session`` is the matched live :class:`~maelstrom.session_discovery.ActiveSession`,
+    or ``None`` for a stale-in-progress task that has no session.
     """
 
     state: str
     task_id: str
     task_status: str
-    session: dict | None
+    session: "ActiveSession | None"
     fix_status: str | None
 
 
@@ -1283,14 +1290,15 @@ def reconcile(
     store: TaskStore,
     project: str,
     *,
-    session_task_ids: dict[str, dict],
+    session_task_ids: dict[str, "ActiveSession"],
 ) -> list[ReconcileRow]:
     """Classify in-progress tasks and live sessions into reconcile rows.
 
     Pure: the caller supplies ``session_task_ids`` — a map from task id to the
-    live session dict that owns it (built from the session registry in the CLI
-    layer) — and this function reads only the injected store. It never moves
-    tasks; ``--fix`` application is the caller's job, driven off ``fix_status``.
+    live :class:`~maelstrom.session_discovery.ActiveSession` that owns it (built
+    from Claude's transcript discovery in the CLI layer) — and this function
+    reads only the injected store. It never moves tasks; ``--fix`` application
+    is the caller's job, driven off ``fix_status``.
 
     Three states (see the ``RECONCILE_*`` constants):
 
@@ -1334,7 +1342,11 @@ def reconcile(
         status = status_from_key(key) if key is not None else None
         # Only flip a non-terminal task (todo/blocked) into in-progress. A
         # terminal or missing task with a lingering session is listed, not
-        # auto-corrected.
+        # auto-corrected. NB: the current CLI caller
+        # (session_discovery.live_sessions_by_task_id) keys strictly off tasks
+        # that still exist, so ``status is None`` (a deleted task with a live
+        # session) never arises there — the ``(missing)`` branch stays for the
+        # model's own generality and its unit test.
         fixable = status is not None and status not in (STATUS_DONE, STATUS_CANCELLED)
         rows.append(ReconcileRow(
             state=RECONCILE_ORPHAN,
