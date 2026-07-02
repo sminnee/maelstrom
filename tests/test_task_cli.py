@@ -1259,6 +1259,66 @@ class TestDuplicate:
         assert "title is required" in result.output.lower()
 
 
+# --- priority ---
+
+
+class TestPriority:
+    def test_add_records_priority(self, runner, store):
+        result = runner.invoke(task_cli.task, ["add", "urgent", "--priority", "high"])
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", result.output.strip()).priority == "high"
+
+    def test_add_defaults_to_medium(self, runner, store):
+        result = runner.invoke(task_cli.task, ["add", "normal"])
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", result.output.strip()).priority == "medium"
+
+    def test_add_rejects_bogus_priority(self, runner, store):
+        result = runner.invoke(task_cli.task, ["add", "x", "--priority", "bogus"])
+        assert result.exit_code != 0
+
+    def test_from_inherits_source_priority(self, runner, store):
+        src = model.create(store, project="p", title="Orig", priority="critical")
+        result = runner.invoke(task_cli.task, ["add", "--from", src.id])
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", result.output.strip()).priority == "critical"
+
+    def test_from_priority_override_wins(self, runner, store):
+        src = model.create(store, project="p", title="Orig", priority="critical")
+        result = runner.invoke(
+            task_cli.task, ["add", "--from", src.id, "--priority", "low"]
+        )
+        assert model.load(store, "p", result.output.strip()).priority == "low"
+
+    def test_update_priority(self, runner, store):
+        t = model.create(store, project="p", title="alpha")
+        result = runner.invoke(
+            task_cli.task, ["update", t.id, "--priority", "critical"]
+        )
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", t.id).priority == "critical"
+
+    def test_update_rejects_bogus_priority(self, runner, store):
+        t = model.create(store, project="p", title="alpha")
+        result = runner.invoke(task_cli.task, ["update", t.id, "--priority", "bogus"])
+        assert result.exit_code != 0
+
+    def test_show_prints_priority(self, runner, store):
+        t = model.create(store, project="p", title="alpha", priority="high")
+        result = runner.invoke(task_cli.task, ["show", t.id])
+        assert result.exit_code == 0, result.output
+        assert "priority: high" in result.output
+
+    def test_list_orders_critical_above_low(self, runner, store):
+        low = model.create(store, project="p", title="low one", priority="low")
+        crit = model.create(store, project="p", title="crit one", priority="critical")
+        result = runner.invoke(task_cli.task, ["list"])
+        assert result.exit_code == 0, result.output
+        assert "PRIORITY" in result.output
+        # The critical task's row must appear before the low one's.
+        assert result.output.index(crit.id) < result.output.index(low.id)
+
+
 # --- templates + schedule metadata ---
 
 

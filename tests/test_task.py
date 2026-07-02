@@ -67,6 +67,33 @@ class TestRoundTrip:
         back = Task.from_markdown(t.to_markdown())
         assert back.branch == "fix/login"
 
+    @pytest.mark.parametrize("priority", ["critical", "high", "low"])
+    def test_priority_round_trips(self, priority):
+        t = Task(id="x", title="t", project="p", priority=priority)
+        back = Task.from_markdown(t.to_markdown())
+        assert back.priority == priority
+
+    def test_missing_priority_defaults_to_medium(self):
+        # A frontmatter block with no ``priority`` key is the back-compat case:
+        # old/hand-edited files must still load and report medium.
+        text = (
+            "---\n"
+            "id: x\ntitle: t\nproject: p\ncommand: \"\"\nmode: normal\n"
+            "created: c\nupdated: u\n"
+            "---\n\n## Content\n\n\n## Steps\n\n\n## Log\n\n"
+        )
+        back = Task.from_markdown(text)
+        assert back.priority == model.DEFAULT_PRIORITY == "medium"
+
+    def test_blank_priority_defaults_to_medium(self):
+        text = (
+            "---\n"
+            "id: x\ntitle: t\nproject: p\npriority: \"\"\n"
+            "created: c\nupdated: u\n"
+            "---\n\n## Content\n\n\n## Steps\n\n\n## Log\n\n"
+        )
+        assert Task.from_markdown(text).priority == "medium"
+
     def test_body_line_that_looks_like_heading_preserved(self):
         # A "## Something" line inside Content that isn't a known section.
         t = Task(
@@ -975,6 +1002,46 @@ class TestNextTask:
         assert model.next_task(store, "p", branch=None).id == a.id
 
 
+# --- priority ordering in selectors ---
+
+
+class TestPriorityOrdering:
+    def test_next_task_prefers_higher_priority(self):
+        store = InMemoryStore()
+        # low is created first (lower id), but critical outranks it.
+        model.create(store, project="p", title="low", priority="low", now=NOW, today=TODAY)
+        crit = model.create(
+            store, project="p", title="crit", priority="critical", now=NOW, today=TODAY
+        )
+        assert model.next_task(store, "p").id == crit.id
+
+    def test_next_task_ties_broken_by_id(self):
+        store = InMemoryStore()
+        # Two same-priority tasks: the lower id wins (chronological tie-break).
+        a = model.create(store, project="p", title="a", priority="high", now=NOW, today=TODAY)
+        model.create(store, project="p", title="b", priority="high", now=NOW, today=TODAY)
+        assert model.next_task(store, "p").id == a.id
+
+    def test_default_medium_outranks_low(self):
+        store = InMemoryStore()
+        model.create(store, project="p", title="low", priority="low", now=NOW, today=TODAY)
+        med = model.create(store, project="p", title="med", now=NOW, today=TODAY)
+        assert model.next_task(store, "p").id == med.id
+
+    def test_next_follower_prefers_higher_priority(self):
+        store = InMemoryStore()
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        # Two followers of a, differing priority; the higher one is chosen.
+        model.create(
+            store, project="p", title="lo", priority="low", follows=[a.id], now=NOW, today=TODAY
+        )
+        hi = model.create(
+            store, project="p", title="hi", priority="high", follows=[a.id], now=NOW, today=TODAY
+        )
+        model.move(store, "p", a.id, "done", now=NOW)
+        assert model.next_follower(store, "p", a.id).id == hi.id
+
+
 # --- parse_task_blocks ---
 
 
@@ -1306,6 +1373,28 @@ class TestLoadMany:
         # but `tail` uses intra-file `follow`, so it chains off step directly.
 
 
+# --- create() priority ---
+
+
+class TestCreatePriority:
+    def test_default_is_medium(self):
+        store = InMemoryStore()
+        t = model.create(store, project="p", title="t", now=NOW)
+        assert t.priority == "medium"
+        assert model.load(store, "p", t.id).priority == "medium"
+
+    def test_explicit_priority_persists(self):
+        store = InMemoryStore()
+        t = model.create(store, project="p", title="t", priority="high", now=NOW)
+        assert t.priority == "high"
+        assert model.load(store, "p", t.id).priority == "high"
+
+    def test_invalid_priority_raises(self):
+        store = InMemoryStore()
+        with pytest.raises(ValueError):
+            model.create(store, project="p", title="t", priority="bogus", now=NOW)
+
+
 # --- update() ---
 
 
@@ -1351,6 +1440,24 @@ class TestUpdate:
         t = model.create(store, project="p", title="t", command="plan-task", now=NOW)
         model.update(store, "p", t.id, command="", now=NOW2)
         assert model.load(store, "p", t.id).command == ""
+
+    def test_update_changes_priority(self):
+        store = InMemoryStore()
+        t = model.create(store, project="p", title="t", now=NOW)
+        model.update(store, "p", t.id, priority="critical", now=NOW2)
+        assert model.load(store, "p", t.id).priority == "critical"
+
+    def test_update_invalid_priority_raises(self):
+        store = InMemoryStore()
+        t = model.create(store, project="p", title="t", now=NOW)
+        with pytest.raises(ValueError):
+            model.update(store, "p", t.id, priority="bogus", now=NOW2)
+
+    def test_update_omitting_priority_leaves_it(self):
+        store = InMemoryStore()
+        t = model.create(store, project="p", title="t", priority="high", now=NOW)
+        model.update(store, "p", t.id, branch="b", now=NOW2)
+        assert model.load(store, "p", t.id).priority == "high"
 
     def test_update_does_not_change_status(self):
         store = InMemoryStore()
@@ -1508,6 +1615,18 @@ class TestDuplicate:
         dup = model.duplicate(store, "p", "s", title="New", command="c2")
         assert dup.title == "New"
         assert dup.command == "c2"
+
+    def test_inherits_source_priority(self):
+        store = InMemoryStore()
+        model.create(store, project="p", title="Src", priority="high", id="s")
+        dup = model.duplicate(store, "p", "s")
+        assert dup.priority == "high"
+
+    def test_priority_override_wins(self):
+        store = InMemoryStore()
+        model.create(store, project="p", title="Src", priority="high", id="s")
+        dup = model.duplicate(store, "p", "s", priority="low")
+        assert dup.priority == "low"
 
     def test_source_untouched(self):
         store = InMemoryStore()
