@@ -141,7 +141,8 @@ For tasks completable in one session (~500 lines or less) — one execute block 
 implementation plan:
 
 ```markdown
-This plan creates the notebook chain for <ID>. After approval, run:
+This plan creates the notebook chain for <ID>. To execute this plan, run these
+commands instead of implementing anything below — then stop:
     mael task load-many <this file> --run   # create the chain, launch the head task
     mael task status done                   # close this planning task
 
@@ -184,7 +185,8 @@ For larger tasks — a concrete `iter1` execute block plus a fuzzy-tail `plan-ne
 its **body** — it must not be an empty placeholder:
 
 ```markdown
-This plan creates the notebook chain for <ID>. After approval, run:
+This plan creates the notebook chain for <ID>. To execute this plan, run these
+commands instead of implementing anything below — then stop:
     mael task load-many <this file> --run   # create the chain, launch the head task
     mael task status done                   # close this planning task
 
