@@ -18,7 +18,7 @@ from .session_cli import session as session_cli, session_channel as session_chan
 from .task_cli import task as task_cli
 from .task_cli import add_task
 from .schedule_launchd import schedule_group
-from .env import get_env_status, regenerate_and_restart_if_running, stop_env
+from .env import get_env_status, regenerate_and_restart_if_running, stop_env, stop_sessions
 from .env_cli import (
     ensure_cmux_browser,
     env as env_cli,
@@ -762,6 +762,15 @@ def cmd_close(targets, wait, timeout, interval, force):
         if env_status and any(s.alive for s in env_status):
             click.echo(f"Stopping environment for '{ctx.worktree}'...")
             for msg in stop_env(env_store, ctx.project, ctx.worktree):
+                click.echo(f"  {msg}")
+
+        # Gracefully stop any live Claude sessions in this worktree before tearing
+        # it down, so close doesn't orphan them. Best-effort: SIGINT (cancel any
+        # in-flight turn), then SIGTERM survivors, then proceed regardless.
+        worktree_sessions = session_discovery.LiveSessionSet().all_for(worktree_path)
+        if worktree_sessions:
+            click.echo(f"Stopping {len(worktree_sessions)} Claude session(s) in '{ctx.worktree}'...")
+            for msg in stop_sessions(worktree_sessions):
                 click.echo(f"  {msg}")
 
         # Rescue any vars added to this worktree's .env back to the parent before
