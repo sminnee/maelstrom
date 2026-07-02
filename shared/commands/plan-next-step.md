@@ -94,7 +94,8 @@ remaining-work list with **this step removed** (course-corrected from what you l
 prior-work summary that now includes this step's scope.
 
 ```markdown
-This step's chain. After approval, run:
+This step's chain. To execute this plan, run these commands instead of
+implementing anything below — then stop:
     mael task load-many <this file> --run   # create the chain, launch the head step
     mael task status done                   # close this planning task
 
@@ -125,7 +126,8 @@ When this step exhausts the remaining work, emit **just** the execute block — 
 chain ends here. Once its execute session merges, the feature is done.
 
 ```markdown
-This step's chain. After approval, run:
+This step's chain. To execute this plan, run these commands instead of
+implementing anything below — then stop:
     mael task load-many <this file> --run   # create the chain, launch the head step
     mael task status done                   # close this planning task
 
