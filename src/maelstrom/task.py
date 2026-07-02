@@ -61,6 +61,36 @@ DEFAULT_STATUS = STATUS_TODO
 # ``mode`` is left unset.
 DEFAULT_MODE = "plan"
 
+# Task priorities, highest first; the tuple index *is* the sort rank
+# (critical=0 … low=3, lower sorts first). A missing/blank priority is treated
+# as the default, so existing on-disk tasks keep working with no migration.
+PRIORITIES = ("critical", "high", "medium", "low")
+DEFAULT_PRIORITY = "medium"
+
+
+def priority_rank(priority: str) -> int:
+    """Return the sort rank of ``priority`` (lower sorts first).
+
+    Unknown/blank values sort as the default rather than raising here —
+    validation lives in ``create()``/``update()``; this is only for ordering.
+    """
+    try:
+        return PRIORITIES.index(priority)
+    except ValueError:
+        return PRIORITIES.index(DEFAULT_PRIORITY)
+
+
+def validate_priority(priority: str) -> None:
+    """Raise ``ValueError`` unless ``priority`` is one of ``PRIORITIES``.
+
+    The strict counterpart to :func:`priority_rank` (which tolerates unknowns
+    for ordering); the mutation paths (``create``/``update``) validate here so a
+    typo is rejected at write time rather than silently coerced.
+    """
+    if priority not in PRIORITIES:
+        raise ValueError(f"Invalid priority: {priority!r} (expected one of {PRIORITIES}).")
+
+
 # The frontmatter keys, always emitted in this order for stable diffs. Most
 # names match a ``Task`` attr 1:1; the kebab-case lifecycle keys map to the
 # snake_case attrs via ``_FRONTMATTER_ATTR`` below.
@@ -82,6 +112,9 @@ FRONTMATTER_KEYS = (
     # end so existing files keep a stable diff.
     "schedule",
     "last-run",
+    # Sort priority (critical/high/medium/low). Appended at the end so existing
+    # files keep a stable diff; missing key defaults to medium on load.
+    "priority",
 )
 
 # Frontmatter keys whose name differs from the dataclass attr (kebab vs snake).
@@ -167,6 +200,9 @@ class Task:
     # ISO watermark of the most recent scheduled boundary the scheduler has
     # satisfied; the authoritative "what's due" state for a template.
     last_run: str = ""
+    # Sort priority; drives list ordering and ``task next`` selection. Missing
+    # from an on-disk file ⇒ medium (see ``from_markdown``).
+    priority: str = DEFAULT_PRIORITY
     content: str = ""
     steps: str = ""
     log: str = ""
@@ -223,6 +259,7 @@ class Task:
             updated=str(frontmatter.get("updated", "")),
             schedule=str(frontmatter.get("schedule", "")),
             last_run=str(frontmatter.get("last-run", "")),
+            priority=str(frontmatter.get("priority", DEFAULT_PRIORITY)) or DEFAULT_PRIORITY,
             content=sections.get("content", ""),
             steps=sections.get("steps", ""),
             log=sections.get("log", ""),
@@ -524,6 +561,7 @@ def create(
     content: str = "",
     schedule: str = "",
     last_run: str = "",
+    priority: str = "",
     id: str | None = None,
     status: str = DEFAULT_STATUS,
     now: str | None = None,
@@ -548,6 +586,9 @@ def create(
     # When mode is left unset, fall back to the global default; an explicit
     # ``mode`` always wins.
     resolved_mode = mode or DEFAULT_MODE
+    # Same shape for priority: unset ⇒ default; a supplied value is validated.
+    resolved_priority = priority or DEFAULT_PRIORITY
+    validate_priority(resolved_priority)
     # One PR per parent: the first task under a parent owns the branch; later
     # siblings reuse it rather than generating a fresh (and divergent) name.
     # Only the branch-owning task pays the cost of generating a descriptive name.
@@ -571,6 +612,7 @@ def create(
         updated=timestamp,
         schedule=schedule,
         last_run=last_run,
+        priority=resolved_priority,
         content=content,
         status=status,
     )
@@ -594,6 +636,7 @@ def duplicate(
     parent: str = "",
     follows: list[str] | None = None,
     schedule: str = "",
+    priority: str | None = None,
     status: str = DEFAULT_STATUS,
     id: str | None = None,
     now: str | None = None,
@@ -629,6 +672,7 @@ def duplicate(
         parent=parent,
         follows=follows,
         schedule=schedule,
+        priority=priority if priority is not None else src.priority,
         status=status,
         id=id,
         now=now,
@@ -647,6 +691,7 @@ _BLOCK_KEYS = frozenset(
         "title",
         "command",
         "mode",
+        "priority",
         "parent",
         "pre-action",
         "post-action",
@@ -814,6 +859,7 @@ def load_many(
                 title=str(args["title"]),
                 command=str(args.get("command", "")),
                 mode=str(args.get("mode", "")),
+                priority=str(args.get("priority", "")),
                 parent=parent,
                 pre_action=str(args.get("pre-action", "")),
                 post_action=str(args.get("post-action", "")),
@@ -923,6 +969,7 @@ def update(
     post_action: str | None = None,
     schedule: str | None = None,
     last_run: str | None = None,
+    priority: str | None = None,
     now: str | None = None,
 ) -> Task:
     """Update provided fields in place (one write, bumps ``updated``).
@@ -956,6 +1003,9 @@ def update(
         task.schedule = schedule
     if last_run is not None:
         task.last_run = last_run
+    if priority is not None:
+        validate_priority(priority)
+        task.priority = priority
     task.updated = now if now is not None else now_iso()
     store.write(key, task.to_markdown(), message=f"task: update {id}")
     return task
@@ -1376,7 +1426,7 @@ def next_task(
     an already-running task is not re-offered.
     """
     candidates = list_tasks(store, project=project, status=STATUS_TODO, parent=parent)
-    candidates.sort(key=lambda t: t.id)
+    candidates.sort(key=lambda t: (priority_rank(t.priority), t.id))
     actionable = [t for t in candidates if is_actionable(t, store)]
     if branch is not None:
         on_branch = next((t for t in actionable if t.branch == branch), None)
@@ -1399,7 +1449,7 @@ def next_follower(store: TaskStore, project: str, done_id: str) -> Task | None:
     to a single parent, so no ``parent`` filter is applied.
     """
     candidates = list_tasks(store, project=project, status=STATUS_TODO)
-    candidates.sort(key=lambda t: t.id)
+    candidates.sort(key=lambda t: (priority_rank(t.priority), t.id))
     for t in candidates:
         if done_id in t.follows and is_actionable(t, store):
             return t
@@ -1415,7 +1465,7 @@ def running_follower(store: TaskStore, project: str, done_id: str) -> Task | Non
     ``None`` when no direct follower is in progress.
     """
     candidates = list_tasks(store, project=project, status=STATUS_IN_PROGRESS)
-    candidates.sort(key=lambda t: t.id)
+    candidates.sort(key=lambda t: (priority_rank(t.priority), t.id))
     for t in candidates:
         if done_id in t.follows:
             return t

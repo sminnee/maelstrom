@@ -227,6 +227,12 @@ def task() -> None:
     help="Session mode (default: plan; 'auto' for an unattended execute session, 'normal' for a non-planning session).",
 )
 @click.option(
+    "--priority",
+    type=click.Choice(model.PRIORITIES),
+    default=None,
+    help="Task priority (default: medium; affects list ordering and `task next`).",
+)
+@click.option(
     "-b", "--branch", default="", help="Branch for the task (default: task/<id>)."
 )
 @click.option(
@@ -298,6 +304,7 @@ def task_add(
     project: str | None,
     command: str,
     mode: str,
+    priority: str | None,
     branch: str,
     parent: str,
     pre_action: str,
@@ -319,6 +326,7 @@ def task_add(
         project=project,
         command=command,
         mode=mode,
+        priority=priority,
         branch=branch,
         parent=parent,
         pre_action=pre_action,
@@ -341,6 +349,7 @@ def add_task(
     project: str | None,
     command: str = "",
     mode: str = "",
+    priority: str | None = None,
     branch: str = "",
     parent: str = "",
     pre_action: str = "",
@@ -391,6 +400,7 @@ def add_task(
                 title=title,
                 command=command or None,
                 mode=mode or None,
+                priority=priority,
                 content=content,
                 pre_action=pre_action or None,
                 post_action=post_action or None,
@@ -409,6 +419,7 @@ def add_task(
             title=title or "",
             command=command,
             mode=mode,
+            priority=priority or model.DEFAULT_PRIORITY,
             branch=branch,
             parent=parent,
             pre_action=pre_action,
@@ -609,6 +620,10 @@ def task_list(
     # but asking for the folder by name should list them.
     show_all_in_folder = status == model.STATUS_TEMPLATE
 
+    # Display order is priority-first (id as the within-band tie-break); the
+    # gatherer stays id-sorted for dependency resolution, so sort here.
+    tasks.sort(key=lambda t: (model.priority_rank(t.priority), t.id))
+
     rows = []
     for t in tasks:
         actionable = model.is_actionable(t, store)
@@ -622,7 +637,7 @@ def task_list(
             visible = actionable
         if not visible:
             continue
-        row = {"ID": t.id, "STATUS": t.status}
+        row = {"ID": t.id, "STATUS": t.status, "PRIORITY": t.priority}
         if all_ or all_todo:
             row["ACTIONABLE"] = "yes" if actionable else "no"
         if show_all_in_folder:
@@ -637,11 +652,11 @@ def task_list(
         return
 
     if show_all_in_folder:
-        columns = ["ID", "STATUS", "SCHEDULE", "NEXT-FIRE", "BRANCH", "TITLE"]
+        columns = ["ID", "STATUS", "PRIORITY", "SCHEDULE", "NEXT-FIRE", "BRANCH", "TITLE"]
     elif all_ or all_todo:
-        columns = ["ID", "STATUS", "ACTIONABLE", "BRANCH", "TITLE"]
+        columns = ["ID", "STATUS", "PRIORITY", "ACTIONABLE", "BRANCH", "TITLE"]
     else:
-        columns = ["ID", "STATUS", "BRANCH", "TITLE"]
+        columns = ["ID", "STATUS", "PRIORITY", "BRANCH", "TITLE"]
     draw_table(rows, columns)
 
 
@@ -863,6 +878,7 @@ def task_show(id: str, project: str | None) -> None:
     click.echo(f"project: {t.project}")
     click.echo(f"command: {t.command}")
     click.echo(f"mode:    {t.mode}")
+    click.echo(f"priority: {t.priority}")
     click.echo(f"branch:  {t.branch}")
     if t.parent:
         click.echo(f"parent:  {t.parent}")
@@ -938,6 +954,12 @@ def task_log(id: str, msg: str, project: str | None) -> None:
 @click.option("--command", default=None, help="Set the task's command/skill the session launches with.")
 @click.option("--mode", default=None, help="Set the task's mode (e.g. normal, plan).")
 @click.option(
+    "--priority",
+    type=click.Choice(model.PRIORITIES),
+    default=None,
+    help="Set the task's priority (affects list ordering and `task next`).",
+)
+@click.option(
     "--pre-action",
     "pre_action",
     default=None,
@@ -967,6 +989,7 @@ def task_update(
     branch: str | None,
     command: str | None,
     mode: str | None,
+    priority: str | None,
     pre_action: str | None,
     post_action: str | None,
     schedule: str | None,
@@ -1016,12 +1039,14 @@ def task_update(
     try:
         model.update(
             store, proj, target, title=title, branch=branch, content=content,
-            command=command, mode=mode,
+            command=command, mode=mode, priority=priority,
             pre_action=pre_action, post_action=post_action,
             schedule=schedule,
         )
     except KeyError:
         raise click.ClickException(f"Task not found: {target}")
+    except ValueError as e:
+        raise click.ClickException(str(e))
     if renamed:
         click.echo(f"Renamed {id} -> {target}.")
     click.echo(f"Updated {target}.")
