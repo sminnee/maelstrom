@@ -1,5 +1,6 @@
 """Tests for maelstrom.env module."""
 
+import itertools
 import signal
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
@@ -35,10 +36,12 @@ from maelstrom.env import (
     start_env,
     stop_all_envs,
     stop_env,
+    stop_sessions,
     tail_log_file,
 )
 from maelstrom.env import regenerate_and_restart_if_running
 from maelstrom.env_store import InMemoryEnvStore, JsonEnvStore
+from maelstrom.session_discovery import LiveSession
 
 
 class TestParseProcfile:
@@ -576,6 +579,115 @@ class TestStopEnv:
         store = InMemoryEnvStore()
         messages = stop_env(store, "proj", "bravo")
         assert any("stopped" in m for m in messages)
+
+
+class TestStopSessions:
+    """Tests for stop_sessions — SIGINT -> SIGTERM, never SIGKILL."""
+
+    @staticmethod
+    def _alive_tracker(alive_pids, die_on):
+        """Fakes for (os.kill, is_service_alive) backed by a live-pid set.
+
+        ``os.kill`` removes a pid from ``alive_pids`` when the signal is in
+        ``die_on`` (e.g. ``{SIGINT}`` for a session that exits on interrupt,
+        ``{SIGTERM}`` for one that only dies on terminate). ``is_service_alive``
+        reads the set. Together they let a single test express "signal X kills
+        this pid" without hand-scripting per-call return values.
+        """
+        def fake_kill(pid, sig):
+            if sig in die_on:
+                alive_pids.discard(pid)
+
+        def fake_alive(pid):
+            return pid in alive_pids
+
+        return fake_kill, fake_alive
+
+    def test_empty_input_is_noop(self):
+        with patch("os.kill") as mock_kill:
+            assert stop_sessions([]) == []
+        mock_kill.assert_not_called()
+
+    def test_only_self_pid_is_noop(self):
+        with patch("os.getpid", return_value=999), patch("os.kill") as mock_kill:
+            assert stop_sessions([LiveSession(pid=999, cwd=Path("/w/a"))]) == []
+        mock_kill.assert_not_called()
+
+    @patch("time.sleep")
+    @patch("time.monotonic")
+    def test_sigint_alone_exits_no_sigterm(self, mock_monotonic, _sleep):
+        mock_monotonic.side_effect = itertools.count(0.0, 100.0)  # deadline passes fast
+        alive = {100}
+        fake_kill, fake_alive = self._alive_tracker(alive, die_on={signal.SIGINT})
+        with patch("os.getpid", return_value=1), \
+                patch("os.kill", side_effect=fake_kill) as mock_kill, \
+                patch("maelstrom.env.is_service_alive", side_effect=fake_alive):
+            messages = stop_sessions([LiveSession(pid=100, cwd=Path("/w/a"))])
+        assert call(100, signal.SIGINT) in mock_kill.call_args_list
+        assert call(100, signal.SIGTERM) not in mock_kill.call_args_list
+        assert call(100, signal.SIGKILL) not in mock_kill.call_args_list
+        assert messages == ["claude session (pid 100): stopped"]
+
+    @patch("time.sleep")
+    @patch("time.monotonic")
+    def test_sigterm_after_surviving_sigint(self, mock_monotonic, _sleep):
+        # Never dies from SIGINT; dies on SIGTERM. Both deadlines expire so both
+        # stages fully poll.
+        mock_monotonic.side_effect = itertools.count(0.0, 100.0)
+        alive = {100}
+        fake_kill, fake_alive = self._alive_tracker(alive, die_on={signal.SIGTERM})
+        with patch("os.getpid", return_value=1), \
+                patch("os.kill", side_effect=fake_kill) as mock_kill, \
+                patch("maelstrom.env.is_service_alive", side_effect=fake_alive):
+            messages = stop_sessions([LiveSession(pid=100, cwd=Path("/w/a"))])
+        kills = mock_kill.call_args_list
+        assert call(100, signal.SIGINT) in kills
+        assert call(100, signal.SIGTERM) in kills
+        assert call(100, signal.SIGKILL) not in kills
+        assert messages == ["claude session (pid 100): stopped"]
+
+    @patch("time.sleep")
+    @patch("time.monotonic")
+    def test_survivor_after_sigterm_reported_never_sigkill(self, mock_monotonic, _sleep):
+        mock_monotonic.side_effect = itertools.count(0.0, 100.0)
+        alive = {100}  # never dies
+        fake_kill, fake_alive = self._alive_tracker(alive, die_on=set())
+        with patch("os.getpid", return_value=1), \
+                patch("os.kill", side_effect=fake_kill) as mock_kill, \
+                patch("maelstrom.env.is_service_alive", side_effect=fake_alive):
+            messages = stop_sessions([LiveSession(pid=100, cwd=Path("/w/a"))])
+        assert call(100, signal.SIGKILL) not in mock_kill.call_args_list
+        assert messages == ["claude session (pid 100): still running after SIGTERM"]
+
+    @patch("time.sleep")
+    @patch("time.monotonic")
+    def test_self_pid_excluded_from_signalling(self, mock_monotonic, _sleep):
+        mock_monotonic.side_effect = itertools.count(0.0, 100.0)
+        alive = {100, 999}
+        fake_kill, fake_alive = self._alive_tracker(alive, die_on={signal.SIGINT})
+        with patch("os.getpid", return_value=999), \
+                patch("os.kill", side_effect=fake_kill) as mock_kill, \
+                patch("maelstrom.env.is_service_alive", side_effect=fake_alive):
+            messages = stop_sessions([
+                LiveSession(pid=100, cwd=Path("/w/a")),
+                LiveSession(pid=999, cwd=Path("/w/a")),
+            ])
+        signalled = {c.args[0] for c in mock_kill.call_args_list}
+        assert 999 not in signalled
+        assert 100 in signalled
+        assert messages == ["claude session (pid 100): stopped"]
+
+    @patch("time.sleep")
+    @patch("time.monotonic")
+    def test_kill_errors_swallowed(self, mock_monotonic, _sleep):
+        mock_monotonic.side_effect = itertools.count(0.0, 100.0)
+        with patch("os.getpid", return_value=1), \
+                patch("os.kill", side_effect=ProcessLookupError), \
+                patch("maelstrom.env.is_service_alive", return_value=False):
+            # is_service_alive False => nothing signalled, all reported stopped;
+            # PermissionError/ProcessLookupError from os.kill must not propagate.
+            messages = stop_sessions([LiveSession(pid=100, cwd=Path("/w/a"))])
+        assert messages == ["claude session (pid 100): stopped"]
 
 
 class TestGetEnvStatus:

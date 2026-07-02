@@ -15,6 +15,7 @@ from subprocess import DEVNULL, STDOUT, Popen
 from maelstrom.config import load_config_or_default
 from maelstrom.context import get_maelstrom_dir
 from maelstrom.env_store import EnvStore
+from maelstrom.session_discovery import LiveSession
 from maelstrom.util import now_iso
 from maelstrom.worktree import read_env_file, regenerate_env_file, run_install_cmd
 
@@ -442,6 +443,63 @@ def _stop_services(
         else:
             messages.append(f"{svc.name}{tag} (pid {svc.pid}): stopped")
 
+    return messages
+
+
+def _signal_and_wait(
+    sessions: list[LiveSession], sig: signal.Signals, timeout: float,
+) -> None:
+    """Send ``sig`` to every still-live session, then poll up to ``timeout``.
+
+    Only signals sessions still alive at call time, so a survivor list from an
+    earlier stage isn't re-signalled needlessly. ``ProcessLookupError`` (already
+    gone) and ``PermissionError`` (not ours to signal) are swallowed.
+    """
+    for s in sessions:
+        if not is_service_alive(s.pid):
+            continue
+        try:
+            os.kill(s.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if all(not is_service_alive(s.pid) for s in sessions):
+            break
+        time.sleep(0.1)
+
+
+def stop_sessions(
+    sessions: list[LiveSession], *, interrupt_grace: float = 5.0, timeout: float = 10.0,
+) -> list[str]:
+    """Gracefully stop live Claude CLI sessions before a worktree is closed.
+
+    Escalates SIGINT -> SIGTERM, never SIGKILL. A single external SIGINT only
+    *cancels* a busy Claude session's in-flight turn (its Ctrl-C is a double-press
+    gesture), so we send SIGINT first to let a busy session wind down cleanly, wait
+    ``interrupt_grace`` seconds, then SIGTERM any survivors (which does terminate
+    the process) and wait up to ``timeout``. Survivors after that are reported and
+    left running — SIGKILL would risk a half-written transcript.
+
+    These pids are *not* ours, so we use ``os.kill`` (not ``os.killpg`` — we don't
+    own their process groups) and never signal our own pid. Returns one status
+    message per session; empty input (or only our own pid) -> ``[]`` (silent).
+    """
+    my_pid = os.getpid()
+    targets = [s for s in sessions if s.pid != my_pid]
+    if not targets:
+        return []
+
+    _signal_and_wait(targets, signal.SIGINT, interrupt_grace)
+    _signal_and_wait(targets, signal.SIGTERM, timeout)
+
+    messages = []
+    for s in targets:
+        if is_service_alive(s.pid):
+            messages.append(f"claude session (pid {s.pid}): still running after SIGTERM")
+        else:
+            messages.append(f"claude session (pid {s.pid}): stopped")
     return messages
 
 
