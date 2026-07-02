@@ -17,24 +17,27 @@ session registry to decide liveness:
   and its ``state`` goes stale, so it cannot be the liveness authority. It
   survives only as *optional enrichment* for ``mael session list``.
 
-Every caller filters the single :func:`all_live_sessions` list. It sits above
+Callers work through :class:`LiveSessionSet`, which sweeps once on first use,
+then answers per-worktree questions (``count_for`` / ``active_for`` / ``all_for``)
+off that shared list — each session attributing itself to a worktree via
+:attr:`LiveSession.worktree`. It sits above
 :func:`maelstrom.task.session_id_for` and beside :mod:`maelstrom.session_store`,
 with no import cycle: ``session_store`` never imports this module.
 """
 
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 
 from .shell import run_cmd
-from .worktree import list_worktrees
 
 
 @dataclass
 class LiveSession:
     """A running Claude CLI process and its working directory.
 
-    ``cwd`` is the real worktree path the session was launched in (its process
-    cwd). Every :class:`LiveSession` a lookup returns was live *at scan time* —
+    ``cwd`` is where the session runs; :attr:`worktree` is the worktree that owns
+    it. Every :class:`LiveSession` a lookup returns was live *at scan time* —
     there is no ``is_live`` flag because a non-live process is simply absent from
     the sweep. Callers acting on a returned session (e.g. the run-guard) accept
     the small TOCTOU window in which the pid may exit before they use it.
@@ -42,6 +45,23 @@ class LiveSession:
 
     pid: int
     cwd: Path
+
+    @cached_property
+    def worktree(self) -> Path | None:
+        """The worktree that owns this session's cwd, or ``None``.
+
+        A worktree root is the nearest ancestor of ``cwd`` (including ``cwd``
+        itself) that carries a ``.git`` entry — a file for a linked worktree, a
+        directory for the main checkout. ``mael`` launches ``claude`` with its
+        cwd *at* the worktree root, so this is usually ``cwd`` itself; the walk
+        only matters when a session cd'd into a subdirectory. A nested worktree
+        has its own ``.git``, so it wins over its parent without a prefix
+        tiebreak. Cheaper and more robust than shelling ``git worktree list``.
+        """
+        for path in (self.cwd, *self.cwd.parents):
+            if (path / ".git").exists():
+                return path
+        return None
 
 
 def all_live_sessions() -> list[LiveSession]:
@@ -114,80 +134,47 @@ def _cwds_for_pids(pids: list[int]) -> list[LiveSession]:
     return sessions
 
 
-def _cwd_under(cwd: Path, worktree_path: Path) -> bool:
-    """True if ``cwd`` is ``worktree_path`` itself or nested beneath it."""
-    return cwd == worktree_path or worktree_path in cwd.parents
+class LiveSessionSet:
+    """One live-``claude`` sweep plus the per-worktree questions asked of it.
 
+    Construct once, then ask ``count_for`` / ``active_for`` / ``all_for`` per
+    worktree. The sweep (:func:`all_live_sessions`) runs lazily on first access
+    and is cached, so a batch caller (``mael list`` over many rows, ``reconcile``
+    over many branches) shells ``pgrep``/``lsof`` once for the whole pass.
+    Attribution is each session's own :attr:`LiveSession.worktree`.
 
-# Per-sweep memo of ``list_worktrees(cwd)`` results, keyed on the session cwd.
-# The longest-prefix tiebreak needs the cwd's own repo's worktree paths; without
-# a cache, ``mael list`` would re-shell ``git worktree list`` once per session
-# *per worktree row* (O(worktrees × sessions) subprocesses). A batch caller
-# passes one dict so every session's worktree list is fetched at most once.
-_WorktreeCache = dict[Path, list[Path]]
-
-
-def _owning_worktree(cwd: Path, cache: _WorktreeCache) -> Path | None:
-    """The most-specific worktree path that owns ``cwd``, or ``None``.
-
-    Resolves against the git worktree list of ``cwd``'s own repo (memoised in
-    ``cache``): the *longest* worktree path that is a prefix of ``cwd`` wins, so
-    a nested worktree and its parent don't both claim the same cwd. ``None`` when
-    ``cwd`` sits under no known worktree.
+    Pass ``sessions`` to reuse a sweep taken elsewhere (or to inject a fixture);
+    omit it to sweep on first use.
     """
-    paths = cache.get(cwd)
-    if paths is None:
-        paths = [wt.path for wt in list_worktrees(cwd)]
-        cache[cwd] = paths
-    best: Path | None = None
-    for path in paths:
-        if _cwd_under(cwd, path) and (best is None or len(str(path)) > len(str(best))):
-            best = path
-    return best
 
+    def __init__(self, sessions: list[LiveSession] | None = None) -> None:
+        self._sessions = sessions
 
-def live_session_count_for_worktree(
-    worktree_path: Path,
-    sessions: list[LiveSession] | None = None,
-    cache: _WorktreeCache | None = None,
-) -> int:
-    """How many live Claude sessions are running in ``worktree_path``.
+    @property
+    def sessions(self) -> list[LiveSession]:
+        """The swept live sessions, taking the sweep on first access."""
+        if self._sessions is None:
+            self._sessions = all_live_sessions()
+        return self._sessions
 
-    Counts the sessions whose cwd resolves to ``worktree_path`` (longest-prefix
-    tiebreak, so a nested worktree and its parent don't both claim a session).
-    Drives the ``SESSION`` column of ``mael list`` / ``mael list-all``.
+    def all_for(self, worktree_path: Path) -> list[LiveSession]:
+        """Every live session owned by ``worktree_path``.
 
-    ``sessions`` lets a batch caller (``mael list`` over many worktrees) sweep
-    :func:`all_live_sessions` once and share it; ``None`` sweeps per call.
-    ``cache`` is a shared worktree-list memo the batch caller threads through
-    every row so ``git worktree list`` runs at most once per distinct cwd.
-    """
-    if sessions is None:
-        sessions = all_live_sessions()
-    if cache is None:
-        cache = {}
-    return sum(
-        1 for s in sessions if _owning_worktree(s.cwd, cache) == worktree_path
-    )
+        Used by ``mael close`` to stop a worktree's sessions before tearing it
+        down.
+        """
+        return [s for s in self.sessions if s.worktree == worktree_path]
 
+    def active_for(self, worktree_path: Path) -> LiveSession | None:
+        """The first live session in ``worktree_path``, or ``None``.
 
-def active_session_for_worktree(
-    worktree_path: Path,
-    sessions: list[LiveSession] | None = None,
-    cache: _WorktreeCache | None = None,
-) -> LiveSession | None:
-    """The live Claude session running in ``worktree_path``, or ``None``.
+        Drives the ``mael task run`` duplicate-launch guard and ``reconcile``.
+        """
+        return next((s for s in self.sessions if s.worktree == worktree_path), None)
 
-    Returns the first live session whose cwd resolves to ``worktree_path``
-    (longest-prefix tiebreak). ``None`` when nothing live runs there. Used by the
-    ``mael task run`` duplicate-launch guard. ``cache`` memoises the worktree-list
-    lookup when a batch caller (reconcile) resolves many branches in one sweep.
-    """
-    if sessions is None:
-        sessions = all_live_sessions()
-    if cache is None:
-        cache = {}
-    for session in sessions:
-        if _owning_worktree(session.cwd, cache) == worktree_path:
-            return session
-    return None
+    def count_for(self, worktree_path: Path) -> int:
+        """How many live sessions run in ``worktree_path``.
+
+        Drives the ``SESSION`` column of ``mael list`` / ``mael list-all``.
+        """
+        return sum(1 for s in self.sessions if s.worktree == worktree_path)

@@ -48,7 +48,7 @@ class TestListAllJson:
                         with patch("maelstrom.cli.get_worktree_dirty_files", return_value=["file.txt"]):
                             with patch("maelstrom.cli.get_local_only_commits", return_value=2):
                                 with patch("maelstrom.cli.get_pr_number_and_commits", return_value=(42, 5)):
-                                    with patch("maelstrom.session_discovery.live_session_count_for_worktree", return_value=1):
+                                    with patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=1):
                                         result = runner.invoke(cli, ["--json", "list-all"])
 
         assert result.exit_code == 0
@@ -94,7 +94,7 @@ class TestListAllJson:
                             with patch("maelstrom.cli.get_local_only_commits", return_value=0):
                                 with patch("maelstrom.cli.get_pr_number_and_commits", return_value=(None, None)):
                                     with patch("maelstrom.cli.get_pushed_commit_count", return_value=0):
-                                        with patch("maelstrom.session_discovery.live_session_count_for_worktree", return_value=3):
+                                        with patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=3):
                                             result = runner.invoke(cli, ["--json", "list-all"])
 
         assert result.exit_code == 0
@@ -120,7 +120,7 @@ class TestListAllJson:
                 with patch("maelstrom.cli.list_worktrees", return_value=[mock_wt]):
                     with patch("maelstrom.cli.is_worktree_closed", return_value=True):
                         with patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]):
-                            with patch("maelstrom.session_discovery.live_session_count_for_worktree", return_value=0):
+                            with patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0):
                                 result = runner.invoke(cli, ["--json", "list-all"])
 
         assert result.exit_code == 0
