@@ -570,7 +570,10 @@ def create(
     """Create a new task and write it to the store (one write).
 
     ``branch`` defaults to ``task/<id>`` when falsy, so a task always has a
-    stable branch and tasks chained from it can derive the same one.
+    stable branch and tasks chained from it can derive the same one. A child
+    also inherits an existing sibling's branch, or — for the first child — the
+    parent task's own branch, before falling back to that derivation ("one PR
+    per parent").
 
     ``id`` overrides id allocation (used by scheduled runs, which key the id by
     boundary date via :func:`allocate_run_id`); when ``None`` an id is allocated
@@ -590,9 +593,15 @@ def create(
     resolved_priority = priority or DEFAULT_PRIORITY
     validate_priority(resolved_priority)
     # One PR per parent: the first task under a parent owns the branch; later
-    # siblings reuse it rather than generating a fresh (and divergent) name.
-    # Only the branch-owning task pays the cost of generating a descriptive name.
-    resolved_branch = branch or _sibling_branch(store, project, parent)
+    # siblings and children reuse it rather than generating a fresh (and
+    # divergent) name. Precedence: explicit arg > an existing sibling's branch >
+    # the parent task's own branch > derived/generated default. Only a
+    # branch-owning task pays the cost of generating a descriptive name.
+    resolved_branch = (
+        branch
+        or _sibling_branch(store, project, parent)
+        or _parent_branch(store, project, parent)
+    )
     if not resolved_branch:
         resolved_branch = default_branch(
             id, parent, title=title, content=content, generate=True
@@ -1215,6 +1224,10 @@ def _sibling_branch(store: TaskStore, project: str, parent: str) -> str:
     later siblings reuse it instead of generating a fresh, divergent name. With
     no ``parent`` (orphan task) or no existing sibling, returns ``""`` so the
     caller falls back to :func:`default_branch`.
+
+    This covers only *second-and-later* children (there is an existing sibling
+    to copy from); :func:`_parent_branch` handles the first child by looking up
+    the parent task itself.
     """
     if not parent:
         return ""
@@ -1222,6 +1235,29 @@ def _sibling_branch(store: TaskStore, project: str, parent: str) -> str:
         if sibling.branch:
             return sibling.branch
     return ""
+
+
+def _parent_branch(store: TaskStore, project: str, parent: str) -> str:
+    """Return the parent task's own branch, or ``""``.
+
+    Completes "one PR per parent": the *first* child of a parent that already
+    owns a real branch must inherit it, not regenerate a divergent name.
+    :func:`_sibling_branch` only handles second-and-later children (off an
+    existing sibling); this handles the first by looking up the parent task
+    itself by id.
+
+    ``parent`` may be *virtual* — a Linear id like ``linear.NORT-123`` with no
+    task file, or absent. When no task with id ``parent`` exists, or it exists
+    with an empty branch, returns ``""`` so the caller falls back to
+    :func:`default_branch` derivation.
+    """
+    if not parent:
+        return ""
+    try:
+        parent_task = load(store, project, parent)
+    except KeyError:
+        return ""
+    return parent_task.branch
 
 
 def default_branch(
