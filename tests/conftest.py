@@ -43,6 +43,44 @@ def _block_real_claude_branch_gen(monkeypatch):
 
 
 @pytest.fixture()
+def store():
+    """Shared task-store fixture for the model / CLI / actions test suites.
+
+    Centralises store construction so the task-index cache can be wired in behind
+    the reads with a single fixture change (see ``docs/dev/architecture-patterns.md``
+    and the SQLite task-index work). Today it yields a bare
+    :class:`~maelstrom.task_store.InMemoryStore`; the index is layered on later via
+    :func:`_task_index` without touching any call site.
+    """
+    from maelstrom.task_store import InMemoryStore
+
+    return InMemoryStore()
+
+
+@pytest.fixture(autouse=True)
+def _task_index(monkeypatch):
+    """Give every test its own fresh in-memory task index.
+
+    ``store`` and ``index`` are the model's two injected collaborators. Production
+    wires a real on-disk :class:`~maelstrom.task_index.SqliteTaskIndex` from the CLI;
+    the model falls back to a module-level default (``task._DEFAULT_INDEX``) for any
+    call that omits ``index``. This fixture swaps that default for a *per-test* fresh
+    in-memory SQLite index, so every behaviour test exercises the real index
+    transparently without naming it, and no state leaks between tests. The ``store``
+    fixture stays a plain store — the index sits beside it, not behind it.
+
+    An in-memory store and this in-memory index both report ``head() is None`` and
+    nothing stamps the index HEAD, so the model's staleness guard treats the index as
+    fresh (``None == None``) and reads are served from it — the point of the exercise.
+    """
+    from maelstrom import task as model
+    from maelstrom.task_index import SqliteTaskIndex
+
+    monkeypatch.setattr(model, "_DEFAULT_INDEX", SqliteTaskIndex(":memory:"))
+    yield
+
+
+@pytest.fixture()
 def recording_layout():
     """Return a factory for a :class:`CmuxLayout` over a :class:`RecordingCmuxClient`.
 

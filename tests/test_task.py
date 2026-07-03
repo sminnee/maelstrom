@@ -165,33 +165,28 @@ class TestRoundTrip:
 
 
 class TestIdAllocation:
-    def test_orphan_first_id(self):
-        store = InMemoryStore()
+    def test_orphan_first_id(self, store):
         assert model.allocate_orphan_id(store, "p", today=TODAY) == "2026-06-08.1"
 
-    def test_orphan_increments(self):
-        store = InMemoryStore()
+    def test_orphan_increments(self, store):
         model.create(store, project="p", title="a", now=NOW, today=TODAY)
         model.create(store, project="p", title="b", now=NOW, today=TODAY)
         assert model.allocate_orphan_id(store, "p", today=TODAY) == "2026-06-08.3"
 
-    def test_orphan_counts_across_statuses(self):
-        store = InMemoryStore()
+    def test_orphan_counts_across_statuses(self, store):
         t = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         model.move(store, "p", t.id, "done", now=NOW)
         # The done task still counts toward the next counter.
         assert model.allocate_orphan_id(store, "p", today=TODAY) == "2026-06-08.2"
 
-    def test_child_id(self):
-        store = InMemoryStore()
+    def test_child_id(self, store):
         parent = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         child = model.create(
             store, project="p", title="b", parent=parent.id, now=NOW
         )
         assert child.id == f"{parent.id}.1"
 
-    def test_nested_child_counters_independent(self):
-        store = InMemoryStore()
+    def test_nested_child_counters_independent(self, store):
         p = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         c1 = model.create(store, project="p", title="b", parent=p.id, now=NOW)
         c2 = model.create(store, project="p", title="c", parent=p.id, now=NOW)
@@ -203,8 +198,7 @@ class TestIdAllocation:
         c3 = model.create(store, project="p", title="e", parent=p.id, now=NOW)
         assert c3.id == f"{p.id}.3"
 
-    def test_linear_virtual_parent_first_child(self):
-        store = InMemoryStore()
+    def test_linear_virtual_parent_first_child(self, store):
         child = model.create(
             store, project="p", title="b", parent="linear.NORT-123", now=NOW
         )
@@ -234,28 +228,24 @@ class TestIdAllocation:
 
 
 class TestFollowEndLeaves:
-    def test_no_followers_returns_self(self):
-        store = InMemoryStore()
+    def test_no_followers_returns_self(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         assert model.follow_end_leaves(store, "p", a.id) == [a.id]
 
-    def test_linear_chain(self):
-        store = InMemoryStore()
+    def test_linear_chain(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
         c = model.create(store, project="p", title="c", follows=[b.id], now=NOW, today=TODAY)
         assert model.follow_end_leaves(store, "p", a.id) == [c.id]
 
-    def test_branched_chain(self):
-        store = InMemoryStore()
+    def test_branched_chain(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
         c = model.create(store, project="p", title="c", follows=[a.id], now=NOW, today=TODAY)
         assert model.follow_end_leaves(store, "p", a.id) == sorted([b.id, c.id])
 
-    def test_cycle_safe(self):
+    def test_cycle_safe(self, store):
         # Construct a cycle manually: a follows b, b follows a.
-        store = InMemoryStore()
         a = Task(id="a", title="a", project="p", follows=["b"], created=NOW, updated=NOW)
         b = Task(id="b", title="b", project="p", follows=["a"], created=NOW, updated=NOW)
         store.write("p/todo/a.md", a.to_markdown(), message="m")
@@ -269,17 +259,14 @@ class TestFollowEndLeaves:
 
 
 class TestChildChainLeaves:
-    def test_no_children_is_empty(self):
-        store = InMemoryStore()
+    def test_no_children_is_empty(self, store):
         assert model.child_chain_leaves(store, "p", "linear.X") == []
 
-    def test_single_child_is_leaf(self):
-        store = InMemoryStore()
+    def test_single_child_is_leaf(self, store):
         a = model.create(store, project="p", title="a", parent="linear.X", now=NOW)
         assert model.child_chain_leaves(store, "p", "linear.X") == [a.id]
 
-    def test_chained_children_only_tail_is_leaf(self):
-        store = InMemoryStore()
+    def test_chained_children_only_tail_is_leaf(self, store):
         a = model.create(store, project="p", title="a", parent="linear.X", now=NOW)
         b = model.create(
             store, project="p", title="b", parent="linear.X", follows=[a.id], now=NOW
@@ -287,8 +274,7 @@ class TestChildChainLeaves:
         # b follows a, so only b is the end of the sibling chain.
         assert model.child_chain_leaves(store, "p", "linear.X") == [b.id]
 
-    def test_branched_children_multiple_leaves(self):
-        store = InMemoryStore()
+    def test_branched_children_multiple_leaves(self, store):
         a = model.create(store, project="p", title="a", parent="linear.X", now=NOW)
         b = model.create(
             store, project="p", title="b", parent="linear.X", follows=[a.id], now=NOW
@@ -299,8 +285,7 @@ class TestChildChainLeaves:
         # b and c both follow a; neither is followed -> both are leaves.
         assert model.child_chain_leaves(store, "p", "linear.X") == sorted([b.id, c.id])
 
-    def test_ignores_other_parents(self):
-        store = InMemoryStore()
+    def test_ignores_other_parents(self, store):
         mine = model.create(store, project="p", title="m", parent="linear.X", now=NOW)
         model.create(store, project="p", title="other", parent="linear.Y", now=NOW)
         assert model.child_chain_leaves(store, "p", "linear.X") == [mine.id]
@@ -310,32 +295,28 @@ class TestChildChainLeaves:
 
 
 class TestNextFollower:
-    def test_linear_chain_returns_follower(self):
-        store = InMemoryStore()
+    def test_linear_chain_returns_follower(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
         model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         nxt = model.next_follower(store, "p", a.id)
         assert nxt is not None and nxt.id == b.id
 
-    def test_follower_not_actionable_returns_none(self):
+    def test_follower_not_actionable_returns_none(self, store):
         # b follows a and a second dep that is still todo -> not actionable.
-        store = InMemoryStore()
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         dep2 = model.create(store, project="p", title="dep2", now=NOW, today=TODAY)
         model.create(store, project="p", title="b", follows=[a.id, dep2.id], now=NOW, today=TODAY)
         model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         assert model.next_follower(store, "p", a.id) is None
 
-    def test_nothing_follows_returns_none(self):
-        store = InMemoryStore()
+    def test_nothing_follows_returns_none(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         model.create(store, project="p", title="b", now=NOW, today=TODAY)
         model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         assert model.next_follower(store, "p", a.id) is None
 
-    def test_branching_returns_id_sorted_first(self):
-        store = InMemoryStore()
+    def test_branching_returns_id_sorted_first(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
         c = model.create(store, project="p", title="c", follows=[a.id], now=NOW, today=TODAY)
@@ -343,9 +324,8 @@ class TestNextFollower:
         nxt = model.next_follower(store, "p", a.id)
         assert nxt is not None and nxt.id == sorted([b.id, c.id])[0]
 
-    def test_non_todo_follower_excluded(self):
+    def test_non_todo_follower_excluded(self, store):
         # A follower already in-progress is not a todo, so next_follower skips it.
-        store = InMemoryStore()
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
         model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
@@ -354,8 +334,7 @@ class TestNextFollower:
 
 
 class TestRunningFollower:
-    def test_returns_in_progress_follower(self):
-        store = InMemoryStore()
+    def test_returns_in_progress_follower(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
         model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
@@ -363,23 +342,20 @@ class TestRunningFollower:
         running = model.running_follower(store, "p", a.id)
         assert running is not None and running.id == b.id
 
-    def test_todo_follower_not_returned(self):
-        store = InMemoryStore()
+    def test_todo_follower_not_returned(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
         model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         assert model.running_follower(store, "p", a.id) is None
 
-    def test_unrelated_in_progress_not_returned(self):
-        store = InMemoryStore()
+    def test_unrelated_in_progress_not_returned(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         other = model.create(store, project="p", title="other", now=NOW, today=TODAY)
         model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         model.move(store, "p", other.id, model.STATUS_IN_PROGRESS, now=NOW2)
         assert model.running_follower(store, "p", a.id) is None
 
-    def test_branching_returns_id_sorted_first(self):
-        store = InMemoryStore()
+    def test_branching_returns_id_sorted_first(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
         c = model.create(store, project="p", title="c", follows=[a.id], now=NOW, today=TODAY)
@@ -394,26 +370,22 @@ class TestRunningFollower:
 
 
 class TestActionable:
-    def test_no_deps_is_actionable(self):
-        store = InMemoryStore()
+    def test_no_deps_is_actionable(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         assert model.is_actionable(model.load(store, "p", a.id), store)
 
-    def test_blocked_by_undone_dep(self):
-        store = InMemoryStore()
+    def test_blocked_by_undone_dep(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
         assert not model.is_actionable(model.load(store, "p", b.id), store)
 
-    def test_unblocked_when_dep_done(self):
-        store = InMemoryStore()
+    def test_unblocked_when_dep_done(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
         model.move(store, "p", a.id, "done", now=NOW)
         assert model.is_actionable(model.load(store, "p", b.id), store)
 
-    def test_terminal_not_actionable(self):
-        store = InMemoryStore()
+    def test_terminal_not_actionable(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         model.move(store, "p", a.id, "done", now=NOW)
         assert not model.is_actionable(model.load(store, "p", a.id), store)
@@ -425,29 +397,25 @@ class TestActionable:
 
 
 class TestMove:
-    def test_move_relocates_key(self):
-        store = InMemoryStore()
+    def test_move_relocates_key(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         assert store.exists(f"p/todo/{a.id}.md")
         model.move(store, "p", a.id, "in-progress", now="2026-06-09T00:00:00+00:00")
         assert not store.exists(f"p/todo/{a.id}.md")
         assert store.exists(f"p/in-progress/{a.id}.md")
 
-    def test_move_bumps_updated(self):
-        store = InMemoryStore()
+    def test_move_bumps_updated(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         moved = model.move(store, "p", a.id, "in-progress", now="2026-06-09T00:00:00+00:00")
         assert moved.updated == "2026-06-09T00:00:00+00:00"
         assert moved.created == NOW
 
-    def test_move_invalid_status_rejected(self):
-        store = InMemoryStore()
+    def test_move_invalid_status_rejected(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         with pytest.raises(ValueError):
             model.move(store, "p", a.id, "bogus", now=NOW)
 
-    def test_move_missing_task(self):
-        store = InMemoryStore()
+    def test_move_missing_task(self, store):
         with pytest.raises(KeyError):
             model.move(store, "p", "nope", "in-progress", now=NOW)
 
@@ -470,8 +438,7 @@ class TestSafeId:
         with pytest.raises(ValueError):
             model.task_key("p", "todo", "../escape")
 
-    def test_find_key_rejects_traversal(self):
-        store = InMemoryStore()
+    def test_find_key_rejects_traversal(self, store):
         with pytest.raises(ValueError):
             model.find_key(store, "p", "../escape")
 
@@ -500,8 +467,7 @@ class TestMutationAccounting:
         msg = store.writes[0][1]
         assert msg is not None and t.id in msg
 
-    def test_append_log_records_message(self):
-        store = InMemoryStore()
+    def test_append_log_records_message(self, store):
         t = model.create(store, project="p", title="hi", now=NOW, today=TODAY)
         logged = model.append_log(store, "p", t.id, "a note", now=NOW)
         assert "a note" in logged.log
@@ -534,35 +500,30 @@ class TestMutationAccounting:
 
 
 class TestDelete:
-    def test_delete_removes_file(self):
-        store = InMemoryStore()
+    def test_delete_removes_file(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         model.delete(store, "p", a.id)
         assert not store.exists(f"p/todo/{a.id}.md")
         with pytest.raises(KeyError):
             model.load(store, "p", a.id)
 
-    def test_delete_returns_task(self):
-        store = InMemoryStore()
+    def test_delete_returns_task(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         deleted = model.delete(store, "p", a.id)
         assert deleted.id == a.id
         assert deleted.title == "a"
 
-    def test_delete_missing_raises(self):
-        store = InMemoryStore()
+    def test_delete_missing_raises(self, store):
         with pytest.raises(KeyError):
             model.delete(store, "p", "nope")
 
-    def test_delete_finds_task_in_any_status(self):
-        store = InMemoryStore()
+    def test_delete_finds_task_in_any_status(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         model.move(store, "p", a.id, "in-progress", now=NOW)
         model.delete(store, "p", a.id)
         assert not store.exists(f"p/in-progress/{a.id}.md")
 
-    def test_delete_strips_dep_from_dependent(self):
-        store = InMemoryStore()
+    def test_delete_strips_dep_from_dependent(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         b = model.create(
             store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
@@ -570,8 +531,7 @@ class TestDelete:
         model.delete(store, "p", a.id)
         assert model.load(store, "p", b.id).follows == []
 
-    def test_delete_keeps_other_deps(self):
-        store = InMemoryStore()
+    def test_delete_keeps_other_deps(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         b = model.create(store, project="p", title="b", now=NOW, today=TODAY)
         c = model.create(
@@ -580,8 +540,7 @@ class TestDelete:
         model.delete(store, "p", a.id)
         assert model.load(store, "p", c.id).follows == [b.id]
 
-    def test_delete_unblocks_dependent(self):
-        store = InMemoryStore()
+    def test_delete_unblocks_dependent(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         b = model.create(
             store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
@@ -591,9 +550,8 @@ class TestDelete:
         model.delete(store, "p", a.id)
         assert model.is_actionable(model.load(store, "p", b.id), store)
 
-    def test_delete_ignores_terminal_dependents(self):
+    def test_delete_ignores_terminal_dependents(self, store):
         # A done task that follows the deleted id is left untouched.
-        store = InMemoryStore()
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         b = model.create(
             store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
@@ -633,8 +591,7 @@ class TestDelete:
 
 
 class TestRename:
-    def test_rename_relocates_file_key(self):
-        store = InMemoryStore()
+    def test_rename_relocates_file_key(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         renamed = model.rename(store, "p", a.id, "new-id")
         assert not store.exists(f"p/todo/{a.id}.md")
@@ -643,8 +600,7 @@ class TestRename:
         assert loaded.id == "new-id"
         assert renamed.id == "new-id"
 
-    def test_rename_preserves_status_content_log(self):
-        store = InMemoryStore()
+    def test_rename_preserves_status_content_log(self, store):
         a = model.create(
             store, project="p", title="a", content="body text", now=NOW, today=TODAY
         )
@@ -657,15 +613,13 @@ class TestRename:
         assert "did a thing" in loaded.log
         assert store.exists("p/in-progress/new-id.md")
 
-    def test_rename_bumps_updated(self):
-        store = InMemoryStore()
+    def test_rename_bumps_updated(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         later = "2026-07-02T00:00:00Z"
         model.rename(store, "p", a.id, "new-id", now=later)
         assert model.load(store, "p", "new-id").updated == later
 
-    def test_rename_rewrites_dependent_follows(self):
-        store = InMemoryStore()
+    def test_rename_rewrites_dependent_follows(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         b = model.create(
             store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
@@ -673,8 +627,7 @@ class TestRename:
         model.rename(store, "p", a.id, "new-id")
         assert model.load(store, "p", b.id).follows == ["new-id"]
 
-    def test_rename_keeps_other_follows_entries(self):
-        store = InMemoryStore()
+    def test_rename_keeps_other_follows_entries(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         b = model.create(store, project="p", title="b", now=NOW, today=TODAY)
         c = model.create(
@@ -683,8 +636,7 @@ class TestRename:
         model.rename(store, "p", a.id, "new-id")
         assert model.load(store, "p", c.id).follows == ["new-id", b.id]
 
-    def test_rename_reparents_child(self):
-        store = InMemoryStore()
+    def test_rename_reparents_child(self, store):
         parent = model.create(store, project="p", title="parent", now=NOW, today=TODAY)
         child = model.create(
             store, project="p", title="child", parent=parent.id, now=NOW, today=TODAY
@@ -695,8 +647,7 @@ class TestRename:
         # Child's own id is NOT cascaded.
         assert loaded.id == child.id
 
-    def test_rename_ignores_terminal_dependents(self):
-        store = InMemoryStore()
+    def test_rename_ignores_terminal_dependents(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         b = model.create(
             store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
@@ -706,19 +657,16 @@ class TestRename:
         # b is terminal; its historical follows is preserved.
         assert model.load(store, "p", b.id).follows == [a.id]
 
-    def test_rename_missing_raises_keyerror(self):
-        store = InMemoryStore()
+    def test_rename_missing_raises_keyerror(self, store):
         with pytest.raises(KeyError):
             model.rename(store, "p", "nope", "new-id")
 
-    def test_rename_unsafe_new_id_raises_valueerror(self):
-        store = InMemoryStore()
+    def test_rename_unsafe_new_id_raises_valueerror(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         with pytest.raises(ValueError):
             model.rename(store, "p", a.id, "../escape")
 
-    def test_rename_collision_raises_valueerror(self):
-        store = InMemoryStore()
+    def test_rename_collision_raises_valueerror(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         b = model.create(store, project="p", title="b", now=NOW, today=TODAY)
         with pytest.raises(ValueError):
@@ -757,8 +705,7 @@ class TestRename:
 
 
 class TestLoadList:
-    def test_load_round_trip(self):
-        store = InMemoryStore()
+    def test_load_round_trip(self, store):
         t = model.create(
             store, project="p", title="hi", command="claude", now=NOW, today=TODAY
         )
@@ -768,13 +715,11 @@ class TestLoadList:
         assert loaded.command == "claude"
         assert loaded.status == "todo"
 
-    def test_load_missing(self):
-        store = InMemoryStore()
+    def test_load_missing(self, store):
         with pytest.raises(KeyError):
             model.load(store, "p", "nope")
 
-    def test_list_filters_by_status(self):
-        store = InMemoryStore()
+    def test_list_filters_by_status(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         model.create(store, project="p", title="b", now=NOW, today=TODAY)
         model.move(store, "p", a.id, "done", now=NOW)
@@ -785,8 +730,7 @@ class TestLoadList:
         assert len(done) == 1
         assert done[0].id == a.id
 
-    def test_list_filters_by_parent(self):
-        store = InMemoryStore()
+    def test_list_filters_by_parent(self, store):
         p = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         model.create(store, project="p", title="b", parent=p.id, now=NOW)
         model.create(store, project="p", title="c", now=NOW, today=TODAY)
@@ -794,8 +738,7 @@ class TestLoadList:
         assert len(children) == 1
         assert children[0].parent == p.id
 
-    def test_list_does_not_leak_across_projects(self):
-        store = InMemoryStore()
+    def test_list_does_not_leak_across_projects(self, store):
         model.create(store, project="p", title="a", now=NOW, today=TODAY)
         model.create(store, project="other", title="b", now=NOW, today=TODAY)
         assert len(model.list_tasks(store, project="p")) == 1
@@ -810,28 +753,25 @@ class TestBranchDefault:
     # assertions cover the offline shapes. Model-path generation is covered in
     # ``test_branch_name.py`` with an injected fake runner.
 
-    def test_branch_defaults_to_generated_slug(self):
+    def test_branch_defaults_to_generated_slug(self, store):
         # With the model call failing (autouse fixture), an orphan task falls
         # back to ``<default_type>/<slugify(title)>``.
-        store = InMemoryStore()
         t = model.create(
             store, project="p", title="Fix flaky port test", now=NOW, today=TODAY
         )
         assert t.branch == "feat/fix-flaky-port-test"
         assert model.load(store, "p", t.id).branch == "feat/fix-flaky-port-test"
 
-    def test_branch_override_respected(self):
-        store = InMemoryStore()
+    def test_branch_override_respected(self, store):
         t = model.create(
             store, project="p", title="a", branch="fix/login", now=NOW, today=TODAY
         )
         assert t.branch == "fix/login"
         assert model.load(store, "p", t.id).branch == "fix/login"
 
-    def test_linear_parent_yields_feat_number_branch(self):
+    def test_linear_parent_yields_feat_number_branch(self, store):
         # Generic title + failing model call → the new deterministic Linear
         # fallback splices the bare number into the desc (no NORT- prefix).
-        store = InMemoryStore()
         t = model.create(
             store, project="p", title="a", parent="linear.NORT-123",
             now=NOW, today=TODAY,
@@ -839,8 +779,7 @@ class TestBranchDefault:
         assert t.branch == "feat/123-a"
         assert model.load(store, "p", t.id).branch == "feat/123-a"
 
-    def test_siblings_under_linear_parent_share_branch(self):
-        store = InMemoryStore()
+    def test_siblings_under_linear_parent_share_branch(self, store):
         a = model.create(
             store, project="p", title="a", parent="linear.NORT-123",
             now=NOW, today=TODAY,
@@ -852,8 +791,7 @@ class TestBranchDefault:
         # Both fall back to the same number-led branch (one PR per parent).
         assert a.branch == b.branch == "feat/123-a"
 
-    def test_non_linear_parent_siblings_share_task_branch(self):
-        store = InMemoryStore()
+    def test_non_linear_parent_siblings_share_task_branch(self, store):
         a = model.create(
             store, project="p", title="a", parent="2026-06-09.3",
             now=NOW, today=TODAY,
@@ -864,8 +802,7 @@ class TestBranchDefault:
         )
         assert a.branch == b.branch == "task/2026-06-09.3"
 
-    def test_branch_override_beats_parent_derivation(self):
-        store = InMemoryStore()
+    def test_branch_override_beats_parent_derivation(self, store):
         t = model.create(
             store, project="p", title="a", parent="linear.NORT-123",
             branch="fix/login", now=NOW, today=TODAY,
@@ -975,18 +912,15 @@ class TestPermissionMode:
 
 
 class TestNextTask:
-    def test_none_when_empty(self):
-        store = InMemoryStore()
+    def test_none_when_empty(self, store):
         assert model.next_task(store, "p") is None
 
-    def test_returns_first_actionable_by_id(self):
-        store = InMemoryStore()
+    def test_returns_first_actionable_by_id(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         model.create(store, project="p", title="b", now=NOW, today=TODAY)
         assert model.next_task(store, "p").id == a.id
 
-    def test_skips_blocked_by_unfinished_dep(self):
-        store = InMemoryStore()
+    def test_skips_blocked_by_unfinished_dep(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         b = model.create(
             store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
@@ -997,8 +931,7 @@ class TestNextTask:
         model.move(store, "p", a.id, "done", now=NOW)
         assert model.next_task(store, "p").id == b.id
 
-    def test_excludes_in_progress(self):
-        store = InMemoryStore()
+    def test_excludes_in_progress(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         model.move(store, "p", a.id, "in-progress", now=NOW)
         # An in-progress (already-running) task is not re-offered.
@@ -1007,14 +940,12 @@ class TestNextTask:
         b = model.create(store, project="p", title="b", now=NOW, today=TODAY)
         assert model.next_task(store, "p").id == b.id
 
-    def test_excludes_terminal(self):
-        store = InMemoryStore()
+    def test_excludes_terminal(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         model.move(store, "p", a.id, "done", now=NOW)
         assert model.next_task(store, "p") is None
 
-    def test_filters_by_parent(self):
-        store = InMemoryStore()
+    def test_filters_by_parent(self, store):
         p = model.create(store, project="p", title="parent", now=NOW, today=TODAY)
         child = model.create(store, project="p", title="child", parent=p.id, now=NOW)
         # Without filter, the (lower-id) parent comes first.
@@ -1022,8 +953,7 @@ class TestNextTask:
         # Filtered to the parent's children, only the child qualifies.
         assert model.next_task(store, "p", parent=p.id).id == child.id
 
-    def test_branch_match_beats_lower_id_on_other_branch(self):
-        store = InMemoryStore()
+    def test_branch_match_beats_lower_id_on_other_branch(self, store):
         # a has the lower id but is on another branch; b is on the wanted one.
         model.create(store, project="p", title="a", branch="other", now=NOW, today=TODAY)
         b = model.create(
@@ -1031,21 +961,18 @@ class TestNextTask:
         )
         assert model.next_task(store, "p", branch="feat/x").id == b.id
 
-    def test_branch_no_match_falls_back_to_global(self):
-        store = InMemoryStore()
+    def test_branch_no_match_falls_back_to_global(self, store):
         a = model.create(
             store, project="p", title="a", branch="other", now=NOW, today=TODAY
         )
         # No actionable task on feat/x -> fall back to the global next (a).
         assert model.next_task(store, "p", branch="feat/x", fallback=True).id == a.id
 
-    def test_branch_no_match_no_fallback_returns_none(self):
-        store = InMemoryStore()
+    def test_branch_no_match_no_fallback_returns_none(self, store):
         model.create(store, project="p", title="a", branch="other", now=NOW, today=TODAY)
         assert model.next_task(store, "p", branch="feat/x", fallback=False) is None
 
-    def test_branch_none_unchanged(self):
-        store = InMemoryStore()
+    def test_branch_none_unchanged(self, store):
         a = model.create(
             store, project="p", title="a", branch="other", now=NOW, today=TODAY
         )
@@ -1058,8 +985,7 @@ class TestNextTask:
 
 
 class TestPriorityOrdering:
-    def test_next_task_prefers_higher_priority(self):
-        store = InMemoryStore()
+    def test_next_task_prefers_higher_priority(self, store):
         # low is created first (lower id), but critical outranks it.
         model.create(store, project="p", title="low", priority="low", now=NOW, today=TODAY)
         crit = model.create(
@@ -1067,21 +993,18 @@ class TestPriorityOrdering:
         )
         assert model.next_task(store, "p").id == crit.id
 
-    def test_next_task_ties_broken_by_id(self):
-        store = InMemoryStore()
+    def test_next_task_ties_broken_by_id(self, store):
         # Two same-priority tasks: the lower id wins (chronological tie-break).
         a = model.create(store, project="p", title="a", priority="high", now=NOW, today=TODAY)
         model.create(store, project="p", title="b", priority="high", now=NOW, today=TODAY)
         assert model.next_task(store, "p").id == a.id
 
-    def test_default_medium_outranks_low(self):
-        store = InMemoryStore()
+    def test_default_medium_outranks_low(self, store):
         model.create(store, project="p", title="low", priority="low", now=NOW, today=TODAY)
         med = model.create(store, project="p", title="med", now=NOW, today=TODAY)
         assert model.next_task(store, "p").id == med.id
 
-    def test_next_follower_prefers_higher_priority(self):
-        store = InMemoryStore()
+    def test_next_follower_prefers_higher_priority(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         # Two followers of a, differing priority; the higher one is chosen.
         model.create(
@@ -1268,8 +1191,7 @@ class TestParseTaskBlocks:
 
 
 class TestLoadMany:
-    def test_intra_file_follow_resolves_to_allocated_id(self):
-        store = InMemoryStore()
+    def test_intra_file_follow_resolves_to_allocated_id(self, store):
         blocks = [
             {"name": "a", "args": {"title": "A"}, "content": "ca"},
             {"name": "b", "args": {"title": "B", "follow": "a"}, "content": "cb"},
@@ -1281,8 +1203,7 @@ class TestLoadMany:
         assert b.follows == [a.id]
         assert "a" not in b.follows
 
-    def test_follow_end_resolves_against_live_store(self):
-        store = InMemoryStore()
+    def test_follow_end_resolves_against_live_store(self, store):
         seed = model.create(store, project="p", title="seed", now=NOW, today=TODAY)
         blocks = [
             {"name": "x", "args": {"title": "X", "follow-end": seed.id}, "content": ""},
@@ -1290,8 +1211,7 @@ class TestLoadMany:
         created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
         assert created[0].follows == [seed.id]
 
-    def test_block_actions_are_applied(self):
-        store = InMemoryStore()
+    def test_block_actions_are_applied(self, store):
         blocks = [
             {
                 "name": "exec",
@@ -1309,8 +1229,7 @@ class TestLoadMany:
         assert created[0].pre_action == "linear.in-progress"
         assert created[0].post_action == "linear.done"
 
-    def test_block_actions_default_empty(self):
-        store = InMemoryStore()
+    def test_block_actions_default_empty(self, store):
         blocks = [{"name": "a", "args": {"title": "A"}, "content": ""}]
         created = model.load_many(
             store, project="p", blocks=blocks, now=NOW, today=TODAY
@@ -1318,8 +1237,7 @@ class TestLoadMany:
         assert created[0].pre_action == ""
         assert created[0].post_action == ""
 
-    def test_block_mode_is_honored_and_defaults_to_plan(self):
-        store = InMemoryStore()
+    def test_block_mode_is_honored_and_defaults_to_plan(self, store):
         blocks = [
             {"name": "exec", "args": {"title": "E", "mode": "normal"}, "content": ""},
             {"name": "plan", "args": {"title": "P"}, "content": ""},
@@ -1329,8 +1247,7 @@ class TestLoadMany:
         assert by_title["E"].mode == "normal"          # explicit wins
         assert by_title["P"].mode == model.DEFAULT_MODE  # omitted falls through to plan
 
-    def test_passthrough_real_id_follow(self):
-        store = InMemoryStore()
+    def test_passthrough_real_id_follow(self, store):
         seed = model.create(store, project="p", title="seed", now=NOW, today=TODAY)
         blocks = [
             {"name": "x", "args": {"title": "X", "follow": seed.id}, "content": ""},
@@ -1338,8 +1255,7 @@ class TestLoadMany:
         created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
         assert created[0].follows == [seed.id]
 
-    def test_child_id_allocation_increments_across_batch(self):
-        store = InMemoryStore()
+    def test_child_id_allocation_increments_across_batch(self, store):
         blocks = [
             {"name": "a", "args": {"title": "A", "parent": "linear.X"}, "content": ""},
             {"name": "b", "args": {"title": "B", "parent": "linear.X"}, "content": ""},
@@ -1348,9 +1264,8 @@ class TestLoadMany:
         ids = [t.id for t in created]
         assert ids == ["linear.X.1", "linear.X.2"]
 
-    def test_follow_list_value(self):
+    def test_follow_list_value(self, store):
         # A list-valued follow with one block-name and one real id.
-        store = InMemoryStore()
         seed = model.create(store, project="p", title="seed", now=NOW, today=TODAY)
         blocks = [
             {"name": "a", "args": {"title": "A"}, "content": ""},
@@ -1360,8 +1275,7 @@ class TestLoadMany:
         a, b = created
         assert b.follows == [a.id, seed.id]
 
-    def test_default_parent_applied_when_block_omits_parent(self):
-        store = InMemoryStore()
+    def test_default_parent_applied_when_block_omits_parent(self, store):
         blocks = [{"name": "a", "args": {"title": "A"}, "content": ""}]
         created = model.load_many(
             store, project="p", blocks=blocks, default_parent="linear.X", now=NOW
@@ -1369,8 +1283,7 @@ class TestLoadMany:
         assert created[0].parent == "linear.X"
         assert created[0].id == "linear.X.1"  # nested child id
 
-    def test_block_parent_overrides_default(self):
-        store = InMemoryStore()
+    def test_block_parent_overrides_default(self, store):
         blocks = [
             {"name": "a", "args": {"title": "A", "parent": "linear.Y"}, "content": ""}
         ]
@@ -1379,10 +1292,9 @@ class TestLoadMany:
         )
         assert created[0].parent == "linear.Y"
 
-    def test_follow_end_wildcard_appends_to_sibling_chain(self):
+    def test_follow_end_wildcard_appends_to_sibling_chain(self, store):
         # An existing child of linear.X; a new block with follow-end: * should
         # follow it (the end of the parent's child-chain).
-        store = InMemoryStore()
         existing = model.create(
             store, project="p", title="existing", parent="linear.X", now=NOW
         )
@@ -1394,8 +1306,7 @@ class TestLoadMany:
         )
         assert created[0].follows == [existing.id]
 
-    def test_follow_end_wildcard_empty_when_first_child(self):
-        store = InMemoryStore()
+    def test_follow_end_wildcard_empty_when_first_child(self, store):
         blocks = [
             {"name": "step", "args": {"title": "Step", "follow-end": "*"}, "content": ""},
         ]
@@ -1405,9 +1316,8 @@ class TestLoadMany:
         # No existing siblings -> nothing to follow.
         assert created[0].follows == []
 
-    def test_wildcard_and_intra_file_follow_combine(self):
+    def test_wildcard_and_intra_file_follow_combine(self, store):
         # step: follow-end:* (appends after existing sibling); tail: follow:step.
-        store = InMemoryStore()
         existing = model.create(
             store, project="p", title="existing", parent="linear.X", now=NOW
         )
@@ -1429,20 +1339,17 @@ class TestLoadMany:
 
 
 class TestCreatePriority:
-    def test_default_is_medium(self):
-        store = InMemoryStore()
+    def test_default_is_medium(self, store):
         t = model.create(store, project="p", title="t", now=NOW)
         assert t.priority == "medium"
         assert model.load(store, "p", t.id).priority == "medium"
 
-    def test_explicit_priority_persists(self):
-        store = InMemoryStore()
+    def test_explicit_priority_persists(self, store):
         t = model.create(store, project="p", title="t", priority="high", now=NOW)
         assert t.priority == "high"
         assert model.load(store, "p", t.id).priority == "high"
 
-    def test_invalid_priority_raises(self):
-        store = InMemoryStore()
+    def test_invalid_priority_raises(self, store):
         with pytest.raises(ValueError):
             model.create(store, project="p", title="t", priority="bogus", now=NOW)
 
@@ -1451,8 +1358,7 @@ class TestCreatePriority:
 
 
 class TestUpdate:
-    def test_update_changes_fields_and_bumps_updated(self):
-        store = InMemoryStore()
+    def test_update_changes_fields_and_bumps_updated(self, store):
         t = model.create(store, project="p", title="old", now=NOW)
         updated = model.update(
             store, "p", t.id, title="new", branch="feat/x", content="body", now=NOW2
@@ -1466,8 +1372,7 @@ class TestUpdate:
         assert reloaded.branch == "feat/x"
         assert reloaded.content == "body"
 
-    def test_update_leaves_omitted_fields_untouched(self):
-        store = InMemoryStore()
+    def test_update_leaves_omitted_fields_untouched(self, store):
         t = model.create(
             store, project="p", title="keep", branch="b", content="body", now=NOW
         )
@@ -1477,8 +1382,7 @@ class TestUpdate:
         assert reloaded.content == "body"
         assert reloaded.branch == "b2"
 
-    def test_update_changes_command_and_mode(self):
-        store = InMemoryStore()
+    def test_update_changes_command_and_mode(self, store):
         t = model.create(
             store, project="p", title="t", command="plan-task", mode="plan", now=NOW
         )
@@ -1487,39 +1391,33 @@ class TestUpdate:
         assert reloaded.command == "execute"
         assert reloaded.mode == "normal"
 
-    def test_update_command_to_empty(self):
-        store = InMemoryStore()
+    def test_update_command_to_empty(self, store):
         t = model.create(store, project="p", title="t", command="plan-task", now=NOW)
         model.update(store, "p", t.id, command="", now=NOW2)
         assert model.load(store, "p", t.id).command == ""
 
-    def test_update_changes_priority(self):
-        store = InMemoryStore()
+    def test_update_changes_priority(self, store):
         t = model.create(store, project="p", title="t", now=NOW)
         model.update(store, "p", t.id, priority="critical", now=NOW2)
         assert model.load(store, "p", t.id).priority == "critical"
 
-    def test_update_invalid_priority_raises(self):
-        store = InMemoryStore()
+    def test_update_invalid_priority_raises(self, store):
         t = model.create(store, project="p", title="t", now=NOW)
         with pytest.raises(ValueError):
             model.update(store, "p", t.id, priority="bogus", now=NOW2)
 
-    def test_update_omitting_priority_leaves_it(self):
-        store = InMemoryStore()
+    def test_update_omitting_priority_leaves_it(self, store):
         t = model.create(store, project="p", title="t", priority="high", now=NOW)
         model.update(store, "p", t.id, branch="b", now=NOW2)
         assert model.load(store, "p", t.id).priority == "high"
 
-    def test_update_does_not_change_status(self):
-        store = InMemoryStore()
+    def test_update_does_not_change_status(self, store):
         t = model.create(store, project="p", title="t", now=NOW)
         model.move(store, "p", t.id, model.STATUS_IN_PROGRESS, now=NOW)
         model.update(store, "p", t.id, branch="b", now=NOW2)
         assert model.load(store, "p", t.id).status == model.STATUS_IN_PROGRESS
 
-    def test_update_unknown_id_raises(self):
-        store = InMemoryStore()
+    def test_update_unknown_id_raises(self, store):
         with pytest.raises(KeyError):
             model.update(store, "p", "nope", branch="x")
 
@@ -1633,8 +1531,7 @@ class TestEditInEditor:
 
 
 class TestDuplicate:
-    def test_copies_recipe_into_todo(self):
-        store = InMemoryStore()
+    def test_copies_recipe_into_todo(self, store):
         src = model.create(
             store, project="p", title="Src", command="plan-task",
             mode="auto", content="body", pre_action="a", post_action="b",
@@ -1650,8 +1547,7 @@ class TestDuplicate:
         assert dup.pre_action == "a"
         assert dup.post_action == "b"
 
-    def test_does_not_copy_schedule(self):
-        store = InMemoryStore()
+    def test_does_not_copy_schedule(self, store):
         model.create(
             store, project="p", title="T", schedule="0 9 * * *",
             last_run="2026-01-01T00:00:00+00:00",
@@ -1661,36 +1557,31 @@ class TestDuplicate:
         assert dup.schedule == ""
         assert dup.last_run == ""
 
-    def test_overrides_win(self):
-        store = InMemoryStore()
+    def test_overrides_win(self, store):
         model.create(store, project="p", title="Src", command="c1", id="s")
         dup = model.duplicate(store, "p", "s", title="New", command="c2")
         assert dup.title == "New"
         assert dup.command == "c2"
 
-    def test_inherits_source_priority(self):
-        store = InMemoryStore()
+    def test_inherits_source_priority(self, store):
         model.create(store, project="p", title="Src", priority="high", id="s")
         dup = model.duplicate(store, "p", "s")
         assert dup.priority == "high"
 
-    def test_priority_override_wins(self):
-        store = InMemoryStore()
+    def test_priority_override_wins(self, store):
         model.create(store, project="p", title="Src", priority="high", id="s")
         dup = model.duplicate(store, "p", "s", priority="low")
         assert dup.priority == "low"
 
-    def test_source_untouched(self):
-        store = InMemoryStore()
+    def test_source_untouched(self, store):
         model.create(store, project="p", title="Src", content="x", id="s")
         model.duplicate(store, "p", "s", title="other")
         assert model.load(store, "p", "s").title == "Src"
 
-    def test_run_id_names_run_under_template_but_parent_is_blank(self):
+    def test_run_id_names_run_under_template_but_parent_is_blank(self, store):
         # A scheduled run is duplicated with parent="" and id=allocate_run_id:
         # the dot-id names/dedups it under the template, while the empty parent
         # lets it root its own chain (see docs/dev/tasks.md).
-        store = InMemoryStore()
         model.create(
             store, project="p", title="Maint", status=model.STATUS_TEMPLATE,
             id="maintenance",
@@ -1709,8 +1600,7 @@ class TestDuplicate:
             run_id, "", title="Maint", generate=True
         )
 
-    def test_branch_override_is_honored(self):
-        store = InMemoryStore()
+    def test_branch_override_is_honored(self, store):
         model.create(
             store, project="p", title="Maint", status=model.STATUS_TEMPLATE,
             id="maintenance",
@@ -1724,28 +1614,24 @@ class TestDuplicate:
 
 
 class TestTemplateStatus:
-    def test_template_is_not_actionable(self):
-        store = InMemoryStore()
+    def test_template_is_not_actionable(self, store):
         t = model.create(
             store, project="p", title="T", status=model.STATUS_TEMPLATE, id="t"
         )
         assert not model.is_actionable(t, store)
 
-    def test_template_invisible_to_next_task(self):
-        store = InMemoryStore()
+    def test_template_invisible_to_next_task(self, store):
         model.create(
             store, project="p", title="T", status=model.STATUS_TEMPLATE, id="t"
         )
         assert model.next_task(store, "p") is None
 
-    def test_move_accepts_template(self):
-        store = InMemoryStore()
+    def test_move_accepts_template(self, store):
         model.create(store, project="p", title="T", id="t")
         moved = model.move(store, "p", "t", model.STATUS_TEMPLATE)
         assert moved.status == model.STATUS_TEMPLATE
 
-    def test_schedule_round_trips(self):
-        store = InMemoryStore()
+    def test_schedule_round_trips(self, store):
         model.create(
             store, project="p", title="T", schedule="0 9 * * *",
             last_run="2026-06-18T09:00:00+00:00", id="t",
@@ -1785,8 +1671,7 @@ class TestReconcile:
         model.move(store, project, t.id, model.STATUS_IN_PROGRESS)
         return t
 
-    def test_ok_row_for_in_progress_with_session(self):
-        store = InMemoryStore()
+    def test_ok_row_for_in_progress_with_session(self, store):
         t = self._in_progress(store, "p", "a", id="t1")
         rows = model.reconcile(
             store, "p", session_task_ids={t.id: {"pid": 1}}
@@ -1795,16 +1680,14 @@ class TestReconcile:
         assert rows[0].state == model.RECONCILE_OK
         assert rows[0].fix_status is None
 
-    def test_stale_in_progress_without_session(self):
-        store = InMemoryStore()
+    def test_stale_in_progress_without_session(self, store):
         self._in_progress(store, "p", "a", id="t1")
         rows = model.reconcile(store, "p", session_task_ids={})
         assert len(rows) == 1
         assert rows[0].state == model.RECONCILE_STALE
         assert rows[0].fix_status == model.STATUS_DONE
 
-    def test_orphan_session_on_todo_task(self):
-        store = InMemoryStore()
+    def test_orphan_session_on_todo_task(self, store):
         t = model.create(store, project="p", title="a", id="t1")  # stays todo
         rows = model.reconcile(
             store, "p", session_task_ids={t.id: {"pid": 9}}
@@ -1813,8 +1696,7 @@ class TestReconcile:
         assert rows[0].state == model.RECONCILE_ORPHAN
         assert rows[0].fix_status == model.STATUS_IN_PROGRESS
 
-    def test_done_task_with_session_listed_but_not_flipped(self):
-        store = InMemoryStore()
+    def test_done_task_with_session_listed_but_not_flipped(self, store):
         t = model.create(store, project="p", title="a", id="t1")
         model.move(store, "p", t.id, model.STATUS_DONE)
         rows = model.reconcile(
@@ -1824,8 +1706,7 @@ class TestReconcile:
         assert rows[0].state == model.RECONCILE_ORPHAN
         assert rows[0].fix_status is None  # finished window — not a corruption
 
-    def test_missing_task_with_session_not_flipped(self):
-        store = InMemoryStore()
+    def test_missing_task_with_session_not_flipped(self, store):
         rows = model.reconcile(
             store, "p", session_task_ids={"ghost": {"pid": 9}}
         )
@@ -1834,8 +1715,7 @@ class TestReconcile:
         assert rows[0].task_status == "(missing)"
         assert rows[0].fix_status is None
 
-    def test_mixed_rows_sorted_by_task_id(self):
-        store = InMemoryStore()
+    def test_mixed_rows_sorted_by_task_id(self, store):
         self._in_progress(store, "p", "a", id="t1")  # stale (no session)
         t2 = self._in_progress(store, "p", "b", id="t2")  # ok
         rows = model.reconcile(
@@ -1844,3 +1724,21 @@ class TestReconcile:
         assert [r.task_id for r in rows] == ["t1", "t2"]
         assert rows[0].state == model.RECONCILE_STALE
         assert rows[1].state == model.RECONCILE_OK
+
+    def test_scans_store_even_with_empty_default_index(self, store, monkeypatch):
+        """reconcile must not serve its in-progress listing from the module default.
+
+        In production the CLI wires a real index into mutations but never into
+        ``_DEFAULT_INDEX``, so at reconcile time the default is an empty index whose
+        HEAD stamp (``None``) matches an in-memory store's HEAD (``None``). A bare
+        ``list_tasks`` would read that as fresh and return nothing; ``no_index=True``
+        forces the definitive store scan. Point the default at a *separate* empty
+        index (the writes below don't touch it) to reproduce that production state.
+        """
+        from maelstrom.task_index import SqliteTaskIndex
+
+        self._in_progress(store, "p", "a", id="t1")
+        monkeypatch.setattr(model, "_DEFAULT_INDEX", SqliteTaskIndex(":memory:"))
+        rows = model.reconcile(store, "p", session_task_ids={})
+        assert len(rows) == 1
+        assert rows[0].state == model.RECONCILE_STALE

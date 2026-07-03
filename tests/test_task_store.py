@@ -6,7 +6,7 @@ import subprocess
 import pytest
 
 import maelstrom.task_store as task_store
-from maelstrom.task_store import GitFileStore
+from maelstrom.task_store import GitFileStore, InMemoryStore
 
 
 def _git(root, *args) -> str:
@@ -165,6 +165,55 @@ class TestTransaction:
         assert ".writelock" not in _git(root, "status", "--porcelain")
         # ...and never as a task key.
         assert ".writelock" not in store.list_dir("")
+
+    def test_index_excluded(self, tmp_path):
+        root = tmp_path / "tasks"
+        store = GitFileStore(root=root)
+        store.write("p/todo/x.md", "x", message="task: add x")
+        # Drop a fake index db + its WAL sidecars into the store root.
+        (root / "index.db").write_text("db")
+        (root / "index.db-wal").write_text("wal")
+        (root / "index.db-shm").write_text("shm")
+        exclude = (root / ".git" / "info" / "exclude").read_text()
+        assert "index.db" in exclude
+        assert "index.db-wal" in exclude
+        assert "index.db-shm" in exclude
+        # A subsequent commit-producing op must not stage the index files...
+        store.write("p/todo/y.md", "y", message="task: add y")
+        porcelain = _git(root, "status", "--porcelain")
+        assert "index.db" not in porcelain
+        # ...and list_dir must never surface them as task keys.
+        keys = store.list_dir("")
+        assert "index.db" not in keys
+        assert "index.db-wal" not in keys
+        assert "index.db-shm" not in keys
+
+
+class TestHead:
+    def test_head_none_on_empty_repo(self, tmp_path):
+        # A store whose repo has no commits yet (and one never initialised) both
+        # read as "no version".
+        store = GitFileStore(root=tmp_path / "tasks")
+        assert store.head() is None
+
+    def test_head_returns_sha_after_commit(self, tmp_path):
+        root = tmp_path / "tasks"
+        store = GitFileStore(root=root)
+        store.write("p/todo/x.md", "x", message="task: add x")
+        head = store.head()
+        assert head is not None
+        assert head == _git(root, "rev-parse", "HEAD").strip()
+
+    def test_head_advances_with_commits(self, tmp_path):
+        root = tmp_path / "tasks"
+        store = GitFileStore(root=root)
+        store.write("p/todo/x.md", "x", message="task: add x")
+        first = store.head()
+        store.write("p/todo/y.md", "y", message="task: add y")
+        assert store.head() != first
+
+    def test_inmemory_head_is_none(self):
+        assert InMemoryStore().head() is None
 
 
 class TestTransactionViaModel:
