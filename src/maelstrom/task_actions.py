@@ -102,7 +102,7 @@ _ACTION_FOR_STATUS = {
 }
 
 
-def move_with_actions(store, project, id, new_status, *, now=None):
+def move_with_actions(store, project, id, new_status, *, now=None, index=None):
     """``model.move``, then fire the task's pre/post action for this destination.
 
     The single chokepoint for status transitions that may fire lifecycle
@@ -111,10 +111,14 @@ def move_with_actions(store, project, id, new_status, *, now=None):
     path and the launch / session-end paths trigger actions — keyed off the
     destination status. Returns the moved Task; action failures never block the
     move (:func:`run_action` swallows + warns).
+
+    ``index`` (optional) is threaded straight through to :func:`model.move` so the
+    metadata index stays current across every transition path; ``None`` keeps the
+    model's null-object default (``model.move`` resolves ``index=None`` itself).
     """
     from maelstrom import task as model
 
-    moved = model.move(store, project, id, new_status, now=now)
+    moved = model.move(store, project, id, new_status, now=now, index=index)
     field = _ACTION_FOR_STATUS.get(new_status)
     if field:
         run_action(moved, getattr(moved, field))

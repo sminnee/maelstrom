@@ -177,7 +177,9 @@ def due_templates(
     a week offline on a daily template yields exactly one run — never a backfill.
     """
     out: list[tuple[Task, str]] = []
-    for tmpl in list_tasks(store, project=project, status=STATUS_TEMPLATE):
+    # Scan the store: no HEAD is threaded here, and this drives the scheduled-run
+    # mutation loop where the index may be mid-transaction.
+    for tmpl in list_tasks(store, project=project, status=STATUS_TEMPLATE, no_index=True):
         if not tmpl.schedule:
             continue
         last = _parse_iso(tmpl.last_run) or _parse_iso(tmpl.created)

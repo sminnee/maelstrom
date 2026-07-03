@@ -19,6 +19,7 @@ from . import session_discovery
 from . import session_store
 from .context import resolve_context
 from .table import draw_table
+from .task_index import SqliteTaskIndex
 from .task_store import GitFileStore
 from .shell import run_cmd
 from .worktree import (
@@ -50,6 +51,54 @@ def _current_branch_or_none() -> str | None:
 
 def _store() -> GitFileStore:
     return GitFileStore()
+
+
+def _index(store: GitFileStore) -> "SqliteTaskIndex":
+    """Return the SQLite metadata index living alongside ``store`` in its root.
+
+    Ensures the store excludes ``index.db*`` first (idempotent, and a no-op on a
+    not-yet-initialised repo), so even a task store that predates the index never
+    surfaces the cache as an untracked/staged change. It's a rebuildable cache of
+    the ``.md`` tree, never part of the notebook history.
+    """
+    store.ensure_excludes()
+    return SqliteTaskIndex(store.root / "index.db")
+
+
+def _read_index(store: GitFileStore) -> "tuple[SqliteTaskIndex, str | None]":
+    """Return ``(index, head)`` for a read command's model-call fast path.
+
+    ``head`` is the store's current git HEAD; the model serves from the index only
+    when the index's own HEAD stamp matches it (else it falls back to a scan), so a
+    never-built or stale index degrades safely to the old behaviour.
+    """
+    return _index(store), store.head()
+
+
+def _mutate_index(store: GitFileStore) -> "tuple[SqliteTaskIndex, bool]":
+    """Return ``(index, was_fresh)`` for a mutating command.
+
+    Capture whether the index is complete at the current HEAD *before* the
+    mutation runs, so :func:`_restamp` can decide afterwards whether advancing the
+    stamp is sound (see its docstring).
+    """
+    index = _index(store)
+    return index, index.head() == store.head()
+
+
+def _restamp(store: GitFileStore, index: "SqliteTaskIndex", *, was_fresh: bool) -> None:
+    """Advance the index HEAD stamp after a mutation — only if it was complete.
+
+    A mutating command upserts/removes the single affected row(s) beside the store
+    write, then calls this. We re-stamp to the post-commit HEAD *only* when the
+    index was already fresh (complete at the pre-mutation HEAD): an incremental
+    single-row update preserves completeness, so the cache stays trustworthy.
+    If the index was stale or never built, we leave the stamp behind so reads keep
+    scanning until ``task reindex`` rebuilds it — never claiming freshness for a
+    partial index.
+    """
+    if was_fresh:
+        index.set_head(store.head())
 
 
 def _active_session_for_task_worktree(
@@ -99,7 +148,12 @@ def _run_task(
     The launchers may ``execvp`` (replacing the process), so every store write
     MUST complete before they are called. With ``here=True`` the session runs
     in the current shell — no worktree reconciliation, no new cmux workspace.
+
+    The status move updates the metadata index too, and re-stamps its HEAD (only
+    if it was complete beforehand) *before* the launcher runs, since an ``execvp``
+    never returns here.
     """
+    index, was_fresh = _mutate_index(store)
     # Refuse a second parallel launch: the task's worktree already has a *live*
     # Claude session (one worktree, one PR — racing two sessions on it corrupts
     # both). Liveness is a running `claude` process whose cwd is that worktree
@@ -134,8 +188,9 @@ def _run_task(
 
     if here:
         task_actions.move_with_actions(
-            store, project, task.id, model.STATUS_IN_PROGRESS
+            store, project, task.id, model.STATUS_IN_PROGRESS, index=index
         )  # write BEFORE launch; fires pre_action
+        _restamp(store, index, was_fresh=was_fresh)
         click.echo(f"Running {task.id} here (current shell)")
         run_cmd(
             build_task_launch_line(
@@ -159,8 +214,9 @@ def _run_task(
         project_path, project, branch, run_install=False
     )
     task_actions.move_with_actions(
-        store, project, task.id, model.STATUS_IN_PROGRESS
+        store, project, task.id, model.STATUS_IN_PROGRESS, index=index
     )  # write BEFORE launch; fires pre_action
+    _restamp(store, index, was_fresh=was_fresh)
     click.echo(f"Running {task.id} on {branch}")
     click.echo(f"  → {project}/{result.name} ({result.action})")
     launch_claude_in_worktree(
@@ -378,6 +434,7 @@ def add_task(
     """
     proj = _resolve_project(project)
     store = _store()
+    index, was_fresh = _mutate_index(store)
     parent = _default_parent(parent)
 
     if from_id is None and not (title and title.strip()):
@@ -409,6 +466,7 @@ def add_task(
                 follows=deduped,
                 schedule=schedule or "",
                 status=status,
+                index=index,
             )
         except KeyError:
             raise click.ClickException(f"Task not found: {from_id}")
@@ -428,15 +486,17 @@ def add_task(
             content=content or "",
             schedule=schedule or "",
             status=status,
+            index=index,
         )
     click.echo(new.id)
     if edit:
         try:
-            model.edit_in_editor(store, proj, new.id)
+            model.edit_in_editor(store, proj, new.id, index=index)
         except KeyError:
             raise click.ClickException(f"Task not found: {new.id}")
         except RuntimeError as e:
             raise click.ClickException(str(e))
+    _restamp(store, index, was_fresh=was_fresh)
     if run:
         _run_task(store, proj, new, here=here)
     return new
@@ -465,9 +525,13 @@ def task_load_many(file: str, project: str | None, run: bool, here: bool) -> Non
     for w in warnings:
         click.echo(f"warning: {w}", err=True)
     proj = _resolve_project(project)
+    store = _store()
+    index, was_fresh = _mutate_index(store)
     created = model.load_many(
-        _store(), project=proj, blocks=blocks, default_parent=_default_parent("")
+        store, project=proj, blocks=blocks,
+        default_parent=_default_parent(""), index=index,
     )
+    _restamp(store, index, was_fresh=was_fresh)
     for t in created:
         click.echo(f"{t.id}\t{t.title}")
     if run and created:
@@ -478,7 +542,7 @@ def task_load_many(file: str, project: str | None, run: bool, here: bool) -> Non
             f"{head.id} started in a separate claude session "
             "— do *not* work on it yourself."
         )
-        _run_task(_store(), proj, head, here=here)
+        _run_task(store, proj, head, here=here)
 
 
 def _scheduled_projects(project: str | None, all_projects: bool) -> list[str]:
@@ -514,24 +578,33 @@ def _fire_due_templates(
     """
     from . import schedule as sched
 
+    index, was_fresh = _mutate_index(store)
     created: list[model.Task] = []
     for tmpl, date in sched.due_templates(store, project, now=now):
         run_id = model.allocate_run_id(tmpl.id, date)
-        if model.find_key(store, project, run_id) is not None:
+        if model.find_key(store, project, run_id, no_index=True) is not None:
             continue  # already fired this boundary
         prev = sched.previous_fire(tmpl.schedule, now)
         assert prev is not None  # due_templates only yields when a boundary exists
+        # Buffer the index inside the store txn (index txn nested within) so a
+        # rollback discards both — the duplicate + template watermark update are
+        # a single unit.
         with store.transaction(message=f"task: scheduled run {run_id}"):
-            new = model.duplicate(
-                store,
-                project,
-                tmpl.id,
-                parent="",  # parentless → run roots its own chain (see docstring)
-                branch=tmpl.branch,
-                id=run_id,
-            )
-            model.update(store, project, tmpl.id, last_run=prev.isoformat())
+            with index.transaction():
+                new = model.duplicate(
+                    store,
+                    project,
+                    tmpl.id,
+                    parent="",  # parentless → run roots its own chain (see docstring)
+                    branch=tmpl.branch,
+                    id=run_id,
+                    index=index,
+                )
+                model.update(
+                    store, project, tmpl.id, last_run=prev.isoformat(), index=index
+                )
         created.append(new)
+    _restamp(store, index, was_fresh=was_fresh)
     if run:
         for t in created:
             _run_task(store, project, t, here=here)
@@ -610,7 +683,10 @@ def task_list(
     """
     proj = _resolve_project(project)
     store = _store()
-    tasks = model.list_tasks(store, project=proj, status=status, parent=parent)
+    index, head = _read_index(store)
+    tasks = model.list_tasks(
+        store, project=proj, status=status, parent=parent, index=index, head=head
+    )
     if not tasks:
         click.echo("No tasks.")
         return
@@ -626,7 +702,7 @@ def task_list(
 
     rows = []
     for t in tasks:
-        actionable = model.is_actionable(t, store)
+        actionable = model.is_actionable(t, store, index=index, head=head)
         terminal = model.is_terminal(t.status)
         blocked = not actionable and not terminal
         if all_ or show_all_in_folder:
@@ -703,12 +779,14 @@ def task_next(
     """
     proj = _resolve_project(project)
     store = _store()
+    index, head = _read_index(store)
     if branch is not None:
         effective_branch, fallback = branch, False
     else:
         effective_branch, fallback = _current_branch_or_none(), True
     nxt = model.next_task(
-        store, proj, parent=parent, branch=effective_branch, fallback=fallback
+        store, proj, parent=parent, branch=effective_branch, fallback=fallback,
+        index=index, head=head,
     )
     if nxt is None:
         raise click.ClickException("No actionable task.")
@@ -772,7 +850,9 @@ def _live_sessions_by_task(
             branch_session[wt.branch] = session
 
     mapping: dict[str, session_discovery.LiveSession] = {}
-    for task in model.list_tasks(store, project=project):
+    # Reconcile wants a definitive store view (it pairs with model.reconcile, which
+    # also scans); no HEAD is threaded here, so read the .md tree directly.
+    for task in model.list_tasks(store, project=project, no_index=True):
         branch = task.branch or model.default_branch(task.id, task.parent)
         session = branch_session.get(branch)
         if session is not None:
@@ -805,6 +885,7 @@ def task_reconcile(project: str | None, fix: bool) -> None:
     """
     proj = _resolve_project(project)
     store = _store()
+    index, was_fresh = _mutate_index(store)
     session_task_ids = _live_sessions_by_task(store, proj)
     rows = model.reconcile(store, proj, session_task_ids=session_task_ids)
 
@@ -850,12 +931,13 @@ def task_reconcile(project: str | None, fix: bool) -> None:
     for r in fixable:
         try:
             task_actions.move_with_actions(
-                store, proj, r.task_id, r.fix_status
+                store, proj, r.task_id, r.fix_status, index=index
             )
         except KeyError:
             click.echo(f"  skipped {r.task_id}: task no longer exists", err=True)
             continue
         click.echo(f"  {r.task_id}: {r.task_status} -> {r.fix_status}")
+    _restamp(store, index, was_fresh=was_fresh)
 
 
 @task.command("show")
@@ -865,6 +947,7 @@ def task_show(id: str, project: str | None) -> None:
     """Show a summary of a task."""
     proj = _resolve_project(project)
     store = _store()
+    index, head = _read_index(store)
     try:
         t = model.load(store, proj, id)
     except KeyError:
@@ -887,7 +970,9 @@ def task_show(id: str, project: str | None) -> None:
         click.echo(f"last-run: {t.last_run}")
     click.echo(f"created: {t.created}")
     click.echo(f"updated: {t.updated}")
-    click.echo(f"actionable: {'yes' if model.is_actionable(t, store) else 'no'}")
+    click.echo(
+        f"actionable: {'yes' if model.is_actionable(t, store, index=index, head=head) else 'no'}"
+    )
     if t.content:
         click.echo("\n## Content\n")
         click.echo(t.content)
@@ -900,7 +985,8 @@ def task_read(id: str, project: str | None) -> None:
     """Print the raw task file."""
     proj = _resolve_project(project)
     store = _store()
-    key = model.find_key(store, proj, id)
+    index, head = _read_index(store)
+    key = model.find_key(store, proj, id, index=index, head=head)
     if key is None:
         raise click.ClickException(f"Task not found: {id}")
     text = store.read(key)
@@ -930,10 +1016,12 @@ def task_log(id: str, msg: str, project: str | None) -> None:
     """Append a line to a task's log."""
     proj = _resolve_project(project)
     store = _store()
+    index, was_fresh = _mutate_index(store)
     try:
-        model.append_log(store, proj, id, msg)
+        model.append_log(store, proj, id, msg, index=index)
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
+    _restamp(store, index, was_fresh=was_fresh)
     click.echo(f"Logged to {id}.")
 
 
@@ -999,6 +1087,7 @@ def task_update(
     """
     proj = _resolve_project(project)
     store = _store()
+    index, was_fresh = _mutate_index(store)
     content = _read_content_file(content_file) if content_file is not None else None
 
     target = id
@@ -1025,7 +1114,7 @@ def task_update(
                 f"Task {id} has an open Claude session; close it before changing its id."
             )
         try:
-            model.rename(store, proj, id, new_id)
+            model.rename(store, proj, id, new_id, index=index)
         except KeyError:
             raise click.ClickException(f"Task not found: {id}")
         except ValueError as e:
@@ -1038,12 +1127,13 @@ def task_update(
             store, proj, target, title=title, branch=branch, content=content,
             command=command, mode=mode, priority=priority,
             pre_action=pre_action, post_action=post_action,
-            schedule=schedule,
+            schedule=schedule, index=index,
         )
     except KeyError:
         raise click.ClickException(f"Task not found: {target}")
     except ValueError as e:
         raise click.ClickException(str(e))
+    _restamp(store, index, was_fresh=was_fresh)
     if renamed:
         click.echo(f"Renamed {id} -> {target}.")
     click.echo(f"Updated {target}.")
@@ -1056,12 +1146,14 @@ def task_edit(id: str, project: str | None) -> None:
     """Open the task file in $EDITOR (vi); commit if changed."""
     proj = _resolve_project(project)
     store = _store()
+    index, was_fresh = _mutate_index(store)
     try:
-        _task, changed = model.edit_in_editor(store, proj, id)
+        _task, changed = model.edit_in_editor(store, proj, id, index=index)
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
     except RuntimeError as e:
         raise click.ClickException(str(e))
+    _restamp(store, index, was_fresh=was_fresh)
     click.echo(f"Updated {id}." if changed else f"No changes to {id}.")
 
 
@@ -1072,11 +1164,32 @@ def task_rm(id: str, project: str | None) -> None:
     """Delete a task and strip it from any dependents' follows lists."""
     proj = _resolve_project(project)
     store = _store()
+    index, was_fresh = _mutate_index(store)
     try:
-        model.delete(store, proj, id)
+        model.delete(store, proj, id, index=index)
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
+    _restamp(store, index, was_fresh=was_fresh)
     click.echo(f"Deleted {id}.")
+
+
+@task.command("reindex")
+def task_reindex() -> None:
+    """Rebuild the metadata index from the task notebook across all projects.
+
+    The index (``index.db`` in the task-store root) is a rebuildable cache of the
+    ``.md`` tree; this command drops it and re-derives every row, then stamps it to
+    the current store HEAD so the fast read paths trust it. Run it after deleting
+    ``index.db`` or when a manual/out-of-band edit may have diverged the cache.
+    """
+    from .context import load_global_config
+    from .worktree import find_all_projects
+
+    store = _store()
+    index = _index(store)
+    projects = [p.name for p in find_all_projects(load_global_config().projects_dir)]
+    count = model.reindex(store, index, projects=projects, head=store.head())
+    click.echo(f"Reindexed {count} tasks across {len(projects)} projects.")
 
 
 @task.group("status")
@@ -1092,13 +1205,16 @@ def _status_command(name: str, status: str, help_text: str):
         task_id = _resolve_task_id(id)
         proj = _resolve_project(project)
         store = _store()
+        index, was_fresh = _mutate_index(store)
         try:
-            task_actions.move_with_actions(store, proj, task_id, status)
+            task_actions.move_with_actions(store, proj, task_id, status, index=index)
         except KeyError:
             raise click.ClickException(f"Task not found: {task_id}")
+        _restamp(store, index, was_fresh=was_fresh)
         click.echo(f"{task_id} -> {status}")
         if status == model.STATUS_DONE:
-            running = model.running_follower(store, proj, task_id)
+            head = store.head()
+            running = model.running_follower(store, proj, task_id, index=index, head=head)
             if running is not None:
                 title = f" - {running.title}" if running.title else ""
                 click.echo()
@@ -1106,7 +1222,7 @@ def _status_command(name: str, status: str, help_text: str):
                     f"The following task is already in-progress:\n  {running.id}{title}"
                 )
             else:
-                nxt = model.next_follower(store, proj, task_id)
+                nxt = model.next_follower(store, proj, task_id, index=index, head=head)
                 if nxt is not None:
                     title = f" - {nxt.title}" if nxt.title else ""
                     click.echo()

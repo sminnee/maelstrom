@@ -150,7 +150,8 @@ def _close_task_for_session(cwd: str | None) -> None:
             return  # require_project guarantees this, but narrows the type
 
         store = GitFileStore()
-        key = model.find_key(store, project, task_id)
+        # No index/HEAD threaded on the session-end path — scan the store directly.
+        key = model.find_key(store, project, task_id, no_index=True)
         if key is None:
             return  # task already deleted — nothing to close
         if model.status_from_key(key) != model.STATUS_IN_PROGRESS:

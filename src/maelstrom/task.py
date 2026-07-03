@@ -16,12 +16,15 @@ import re
 import subprocess
 import uuid
 from collections import deque
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING
 
 from . import branch_name
 from .shell import run_cmd
+from .task_index import SqliteTaskIndex, TaskIndex, TaskMeta
 from .task_store import GitFileStore, TaskStore
 from .util import now_iso
 
@@ -154,10 +157,29 @@ def task_key(project: str, status: str, id: str) -> str:
     return f"{project}/{status}/{id}.md"
 
 
-def find_key(store: TaskStore, project: str, id: str) -> str | None:
-    """Return the key for ``id`` under ``project`` by scanning all status dirs."""
+def find_key(
+    store: TaskStore,
+    project: str,
+    id: str,
+    *,
+    index: TaskIndex | None = None,
+    no_index: bool = False,
+    head: str | None = None,
+) -> str | None:
+    """Return the key for ``id`` under ``project``.
+
+    Fast path: when a fresh index (its HEAD stamp matches the store's ``head``) is
+    in play, the key is built from the indexed status — a single-row lookup
+    instead of a full ``list_dir`` scan. Otherwise (stale, or ``no_index=True``)
+    every status dir is scanned. Mutation call sites pass ``no_index=True`` so they
+    always see the store's eager filesystem view (the index may be mid-transaction).
+    """
     if not is_safe_id(id):
         raise ValueError(f"Unsafe task id: {id!r}")
+    index = _read_index(index, no_index)
+    if index is not None and _index_fresh(index, head):
+        meta = index.find(project, id)
+        return task_key(project, meta.status, id) if meta is not None else None
     suffix = f"/{id}.md"
     for key in store.list_dir(f"{project}/"):
         if key.endswith(suffix):
@@ -401,6 +423,132 @@ def _split_sections(body: str) -> dict[str, str]:
     return sections
 
 
+# --- task index default ---
+#
+# ``store`` and ``index`` are the model's two injected collaborators. Every task
+# op takes both; a call that omits ``index`` falls back to this module-level
+# default. Production wires a real on-disk :class:`SqliteTaskIndex` from the CLI;
+# the test suite swaps this default once, in a shared fixture, so every existing
+# behaviour test exercises a real in-memory index transparently.
+#
+# The default is a real (in-memory) index, not a null-object: "enforce the sqlite
+# index across the system" means there is always a live index behind the reads.
+# A caller that must bypass it (a mutation-internal lookup, where the index may be
+# mid-transaction) passes ``no_index=True`` rather than any sentinel instance.
+#
+# SHARP EDGE: because ``_index_fresh`` trusts an index whose HEAD stamp equals the
+# passed ``head``, a production read that reaches this default WITHOUT threading a
+# ``head`` is compared as ``None == None`` — reported fresh, and served from the
+# empty default. Any bare production read (fresh ``GitFileStore``, no CLI-wired
+# index/head) MUST pass ``no_index=True`` to force a store scan. The former
+# null-object default degraded such omissions to a safe scan; this one does not.
+
+_DEFAULT_INDEX: TaskIndex = SqliteTaskIndex(":memory:")
+
+
+def _resolve_index(index: TaskIndex | None) -> TaskIndex:
+    """Return ``index`` if the caller supplied one, else the module default."""
+    return index if index is not None else _DEFAULT_INDEX
+
+
+def _read_index(index: TaskIndex | None, no_index: bool) -> TaskIndex | None:
+    """Resolve the index a *read* should consult.
+
+    ``no_index=True`` forces a store scan (``None``) — used by mutation-internal
+    lookups, where the live index may be mid-transaction and must not be trusted.
+    Otherwise the supplied index (or the module default) is returned; a stale one
+    is still rejected downstream by :func:`_index_fresh`.
+    """
+    return None if no_index else _resolve_index(index)
+
+
+# --- Task <-> TaskMeta mapping ---
+#
+# The index store owns only its ``TaskMeta`` row type and never imports this
+# module (dependency arrow model -> index-store); the projection both ways lives
+# here so the model is the single place that knows both shapes.
+
+
+def _meta_from_task(task: Task) -> TaskMeta:
+    """Project a :class:`Task` down to its indexed :class:`TaskMeta` row.
+
+    Metadata only — the body fields (``content``/``steps``/``log``) are dropped,
+    so a consumer needing full fidelity must reload the ``.md`` file.
+    """
+    return TaskMeta(
+        project=task.project,
+        id=task.id,
+        status=task.status,
+        title=task.title,
+        priority=task.priority,
+        branch=task.branch,
+        parent=task.parent,
+        follows=tuple(task.follows),
+        command=task.command,
+        mode=task.mode,
+        schedule=task.schedule,
+        last_run=task.last_run,
+        created=task.created,
+        updated=task.updated,
+    )
+
+
+def _task_from_meta(meta: TaskMeta) -> Task:
+    """Reconstruct a body-less :class:`Task` from an indexed :class:`TaskMeta`.
+
+    The read fast-path serves metadata-only consumers (``list_tasks``, actionability,
+    ``next_task``) from the index without touching the ``.md`` file. Body fields
+    come back empty — callers that need them go through :func:`load`, which always
+    reads the file.
+    """
+    return Task(
+        id=meta.id,
+        title=meta.title,
+        project=meta.project,
+        command=meta.command,
+        mode=meta.mode,
+        branch=meta.branch,
+        parent=meta.parent,
+        follows=list(meta.follows),
+        created=meta.created,
+        updated=meta.updated,
+        schedule=meta.schedule,
+        last_run=meta.last_run,
+        priority=meta.priority,
+        status=meta.status,
+    )
+
+
+@contextmanager
+def _store_and_index_txn(
+    store: TaskStore, index: TaskIndex, *, message: str
+) -> Iterator[None]:
+    """Open the store transaction with a buffered index transaction nested inside.
+
+    The nesting order is load-bearing: on an exception the inner
+    ``index.transaction`` exits first and discards its buffer, *then* the outer
+    ``store.transaction`` rolls back the filesystem — so the index never keeps rows
+    for a store change that was undone. On a clean exit the index buffer is applied
+    first, then the store commits its single batch.
+    """
+    with store.transaction(message=message):
+        with index.transaction():
+            yield
+
+
+def _index_fresh(index: TaskIndex | None, head: str | None) -> bool:
+    """Return whether ``index`` may serve reads for a store at git ``head``.
+
+    A supplied index is trusted only when its recorded HEAD stamp matches the
+    store's current ``head`` — otherwise it may be stale (an out-of-band commit
+    moved the tree) and the caller must fall back to a file scan. ``index=None``
+    means "no index" and is never fresh, so callers that pass nothing always scan.
+    """
+    if index is None:
+        return False
+    return index.head() == head
+
+
 # --- id allocation ---
 
 
@@ -465,18 +613,36 @@ def is_terminal(status: str) -> bool:
     return status in (STATUS_DONE, STATUS_CANCELLED)
 
 
-def is_actionable(task: Task, store: TaskStore) -> bool:
+def is_actionable(
+    task: Task,
+    store: TaskStore,
+    *,
+    index: TaskIndex | None = None,
+    no_index: bool = False,
+    head: str | None = None,
+) -> bool:
     """Return whether ``task`` can be started now.
 
     A task is actionable when it is not terminal, not a parked template, and
     every id it follows is in ``done/``. A ``template/`` task is a recipe to
     duplicate from, never something to launch directly, so it is never
     actionable and so stays out of the default ``task list``/``task next`` views.
+
+    A fresh index resolves each ``follows`` dependency's status with a single-row
+    lookup, killing the per-dep full-scan that dominated this hot path; otherwise
+    (stale, or ``no_index=True``) the store is scanned per dependency.
     """
     if is_terminal(task.status) or task.status == STATUS_TEMPLATE:
         return False
+    index = _read_index(index, no_index)
+    if index is not None and _index_fresh(index, head):
+        for dep in task.follows:
+            meta = index.find(task.project, dep)
+            if meta is None or not is_done(meta.status):
+                return False
+        return True
     for dep in task.follows:
-        dep_key = find_key(store, task.project, dep)
+        dep_key = find_key(store, task.project, dep, no_index=True)
         if dep_key is None or not is_done(status_from_key(dep_key)):
             return False
     return True
@@ -532,7 +698,9 @@ def child_chain_leaves(store: TaskStore, project: str, parent: str) -> list[str]
     Only direct children (``task.parent == parent``) are considered, so a
     grandchild's own sub-chain never leaks into a sibling's leaf set.
     """
-    siblings = list_tasks(store, project=project, parent=parent)
+    # Called during create()/load_many() (follow-end resolution), possibly inside
+    # a transaction — scan the store's eager view, never a mid-flight index.
+    siblings = list_tasks(store, project=project, parent=parent, no_index=True)
     sibling_ids = {t.id for t in siblings}
     # A sibling is followed-from-within the set if any other sibling follows it.
     followed_within: set[str] = set()
@@ -566,6 +734,7 @@ def create(
     status: str = DEFAULT_STATUS,
     now: str | None = None,
     today: str | None = None,
+    index: TaskIndex | None = None,
 ) -> Task:
     """Create a new task and write it to the store (one write).
 
@@ -580,6 +749,7 @@ def create(
     as a child of ``parent`` or a fresh orphan. ``status`` places the task in a
     folder other than ``todo/`` (e.g. ``template/`` for a parked template).
     """
+    index = _resolve_index(index)
     timestamp = now if now is not None else now_iso()
     if id is None:
         if parent:
@@ -627,6 +797,11 @@ def create(
     )
     key = task_key(project, status, id)
     store.write(key, task.to_markdown(), message=f"task: add {id} ({title})")
+    # The index is a separate collaborator written beside the store — never an
+    # extra store.write. If a caller has opened index.transaction() (e.g.
+    # load_many, nested inside its store.transaction), this upsert buffers and
+    # participates in that batch's rollback; otherwise it commits immediately.
+    index.upsert(_meta_from_task(task))
     return task
 
 
@@ -650,6 +825,7 @@ def duplicate(
     id: str | None = None,
     now: str | None = None,
     today: str | None = None,
+    index: TaskIndex | None = None,
 ) -> Task:
     """Duplicate ``src_id``'s recipe into a fresh task (in one write).
 
@@ -667,6 +843,7 @@ def duplicate(
     firing's follow-ups nest under the run (see docs/dev/tasks.md). Ad-hoc
     duplicates omit both and get a normal id.
     """
+    index = _resolve_index(index)
     src = load(store, project, src_id)
     return create(
         store,
@@ -686,6 +863,7 @@ def duplicate(
         id=id,
         now=now,
         today=today,
+        index=index,
     )
 
 
@@ -834,6 +1012,7 @@ def load_many(
     default_parent: str = "",
     now: str | None = None,
     today: str | None = None,
+    index: TaskIndex | None = None,
 ) -> list[Task]:
     """Create every block as a task in one transaction (a single commit).
 
@@ -850,8 +1029,11 @@ def load_many(
     allocation and leaf scans, so forward-chaining within the batch is correct.
     Returns the created tasks in block order.
     """
+    index = _resolve_index(index)
     created: dict[str, Task] = {}  # block name -> created Task
-    with store.transaction(message=f"task: load {len(blocks)} task(s)"):
+    with _store_and_index_txn(
+        store, index, message=f"task: load {len(blocks)} task(s)"
+    ):
         for b in blocks:
             args = b["args"]
             parent = str(args.get("parent", "")) or default_parent
@@ -876,6 +1058,7 @@ def load_many(
                 content=b["content"],
                 now=now,
                 today=today,
+                index=index,
             )
             created[b["name"]] = t
     return list(created.values())
@@ -897,8 +1080,14 @@ def _resolve_follow_end(
 
 
 def load(store: TaskStore, project: str, id: str) -> Task:
-    """Load a task by id. Raises ``KeyError`` if not found."""
-    key = find_key(store, project, id)
+    """Load a task by id. Raises ``KeyError`` if not found.
+
+    Always reads the ``.md`` file (a full-fidelity ``Task``), so the key lookup
+    scans the store rather than trusting the index — this also keeps ``load``
+    correct when called from inside a mutation (e.g. ``duplicate``), where the
+    index may be mid-transaction.
+    """
+    key = find_key(store, project, id, no_index=True)
     if key is None:
         raise KeyError(f"Task not found: {project}/{id}")
     text = store.read(key)
@@ -914,11 +1103,13 @@ def move(
     new_status: str,
     *,
     now: str | None = None,
+    index: TaskIndex | None = None,
 ) -> Task:
     """Move a task to ``new_status`` (write-new + delete-old, bumps ``updated``)."""
+    index = _resolve_index(index)
     if new_status not in VALID_STATUSES:
         raise ValueError(f"Invalid status: {new_status!r}")
-    old_key = find_key(store, project, id)
+    old_key = find_key(store, project, id, no_index=True)
     if old_key is None:
         raise KeyError(f"Task not found: {project}/{id}")
     text = store.read(old_key)
@@ -933,10 +1124,16 @@ def move(
     task.updated = now if now is not None else now_iso()
     new_key = task_key(project, new_status, id)
     # One commit for the write-new + delete-old pair; the transaction owns the
-    # message, so the per-call writes/deletes don't repeat it.
-    with store.transaction(message=f"task: move {id} -> {new_status}"):
+    # message, so the per-call writes/deletes don't repeat it. The index carries
+    # only the status column here — the id is unchanged — so a single upsert of
+    # the new row replaces the old (no remove/re-add churn), buffered inside the
+    # store txn so a rollback discards it too.
+    with _store_and_index_txn(
+        store, index, message=f"task: move {id} -> {new_status}"
+    ):
         store.write(new_key, task.to_markdown())
         store.delete(old_key)
+        index.upsert(_meta_from_task(task))
     return task
 
 
@@ -947,9 +1144,11 @@ def append_log(
     msg: str,
     *,
     now: str | None = None,
+    index: TaskIndex | None = None,
 ) -> Task:
     """Append a timestamped line to a task's log section (one write)."""
-    key = find_key(store, project, id)
+    index = _resolve_index(index)
+    key = find_key(store, project, id, no_index=True)
     if key is None:
         raise KeyError(f"Task not found: {project}/{id}")
     text = store.read(key)
@@ -961,6 +1160,8 @@ def append_log(
     task.log = f"{task.log}\n{entry}".strip() if task.log else entry
     task.updated = timestamp
     store.write(key, task.to_markdown(), message=f"task: log {id}")
+    # The log body isn't indexed, but ``updated`` is — keep the row current.
+    index.upsert(_meta_from_task(task))
     return task
 
 
@@ -980,6 +1181,7 @@ def update(
     last_run: str | None = None,
     priority: str | None = None,
     now: str | None = None,
+    index: TaskIndex | None = None,
 ) -> Task:
     """Update provided fields in place (one write, bumps ``updated``).
 
@@ -987,7 +1189,8 @@ def update(
     for lifecycle transitions). Only fields passed non-``None`` are changed, so
     an omitted argument leaves that field as-is.
     """
-    key = find_key(store, project, id)
+    index = _resolve_index(index)
+    key = find_key(store, project, id, no_index=True)
     if key is None:
         raise KeyError(f"Task not found: {project}/{id}")
     text = store.read(key)
@@ -1017,6 +1220,7 @@ def update(
         task.priority = priority
     task.updated = now if now is not None else now_iso()
     store.write(key, task.to_markdown(), message=f"task: update {id}")
+    index.upsert(_meta_from_task(task))
     return task
 
 
@@ -1026,6 +1230,7 @@ def edit_in_editor(
     id: str,
     *,
     editor: str | None = None,
+    index: TaskIndex | None = None,
 ) -> tuple[Task, bool]:
     """Open the task file in ``$EDITOR``/vi; commit only if it changed.
 
@@ -1035,7 +1240,8 @@ def edit_in_editor(
     bumps, then committed via the store — keeping git the single committer.
     Needs the on-disk path, which only :class:`GitFileStore` exposes.
     """
-    key = find_key(store, project, id)
+    index = _resolve_index(index)
+    key = find_key(store, project, id, no_index=True)
     if key is None:
         raise KeyError(f"Task not found: {project}/{id}")
     before = store.read(key)
@@ -1066,10 +1272,19 @@ def edit_in_editor(
     task = Task.from_markdown(after, status=status_from_key(key))
     task.updated = now_iso()
     store.write(key, task.to_markdown(), message=f"task: edit {id}")
+    # A free-form edit can touch any indexed field (title/priority/follows/…), so
+    # re-project the whole row.
+    index.upsert(_meta_from_task(task))
     return task, True
 
 
-def delete(store: TaskStore, project: str, id: str) -> Task:
+def delete(
+    store: TaskStore,
+    project: str,
+    id: str,
+    *,
+    index: TaskIndex | None = None,
+) -> Task:
     """Delete a task and strip it from every dependent's ``follows`` list.
 
     Removes the task file, then scans the project for non-terminal tasks that
@@ -1077,7 +1292,8 @@ def delete(store: TaskStore, project: str, id: str) -> Task:
     tasks (done/cancelled) are left untouched — they're historical and their
     ``follows`` no longer gates anything. Returns the deleted task.
     """
-    key = find_key(store, project, id)
+    index = _resolve_index(index)
+    key = find_key(store, project, id, no_index=True)
     if key is None:
         raise KeyError(f"Task not found: {project}/{id}")
     text = store.read(key)
@@ -1087,9 +1303,12 @@ def delete(store: TaskStore, project: str, id: str) -> Task:
 
     # One commit for the removal plus every dependent rewrite; the transaction
     # owns the message. The store mutates eagerly, so the post-delete list_dir
-    # scan below still sees a consistent view.
-    with store.transaction(message=f"task: rm {id}"):
+    # scan below still sees a consistent view. The index removal + dependent
+    # upserts are buffered inside the same nested txn, so a rollback discards
+    # them before the store rolls back the fs.
+    with _store_and_index_txn(store, index, message=f"task: rm {id}"):
         store.delete(key)
+        index.remove(project, id)
 
         # Drop the deleted id from any non-terminal dependent's follows list.
         for dep_key in store.list_dir(f"{project}/"):
@@ -1105,6 +1324,7 @@ def delete(store: TaskStore, project: str, id: str) -> Task:
                 continue
             dep.follows = [f for f in dep.follows if f != id]
             store.write(dep_key, dep.to_markdown())
+            index.upsert(_meta_from_task(dep))
     return deleted
 
 
@@ -1115,6 +1335,7 @@ def rename(
     new_id: str,
     *,
     now: str | None = None,
+    index: TaskIndex | None = None,
 ) -> Task:
     """Re-key a task and fix every reference that points at it.
 
@@ -1128,7 +1349,8 @@ def rename(
     ``new_id`` already taken). Returns the renamed task unchanged when
     ``new_id == old_id``.
     """
-    old_key = find_key(store, project, old_id)
+    index = _resolve_index(index)
+    old_key = find_key(store, project, old_id, no_index=True)
     if old_key is None:
         raise KeyError(f"Task not found: {project}/{old_id}")
     if not is_safe_id(new_id):
@@ -1138,7 +1360,7 @@ def rename(
         if text is None:
             raise KeyError(f"Task not found: {project}/{old_id}")
         return Task.from_markdown(text, status=status_from_key(old_key))
-    if find_key(store, project, new_id) is not None:
+    if find_key(store, project, new_id, no_index=True) is not None:
         raise ValueError(f"Task already exists: {project}/{new_id}")
 
     text = store.read(old_key)
@@ -1152,10 +1374,15 @@ def rename(
 
     # One commit for the relocation plus every dependent rewrite; the transaction
     # owns the message. The store mutates eagerly, so the list_dir scan below
-    # sees the post-write/delete view.
-    with store.transaction(message=f"task: rename {old_id} -> {new_id}"):
+    # sees the post-write/delete view. The index re-keys (remove old + upsert
+    # new) and re-upserts each rewritten dependent, buffered inside the nested txn.
+    with _store_and_index_txn(
+        store, index, message=f"task: rename {old_id} -> {new_id}"
+    ):
         store.write(new_key, task.to_markdown())
         store.delete(old_key)
+        index.remove(project, old_id)
+        index.upsert(_meta_from_task(task))
 
         # Fix cross-references in non-terminal tasks: rewrite follows (old->new)
         # and re-parent direct children (old->new). The renamed task itself is
@@ -1178,6 +1405,7 @@ def rename(
                 changed = True
             if changed:
                 store.write(dep_key, dep.to_markdown())
+                index.upsert(_meta_from_task(dep))
     return task
 
 
@@ -1187,8 +1415,21 @@ def list_tasks(
     project: str,
     status: str | None = None,
     parent: str | None = None,
+    index: TaskIndex | None = None,
+    no_index: bool = False,
+    head: str | None = None,
 ) -> list[Task]:
-    """List tasks under ``project``, optionally filtered by status and parent."""
+    """List tasks under ``project``, optionally filtered by status and parent.
+
+    Fast path: a fresh index answers from indexed rows (body-less
+    :class:`Task`\\ s) with no per-file read/parse. Otherwise (stale, or
+    ``no_index=True``) every ``.md`` under ``project`` is scanned and parsed. The
+    returned tasks are id-sorted either way.
+    """
+    index = _read_index(index, no_index)
+    if index is not None and _index_fresh(index, head):
+        metas = index.list(project, status=status, parent=parent)
+        return [_task_from_meta(m) for m in metas]
     tasks: list[Task] = []
     for key in store.list_dir(f"{project}/"):
         if not key.endswith(".md"):
@@ -1208,6 +1449,41 @@ def list_tasks(
         tasks.append(task)
     tasks.sort(key=lambda t: t.id)
     return tasks
+
+
+def reindex(
+    store: TaskStore,
+    index: TaskIndex,
+    *,
+    projects: list[str],
+    head: str | None,
+) -> int:
+    """Rebuild ``index`` from scratch against the store, returning the row count.
+
+    Invalidates the HEAD stamp, clears the index, then force-scans every project
+    (slow-path ``list_tasks`` — never reading the index it is rebuilding) and
+    upserts a row per task. Only after the rebuild commits does it re-stamp the
+    HEAD to ``head`` (the store's current git HEAD, resolved by the CLI) so
+    subsequent reads trust the freshly-built cache. The ``.md`` tree is the source
+    of truth; this makes the derived cache match it exactly.
+
+    Ordering is load-bearing: the stamp is cleared *before* the rows are, so an
+    interrupted rebuild (a crash between clear and the final stamp) always leaves
+    the index reading as stale — a partial/empty index is never served as fresh.
+    """
+    # Invalidate first: a half-built index must read stale, never fresh-but-empty.
+    index.set_head(None)
+    index.clear()
+    count = 0
+    with index.transaction():
+        for project in projects:
+            # Force the file-scan path: the index is mid-rebuild and must not be
+            # consulted as a read source (passing no index always scans the store).
+            for task in list_tasks(store, project=project, no_index=True):
+                index.upsert(_meta_from_task(task))
+                count += 1
+    index.set_head(head)
+    return count
 
 
 # --- session launch helpers (pure) ---
@@ -1231,7 +1507,9 @@ def _sibling_branch(store: TaskStore, project: str, parent: str) -> str:
     """
     if not parent:
         return ""
-    for sibling in list_tasks(store, project=project, parent=parent):
+    # Called during create(), possibly inside a transaction — scan the store,
+    # not a mid-flight index.
+    for sibling in list_tasks(store, project=project, parent=parent, no_index=True):
         if sibling.branch:
             return sibling.branch
     return ""
@@ -1398,7 +1676,11 @@ def reconcile(
     Rows are returned id-sorted for stable rendering.
     """
     rows: list[ReconcileRow] = []
-    in_progress = list_tasks(store, project=project, status=STATUS_IN_PROGRESS)
+    # reconcile takes no index/head; ``no_index=True`` forces a definitive store
+    # scan (a bare call would consult the empty module default and read fresh).
+    in_progress = list_tasks(
+        store, project=project, status=STATUS_IN_PROGRESS, no_index=True
+    )
     in_progress_ids = {t.id for t in in_progress}
 
     for task in in_progress:
@@ -1423,7 +1705,7 @@ def reconcile(
     for task_id, session in session_task_ids.items():
         if task_id in in_progress_ids:
             continue  # already an OK row above
-        key = find_key(store, project, task_id)
+        key = find_key(store, project, task_id, no_index=True)
         status = status_from_key(key) if key is not None else None
         # Only flip a non-terminal task (todo/blocked) into in-progress. A
         # terminal or missing task with a lingering session is listed, not
@@ -1452,6 +1734,8 @@ def next_task(
     parent: str | None = None,
     branch: str | None = None,
     fallback: bool = True,
+    index: TaskIndex | None = None,
+    head: str | None = None,
 ) -> Task | None:
     """Return the next actionable task, or ``None`` if there isn't one.
 
@@ -1460,10 +1744,16 @@ def next_task(
     ``branch`` matches; if none and ``fallback`` is true, falls back to the
     next actionable task on any branch. In-progress tasks are **excluded** so
     an already-running task is not re-offered.
+
+    A fresh ``index`` serves both the candidate listing and each actionability
+    check from the cache; otherwise the store is scanned.
     """
-    candidates = list_tasks(store, project=project, status=STATUS_TODO, parent=parent)
+    candidates = list_tasks(
+        store, project=project, status=STATUS_TODO, parent=parent,
+        index=index, head=head,
+    )
     candidates.sort(key=lambda t: (priority_rank(t.priority), t.id))
-    actionable = [t for t in candidates if is_actionable(t, store)]
+    actionable = [t for t in candidates if is_actionable(t, store, index=index, head=head)]
     if branch is not None:
         on_branch = next((t for t in actionable if t.branch == branch), None)
         if on_branch is not None:
@@ -1473,7 +1763,14 @@ def next_task(
     return actionable[0] if actionable else None
 
 
-def next_follower(store: TaskStore, project: str, done_id: str) -> Task | None:
+def next_follower(
+    store: TaskStore,
+    project: str,
+    done_id: str,
+    *,
+    index: TaskIndex | None = None,
+    head: str | None = None,
+) -> Task | None:
     """Return the next actionable task that directly follows ``done_id``.
 
     A *direct follower* is a todo task whose ``follows`` list contains
@@ -1483,24 +1780,41 @@ def next_follower(store: TaskStore, project: str, done_id: str) -> Task | None:
     completed task's own successors — it never falls back to unrelated global work.
     Followers are matched across all parents: a ``follows`` edge is not constrained
     to a single parent, so no ``parent`` filter is applied.
+
+    A fresh ``index`` serves both the candidate listing and each actionability
+    check from the cache; otherwise the store is scanned.
     """
-    candidates = list_tasks(store, project=project, status=STATUS_TODO)
+    candidates = list_tasks(
+        store, project=project, status=STATUS_TODO, index=index, head=head
+    )
     candidates.sort(key=lambda t: (priority_rank(t.priority), t.id))
     for t in candidates:
-        if done_id in t.follows and is_actionable(t, store):
+        if done_id in t.follows and is_actionable(t, store, index=index, head=head):
             return t
     return None
 
 
-def running_follower(store: TaskStore, project: str, done_id: str) -> Task | None:
+def running_follower(
+    store: TaskStore,
+    project: str,
+    done_id: str,
+    *,
+    index: TaskIndex | None = None,
+    head: str | None = None,
+) -> Task | None:
     """Return an in-progress task that directly follows ``done_id``.
 
     A *direct follower* whose ``follows`` list contains ``done_id`` and which is
     already ``in-progress`` — i.e. its session is already running, so a new one
     should **not** be launched. Returns the id-sorted first such task, or
     ``None`` when no direct follower is in progress.
+
+    A fresh ``index`` serves the candidate listing from the cache; otherwise the
+    store is scanned.
     """
-    candidates = list_tasks(store, project=project, status=STATUS_IN_PROGRESS)
+    candidates = list_tasks(
+        store, project=project, status=STATUS_IN_PROGRESS, index=index, head=head
+    )
     candidates.sort(key=lambda t: (priority_rank(t.priority), t.id))
     for t in candidates:
         if done_id in t.follows:

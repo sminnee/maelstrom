@@ -66,6 +66,15 @@ class TaskStore(Protocol):
         """Return whether ``key`` exists."""
         ...
 
+    def head(self) -> str | None:
+        """Return a version stamp for the store's current state, or ``None``.
+
+        For a versioned backend this is the git HEAD sha; the task-index cache
+        records it to detect staleness and fall back to a file scan. Non-versioned
+        backends have no version and return ``None``.
+        """
+        ...
+
     def transaction(self, *, message: str) -> AbstractContextManager[None]:
         """Batch all mutations in the ``with`` block into a single commit.
 
@@ -97,6 +106,10 @@ class InMemoryStore:
 
     def exists(self, key: str) -> bool:
         return key in self._data
+
+    def head(self) -> str | None:
+        """No version: an in-memory store has no git HEAD to stamp against."""
+        return None
 
     @contextmanager
     def transaction(self, *, message: str) -> Iterator[None]:
@@ -155,14 +168,29 @@ class GitFileStore:
             self._git("init")
             self._git("config", "user.name", "maelstrom")
             self._git("config", "user.email", "maelstrom@localhost")
-        # Keep the cross-process lock handle out of every ``git add -A`` via the
-        # repo-local exclude file rather than a tracked ``.gitignore`` — that way
-        # the working tree stays free of any infrastructure file (nothing for a
-        # rollback's ``git clean`` to have to special-case).
+        self.ensure_excludes()
+
+    def ensure_excludes(self) -> None:
+        """Ensure the infrastructure files are in the repo-local exclude file.
+
+        Keep the cross-process lock handle and the rebuildable task-index cache out
+        of every ``git add -A`` via ``.git/info/exclude`` rather than a tracked
+        ``.gitignore`` — the working tree stays free of any infrastructure file
+        (nothing for a rollback's ``git clean`` to special-case). ``index.db-wal`` /
+        ``index.db-shm`` are SQLite's WAL sidecars. Idempotent, and a no-op on a
+        not-yet-initialised repo — safe to call before writing the index db so an
+        existing store that predates the index picks up the new exclusions without
+        a mutation.
+        """
         exclude = self.root / ".git" / "info" / "exclude"
-        if exclude.parent.is_dir() and ".writelock" not in self._read_or_empty(exclude):
+        if not exclude.parent.is_dir():
+            return
+        existing = self._read_or_empty(exclude)
+        wanted = [".writelock", "index.db", "index.db-wal", "index.db-shm"]
+        missing = [p for p in wanted if p not in existing.split()]
+        if missing:
             with exclude.open("a") as fh:
-                fh.write(".writelock\n")
+                fh.write("".join(f"{p}\n" for p in missing))
 
     @staticmethod
     def _read_or_empty(path: Path) -> str:
@@ -228,6 +256,17 @@ class GitFileStore:
         r = self._git("rev-parse", "--verify", "HEAD")
         return r.stdout.strip() if r.returncode == 0 else None
 
+    def head(self) -> str | None:
+        """Public HEAD stamp for the task-index staleness guard (see Protocol).
+
+        Returns ``None`` for a not-yet-initialised repo (no ``.git``) as well as a
+        repo with no commits, so a fresh store reads as "no version" rather than
+        forcing repo creation on a pure read.
+        """
+        if not (self.root / ".git").exists():
+            return None
+        return self._head()
+
     def _rollback(self, saved_head: str | None) -> None:
         """Restore the repo to ``saved_head`` (or empty), discarding all changes."""
         if saved_head is None:
@@ -288,8 +327,11 @@ class GitFileStore:
             rel = path.relative_to(self.root).as_posix()
             if rel.startswith(".git/") or rel == ".git":
                 continue
-            # Skip the cross-process lock handle — it's infrastructure, not a key.
-            if rel == ".writelock":
+            # Skip infrastructure files — not task keys. The cross-process lock
+            # handle and the rebuildable task-index cache (``index.db`` plus its
+            # ``-wal``/``-shm`` SQLite sidecars) live in the store root but are
+            # not tasks.
+            if rel == ".writelock" or rel == "index.db" or rel.startswith("index.db-"):
                 continue
             if rel.startswith(prefix):
                 keys.append(rel)

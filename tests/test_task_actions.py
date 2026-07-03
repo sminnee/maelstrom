@@ -11,7 +11,6 @@ import pytest
 from maelstrom import task as model
 from maelstrom import task_actions
 from maelstrom.task import Task
-from maelstrom.task_store import InMemoryStore
 
 
 NOW = "2026-06-08T12:00:00+00:00"
@@ -120,28 +119,26 @@ class TestMoveWithActions:
             store, project="p", title="t", now=NOW, today="2026-06-08", **kwargs
         )
 
-    def test_move_to_done_fires_post_action(self, monkeypatch):
+    def test_move_to_done_fires_post_action(self, monkeypatch, store):
         calls = []
         from maelstrom.integrations import linear
 
         monkeypatch.setattr(
             linear, "set_issue_status", lambda i, s: calls.append((i, s))
         )
-        store = InMemoryStore()
         t = self._seed(
             store, parent="linear.NORT-12", post_action="linear.done"
         )
         task_actions.move_with_actions(store, "p", t.id, model.STATUS_DONE)
         assert calls == [("NORT-12", "done")]
 
-    def test_move_to_in_progress_fires_pre_action(self, monkeypatch):
+    def test_move_to_in_progress_fires_pre_action(self, monkeypatch, store):
         calls = []
         from maelstrom.integrations import linear
 
         monkeypatch.setattr(
             linear, "set_issue_status", lambda i, s: calls.append((i, s))
         )
-        store = InMemoryStore()
         t = self._seed(
             store, parent="linear.NORT-12", pre_action="linear.in-progress"
         )
@@ -154,13 +151,12 @@ class TestMoveWithActions:
         "status",
         [model.STATUS_TODO, model.STATUS_CANCELLED, model.STATUS_BLOCKED],
     )
-    def test_other_destinations_fire_nothing(self, monkeypatch, status):
+    def test_other_destinations_fire_nothing(self, monkeypatch, status, store):
         from maelstrom.integrations import linear
 
         monkeypatch.setattr(
             linear, "set_issue_status", _fail("should not be called")
         )
-        store = InMemoryStore()
         # Start in-progress so a move to todo/cancelled/blocked is a real move.
         t = self._seed(
             store,
@@ -171,8 +167,7 @@ class TestMoveWithActions:
         model.move(store, "p", t.id, model.STATUS_IN_PROGRESS, now=NOW)
         task_actions.move_with_actions(store, "p", t.id, status)  # must not raise
 
-    def test_returns_moved_task(self, monkeypatch):
-        store = InMemoryStore()
+    def test_returns_moved_task(self, monkeypatch, store):
         t = self._seed(store)
         moved = task_actions.move_with_actions(
             store, "p", t.id, model.STATUS_DONE

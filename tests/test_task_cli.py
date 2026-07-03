@@ -20,11 +20,21 @@ from maelstrom.worktree import WorktreeSetup
 
 
 @pytest.fixture
-def store(monkeypatch) -> InMemoryStore:
-    s = InMemoryStore()
-    monkeypatch.setattr(task_cli, "_store", lambda: s)
+def store(store, monkeypatch) -> InMemoryStore:
+    # Consume the shared task-store fixture (tests/conftest.py) and wire the CLI
+    # seams to it. The real _index() derives a SqliteTaskIndex from the store's
+    # on-disk root; an InMemoryStore has none. Point _index at the SAME in-memory
+    # index the model uses by default (conftest's autouse fixture set
+    # ``model._DEFAULT_INDEX``), so a task created directly via ``model.create`` in
+    # a test body and a task read back through the CLI share one index — otherwise
+    # two separate ``:memory:`` dbs would disagree (both look "fresh" since
+    # ``InMemoryStore.head()`` is always None).
+    from maelstrom import task as model
+
+    monkeypatch.setattr(task_cli, "_store", lambda: store)
+    monkeypatch.setattr(task_cli, "_index", lambda _store: model._DEFAULT_INDEX)
     monkeypatch.setattr(task_cli, "_resolve_project", lambda project: project or "p")
-    return s
+    return store
 
 
 @pytest.fixture
@@ -675,7 +685,7 @@ class TestAddEdit:
         monkeypatch.setattr(
             task_cli.model,
             "edit_in_editor",
-            lambda s, p, i: calls.append((s, p, i)) or (None, True),
+            lambda s, p, i, **kw: calls.append((s, p, i)) or (None, True),
         )
         result = runner.invoke(task_cli.task, ["add", "Hand authored", "--edit"])
         assert result.exit_code == 0, result.output
@@ -688,7 +698,7 @@ class TestAddEdit:
         monkeypatch.setattr(
             task_cli.model,
             "edit_in_editor",
-            lambda s, p, i: calls.append(i) or (None, True),
+            lambda s, p, i, **kw: calls.append(i) or (None, True),
         )
         result = runner.invoke(task_cli.task, ["add", "Quick", "-e"])
         assert result.exit_code == 0, result.output
@@ -709,7 +719,7 @@ class TestAddEdit:
         monkeypatch.setattr(
             task_cli.model,
             "edit_in_editor",
-            lambda s, p, i: order.append("edit") or (None, True),
+            lambda s, p, i, **kw: order.append("edit") or (None, True),
         )
         result = runner.invoke(task_cli.task, ["add", "Both", "--edit", "--run"])
         assert result.exit_code == 0, result.output
