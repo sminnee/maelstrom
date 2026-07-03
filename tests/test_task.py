@@ -872,6 +872,58 @@ class TestBranchDefault:
         )
         assert t.branch == "fix/login"
 
+    def test_first_child_inherits_existing_parent_task_branch(self):
+        # A real parent task owns a branch; its FIRST child (no sibling yet)
+        # must inherit that branch, not regenerate a divergent task/<parent>.
+        store = InMemoryStore()
+        parent = model.create(
+            store, project="p", title="daily maintenance",
+            id="daily.maintenance.2026-07-03", branch="chore/daily-maintenance",
+            now=NOW, today=TODAY,
+        )
+        child = model.create(
+            store, project="p", title="warehouse writes",
+            parent=parent.id, now=NOW, today=TODAY,
+        )
+        assert child.branch == "chore/daily-maintenance"
+        assert model.load(store, "p", child.id).branch == "chore/daily-maintenance"
+
+    def test_second_child_still_shares_parent_branch(self):
+        # Sibling path and parent path agree: all children of one parent share
+        # the same branch.
+        store = InMemoryStore()
+        parent = model.create(
+            store, project="p", title="run", id="run.2026-07-03",
+            branch="chore/run", now=NOW, today=TODAY,
+        )
+        a = model.create(store, project="p", title="a", parent=parent.id,
+                         now=NOW, today=TODAY)
+        b = model.create(store, project="p", title="b", parent=parent.id,
+                         now=NOW, today=TODAY)
+        assert a.branch == b.branch == "chore/run"
+
+    def test_linear_virtual_parent_with_no_task_file_still_derives_feat(self):
+        # linear.NORT-123 has no task file: parent lookup must fall through to
+        # the deterministic Linear derivation.
+        store = InMemoryStore()
+        t = model.create(
+            store, project="p", title="a", parent="linear.NORT-123",
+            now=NOW, today=TODAY,
+        )
+        assert t.branch == "feat/123-a"
+
+    def test_explicit_branch_still_wins_over_parent_branch(self):
+        store = InMemoryStore()
+        model.create(
+            store, project="p", title="p0", id="grp.2",
+            branch="chore/grp", now=NOW, today=TODAY,
+        )
+        child = model.create(
+            store, project="p", title="c", parent="grp.2",
+            branch="fix/override", now=NOW, today=TODAY,
+        )
+        assert child.branch == "fix/override"
+
     def test_default_branch_unit_cases(self):
         # Linear parent without a title → the new number-led fallback (no NORT-).
         assert model.default_branch("x", "linear.NORT-123") == "feat/123"
