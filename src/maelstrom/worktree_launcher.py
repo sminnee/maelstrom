@@ -47,7 +47,10 @@ def open_worktree(worktree_path: Path, command: str) -> None:
 
 
 def build_claude_command(
-    permission_mode: str | None = None, session_id: str | None = None
+    permission_mode: str | None = None,
+    session_id: str | None = None,
+    *,
+    resume: bool = False,
 ) -> list[str]:
     """The trailing ``claude [...]`` argv shared by every placement (no env, no cwd).
 
@@ -55,12 +58,18 @@ def build_claude_command(
     on stdin via :func:`build_task_launch_line`. When ``session_id`` is given it
     becomes ``--session-id``, pinning the task to a deterministic Claude session
     (Claude then re-exports it as ``CLAUDE_SESSION_ID``).
+
+    ``--session-id`` *creates* a session and fails if one with that id already
+    exists on disk. So when the task's session has run before (its transcript
+    persists), pass ``resume=True``: the argv becomes ``claude --resume <id>``,
+    which reattaches the existing conversation instead of trying to recreate it.
+    The follow-up prompt still pipes in on stdin exactly as for a fresh launch.
     """
     argv = ["claude"]
     if permission_mode:
         argv += ["--permission-mode", permission_mode]
     if session_id:
-        argv += ["--session-id", session_id]
+        argv += ["--resume", session_id] if resume else ["--session-id", session_id]
     return argv
 
 
@@ -70,6 +79,8 @@ def build_task_launch_line(
     permission_mode: str | None = None,
     env: dict[str, str] | None = None,
     session_id: str | None = None,
+    *,
+    resume: bool = False,
 ) -> ShellExpr:
     """The pipeline that launches a task: ``mael task prompt ... | <env> claude ...``.
 
@@ -93,7 +104,7 @@ def build_task_launch_line(
     return Pipeline([
         Command(["mael", "task", "prompt", task_id, "--project", project]),
         Command(
-            build_claude_command(permission_mode, session_id),
+            build_claude_command(permission_mode, session_id, resume=resume),
             env=claude_env,
         ),
     ])
@@ -139,6 +150,8 @@ def launch_claude_in_worktree(
     permission_mode: str | None = None,
     env: dict[str, str] | None = None,
     session_id: str | None = None,
+    *,
+    resume: bool = False,
 ) -> None:
     """Launch Claude for a worktree: new cmux workspace, else replace-in-place.
 
@@ -150,15 +163,17 @@ def launch_claude_in_worktree(
     With ``task_id`` (and ``project``) set, the command is the
     ``mael task prompt <id> | claude`` pipeline; otherwise it's a plain ``claude``
     that just opens the worktree. ``session_id`` pins the deterministic Claude
-    session id on the task path. Either way env rides inside the ``ShellExpr``.
+    session id on the task path; ``resume`` reattaches an already-started session
+    (``--resume`` vs ``--session-id``). Either way env rides inside the ``ShellExpr``.
     """
     if task_id and project:
         command: ShellExpr = build_task_launch_line(
-            project, task_id, permission_mode, env=env, session_id=session_id
+            project, task_id, permission_mode, env=env,
+            session_id=session_id, resume=resume,
         )
     else:
         command = Command(
-            build_claude_command(permission_mode, session_id),
+            build_claude_command(permission_mode, session_id, resume=resume),
             env=dict(env or {}),
         )
     if not open_claude_workspace(project, worktree, worktree_path, command):

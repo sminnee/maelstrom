@@ -17,6 +17,8 @@ from .review_prepare import cmd_review_prepare
 from .session_cli import session as session_cli, session_channel as session_channel_cmd
 from .task_cli import task as task_cli
 from .task_cli import add_task
+from . import task as task_model
+from .task_store import GitFileStore
 from .schedule_launchd import schedule_group
 from .env import get_env_status, regenerate_and_restart_if_running, stop_env, stop_sessions
 from .env_cli import (
@@ -65,6 +67,7 @@ from .worktree_model import (
     extract_project_name,
     extract_worktree_name_from_folder,
     get_worktree_folder_name,
+    has_claude_transcript,
 )
 
 
@@ -300,6 +303,49 @@ def cmd_remove(targets, force):
 cli.add_command(cmd_remove, name="rm")
 
 
+def _branch_session_ids(project_name):
+    """Map ``branch -> [session_id, ...]`` for every task in ``project_name``.
+
+    Several tasks can share a branch/worktree (one PR per parent), so each branch
+    maps to the deterministic session ids of *all* its tasks. Used to detect a
+    stopped-but-not-live session for a worktree: any of a branch's task sessions
+    having an on-disk transcript means that worktree "ran before". Returns an empty
+    map when the task notebook is absent or unreadable — the SESSION column then
+    simply shows no stopped marker; this cosmetic feature must never break ``list``.
+    """
+    try:
+        store = GitFileStore()
+        result: dict[str, list[str]] = {}
+        for t in task_model.list_tasks(store, project=project_name, no_index=True):
+            branch = t.branch or task_model.default_branch(t.id, t.parent)
+            result.setdefault(branch, []).append(
+                task_model.session_id_for(project_name, t.id)
+            )
+        return result
+    except (OSError, ValueError, KeyError):
+        # An absent/unreadable notebook or a malformed task must degrade to "no
+        # marker", not crash `list`. Kept narrow: a logic bug (AttributeError etc.)
+        # still surfaces rather than being silently swallowed.
+        return {}
+
+
+def _session_display(count, worktree_path, branch, branch_sessions):
+    """Render the SESSION cell: live count wins, else a stopped marker, else blank.
+
+    ``count`` is the live-session count for the worktree. When there is a live
+    session we show it unchanged. When there is none, we show ``"— stopped"`` if
+    any task on ``branch`` left an on-disk transcript in ``worktree_path`` (ran and
+    stopped), distinguishing it from a never-run worktree, which stays blank.
+    """
+    if count:
+        return str(count)
+    if branch:
+        for session_id in branch_sessions.get(branch, []):
+            if has_claude_transcript(worktree_path, session_id):
+                return "— stopped"
+    return ""
+
+
 @cli.command("list")
 @click.argument("project", required=False, default=None)
 def cmd_list(project):
@@ -352,6 +398,9 @@ def cmd_list(project):
     # per-session worktree-list lookup so `git worktree list` runs once, not
     # once per (worktree row × session).
     live_sessions = session_discovery.LiveSessionSet()
+    # Branch → task session ids, built once, so the SESSION column can show a
+    # stopped marker (transcript exists, no live session) vs blank (never run).
+    branch_sessions = _branch_session_ids(project_name)
 
     # Gather extended info for each open worktree
     rows = []
@@ -377,9 +426,11 @@ def cmd_list(project):
         else:
             pr_display = ""
 
-        # Live Claude session count for this worktree
+        # Live Claude session count, or a stopped marker when a transcript exists.
         session_count = live_sessions.count_for(wt.path)
-        session_display = str(session_count) if session_count else ""
+        session_display = _session_display(
+            session_count, wt.path, wt.branch, branch_sessions
+        )
 
         # App URL with running status
         app_display = ""
@@ -432,6 +483,8 @@ def cmd_list_all():
         project_name = project_path.name
         worktrees = list_worktrees(project_path)
         worktree_data = []
+        # Branch → task session ids for this project (stopped-marker detection).
+        branch_sessions = _branch_session_ids(project_name)
 
         for wt in worktrees:
             # Skip the project root (bare repo)
@@ -486,9 +539,11 @@ def cmd_list_all():
             else:
                 pr_display = ""
 
-            # Live Claude session count for this worktree
+            # Live Claude session count, or a stopped marker when a transcript exists.
             session_count = live_sessions.count_for(wt.path)
-            session_display = str(session_count) if session_count else ""
+            session_display = _session_display(
+                session_count, wt.path, wt.branch, branch_sessions
+            )
 
             # App URL with running status
             app_display = ""

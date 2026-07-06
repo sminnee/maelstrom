@@ -126,6 +126,39 @@ def sanitise_path_for_claude(path: Path) -> str:
     return str(path.resolve()).replace("/", "-").replace(".", "-")
 
 
+def claude_transcript_path(
+    worktree_path: Path, session_id: str, *, home: Path | None = None
+) -> Path:
+    """Where Claude Code writes ``session_id``'s transcript for ``worktree_path``.
+
+    ``~/.claude/projects/<sanitised-worktree-path>/<session-id>.jsonl``, where the
+    directory slug comes from :func:`sanitise_path_for_claude`. The ``home`` kwarg
+    (defaulting to ``Path.home()``) exists so the derivation is unit-testable
+    against a fake home. Pure — it builds a path, it does not touch disk.
+    """
+    root = home if home is not None else Path.home()
+    return (
+        root
+        / ".claude"
+        / "projects"
+        / sanitise_path_for_claude(worktree_path)
+        / f"{session_id}.jsonl"
+    )
+
+
+def has_claude_transcript(
+    worktree_path: Path, session_id: str, *, home: Path | None = None
+) -> bool:
+    """True iff ``session_id`` has an on-disk transcript for ``worktree_path``.
+
+    The single source of truth for "has this task ever been run in this worktree?"
+    A stopped session's transcript file persists; a never-run task has none. This
+    is strictly "not necessarily live, but a transcript exists" — liveness stays
+    the province of ``session_discovery.LiveSessionSet``.
+    """
+    return claude_transcript_path(worktree_path, session_id, home=home).exists()
+
+
 def parse_env_text(text: str) -> dict[str, str]:
     """Parse the text of a ``.env`` file into a flat dict.
 

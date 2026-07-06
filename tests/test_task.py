@@ -1687,12 +1687,34 @@ class TestReconcile:
         assert rows[0].state == model.RECONCILE_OK
         assert rows[0].fix_status is None
 
-    def test_stale_in_progress_without_session(self, store):
-        self._in_progress(store, "p", "a", id="t1")
-        rows = model.reconcile(store, "p", session_task_ids={})
+    def test_stale_that_ran_is_finished_suggests_done(self, store):
+        # A stale in-progress task whose transcript exists ran at some point;
+        # stopped = finished, so it is closed.
+        t = self._in_progress(store, "p", "a", id="t1")
+        rows = model.reconcile(store, "p", session_task_ids={}, ran_ids={t.id})
         assert len(rows) == 1
-        assert rows[0].state == model.RECONCILE_STALE
+        assert rows[0].state == model.RECONCILE_FINISHED
         assert rows[0].fix_status == model.STATUS_DONE
+
+    def test_stale_that_never_ran_suggests_todo(self, store):
+        # A stale in-progress task with no transcript never launched; its
+        # in-progress status is bogus, so it goes back to todo to be run.
+        self._in_progress(store, "p", "a", id="t1")
+        rows = model.reconcile(store, "p", session_task_ids={}, ran_ids=set())
+        assert len(rows) == 1
+        assert rows[0].state == model.RECONCILE_NEVER_RAN
+        assert rows[0].fix_status == model.STATUS_TODO
+
+    def test_ran_ids_only_affects_stale_rows(self, store):
+        # An OK row (live session) is unaffected even if its id is in ran_ids.
+        t = self._in_progress(store, "p", "a", id="t1")
+        rows = model.reconcile(
+            store, "p",
+            session_task_ids={t.id: {"pid": 1}},
+            ran_ids={t.id},
+        )
+        assert rows[0].state == model.RECONCILE_OK
+        assert rows[0].fix_status is None
 
     def test_orphan_session_on_todo_task(self, store):
         t = model.create(store, project="p", title="a", id="t1")  # stays todo
@@ -1729,7 +1751,7 @@ class TestReconcile:
             store, "p", session_task_ids={t2.id: {"pid": 2}}
         )
         assert [r.task_id for r in rows] == ["t1", "t2"]
-        assert rows[0].state == model.RECONCILE_STALE
+        assert rows[0].state == model.RECONCILE_NEVER_RAN
         assert rows[1].state == model.RECONCILE_OK
 
     def test_scans_store_even_with_empty_default_index(self, store, monkeypatch):
@@ -1748,4 +1770,4 @@ class TestReconcile:
         monkeypatch.setattr(model, "_DEFAULT_INDEX", SqliteTaskIndex(":memory:"))
         rows = model.reconcile(store, "p", session_task_ids={})
         assert len(rows) == 1
-        assert rows[0].state == model.RECONCILE_STALE
+        assert rows[0].state == model.RECONCILE_NEVER_RAN
