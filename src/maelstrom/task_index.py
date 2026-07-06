@@ -57,6 +57,7 @@ class TaskMeta:
     last_run: str = ""
     created: str = ""
     updated: str = ""
+    session_id: str = ""
 
 
 class TaskIndex(Protocol):
@@ -81,6 +82,15 @@ class TaskIndex(Protocol):
 
     def find(self, project: str, id: str) -> "TaskMeta | None":
         """Return the row for ``(project, id)``, or ``None`` if absent."""
+        ...
+
+    def find_by_session_id(self, session_id: str) -> "TaskMeta | None":
+        """Return the row whose ``session_id`` matches, or ``None`` if none does.
+
+        The deterministic ``session_id_for`` link, indexed for reverse lookup
+        (session-id → task). A falsy ``session_id`` never resolves (the default
+        for never-launched rows is ``""``), so a blank returns ``None``.
+        """
         ...
 
     def list(
@@ -126,6 +136,7 @@ _COLUMNS = (
     "last_run",
     "created",
     "updated",
+    "session_id",
 )
 
 
@@ -158,24 +169,50 @@ class SqliteTaskIndex:
             # for an in-memory db, which journals in memory anyway.
             if self._path != ":memory:":
                 conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS tasks ("
-                "project TEXT NOT NULL, id TEXT NOT NULL, status TEXT NOT NULL, "
-                "title TEXT, priority TEXT, branch TEXT, parent TEXT, "
-                "follows TEXT, command TEXT, mode TEXT, schedule TEXT, "
-                "last_run TEXT, created TEXT, updated TEXT, "
-                "PRIMARY KEY (project, id))"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS tasks_project_status "
-                "ON tasks (project, status)"
-            )
+            self._create_tasks_table(conn)
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)"
             )
             conn.commit()
             self._conn = conn
         return self._conn
+
+    @staticmethod
+    def _create_tasks_table(conn: sqlite3.Connection) -> None:
+        """Create the ``tasks`` table and its secondary indexes if absent.
+
+        Split out from :meth:`_connect` so :meth:`clear` can drop+recreate the
+        table on a rebuild — the upgrade path for an on-disk db written under an
+        older column set (``task reindex`` recreates from this current schema).
+
+        The ``session_id`` secondary index is created best-effort: on a *legacy*
+        on-disk table (written before ``session_id`` existed) the ``CREATE
+        INDEX`` references a missing column and raises. That is swallowed here so
+        ``_connect`` still succeeds and ``task reindex`` — which drops+recreates
+        this table under the current schema, then rebuilds the index properly —
+        can run. A plain read against the un-reindexed old table still errors on
+        the missing column (the accepted upgrade path is ``task reindex``).
+        """
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tasks ("
+            "project TEXT NOT NULL, id TEXT NOT NULL, status TEXT NOT NULL, "
+            "title TEXT, priority TEXT, branch TEXT, parent TEXT, "
+            "follows TEXT, command TEXT, mode TEXT, schedule TEXT, "
+            "last_run TEXT, created TEXT, updated TEXT, session_id TEXT, "
+            "PRIMARY KEY (project, id))"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS tasks_project_status "
+            "ON tasks (project, status)"
+        )
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS tasks_session_id "
+                "ON tasks (session_id)"
+            )
+        except sqlite3.OperationalError:
+            # Legacy table without session_id; reindex will recreate it.
+            pass
 
     # --- row (de)serialization ---
 
@@ -196,6 +233,7 @@ class SqliteTaskIndex:
             meta.last_run,
             meta.created,
             meta.updated,
+            meta.session_id,
         )
 
     @staticmethod
@@ -216,6 +254,7 @@ class SqliteTaskIndex:
             last_run=row["last_run"] or "",
             created=row["created"] or "",
             updated=row["updated"] or "",
+            session_id=row["session_id"] or "",
         )
 
     # --- buffered write plumbing ---
@@ -235,7 +274,12 @@ class SqliteTaskIndex:
                 "DELETE FROM tasks WHERE project = ? AND id = ?", (project, id)
             )
         elif op == "clear":
-            conn.execute("DELETE FROM tasks")
+            # Drop+recreate rather than DELETE so a rebuild starts from the
+            # current schema: an on-disk db written under an older column set is
+            # upgraded here (``task reindex`` is the upgrade path). The ``meta``
+            # table (HEAD stamp) is untouched, so ``clear`` still preserves it.
+            conn.execute("DROP TABLE IF EXISTS tasks")
+            self._create_tasks_table(conn)
 
     def _write(self, op: str, args: tuple) -> None:
         """Apply a write now, or buffer it if a transaction is open."""
@@ -261,6 +305,17 @@ class SqliteTaskIndex:
         conn = self._connect()
         row = conn.execute(
             "SELECT * FROM tasks WHERE project = ? AND id = ?", (project, id)
+        ).fetchone()
+        return self._from_row(row) if row is not None else None
+
+    def find_by_session_id(self, session_id: str) -> "TaskMeta | None":
+        # A blank never resolves: "" is the default for never-launched rows, so
+        # a falsy query must not match one of them.
+        if not session_id:
+            return None
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT * FROM tasks WHERE session_id = ? LIMIT 1", (session_id,)
         ).fetchone()
         return self._from_row(row) if row is not None else None
 

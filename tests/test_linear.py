@@ -98,7 +98,7 @@ class TestCmdPlan:
         # An InMemoryStore has no on-disk root for the SQLite index; point the CLI
         # index seam at the model's default in-memory index (set by conftest).
         monkeypatch.setattr(
-            task_cli, "_index", lambda _store: task_cli.model._DEFAULT_INDEX
+            task_cli, "open_index", lambda _store: task_cli.model._DEFAULT_INDEX
         )
         monkeypatch.setattr(
             task_cli, "_resolve_project", lambda project: project or "p"

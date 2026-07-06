@@ -1664,6 +1664,13 @@ class TestSessionIdFor:
         b = model.session_id_for("proj-b", "x")
         assert a != b
 
+    def test_meta_projection_carries_session_id(self):
+        # Every upsert path funnels through _meta_from_task, so the projected
+        # row carries the deterministic session_id for reverse lookup.
+        t = Task(id="2026-06-30.1", title="t", project="proj")
+        meta = model._meta_from_task(t)
+        assert meta.session_id == model.session_id_for("proj", "2026-06-30.1")
+
 
 class TestReconcile:
     def _in_progress(self, store, project, title, **kw):

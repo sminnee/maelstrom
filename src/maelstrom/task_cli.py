@@ -52,13 +52,16 @@ def _store() -> GitFileStore:
     return GitFileStore()
 
 
-def _index(store: GitFileStore) -> "SqliteTaskIndex":
+def open_index(store: GitFileStore) -> "SqliteTaskIndex":
     """Return the SQLite metadata index living alongside ``store`` in its root.
 
     Ensures the store excludes ``index.db*`` first (idempotent, and a no-op on a
     not-yet-initialised repo), so even a task store that predates the index never
     surfaces the cache as an untracked/staged change. It's a rebuildable cache of
     the ``.md`` tree, never part of the notebook history.
+
+    Public so other CLIs (e.g. ``session list``) open the *same* index the task
+    CLI keeps current, without duplicating the ``store.root / "index.db"`` path.
     """
     store.ensure_excludes()
     return SqliteTaskIndex(store.root / "index.db")
@@ -71,7 +74,7 @@ def _read_index(store: GitFileStore) -> "tuple[SqliteTaskIndex, str | None]":
     when the index's own HEAD stamp matches it (else it falls back to a scan), so a
     never-built or stale index degrades safely to the old behaviour.
     """
-    return _index(store), store.head()
+    return open_index(store), store.head()
 
 
 def _mutate_index(store: GitFileStore) -> "tuple[SqliteTaskIndex, bool]":
@@ -81,7 +84,7 @@ def _mutate_index(store: GitFileStore) -> "tuple[SqliteTaskIndex, bool]":
     mutation runs, so :func:`_restamp` can decide afterwards whether advancing the
     stamp is sound (see its docstring).
     """
-    index = _index(store)
+    index = open_index(store)
     return index, index.head() == store.head()
 
 
@@ -1148,7 +1151,7 @@ def task_reindex() -> None:
     from .worktree import find_all_projects
 
     store = _store()
-    index = _index(store)
+    index = open_index(store)
     projects = [p.name for p in find_all_projects(load_global_config().projects_dir)]
     count = model.reindex(store, index, projects=projects, head=store.head())
     click.echo(f"Reindexed {count} tasks across {len(projects)} projects.")

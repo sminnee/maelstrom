@@ -22,8 +22,8 @@ from maelstrom.worktree import WorktreeSetup
 @pytest.fixture
 def store(store, monkeypatch) -> InMemoryStore:
     # Consume the shared task-store fixture (tests/conftest.py) and wire the CLI
-    # seams to it. The real _index() derives a SqliteTaskIndex from the store's
-    # on-disk root; an InMemoryStore has none. Point _index at the SAME in-memory
+    # seams to it. The real open_index() derives a SqliteTaskIndex from the store's
+    # on-disk root; an InMemoryStore has none. Point open_index at the SAME in-memory
     # index the model uses by default (conftest's autouse fixture set
     # ``model._DEFAULT_INDEX``), so a task created directly via ``model.create`` in
     # a test body and a task read back through the CLI share one index — otherwise
@@ -32,7 +32,7 @@ def store(store, monkeypatch) -> InMemoryStore:
     from maelstrom import task as model
 
     monkeypatch.setattr(task_cli, "_store", lambda: store)
-    monkeypatch.setattr(task_cli, "_index", lambda _store: model._DEFAULT_INDEX)
+    monkeypatch.setattr(task_cli, "open_index", lambda _store: model._DEFAULT_INDEX)
     monkeypatch.setattr(task_cli, "_resolve_project", lambda project: project or "p")
     return store
 
