@@ -80,6 +80,31 @@ class TestBuildClaudeCommand:
             "abc-123",
         ]
 
+    def test_resume_emits_resume_flag(self):
+        # A previously-started session is reattached with --resume, not recreated
+        # with --session-id (which would fail "session already exists").
+        assert build_claude_command(session_id="abc-123", resume=True) == [
+            "claude",
+            "--resume",
+            "abc-123",
+        ]
+
+    def test_resume_false_still_creates(self):
+        assert build_claude_command(session_id="abc-123", resume=False) == [
+            "claude",
+            "--session-id",
+            "abc-123",
+        ]
+
+    def test_resume_with_permission_mode(self):
+        assert build_claude_command("plan", "abc-123", resume=True) == [
+            "claude",
+            "--permission-mode",
+            "plan",
+            "--resume",
+            "abc-123",
+        ]
+
 
 class TestBuildTaskLaunchLine:
     """Tests for the ``mael task prompt <id> | claude`` pipeline builder."""

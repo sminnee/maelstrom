@@ -5,9 +5,11 @@ from pathlib import Path
 from maelstrom.worktree_model import (
     WORKTREE_NAMES,
     WORKTREE_SHORTCODES,
+    claude_transcript_path,
     extract_project_name,
     extract_worktree_name_from_folder,
     get_worktree_folder_name,
+    has_claude_transcript,
     parse_env_text,
     resolve_worktree_shortcode,
     sanitise_path_for_claude,
@@ -143,6 +145,40 @@ class TestSanitisePathForClaude:
         # against regressing back to a '/'-only replacement.
         result = sanitise_path_for_claude(Path("/private/tmp/claude.501/x"))
         assert result == "-private-tmp-claude-501-x"
+
+
+class TestClaudeTranscript:
+    """Tests for claude_transcript_path / has_claude_transcript."""
+
+    def test_transcript_path_uses_sanitised_slug(self, tmp_path):
+        worktree = Path("/Users/sminnee/Projects/foo/foo-alpha")
+        path = claude_transcript_path(worktree, "sid-1", home=tmp_path)
+        assert path == (
+            tmp_path
+            / ".claude"
+            / "projects"
+            / "-Users-sminnee-Projects-foo-foo-alpha"
+            / "sid-1.jsonl"
+        )
+
+    def test_has_transcript_true_when_file_exists(self, tmp_path):
+        worktree = Path("/Users/sminnee/Projects/foo/foo-alpha")
+        transcript = claude_transcript_path(worktree, "sid-1", home=tmp_path)
+        transcript.parent.mkdir(parents=True)
+        transcript.write_text("{}\n")
+        assert has_claude_transcript(worktree, "sid-1", home=tmp_path) is True
+
+    def test_has_transcript_false_when_absent(self, tmp_path):
+        worktree = Path("/Users/sminnee/Projects/foo/foo-alpha")
+        assert has_claude_transcript(worktree, "never-run", home=tmp_path) is False
+
+    def test_has_transcript_distinguishes_session_ids(self, tmp_path):
+        worktree = Path("/Users/sminnee/Projects/foo/foo-alpha")
+        ran = claude_transcript_path(worktree, "ran", home=tmp_path)
+        ran.parent.mkdir(parents=True)
+        ran.write_text("{}\n")
+        assert has_claude_transcript(worktree, "ran", home=tmp_path) is True
+        assert has_claude_transcript(worktree, "other", home=tmp_path) is False
 
 
 class TestParseEnvText:

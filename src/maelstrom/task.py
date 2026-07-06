@@ -1629,7 +1629,13 @@ def session_id_for(project: str, task_id: str) -> str:
 # Reconcile classifications. Each in-progress task / live session is sorted into
 # exactly one of these states (see :func:`reconcile`).
 RECONCILE_OK = "ok"  # in-progress task with a live session — healthy, no fix
-RECONCILE_STALE = "stale-in-progress"  # in-progress task, no live session → done
+# An in-progress task with no live session splits by whether it ever ran (a
+# transcript persists on disk). A stopped session just means *finished* — there
+# is no on-disk distinction between a completed and an aborted session — so a
+# task that ran is closed. A task with no transcript never actually launched, so
+# its in-progress status is bogus and it is sent back to todo to be run.
+RECONCILE_FINISHED = "finished"  # in-progress task, ran before, now stopped → done
+RECONCILE_NEVER_RAN = "never-ran"  # in-progress task, no transcript ever → todo
 RECONCILE_ORPHAN = "orphan-session"  # live session, task not in-progress → start
 
 
@@ -1640,7 +1646,7 @@ class ReconcileRow:
     ``state`` is one of the ``RECONCILE_*`` constants. ``fix_status`` is the
     status the task should move to (``None`` for OK rows — nothing to do).
     ``session`` is the matched live :class:`~maelstrom.session_discovery.LiveSession`,
-    or ``None`` for a stale-in-progress task that has no session.
+    or ``None`` for a task that has no live session (finished or never-ran).
     """
 
     state: str
@@ -1655,6 +1661,7 @@ def reconcile(
     project: str,
     *,
     session_task_ids: dict[str, "LiveSession"],
+    ran_ids: set[str] | None = None,
 ) -> list[ReconcileRow]:
     """Classify in-progress tasks and live sessions into reconcile rows.
 
@@ -1664,18 +1671,28 @@ def reconcile(
     the injected store. It never moves tasks; ``--fix`` application is the
     caller's job, driven off ``fix_status``.
 
-    Three states (see the ``RECONCILE_*`` constants):
+    Four states (see the ``RECONCILE_*`` constants):
 
     - **OK**: an ``in-progress`` task that has a live session. No fix.
-    - **stale-in-progress**: an ``in-progress`` task with no live session.
-      Suggested fix → ``done`` (matches session-end auto-close behaviour).
+    - **finished**: an ``in-progress`` task with no live session whose id is in
+      ``ran_ids`` — it ran at some point (a transcript persists) and has stopped.
+      A stopped session just means *finished* (no on-disk completed-vs-aborted
+      distinction), so the suggested fix → ``done``.
+    - **never-ran**: an ``in-progress`` task with no live session and no
+      transcript — it never actually launched, so the in-progress status is bogus.
+      Suggested fix → ``todo`` (send it back to be run).
     - **orphan-session**: a live session whose task is *not* ``in-progress``
       (todo/blocked/etc.). Suggested fix → ``in-progress``. A session whose
       task is already terminal (done/cancelled) or missing is reported with no
       fix — a finished task whose window lingers is not a corruption to flip.
 
+    ``ran_ids`` is built in the CLI layer (transcript existence per in-progress
+    task's worktree/session), mirroring how ``session_task_ids`` is injected —
+    keeping this function pure and side-effect free.
+
     Rows are returned id-sorted for stable rendering.
     """
+    ran_ids = ran_ids or set()
     rows: list[ReconcileRow] = []
     # reconcile takes no index/head; ``no_index=True`` forces a definitive store
     # scan (a bare call would consult the empty module default and read fresh).
@@ -1695,12 +1712,15 @@ def reconcile(
                 fix_status=None,
             ))
         else:
+            # A stopped session just means finished; a task with no transcript
+            # never ran. Close the former, send the latter back to todo.
+            ran = task.id in ran_ids
             rows.append(ReconcileRow(
-                state=RECONCILE_STALE,
+                state=RECONCILE_FINISHED if ran else RECONCILE_NEVER_RAN,
                 task_id=task.id,
                 task_status=task.status,
                 session=None,
-                fix_status=STATUS_DONE,
+                fix_status=STATUS_DONE if ran else STATUS_TODO,
             ))
 
     for task_id, session in session_task_ids.items():

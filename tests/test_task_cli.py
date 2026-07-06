@@ -621,50 +621,79 @@ class TestReconcile:
             task_cli, "_live_sessions_by_task", lambda s, p: mapping
         )
 
-    def test_empty(self, runner, store, monkeypatch):
+    def _ran(self, monkeypatch, tmp_path, ran_ids):
+        # Stub transcript detection: `ran_ids` are the stale tasks that ran (a
+        # transcript persists → finished → done); the rest never ran (→ todo).
+        # Also stub resolve_context to a real (existing) project path, since the
+        # reconcile CLI resolves it to locate worktrees before calling
+        # `_ran_task_ids` — the test store has no real project of its own.
+        monkeypatch.setattr(
+            task_cli, "resolve_context",
+            lambda *a, **k: SimpleNamespace(project="p", project_path=tmp_path),
+        )
+        monkeypatch.setattr(
+            task_cli, "_ran_task_ids", lambda s, p, pp: set(ran_ids)
+        )
+
+    def test_empty(self, runner, store, monkeypatch, tmp_path):
         self._live(monkeypatch, store, {})
+        self._ran(monkeypatch, tmp_path, set())
         result = runner.invoke(task_cli.task, ["reconcile"])
         assert result.exit_code == 0, result.output
         assert "No in-progress tasks or live task sessions." in result.output
 
-    def test_dry_run_lists_states_and_hints(self, runner, store, monkeypatch):
-        # One OK, one stale, one orphan.
+    def test_dry_run_lists_states_and_hints(self, runner, store, monkeypatch, tmp_path):
+        # One OK, one finished (ran), one never-ran, one orphan.
         ok = model.create(store, project="p", title="ok", id="t1")
         model.move(store, "p", ok.id, model.STATUS_IN_PROGRESS)
-        stale = model.create(store, project="p", title="stale", id="t2")
-        model.move(store, "p", stale.id, model.STATUS_IN_PROGRESS)
-        orphan = model.create(store, project="p", title="orphan", id="t3")  # todo
+        finished = model.create(store, project="p", title="finished", id="t2")
+        model.move(store, "p", finished.id, model.STATUS_IN_PROGRESS)
+        never = model.create(store, project="p", title="never", id="t3")
+        model.move(store, "p", never.id, model.STATUS_IN_PROGRESS)
+        orphan = model.create(store, project="p", title="orphan", id="t4")  # todo
         self._live(
             monkeypatch, store,
             {
                 ok.id: _live_session(pid=1),
-                orphan.id: _live_session(pid=3),
+                orphan.id: _live_session(pid=4),
             },
         )
+        self._ran(monkeypatch, tmp_path, {finished.id})  # t2 ran, t3 never did
         result = runner.invoke(task_cli.task, ["reconcile"])
         assert result.exit_code == 0, result.output
         assert "OK" in result.output
-        assert "NO SESSION" in result.output
+        assert "FINISHED" in result.output
+        assert "NEVER RAN" in result.output
         assert "NO TASK" in result.output
+        assert "→ done" in result.output
+        assert "→ todo" in result.output
         assert "re-run with --fix" in result.output
         # Nothing changed in dry-run.
-        assert model.load(store, "p", stale.id).status == model.STATUS_IN_PROGRESS
+        assert model.load(store, "p", finished.id).status == model.STATUS_IN_PROGRESS
+        assert model.load(store, "p", never.id).status == model.STATUS_IN_PROGRESS
         assert model.load(store, "p", orphan.id).status == model.STATUS_TODO
 
-    def test_fix_applies_corrections(self, runner, store, monkeypatch):
-        stale = model.create(store, project="p", title="stale", id="t1")
-        model.move(store, "p", stale.id, model.STATUS_IN_PROGRESS)
-        orphan = model.create(store, project="p", title="orphan", id="t2")  # todo
+    def test_fix_applies_corrections(self, runner, store, monkeypatch, tmp_path):
+        # A finished stale task → done, a never-ran stale task → todo, and an
+        # orphan session → in-progress.
+        finished = model.create(store, project="p", title="finished", id="t1")
+        model.move(store, "p", finished.id, model.STATUS_IN_PROGRESS)
+        never = model.create(store, project="p", title="never", id="t2")
+        model.move(store, "p", never.id, model.STATUS_IN_PROGRESS)
+        orphan = model.create(store, project="p", title="orphan", id="t3")  # todo
         self._live(monkeypatch, store, {orphan.id: _live_session(pid=3)})
+        self._ran(monkeypatch, tmp_path, {finished.id})
         result = runner.invoke(task_cli.task, ["reconcile", "--fix"])
         assert result.exit_code == 0, result.output
-        assert model.load(store, "p", stale.id).status == model.STATUS_DONE
+        assert model.load(store, "p", finished.id).status == model.STATUS_DONE
+        assert model.load(store, "p", never.id).status == model.STATUS_TODO
         assert model.load(store, "p", orphan.id).status == model.STATUS_IN_PROGRESS
 
-    def test_fix_nothing_to_do(self, runner, store, monkeypatch):
+    def test_fix_nothing_to_do(self, runner, store, monkeypatch, tmp_path):
         ok = model.create(store, project="p", title="ok", id="t1")
         model.move(store, "p", ok.id, model.STATUS_IN_PROGRESS)
         self._live(monkeypatch, store, {ok.id: _live_session(pid=1)})
+        self._ran(monkeypatch, tmp_path, set())
         result = runner.invoke(task_cli.task, ["reconcile", "--fix"])
         assert result.exit_code == 0, result.output
         assert "Nothing to fix." in result.output

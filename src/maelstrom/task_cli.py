@@ -24,12 +24,14 @@ from .task_store import GitFileStore
 from .shell import run_cmd
 from .worktree import (
     get_current_branch,
+    list_worktrees,
     setup_worktree_for_branch,
 )
 from .worktree_launcher import (
     build_task_launch_line,
     launch_claude_in_worktree,
 )
+from .worktree_model import has_claude_transcript
 
 
 def _current_branch_or_none() -> str | None:
@@ -169,14 +171,21 @@ def _run_task(
     # pipeline, not passed here — keeps the launch command line short.
 
     if here:
+        # No live session exists (the guard above ruled that out), so the only
+        # question is whether this task's deterministic session was started before
+        # and stopped: an on-disk transcript means `--session-id` would fail with
+        # "already exists", so we resume it instead. `--here` runs in the cwd.
+        resume = has_claude_transcript(Path.cwd(), session_id)
         task_actions.move_with_actions(
             store, project, task.id, model.STATUS_IN_PROGRESS, index=index
         )  # write BEFORE launch; fires pre_action
         _restamp(store, index, was_fresh=was_fresh)
-        click.echo(f"Running {task.id} here (current shell)")
+        suffix = " (resuming)" if resume else ""
+        click.echo(f"Running {task.id} here (current shell){suffix}")
         run_cmd(
             build_task_launch_line(
-                project, task.id, perm, env=session_env, session_id=session_id
+                project, task.id, perm, env=session_env,
+                session_id=session_id, resume=resume,
             ),
             cwd=None,
             env=session_env,
@@ -195,11 +204,15 @@ def _run_task(
     result = setup_worktree_for_branch(
         project_path, project, branch, run_install=False
     )
+    # Resume a previously-started (now-stopped) session rather than re-creating
+    # its id: the worktree the session lives in is the one just set up.
+    resume = has_claude_transcript(result.path, session_id)
     task_actions.move_with_actions(
         store, project, task.id, model.STATUS_IN_PROGRESS, index=index
     )  # write BEFORE launch; fires pre_action
     _restamp(store, index, was_fresh=was_fresh)
-    click.echo(f"Running {task.id} on {branch}")
+    suffix = " (resuming)" if resume else ""
+    click.echo(f"Running {task.id} on {branch}{suffix}")
     click.echo(f"  → {project}/{result.name} ({result.action})")
     launch_claude_in_worktree(
         result.path,
@@ -209,6 +222,7 @@ def _run_task(
         permission_mode=perm,
         env=session_env,
         session_id=session_id,
+        resume=resume,
     )
 
 
@@ -825,6 +839,38 @@ def _live_sessions_by_task(
     return mapping
 
 
+def _ran_task_ids(
+    store: GitFileStore, project: str, project_path: Path
+) -> set[str]:
+    """In-progress task ids whose session left an on-disk transcript (it ran).
+
+    A stale in-progress task (no live session) is either *finished* or *never
+    ran*; the two look identical to the live sweep. A transcript file at the
+    task's worktree for its deterministic session id means it ran at some point
+    (stopped = finished), so reconcile closes it; no transcript means it never
+    launched, so reconcile sends it back to todo. We map each in-progress task to
+    the worktree hosting its branch (one PR per parent → several tasks may share a
+    worktree) and test :func:`has_claude_transcript` there. Tasks whose branch has
+    no live worktree are skipped — there is nowhere for a transcript to live, so
+    they are treated as never-run.
+    """
+    # branch → worktree is 1:1 (git allows one checkout per branch), so this
+    # dict never loses a distinct worktree to key collision.
+    by_branch = {wt.branch: wt.path for wt in list_worktrees(project_path) if wt.branch}
+    ran: set[str] = set()
+    for task in model.list_tasks(
+        store, project=project, status=model.STATUS_IN_PROGRESS, no_index=True
+    ):
+        branch = task.branch or model.default_branch(task.id, task.parent)
+        worktree_path = by_branch.get(branch)
+        if worktree_path is None:
+            continue
+        session_id = model.session_id_for(project, task.id)
+        if has_claude_transcript(worktree_path, session_id):
+            ran.add(task.id)
+    return ran
+
+
 @task.command("reconcile")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 @click.option(
@@ -838,10 +884,11 @@ def task_reconcile(project: str | None, fix: bool) -> None:
     Liveness comes from live ``claude`` processes by cwd (via
     ``session_discovery``), the same source ``mael task run``'s duplicate-launch
     guard uses, so the two always agree. Lists the full picture — healthy (OK)
-    rows included — and flags two mismatch classes: a stale ``in-progress`` task
-    with no live session (→ ``done``) and a live session whose task isn't
-    ``in-progress`` (→ ``in-progress``). With ``--fix`` the suggested moves are
-    applied; without it, nothing changes and a hint is printed if any fix is
+    rows included — and flags mismatch classes: an ``in-progress`` task with no
+    live session that *ran* before (a transcript persists → ``done``) versus one
+    that *never ran* (no transcript → ``todo``), plus a live session whose task
+    isn't ``in-progress`` (→ ``in-progress``). With ``--fix`` the suggested moves
+    are applied; without it, nothing changes and a hint is printed if any fix is
     pending.
 
     Because correlation keys strictly off tasks that still exist, a live
@@ -852,7 +899,18 @@ def task_reconcile(project: str | None, fix: bool) -> None:
     store = _store()
     index, was_fresh = _mutate_index(store)
     session_task_ids = _live_sessions_by_task(store, proj)
-    rows = model.reconcile(store, proj, session_task_ids=session_task_ids)
+    # A stale in-progress task that left a transcript ran (stopped = finished →
+    # done); one with no transcript never launched (→ todo). Transcript existence
+    # is resolved here (per worktree) and injected so `reconcile` stays pure.
+    ctx = resolve_context(proj, require_project=True, arg_is_project=True)
+    ran_ids: set[str] = set()
+    if ctx.project_path is not None and ctx.project_path.exists():
+        ran_ids = _ran_task_ids(store, proj, ctx.project_path)
+    rows = model.reconcile(
+        store, proj,
+        session_task_ids=session_task_ids,
+        ran_ids=ran_ids,
+    )
 
     if not rows:
         click.echo("No in-progress tasks or live task sessions.")
@@ -860,11 +918,13 @@ def task_reconcile(project: str | None, fix: bool) -> None:
 
     _STATE_LABEL = {
         model.RECONCILE_OK: "OK",
-        model.RECONCILE_STALE: "NO SESSION",
+        model.RECONCILE_FINISHED: "FINISHED",
+        model.RECONCILE_NEVER_RAN: "NEVER RAN",
         model.RECONCILE_ORPHAN: "NO TASK",
     }
     _FIX_LABEL = {
         model.STATUS_DONE: "→ done",
+        model.STATUS_TODO: "→ todo",
         model.STATUS_IN_PROGRESS: "→ in-progress",
     }
 
