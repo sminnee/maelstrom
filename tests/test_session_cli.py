@@ -28,6 +28,8 @@ def _write_session(sessions_dir: Path, key: str, **overrides) -> Path:
         "updated_at": overrides.get("updated_at", "2026-05-27T10:00:00+00:00"),
         "channel_port": overrides.get("channel_port", 0),
     }
+    if "mael_task_id" in overrides:
+        data["mael_task_id"] = overrides["mael_task_id"]
     path = sessions_dir / f"{key}.json"
     path.write_text(json.dumps(data))
     return path
@@ -524,6 +526,54 @@ class TestSessionList:
 
         assert result.exit_code == 0
         assert not bad.exists()
+
+    def test_task_column_from_session_id_forward_match(self, tmp_path, monkeypatch):
+        # A live session whose --session-id maps forward to a task shows TASK.
+        sid = model.session_id_for("askastro", "daily.maintenance.2026-07-03.2")
+        sess = _live(4242, "/w/delta")
+        sess.session_id = sid
+        monkeypatch.setattr(
+            session_cli,
+            "_task_by_session_id",
+            lambda projects: {sid: "daily.maintenance.2026-07-03.2"},
+        )
+        with _patch_maelstrom_dir(tmp_path), _patch_live([sess]):
+            runner = CliRunner()
+            result = runner.invoke(cli, ["session", "list"])
+        assert result.exit_code == 0, result.output
+        assert "TASK" in result.output
+        assert "daily.maintenance.2026-07-03.2" in result.output
+
+    def test_task_column_falls_back_to_registry_task_id(self, tmp_path):
+        # No forward match (no notebook), but the registry recorded mael_task_id.
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        port = srv.getsockname()[1]
+        try:
+            sessions = tmp_path / "sessions"
+            now = datetime.now(timezone.utc).isoformat()
+            _write_session(
+                sessions, "live",
+                cwd="/w/alpha", pid=4242,
+                channel_port=port, state="idle", updated_at=now,
+                mael_task_id="2026-07-03.7",
+            )
+            with _patch_maelstrom_dir(tmp_path), _patch_live([_live(4242, "/w/alpha")]):
+                runner = CliRunner()
+                result = runner.invoke(cli, ["session", "list"])
+            assert result.exit_code == 0, result.output
+            assert "2026-07-03.7" in result.output
+        finally:
+            srv.close()
+
+    def test_task_column_blank_for_non_mael_session(self, tmp_path):
+        # A bare claude (no --session-id, no registry) shows a blank TASK.
+        with _patch_maelstrom_dir(tmp_path), _patch_live([_live(4242, "/w/alpha")]):
+            runner = CliRunner()
+            result = runner.invoke(cli, ["session", "list"])
+        assert result.exit_code == 0, result.output
+        assert "4242" in result.output
 
 
 class TestLivenessCheck:

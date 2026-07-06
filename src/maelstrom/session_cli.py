@@ -324,6 +324,33 @@ def _registry_enrichment(pid: int, cwd: str, registry: list[dict]) -> dict | Non
     return by_cwd
 
 
+def _task_by_session_id(projects: set[str]) -> dict[str, str]:
+    """Build ``session-id -> task-id`` by forward-matching over ``projects``.
+
+    The uuid5 in ``session_id_for`` is one-way, so we recover a task from a live
+    session's ``--session-id`` only by computing ``session_id_for`` forward for
+    every task and matching. Scoped to the given projects (those with a live
+    session) so we enumerate no more notebooks than we must. Best-effort: an
+    unresolvable project or missing store is skipped, leaving those sessions
+    unlabelled.
+    """
+    from maelstrom import task as model
+    from maelstrom.task_store import GitFileStore
+
+    if not projects:
+        return {}
+    store = GitFileStore()
+    mapping: dict[str, str] = {}
+    for project in projects:
+        try:
+            tasks = model.list_tasks(store, project=project, no_index=True)
+        except Exception:
+            continue
+        for task in tasks:
+            mapping[model.session_id_for(project, task.id)] = task.id
+    return mapping
+
+
 @session.command("list")
 def session_list() -> None:
     """List active Claude Code sessions.
@@ -332,12 +359,23 @@ def session_list() -> None:
     same source ``mael list`` / ``task reconcile`` use), so the list is accurate
     even when the registry is stale. STATE and AGE are registry-only fields, so
     they are enriched from a matching registry entry when one exists and left
-    blank otherwise. The registry directory is GC'd in the same single scan.
+    blank otherwise. TASK is derived by forward-matching each session's
+    ``--session-id`` against the notebook (falling back to the registry's
+    ``mael_task_id``), left blank for a non-``mael`` ``claude``. The registry
+    directory is GC'd in the same single scan.
     """
     registry = _scan_registry()
 
+    sessions = session_discovery.all_live_sessions()
+    # A session's cwd names its project; scope the (potentially expensive)
+    # forward-match scan to only the projects that actually have a live session.
+    live_projects = {
+        p for p, _ in (_derive_project_worktree(str(s.cwd)) for s in sessions) if p
+    }
+    task_by_sid = _task_by_session_id(live_projects)
+
     rows = []
-    for sess in session_discovery.all_live_sessions():
+    for sess in sessions:
         cwd = str(sess.cwd)
         project, worktree = _derive_project_worktree(cwd)
         pw = f"{project}/{worktree}" if project and worktree else (project or "")
@@ -352,9 +390,18 @@ def session_list() -> None:
                 state = "idle"  # display-only; ESC/interrupt leaves it stuck
             age = _format_age(entry.get("started_at", ""))
 
+        # Forward-match on the session-id first; fall back to the registry's
+        # recorded task id when the process carried no --session-id we could map.
+        task_id = ""
+        if sess.session_id:
+            task_id = task_by_sid.get(sess.session_id, "")
+        if not task_id and entry is not None:
+            task_id = entry.get("mael_task_id", "") or ""
+
         rows.append({
             "STATE": state,
             "PROJECT/WORKTREE": pw,
+            "TASK": task_id,
             "CWD": cwd,
             "AGE": age,
             "PID": str(sess.pid),
@@ -365,4 +412,4 @@ def session_list() -> None:
         return
 
     rows.sort(key=lambda r: (r["PROJECT/WORKTREE"], r["PID"]))
-    draw_table(rows, ["STATE", "PROJECT/WORKTREE", "CWD", "AGE", "PID"])
+    draw_table(rows, ["STATE", "PROJECT/WORKTREE", "TASK", "CWD", "AGE", "PID"])

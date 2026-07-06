@@ -101,28 +101,6 @@ def _restamp(store: GitFileStore, index: "SqliteTaskIndex", *, was_fresh: bool) 
         index.set_head(store.head())
 
 
-def _active_session_for_task_worktree(
-    project: str, task: "model.Task"
-) -> "session_discovery.LiveSession | None":
-    """The live Claude session running in ``task``'s worktree, or ``None``.
-
-    Resolves the task to its branch, the branch to its checked-out worktree via
-    the git worktree list, then asks :func:`session_discovery` whether a live
-    ``claude`` process is running there. ``None`` when the task has no worktree
-    checked out or that worktree has no live session. Used by the
-    duplicate-launch guard and shares its liveness source with ``reconcile``.
-    """
-    ctx = resolve_context(project, require_project=True, arg_is_project=True)
-    project_path = ctx.project_path
-    if project_path is None or not project_path.exists():
-        return None
-    branch = task.branch or model.default_branch(task.id, task.parent)
-    for wt in list_worktrees(project_path):
-        if wt.branch == branch:
-            return session_discovery.LiveSessionSet().active_for(wt.path)
-    return None
-
-
 def _read_content_file(content_file: str | None) -> str:
     """Read the ``--content-file`` argument's contents.
 
@@ -154,17 +132,22 @@ def _run_task(
     never returns here.
     """
     index, was_fresh = _mutate_index(store)
-    # Refuse a second parallel launch: the task's worktree already has a *live*
-    # Claude session (one worktree, one PR — racing two sessions on it corrupts
-    # both). Liveness is a running `claude` process whose cwd is that worktree
-    # (see session_discovery); a *finished* session leaves nothing running, so a
-    # finished task stays re-runnable and is deliberately NOT blocked.
-    existing = _active_session_for_task_worktree(project, task)
+    # Deterministic session id (same task → same id), passed to `claude
+    # --session-id` so the live process — and the registry — can be mapped back
+    # to this task. Computed up-front because the run-guard keys on it.
+    session_id = model.session_id_for(project, task.id)
+    # Refuse a second parallel launch *of this task*: a live `claude` whose
+    # `--session-id` is this task's own id (see session_discovery). Keying on the
+    # session-id, not on worktree occupancy, means a sibling task sharing the
+    # worktree (one PR per parent → one branch) can run concurrently and never
+    # trips this guard. A *finished* session leaves nothing running, so a finished
+    # task stays re-runnable and is deliberately NOT blocked.
+    existing = session_discovery.LiveSessionSet().for_session_id(session_id)
     if existing is not None:
         raise click.ClickException(
             f"Task {task.id} already has a live Claude session "
-            f"(pid {existing.pid}) in worktree {existing.cwd}. Close it before "
-            f"relaunching, or run `mael task reconcile` to inspect."
+            f"(pid {existing.pid}). Close it before relaunching, or run "
+            f"`mael task reconcile` to inspect."
         )
 
     # Skills running inside the session self-reference via these — e.g. to
@@ -180,9 +163,6 @@ def _run_task(
         "MAEL_TASK_PARENT": task.parent or task.id,
     }
     perm = model._permission_mode_for(task.mode)
-    # Deterministic session id (same task → same id), passed to `claude
-    # --session-id` so the registry can map the live session back to the task.
-    session_id = model.session_id_for(project, task.id)
     # The prompt is produced lazily by `mael task prompt` inside the launch
     # pipeline, not passed here — keeps the launch command line short.
 
