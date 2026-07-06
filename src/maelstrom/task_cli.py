@@ -24,7 +24,6 @@ from .task_store import GitFileStore
 from .shell import run_cmd
 from .worktree import (
     get_current_branch,
-    list_worktrees,
     setup_worktree_for_branch,
 )
 from .worktree_launcher import (
@@ -800,41 +799,24 @@ def _live_sessions_by_task(
 ) -> dict[str, "session_discovery.LiveSession"]:
     """Map ``task_id -> live LiveSession`` for every task in ``project``.
 
-    Correlates live ``claude`` processes to the task notebook by worktree: a
-    session's cwd resolves to a worktree, which resolves to a branch, and every
-    in-progress task sharing that branch is attributed the session. Chain
-    siblings share one branch (one PR per parent), so a single live worktree can
-    map to several in-progress tasks — the right granularity for ``reconcile``,
-    which only distinguishes in-progress from not. This is the same liveness
-    source (:func:`session_discovery.all_live_sessions`) the run-guard uses, so
-    the two always agree. Tasks whose worktree has no live session are omitted.
+    Correlates live ``claude`` processes to the task notebook by *session-id*: a
+    running session carries the ``--session-id`` ``mael`` launched it with
+    (:attr:`session_discovery.LiveSession.session_id`), so each task matches only
+    the session whose id is ``session_id_for(project, task.id)``. This is
+    task-precise even when chain siblings share one branch/worktree (one PR per
+    parent) — the exact fix the run-guard needed, applied here too, so the two
+    stay in lockstep off the same sweep. Tasks with no live session of their own
+    are omitted (a sibling's session no longer spuriously attributes to them).
     """
-    ctx = resolve_context(project, require_project=True, arg_is_project=True)
-    project_path = ctx.project_path
-    if project_path is None or not project_path.exists():
-        return {}
-
     live = session_discovery.LiveSessionSet()
     if not live.sessions:
         return {}
-
-    # branch -> the live session running in its worktree (first match wins).
-    # The shared instance memoises the worktree-list lookup so `git worktree
-    # list` runs once, not per branch resolved.
-    branch_session: dict[str, session_discovery.LiveSession] = {}
-    for wt in list_worktrees(project_path):
-        if not wt.branch or wt.branch in branch_session:
-            continue
-        session = live.active_for(wt.path)
-        if session is not None:
-            branch_session[wt.branch] = session
 
     mapping: dict[str, session_discovery.LiveSession] = {}
     # Reconcile wants a definitive store view (it pairs with model.reconcile, which
     # also scans); no HEAD is threaded here, so read the .md tree directly.
     for task in model.list_tasks(store, project=project, no_index=True):
-        branch = task.branch or model.default_branch(task.id, task.parent)
-        session = branch_session.get(branch)
+        session = live.for_session_id(model.session_id_for(project, task.id))
         if session is not None:
             mapping[task.id] = session
     return mapping
