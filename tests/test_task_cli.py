@@ -670,6 +670,38 @@ class TestReconcile:
         assert "Nothing to fix." in result.output
 
 
+class TestLiveSessionsByTask:
+    """The reconcile correlation builder — task-precise via session-id."""
+
+    def test_matches_only_the_owning_task(self, store, monkeypatch):
+        # Two siblings share one worktree; only `.2` is live. The map must
+        # attribute the session to `.2` alone, never to its sibling `.3`.
+        parent = model.create(store, project="p", title="parent")
+        two = model.create(store, project="p", title="two", parent=parent.id)
+        three = model.create(store, project="p", title="three", parent=parent.id)
+        two_sid = model.session_id_for("p", two.id)
+        _patch_live_sessions(
+            monkeypatch,
+            [_live_session(pid=111, cwd=Path("/work/shared"), session_id=two_sid)],
+        )
+        mapping = task_cli._live_sessions_by_task(store, "p")
+        assert two.id in mapping and mapping[two.id].pid == 111
+        assert three.id not in mapping
+
+    def test_empty_when_no_live_sessions(self, store, monkeypatch):
+        model.create(store, project="p", title="t")
+        _patch_live_sessions(monkeypatch, [])
+        assert task_cli._live_sessions_by_task(store, "p") == {}
+
+    def test_session_without_id_matches_nothing(self, store, monkeypatch):
+        # A bare claude (no --session-id) never correlates to a task.
+        model.create(store, project="p", title="t")
+        _patch_live_sessions(
+            monkeypatch, [_live_session(pid=5, cwd=Path("/work/x"))]
+        )
+        assert task_cli._live_sessions_by_task(store, "p") == {}
+
+
 class TestAddRun:
     def test_add_run_creates_then_moves_then_launches(self, runner, store, launch):
         # Capture the task status at launch time to prove move-before-launch.
