@@ -8,6 +8,10 @@ from pathlib import Path
 
 import click
 
+from .task_cli import open_index
+from .task_index import SqliteTaskIndex
+from .task_store import GitFileStore
+
 from . import session_discovery
 from .context import resolve_context
 from .session_store import (
@@ -324,31 +328,14 @@ def _registry_enrichment(pid: int, cwd: str, registry: list[dict]) -> dict | Non
     return by_cwd
 
 
-def _task_by_session_id(projects: set[str]) -> dict[str, str]:
-    """Build ``session-id -> task-id`` by forward-matching over ``projects``.
+def _task_index() -> SqliteTaskIndex:
+    """The on-disk task metadata index living beside the task store.
 
-    The uuid5 in ``session_id_for`` is one-way, so we recover a task from a live
-    session's ``--session-id`` only by computing ``session_id_for`` forward for
-    every task and matching. Scoped to the given projects (those with a live
-    session) so we enumerate no more notebooks than we must. Best-effort: an
-    unresolvable project or missing store is skipped, leaving those sessions
-    unlabelled.
+    Opened via the task CLI's public :func:`~maelstrom.task_cli.open_index`, so
+    the reverse session-id → task lookup reads the exact cache the task CLI keeps
+    current — no duplicated ``index.db`` path literal.
     """
-    from maelstrom import task as model
-    from maelstrom.task_store import GitFileStore
-
-    if not projects:
-        return {}
-    store = GitFileStore()
-    mapping: dict[str, str] = {}
-    for project in projects:
-        try:
-            tasks = model.list_tasks(store, project=project, no_index=True)
-        except Exception:
-            continue
-        for task in tasks:
-            mapping[model.session_id_for(project, task.id)] = task.id
-    return mapping
+    return open_index(GitFileStore())
 
 
 @session.command("list")
@@ -359,20 +346,16 @@ def session_list() -> None:
     same source ``mael list`` / ``task reconcile`` use), so the list is accurate
     even when the registry is stale. STATE and AGE are registry-only fields, so
     they are enriched from a matching registry entry when one exists and left
-    blank otherwise. TASK is derived by forward-matching each session's
-    ``--session-id`` against the notebook (falling back to the registry's
-    ``mael_task_id``), left blank for a non-``mael`` ``claude``. The registry
+    blank otherwise. TASK is resolved by an indexed reverse lookup of each
+    session's ``--session-id`` in the task metadata index (falling back to the
+    registry's ``mael_task_id`` when the index is cold/stale or the session
+    isn't indexed), left blank for a non-``mael`` ``claude``. The registry
     directory is GC'd in the same single scan.
     """
     registry = _scan_registry()
 
     sessions = session_discovery.all_live_sessions()
-    # A session's cwd names its project; scope the (potentially expensive)
-    # forward-match scan to only the projects that actually have a live session.
-    live_projects = {
-        p for p, _ in (_derive_project_worktree(str(s.cwd)) for s in sessions) if p
-    }
-    task_by_sid = _task_by_session_id(live_projects)
+    index = _task_index()
 
     rows = []
     for sess in sessions:
@@ -390,11 +373,14 @@ def session_list() -> None:
                 state = "idle"  # display-only; ESC/interrupt leaves it stuck
             age = _format_age(entry.get("started_at", ""))
 
-        # Forward-match on the session-id first; fall back to the registry's
-        # recorded task id when the process carried no --session-id we could map.
+        # Indexed reverse lookup on the session-id first; fall back to the
+        # registry's recorded task id when the index doesn't resolve it (cold or
+        # stale cache, or a session the process carried no --session-id for).
         task_id = ""
         if sess.session_id:
-            task_id = task_by_sid.get(sess.session_id, "")
+            meta = index.find_by_session_id(sess.session_id)
+            if meta is not None:
+                task_id = meta.id
         if not task_id and entry is not None:
             task_id = entry.get("mael_task_id", "") or ""
 

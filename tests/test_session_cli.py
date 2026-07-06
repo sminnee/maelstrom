@@ -7,11 +7,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 
 from maelstrom.cli import cli
 from maelstrom import session_cli
 from maelstrom import task as model
+from maelstrom.task_index import SqliteTaskIndex, TaskMeta
 from maelstrom.task_store import GitFileStore
 
 
@@ -439,6 +441,15 @@ def _live(pid, cwd):
 
 
 class TestSessionList:
+    @pytest.fixture(autouse=True)
+    def _fresh_index(self, monkeypatch):
+        # Default every session-list test to an empty in-memory index so none
+        # touches the real on-disk notebook. Tests that assert an index hit
+        # override this with their own populated index.
+        monkeypatch.setattr(
+            session_cli, "_task_index", lambda: SqliteTaskIndex(":memory:")
+        )
+
     def test_empty_when_no_live_processes(self, tmp_path):
         with _patch_maelstrom_dir(tmp_path), _patch_live([]):
             runner = CliRunner()
@@ -527,22 +538,58 @@ class TestSessionList:
         assert result.exit_code == 0
         assert not bad.exists()
 
-    def test_task_column_from_session_id_forward_match(self, tmp_path, monkeypatch):
-        # A live session whose --session-id maps forward to a task shows TASK.
+    def test_task_column_from_session_id_index_lookup(self, tmp_path, monkeypatch):
+        # A live session whose --session-id resolves via the task index shows TASK.
         sid = model.session_id_for("askastro", "daily.maintenance.2026-07-03.2")
         sess = _live(4242, "/w/delta")
         sess.session_id = sid
-        monkeypatch.setattr(
-            session_cli,
-            "_task_by_session_id",
-            lambda projects: {sid: "daily.maintenance.2026-07-03.2"},
+        index = SqliteTaskIndex(":memory:")
+        index.upsert(
+            TaskMeta(
+                project="askastro",
+                id="daily.maintenance.2026-07-03.2",
+                status="in-progress",
+                session_id=sid,
+            )
         )
+        monkeypatch.setattr(session_cli, "_task_index", lambda: index)
         with _patch_maelstrom_dir(tmp_path), _patch_live([sess]):
             runner = CliRunner()
             result = runner.invoke(cli, ["session", "list"])
         assert result.exit_code == 0, result.output
         assert "TASK" in result.output
         assert "daily.maintenance.2026-07-03.2" in result.output
+
+    def test_task_column_cold_index_falls_back_to_registry(self, tmp_path, monkeypatch):
+        # The index doesn't resolve the session (cold/stale), but the registry
+        # recorded mael_task_id — TASK falls back to it.
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        port = srv.getsockname()[1]
+        try:
+            sid = model.session_id_for("askastro", "2026-07-03.7")
+            sess = _live(4242, "/w/alpha")
+            sess.session_id = sid
+            sessions = tmp_path / "sessions"
+            now = datetime.now(timezone.utc).isoformat()
+            _write_session(
+                sessions, "live",
+                cwd="/w/alpha", pid=4242, session_id=sid,
+                channel_port=port, state="idle", updated_at=now,
+                mael_task_id="2026-07-03.7",
+            )
+            # Cold index: nothing to resolve the session-id.
+            monkeypatch.setattr(
+                session_cli, "_task_index", lambda: SqliteTaskIndex(":memory:")
+            )
+            with _patch_maelstrom_dir(tmp_path), _patch_live([sess]):
+                runner = CliRunner()
+                result = runner.invoke(cli, ["session", "list"])
+            assert result.exit_code == 0, result.output
+            assert "2026-07-03.7" in result.output
+        finally:
+            srv.close()
 
     def test_task_column_falls_back_to_registry_task_id(self, tmp_path):
         # No forward match (no notebook), but the registry recorded mael_task_id.

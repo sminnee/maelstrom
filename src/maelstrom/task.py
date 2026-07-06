@@ -490,6 +490,7 @@ def _meta_from_task(task: Task) -> TaskMeta:
         last_run=task.last_run,
         created=task.created,
         updated=task.updated,
+        session_id=session_id_for(task.project, task.id),
     )
 
 

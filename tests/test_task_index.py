@@ -42,6 +42,27 @@ class TestIndexBackend:
     def test_find_absent_is_none(self, index):
         assert index.find("p", "missing") is None
 
+    def test_find_by_session_id_roundtrips(self, index):
+        index.upsert(_meta(id="a", session_id="sid-a"))
+        index.upsert(_meta(id="b", session_id="sid-b"))
+        got = index.find_by_session_id("sid-b")
+        assert got is not None and got.id == "b"
+
+    def test_find_by_session_id_unknown_is_none(self, index):
+        index.upsert(_meta(id="a", session_id="sid-a"))
+        assert index.find_by_session_id("nope") is None
+
+    def test_find_by_session_id_blank_never_resolves(self, index):
+        # "" is the default for never-launched rows; a blank query must not
+        # match one of them.
+        index.upsert(_meta(id="a", session_id=""))
+        assert index.find_by_session_id("") is None
+
+    def test_to_from_row_preserves_session_id(self, index):
+        index.upsert(_meta(id="a", session_id="sid-a"))
+        got = index.find("p", "a")
+        assert got is not None and got.session_id == "sid-a"
+
     def test_upsert_replaces(self, index):
         index.upsert(_meta(id="a", status="todo"))
         index.upsert(_meta(id="a", status="done"))
@@ -118,6 +139,41 @@ class TestSqlitePersistence:
         got = reopened.find("p", "a")
         assert got is not None and got.title == "kept"
         assert reopened.head() == "sha"
+
+    def test_clear_recreates_table_from_current_schema(self, tmp_path):
+        """An old-schema on-disk table (no session_id) is dropped+recreated.
+
+        Simulates upgrading an ``index.db`` written before ``session_id`` existed:
+        ``clear()`` (as ``task reindex`` calls it) drops the stale table and
+        recreates it with the current column set, so a subsequent upsert of a
+        row carrying ``session_id`` succeeds. The HEAD stamp in ``meta`` survives.
+        """
+        import sqlite3
+
+        db = tmp_path / "index.db"
+        # Hand-build a pre-session_id ``tasks`` table, mirroring the old schema.
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "CREATE TABLE tasks ("
+            "project TEXT NOT NULL, id TEXT NOT NULL, status TEXT NOT NULL, "
+            "title TEXT, priority TEXT, branch TEXT, parent TEXT, "
+            "follows TEXT, command TEXT, mode TEXT, schedule TEXT, "
+            "last_run TEXT, created TEXT, updated TEXT, "
+            "PRIMARY KEY (project, id))"
+        )
+        conn.execute(
+            "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)"
+        )
+        conn.commit()
+        conn.close()
+
+        idx = SqliteTaskIndex(db)
+        idx.set_head("sha")
+        idx.clear()  # drop+recreate under the current schema
+        idx.upsert(_meta(id="a", session_id="sid-a"))  # would fail on old schema
+        got = idx.find_by_session_id("sid-a")
+        assert got is not None and got.id == "a"
+        assert idx.head() == "sha"
 
 
 # --- model integration: the index stays in lock-step with the .md tree ---
