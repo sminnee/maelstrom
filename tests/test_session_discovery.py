@@ -18,19 +18,27 @@ def _completed(stdout: str) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr="")
 
 
-def _fake_run_cmd(pgrep_out: str, lsof_out: str):
-    """A ``run_cmd`` stand-in that answers pgrep and lsof from fixed output.
+def _fake_run_cmd(pgrep_out: str, lsof_out: str, ps_out: str = ""):
+    """A ``run_cmd`` stand-in that answers pgrep, lsof, and ps from fixed output.
 
-    Dispatches on the argv's first token so a single stub serves both calls
-    ``all_live_sessions`` makes.
+    Dispatches on the argv's first token so a single stub serves all three calls
+    ``all_live_sessions`` makes. ``ps_out`` defaults to empty (no session-ids),
+    which keeps the pre-session-id tests unchanged.
     """
     def run(cmd, *args, **kwargs):
         if cmd[0] == "pgrep":
             return _completed(pgrep_out)
         if cmd[0] == "lsof":
             return _completed(lsof_out)
+        if cmd[0] == "ps":
+            return _completed(ps_out)
         raise AssertionError(f"unexpected command: {cmd}")
     return run
+
+
+def _ps_records(pairs: list[tuple[int, str]]) -> str:
+    """Render ``(pid, command-line)`` pairs as ``ps -o pid=,command=`` output."""
+    return "\n".join(f"  {pid} {cmd}" for pid, cmd in pairs) + "\n"
 
 
 def _lsof_records(pairs: list[tuple[int, str]]) -> str:
@@ -98,6 +106,73 @@ class TestAllLiveSessions:
         assert sessions == [
             session_discovery.LiveSession(pid=42, cwd=Path("/w/alpha"))
         ]
+
+    def test_captures_session_id_from_ps(self, monkeypatch):
+        sid = "97894d02-f335-5ea3-9d9f-050330a4902b"
+        monkeypatch.setattr(
+            session_discovery,
+            "run_cmd",
+            _fake_run_cmd(
+                "47519\n",
+                _lsof_records([(47519, "/w/delta")]),
+                _ps_records([(47519, f"claude --session-id {sid} --foo bar")]),
+            ),
+        )
+        sessions = session_discovery.all_live_sessions()
+        assert sessions == [
+            session_discovery.LiveSession(
+                pid=47519, cwd=Path("/w/delta"), session_id=sid
+            )
+        ]
+
+    def test_session_id_none_when_flag_absent(self, monkeypatch):
+        # A bare `claude` launched outside mael has no --session-id.
+        monkeypatch.setattr(
+            session_discovery,
+            "run_cmd",
+            _fake_run_cmd(
+                "42\n",
+                _lsof_records([(42, "/w/alpha")]),
+                _ps_records([(42, "claude --resume")]),
+            ),
+        )
+        sessions = session_discovery.all_live_sessions()
+        assert sessions[0].session_id is None
+
+    def test_session_id_missing_ps_is_none(self, monkeypatch):
+        # A box without `ps` still sweeps; only the session-ids are lost.
+        def run(cmd, *a, **k):
+            if cmd[0] == "pgrep":
+                return _completed("42\n")
+            if cmd[0] == "lsof":
+                return _completed(_lsof_records([(42, "/w/alpha")]))
+            raise OSError("ps not found")
+        monkeypatch.setattr(session_discovery, "run_cmd", run)
+        sessions = session_discovery.all_live_sessions()
+        assert sessions == [
+            session_discovery.LiveSession(pid=42, cwd=Path("/w/alpha"))
+        ]
+
+    def test_session_id_matched_per_pid(self, monkeypatch):
+        # Two live sessions, each with its own --session-id; ps lines may arrive
+        # in any order, so matching is by pid, not position.
+        a = "97894d02-f335-5ea3-9d9f-050330a4902b"
+        b = "94063899-7207-57ac-9629-4cc8d130667f"
+        monkeypatch.setattr(
+            session_discovery,
+            "run_cmd",
+            _fake_run_cmd(
+                "42\n99\n",
+                _lsof_records([(42, "/w/alpha"), (99, "/w/echo")]),
+                _ps_records([
+                    (99, f"claude --session-id {b}"),
+                    (42, f"claude --session-id {a}"),
+                ]),
+            ),
+        )
+        sessions = session_discovery.all_live_sessions()
+        by_pid = {s.pid: s.session_id for s in sessions}
+        assert by_pid == {42: a, 99: b}
 
 
 def _make_worktree(root: Path, name: str, *, bare: bool = False) -> Path:
@@ -190,6 +265,36 @@ class TestLiveSessionSet:
         live = session_discovery.LiveSessionSet(sessions)
         assert live.count_for(main) == 0
         assert [s.pid for s in live.all_for(nested)] == [1]
+
+    def test_for_session_id_finds_match(self):
+        a = "97894d02-f335-5ea3-9d9f-050330a4902b"
+        b = "94063899-7207-57ac-9629-4cc8d130667f"
+        sessions = [
+            session_discovery.LiveSession(pid=1, cwd=Path("/w/a"), session_id=a),
+            session_discovery.LiveSession(pid=2, cwd=Path("/w/b"), session_id=b),
+        ]
+        live = session_discovery.LiveSessionSet(sessions)
+        found_a = live.for_session_id(a)
+        found_b = live.for_session_id(b)
+        assert found_a is not None and found_a.pid == 1
+        assert found_b is not None and found_b.pid == 2
+
+    def test_for_session_id_none_when_no_match(self):
+        sessions = [
+            session_discovery.LiveSession(
+                pid=1, cwd=Path("/w/a"),
+                session_id="97894d02-f335-5ea3-9d9f-050330a4902b",
+            ),
+        ]
+        live = session_discovery.LiveSessionSet(sessions)
+        assert live.for_session_id("94063899-7207-57ac-9629-4cc8d130667f") is None
+
+    def test_for_session_id_ignores_none_ids(self):
+        # A session without a session-id must never match a None lookup key
+        # (there is no None key), and must not be returned by any real lookup.
+        sessions = [session_discovery.LiveSession(pid=1, cwd=Path("/w/a"))]
+        live = session_discovery.LiveSessionSet(sessions)
+        assert live.for_session_id("anything") is None
 
     def test_sweeps_lazily_when_no_sessions_passed(self, monkeypatch, tmp_path):
         alpha = _make_worktree(tmp_path, "alpha")

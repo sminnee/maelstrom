@@ -68,12 +68,25 @@ def launch(monkeypatch, tmp_path):
     monkeypatch.setattr(task_cli, "launch_claude_in_worktree", session)
     monkeypatch.setattr(task_cli, "run_cmd", run_cmd)
     # No live session for the task by default — the duplicate-launch pre-check
-    # would otherwise resolve the worktree and sweep live claude processes.
-    monkeypatch.setattr(
-        task_cli, "_active_session_for_task_worktree", lambda *a, **k: None
-    )
+    # would otherwise sweep live claude processes. Patch the sweep to empty so
+    # `for_session_id` finds nothing.
+    _patch_live_sessions(monkeypatch, [])
     return SimpleNamespace(
         setup=setup, session=session, exec=run_cmd, wt_path=wt_path
+    )
+
+
+def _patch_live_sessions(monkeypatch, sessions):
+    """Make the run-guard's ``LiveSessionSet`` sweep return ``sessions``.
+
+    The guard constructs ``session_discovery.LiveSessionSet()`` and calls
+    ``for_session_id``; patching the swept list drives it without touching real
+    ``pgrep``/``lsof``/``ps``.
+    """
+    monkeypatch.setattr(
+        task_cli.session_discovery,
+        "all_live_sessions",
+        lambda: list(sessions),
     )
 
 
@@ -519,9 +532,7 @@ class TestRun:
             "resolve_context",
             lambda *a, **k: SimpleNamespace(project="p", project_path=missing),
         )
-        monkeypatch.setattr(
-            task_cli, "_active_session_for_task_worktree", lambda *a, **k: None
-        )
+        _patch_live_sessions(monkeypatch, [])
         session = MagicMock()
         monkeypatch.setattr(task_cli, "launch_claude_in_worktree", session)
         result = runner.invoke(task_cli.task, ["run", t.id])
@@ -530,28 +541,28 @@ class TestRun:
         session.assert_not_called()
 
 
-def _live_session(pid=1, cwd=Path("/work/tree")):
+def _live_session(pid=1, cwd=Path("/work/tree"), session_id=None):
     """A minimal :class:`LiveSession` stand-in (always live by construction)."""
     from maelstrom.session_discovery import LiveSession
 
-    return LiveSession(pid=pid, cwd=cwd)
+    return LiveSession(pid=pid, cwd=cwd, session_id=session_id)
 
 
 class TestDuplicateLaunchPrecheck:
-    def test_run_refuses_when_live_session_exists(
+    def test_run_refuses_when_this_tasks_session_is_live(
         self, runner, store, launch, monkeypatch
     ):
+        # A live claude carrying *this task's* --session-id blocks the relaunch.
         t = model.create(store, project="p", title="t")
-        monkeypatch.setattr(
-            task_cli,
-            "_active_session_for_task_worktree",
-            lambda *a, **k: _live_session(pid=4242, cwd=Path("/work/tree-bravo")),
+        sid = model.session_id_for("p", t.id)
+        _patch_live_sessions(
+            monkeypatch,
+            [_live_session(pid=4242, cwd=Path("/work/tree-bravo"), session_id=sid)],
         )
         result = runner.invoke(task_cli.task, ["run", t.id])
         assert result.exit_code != 0
         assert "already has a live Claude session" in result.output
         assert "4242" in result.output
-        assert "/work/tree-bravo" in result.output
         # Aborts before any launch or status move.
         launch.session.assert_not_called()
         launch.setup.assert_not_called()
@@ -559,11 +570,8 @@ class TestDuplicateLaunchPrecheck:
 
     def test_run_here_also_refuses(self, runner, store, launch, monkeypatch):
         t = model.create(store, project="p", title="t")
-        monkeypatch.setattr(
-            task_cli,
-            "_active_session_for_task_worktree",
-            lambda *a, **k: _live_session(pid=9),
-        )
+        sid = model.session_id_for("p", t.id)
+        _patch_live_sessions(monkeypatch, [_live_session(pid=9, session_id=sid)])
         result = runner.invoke(task_cli.task, ["run", t.id, "--here"])
         assert result.exit_code != 0
         assert "already has a live Claude session" in result.output
@@ -573,16 +581,38 @@ class TestDuplicateLaunchPrecheck:
     def test_run_proceeds_when_no_live_session(
         self, runner, store, launch, monkeypatch
     ):
-        # A finished task leaves no live process in its worktree — it must stay
+        # A finished task leaves no live process carrying its id — it must stay
         # re-runnable, so the guard does NOT block.
         t = model.create(store, project="p", title="t")
-        monkeypatch.setattr(
-            task_cli, "_active_session_for_task_worktree", lambda *a, **k: None
-        )
+        _patch_live_sessions(monkeypatch, [])
         result = runner.invoke(task_cli.task, ["run", t.id])
         assert result.exit_code == 0, result.output
         launch.session.assert_called_once()
         assert model.load(store, "p", t.id).status == model.STATUS_IN_PROGRESS
+
+    def test_sibling_session_in_shared_worktree_does_not_block(
+        self, runner, store, launch, monkeypatch
+    ):
+        # Two sibling tasks under one parent share a branch/worktree (one PR per
+        # parent). A live session for sibling `.2` must NOT block launching `.3`:
+        # they carry distinct --session-ids, so the guard keys only on `.3`'s own.
+        parent = model.create(store, project="p", title="parent")
+        two = model.create(store, project="p", title="two", parent=parent.id)
+        three = model.create(store, project="p", title="three", parent=parent.id)
+        two_sid = model.session_id_for("p", two.id)
+        # `.2` is live in the shared worktree; `.3` is not.
+        _patch_live_sessions(
+            monkeypatch,
+            [_live_session(pid=111, cwd=Path("/work/shared"), session_id=two_sid)],
+        )
+        result = runner.invoke(task_cli.task, ["run", three.id])
+        assert result.exit_code == 0, result.output
+        launch.session.assert_called_once()
+        assert model.load(store, "p", three.id).status == model.STATUS_IN_PROGRESS
+        # Relaunching `.2` itself, however, is still blocked.
+        result2 = runner.invoke(task_cli.task, ["run", two.id])
+        assert result2.exit_code != 0
+        assert "already has a live Claude session" in result2.output
 
 
 class TestReconcile:

@@ -3,7 +3,10 @@
 The authoritative, fast signal is the live ``claude`` CLI processes themselves
 and their working directories. A running ``claude`` session's cwd *is* the
 worktree it was launched in, so one ``pgrep -x claude`` plus one batched
-``lsof -a -d cwd`` gives every live session's real worktree path in ~0.03s.
+``lsof -a -d cwd`` gives every live session's real worktree path in ~0.03s. A
+third batched call — ``ps -o command=`` — reads each process's command line so
+we can recover the ``--session-id`` ``mael`` launched it with, the durable link
+back to the task even when the registry has no file for the session.
 
 This deliberately does **not** consult transcript files or the ``~/.maelstrom``
 session registry to decide liveness:
@@ -25,26 +28,39 @@ off that shared list — each session attributing itself to a worktree via
 with no import cycle: ``session_store`` never imports this module.
 """
 
+import re
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
 
 from .shell import run_cmd
 
+# ``mael`` launches ``claude --session-id <uuid>``; recover that uuid from the
+# command line. Matches a canonical uuid so a bare ``claude`` with no flag (or a
+# process that never carried one) simply yields ``None``.
+_SESSION_ID_RE = re.compile(
+    r"--session-id[=\s]+"
+    r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+)
+
 
 @dataclass
 class LiveSession:
-    """A running Claude CLI process and its working directory.
+    """A running Claude CLI process, its working directory, and its session-id.
 
     ``cwd`` is where the session runs; :attr:`worktree` is the worktree that owns
-    it. Every :class:`LiveSession` a lookup returns was live *at scan time* —
-    there is no ``is_live`` flag because a non-live process is simply absent from
-    the sweep. Callers acting on a returned session (e.g. the run-guard) accept
-    the small TOCTOU window in which the pid may exit before they use it.
+    it. ``session_id`` is the ``--session-id`` uuid ``mael`` launched it with
+    (``None`` for a bare ``claude`` started outside ``mael``), the task-precise
+    key the run-guard and ``session list`` correlate on. Every
+    :class:`LiveSession` a lookup returns was live *at scan time* — there is no
+    ``is_live`` flag because a non-live process is simply absent from the sweep.
+    Callers acting on a returned session (e.g. the run-guard) accept the small
+    TOCTOU window in which the pid may exit before they use it.
     """
 
     pid: int
     cwd: Path
+    session_id: str | None = None
 
     @cached_property
     def worktree(self) -> Path | None:
@@ -65,7 +81,7 @@ class LiveSession:
 
 
 def all_live_sessions() -> list[LiveSession]:
-    """Every running Claude CLI session and its cwd, in one pgrep + one lsof.
+    """Every running Claude CLI session, its cwd, and its session-id.
 
     1. ``pgrep -x claude`` → the pids of the real CLI. ``-x`` matches the exact
        command name, so ``bun`` MCP-channel helpers and ``Code Helper`` are
@@ -73,15 +89,23 @@ def all_live_sessions() -> list[LiveSession]:
     2. ``lsof -a -d cwd -p <pids> -F pn`` → one call returning each pid's cwd as
        ``-F`` records (``p<pid>`` / ``n<path>``). A pid whose cwd can't be read
        is skipped.
+    3. ``ps -o pid=,command= -p <pids>`` → one call returning each pid's command
+       line, from which we parse the ``--session-id`` uuid. A process without
+       the flag (a bare ``claude``) just yields ``session_id=None``.
 
-    Both external calls tolerate a missing binary or non-zero exit and yield an
-    empty list rather than raising, so a box with no ``claude`` running (or
-    without ``pgrep``/``lsof``) reports ``[]``.
+    All three external calls tolerate a missing binary or non-zero exit and yield
+    an empty result rather than raising, so a box with no ``claude`` running (or
+    without ``pgrep``/``lsof``/``ps``) reports ``[]`` — and a missing ``ps`` only
+    costs the session-ids, not the sweep.
     """
     pids = _claude_pids()
     if not pids:
         return []
-    return _cwds_for_pids(pids)
+    sessions = _cwds_for_pids(pids)
+    session_ids = _session_ids_for_pids(pids)
+    for s in sessions:
+        s.session_id = session_ids.get(s.pid)
+    return sessions
 
 
 def _claude_pids() -> list[int]:
@@ -134,6 +158,39 @@ def _cwds_for_pids(pids: list[int]) -> list[LiveSession]:
     return sessions
 
 
+def _session_ids_for_pids(pids: list[int]) -> dict[int, str]:
+    """Map ``pid -> session-id`` by reading each pid's command line via ``ps``.
+
+    One batched ``ps -ww -o pid=,command= -p <pids>``: each line is
+    ``<pid> <cmd…>``, and we regex the ``--session-id`` uuid out of the rest of
+    the line. ``-ww`` prints the command line at unlimited width, so the flag is
+    never clipped by column truncation regardless of how long or how late in the
+    args it sits. A pid whose line lacks the flag is simply absent from the map (→
+    ``session_id=None``). ``check=False`` because ``ps`` exits non-zero when some
+    pids have already gone; a missing ``ps`` binary yields an empty map, costing
+    only the session-ids.
+    """
+    args = ["ps", "-ww", "-o", "pid=,command=", "-p", ",".join(str(p) for p in pids)]
+    try:
+        result = run_cmd(args, quiet=True, check=False)
+    except (OSError, ValueError):
+        return {}
+    mapping: dict[int, str] = {}
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        head, _, rest = line.partition(" ")
+        try:
+            pid = int(head)
+        except ValueError:
+            continue
+        m = _SESSION_ID_RE.search(rest)
+        if m:
+            mapping[pid] = m.group(1)
+    return mapping
+
+
 class LiveSessionSet:
     """One live-``claude`` sweep plus the per-worktree questions asked of it.
 
@@ -178,3 +235,17 @@ class LiveSessionSet:
         Drives the ``SESSION`` column of ``mael list`` / ``mael list-all``.
         """
         return sum(1 for s in self.sessions if s.worktree == worktree_path)
+
+    def for_session_id(self, session_id: str) -> LiveSession | None:
+        """The live session whose ``session_id`` matches, or ``None``.
+
+        Task-precise: keys on *this task's own* deterministic session-id rather
+        than on worktree occupancy, so the ``mael task run`` guard blocks only a
+        genuine relaunch of the same task — a sibling sharing the worktree (one
+        PR per parent) no longer trips it. The worktree-granular
+        ``active_for``/``all_for``/``count_for`` stay for ``mael close``,
+        ``mael list``'s SESSION count, and ``reconcile``.
+        """
+        return next(
+            (s for s in self.sessions if s.session_id == session_id), None
+        )
