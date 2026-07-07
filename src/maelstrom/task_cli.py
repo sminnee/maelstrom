@@ -123,7 +123,12 @@ def _read_content_file(content_file: str | None) -> str:
 
 
 def _run_task(
-    store: GitFileStore, project: str, task: "model.Task", *, here: bool = False
+    store: GitFileStore,
+    project: str,
+    task: "model.Task",
+    *,
+    here: bool = False,
+    fresh: bool = False,
 ) -> None:
     """Mark a task in-progress and launch its Claude session.
 
@@ -134,6 +139,13 @@ def _run_task(
     The status move updates the metadata index too, and re-stamps its HEAD (only
     if it was complete beforehand) *before* the launcher runs, since an ``execvp``
     never returns here.
+
+    ``fresh=True`` marks a just-created task (load-many head, ``add --run``, a
+    scheduled run): it has no prior conversation, so it must always launch with
+    ``--session-id`` (create) and never ``--resume`` — even when a stale
+    transcript for its deterministic id already sits in a reused worktree. The
+    relaunch callers (``task run`` / ``task next``) leave it ``False`` so they
+    still resume a previously-stopped session.
     """
     index, was_fresh = _mutate_index(store)
     # Deterministic session id (same task → same id), passed to `claude
@@ -175,7 +187,8 @@ def _run_task(
         # question is whether this task's deterministic session was started before
         # and stopped: an on-disk transcript means `--session-id` would fail with
         # "already exists", so we resume it instead. `--here` runs in the cwd.
-        resume = has_claude_transcript(Path.cwd(), session_id)
+        # fresh ⇒ never resume; see docstring.
+        resume = (not fresh) and has_claude_transcript(Path.cwd(), session_id)
         task_actions.move_with_actions(
             store, project, task.id, model.STATUS_IN_PROGRESS, index=index
         )  # write BEFORE launch; fires pre_action
@@ -206,7 +219,8 @@ def _run_task(
     )
     # Resume a previously-started (now-stopped) session rather than re-creating
     # its id: the worktree the session lives in is the one just set up.
-    resume = has_claude_transcript(result.path, session_id)
+    # fresh ⇒ never resume; see docstring.
+    resume = (not fresh) and has_claude_transcript(result.path, session_id)
     task_actions.move_with_actions(
         store, project, task.id, model.STATUS_IN_PROGRESS, index=index
     )  # write BEFORE launch; fires pre_action
@@ -494,7 +508,7 @@ def add_task(
             raise click.ClickException(str(e))
     _restamp(store, index, was_fresh=was_fresh)
     if run:
-        _run_task(store, proj, new, here=here)
+        _run_task(store, proj, new, here=here, fresh=True)
     return new
 
 
@@ -538,7 +552,7 @@ def task_load_many(file: str, project: str | None, run: bool, here: bool) -> Non
             f"{head.id} started in a separate claude session "
             "— do *not* work on it yourself."
         )
-        _run_task(store, proj, head, here=here)
+        _run_task(store, proj, head, here=here, fresh=True)
 
 
 def _scheduled_projects(project: str | None, all_projects: bool) -> list[str]:
@@ -603,7 +617,7 @@ def _fire_due_templates(
     _restamp(store, index, was_fresh=was_fresh)
     if run:
         for t in created:
-            _run_task(store, project, t, here=here)
+            _run_task(store, project, t, here=here, fresh=True)
     return created
 
 
