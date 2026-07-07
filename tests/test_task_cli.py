@@ -518,6 +518,20 @@ class TestRun:
         assert f"Running {t.id} on {t.branch}" in result.output
         assert "→ p/bravo (created)" in result.output
 
+    def test_run_existing_task_resumes_stale_transcript(
+        self, runner, store, launch, monkeypatch
+    ):
+        # The relaunch path (`task run <id>`) keeps resume-on-restart: an
+        # already-existing task with an on-disk transcript for its session-id
+        # launches with `--resume`. Confirms the `fresh` fix is scoped to the
+        # create-then-run callers only.
+        t = model.create(store, project="p", title="Existing")
+        monkeypatch.setattr(task_cli, "has_claude_transcript", lambda *a: True)
+        result = runner.invoke(task_cli.task, ["run", t.id])
+        assert result.exit_code == 0, result.output
+        assert launch.session.call_args.kwargs["resume"] is True
+        assert "(resuming)" in result.output
+
     def test_run_unknown_task_errors(self, runner, store, launch):
         result = runner.invoke(task_cli.task, ["run", "nope"])
         assert result.exit_code != 0
@@ -754,6 +768,19 @@ class TestAddRun:
         # The move ran BEFORE the launch.
         assert [t.id for t in seen["in_progress"]] == [new_id]
         launch.session.assert_called_once()
+
+    def test_add_run_never_resumes_stale_transcript(
+        self, runner, store, launch, monkeypatch
+    ):
+        # A task created by `add --run` is brand-new: even with a stale
+        # transcript present it launches with `--session-id` (create), never
+        # `--resume`.
+        monkeypatch.setattr(task_cli, "has_claude_transcript", lambda *a: True)
+        result = runner.invoke(task_cli.task, ["add", "One shot", "--run"])
+        assert result.exit_code == 0, result.output
+        launch.session.assert_called_once()
+        assert launch.session.call_args.kwargs["resume"] is False
+        assert "(resuming)" not in result.output
 
     def test_add_without_run_does_not_launch(self, runner, store, launch):
         result = runner.invoke(task_cli.task, ["add", "No launch"])
@@ -1077,6 +1104,22 @@ class TestLoadMany:
         # Move-before-launch parity: head is in-progress, tail still blocked.
         assert model.load(store, "p", head_id).status == model.STATUS_IN_PROGRESS
         assert model.load(store, "p", tail_id).status == model.STATUS_TODO
+
+    def test_load_many_run_head_never_resumes_stale_transcript(
+        self, runner, store, launch, tmp_path, monkeypatch
+    ):
+        # Regression: the head is a brand-new task, so even when a stale
+        # transcript for its deterministic session-id already sits in the
+        # reused worktree, it must launch with `--session-id` (create), never
+        # `--resume`. Before the `fresh=True` fix this launched with resume=True
+        # and the tab died immediately.
+        monkeypatch.setattr(task_cli, "has_claude_transcript", lambda *a: True)
+        f = self._two_block_plan(tmp_path)
+        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
+        assert result.exit_code == 0, result.output
+        launch.session.assert_called_once()
+        assert launch.session.call_args.kwargs["resume"] is False
+        assert "(resuming)" not in result.output
 
     def test_load_many_without_run_does_not_launch(
         self, runner, store, launch, tmp_path
@@ -1647,3 +1690,30 @@ class TestAddScheduled:
         env = launch.session.call_args.kwargs["env"]
         assert env["MAEL_TASK_ID"] == "maintenance.2026-06-18"
         assert env["MAEL_TASK_PARENT"] == "maintenance.2026-06-18"
+
+    def test_run_never_resumes_stale_transcript(
+        self, runner, store, monkeypatch, launch
+    ):
+        # A scheduled run is a freshly-created task, so it launches with
+        # `--session-id` (create) even when a stale transcript is present.
+        from datetime import datetime, timezone
+
+        _make_template(
+            store,
+            schedule="0 9 * * *",
+            last_run="2026-06-17T09:00:00+00:00",
+            created="2026-06-01T00:00:00+00:00",
+        )
+        real_dt = datetime
+
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+
+        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
+        monkeypatch.setattr(task_cli, "has_claude_transcript", lambda *a: True)
+        result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p", "--run"])
+        assert result.exit_code == 0, result.output
+        launch.session.assert_called_once()
+        assert launch.session.call_args.kwargs["resume"] is False
