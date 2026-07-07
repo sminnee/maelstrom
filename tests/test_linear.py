@@ -8,7 +8,12 @@ import pytest
 from click.testing import CliRunner
 
 from maelstrom import task_cli
-from maelstrom.integrations.linear import create_comment, linear
+from maelstrom.integrations import linear as linear_mod
+from maelstrom.integrations.linear import (
+    create_comment,
+    linear,
+    localize_description_images,
+)
 from maelstrom.task_store import InMemoryStore
 
 
@@ -18,6 +23,7 @@ class TestCmdPlan:
     # Branch generation is forced down the deterministic fallback by the
     # conftest autouse fixture (the ``claude`` CLI is blocked in tests).
 
+    @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
     @patch("maelstrom.task_cli.add_task")
     @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_assembles_brief_and_invokes_task_add(self, mock_get, mock_add):
@@ -43,6 +49,7 @@ class TestCmdPlan:
         # fallback, since the model call is forced to fail): number-led desc.
         assert kwargs["branch"] == "feat/99-do-thing"
 
+    @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
     @patch("maelstrom.task_cli.add_task")
     @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_run_forwards_run_flag(self, mock_get, mock_add):
@@ -56,6 +63,7 @@ class TestCmdPlan:
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["run"] is True
 
+    @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
     @patch("maelstrom.task_cli.add_task")
     @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_no_run_forwards_run_flag(self, mock_get, mock_add):
@@ -111,6 +119,90 @@ class TestCmdPlan:
         assert len(created) == 1
         assert created[0].parent == "linear.NORT-123"
         assert created[0].branch == "feat/123-do-thing"
+
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00fakepngdata"
+
+
+class TestLocalizeDescriptionImages:
+    """Tests for ``localize_description_images`` — download + token rewrite."""
+
+    def _patch_root(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(
+            "maelstrom.task_store.tasks_root", lambda: tmp_path / "tasks"
+        )
+        monkeypatch.setattr(
+            linear_mod, "get_linear_api_key", lambda: "lin_key"
+        )
+
+    def test_downloads_and_rewrites_ref(self, tmp_path, monkeypatch):
+        self._patch_root(monkeypatch, tmp_path)
+        url = "https://uploads.linear.app/7b3f/32eac60d-abcd"
+        desc = f"Before\n\n![image.png]({url})\n\nAfter"
+
+        with patch.object(
+            linear_mod, "request_bytes", return_value=PNG_BYTES
+        ) as mock_req:
+            result = localize_description_images("NORT-1", "proj", desc)
+
+        mock_req.assert_called_once()
+        assert mock_req.call_args.kwargs["headers"] == {"Authorization": "lin_key"}
+
+        image_dir = tmp_path / "tasks" / "proj" / "images" / "NORT-1"
+        written = list(image_dir.iterdir())
+        assert len(written) == 1
+        assert written[0].suffix == ".png"  # sniffed from magic bytes
+        assert written[0].read_bytes() == PNG_BYTES
+
+        # Ref rewritten to the portable token, alt text preserved.
+        expected = f"{{{{MAEL_TASK_DIR}}}}/images/NORT-1/{written[0].name}"
+        assert f"![image.png]({expected})" in result
+        assert url not in result
+
+    def test_no_images_returns_unchanged_and_writes_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        self._patch_root(monkeypatch, tmp_path)
+        desc = "Just text, no images here."
+
+        with patch.object(linear_mod, "request_bytes") as mock_req:
+            result = localize_description_images("NORT-1", "proj", desc)
+
+        assert result == desc
+        mock_req.assert_not_called()
+        assert not (tmp_path / "tasks" / "proj" / "images").exists()
+
+    def test_failed_download_keeps_original_url(self, tmp_path, monkeypatch):
+        self._patch_root(monkeypatch, tmp_path)
+        url = "https://uploads.linear.app/7b3f/deadbeef"
+        desc = f"![x]({url})"
+
+        with patch.object(
+            linear_mod,
+            "request_bytes",
+            side_effect=click.ClickException("HTTP Error 404: gone"),
+        ):
+            result = localize_description_images("NORT-1", "proj", desc)
+
+        # No raise; original ref untouched; nothing written.
+        assert result == desc
+        assert not (tmp_path / "tasks" / "proj" / "images" / "NORT-1").exists()
+
+    def test_duplicate_url_downloaded_once(self, tmp_path, monkeypatch):
+        self._patch_root(monkeypatch, tmp_path)
+        url = "https://uploads.linear.app/7b3f/samefile"
+        desc = f"![a]({url}) and again ![b]({url})"
+
+        with patch.object(
+            linear_mod, "request_bytes", return_value=PNG_BYTES
+        ) as mock_req:
+            result = localize_description_images("NORT-1", "proj", desc)
+
+        # One download, one file, both refs rewritten to the same token.
+        assert mock_req.call_count == 1
+        image_dir = tmp_path / "tasks" / "proj" / "images" / "NORT-1"
+        assert len(list(image_dir.iterdir())) == 1
+        assert result.count("{{MAEL_TASK_DIR}}/images/NORT-1/") == 2
 
 
 class TestCreateComment:

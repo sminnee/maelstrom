@@ -30,6 +30,16 @@ from typing import Protocol
 from .context import get_maelstrom_dir
 
 
+def tasks_root() -> Path:
+    """The root of the git-backed task repo (``~/.maelstrom/tasks``).
+
+    The single source of truth for this path — :class:`GitFileStore` and any
+    code that needs to locate committed task assets (e.g. localized images)
+    compute the root through here rather than re-deriving the string.
+    """
+    return get_maelstrom_dir() / "tasks"
+
+
 class TaskStore(Protocol):
     """A flat key->text store.
 
@@ -146,7 +156,7 @@ class GitFileStore:
     """
 
     def __init__(self, root: Path | None = None) -> None:
-        self.root = root if root is not None else get_maelstrom_dir() / "tasks"
+        self.root = root if root is not None else tasks_root()
         self._txn_depth = 0
         self._txn_message: str | None = None
         self._lock_fd: int | None = None

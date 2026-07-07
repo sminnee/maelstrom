@@ -11,9 +11,26 @@ import click
 from ..config import load_config_or_default
 from ..context import resolve_context
 from ._auth import resolve_secret
-from ._http import request_json
+from ._http import request_bytes, request_json
 
 LINEAR_API_URL = "https://api.linear.app/graphql"
+
+# Matches a markdown image whose target is an auth-gated Linear upload, e.g.
+# ``![image.png](https://uploads.linear.app/7b3f.../32ea...)``. Group 1 is the
+# alt text, group 2 the URL. Only description images from this host are
+# localized — comments and attachments are out of scope.
+_LINEAR_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\((https://uploads\.linear\.app/[^)]+)\)")
+
+# Magic-byte → extension sniffing for the common image formats Linear stores.
+# The upload URLs are extensionless UUIDs, so we sniff the downloaded bytes to
+# pick a filename extension (falling back to the alt text, then ``.bin``).
+_IMAGE_MAGIC: tuple[tuple[bytes, str], ...] = (
+    (b"\x89PNG\r\n\x1a\n", ".png"),
+    (b"\xff\xd8\xff", ".jpg"),
+    (b"GIF87a", ".gif"),
+    (b"GIF89a", ".gif"),
+    (b"RIFF", ".webp"),  # WEBP is RIFF-framed; good enough for a filename.
+)
 
 
 def get_linear_api_key() -> str:
@@ -621,6 +638,95 @@ def cmd_list_tasks(status):
         )
 
 
+def _image_extension(alt: str, data: bytes) -> str:
+    """Pick a filename extension for a downloaded image.
+
+    Sniffs magic bytes first (the URLs are extensionless UUIDs), then falls back
+    to the extension in the alt text (e.g. ``image.png``), then ``.bin``.
+    """
+    for magic, ext in _IMAGE_MAGIC:
+        if data.startswith(magic):
+            return ext
+    alt_suffix = Path(alt).suffix.lower()
+    if alt_suffix:
+        return alt_suffix
+    return ".bin"
+
+
+def localize_description_images(
+    identifier: str, project: str, description: str
+) -> str:
+    """Download ``uploads.linear.app`` images and rewrite refs to a portable token.
+
+    Scans ``description`` for ``![alt](https://uploads.linear.app/...)`` refs.
+    Each unique URL is downloaded with the Linear API key (the URLs are
+    auth-gated) and written into the git-backed task repo under
+    ``images/<identifier>/``; the ref's target is rewritten to a
+    ``{{MAEL_TASK_DIR}}/images/<identifier>/<file>`` token that
+    :func:`maelstrom.task.build_prompt` expands to an absolute path at launch.
+
+    The image files are left untracked on disk — the caller's subsequent
+    ``add_task`` commit sweeps them in via ``git add -A``.
+
+    A single failed download (network, 404, revoked key) is logged to stderr and
+    that one ref is left as the original URL, so one bad image never aborts the
+    whole plan. Alt text is preserved. A description with no matching images is
+    returned unchanged and writes nothing.
+    """
+    from ..task import MAEL_TASK_DIR_TOKEN
+    from ..task_store import tasks_root
+
+    matches = list(_LINEAR_IMAGE_RE.finditer(description))
+    if not matches:
+        return description
+
+    image_dir = tasks_root() / project / "images" / identifier
+    # url -> the token that replaces it (cached so a URL used twice = one file).
+    replacements: dict[str, str] = {}
+    used_names: set[str] = set()
+
+    for match in matches:
+        url = match.group(2)
+        if url in replacements:
+            continue
+        alt = match.group(1)
+        try:
+            data = request_bytes(
+                url, headers={"Authorization": get_linear_api_key()}
+            )
+        except click.ClickException as e:
+            click.echo(
+                f"warning: could not download image {url}: {e.message}; "
+                "leaving the original URL in the brief",
+                err=True,
+            )
+            continue
+
+        ext = _image_extension(alt, data)
+        # Base the filename on the last URL segment (a UUID) for stability, then
+        # de-dupe within this issue's dir in case two URLs share a segment.
+        stem = url.rstrip("/").rsplit("/", 1)[-1] or "image"
+        filename = f"{stem}{ext}"
+        counter = 1
+        while filename in used_names:
+            filename = f"{stem}-{counter}{ext}"
+            counter += 1
+        used_names.add(filename)
+
+        image_dir.mkdir(parents=True, exist_ok=True)
+        (image_dir / filename).write_bytes(data)
+        replacements[url] = f"{MAEL_TASK_DIR_TOKEN}/images/{identifier}/{filename}"
+
+    def _rewrite(match: "re.Match[str]") -> str:
+        url = match.group(2)
+        token = replacements.get(url)
+        if token is None:
+            return match.group(0)  # download failed — keep original.
+        return f"![{match.group(1)}]({token})"
+
+    return _LINEAR_IMAGE_RE.sub(_rewrite, description)
+
+
 @linear.command("plan")
 @click.argument("issue_id")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
@@ -650,6 +756,15 @@ def cmd_plan(issue_id: str, project: str | None, run: bool, here: bool) -> None:
     identifier = issue["identifier"]
     title = issue.get("title") or ""
     description = issue.get("description") or ""
+
+    # Resolve the concrete project up front: the image path and add_task must
+    # agree on it, and `localize_description_images` cannot take a None project.
+    # (add_task re-resolves internally; passing the resolved name is idempotent
+    # — the pre-resolution exists only so the image dir and the task agree.)
+    resolved_project = task_cli._resolve_project(project)
+    description = localize_description_images(
+        identifier, resolved_project, description
+    )
     brief = f"# {identifier}: {title}\n\n{description}"
 
     # The meaningful title/description live on the *issue*, not on the "Plan
@@ -662,7 +777,7 @@ def cmd_plan(issue_id: str, project: str | None, run: bool, here: bool) -> None:
 
     task_cli.add_task(
         title=f"Plan {identifier}",
-        project=project,
+        project=resolved_project,
         command="plan-task",
         mode="plan",  # planning always runs in plan mode, independent of DEFAULT_MODE
         parent=f"linear.{identifier}",
