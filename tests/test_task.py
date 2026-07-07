@@ -890,6 +890,20 @@ class TestBuildPrompt:
         t = Task(id="x", title="Just a title", project="p")
         assert model.build_prompt(t) == "Just a title"
 
+    def test_expands_task_dir_token(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(model, "tasks_root", lambda: tmp_path / "tasks")
+        t = Task(id="x", title="Do thing", project="proj",
+                 content="See ![img]({{MAEL_TASK_DIR}}/images/NORT-1/a.png)")
+        expected_dir = tmp_path / "tasks" / "proj"
+        assert model.build_prompt(t) == (
+            f"Do thing\n\nSee ![img]({expected_dir}/images/NORT-1/a.png)"
+        )
+
+    def test_content_without_token_unchanged(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(model, "tasks_root", lambda: tmp_path / "tasks")
+        t = Task(id="x", title="Do thing", project="proj", content="No token here.")
+        assert model.build_prompt(t) == "Do thing\n\nNo token here."
+
 
 # --- _permission_mode_for ---
 

@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING
 from . import branch_name
 from .shell import run_cmd
 from .task_index import SqliteTaskIndex, TaskIndex, TaskMeta
-from .task_store import GitFileStore, TaskStore
+from .task_store import GitFileStore, TaskStore, tasks_root
 from .util import now_iso
 
 if TYPE_CHECKING:
@@ -1583,6 +1583,26 @@ def default_branch(
     return f"task/{id}"
 
 
+# Portable placeholder for the task's per-project repo dir, written into stored
+# task content (e.g. by `mael linear plan` for localized image paths) and
+# expanded to a concrete absolute path at prompt-build time. Kept machine-
+# independent in the `.md` so a re-clone on a different home dir still resolves.
+# Shared with the writer (integrations/linear.py) — keep the two in sync.
+MAEL_TASK_DIR_TOKEN = "{{MAEL_TASK_DIR}}"
+
+
+def _expand_task_dir(task: Task) -> str:
+    """Expand ``{{MAEL_TASK_DIR}}`` in the task content to its absolute path.
+
+    The token resolves to the task's per-project repo root
+    (``~/.maelstrom/tasks/<project>``). Pure string substitution — no filesystem
+    access — so committed content stays portable while a launched session sees a
+    concrete path it can ``Read``.
+    """
+    task_dir = str(tasks_root() / task.project)
+    return task.content.replace(MAEL_TASK_DIR_TOKEN, task_dir)
+
+
 def build_prompt(task: Task) -> str:
     """Build the initial Claude prompt for a task.
 
@@ -1590,10 +1610,11 @@ def build_prompt(task: Task) -> str:
     content. ``command`` names a Claude skill/slash-command, so it is prefixed
     with ``/`` to invoke it. The leading ``/<command> `` is omitted when
     ``command`` is empty (a plain execute), and the trailing ``\\n\\n<content>``
-    is omitted when the task has no content.
+    is omitted when the task has no content. Any ``{{MAEL_TASK_DIR}}`` token in
+    the content is expanded to the task's absolute repo dir.
     """
     head = f"/{task.command} {task.title}" if task.command else task.title
-    content = task.content.strip()
+    content = _expand_task_dir(task).strip()
     if content:
         return f"{head}\n\n{content}"
     return head
