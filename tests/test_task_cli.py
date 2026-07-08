@@ -62,17 +62,22 @@ def launch(monkeypatch, tmp_path):
     setup = MagicMock(
         return_value=WorktreeSetup(path=wt_path, name="bravo", action="created")
     )
-    session = MagicMock()
+    # Placement succeeds by default (True) so the task stays IN_PROGRESS; tests
+    # that exercise the failure path override ``session.return_value = False``.
+    session = MagicMock(return_value=True)
     run_cmd = MagicMock()
+    ensure_cmux = MagicMock(return_value=True)
     monkeypatch.setattr(task_cli, "setup_worktree_for_branch", setup)
     monkeypatch.setattr(task_cli, "launch_claude_in_worktree", session)
     monkeypatch.setattr(task_cli, "run_cmd", run_cmd)
+    monkeypatch.setattr(task_cli, "ensure_cmux_running", ensure_cmux)
     # No live session for the task by default — the duplicate-launch pre-check
     # would otherwise sweep live claude processes. Patch the sweep to empty so
     # `for_session_id` finds nothing.
     _patch_live_sessions(monkeypatch, [])
     return SimpleNamespace(
-        setup=setup, session=session, exec=run_cmd, wt_path=wt_path
+        setup=setup, session=session, exec=run_cmd,
+        ensure_cmux=ensure_cmux, wt_path=wt_path,
     )
 
 
@@ -518,6 +523,20 @@ class TestRun:
         assert f"Running {t.id} on {t.branch}" in result.output
         assert "→ p/bravo (created)" in result.output
 
+    def test_run_rolls_back_to_todo_when_placement_fails(
+        self, runner, store, launch
+    ):
+        # cmux couldn't be reached, so no session opened. A task that never
+        # launched must not be left in-progress: roll it back to TODO so the
+        # next run retries, and log the reason.
+        launch.session.return_value = False
+        t = model.create(store, project="p", title="Plan it")
+        result = runner.invoke(task_cli.task, ["run", t.id])
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", t.id).status == model.STATUS_TODO
+        assert "cmux unavailable" in result.output
+        assert t.id in result.output
+
     def test_run_existing_task_resumes_stale_transcript(
         self, runner, store, launch, monkeypatch
     ):
@@ -756,6 +775,7 @@ class TestAddRun:
             seen["in_progress"] = model.list_tasks(
                 store, project="p", status=model.STATUS_IN_PROGRESS
             )
+            return True  # placement succeeded → task stays in-progress
 
         launch.session.side_effect = fake_session
 
@@ -1717,3 +1737,68 @@ class TestAddScheduled:
         assert result.exit_code == 0, result.output
         launch.session.assert_called_once()
         assert launch.session.call_args.kwargs["resume"] is False
+
+    def test_run_ensures_cmux_once_and_attempts_every_due_run(
+        self, runner, store, monkeypatch, launch
+    ):
+        # Two due templates fire in one --run pass: cmux is started ONCE for the
+        # batch, and BOTH runs are attempted (the launch loop is never abandoned
+        # — the old execvp-in-loop bug is gone by construction).
+        from datetime import datetime, timezone
+
+        for tmpl_id in ("maint-a", "maint-b"):
+            model.create(
+                store, project="p", title="Maintenance", command="",
+                schedule="0 9 * * *", last_run="2026-06-17T09:00:00+00:00",
+                status=model.STATUS_TEMPLATE, id=tmpl_id,
+                now="2026-06-01T00:00:00+00:00",
+            )
+        real_dt = datetime
+
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+
+        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
+        result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p", "--run"])
+        assert result.exit_code == 0, result.output
+        # One app-start for the whole batch.
+        launch.ensure_cmux.assert_called_once()
+        # Both due runs launched — the loop completed.
+        assert launch.session.call_count == 2
+        launched_ids = {
+            c.kwargs["task_id"] for c in launch.session.call_args_list
+        }
+        assert launched_ids == {"maint-a.2026-06-18", "maint-b.2026-06-18"}
+
+    def test_here_run_still_execs_and_skips_ensure_cmux(
+        self, runner, store, monkeypatch, launch
+    ):
+        # `--run --here` runs Claude in the current shell (execvp), so it must
+        # NOT start the cmux app and NOT go through the workspace launcher.
+        from datetime import datetime, timezone
+
+        _make_template(
+            store,
+            schedule="0 9 * * *",
+            last_run="2026-06-17T09:00:00+00:00",
+            created="2026-06-01T00:00:00+00:00",
+        )
+        real_dt = datetime
+
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+
+        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
+        result = runner.invoke(
+            task_cli.task, ["add-scheduled", "-p", "p", "--run", "--here"]
+        )
+        assert result.exit_code == 0, result.output
+        launch.ensure_cmux.assert_not_called()
+        launch.session.assert_not_called()
+        launch.exec.assert_called_once()
+        # replace_process exec in the current shell.
+        assert launch.exec.call_args.kwargs["replace_process"] is True

@@ -1,5 +1,6 @@
 """Command-line interface for maelstrom."""
 
+import os
 import sys
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from .github import (
     wait_for_merge,
 )
 from .cmux import mael_layout
+from .cmux.client import ensure_cmux_running
 from .review_prepare import cmd_review_prepare
 from .session_cli import session as session_cli, session_channel as session_channel_cmd
 from .task_cli import task as task_cli
@@ -69,6 +71,22 @@ from .worktree_model import (
     get_worktree_folder_name,
     has_claude_transcript,
 )
+
+
+def _launch_claude_or_raise(
+    worktree_path: Path, project: str | None, worktree: str | None
+) -> None:
+    """Launch a plain Claude session inside cmux, or raise if placement fails.
+
+    ``mael`` always places Claude in cmux by driving the socket — starting the
+    app if it's down. There is no local fallback: if cmux can't be reached we
+    error clearly rather than silently dropping a ``claude`` into the current
+    shell. ``mael task run --here`` is the only path that runs Claude locally.
+    """
+    if not launch_claude_in_worktree(worktree_path, project=project, worktree=worktree):
+        raise click.ClickException(
+            "cmux is not running and could not be started; start cmux and retry"
+        )
 
 
 @click.group()
@@ -167,7 +185,7 @@ def cmd_add(branch, project, open, no_recycle):
             except RuntimeError as e:
                 click.echo(f"Warning: Could not open worktree: {e}", err=True)
         else:
-            launch_claude_in_worktree(worktree_path, project=ctx.project, worktree=wt_name)
+            _launch_claude_or_raise(worktree_path, ctx.project, wt_name)
         return
 
     click.echo(f"Creating worktree for branch '{branch}'...")
@@ -228,7 +246,7 @@ def cmd_add(branch, project, open, no_recycle):
         except RuntimeError as e:
             click.echo(f"Warning: Could not open worktree: {e}", err=True)
     else:
-        launch_claude_in_worktree(worktree_path, project=ctx.project, worktree=wt_name)
+        _launch_claude_or_raise(worktree_path, ctx.project, wt_name)
 
 
 @cli.command("remove")
@@ -630,7 +648,7 @@ def cmd_open(target):
     if worktree_path is None or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
-    launch_claude_in_worktree(worktree_path, project=ctx.project, worktree=ctx.worktree)
+    _launch_claude_or_raise(worktree_path, ctx.project, ctx.worktree)
 
 
 @cli.command("ide")
@@ -676,7 +694,7 @@ def cmd_claude(target):
     if worktree_path is None or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
-    launch_claude_in_worktree(worktree_path, project=ctx.project, worktree=ctx.worktree)
+    _launch_claude_or_raise(worktree_path, ctx.project, ctx.worktree)
 
 
 @cli.command("sync")
@@ -1121,6 +1139,30 @@ def cmd_doctor(project):
 
 # --- Subcommand groups ---
 
+@cli.group("cmux")
+def cmux_cli() -> None:
+    """Inspect the cmux integration."""
+
+
+@cmux_cli.command("status")
+def cmd_cmux_status() -> None:
+    """Report whether mael can place a Claude session into cmux.
+
+    Runs the same ``ensure_cmux_running`` probe the launcher uses — starting the
+    app if it's down — and reports the outcome. Exits non-zero when cmux can't be
+    reached, so it doubles as a health check for scheduled runs.
+    """
+    socket_path = os.environ.get("CMUX_SOCKET_PATH")
+    if ensure_cmux_running():
+        click.echo(f"cmux OK (socket: {socket_path or 'unset'})")
+        return
+    raise click.ClickException(
+        "cmux is not reachable and could not be started "
+        f"(socket: {socket_path or 'unset'})"
+    )
+
+
+cli.add_command(cmux_cli)
 cli.add_command(cmd_review_prepare)
 cli.add_command(env_cli)
 cli.add_command(git_cli)

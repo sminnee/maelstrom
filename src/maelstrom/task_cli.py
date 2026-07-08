@@ -21,6 +21,7 @@ from .context import resolve_context
 from .table import draw_table
 from .task_index import SqliteTaskIndex
 from .task_store import GitFileStore
+from .cmux.client import ensure_cmux_running
 from .shell import run_cmd
 from .worktree import (
     get_current_branch,
@@ -132,13 +133,15 @@ def _run_task(
 ) -> None:
     """Mark a task in-progress and launch its Claude session.
 
-    The launchers may ``execvp`` (replacing the process), so every store write
-    MUST complete before they are called. With ``here=True`` the session runs
-    in the current shell — no worktree reconciliation, no new cmux workspace.
+    With ``here=True`` the session runs in the current shell via
+    ``run_cmd(..., replace_process=True)`` — an ``execvp`` that never returns —
+    so every store write MUST complete before it, and the status move re-stamps
+    HEAD up-front. No worktree reconciliation, no new cmux workspace.
 
-    The status move updates the metadata index too, and re-stamps its HEAD (only
-    if it was complete beforehand) *before* the launcher runs, since an ``execvp``
-    never returns here.
+    Otherwise the session is placed **inside cmux** (cmux-or-fail): the task is
+    moved in-progress before ``launch_claude_in_worktree`` runs; if placement
+    fails (cmux unreachable) it is rolled back to TODO so it never lingers
+    in-progress without a session and the next run retries.
 
     ``fresh=True`` marks a just-created task (load-many head, ``add --run``, a
     scheduled run): it has no prior conversation, so it must always launch with
@@ -228,7 +231,7 @@ def _run_task(
     suffix = " (resuming)" if resume else ""
     click.echo(f"Running {task.id} on {branch}{suffix}")
     click.echo(f"  → {project}/{result.name} ({result.action})")
-    launch_claude_in_worktree(
+    placed = launch_claude_in_worktree(
         result.path,
         project=project,
         worktree=result.name,
@@ -238,6 +241,21 @@ def _run_task(
         session_id=session_id,
         resume=resume,
     )
+    if not placed:
+        # cmux couldn't be reached, so no session opened. Roll the task back to
+        # TODO — a task that never launched must never be left in-progress. It
+        # stays re-runnable and the next hourly scheduler fire retries it. No
+        # execvp happens on this path now, so this write always runs. The
+        # rollback is best-effort: if the store write itself raises, the run
+        # aborts loudly (leaving the task in-progress) rather than silently — an
+        # acceptable failure mode, since a raised store error is already fatal.
+        task_actions.move_with_actions(
+            store, project, task.id, model.STATUS_TODO, index=index
+        )
+        _restamp(store, index, was_fresh=was_fresh)
+        click.echo(
+            f"cmux unavailable; left {task.id} TODO (re-fires next run)", err=True
+        )
 
 
 def _resolve_project(project: str | None) -> str:
@@ -615,6 +633,12 @@ def _fire_due_templates(
                 )
         created.append(new)
     _restamp(store, index, was_fresh=was_fresh)
+    if run and created and not here:
+        # Start the cmux app once for the whole batch (N due runs share one app
+        # start); each _run_task still guards liveness individually and rolls its
+        # own task back to TODO on failure. With no execvp fallback, the launch
+        # loop always completes — a failed placement never abandons later runs.
+        ensure_cmux_running()
     if run:
         for t in created:
             _run_task(store, project, t, here=here, fresh=True)

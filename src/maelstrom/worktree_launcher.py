@@ -2,8 +2,13 @@
 
 The placement/execution adapter for the worktree subsystem: it composes the
 launch command (a plain ``claude`` argv, or the ``mael task prompt <id> | claude``
-pipeline for a task) with a placement strategy — a cmux workspace when available,
-else a process-replacing ``run_cmd(..., replace_process=True)`` in the worktree.
+pipeline for a task) and places it **inside cmux** — always. ``mael`` starts a
+Claude session by driving the cmux socket; if the app is down it starts it, and
+if it can't be reached it fails rather than running Claude locally. The only path
+that runs Claude in the current terminal is the explicit ``--here`` choice, which
+bypasses this module entirely (``task_cli._run_task`` calls ``run_cmd(...,
+replace_process=True)`` directly). See memory ``project-launch-always-via-cmux-socket``.
+
 Conceptually it belongs to the CLI/adapter layer of the three-layer split
 documented in ``docs/dev/architecture-patterns.md`` (storage / model / CLI); it is
 carved into its own file so the placement logic stays separate from the flat
@@ -15,8 +20,8 @@ attaches per-``Command`` so it lands on the right pipe segment structurally, and
 form (``describe``).
 
 Import direction: this module imports ``run_cmd`` from the ``shell`` leaf and
-``run_install_cmd`` from ``worktree``; ``worktree`` must never import this module
-(nothing in it calls the launcher).
+``ensure_cmux_running`` from ``cmux.client``; ``worktree`` must never import this
+module (nothing in it calls the launcher).
 """
 
 import subprocess
@@ -24,8 +29,8 @@ from pathlib import Path
 
 from .config import load_config_or_default
 from .cmux import mael_layout
+from .cmux.client import ensure_cmux_running
 from .shell import Command, Pipeline, ShellExpr, describe, run_cmd
-from .worktree import run_install_cmd
 
 
 def open_worktree(worktree_path: Path, command: str) -> None:
@@ -118,9 +123,9 @@ def open_claude_workspace(
 ) -> bool:
     """cmux placement: open a new workspace running the command. True if placed.
 
-    Returns False (so the caller falls back to a process-replacing ``run_cmd``)
-    when not in cmux or when project/worktree are missing — a workspace can't be
-    named without them.
+    Returns False when not in cmux or when project/worktree are missing — a
+    workspace can't be named without them. The caller treats False as a placement
+    failure (there is no local fallback).
 
     A reused worktree with a live workspace gets a new Claude tab (carrying the
     same command line) rather than a duplicate workspace. Only the create path
@@ -152,13 +157,15 @@ def launch_claude_in_worktree(
     session_id: str | None = None,
     *,
     resume: bool = False,
-) -> None:
-    """Launch Claude for a worktree: new cmux workspace, else replace-in-place.
+) -> bool:
+    """Launch Claude for a worktree inside cmux. True if placed, False otherwise.
 
-    The worktree-placement composition of the peers — the only thing the old
-    ``start_claude_session`` actually provided. The ``--here`` path skips this
-    wrapper and calls ``run_cmd(..., replace_process=True)`` with ``cwd=None``
-    directly.
+    **cmux-or-fail**: start the cmux app if it is down, then place a workspace.
+    There is no local-execvp fallback — running Claude in the current process is
+    the exclusive job of the explicit ``--here`` path, which bypasses this wrapper
+    and calls ``run_cmd(..., replace_process=True)`` with ``cwd=None`` directly.
+    Returns False when cmux can't be started or the placement itself fails; the
+    caller decides what to do (roll a task back to TODO, or raise).
 
     With ``task_id`` (and ``project``) set, the command is the
     ``mael task prompt <id> | claude`` pipeline; otherwise it's a plain ``claude``
@@ -176,7 +183,6 @@ def launch_claude_in_worktree(
             build_claude_command(permission_mode, session_id, resume=resume),
             env=dict(env or {}),
         )
-    if not open_claude_workspace(project, worktree, worktree_path, command):
-        # Non-cmux: no shell pane to run install in, so install blocking first.
-        run_install_cmd(worktree_path)
-        run_cmd(command, cwd=worktree_path, env=env, replace_process=True)
+    if not ensure_cmux_running():
+        return False
+    return open_claude_workspace(project, worktree, worktree_path, command)
