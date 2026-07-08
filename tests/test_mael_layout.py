@@ -111,6 +111,40 @@ class TestEnsureWorktreeWorkspace:
             c[0] == "send" and "npm i\n" in c for c in client.calls
         )
 
+    def test_create_path_returns_false_when_new_workspace_fails(self):
+        """new-workspace non-OK (dead socket) → placement failed, return False."""
+        def fn(*args):
+            if args[0] == "list-workspaces":
+                return ""  # no existing workspace → create path
+            if args[0] == "new-workspace":
+                return None  # cmux error: no workspace ref
+            return "OK"
+
+        _, patcher = _patch_current(fn)
+        with patcher, patch("maelstrom.cmux.model.time.sleep"):
+            placed = mael_layout.ensure_worktree_workspace(
+                "myproject", "alpha", "/wt", command="claude", install_cmd="npm i",
+            )
+        assert placed is False
+
+    def test_reuse_path_returns_false_when_new_surface_fails(self):
+        """Existing workspace but add_terminal (new-surface) non-OK → False."""
+        def fn(*args):
+            if args[0] == "list-workspaces":
+                return "  workspace:13  myproject-alpha"
+            if args[0] == "list-panes":
+                return "pane:0 pane:1"
+            if args[0] == "new-surface":
+                return None  # cmux error: tab not placed
+            return "OK"
+
+        _, patcher = _patch_current(fn)
+        with patcher:
+            placed = mael_layout.ensure_worktree_workspace(
+                "myproject", "alpha", "/wt", command="claude", install_cmd="npm i",
+            )
+        assert placed is False
+
 
 class TestShowAppBrowser:
     def test_opens_in_browser_pane(self):

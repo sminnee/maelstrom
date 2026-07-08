@@ -45,8 +45,11 @@ def ensure_worktree_workspace(
     - **No workspace** — create it with Claude as pane 0's initial terminal, then
       split a shell pane (pane 1) running ``install_cmd``.
 
-    Returns True if placed (in cmux mode), False otherwise (caller falls back to
-    a process-replacing ``run_cmd``).
+    Returns True only when the Claude tab was actually placed — a ``None`` from
+    ``add_terminal``/``ensure_workspace`` (dead socket, cmux error) yields False
+    so the caller treats it as a placement failure, not a silent success. The
+    install/shell pane stays best-effort: a workspace with Claude but no shell
+    pane is degraded, not a failed placement.
     """
     lay = CmuxLayout.current(workspace_name(project, worktree))
     if lay is None:
@@ -54,12 +57,13 @@ def ensure_worktree_workspace(
 
     claude = TerminalTab("Claude", cwd=path, command=command)
     if lay.has_workspace():
-        lay.add_terminal(CLAUDE_PANE, claude)
-    else:
-        lay.ensure_workspace(claude)
-        lay.ensure_terminal(
-            SHELL_PANE, TerminalTab("Terminal", cwd=path, command=install_cmd),
-        )
+        return lay.add_terminal(CLAUDE_PANE, claude) is not None
+
+    if lay.ensure_workspace(claude) is None:
+        return False
+    lay.ensure_terminal(
+        SHELL_PANE, TerminalTab("Terminal", cwd=path, command=install_cmd),
+    )
     return True
 
 

@@ -798,3 +798,69 @@ class TestCmdAddExistingBranch:
             mocks["run_install_cmd"].assert_not_called()
             # The create echo names the worktree.
             assert "→ proj/bravo (created)" in result.output
+
+
+class TestClaudePlacementFailure:
+    """`mael claude` / `mael open` cmux-or-error behaviour.
+
+    With no local-execvp fallback, a failed cmux placement must raise a clear
+    ClickException — never silently run `claude` in the current shell.
+    """
+
+    def _ctx(self, tmp_path):
+        wt = tmp_path / "proj-bravo"
+        wt.mkdir()
+        return MagicMock(
+            project="proj",
+            worktree="bravo",
+            worktree_path=wt,
+        )
+
+    def test_claude_raises_when_placement_fails(self, tmp_path):
+        from contextlib import ExitStack
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch("maelstrom.cli.resolve_context", return_value=self._ctx(tmp_path))
+            )
+            stack.enter_context(patch(
+                "maelstrom.cli.launch_claude_in_worktree", return_value=False,
+            ))
+            result = CliRunner().invoke(cli, ["claude", "proj.bravo"])
+            assert result.exit_code != 0
+            assert "cmux is not running" in result.output
+
+    def test_claude_succeeds_when_placed(self, tmp_path):
+        from contextlib import ExitStack
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch("maelstrom.cli.resolve_context", return_value=self._ctx(tmp_path))
+            )
+            launch = stack.enter_context(patch(
+                "maelstrom.cli.launch_claude_in_worktree", return_value=True,
+            ))
+            result = CliRunner().invoke(cli, ["claude", "proj.bravo"])
+            assert result.exit_code == 0, result.output
+            launch.assert_called_once()
+
+
+class TestCmuxStatus:
+    """`mael cmux status` reports whether ensure_cmux_running succeeds."""
+
+    def test_ok_when_cmux_reachable(self):
+        with patch(
+            "maelstrom.cli.ensure_cmux_running", return_value=True
+        ), patch.dict(os.environ, {"CMUX_SOCKET_PATH": "/tmp/c.sock"}):
+            result = CliRunner().invoke(cli, ["cmux", "status"])
+            assert result.exit_code == 0, result.output
+            assert "cmux OK" in result.output
+            assert "/tmp/c.sock" in result.output
+
+    def test_errors_when_cmux_unreachable(self):
+        with patch(
+            "maelstrom.cli.ensure_cmux_running", return_value=False
+        ):
+            result = CliRunner().invoke(cli, ["cmux", "status"])
+            assert result.exit_code != 0
+            assert "not reachable" in result.output

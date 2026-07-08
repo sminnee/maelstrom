@@ -357,35 +357,60 @@ class TestOpenClaudeWorkspace:
 
 
 class TestLaunchClaudeInWorktree:
-    """Guards the old workspace-or-exec-in-worktree composition."""
+    """Guards the cmux-or-fail composition — there is NO local-execvp fallback.
 
-    def test_uses_workspace_when_cmux_succeeds(self):
+    ``launch_claude_in_worktree`` always places into cmux: it starts the app
+    (``ensure_cmux_running``), then delegates placement to
+    ``open_claude_workspace`` and returns its bool. Running Claude in the current
+    process is the exclusive job of the explicit ``--here`` path, which bypasses
+    this function — so ``run_cmd(..., replace_process=True)`` must NEVER fire here.
+    """
+
+    def test_returns_true_when_cmux_up_and_placed(self):
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
             with patch(
+                "maelstrom.worktree_launcher.ensure_cmux_running", return_value=True
+            ), patch(
                 "maelstrom.worktree_launcher.open_claude_workspace", return_value=True
             ) as mock_open, \
                  patch("maelstrom.worktree_launcher.run_cmd") as mock_run:
-                launch_claude_in_worktree(
+                placed = launch_claude_in_worktree(
                     worktree_path, project="proj", worktree="alpha"
                 )
+                assert placed is True
                 mock_open.assert_called_once()
                 mock_run.assert_not_called()
 
-    def test_execs_task_pipeline_when_no_workspace(self):
+    def test_returns_open_workspace_result_when_cmux_up(self):
+        # cmux is up but placement itself fails → propagate False, still no exec.
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
-            order = []
             with patch(
-                "maelstrom.worktree_launcher.open_claude_workspace", return_value=False
+                "maelstrom.worktree_launcher.ensure_cmux_running", return_value=True
             ), patch(
-                "maelstrom.worktree_launcher.run_install_cmd",
-                side_effect=lambda *a, **k: order.append("install"),
-            ) as mock_install, patch(
-                "maelstrom.worktree_launcher.run_cmd",
-                side_effect=lambda *a, **k: order.append("exec"),
-            ) as mock_run:
-                launch_claude_in_worktree(
+                "maelstrom.worktree_launcher.open_claude_workspace", return_value=False
+            ) as mock_open, \
+                 patch("maelstrom.worktree_launcher.run_cmd") as mock_run:
+                placed = launch_claude_in_worktree(
+                    worktree_path, project="proj", worktree="alpha"
+                )
+                assert placed is False
+                mock_open.assert_called_once()
+                mock_run.assert_not_called()
+
+    def test_returns_false_and_never_execs_when_cmux_down(self):
+        # cmux can't be started → False, and open_claude_workspace/run_cmd are
+        # never reached (no local fallback).
+        with TemporaryDirectory() as tmpdir:
+            worktree_path = Path(tmpdir)
+            with patch(
+                "maelstrom.worktree_launcher.ensure_cmux_running", return_value=False
+            ), patch(
+                "maelstrom.worktree_launcher.open_claude_workspace"
+            ) as mock_open, \
+                 patch("maelstrom.worktree_launcher.run_cmd") as mock_run:
+                placed = launch_claude_in_worktree(
                     worktree_path,
                     project="proj",
                     worktree="alpha",
@@ -393,45 +418,6 @@ class TestLaunchClaudeInWorktree:
                     permission_mode="plan",
                     env={"MAEL_TASK_ID": "t1"},
                 )
-                # Non-cmux: install runs blocking, then replace-exec the pipeline.
-                # The env rides on the ``claude`` Command (right of the pipe) so
-                # the session inherits it; run_cmd still gets ``env`` too as the
-                # os.environ.update backstop.
-                mock_install.assert_called_once_with(worktree_path)
-                mock_run.assert_called_once()
-                expr, kwargs = (
-                    mock_run.call_args.args[0],
-                    mock_run.call_args.kwargs,
-                )
-                assert describe(expr) == (
-                    "mael task prompt t1 --project proj "
-                    "| MAEL_TASK_ID=t1 claude --permission-mode plan"
-                )
-                assert kwargs == {
-                    "cwd": worktree_path,
-                    "env": {"MAEL_TASK_ID": "t1"},
-                    "replace_process": True,
-                }
-                assert order == ["install", "exec"]
-
-    def test_execs_plain_claude_when_no_task(self):
-        # cli.py opens a worktree with no task → plain ``claude`` argv, no pipeline.
-        with TemporaryDirectory() as tmpdir:
-            worktree_path = Path(tmpdir)
-            with patch(
-                "maelstrom.worktree_launcher.open_claude_workspace", return_value=False
-            ), patch("maelstrom.worktree_launcher.run_install_cmd"), patch(
-                "maelstrom.worktree_launcher.run_cmd"
-            ) as mock_run:
-                launch_claude_in_worktree(
-                    worktree_path, project="proj", worktree="alpha"
-                )
-                mock_run.assert_called_once()
-                expr = mock_run.call_args.args[0]
-                # Plain claude wrapped in a Command (empty env) → renders bare.
-                assert describe(expr) == "claude"
-                assert mock_run.call_args.kwargs == {
-                    "cwd": worktree_path,
-                    "env": None,
-                    "replace_process": True,
-                }
+                assert placed is False
+                mock_open.assert_not_called()
+                mock_run.assert_not_called()

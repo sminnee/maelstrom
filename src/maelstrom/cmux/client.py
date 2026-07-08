@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -144,11 +145,23 @@ class RecordingCmuxClient:
         return self.responses.get(args)
 
 
+def _socket_is_live(client: CmuxClient) -> bool:
+    """True if the cmux socket answers a ``ping``.
+
+    ``ping`` is the cheapest verb: any reply (even a bare ``OK``) proves the
+    socket is up. A dead socket makes ``run`` return ``CmuxResult(None)`` — so
+    ``raw is not None`` distinguishes a live daemon from a stale/missing one.
+    """
+    return client.run("ping").raw is not None
+
+
 def current_client() -> CmuxClient | None:
     """Return a real :class:`CmuxClient`, or ``None`` when not in cmux mode.
 
-    ``None`` is returned when ``CMUX_SOCKET_PATH`` is unset/empty or no cmux
-    binary can be found — i.e. ``None`` *is* "not in cmux mode".
+    ``None`` is returned when ``CMUX_SOCKET_PATH`` is unset/empty, no cmux binary
+    can be found, or the socket is present but dead (the app was quit) — i.e.
+    ``None`` *is* "not in cmux mode". The liveness probe is one extra subprocess
+    per call; launches are rare enough that the honesty is worth it.
     """
     socket_path = os.environ.get("CMUX_SOCKET_PATH")
     if not socket_path:
@@ -156,9 +169,59 @@ def current_client() -> CmuxClient | None:
     cli = _find_cmux_cli()
     if cli is None:
         return None
-    return SubprocessCmuxClient(cli, socket_path)
+    client = SubprocessCmuxClient(cli, socket_path)
+    if not _socket_is_live(client):
+        return None
+    return client
+
+
+def ensure_cmux_running(*, timeout_s: float = 8.0) -> bool:
+    """Ensure the cmux app is up, launching it if needed. True once reachable.
+
+    1. If a freshly-built client already answers ``ping`` → up (True).
+    2. Else, if the app is installed, launch it via ``open`` (a plain
+       subprocess — **never** ``replace_process``) and poll ``ping`` until it
+       answers or ``timeout_s`` elapses.
+
+    Returns False if there is no socket path, no binary, the app is not
+    installed, or it never answers within the timeout. Works from a GUI-session
+    LaunchAgent because ``open`` brings the app up in that session.
+    """
+    socket_path = os.environ.get("CMUX_SOCKET_PATH")
+    if not socket_path:
+        return False
+    cli = _find_cmux_cli()
+    if cli is None:
+        return False
+    client = SubprocessCmuxClient(cli, socket_path)
+    if _socket_is_live(client):
+        return True
+
+    try:
+        subprocess.run(
+            ["open", "-b", "com.cmuxterm.app"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return False  # app not installed / open failed
+
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if _socket_is_live(client):
+            return True
+        time.sleep(0.25)
+    return False
 
 
 def is_cmux_mode() -> bool:
-    """Return True if running inside cmux with a usable client."""
+    """Return True if running inside cmux with a usable client.
+
+    Not a cheap env check: since ``current_client()`` now ping-probes the
+    socket, each call fires one ``cmux ping`` subprocess. Callers that run per
+    status update (e.g. ``set_status``) or per layout verb pay that probe —
+    acceptable because these paths are interactive/rare, but do not call this in
+    a hot loop.
+    """
     return current_client() is not None

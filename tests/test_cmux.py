@@ -9,6 +9,7 @@ from maelstrom.cmux.client import (
     SubprocessCmuxClient,
     _find_cmux_cli,
     current_client,
+    ensure_cmux_running,
     is_cmux_mode,
 )
 from maelstrom.cmux.model import (
@@ -173,6 +174,19 @@ class TestRecordingCmuxClient:
         assert client.run("anything").raw is None
 
 
+def _ping_reply(raw):
+    """A ``subprocess.run`` stub whose CompletedProcess carries ``raw`` stdout.
+
+    ``raw=None`` models a dead socket: raise so ``SubprocessCmuxClient.run``
+    degrades to ``CmuxResult(None)``. Any string models a live daemon's reply.
+    """
+    def fake_run(cmd, *args, **kwargs):
+        if raw is None:
+            raise subprocess.CalledProcessError(1, cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout=raw, stderr="")
+    return fake_run
+
+
 class TestCurrentClient:
     """Tests for current_client / is_cmux_mode."""
 
@@ -193,17 +207,121 @@ class TestCurrentClient:
             assert current_client() is None
             assert is_cmux_mode() is False
 
-    def test_returns_client_when_in_cmux(self):
+    def test_none_when_socket_dead(self):
+        # Env + binary present, but ping yields CmuxResult(None): the daemon is
+        # gone (the app was quit). current_client must return None, not a
+        # live-looking client — is_cmux_mode() must be honest.
         with (
             patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/c.sock"}),
             patch(
                 "maelstrom.cmux.client._find_cmux_cli",
                 return_value="/usr/bin/cmux",
             ),
+            patch("subprocess.run", side_effect=_ping_reply(None)),
+        ):
+            assert current_client() is None
+            assert is_cmux_mode() is False
+
+    def test_returns_client_when_ping_replies(self):
+        with (
+            patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/c.sock"}),
+            patch(
+                "maelstrom.cmux.client._find_cmux_cli",
+                return_value="/usr/bin/cmux",
+            ),
+            patch("subprocess.run", side_effect=_ping_reply("OK")),
         ):
             client = current_client()
             assert isinstance(client, SubprocessCmuxClient)
             assert is_cmux_mode() is True
+
+
+class TestEnsureCmuxRunning:
+    """Tests for ensure_cmux_running (probe + start-the-app)."""
+
+    def test_false_when_socket_unset(self):
+        with patch.dict("os.environ", {}, clear=True):
+            assert ensure_cmux_running() is False
+
+    def test_false_when_no_binary(self):
+        with (
+            patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/c.sock"}),
+            patch("maelstrom.cmux.client._find_cmux_cli", return_value=None),
+        ):
+            assert ensure_cmux_running() is False
+
+    def test_already_live_does_not_open(self):
+        run = MagicMock(side_effect=_ping_reply("OK"))
+        with (
+            patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/c.sock"}),
+            patch(
+                "maelstrom.cmux.client._find_cmux_cli",
+                return_value="/usr/bin/cmux",
+            ),
+            patch("subprocess.run", run),
+        ):
+            assert ensure_cmux_running() is True
+        # Only the ping ran — never `open`.
+        assert all(call.args[0][0] != "open" for call in run.call_args_list)
+
+    def test_dead_then_up_issues_open_and_polls(self):
+        # First ping fails (dead), `open` succeeds, next ping answers → True.
+        pings = [subprocess.CalledProcessError(1, "cmux")]
+
+        def fake_run(cmd, *args, **kwargs):
+            if cmd[0] == "open":
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            outcome = pings.pop(0) if pings else None
+            if isinstance(outcome, Exception):
+                raise outcome
+            return subprocess.CompletedProcess(cmd, 0, stdout="OK", stderr="")
+
+        run = MagicMock(side_effect=fake_run)
+        with (
+            patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/c.sock"}),
+            patch(
+                "maelstrom.cmux.client._find_cmux_cli",
+                return_value="/usr/bin/cmux",
+            ),
+            patch("subprocess.run", run),
+            patch("time.sleep"),
+        ):
+            assert ensure_cmux_running() is True
+        assert any(call.args[0][0] == "open" for call in run.call_args_list)
+
+    def test_never_up_returns_false_after_timeout(self):
+        # ping always dead; `open` runs but the socket never answers.
+        def fake_run(cmd, *args, **kwargs):
+            if cmd[0] == "open":
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            raise subprocess.CalledProcessError(1, cmd)
+
+        with (
+            patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/c.sock"}),
+            patch(
+                "maelstrom.cmux.client._find_cmux_cli",
+                return_value="/usr/bin/cmux",
+            ),
+            patch("subprocess.run", side_effect=fake_run),
+            patch("time.sleep"),
+        ):
+            assert ensure_cmux_running(timeout_s=0.5) is False
+
+    def test_false_when_app_not_installed(self):
+        # ping dead, `open` itself fails (app bundle missing).
+        def fake_run(cmd, *args, **kwargs):
+            raise subprocess.CalledProcessError(1, cmd)
+
+        with (
+            patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/c.sock"}),
+            patch(
+                "maelstrom.cmux.client._find_cmux_cli",
+                return_value="/usr/bin/cmux",
+            ),
+            patch("subprocess.run", side_effect=fake_run),
+            patch("time.sleep"),
+        ):
+            assert ensure_cmux_running(timeout_s=0.5) is False
 
 
 # ===========================================================================
@@ -231,6 +349,7 @@ class TestCurrent:
                 "maelstrom.cmux.client._find_cmux_cli",
                 return_value="/usr/bin/cmux",
             ),
+            patch("subprocess.run", side_effect=_ping_reply("OK")),
         ):
             lay = CmuxLayout.current("foo")
             assert isinstance(lay, CmuxLayout)
