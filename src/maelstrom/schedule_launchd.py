@@ -13,7 +13,8 @@ current.
 
 The launchd→cmux path needs no secret in the plist: a *user* LaunchAgent runs in
 the logged-in GUI session and so reaches the same keychain the ``cmux`` CLI falls
-through to. Only ``CMUX_SOCKET_PATH`` is set.
+through to. It needs no ``CMUX_SOCKET_PATH`` either — the CLI defaults to the
+conventional socket path when the var is unset — so the plist sets only ``PATH``.
 """
 
 import os
@@ -26,7 +27,6 @@ from pathlib import Path
 import click
 
 LABEL = "nz.tangerinelabs.maelstrom.schedule"
-CMUX_SOCKET_PATH = "/tmp/cmux.sock"
 
 # Accepts a 24-hour ``HH:MM`` with leading zeros optional on the hour.
 _HHMM_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
@@ -106,8 +106,8 @@ def _agent_path() -> str:
 def render_plist(mael: str, *, agent_path: str, log: str) -> str:
     """Render the LaunchAgent plist XML.
 
-    Pure (no I/O) so the exact output — label, absolute ``mael`` path,
-    ``CMUX_SOCKET_PATH`` and **no** password — is asserted in tests.
+    Pure (no I/O) so the exact output — label, absolute ``mael`` path, and
+    **no** cmux socket path or password — is asserted in tests.
     """
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -132,8 +132,6 @@ def render_plist(mael: str, *, agent_path: str, log: str) -> str:
     </dict>
     <key>EnvironmentVariables</key>
     <dict>
-        <key>CMUX_SOCKET_PATH</key>
-        <string>{CMUX_SOCKET_PATH}</string>
         <key>PATH</key>
         <string>{agent_path}</string>
     </dict>
