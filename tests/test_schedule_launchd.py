@@ -36,13 +36,13 @@ class TestRenderPlist:
         assert "--all-projects" in xml
         assert "--run" in xml
 
-    def test_sets_cmux_socket_no_password(self):
+    def test_no_cmux_socket_and_no_password(self):
         xml = sl.render_plist(
             "/abs/bin/mael", agent_path="/abs/bin", log="/log/sched.log"
         )
-        assert "CMUX_SOCKET_PATH" in xml
-        assert sl.CMUX_SOCKET_PATH in xml
-        # The crux: no secret in the plist (launchd→cmux uses keychain auth).
+        # The CLI defaults the socket path when unset, so the plist sets neither
+        # the socket path nor any secret (launchd→cmux uses keychain auth).
+        assert "CMUX_SOCKET_PATH" not in xml
         assert "PASSWORD" not in xml
         assert "CMUX_SOCKET_PASSWORD" not in xml
 

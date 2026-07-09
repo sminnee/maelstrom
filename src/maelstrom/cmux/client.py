@@ -9,9 +9,10 @@ Mirrors the storage trio in ``task_store.py`` (Protocol + real + fake):
   ``InMemoryStore``). Records every call and returns scripted results.
 
 Parsing of cmux's ``OK <ref>`` replies lives on ``CmuxResult`` so it sits right
-at the transport seam. ``current_client()`` returns ``None`` when not running
-inside cmux (``CMUX_SOCKET_PATH`` unset) or when no binary is found — that
-``None`` *is* "not in cmux mode", so no null-object is needed.
+at the transport seam. ``current_client()`` returns ``None`` when no binary is
+found or the socket is dead — that ``None`` *is* "not in cmux mode", so no
+null-object is needed. The socket path comes from ``CMUX_SOCKET_PATH`` and falls
+back to :data:`DEFAULT_SOCKET_PATH` when unset.
 
 All operations are non-fatal; a transport failure surfaces as a ``CmuxResult``
 whose ``raw`` is ``None`` (never an exception).
@@ -25,6 +26,18 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol
+
+# cmux's conventional socket path. Used when ``CMUX_SOCKET_PATH`` is unset or
+# empty, so a caller outside a cmux-spawned shell (a launchd tick, a session
+# that didn't inherit the var) can still reach a running cmux instead of
+# concluding "not in cmux mode". A missing binary or a dead socket still fails
+# honestly downstream.
+DEFAULT_SOCKET_PATH = "/tmp/cmux.sock"
+
+
+def resolve_socket_path() -> str:
+    """The cmux socket path from the environment, or the conventional default."""
+    return os.environ.get("CMUX_SOCKET_PATH") or DEFAULT_SOCKET_PATH
 
 
 @dataclass(frozen=True)
@@ -158,18 +171,18 @@ def _socket_is_live(client: CmuxClient) -> bool:
 def current_client() -> CmuxClient | None:
     """Return a real :class:`CmuxClient`, or ``None`` when not in cmux mode.
 
-    ``None`` is returned when ``CMUX_SOCKET_PATH`` is unset/empty, no cmux binary
-    can be found, or the socket is present but dead (the app was quit) — i.e.
-    ``None`` *is* "not in cmux mode". The liveness probe is one extra subprocess
-    per call; launches are rare enough that the honesty is worth it.
+    The socket path comes from ``CMUX_SOCKET_PATH``, falling back to the
+    conventional :data:`DEFAULT_SOCKET_PATH` when it is unset/empty — so a caller
+    that did not inherit the var can still reach a running cmux. ``None`` is
+    returned when no cmux binary can be found or the socket is dead (no daemon
+    answering) — i.e. ``None`` *is* "not in cmux mode". The liveness probe is one
+    extra subprocess per call; launches are rare enough that the honesty is worth
+    it.
     """
-    socket_path = os.environ.get("CMUX_SOCKET_PATH")
-    if not socket_path:
-        return None
     cli = _find_cmux_cli()
     if cli is None:
         return None
-    client = SubprocessCmuxClient(cli, socket_path)
+    client = SubprocessCmuxClient(cli, resolve_socket_path())
     if not _socket_is_live(client):
         return None
     return client
@@ -183,17 +196,15 @@ def ensure_cmux_running(*, timeout_s: float = 8.0) -> bool:
        subprocess — **never** ``replace_process``) and poll ``ping`` until it
        answers or ``timeout_s`` elapses.
 
-    Returns False if there is no socket path, no binary, the app is not
-    installed, or it never answers within the timeout. Works from a GUI-session
-    LaunchAgent because ``open`` brings the app up in that session.
+    Returns False if there is no binary, the app is not installed, or it never
+    answers within the timeout. The socket path defaults to
+    :data:`DEFAULT_SOCKET_PATH` when ``CMUX_SOCKET_PATH`` is unset. Works from a
+    GUI-session LaunchAgent because ``open`` brings the app up in that session.
     """
-    socket_path = os.environ.get("CMUX_SOCKET_PATH")
-    if not socket_path:
-        return False
     cli = _find_cmux_cli()
     if cli is None:
         return False
-    client = SubprocessCmuxClient(cli, socket_path)
+    client = SubprocessCmuxClient(cli, resolve_socket_path())
     if _socket_is_live(client):
         return True
 

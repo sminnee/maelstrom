@@ -1,6 +1,5 @@
 """Command-line interface for maelstrom."""
 
-import os
 import sys
 from pathlib import Path
 
@@ -14,7 +13,7 @@ from .github import (
     wait_for_merge,
 )
 from .cmux import mael_layout
-from .cmux.client import ensure_cmux_running
+from .cmux.client import ensure_cmux_running, resolve_socket_path
 from .review_prepare import cmd_review_prepare
 from .session_cli import session as session_cli, session_channel as session_channel_cmd
 from .task_cli import task as task_cli
@@ -1152,13 +1151,15 @@ def cmd_cmux_status() -> None:
     app if it's down — and reports the outcome. Exits non-zero when cmux can't be
     reached, so it doubles as a health check for scheduled runs.
     """
-    socket_path = os.environ.get("CMUX_SOCKET_PATH")
+    # Report the path the probe actually uses, which defaults when the env var
+    # is unset — so the diagnostic never claims "unset" for a socket it did try.
+    socket_path = resolve_socket_path()
     if ensure_cmux_running():
-        click.echo(f"cmux OK (socket: {socket_path or 'unset'})")
+        click.echo(f"cmux OK (socket: {socket_path})")
         return
     raise click.ClickException(
         "cmux is not reachable and could not be started "
-        f"(socket: {socket_path or 'unset'})"
+        f"(socket: {socket_path})"
     )
 
 

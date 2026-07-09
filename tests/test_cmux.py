@@ -4,6 +4,7 @@ import subprocess
 from unittest.mock import MagicMock, patch
 
 from maelstrom.cmux.client import (
+    DEFAULT_SOCKET_PATH,
     CmuxResult,
     RecordingCmuxClient,
     SubprocessCmuxClient,
@@ -190,14 +191,21 @@ def _ping_reply(raw):
 class TestCurrentClient:
     """Tests for current_client / is_cmux_mode."""
 
-    def test_none_when_socket_unset(self):
-        with patch.dict("os.environ", {}, clear=True):
-            assert current_client() is None
-            assert is_cmux_mode() is False
-
-    def test_none_when_socket_empty(self):
-        with patch.dict("os.environ", {"CMUX_SOCKET_PATH": ""}):
-            assert current_client() is None
+    def test_unset_socket_falls_back_to_default(self):
+        # Unset/empty CMUX_SOCKET_PATH falls back to DEFAULT_SOCKET_PATH and
+        # probes it, so a caller that did not inherit the var still reaches a
+        # running cmux.
+        run = MagicMock(side_effect=_ping_reply("OK"))
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch(
+                "maelstrom.cmux.client._find_cmux_cli",
+                return_value="/usr/bin/cmux",
+            ),
+            patch("subprocess.run", run),
+        ):
+            assert isinstance(current_client(), SubprocessCmuxClient)
+        assert run.call_args_list[0].args[0][2] == DEFAULT_SOCKET_PATH
 
     def test_none_when_no_binary(self):
         with (
@@ -238,10 +246,6 @@ class TestCurrentClient:
 
 class TestEnsureCmuxRunning:
     """Tests for ensure_cmux_running (probe + start-the-app)."""
-
-    def test_false_when_socket_unset(self):
-        with patch.dict("os.environ", {}, clear=True):
-            assert ensure_cmux_running() is False
 
     def test_false_when_no_binary(self):
         with (
