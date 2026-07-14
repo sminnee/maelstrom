@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .claude_integration import get_shared_dir
-from .config import load_config_or_default
+from .config import (
+    load_config_or_default,
+    service_port_names,
+    shared_service_port_names,
+)
 from .shell import run_cmd
 from .util import locked_file
 from .ports import (
@@ -1134,24 +1138,34 @@ def _build_env_file(
         "WORKTREE_NUM": str(WORKTREE_NAMES.index(worktree_name)),
     }
 
+    # Derive the flat port-name lists. Structured `services:` (when present) owns
+    # the ports; otherwise fall back to the legacy flat `port_names` fields. The
+    # allocator mechanism below is identical for both.
+    if config.services:
+        local_port_names = service_port_names(config)
+        shared_port_names = shared_service_port_names(config)
+    else:
+        local_port_names = config.port_names
+        shared_port_names = config.shared_port_names
+
     # Add port variables if configured
-    if config.port_names:
+    if local_port_names:
         port_base = None
         if reuse_ports:
             port_base = get_port_allocation(project_path, worktree_name)
         if port_base is None:
-            port_base = allocate_port_base(project_path, len(config.port_names))
+            port_base = allocate_port_base(project_path, len(local_port_names))
             record_port_allocation(project_path, worktree_name, port_base)
-        generated_vars.update(generate_port_env_vars(port_base, config.port_names))
+        generated_vars.update(generate_port_env_vars(port_base, local_port_names))
 
     # Add shared port variables if configured
-    if config.shared_port_names:
+    if shared_port_names:
         shared_base = get_port_allocation(project_path, "_shared")
         if shared_base is None:
-            shared_base = allocate_port_base(project_path, len(config.shared_port_names))
+            shared_base = allocate_port_base(project_path, len(shared_port_names))
             record_port_allocation(project_path, "_shared", shared_base)
         generated_vars["SHARED_PORT_BASE"] = str(shared_base)
-        generated_vars.update(generate_port_env_vars(shared_base, config.shared_port_names))
+        generated_vars.update(generate_port_env_vars(shared_base, shared_port_names))
 
     # Write .env if there's anything to write
     if template_text or generated_vars:

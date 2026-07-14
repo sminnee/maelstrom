@@ -7,9 +7,11 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
+from maelstrom.config import ServiceDef
 from maelstrom.env import (
     EnvState,
     ProcfileEntry,
+    ResolvedService,
     ServiceState,
     ServiceStatus,
     SharedEnvState,
@@ -111,34 +113,83 @@ class TestParseProcfile:
 class TestGetServices:
     """Tests for get_services function."""
 
-    def test_procfile_present(self, tmp_path):
-        """Use Procfile when it exists."""
+    @patch("maelstrom.env.load_config_or_default")
+    def test_procfile_present(self, mock_config, tmp_path):
+        """Use Procfile when it exists (and no structured services)."""
+        mock_config.return_value = MagicMock(services=[], start_cmd="")
         (tmp_path / "Procfile").write_text("web: python app.py\n")
         result = get_services(tmp_path)
-        assert result == [ProcfileEntry(name="web", command="python app.py")]
+        assert result == [ResolvedService(name="web", command="python app.py")]
 
     @patch("maelstrom.env.load_config_or_default")
     def test_fallback_to_start_cmd(self, mock_config, tmp_path):
         """Fall back to start_cmd as single 'app' service."""
-        mock_config.return_value = MagicMock(start_cmd="npm start")
+        mock_config.return_value = MagicMock(services=[], start_cmd="npm start")
         result = get_services(tmp_path)
-        assert result == [ProcfileEntry(name="app", command="npm start")]
+        assert result == [ResolvedService(name="app", command="npm start")]
 
     @patch("maelstrom.env.load_config_or_default")
     def test_neither_available(self, mock_config, tmp_path):
-        """RuntimeError when no Procfile and no start_cmd."""
-        mock_config.return_value = MagicMock(start_cmd="")
+        """RuntimeError when no services, no Procfile and no start_cmd."""
+        mock_config.return_value = MagicMock(services=[], start_cmd="")
         with pytest.raises(RuntimeError, match="No Procfile"):
             get_services(tmp_path)
 
     @patch("maelstrom.env.load_config_or_default")
-    def test_procfile_takes_precedence(self, mock_config, tmp_path):
+    def test_procfile_takes_precedence_over_start_cmd(self, mock_config, tmp_path):
         """Procfile is used even when start_cmd is configured."""
         (tmp_path / "Procfile").write_text("web: gunicorn app\n")
-        mock_config.return_value = MagicMock(start_cmd="npm start")
+        mock_config.return_value = MagicMock(services=[], start_cmd="npm start")
         result = get_services(tmp_path)
-        assert result == [ProcfileEntry(name="web", command="gunicorn app")]
-        mock_config.assert_not_called()
+        assert result == [ResolvedService(name="web", command="gunicorn app")]
+
+    @patch("maelstrom.env.load_config_or_default")
+    def test_structured_services_take_precedence(self, mock_config, tmp_path):
+        """Structured services win over a Procfile."""
+        (tmp_path / "Procfile").write_text("web: gunicorn app\n")
+        mock_config.return_value = MagicMock(
+            services=[ServiceDef(name="frontend", command="node server.ts")],
+        )
+        result = get_services(tmp_path, "proj")
+        assert result == [ResolvedService(name="frontend", command="node server.ts")]
+
+    @patch("maelstrom.env.load_config_or_default")
+    def test_procfile_shared_suffix_marks_shared(self, mock_config, tmp_path):
+        """Procfile services with a -shared suffix resolve as shared."""
+        mock_config.return_value = MagicMock(services=[], start_cmd="")
+        (tmp_path / "Procfile").write_text(
+            "web: python app.py\ndb-shared: postgres\n"
+        )
+        result = get_services(tmp_path)
+        assert result[0] == ResolvedService(name="web", command="python app.py")
+        assert result[1] == ResolvedService(
+            name="db-shared", command="postgres", shared=True,
+        )
+
+    @patch("maelstrom.env.load_config_or_default")
+    def test_structured_container_service(self, mock_config, tmp_path):
+        """A structured apple-container service resolves to the run boilerplate."""
+        mock_config.return_value = MagicMock(
+            services=[
+                ServiceDef(
+                    name="db",
+                    shared=True,
+                    engine="apple-container",
+                    image="pgvector/pgvector:pg16",
+                    host_var="DB_HOST",
+                    publish=["${DB_PORT}:5432"],
+                ),
+            ],
+        )
+        result = get_services(tmp_path, "proj")
+        assert len(result) == 1
+        svc = result[0]
+        assert svc.name == "db"
+        assert svc.shared is True
+        assert svc.engine == "apple-container"
+        assert svc.container_name == "proj-db"
+        assert svc.host_var == "DB_HOST"
+        assert "container run --rm --name proj-db" in svc.command
 
 
 class TestEnvStateRoundTrip:
@@ -281,8 +332,8 @@ class TestStartEnv:
         """Each service is spawned with correct args."""
         mock_log_dir.return_value = tmp_path / "logs"
         mock_services.return_value = [
-            ProcfileEntry(name="web", command="python app.py"),
-            ProcfileEntry(name="worker", command="celery worker"),
+            ResolvedService(name="web", command="python app.py"),
+            ResolvedService(name="worker", command="celery worker"),
         ]
         mock_env.return_value = {"PATH": "/usr/bin"}
         mock_proc = MagicMock()
@@ -326,7 +377,7 @@ class TestStartEnv:
     ):
         """install_cmd is run before spawning services."""
         mock_log_dir.return_value = tmp_path / "logs"
-        mock_services.return_value = [ProcfileEntry(name="app", command="echo hi")]
+        mock_services.return_value = [ResolvedService(name="app", command="echo hi")]
         mock_popen.return_value = MagicMock(pid=1)
         wt_path = Path("/project/bravo")
 
@@ -356,7 +407,7 @@ class TestStartEnv:
     ):
         """install_cmd is skipped when skip_install=True."""
         mock_log_dir.return_value = tmp_path / "logs"
-        mock_services.return_value = [ProcfileEntry(name="app", command="echo hi")]
+        mock_services.return_value = [ResolvedService(name="app", command="echo hi")]
         mock_popen.return_value = MagicMock(pid=1)
 
         store = InMemoryEnvStore()
@@ -399,7 +450,7 @@ class TestStartEnv:
     ):
         """State is saved after spawning."""
         mock_log_dir.return_value = tmp_path / "logs"
-        mock_services.return_value = [ProcfileEntry(name="app", command="echo hi")]
+        mock_services.return_value = [ResolvedService(name="app", command="echo hi")]
         mock_popen.return_value = MagicMock(pid=99)
 
         store = InMemoryEnvStore()
@@ -431,7 +482,7 @@ class TestStartEnv:
         """Log directory is created before spawning."""
         log_dir = tmp_path / "logs" / "proj" / "bravo"
         mock_log_dir.return_value = log_dir
-        mock_services.return_value = [ProcfileEntry(name="app", command="echo hi")]
+        mock_services.return_value = [ResolvedService(name="app", command="echo hi")]
         mock_popen.return_value = MagicMock(pid=1)
 
         store = InMemoryEnvStore()
@@ -458,7 +509,7 @@ class TestStartEnv:
     ):
         """Stale env is cleaned up before checking for running services."""
         mock_log_dir.return_value = tmp_path / "logs"
-        mock_services.return_value = [ProcfileEntry(name="app", command="echo hi")]
+        mock_services.return_value = [ResolvedService(name="app", command="echo hi")]
         mock_popen.return_value = MagicMock(pid=1)
 
         store = InMemoryEnvStore()
@@ -1336,8 +1387,8 @@ class TestStartEnvShared:
         mock_log_dir.return_value = tmp_path / "logs"
         mock_shared_log_dir.return_value = tmp_path / "shared_logs"
         mock_services.return_value = [
-            ProcfileEntry(name="web", command="python app.py"),
-            ProcfileEntry(name="db-shared", command="postgres"),
+            ResolvedService(name="web", command="python app.py"),
+            ResolvedService(name="db-shared", command="postgres", shared=True),
         ]
         mock_proc = MagicMock()
         mock_proc.pid = 42
@@ -1386,8 +1437,8 @@ class TestStartEnvShared:
         """Second worktree subscribes to existing shared services."""
         mock_log_dir.return_value = tmp_path / "logs"
         mock_services.return_value = [
-            ProcfileEntry(name="web", command="python app.py"),
-            ProcfileEntry(name="db-shared", command="postgres"),
+            ResolvedService(name="web", command="python app.py"),
+            ResolvedService(name="db-shared", command="postgres", shared=True),
         ]
         # Shared services already running with alpha as subscriber
         existing_shared = SharedEnvState(
@@ -1418,6 +1469,256 @@ class TestStartEnvShared:
         mock_shared_save.assert_called_once()
         saved = mock_shared_save.call_args[0][1]
         assert saved.subscribers == ["alpha", "bravo"]
+
+
+class TestTwoPhaseStartWithIpInjection:
+    """Two-phase start: containers first, VM IP injected into command services."""
+
+    @patch("maelstrom.env.save_shared_state")
+    @patch("maelstrom.env.save_env_state")
+    @patch("maelstrom.env.Popen")
+    @patch("maelstrom.env.build_service_env", return_value={})
+    @patch("maelstrom.env.get_services")
+    @patch("maelstrom.env.run_install_cmd")
+    @patch("maelstrom.env.get_env_status", return_value=None)
+    @patch("maelstrom.env.cleanup_stale_env")
+    @patch("maelstrom.env.cleanup_stale_shared")
+    @patch("maelstrom.env.load_shared_state", return_value=None)
+    @patch("maelstrom.env._get_log_dir")
+    @patch("maelstrom.env._get_shared_log_dir")
+    def test_injects_host_var_into_command_service(
+        self,
+        mock_shared_log_dir,
+        mock_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """A shared apple-container's IP is injected into a local command svc."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.return_value = [
+            ResolvedService(
+                name="db",
+                command="container run ... postgres",
+                shared=True,
+                engine="apple-container",
+                container_name="proj-db",
+                host_var="DB_HOST",
+            ),
+            ResolvedService(
+                name="app",
+                command="serve",
+                env={"PGHOST": "${DB_HOST}"},
+            ),
+        ]
+        mock_popen.return_value = MagicMock(pid=42)
+
+        runner = MagicMock(return_value='[{"networks": [{"address": "192.168.64.4/24"}]}]')
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"), runner=runner)
+
+        # The command service was spawned with DB_HOST in its env.
+        app_call = next(
+            c for c in mock_popen.call_args_list
+            if c[0][0] == ["sh", "-c", "serve"]
+        )
+        assert app_call[1]["env"]["DB_HOST"] == "192.168.64.4"
+        # The service's own env: ${DB_HOST} is expanded to the injected IP.
+        assert app_call[1]["env"]["PGHOST"] == "192.168.64.4"
+
+        # host_vars persisted on the shared state.
+        shared_state = mock_shared_save.call_args[0][1]
+        assert shared_state.host_vars == {"DB_HOST": "192.168.64.4"}
+
+    @patch("maelstrom.env.save_shared_state")
+    @patch("maelstrom.env.save_env_state")
+    @patch("maelstrom.env.Popen")
+    @patch("maelstrom.env.build_service_env", return_value={})
+    @patch("maelstrom.env.get_services")
+    @patch("maelstrom.env.run_install_cmd")
+    @patch("maelstrom.env.get_env_status", return_value=None)
+    @patch("maelstrom.env.cleanup_stale_env")
+    @patch("maelstrom.env.cleanup_stale_shared")
+    @patch("maelstrom.env.load_shared_state")
+    @patch("maelstrom.env._get_log_dir")
+    def test_late_subscriber_reuses_host_vars(
+        self,
+        mock_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """A late subscriber reads host_vars from shared state, no re-inspect."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_services.return_value = [
+            ResolvedService(
+                name="db",
+                command="container run ... postgres",
+                shared=True,
+                engine="apple-container",
+                container_name="proj-db",
+                host_var="DB_HOST",
+            ),
+            ResolvedService(
+                name="app", command="serve", env={"PGHOST": "${DB_HOST}"},
+            ),
+        ]
+        mock_shared_load.return_value = SharedEnvState(
+            project="proj",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db", command="container run ...", pid=999,
+                    log_file="/tmp/db.log", started_at="2025-01-01T00:00:00+00:00",
+                    engine="apple-container", container_name="proj-db",
+                ),
+            ],
+            subscribers=["alpha"],
+            host_vars={"DB_HOST": "192.168.64.4"},
+        )
+        mock_popen.return_value = MagicMock(pid=42)
+        runner = MagicMock()
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"), runner=runner)
+
+        # The runner (container inspect) must NOT be called on a subscribe.
+        runner.assert_not_called()
+        # Only the local command service is spawned, with the reused IP.
+        assert mock_popen.call_count == 1
+        app_call = mock_popen.call_args_list[0]
+        assert app_call[1]["env"]["DB_HOST"] == "192.168.64.4"
+        # The reused host var is expanded into the command service's env: too.
+        assert app_call[1]["env"]["PGHOST"] == "192.168.64.4"
+
+    @patch("maelstrom.env.save_shared_state")
+    @patch("maelstrom.env.save_env_state")
+    @patch("maelstrom.env.Popen")
+    @patch("maelstrom.env.build_service_env", return_value={})
+    @patch("maelstrom.env.get_services")
+    @patch("maelstrom.env.run_install_cmd")
+    @patch("maelstrom.env.get_env_status", return_value=None)
+    @patch("maelstrom.env.cleanup_stale_env")
+    @patch("maelstrom.env.cleanup_stale_shared")
+    @patch("maelstrom.env.load_shared_state", return_value=None)
+    @patch("maelstrom.env._get_log_dir")
+    @patch("maelstrom.env._get_shared_log_dir")
+    def test_ip_timeout_aborts_start(
+        self,
+        mock_shared_log_dir,
+        mock_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """A never-resolving VM IP raises TimeoutError, aborting the start."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.return_value = [
+            ResolvedService(
+                name="db",
+                command="container run ... postgres",
+                shared=True,
+                engine="apple-container",
+                container_name="proj-db",
+                host_var="DB_HOST",
+            ),
+        ]
+        mock_popen.return_value = MagicMock(pid=42)
+
+        # Runner never yields an address, discover_container_ip times out fast.
+        runner = MagicMock(return_value='[{"networks": [{"address": null}]}]')
+        with patch("maelstrom.services.time") as mock_time:
+            # First call sets deadline; subsequent calls are past it.
+            mock_time.monotonic.side_effect = itertools.chain(
+                [0.0], itertools.repeat(999.0),
+            )
+            store = InMemoryEnvStore()
+            with pytest.raises(TimeoutError):
+                start_env(store, "proj", "bravo", Path("/project/bravo"), runner=runner)
+
+
+class TestContainerCleanupOnStop:
+    """Engine-aware best-effort container cleanup after killpg."""
+
+    @patch("maelstrom.env.subprocess.run")
+    @patch("maelstrom.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    def test_docker_service_force_removed(
+        self, mock_killpg, mock_alive, mock_run, tmp_path,
+    ):
+        """A docker container service is force-removed after its shell stops."""
+        from maelstrom.env import _stop_services
+
+        svc = ServiceState(
+            name="db", command="docker run ...", pid=123,
+            log_file=str(tmp_path / "db.log"), started_at="2025-01-01T00:00:00+00:00",
+            engine="docker", container_name="proj-db",
+        )
+        _stop_services([svc])
+        argv = mock_run.call_args[0][0]
+        assert argv == ["docker", "rm", "-f", "proj-db"]
+
+    @patch("maelstrom.env.subprocess.run")
+    @patch("maelstrom.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    def test_apple_container_deleted(
+        self, mock_killpg, mock_alive, mock_run, tmp_path,
+    ):
+        """An apple-container service uses `container delete --force`."""
+        from maelstrom.env import _stop_services
+
+        svc = ServiceState(
+            name="db", command="container run ...", pid=123,
+            log_file=str(tmp_path / "db.log"), started_at="2025-01-01T00:00:00+00:00",
+            engine="apple-container", container_name="proj-db",
+        )
+        _stop_services([svc])
+        argv = mock_run.call_args[0][0]
+        assert argv == ["container", "delete", "--force", "proj-db"]
+
+    @patch("maelstrom.env.subprocess.run")
+    @patch("maelstrom.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    def test_command_service_not_cleaned(
+        self, mock_killpg, mock_alive, mock_run, tmp_path,
+    ):
+        """A command service (no engine) triggers no container cleanup."""
+        from maelstrom.env import _stop_services
+
+        svc = ServiceState(
+            name="app", command="serve", pid=123,
+            log_file=str(tmp_path / "app.log"), started_at="2025-01-01T00:00:00+00:00",
+        )
+        _stop_services([svc])
+        mock_run.assert_not_called()
 
 
 class TestStopEnvShared:

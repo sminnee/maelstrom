@@ -53,6 +53,15 @@ with no git and no filesystem (see the task unit tests).
 >   `claude -p` for a slug. Contained because every path falls back to a
 >   deterministic offline slug and the subprocess is reached through an
 >   injectable `runner`, so the model stays exercisable with no CLI.
+> - discovering a container's VM IP
+>   ([`services.py`](../../src/maelstrom/services.py) `discover_container_ip`),
+>   which polls `container inspect`. Same containment: the subprocess is reached
+>   through an injectable `runner`, so command synthesis and IP parsing stay pure
+>   and testable with a fake runner. The `services:` schema lives in
+>   [`config.py`](../../src/maelstrom/config.py); command/container builders and
+>   the per-engine table live in `services.py`; the two-phase start (containers
+>   first, VM IP injected into sibling command services' spawn env) lives in
+>   [`env.py`](../../src/maelstrom/env.py).
 
 ### 3. One error contract
 

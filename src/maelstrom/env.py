@@ -6,15 +6,28 @@ defined in Procfiles or via start_cmd configuration.
 
 import os
 import signal
+import subprocess
 import time
-from dataclasses import asdict, dataclass
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from string import Template
 from subprocess import DEVNULL, STDOUT, Popen
 
-from maelstrom.config import load_config_or_default
+from maelstrom.config import (
+    ServiceDef,
+    load_config_or_default,
+)
 from maelstrom.context import get_maelstrom_dir
 from maelstrom.env_store import EnvStore
+from maelstrom.services import (
+    ENGINES,
+    build_command_service,
+    build_container_run,
+    container_name,
+    discover_container_ip,
+)
 from maelstrom.session_discovery import LiveSession
 from maelstrom.util import now_iso
 from maelstrom.worktree import read_env_file, regenerate_env_file, run_install_cmd
@@ -32,6 +45,27 @@ class ProcfileEntry:
 
 
 @dataclass
+class ResolvedService:
+    """A service ready to spawn, unified across config styles.
+
+    Both the structured ``services:`` builders and the legacy ``ProcfileEntry``
+    map into this so ``_spawn_services`` consumes a single shape. ``engine`` and
+    ``container_name`` are set only for container services; ``host_var`` only for
+    apple-container services that receive a polled VM IP. ``env`` holds
+    per-service overrides (from a structured service's ``env:``) merged into the
+    spawn env dict at start time.
+    """
+
+    name: str
+    command: str
+    shared: bool = False
+    engine: str | None = None
+    container_name: str | None = None
+    host_var: str | None = None
+    env: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class ServiceState:
     """Persisted state of a running service."""
 
@@ -40,6 +74,8 @@ class ServiceState:
     pid: int
     log_file: str
     started_at: str  # ISO 8601
+    engine: str | None = None
+    container_name: str | None = None
 
 
 @dataclass
@@ -63,6 +99,9 @@ class SharedEnvState:
     started_at: str  # ISO 8601
     services: list[ServiceState]
     subscribers: list[str]  # worktree names currently using these
+    # Dynamic host vars (e.g. an apple-container VM IP) discovered at start time
+    # and reused by late subscribers instead of re-inspecting.
+    host_vars: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -81,8 +120,29 @@ class ServiceStatus:
 
 
 def is_shared_service(name: str) -> bool:
-    """Return True if the service name indicates a shared service."""
+    """Return True if the service name indicates a shared service.
+
+    Legacy suffix convention used only on the Procfile / start_cmd fallback path;
+    structured ``services:`` partition on the explicit ``shared:`` field instead.
+    """
     return name.endswith("-shared")
+
+
+def _service_state_from_dict(data: dict) -> ServiceState:
+    """Build a ServiceState from a persisted dict, tolerant of older records.
+
+    ``engine`` / ``container_name`` are read via ``.get`` so state written before
+    those fields existed still loads.
+    """
+    return ServiceState(
+        name=data["name"],
+        command=data["command"],
+        pid=data["pid"],
+        log_file=data["log_file"],
+        started_at=data["started_at"],
+        engine=data.get("engine"),
+        container_name=data.get("container_name"),
+    )
 
 
 # --- Procfile Parsing ---
@@ -114,19 +174,58 @@ def parse_procfile(procfile_path: Path) -> list[ProcfileEntry]:
     return entries
 
 
-def get_services(worktree_path: Path) -> list[ProcfileEntry]:
-    """Get service definitions for a worktree.
+def _resolve_service_def(svc: ServiceDef, project: str) -> ResolvedService:
+    """Map a structured ServiceDef to a spawnable ResolvedService.
 
-    Checks for a Procfile first; falls back to config start_cmd as a
-    single 'app' service. Raises RuntimeError if neither is available.
+    Container services get the synthesised ``run`` boilerplate and their
+    container name; command services get ``cd <dir> && <command>``. A service's
+    ``env:`` overrides ride along in ``env`` for the spawn env dict.
     """
+    if svc.is_container:
+        cname = container_name(project, svc.name)
+        return ResolvedService(
+            name=svc.name,
+            command=build_container_run(svc, cname),
+            shared=svc.shared,
+            engine=svc.engine,
+            container_name=cname,
+            host_var=svc.host_var,
+            env=dict(svc.env),
+        )
+    return ResolvedService(
+        name=svc.name,
+        command=build_command_service(svc),
+        shared=svc.shared,
+        env=dict(svc.env),
+    )
+
+
+def get_services(worktree_path: Path, project: str = "") -> list[ResolvedService]:
+    """Get resolved service definitions for a worktree.
+
+    Precedence: structured ``services:`` in ``.maelstrom.yaml`` → Procfile →
+    ``start_cmd`` → RuntimeError. Structured services partition into local/shared
+    by ``ServiceDef.shared``; the legacy suffix rule (:func:`is_shared_service`)
+    applies only on the Procfile / start_cmd fallback paths.
+
+    ``project`` names the container-name prefix for structured container
+    services; it is unused on the fallback paths.
+    """
+    config = load_config_or_default(worktree_path)
+    if config.services:
+        return [_resolve_service_def(svc, project) for svc in config.services]
+
     procfile = worktree_path / "Procfile"
     if procfile.exists():
-        return parse_procfile(procfile)
+        return [
+            ResolvedService(
+                name=e.name, command=e.command, shared=is_shared_service(e.name),
+            )
+            for e in parse_procfile(procfile)
+        ]
 
-    config = load_config_or_default(worktree_path)
     if config.start_cmd:
-        return [ProcfileEntry(name="app", command=config.start_cmd)]
+        return [ResolvedService(name="app", command=config.start_cmd)]
 
     raise RuntimeError(
         f"No Procfile found in {worktree_path} and no start_cmd configured"
@@ -160,7 +259,7 @@ def load_env_state(store: EnvStore, project: str, worktree: str) -> EnvState | N
             worktree=data["worktree"],
             worktree_path=data["worktree_path"],
             started_at=data["started_at"],
-            services=[ServiceState(**s) for s in data["services"]],
+            services=[_service_state_from_dict(s) for s in data["services"]],
             cmux_browser_surface=data.get("cmux_browser_surface"),
         )
     except (KeyError, TypeError):
@@ -205,8 +304,9 @@ def load_shared_state(store: EnvStore, project: str) -> SharedEnvState | None:
             project=data["project"],
             worktree_path=data["worktree_path"],
             started_at=data["started_at"],
-            services=[ServiceState(**s) for s in data["services"]],
+            services=[_service_state_from_dict(s) for s in data["services"]],
             subscribers=data["subscribers"],
+            host_vars=data.get("host_vars", {}),
         )
     except (KeyError, TypeError):
         return None
@@ -254,7 +354,7 @@ def is_service_alive(pid: int) -> bool:
 
 
 def _spawn_services(
-    services: list[ProcfileEntry],
+    services: list[ResolvedService],
     cwd: Path,
     env: dict[str, str],
     log_dir: Path,
@@ -263,12 +363,22 @@ def _spawn_services(
     """Spawn a list of services and return their states.
 
     Each service is started via ``sh -c`` in a new session, with
-    stdout/stderr redirected to a log file.
+    stdout/stderr redirected to a log file. A service's own ``env`` overrides are
+    merged onto the base ``env`` for its spawn only (not mutating the caller's).
+    ``${VAR}`` references in those overrides are expanded against the base env, so
+    a value like ``PGHOST: ${DB_HOST}`` resolves to the dynamic host var that
+    phase 1 injected (unknown vars are left intact, matching shell behaviour).
     """
     log_dir.mkdir(parents=True, exist_ok=True)
     service_states = []
 
     for svc in services:
+        svc_env = env
+        if svc.env:
+            expanded = {
+                k: Template(v).safe_substitute(env) for k, v in svc.env.items()
+            }
+            svc_env = {**env, **expanded}
         log_file = log_dir / f"{svc.name}.log"
         log_fh = open(log_file, "w")  # noqa: SIM115
         log_fh.write(f"\n=== Service started: {now} ===\n")
@@ -276,7 +386,7 @@ def _spawn_services(
         proc = Popen(
             ["sh", "-c", svc.command],
             cwd=cwd,
-            env=env,
+            env=svc_env,
             stdin=DEVNULL,
             stdout=log_fh,
             stderr=STDOUT,
@@ -290,10 +400,76 @@ def _spawn_services(
                 pid=proc.pid,
                 log_file=str(log_file),
                 started_at=now,
+                engine=svc.engine,
+                container_name=svc.container_name,
             )
         )
 
     return service_states
+
+
+ContainerRunner = Callable[[list[str]], str]
+
+
+def _default_container_runner(argv: list[str]) -> str:
+    """Run a container CLI command and return its stdout (for IP discovery)."""
+    result = subprocess.run(
+        argv, capture_output=True, text=True, check=True,
+    )
+    return result.stdout
+
+
+def _inject_host_vars(
+    services: list[ResolvedService],
+    env: dict[str, str],
+    runner: ContainerRunner,
+) -> dict[str, str]:
+    """Discover apple-container VM IPs and set them in ``env`` in place.
+
+    For each apple-container service carrying a ``host_var`` and a
+    ``container_name``, poll ``container inspect`` for the VM IP and set
+    ``env[host_var]`` so sibling command services resolve ``${host_var}`` to the
+    live address. Returns the ``{host_var: ip}`` map discovered (for persistence).
+
+    Raises:
+        TimeoutError: If a container never reports an address (start aborts).
+    """
+    discovered: dict[str, str] = {}
+    for svc in services:
+        if svc.engine != "apple-container" or not svc.host_var:
+            continue
+        assert svc.container_name is not None
+        ip = discover_container_ip(svc.container_name, runner)
+        env[svc.host_var] = ip
+        discovered[svc.host_var] = ip
+    return discovered
+
+
+def _spawn_phased(
+    services: list[ResolvedService],
+    cwd: Path,
+    env: dict[str, str],
+    log_dir: Path,
+    now: str,
+    runner: ContainerRunner,
+) -> tuple[list[ServiceState], dict[str, str]]:
+    """Spawn ``services`` container-first, injecting host vars before commands.
+
+    Phase 1 spawns container services and discovers any apple-container VM IPs
+    into ``env``; phase 2 spawns command services with that augmented ``env``.
+    Returns (all service states in original order, discovered host_vars).
+    """
+    containers = [s for s in services if s.engine is not None]
+    commands = [s for s in services if s.engine is None]
+
+    container_states = _spawn_services(containers, cwd, env, log_dir, now)
+    host_vars = _inject_host_vars(containers, env, runner)
+    command_states = _spawn_services(commands, cwd, env, log_dir, now)
+
+    # Re-order states to match input order for deterministic state files.
+    by_name = {s.name: s for s in container_states + command_states}
+    ordered = [by_name[s.name] for s in services]
+    return ordered, host_vars
 
 
 def _start_or_subscribe_shared(
@@ -301,11 +477,17 @@ def _start_or_subscribe_shared(
     project: str,
     worktree: str,
     worktree_path: Path,
-    shared_services: list[ProcfileEntry],
+    shared_services: list[ResolvedService],
     env: dict[str, str],
     now: str,
+    runner: ContainerRunner,
 ) -> None:
-    """Start shared services if not running, or subscribe to existing ones."""
+    """Start shared services if not running, or subscribe to existing ones.
+
+    On subscribe, host vars already discovered by the first starter are read back
+    from ``SharedEnvState.host_vars`` into ``env`` (rather than re-inspecting), so
+    a late subscriber's command services still resolve ``${host_var}``.
+    """
     if not shared_services:
         return
 
@@ -313,16 +495,17 @@ def _start_or_subscribe_shared(
     shared_state = load_shared_state(store, project)
 
     if shared_state is not None:
-        # Shared services already running — just subscribe
+        # Shared services already running — reuse their host vars and subscribe.
+        env.update(shared_state.host_vars)
         if worktree not in shared_state.subscribers:
             shared_state.subscribers.append(worktree)
             save_shared_state(store, shared_state)
         return
 
-    # Start shared services
+    # Start shared services (container-first, injecting host vars).
     log_dir = _get_shared_log_dir(project)
-    service_states = _spawn_services(
-        shared_services, worktree_path, env, log_dir, now,
+    service_states, host_vars = _spawn_phased(
+        shared_services, worktree_path, env, log_dir, now, runner,
     )
 
     shared_state = SharedEnvState(
@@ -331,6 +514,7 @@ def _start_or_subscribe_shared(
         started_at=now,
         services=service_states,
         subscribers=[worktree],
+        host_vars=host_vars,
     )
     save_shared_state(store, shared_state)
 
@@ -342,19 +526,25 @@ def start_env(
     worktree_path: Path,
     *,
     skip_install: bool = False,
+    runner: ContainerRunner = _default_container_runner,
 ) -> EnvState:
     """Start all services for a worktree environment.
 
     1. Cleans up stale state
     2. Refuses to start if services are already running
     3. Runs install_cmd (unless skip_install)
-    4. Splits services into local and shared
-    5. Starts or subscribes to shared services
-    6. Spawns local services with stdout/stderr to log files
+    4. Splits services into local and shared (by ``ResolvedService.shared``)
+    5. Starts or subscribes to shared services (container-first, injecting IPs)
+    6. Spawns local services container-first, injecting any host vars before
+       command services so ``${host_var}`` resolves to the live address
     7. Saves and returns state (local services only)
+
+    ``runner`` is the container-CLI invoker used for ``container inspect`` VM-IP
+    discovery; tests inject a fake.
 
     Raises:
         RuntimeError: If services are already running, or no services defined.
+        TimeoutError: If an apple-container host var never resolves (start aborts).
     """
     cleanup_stale_env(store, project, worktree)
 
@@ -370,22 +560,22 @@ def start_env(
     if not skip_install:
         run_install_cmd(worktree_path)
 
-    all_services = get_services(worktree_path)
-    local_services = [s for s in all_services if not is_shared_service(s.name)]
-    shared_services = [s for s in all_services if is_shared_service(s.name)]
+    all_services = get_services(worktree_path, project)
+    local_services = [s for s in all_services if not s.shared]
+    shared_services = [s for s in all_services if s.shared]
 
     env = build_service_env(worktree_path)
     now = now_iso()
 
-    # Handle shared services
+    # Handle shared services (populates env with any shared host vars)
     _start_or_subscribe_shared(
-        store, project, worktree, worktree_path, shared_services, env, now,
+        store, project, worktree, worktree_path, shared_services, env, now, runner,
     )
 
-    # Start local services
+    # Start local services (container-first, injecting any local host vars)
     log_dir = _get_log_dir(project, worktree)
-    service_states = _spawn_services(
-        local_services, worktree_path, env, log_dir, now,
+    service_states, _ = _spawn_phased(
+        local_services, worktree_path, env, log_dir, now, runner,
     )
 
     state = EnvState(
@@ -399,10 +589,37 @@ def start_env(
     return state
 
 
+def _cleanup_container(svc: ServiceState) -> None:
+    """Best-effort force-remove a service's container after its shell is stopped.
+
+    Foreground ``--rm`` runs normally clean themselves up when killpg tears down
+    the shell, but a container that outlived its shell would linger and block the
+    next start (name clash). This is the safety net: it fires the engine's
+    force-remove verb and swallows every failure — a missing binary, an
+    already-gone container, or a stopped engine must never break ``stop``.
+    """
+    if not svc.engine or not svc.container_name:
+        return
+    engine = ENGINES.get(svc.engine)
+    if engine is None:
+        return
+    argv = [engine.binary, *engine.rm_force, svc.container_name]
+    try:
+        subprocess.run(
+            argv, stdout=DEVNULL, stderr=DEVNULL, check=False, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def _stop_services(
     services: list[ServiceState], *, timeout: float = 10.0, label: str = "",
 ) -> list[str]:
     """Send SIGTERM, wait, then SIGKILL to a list of services.
+
+    After the shell is torn down, container services get a best-effort
+    force-remove (:func:`_cleanup_container`) to catch a container that outlived
+    its shell.
 
     Returns a list of status messages per service.
     """
@@ -442,6 +659,10 @@ def _stop_services(
                 messages.append(f"{svc.name}{tag} (pid {svc.pid}): stopped")
         else:
             messages.append(f"{svc.name}{tag} (pid {svc.pid}): stopped")
+
+    # Best-effort container cleanup for any container services.
+    for svc in services:
+        _cleanup_container(svc)
 
     return messages
 

@@ -8,6 +8,101 @@ import yaml
 
 CONFIG_FILENAME = ".maelstrom.yaml"
 
+# Container engines maelstrom knows how to drive. Presence of an ``engine:`` key
+# is what makes a service a container (vs a shell ``command`` service).
+CONTAINER_ENGINES = ("docker", "apple-container")
+
+
+@dataclass
+class PortSpec:
+    """A named port a service owns.
+
+    ``name`` is the port-name (e.g. ``"FRONTEND"``) whose ``${FRONTEND_PORT}``
+    the existing allocator generates. ``container`` is the container-side port
+    for a publish mapping, or ``None`` for a command service.
+    """
+
+    name: str
+    container: int | None = None
+
+
+@dataclass
+class ServiceDef:
+    """A structured service definition parsed from the ``services:`` map.
+
+    Service *type* is inferred: an ``engine`` (docker / apple-container) makes it
+    a container service; otherwise it is a shell ``command`` service.
+    """
+
+    name: str
+    shared: bool = False
+    engine: str | None = None  # None=command, "docker", "apple-container"
+    ports: list[PortSpec] = field(default_factory=list)
+    publish: list[str] = field(default_factory=list)  # ["${DB_PORT}:5432"]
+    env: dict[str, str] = field(default_factory=dict)
+    dir: str | None = None  # command service
+    command: str | None = None  # command service
+    image: str | None = None  # container service
+    volume: str | None = None  # container mount path
+    host_var: str | None = None  # apple-container VM-IP target var
+
+    @property
+    def is_container(self) -> bool:
+        """Whether this is a container service (has an engine)."""
+        return self.engine is not None
+
+
+def _parse_service(name: str, data: dict) -> ServiceDef:
+    """Parse a single ``services:`` entry into a ServiceDef.
+
+    Raises:
+        ValueError: If the entry is malformed for its inferred type.
+    """
+    if not isinstance(data, dict):
+        raise ValueError(f"Service {name!r}: definition must be a mapping")
+
+    engine = data.get("engine")
+    if engine is not None and engine not in CONTAINER_ENGINES:
+        allowed = ", ".join(CONTAINER_ENGINES)
+        raise ValueError(
+            f"Service {name!r}: unknown engine {engine!r} (expected one of {allowed})"
+        )
+
+    raw_ports = data.get("ports", [])
+    if not isinstance(raw_ports, list) or not all(
+        isinstance(p, str) for p in raw_ports
+    ):
+        raise ValueError(f"Service {name!r}: 'ports' must be a list of names")
+    ports = [PortSpec(name=p) for p in raw_ports]
+
+    svc = ServiceDef(
+        name=name,
+        shared=bool(data.get("shared", False)),
+        engine=engine,
+        ports=ports,
+        publish=list(data.get("publish", [])),
+        env=dict(data.get("env", {})),
+        dir=data.get("dir"),
+        command=data.get("command"),
+        image=data.get("image"),
+        volume=data.get("volume"),
+        host_var=data.get("host_var"),
+    )
+
+    if svc.is_container:
+        if not svc.image:
+            raise ValueError(f"Service {name!r}: container service requires 'image'")
+        if svc.host_var and svc.engine != "apple-container":
+            raise ValueError(
+                f"Service {name!r}: 'host_var' is only meaningful for "
+                "apple-container services"
+            )
+    else:
+        if not svc.command:
+            raise ValueError(f"Service {name!r}: command service requires 'command'")
+
+    return svc
+
 
 @dataclass
 class MaelstromConfig:
@@ -17,6 +112,9 @@ class MaelstromConfig:
     shared_port_names: list[str] = field(default_factory=list)
     start_cmd: str = ""
     install_cmd: str = ""
+    # Structured service definitions (preferred over Procfile / start_cmd).
+    # Insertion order is preserved for deterministic port allocation.
+    services: list[ServiceDef] = field(default_factory=list)
     # Linear integration
     linear_team_id: str | None = None
     linear_workspace_labels: list[str] | None = None
@@ -29,7 +127,11 @@ class MaelstromConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> "MaelstromConfig":
-        """Create a config from a dictionary."""
+        """Create a config from a dictionary.
+
+        Raises:
+            ValueError: If a ``services:`` entry is malformed.
+        """
         linear_config = data.get("linear", {})
         if not isinstance(linear_config, dict):
             linear_config = {}
@@ -42,11 +144,18 @@ class MaelstromConfig:
         if not isinstance(ur_config, dict):
             ur_config = {}
 
+        services_data = data.get("services", {}) or {}
+        services = [
+            _parse_service(name, svc_data)
+            for name, svc_data in services_data.items()
+        ]
+
         return cls(
             port_names=data.get("port_names", []),
             shared_port_names=data.get("shared_port_names", []),
             start_cmd=data.get("start_cmd", ""),
             install_cmd=data.get("install_cmd", ""),
+            services=services,
             linear_team_id=linear_config.get("team_id"),
             linear_workspace_labels=linear_config.get("workspace_labels"),
             linear_product_label=linear_config.get("product_label"),
@@ -54,6 +163,42 @@ class MaelstromConfig:
             sentry_project=sentry_config.get("project_id"),
             uptimerobot_monitors=ur_config.get("monitors"),
         )
+
+
+def service_port_names(config: MaelstromConfig) -> list[str]:
+    """Flat list of non-shared service port names, in declaration order.
+
+    Reuses the existing port allocator unchanged: the returned list is the
+    ordering the allocator maps onto ``${NAME_PORT}`` slots. Duplicates across
+    services are dropped, keeping first-seen order.
+    """
+    names: list[str] = []
+    seen: set[str] = set()
+    for svc in config.services:
+        if svc.shared:
+            continue
+        for spec in svc.ports:
+            if spec.name not in seen:
+                seen.add(spec.name)
+                names.append(spec.name)
+    return names
+
+
+def shared_service_port_names(config: MaelstromConfig) -> list[str]:
+    """Flat list of shared service port names, in declaration order.
+
+    See :func:`service_port_names`; this is the shared-service counterpart.
+    """
+    names: list[str] = []
+    seen: set[str] = set()
+    for svc in config.services:
+        if not svc.shared:
+            continue
+        for spec in svc.ports:
+            if spec.name not in seen:
+                seen.add(spec.name)
+                names.append(spec.name)
+    return names
 
 
 def find_config_file(path: Path) -> Path | None:
