@@ -434,3 +434,39 @@ class TestGetAppUrl:
         # FRONTEND is at index 1, so port = 300 * 10 + 1 = 3001
         assert url == "http://localhost:3001"
         assert is_running is False
+
+    def test_uses_derived_service_port_list(self, tmp_path, monkeypatch):
+        """With structured services, the derived non-shared port list drives it.
+
+        FRONTEND is the second non-shared service port (index 1); the shared DB
+        port is excluded from the local ordering.
+        """
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir()
+        (worktree_path / ".maelstrom.yaml").write_text(
+            "services:\n"
+            "  server:\n"
+            "    command: serve\n"
+            "    ports: [SERVER]\n"
+            "  frontend:\n"
+            "    command: node server.ts\n"
+            "    ports: [FRONTEND]\n"
+            "  db:\n"
+            "    shared: true\n"
+            "    engine: docker\n"
+            "    image: postgres:16\n"
+            "    ports: [DB]\n"
+        )
+
+        record_port_allocation(project_path, "alpha", 300)
+
+        with patch("maelstrom.ports.is_port_free", return_value=True):
+            result = get_app_url(project_path, "alpha")
+
+        assert result is not None
+        url, _ = result
+        # FRONTEND is index 1 in the derived non-shared list -> 300 * 10 + 1.
+        assert url == "http://localhost:3001"

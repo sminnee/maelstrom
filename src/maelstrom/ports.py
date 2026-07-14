@@ -180,7 +180,7 @@ def get_app_url(project_path: Path, worktree_name: str) -> tuple[str, bool] | No
         Tuple of (url, is_running) e.g. ("http://localhost:3010", True),
         or None if no port allocation or no web port name exists.
     """
-    from .config import load_config_or_default
+    from .config import load_config_or_default, service_port_names
     from .worktree_model import get_worktree_folder_name
 
     port_base = get_port_allocation(project_path, worktree_name)
@@ -191,9 +191,13 @@ def get_app_url(project_path: Path, worktree_name: str) -> tuple[str, bool] | No
     worktree_path = project_path / folder_name
     config = load_config_or_default(worktree_path)
 
+    # Prefer the derived service port list (structured `services:`); fall back to
+    # the legacy flat `port_names` so both config styles keep working.
+    port_names = service_port_names(config) if config.services else config.port_names
+
     # Find the first web-facing port name
     web_index = None
-    for idx, name in enumerate(config.port_names):
+    for idx, name in enumerate(port_names):
         if name in WEB_PORT_NAMES:
             web_index = idx
             break

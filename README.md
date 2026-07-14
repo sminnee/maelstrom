@@ -114,8 +114,15 @@ shared_port_names:
 # Command to install dependencies (run on worktree creation and env start)
 install_cmd: "uv sync"
 
-# Fallback start command if no Procfile is present
+# Fallback start command if no `services:` block or Procfile is present
 start_cmd: "npm run dev"
+
+# Preferred: structured service definitions (see "Environment Management" below).
+# When present, `services:` supersedes `port_names` / `shared_port_names` / the
+# Procfile / start_cmd.
+# services:
+#   frontend: { ports: [FRONTEND], command: "npm run dev" }
+#   db-shared: { shared: true, engine: docker, image: postgres:16, ports: [DB] }
 
 # Linear integration
 linear:
@@ -153,13 +160,75 @@ DB_PORT=3002
 
 Port allocations are persisted in `~/.maelstrom/port_allocations.json` and checked for socket availability when assigned. The first port (`PORT_BASE * 10`) is used as the app URL.
 
+> **Ceiling:** because ports are `PORT_BASE * 10 + index`, there are only **10 port slots per base** (index 0–9). A worktree needing more than 10 named ports in one scope would collide across bases. Structured `services:` allocate the union of their non-shared named ports off the local base and shared ports off a separate shared base.
+
 ## Environment Management
 
 Maelstrom manages service processes for each worktree.
 
-### Procfile
+### Services (`services:` in `.maelstrom.yaml`)
 
-Define services in a `Procfile` in your repository root:
+The preferred way to define services is a structured `services:` map in
+`.maelstrom.yaml`. Each service either runs a shell `command` or, when it
+declares an `engine`, is a container maelstrom owns end-to-end (it synthesises
+the `rm -f … ; run …` boilerplate for you). Each service lists the **named
+ports** it owns; maelstrom allocates them and exposes `${NAME_PORT}` for use in
+commands and container port-mappings.
+
+```yaml
+services:
+  frontend:
+    ports: [FRONTEND, FRONTEND_HMR]      # -> ${FRONTEND_PORT}, ${FRONTEND_HMR_PORT}
+    dir: frontend
+    command: env PORT=${FRONTEND_PORT} node server-dev.ts
+
+  server:
+    ports: [SERVER]
+    command: env PORT=${SERVER_PORT} uv run serve-dev
+
+  worker:
+    command: uv run serve-dev worker       # no ports, no dir
+
+  db-shared:
+    shared: true                           # shared across worktrees in this project
+    engine: apple-container                # or "docker"
+    image: pgvector/pgvector:pg16
+    ports: [DB]
+    publish: ["${DB_PORT}:5432"]           # host:container mappings
+    volume: /var/lib/postgresql/data       # named volume derived from container name
+    host_var: DB_HOST                       # apple-container: receives the polled VM IP
+    env:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+  redis-shared:
+    shared: true
+    engine: apple-container
+    image: redis:8.4-alpine
+    ports: [REDIS]
+    publish: ["${REDIS_PORT}:6379"]
+    volume: /data
+```
+
+**Service type** is inferred: an `engine:` (docker / apple-container) makes it a
+container; otherwise it is a shell `command` service.
+
+**Engines.** `docker` and `apple-container` are both supported. Apple `container`
+runs each container as its own VM on a private `192.168.64.x` network. For those,
+set `host_var:` (e.g. `DB_HOST`) — maelstrom polls `container inspect` for the
+VM's IP at start time and injects it into the process environment of sibling
+services (so a command service's `env:` can reference `${DB_HOST}`). The IP flows
+into the spawn environment only, never into `.env`. If the IP never resolves
+(~10s poll), the start fails loudly rather than leaving services pointed at the
+wrong host. `host_var` is only meaningful for shared apple-container services.
+
+**Shared services.** `shared: true` marks a service as shared across worktrees in
+the same project (started once, subscribed to by later worktrees). Late
+subscribers reuse the already-discovered `host_var` IP rather than re-inspecting.
+
+### Procfile (legacy fallback)
+
+If no `services:` block is present, maelstrom falls back to a `Procfile` in your
+repository root:
 
 ```
 web: npm run dev
@@ -167,7 +236,10 @@ worker: python manage.py worker
 redis: redis-server --port $REDIS_PORT
 ```
 
-Services with names ending in `-shared` are shared across worktrees in the same project. If no Procfile is present, maelstrom falls back to `start_cmd` from `.maelstrom.yaml`.
+On the Procfile path, services with names ending in `-shared` are shared across
+worktrees. If neither `services:` nor a Procfile is present, maelstrom falls back
+to `start_cmd` from `.maelstrom.yaml`. Precedence is **`services:` → Procfile →
+`start_cmd`**; migrate projects one at a time — there is no flag day.
 
 ### Commands
 

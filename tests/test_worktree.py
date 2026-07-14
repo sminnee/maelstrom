@@ -290,6 +290,47 @@ class TestWriteEnvFile:
             assert "CONN=http://localhost:1000/${UNKNOWN_VAR}  # source: [CONN=http://localhost:${FRONTEND_PORT}/${UNKNOWN_VAR}]" in content
 
 
+class TestBuildEnvFileServices:
+    """Tests that _build_env_file derives ports from structured services."""
+
+    def test_writes_per_service_named_ports(self, tmp_path, monkeypatch):
+        """Structured service ports land in .env; shared ports use SHARED base."""
+        from maelstrom.worktree import _build_env_file
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir(parents=True)
+        (worktree_path / ".maelstrom.yaml").write_text(
+            "services:\n"
+            "  frontend:\n"
+            "    command: node server.ts\n"
+            "    ports: [FRONTEND, FRONTEND_HMR]\n"
+            "  server:\n"
+            "    command: serve\n"
+            "    ports: [SERVER]\n"
+            "  db:\n"
+            "    shared: true\n"
+            "    engine: docker\n"
+            "    image: postgres:16\n"
+            "    ports: [DB]\n"
+        )
+
+        _build_env_file(project_path, worktree_path, "alpha")
+
+        env = read_env_file(worktree_path)
+        # Non-shared ports allocated in declaration order off the local base.
+        base = get_port_allocation(project_path, "alpha")
+        assert base is not None
+        assert env["FRONTEND_PORT"] == str(base * 10 + 0)
+        assert env["FRONTEND_HMR_PORT"] == str(base * 10 + 1)
+        assert env["SERVER_PORT"] == str(base * 10 + 2)
+        # The shared DB port uses the separate shared base.
+        shared_base = int(env["SHARED_PORT_BASE"])
+        assert env["DB_PORT"] == str(shared_base * 10 + 0)
+        assert shared_base != base
+
+
 class TestReadEnvFile:
     """Tests for read_env_file function."""
 
