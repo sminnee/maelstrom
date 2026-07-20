@@ -903,10 +903,10 @@ def _normalise_block_frontmatter(fm_text: str) -> tuple[str, bool]:
     return cleaned, cleaned != fm_text
 
 
-_OPEN_MARKER = re.compile(r"^---CREATE TASK ([A-Za-z0-9]+)---$")
-_END_MARKER = re.compile(r"^---END TASK ([A-Za-z0-9]+)---$")
+_OPEN_MARKER = re.compile(r"^---CREATE TASK ([A-Za-z0-9._-]+)---$")
+_END_MARKER = re.compile(r"^---END TASK ([A-Za-z0-9._-]+)---$")
 # A line that *looks like* a marker (so we can reject a malformed one — e.g. a
-# hyphenated name or stray spacing — rather than silently treat it as prose).
+# name with a space or trailing junk — rather than silently treat it as prose).
 _LOOSE_MARKER = re.compile(r"^---(?:CREATE|END) TASK\b.*---$")
 
 
@@ -916,7 +916,7 @@ def parse_task_blocks(text: str) -> tuple[list[dict], list[str]]:
     A plan file is human-readable preamble (ignored) followed by one or more
     blocks, each opening with ``---CREATE TASK <name>---`` on its own line. A
     block runs until the next open marker, an optional ``---END TASK <name>---``
-    close marker, or EOF. ``<name>`` (``[A-Za-z0-9]+``) is a local handle for
+    close marker, or EOF. ``<name>`` (``[A-Za-z0-9._-]+``) is a local handle for
     intra-file ``follow`` references — not the task id.
 
     Each block's inner text is split with :func:`_split_frontmatter` into
@@ -994,7 +994,7 @@ def parse_task_blocks(text: str) -> tuple[list[dict], list[str]]:
         if _LOOSE_MARKER.match(stripped) is not None:
             raise ValueError(
                 f"Malformed task marker: {stripped!r} "
-                "(name must match [A-Za-z0-9]+)."
+                "(name must match [A-Za-z0-9._-]+)."
             )
         if current_name is not None:
             buf.append(line)
