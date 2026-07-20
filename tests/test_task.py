@@ -1155,10 +1155,17 @@ class TestParseTaskBlocks:
         assert blocks[0]["args"]["pre-action"] == "linear.in-progress"
         assert blocks[0]["args"]["post-action"] == "linear.done"
 
-    def test_malformed_marker_name_raises(self):
-        # A hyphenated name resembles a marker but fails the strict pattern; it
-        # must error rather than silently becoming prose.
+    def test_hyphenated_marker_name_parses(self):
+        # A hyphenated name is now valid (block names share is_safe_id's
+        # character class, [A-Za-z0-9._-]+) — it must parse, not be rejected.
         text = "---CREATE TASK iter-1---\ntitle: A\n---\nbody\n"
+        blocks, _ = model.parse_task_blocks(text)
+        assert blocks[0]["name"] == "iter-1"
+
+    def test_malformed_marker_name_raises(self):
+        # A name with a space still fails the strict pattern; it must error
+        # rather than silently becoming prose.
+        text = "---CREATE TASK bad name---\ntitle: A\n---\nbody\n"
         with pytest.raises(ValueError, match="Malformed task marker"):
             model.parse_task_blocks(text)
 
@@ -1216,6 +1223,18 @@ class TestLoadMany:
         # B's follows points at A's allocated id, not the block name "a".
         assert b.follows == [a.id]
         assert "a" not in b.follows
+
+    def test_hyphenated_block_name_round_trips_in_follow(self, store):
+        # A hyphenated handle must resolve end-to-end: the follow reference
+        # `iter-1` maps to the allocated id of the block named "iter-1".
+        blocks = [
+            {"name": "iter-1", "args": {"title": "One"}, "content": "c1"},
+            {"name": "iter-2", "args": {"title": "Two", "follow": "iter-1"}, "content": "c2"},
+        ]
+        created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
+        one, two = created
+        assert two.follows == [one.id]
+        assert "iter-1" not in two.follows
 
     def test_follow_end_resolves_against_live_store(self, store):
         seed = model.create(store, project="p", title="seed", now=NOW, today=TODAY)
