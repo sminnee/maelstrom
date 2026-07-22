@@ -1,10 +1,23 @@
 #!/usr/bin/env python3
 """Publish sminnee-maelstrom to PyPI.
 
-Usage: bin/publish [--minor|--major]
+Usage: bin/publish [--minor|--major] [--dry-run]
 
-Requires UV_PUBLISH_TOKEN (from environment or .env file).
+Requires UV_PUBLISH_TOKEN in the environment or in .env, and a non-empty
+Unreleased section in CHANGELOG.md.
+
+This is the whole release: running it is all a release needs. In order it
+rebases onto origin/main, runs the gates, writes the new version, retitles the
+changelog, commits, builds, publishes, tags, and pushes the commit and the tag.
+
+The order matters. The rebase happens first so that the commit which gets
+tagged is already in its final form -- tagging before a rebase strands the tag
+on a commit the rebase then rewrites. The commit is written before the upload
+so that a published version always has a commit behind it; if the upload
+fails, the commit is rolled back and nothing has moved.
 """
+
+from __future__ import annotations
 
 import argparse
 import os
@@ -12,96 +25,209 @@ import re
 import shutil
 import subprocess
 import sys
+from datetime import date
 from pathlib import Path
 
+PYPROJECT = Path("pyproject.toml")
+INIT = Path("src/maelstrom/__init__.py")
+LOCK = Path("uv.lock")
+CHANGELOG = Path("CHANGELOG.md")
 
-def load_token_from_env_file():
+UNRELEASED_HEADING = "## [Unreleased]"
+
+
+def load_token_from_env_file() -> None:
     env_file = Path(".env")
     if not env_file.exists():
         return
-    for line in env_file.read_text().splitlines():
-        line = line.strip()
-        if line.startswith("#") or not line:
+    for raw in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or not line.startswith("UV_PUBLISH_TOKEN="):
             continue
-        if line.startswith("UV_PUBLISH_TOKEN="):
-            value = line.split("=", 1)[1].strip().strip("\"'")
-            os.environ.setdefault("UV_PUBLISH_TOKEN", value)
+        os.environ.setdefault("UV_PUBLISH_TOKEN", line.split("=", 1)[1].strip().strip("\"'"))
 
 
-def get_current_version():
-    text = Path("pyproject.toml").read_text()
-    match = re.search(r'^version = "(.+?)"', text, re.MULTILINE)
+def current_version() -> str:
+    match = re.search(r'^version = "(.+?)"', PYPROJECT.read_text(encoding="utf-8"), re.MULTILINE)
     if not match:
-        print("Error: could not find version in pyproject.toml", file=sys.stderr)
-        sys.exit(1)
+        sys.exit("Error: could not find version in pyproject.toml")
     return match.group(1)
 
 
-def bump_version(version: str, bump: str) -> str:
+def bump(version: str, part: str) -> str:
     major, minor, patch = (int(x) for x in version.split("."))
-    if bump == "major":
-        major, minor, patch = major + 1, 0, 0
-    elif bump == "minor":
-        minor, patch = minor + 1, 0
-    else:
-        patch += 1
-    return f"{major}.{minor}.{patch}"
+    if part == "major":
+        return f"{major + 1}.0.0"
+    if part == "minor":
+        return f"{major}.{minor + 1}.0"
+    return f"{major}.{minor}.{patch + 1}"
 
 
-def update_file(path: Path, old_version: str, new_version: str):
-    text = path.read_text()
-    updated = text.replace(f'"{old_version}"', f'"{new_version}"', 1)
-    if text == updated:
-        print(f"Warning: version not found in {path}", file=sys.stderr)
-    path.write_text(updated)
+def write_version(old: str, new: str) -> None:
+    """Write the new version to every file that records it.
+
+    ``uv.lock`` records the project's own version alongside pyproject.toml and
+    the package ``__init__``, so three files have to move together. They are
+    written here rather than at the call sites because every path that writes a
+    version -- the bump, the dry-run revert, and the failed-upload rollback --
+    has to keep all three in step, and a lock that disagrees with the package
+    it locks is wrong however it got that way.
+    """
+    PYPROJECT.write_text(
+        PYPROJECT.read_text(encoding="utf-8").replace(f'version = "{old}"', f'version = "{new}"', 1),
+        encoding="utf-8",
+    )
+    INIT.write_text(
+        INIT.read_text(encoding="utf-8").replace(f'__version__ = "{old}"', f'__version__ = "{new}"', 1),
+        encoding="utf-8",
+    )
+    run("uv", "lock")
 
 
-def run(cmd: list[str]):
-    result = subprocess.run(cmd)
-    if result.returncode != 0:
-        sys.exit(result.returncode)
+def unreleased_body() -> str:
+    """Return the text under the Unreleased heading, up to the next release.
+
+    A release with nothing written under Unreleased is the failure this
+    guards: the tag carries no content of its own, so an empty section is the
+    difference between a consumer being able to read what changed and not.
+    """
+    text = CHANGELOG.read_text(encoding="utf-8")
+    if UNRELEASED_HEADING not in text:
+        sys.exit(f"Error: {CHANGELOG} has no '{UNRELEASED_HEADING}' heading")
+    after = text.split(UNRELEASED_HEADING, 1)[1]
+    # The next "## " heading is the previous release; everything before it
+    # belongs to Unreleased.
+    body = re.split(r"^## ", after, maxsplit=1, flags=re.MULTILINE)[0]
+    return body.strip()
 
 
-def main():
+def require_release_notes() -> None:
+    if not CHANGELOG.exists():
+        sys.exit(f"Error: {CHANGELOG} not found")
+    if not unreleased_body():
+        sys.exit(f"Error: the '{UNRELEASED_HEADING}' section of {CHANGELOG} is empty. Write the release notes first.")
+
+
+def retitle_unreleased(new: str, released_on: str) -> None:
+    """Rename Unreleased to the version being released, and open a fresh one."""
+    text = CHANGELOG.read_text(encoding="utf-8")
+    CHANGELOG.write_text(
+        text.replace(UNRELEASED_HEADING, f"{UNRELEASED_HEADING}\n\n## [{new}] - {released_on}", 1),
+        encoding="utf-8",
+    )
+
+
+def run(*command: str) -> None:
+    try:
+        subprocess.run(command, check=True)
+    except FileNotFoundError:
+        # A missing tool is a setup problem, and the traceback names it far
+        # less clearly than this does.
+        sys.exit(f"Error: {command[0]} is not on PATH")
+
+
+def require_clean_worktree() -> None:
+    """Refuse to release from a dirty tree.
+
+    The release commit stages only the version files and the changelog, and a
+    failed upload rolls it back with ``reset --hard``. Both are only safe when
+    nothing else is in flight.
+    """
+    result = subprocess.run(("git", "status", "--porcelain"), check=True, capture_output=True, text=True)
+    if result.stdout.strip():
+        sys.exit("Error: working tree is not clean. Commit or stash first.")
+
+
+def main() -> int:
     parser = argparse.ArgumentParser(description="Publish sminnee-maelstrom to PyPI")
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--major", action="store_const", const="major", dest="bump")
-    group.add_argument("--minor", action="store_const", const="minor", dest="bump")
-    parser.set_defaults(bump="patch")
+    group.add_argument("--minor", action="store_true", help="bump the minor version")
+    group.add_argument("--major", action="store_true", help="bump the major version")
+    parser.add_argument("--dry-run", action="store_true", help="build only; do not publish or tag")
     args = parser.parse_args()
 
+    if not PYPROJECT.exists():
+        sys.exit("Error: run from the repository root")
+
     load_token_from_env_file()
+    if not args.dry_run and not os.environ.get("UV_PUBLISH_TOKEN"):
+        sys.exit("Error: UV_PUBLISH_TOKEN is not set (environment or .env)")
 
-    if not os.environ.get("UV_PUBLISH_TOKEN"):
-        print("Error: UV_PUBLISH_TOKEN environment variable is not set", file=sys.stderr)
-        print("Get a token from https://pypi.org/manage/account/token/", file=sys.stderr)
-        sys.exit(1)
+    require_clean_worktree()
 
-    current = get_current_version()
-    new_version = bump_version(current, args.bump)
+    # Rebase first, so the commit this run tags is already in its final form.
+    # A tag written before a rebase ends up on an orphaned commit.
+    if not args.dry_run:
+        run("mael", "sync", "--abort")
 
-    print(f"Bumping version: {current} -> {new_version} ({args.bump})")
+    # Before the gates, because it is the cheapest failure here and the most
+    # annoying one to hit after a full gate run.
+    require_release_notes()
 
-    update_file(Path("pyproject.toml"), current, new_version)
-    update_file(Path("src/maelstrom/__init__.py"), current, new_version)
+    old = current_version()
+    new = bump(old, "major" if args.major else "minor" if args.minor else "patch")
+    print(f"Version {old} -> {new}")
 
-    dist = Path("dist")
-    if dist.exists():
-        shutil.rmtree(dist)
+    # Gates must pass before anything is published. These are the three jobs
+    # .github/workflows/test.yml runs, in the same order.
+    run("uv", "run", "pytest", "--ignore=tests/e2e")
+    run("uv", "run", "pytest", "tests/e2e/", "-v")
+    run("bin/lint")
 
-    print("Building...")
-    run(["uv", "build"])
+    write_version(old, new)
+    shutil.rmtree("dist", ignore_errors=True)
+    run("uv", "build")
 
-    print("Publishing...")
-    run(["uv", "publish"])
+    if args.dry_run:
+        print("Dry run: built but not published. Reverting the version bump.")
+        write_version(new, old)
+        return 0
 
-    run(["git", "add", "pyproject.toml", "src/maelstrom/__init__.py"])
-    run(["git", "commit", "-m", f"v{new_version}"])
-    run(["git", "tag", f"v{new_version}"])
+    retitle_unreleased(new, date.today().isoformat())
+    run("git", "add", str(PYPROJECT), str(INIT), str(LOCK), str(CHANGELOG))
+    run("git", "commit", "-m", f"chore: release v{new}")
 
-    print(f"\nPublished sminnee-maelstrom {new_version}")
-    print("Run 'git push && git push --tags' to push the release")
+    # From here the commit exists but nothing is public yet. If the upload
+    # fails, undo it so a re-run starts from the same place rather than
+    # skipping a version number.
+    try:
+        run("uv", "publish")
+    except subprocess.CalledProcessError:
+        print(f"Publish failed. Rolling back the release commit for v{new}.", file=sys.stderr)
+        try:
+            run("git", "reset", "--hard", "HEAD~1")
+        except subprocess.CalledProcessError:
+            # Without this the reset failure stacks on the message above, and
+            # the user cannot tell whether the release commit is still there.
+            print(
+                f"Rollback failed. The release commit for v{new} is still present.\n"
+                "Remove it with: git reset --hard HEAD~1",
+                file=sys.stderr,
+            )
+        return 1
+
+    # Published, so the commit is now immutable in fact: tag it and push both
+    # before anything can rewrite it.
+    #
+    # Rolling back is not an option past this point -- the upload succeeded, so
+    # the version is spent. A push can still fail (origin/main moved during the
+    # gate run, or auth expired), and the only useful thing left is to say what
+    # state the release is in and how to finish it by hand.
+    try:
+        run("git", "tag", f"v{new}")
+        run("git", "push")
+        run("git", "push", "origin", f"v{new}")
+    except subprocess.CalledProcessError:
+        print(
+            f"v{new} is published to PyPI, but the push failed. The release commit "
+            f"and tag are local only.\nFinish with: git push && git push origin v{new}",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"Published, tagged and pushed v{new}.")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
