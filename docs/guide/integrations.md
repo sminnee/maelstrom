@@ -68,6 +68,7 @@ Unreleased ────────► Done           mael linear release
 mael linear start-task PROJ-123                  # In Progress + workspace label
 mael linear set-status PROJ-123 in-progress
 mael linear set-status PROJ-123 done             # → "Unreleased"
+mael linear release --dry-run                    # list what would be promoted
 mael linear release                              # promote Unreleased → Done
 ```
 

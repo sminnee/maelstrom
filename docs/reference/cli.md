@@ -542,7 +542,7 @@ See [integrations.md](../guide/integrations.md).
 | `mael linear write-plan ISSUE_ID PLAN_FILE` | Write a plan into the issue description. |
 | `mael linear read-plan ISSUE_ID` | Read the plan from the issue description. |
 | `mael linear edit-plan ISSUE_ID OLD_ARG NEW_ARG` | Search and replace within the plan section. |
-| `mael linear release` | Promote every "Unreleased" issue with the product label to "Done". |
+| `mael linear release` | Promote every "Unreleased" issue with the product label to "Done". `--dry-run` lists what would move without changing anything. |
 
 ```bash
 mael linear plan ME-41                          # plan an issue; launches the session

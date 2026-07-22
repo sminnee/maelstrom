@@ -11,6 +11,7 @@ from maelstrom import task_cli
 from maelstrom.integrations import linear as linear_mod
 from maelstrom.integrations.linear import (
     create_comment,
+    graphql_paginated,
     linear,
     localize_description_images,
 )
@@ -660,3 +661,232 @@ class TestCmdEditPlan:
         assert "Some footer text with ## First Iteration: Build the API in it." in new_desc
         # Plan section should be updated
         assert "## Completed Iteration: Build the API\nDone." in new_desc
+
+
+def _page(nodes, *, has_next=False, cursor=None):
+    """Build a single `issues` connection page as the API would return it."""
+    return {
+        "issues": {
+            "nodes": nodes,
+            "pageInfo": {"hasNextPage": has_next, "endCursor": cursor},
+        }
+    }
+
+
+class TestGraphqlPaginated:
+    """Tests for the graphql_paginated helper."""
+
+    @patch("maelstrom.integrations.linear.graphql_request")
+    def test_single_page(self, mock_graphql):
+        mock_graphql.return_value = _page([{"id": "a"}, {"id": "b"}])
+
+        nodes = graphql_paginated("query {}", {"teamId": "t"}, connection="issues")
+
+        assert nodes == [{"id": "a"}, {"id": "b"}]
+        assert mock_graphql.call_count == 1
+        # The caller's variables are preserved and first/after are added.
+        sent = mock_graphql.call_args[0][1]
+        assert sent["teamId"] == "t"
+        assert sent["first"] == 100
+        assert sent["after"] is None
+
+    @patch("maelstrom.integrations.linear.graphql_request")
+    def test_multi_page_follows_cursor(self, mock_graphql):
+        mock_graphql.side_effect = [
+            _page([{"id": "a"}], has_next=True, cursor="cur-1"),
+            _page([{"id": "b"}], has_next=True, cursor="cur-2"),
+            _page([{"id": "c"}]),
+        ]
+
+        nodes = graphql_paginated("query {}", connection="issues", page_size=1)
+
+        assert nodes == [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+        assert mock_graphql.call_count == 3
+        afters = [call[0][1]["after"] for call in mock_graphql.call_args_list]
+        assert afters == [None, "cur-1", "cur-2"]
+        assert mock_graphql.call_args_list[0][0][1]["first"] == 1
+
+    @patch("maelstrom.integrations.linear.graphql_request")
+    def test_page_cap_aborts(self, mock_graphql):
+        # A server that never clears hasNextPage must not spin forever.
+        mock_graphql.return_value = _page([{"id": "a"}], has_next=True, cursor="c")
+
+        with pytest.raises(click.ClickException, match="exceeded 3 pages"):
+            graphql_paginated("query {}", connection="issues", max_pages=3)
+
+        assert mock_graphql.call_count == 3
+
+
+class TestCmdRelease:
+    """Tests for cmd_release — the bulk 'Unreleased' -> 'Done' transition."""
+
+    STATES = {"Unreleased": "s-unrel", "Done": "s-done"}
+
+    @patch("maelstrom.integrations.linear.update_issue")
+    @patch("maelstrom.integrations.linear.graphql_request")
+    @patch("maelstrom.integrations.linear.get_workflow_states")
+    @patch("maelstrom.integrations.linear.get_team_id")
+    @patch("maelstrom.integrations.linear.get_product_label")
+    def test_release_paginates_all_pages(
+        self, mock_label, mock_team, mock_states, mock_graphql, mock_update
+    ):
+        # The regression test: >50 unreleased tickets used to be silently capped
+        # at Linear's default page size, releasing only the first page.
+        mock_label.return_value = "askastro"
+        mock_team.return_value = "team-1"
+        mock_states.return_value = self.STATES
+        page_one = [
+            {"id": f"i-{n}", "identifier": f"PROJ-{n}", "title": f"Task {n}"}
+            for n in range(100)
+        ]
+        page_two = [{"id": "i-100", "identifier": "PROJ-100", "title": "Task 100"}]
+        mock_graphql.side_effect = [
+            _page(page_one, has_next=True, cursor="cur-1"),
+            _page(page_two),
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(linear, ["release"])
+
+        assert result.exit_code == 0, result.output
+        assert mock_update.call_count == 101
+        assert "Released 101 task(s)." in result.output
+        assert "PROJ-100: Task 100 -> Done" in result.output
+        # The second request carries page one's endCursor.
+        assert mock_graphql.call_args_list[1][0][1]["after"] == "cur-1"
+        mock_update.assert_any_call("i-100", stateId="s-done")
+
+    @patch("maelstrom.integrations.linear.update_issue")
+    @patch("maelstrom.integrations.linear.graphql_request")
+    @patch("maelstrom.integrations.linear.get_workflow_states")
+    @patch("maelstrom.integrations.linear.get_team_id")
+    @patch("maelstrom.integrations.linear.get_product_label")
+    def test_release_no_issues(
+        self, mock_label, mock_team, mock_states, mock_graphql, mock_update
+    ):
+        mock_label.return_value = "askastro"
+        mock_team.return_value = "team-1"
+        mock_states.return_value = self.STATES
+        mock_graphql.return_value = _page([])
+
+        runner = CliRunner()
+        result = runner.invoke(linear, ["release"])
+
+        assert result.exit_code == 0, result.output
+        assert "No unreleased tasks found with label 'askastro'." in result.output
+        mock_update.assert_not_called()
+
+    @patch("maelstrom.integrations.linear.update_issue")
+    @patch("maelstrom.integrations.linear.graphql_request")
+    @patch("maelstrom.integrations.linear.get_workflow_states")
+    @patch("maelstrom.integrations.linear.get_team_id")
+    @patch("maelstrom.integrations.linear.get_product_label")
+    def test_release_dry_run_mutates_nothing(
+        self, mock_label, mock_team, mock_states, mock_graphql, mock_update
+    ):
+        mock_label.return_value = "askastro"
+        mock_team.return_value = "team-1"
+        mock_states.return_value = self.STATES
+        mock_graphql.return_value = _page(
+            [{"id": "i-1", "identifier": "PROJ-1", "title": "Task 1"}]
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(linear, ["release", "--dry-run"])
+
+        assert result.exit_code == 0, result.output
+        assert "Would release 1 task(s)" in result.output
+        assert "PROJ-1: Task 1 -> Done" in result.output
+        assert "no tasks changed" in result.output
+        mock_update.assert_not_called()
+
+    @patch("maelstrom.integrations.linear.update_issue")
+    @patch("maelstrom.integrations.linear.graphql_request")
+    @patch("maelstrom.integrations.linear.get_workflow_states")
+    @patch("maelstrom.integrations.linear.get_team_id")
+    @patch("maelstrom.integrations.linear.get_product_label")
+    def test_release_continues_past_failures(
+        self, mock_label, mock_team, mock_states, mock_graphql, mock_update
+    ):
+        # One bad ticket must not strand the rest half-released.
+        mock_label.return_value = "askastro"
+        mock_team.return_value = "team-1"
+        mock_states.return_value = self.STATES
+        mock_graphql.return_value = _page(
+            [
+                {"id": "i-1", "identifier": "PROJ-1", "title": "Task 1"},
+                {"id": "i-2", "identifier": "PROJ-2", "title": "Task 2"},
+                {"id": "i-3", "identifier": "PROJ-3", "title": "Task 3"},
+            ]
+        )
+        mock_update.side_effect = [
+            None,
+            click.ClickException("Failed to update issue"),
+            None,
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(linear, ["release"])
+
+        assert result.exit_code != 0
+        assert mock_update.call_count == 3
+        assert "PROJ-2: Task 2 -> FAILED" in result.output
+        assert "PROJ-3: Task 3 -> Done" in result.output
+        assert "Released 2 task(s)." in result.output
+        assert "1 task(s) failed to release: PROJ-2" in result.output
+
+    @patch("maelstrom.integrations.linear.update_issue")
+    @patch("maelstrom.integrations.linear.graphql_request")
+    @patch("maelstrom.integrations.linear.get_workflow_states")
+    @patch("maelstrom.integrations.linear.get_team_id")
+    @patch("maelstrom.integrations.linear.get_product_label")
+    def test_release_continues_past_transport_errors(
+        self, mock_label, mock_team, mock_states, mock_graphql, mock_update
+    ):
+        # A network/transport error is not a ClickException, but it must still
+        # not abort the run and strand the remaining tickets.
+        mock_label.return_value = "askastro"
+        mock_team.return_value = "team-1"
+        mock_states.return_value = self.STATES
+        mock_graphql.return_value = _page(
+            [
+                {"id": "i-1", "identifier": "PROJ-1", "title": "Task 1"},
+                {"id": "i-2", "identifier": "PROJ-2", "title": "Task 2"},
+            ]
+        )
+        mock_update.side_effect = [OSError("connection reset"), None]
+
+        runner = CliRunner()
+        result = runner.invoke(linear, ["release"])
+
+        assert result.exit_code != 0
+        assert mock_update.call_count == 2
+        assert "PROJ-1: Task 1 -> FAILED (connection reset)" in result.output
+        assert "PROJ-2: Task 2 -> Done" in result.output
+        assert "1 task(s) failed to release: PROJ-1" in result.output
+
+    @patch("maelstrom.integrations.linear.get_workflow_states")
+    @patch("maelstrom.integrations.linear.get_team_id")
+    @patch("maelstrom.integrations.linear.get_product_label")
+    def test_release_missing_workflow_state_errors(
+        self, mock_label, mock_team, mock_states
+    ):
+        mock_label.return_value = "askastro"
+        mock_team.return_value = "team-1"
+        mock_states.return_value = {"Done": "s-done"}  # no Unreleased
+
+        runner = CliRunner()
+        result = runner.invoke(linear, ["release"])
+
+        assert result.exit_code != 0
+        assert "'Unreleased' state not found in workflow" in result.output
+
+    @patch("maelstrom.integrations.linear.get_product_label")
+    def test_release_missing_product_label_errors(self, mock_label):
+        mock_label.return_value = None
+
+        runner = CliRunner()
+        result = runner.invoke(linear, ["release"])
+
+        assert result.exit_code != 0
+        assert "linear.product_label not configured" in result.output
