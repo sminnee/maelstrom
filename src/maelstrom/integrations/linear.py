@@ -141,6 +141,58 @@ def graphql_request(query: str, variables: dict | None = None) -> dict:
     return result["data"]
 
 
+def graphql_paginated(
+    query: str,
+    variables: dict | None = None,
+    *,
+    connection: str,
+    page_size: int = 100,
+    max_pages: int = 100,
+) -> list[dict]:
+    """Fetch every node of a top-level connection, following ``pageInfo`` cursors.
+
+    Linear returns only the first 50 nodes when a query passes no ``first:``
+    argument, so any query that can match more than that must paginate.
+
+    Args:
+        query: GraphQL query declaring ``$first: Int`` / ``$after: String`` and
+            selecting ``pageInfo { hasNextPage endCursor }`` on the connection.
+        variables: Optional query variables (``first``/``after`` are added here).
+        connection: Name of the top-level connection field, e.g. ``"issues"``.
+        page_size: Nodes to request per page. Linear caps this at 250; the
+            default of 100 stays comfortably inside that.
+        max_pages: Defensive cap so a server that never clears ``hasNextPage``
+            cannot spin forever.
+
+    Returns:
+        All nodes across every page.
+
+    Raises:
+        click.ClickException: If the page cap is hit with pages still pending.
+    """
+    nodes: list[dict] = []
+    cursor: str | None = None
+
+    for _ in range(max_pages):
+        page_vars = dict(variables or {})
+        page_vars["first"] = page_size
+        page_vars["after"] = cursor
+
+        result = graphql_request(query, page_vars)
+        page = result[connection]
+        nodes.extend(page["nodes"])
+
+        page_info = page.get("pageInfo") or {}
+        if not page_info.get("hasNextPage"):
+            return nodes
+        cursor = page_info.get("endCursor")
+
+    raise click.ClickException(
+        f"Pagination exceeded {max_pages} pages fetching '{connection}' "
+        f"({len(nodes)} nodes so far) — aborting."
+    )
+
+
 def get_current_cycle() -> dict | None:
     """Get the current cycle for the team."""
     team_id = get_team_id()
@@ -1324,7 +1376,12 @@ def cmd_add_comment(issue_id, comment_file):
 
 
 @linear.command("release")
-def cmd_release():
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="List the tasks that would be released without changing anything.",
+)
+def cmd_release(dry_run):
     """Promote all 'Unreleased' tasks with the product label to 'Done'.
 
     Finds all issues with status "Unreleased" that have the configured product label,
@@ -1346,40 +1403,88 @@ def cmd_release():
     if "Done" not in states:
         raise click.ClickException("'Done' state not found in workflow")
 
-    # Query for issues with "Unreleased" status and the product label
+    # Query for issues with "Unreleased" status and the product label. Paginated:
+    # without `first:` Linear caps the result at 50, which would silently release
+    # only part of a large backlog.
     query = """
-    query GetUnreleasedIssues($teamId: ID!, $stateName: String!, $labelName: String!) {
+    query GetUnreleasedIssues(
+        $teamId: ID!
+        $stateName: String!
+        $labelName: String!
+        $first: Int
+        $after: String
+    ) {
         issues(
             filter: {
                 team: { id: { eq: $teamId } }
                 state: { name: { eq: $stateName } }
                 labels: { name: { eq: $labelName } }
             }
+            first: $first
+            after: $after
         ) {
             nodes {
                 id
                 identifier
                 title
             }
+            pageInfo {
+                hasNextPage
+                endCursor
+            }
         }
     }
     """
-    result = graphql_request(query, {
-        "teamId": team_id,
-        "stateName": "Unreleased",
-        "labelName": product_label,
-    })
-    issues = result["issues"]["nodes"]
+    issues = graphql_paginated(
+        query,
+        {
+            "teamId": team_id,
+            "stateName": "Unreleased",
+            "labelName": product_label,
+        },
+        connection="issues",
+    )
 
     if not issues:
         click.echo(f"No unreleased tasks found with label '{product_label}'.")
         return
 
+    if dry_run:
+        click.echo(f"Would release {len(issues)} task(s):\n")
+        for issue in issues:
+            click.echo(f"- {issue['identifier']}: {issue['title']} -> Done")
+        click.echo("\nDry run — no tasks changed.")
+        return
+
     done_state_id = states["Done"]
     click.echo(f"Releasing {len(issues)} task(s):\n")
 
+    # A single bad ticket must not strand the rest half-released: report and
+    # carry on, then exit non-zero at the end so the failure is still visible.
+    failures: list[str] = []
     for issue in issues:
-        update_issue(issue["id"], stateId=done_state_id)
+        try:
+            update_issue(issue["id"], stateId=done_state_id)
+        except Exception as exc:
+            # Deliberately broad: update_issue raises ClickException for a
+            # `success: false` response, but a transport error or a malformed
+            # payload surfaces as OSError/KeyError. Letting those escape would
+            # abort mid-run — exactly what this block exists to prevent.
+            reason = (
+                exc.format_message()
+                if isinstance(exc, click.ClickException)
+                else str(exc) or exc.__class__.__name__
+            )
+            failures.append(issue["identifier"])
+            click.echo(
+                f"- {issue['identifier']}: {issue['title']} -> FAILED ({reason})"
+            )
+            continue
         click.echo(f"- {issue['identifier']}: {issue['title']} -> Done")
 
-    click.echo(f"\nReleased {len(issues)} task(s).")
+    released = len(issues) - len(failures)
+    click.echo(f"\nReleased {released} task(s).")
+    if failures:
+        raise click.ClickException(
+            f"{len(failures)} task(s) failed to release: {', '.join(failures)}"
+        )
