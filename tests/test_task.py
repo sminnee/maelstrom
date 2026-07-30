@@ -62,6 +62,13 @@ class TestRoundTrip:
         for key in model.FRONTMATTER_KEYS:
             assert f"\n{key}:" in "\n" + text
 
+    def test_every_field_spec_maps_to_a_task_attr(self):
+        # TASK_FIELDS is the single declaration the key tables derive from, so a
+        # spec whose attr doesn't exist on Task would silently serialize nothing.
+        t = Task(id="x", title="t", project="p")
+        for f in model.TASK_FIELDS:
+            assert hasattr(t, f.attr), f.key
+
     def test_branch_round_trips(self):
         t = Task(id="x", title="t", project="p", branch="fix/login")
         back = Task.from_markdown(t.to_markdown())
@@ -1261,6 +1268,47 @@ class TestLoadMany:
         )
         assert created[0].pre_action == "linear.in-progress"
         assert created[0].post_action == "linear.done"
+
+    def test_block_branch_is_applied(self, store):
+        blocks = [
+            {"name": "a", "args": {"title": "A", "branch": "my-branch"}, "content": ""}
+        ]
+        created = model.load_many(
+            store, project="p", blocks=blocks, now=NOW, today=TODAY
+        )
+        assert created[0].branch == "my-branch"
+
+    def test_block_branch_overrides_sibling_inheritance(self, store):
+        # A sibling under the same parent already owns a branch (one PR per
+        # parent), but an explicit `branch:` opts this task out of it.
+        sibling = model.create(
+            store, project="p", title="sib", parent="par", now=NOW, today=TODAY
+        )
+        assert sibling.branch
+        blocks = [
+            {
+                "name": "a",
+                "args": {"title": "A", "parent": "par", "branch": "own-branch"},
+                "content": "",
+            }
+        ]
+        created = model.load_many(
+            store, project="p", blocks=blocks, now=NOW, today=TODAY
+        )
+        assert created[0].branch == "own-branch"
+        assert created[0].branch != sibling.branch
+
+    def test_block_without_branch_still_inherits_sibling_branch(self, store):
+        sibling = model.create(
+            store, project="p", title="sib", parent="par", now=NOW, today=TODAY
+        )
+        blocks = [
+            {"name": "a", "args": {"title": "A", "parent": "par"}, "content": ""}
+        ]
+        created = model.load_many(
+            store, project="p", blocks=blocks, now=NOW, today=TODAY
+        )
+        assert created[0].branch == sibling.branch
 
     def test_block_actions_default_empty(self, store):
         blocks = [{"name": "a", "args": {"title": "A"}, "content": ""}]

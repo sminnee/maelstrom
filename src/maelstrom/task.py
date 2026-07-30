@@ -94,39 +94,59 @@ def validate_priority(priority: str) -> None:
         raise ValueError(f"Invalid priority: {priority!r} (expected one of {PRIORITIES}).")
 
 
-# The frontmatter keys, always emitted in this order for stable diffs. Most
-# names match a ``Task`` attr 1:1; the kebab-case lifecycle keys map to the
-# snake_case attrs via ``_FRONTMATTER_ATTR`` below.
-FRONTMATTER_KEYS = (
-    "id",
-    "title",
-    "project",
-    "command",
-    "mode",
-    "branch",
-    "parent",
-    "pre-action",
-    "post-action",
-    "follows",
-    "created",
-    "updated",
+@dataclass(frozen=True)
+class _FieldSpec:
+    """One task field, declared once and used to derive the key tables below."""
+
+    key: str  # frontmatter/block key (kebab-case)
+    block: bool = False  # settable from a ``---CREATE TASK---`` block
+
+    @property
+    def attr(self) -> str:
+        """The :class:`Task` attribute this key maps to (kebab → snake)."""
+        return self.key.replace("-", "_")
+
+
+# The single declaration of the task fields. ``FRONTMATTER_KEYS`` (below) emits
+# them in this order, so the order is load-bearing for stable file diffs — append
+# new fields at the end rather than inserting.
+#
+# ``block=True`` marks a field a ``load-many`` block may set. Deliberately *not*
+# block-settable: ``id``/``project``/``created``/``updated``/``follows`` are
+# derived or allocated, never user-set; ``schedule``/``last-run`` only mean
+# anything on a ``template/`` task and a block cannot create one (there is no
+# ``status`` block key), so accepting them would be inert.
+TASK_FIELDS = (
+    _FieldSpec("id"),
+    _FieldSpec("title", block=True),
+    _FieldSpec("project"),
+    _FieldSpec("command", block=True),
+    _FieldSpec("mode", block=True),
+    _FieldSpec("branch", block=True),
+    _FieldSpec("parent", block=True),
+    _FieldSpec("pre-action", block=True),
+    _FieldSpec("post-action", block=True),
+    _FieldSpec("follows"),
+    _FieldSpec("created"),
+    _FieldSpec("updated"),
     # Scheduling metadata. Ordinary task fields (settable/shown like any other),
     # but only *acted on* when the task is a ``template/`` task. Appended at the
     # end so existing files keep a stable diff.
-    "schedule",
-    "last-run",
+    _FieldSpec("schedule"),
+    _FieldSpec("last-run"),
     # Sort priority (critical/high/medium/low). Appended at the end so existing
     # files keep a stable diff; missing key defaults to medium on load.
-    "priority",
+    _FieldSpec("priority", block=True),
 )
 
-# Frontmatter keys whose name differs from the dataclass attr (kebab vs snake).
-# Any key absent here uses its own name as the attr.
-_FRONTMATTER_ATTR = {
-    "pre-action": "pre_action",
-    "post-action": "post_action",
-    "last-run": "last_run",
-}
+# The frontmatter keys, always emitted in this order for stable diffs. Most
+# names match a ``Task`` attr 1:1; the kebab-case lifecycle keys map to the
+# snake_case attrs via ``_FRONTMATTER_ATTR`` below.
+FRONTMATTER_KEYS = tuple(f.key for f in TASK_FIELDS)
+
+# Frontmatter keys whose name differs from the dataclass attr (kebab vs snake) —
+# just the kebab-case ones. Any key absent here uses its own name as the attr.
+_FRONTMATTER_ATTR = {f.key: f.attr for f in TASK_FIELDS if f.attr != f.key}
 
 
 def _today() -> str:
@@ -874,19 +894,12 @@ def duplicate(
 # *task-creation arguments* (mirroring `mael task add`'s flags), not the
 # serialized task frontmatter. Anything else is a typo that should fail loudly
 # rather than silently drop a dependency.
-_BLOCK_KEYS = frozenset(
-    {
-        "title",
-        "command",
-        "mode",
-        "priority",
-        "parent",
-        "pre-action",
-        "post-action",
-        "follow",
-        "follow-end",
-    }
-)
+#
+# Derived from the block-settable fields in ``TASK_FIELDS``, plus the two
+# ``follow*`` keys: those are creation *arguments* that resolve into the
+# ``follows`` field rather than fields in their own right, so they stay an
+# explicit addendum.
+_BLOCK_KEYS = frozenset({f.key for f in TASK_FIELDS if f.block} | {"follow", "follow-end"})
 
 _BAD_WILDCARD_ESCAPE = re.compile(r'"\\(\*)"')  # the "\*" double-quoted-escape case
 
@@ -1052,6 +1065,10 @@ def load_many(
                 command=str(args.get("command", "")),
                 mode=str(args.get("mode", "")),
                 priority=str(args.get("priority", "")),
+                # An explicit branch: opts the task out of "one PR per parent" —
+                # create() gives it precedence over sibling/parent inheritance,
+                # so the task gets its own branch and worktree.
+                branch=str(args.get("branch", "")),
                 parent=parent,
                 pre_action=str(args.get("pre-action", "")),
                 post_action=str(args.get("post-action", "")),
