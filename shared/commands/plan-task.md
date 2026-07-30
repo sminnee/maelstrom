@@ -98,8 +98,11 @@ the Linear `<ID>` is also in the brief in your prompt if you need it.
 The plan file is a load-many file: a short preamble (ignored by `load-many`, for the human reviewer)
 followed by `---CREATE TASK <name>---` blocks. Each block is `frontmatter` + `markdown body`; the
 body becomes the created task's Content. Frontmatter keys: `title` (required), `command`, `mode`,
-`parent`, `pre-action`, `post-action`, `follow`, `follow-end`. A block ends at the next open marker
-or EOF — so back-to-back blocks need no explicit terminator.
+`priority`, `parent`, `branch`, `pre-action`, `post-action`, `follow`, `follow-end`. A block ends at
+the next open marker or EOF — so back-to-back blocks need no explicit terminator.
+
+`branch` is rarely needed: tasks normally inherit their parent's branch (one PR per parent). Setting
+it opts the task out of that — it gets its own branch and therefore its own worktree and PR.
 
 **Lifecycle actions** (`pre-action` / `post-action`) fire a Linear/Sentry status change when the
 task starts / finishes, against the `linear.<ID>` parent. Use them so the chain mirrors itself to
