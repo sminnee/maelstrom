@@ -9,8 +9,9 @@ multi-session notebook chain (spec B). `mael task next --run` reached a `plan-ne
 launched a plan-mode session holding that task's content. This skill plans **one** concrete next
 step and writes a **load-many plan file** whose blocks *are* the next chain: an execute block for
 this step and — if work remains — a `tail` `plan-next-step` block with a refreshed picture. After
-approval, run two commands: `mael task load-many … --run` (create the chain **and** auto-launch its
-head execute task in a separate session) **then** `mael task status done` (close this planning task).
+approval, run two commands: `mael task load-many … --run` (create the chain **and** auto-launch
+every unblocked block — here just the head execute task, since the `tail` follows it — in a separate
+session) **then** `mael task status done` (close this planning task).
 It does **not** implement — the launched session owns the step — and it never writes to Linear.
 
 ## What you already hold
@@ -54,7 +55,8 @@ reality, plan the top item, and hand the next planner an updated tail.
    Then present the plan with ExitPlanMode as usual, with
    `allowedPrompts: [{"tool": "Bash", "prompt": "mael task load-many"}, {"tool": "Bash", "prompt": "mael task status done"}]`.
    The plan file *is* the chain: approving it runs `mael task load-many <plan-file> --run` to create
-   the tasks **and** auto-launch the head execute step (the first created block) in a separate
+   the tasks **and** auto-launch every unblocked block — for this chain shape that is the head
+   execute step alone, since the `tail` follows it — in a separate
    session, then `mael task status done` closes this planning task (the SessionEnd hook is a safety
    net if it's missed). `<plan-file>` is a placeholder — substitute the **actual path you wrote the
    plan file to** (e.g. `next.md`). There is no plan-file env var; the only source of the path is the

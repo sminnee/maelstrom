@@ -536,12 +536,18 @@ def add_task(
 @click.option(
     "--run",
     is_flag=True,
-    help="Launch the head task (first created) into a session.",
+    help=(
+        "Launch every unblocked task created (blocked ones wait for "
+        "`mael task next --run`)."
+    ),
 )
 @click.option(
     "--here",
     is_flag=True,
-    help="With --run, launch in the current shell (no worktree, no new workspace).",
+    help=(
+        "With --run, launch only the head task in the current shell "
+        "(no worktree, no new workspace)."
+    ),
 )
 def task_load_many(file: str, project: str | None, run: bool, here: bool) -> None:
     """Create one or more tasks from a marked plan file ('-' reads stdin)."""
@@ -562,15 +568,64 @@ def task_load_many(file: str, project: str | None, run: bool, here: bool) -> Non
     _restamp(store, index, was_fresh=was_fresh)
     for t in created:
         click.echo(f"{t.id}\t{t.title}")
-    if run and created:
+    if not (run and created):
+        return
+
+    if here:
+        # `run_cmd(..., replace_process=True)` is an execvp that never returns, so
+        # only one task can be launched this way: the head, matching the
+        # single-launch behaviour --run had before it went multi. Print BEFORE
+        # _run_task — after the execvp nothing here reaches the terminal.
         head = created[0]
-        # Print BEFORE _run_task — the non-cmux launcher execvp's, so anything
-        # after the call never reaches the terminal.
+        click.echo(f"{head.id} starting in this shell.")
+        _run_task(store, proj, head, here=True, fresh=True)
+        return
+
+    # Launch every task in the batch that isn't waiting on a follow — the same
+    # predicate `task next` and the `task list --all-todo` actionable column use.
+    # Blocked siblings stay in todo/ and advance later via `mael task next --run`.
+    # `created` order is preserved so the head still launches first.
+    #
+    # The set is computed once, before any launch: a launch only moves a task to
+    # in-progress, never to done, so no blocked task in the batch can *become*
+    # actionable partway through the loop.
+    head_sha = store.head()
+    launch = [
+        t
+        for t in created
+        if model.is_actionable(t, store, index=index, head=head_sha)
+    ]
+    if not launch:
+        return
+    # Start the cmux app once for the whole batch; each _run_task still guards
+    # liveness individually and rolls its own task back to TODO on a failed
+    # placement. Sequential, never parallel: worktree-name and port-base
+    # allocation are unlocked, so concurrent launches would race.
+    ensure_cmux_running()
+    failed = 0
+    for t in launch:
         click.echo(
-            f"{head.id} started in a separate claude session "
+            f"{t.id} started in a separate claude session "
             "— do *not* work on it yourself."
         )
-        _run_task(store, proj, head, here=here, fresh=True)
+        # One task's launch must not abandon its siblings. ClickException is the
+        # duplicate-live-session guard; RuntimeError covers the worktree/port
+        # allocators (`allocate_port_base` exhausting the 300-999 range is a
+        # genuine batch failure mode — every launch consumes a base). Both are
+        # raised before the status move, so the task is still in todo/ and stays
+        # re-runnable via `mael task next --run`.
+        try:
+            _run_task(store, proj, t, here=False, fresh=True)
+        except click.ClickException as e:
+            failed += 1
+            click.echo(f"warning: {t.id} — {e.format_message()}", err=True)
+        except RuntimeError as e:
+            failed += 1
+            click.echo(f"warning: {t.id} — {e}", err=True)
+    if failed:
+        raise click.ClickException(
+            f"{failed} of {len(launch)} tasks failed to launch"
+        )
 
 
 def _scheduled_projects(project: str | None, all_projects: bool) -> list[str]:

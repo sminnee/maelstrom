@@ -87,11 +87,15 @@ def _patch_live_sessions(monkeypatch, sessions):
     The guard constructs ``session_discovery.LiveSessionSet()`` and calls
     ``for_session_id``; patching the swept list drives it without touching real
     ``pgrep``/``lsof``/``ps``.
+
+    ``sessions`` may be a list, or a zero-arg callable returning one — the latter
+    for cases where the session ids aren't known until the command under test has
+    created the tasks (see the load-many batch tests).
     """
     monkeypatch.setattr(
         task_cli.session_discovery,
         "all_live_sessions",
-        lambda: list(sessions),
+        sessions if callable(sessions) else lambda: list(sessions),
     )
 
 
@@ -1118,7 +1122,8 @@ class TestLoadMany:
         head_id = lines[0].split("\t")[0]
         tail_id = lines[1].split("\t")[0]
         assert any(head_id in ln and "do *not* work on it" in ln for ln in lines)
-        # The head (first created) launched, by explicit id — not the tail.
+        # This plan is a genuine chain (tail follows iter1), so only the head is
+        # unblocked — one launch even though --run is now multi-launch.
         launch.session.assert_called_once()
         assert launch.session.call_args.kwargs["task_id"] == head_id
         # Move-before-launch parity: head is in-progress, tail still blocked.
@@ -1162,6 +1167,131 @@ class TestLoadMany:
         )
         assert head_id in announce
         assert "do *not* work on it yourself" in announce
+
+    def _three_independent_plan(self, tmp_path):
+        """Three blocks with no ``follow`` — all three are unblocked at once."""
+        f = tmp_path / "parallel.md"
+        f.write_text(
+            "---CREATE TASK one---\ntitle: One\n---\nfirst\n"
+            "---CREATE TASK two---\ntitle: Two\n---\nsecond\n"
+            "---CREATE TASK three---\ntitle: Three\n---\nthird\n"
+        )
+        return f
+
+    def test_load_many_run_launches_every_unblocked_task(
+        self, runner, store, launch, tmp_path
+    ):
+        f = self._three_independent_plan(tmp_path)
+        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
+        assert result.exit_code == 0, result.output
+        ids = [ln.split("\t")[0] for ln in result.output.strip().split("\n")[:3]]
+        assert launch.session.call_count == 3
+        # Launched in `created` order, so the head still goes first.
+        assert [c.kwargs["task_id"] for c in launch.session.call_args_list] == ids
+        for tid in ids:
+            assert model.load(store, "p", tid).status == model.STATUS_IN_PROGRESS
+
+    def test_load_many_run_leaves_followers_queued(
+        self, runner, store, launch, tmp_path
+    ):
+        # Two independent blocks + one following `two`: only the independents are
+        # actionable, so the follower stays in todo/ for `task next --run`.
+        f = tmp_path / "mixed.md"
+        f.write_text(
+            "---CREATE TASK one---\ntitle: One\n---\nfirst\n"
+            "---CREATE TASK two---\ntitle: Two\n---\nsecond\n"
+            "---CREATE TASK three---\ntitle: Three\nfollow: two\n---\nthird\n"
+        )
+        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
+        assert result.exit_code == 0, result.output
+        ids = [ln.split("\t")[0] for ln in result.output.strip().split("\n")[:3]]
+        assert launch.session.call_count == 2
+        assert [c.kwargs["task_id"] for c in launch.session.call_args_list] == ids[:2]
+        assert model.load(store, "p", ids[2]).status == model.STATUS_TODO
+
+    def test_load_many_run_here_launches_head_only(
+        self, runner, store, launch, tmp_path
+    ):
+        # --here execvp's, so a loop is impossible by construction: head only.
+        f = self._three_independent_plan(tmp_path)
+        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run", "--here"])
+        assert result.exit_code == 0, result.output
+        ids = [ln.split("\t")[0] for ln in result.output.strip().split("\n")[:3]]
+        launch.exec.assert_called_once()
+        launch.session.assert_not_called()
+        assert model.load(store, "p", ids[0]).status == model.STATUS_IN_PROGRESS
+        assert model.load(store, "p", ids[1]).status == model.STATUS_TODO
+
+    def test_load_many_run_continues_past_a_failed_launch(
+        self, runner, store, launch, tmp_path, monkeypatch
+    ):
+        # A live session on the *second* task trips the duplicate-launch guard.
+        # The other two must still launch, and the failure must be reported.
+        f = self._three_independent_plan(tmp_path)
+
+        def sweep():
+            # Resolved lazily: the ids don't exist until load-many has created
+            # them, which happens after this fixture is installed.
+            # Unfiltered by status: earlier tasks in the batch have already moved
+            # out of todo/ by the time later ones sweep.
+            all_ids = sorted(t.id for t in model.list_tasks(store, project="p"))
+            second = all_ids[1:2]
+            return [
+                _live_session(pid=77, session_id=model.session_id_for("p", i))
+                for i in second
+            ]
+
+        _patch_live_sessions(monkeypatch, sweep)
+        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
+        assert result.exit_code != 0
+        ids = [ln.split("\t")[0] for ln in result.output.strip().split("\n")[:3]]
+        assert launch.session.call_count == 2
+        assert [c.kwargs["task_id"] for c in launch.session.call_args_list] == [
+            ids[0],
+            ids[2],
+        ]
+        assert f"warning: {ids[1]}" in result.output
+        assert "1 of 3 tasks failed to launch" in result.output
+        assert model.load(store, "p", ids[1]).status == model.STATUS_TODO
+
+    def test_load_many_run_continues_past_a_runtime_error(
+        self, runner, store, launch, tmp_path
+    ):
+        # Worktree/port allocation raises RuntimeError, not ClickException —
+        # e.g. allocate_port_base exhausting the 300-999 range, which a batch
+        # launch can genuinely provoke. One task's failure must not abandon the
+        # rest, and the task must stay in todo/ (the raise precedes the status
+        # move).
+        f = self._three_independent_plan(tmp_path)
+        calls: list[str] = []
+
+        def setup(*a, **kw):
+            calls.append("x")
+            if len(calls) == 2:
+                raise RuntimeError("No available port ranges found")
+            return WorktreeSetup(path=launch.wt_path, name="bravo", action="created")
+
+        launch.setup.side_effect = setup
+        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
+        assert result.exit_code != 0
+        ids = [ln.split("\t")[0] for ln in result.output.strip().split("\n")[:3]]
+        assert launch.session.call_count == 2
+        assert [c.kwargs["task_id"] for c in launch.session.call_args_list] == [
+            ids[0],
+            ids[2],
+        ]
+        assert f"warning: {ids[1]} — No available port ranges found" in result.output
+        assert "1 of 3 tasks failed to launch" in result.output
+        assert model.load(store, "p", ids[1]).status == model.STATUS_TODO
+
+    def test_load_many_run_starts_cmux_once_for_the_batch(
+        self, runner, store, launch, tmp_path
+    ):
+        f = self._three_independent_plan(tmp_path)
+        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
+        assert result.exit_code == 0, result.output
+        assert launch.session.call_count == 3
+        launch.ensure_cmux.assert_called_once()
 
     def test_load_many_run_then_next_skips_head(self, runner, store, launch, tmp_path):
         # A+B end-to-end: load-many --run marks the head in-progress, so
