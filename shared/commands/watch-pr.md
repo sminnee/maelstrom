@@ -97,6 +97,10 @@ Run this loop. Each iteration is one CI cycle.
   cleanly while chores stand on their own.
 - **Run the waits in the background** (`run_in_background: true`) so the session stays responsive
   while CI runs.
+- **When `/watch-pr` is reached via the finishing sequence, the task is already closed** — that
+  sequence closes it at the PR push, right before this step, so the PR (not the task) carries the
+  work from here. There's nothing to clean up afterwards; don't add a `mael task status done` at the
+  end.
 - **`<ISSUE-ID>`** is the Linear identifier — it's in `$MAEL_TASK_PARENT` (`linear.<ID>`) when
   launched from a Linear-rooted notebook task, and usually in the branch name / recent commits
   otherwise. Guard the extraction on the `linear.` prefix: for an ad-hoc chain `$MAEL_TASK_PARENT`
