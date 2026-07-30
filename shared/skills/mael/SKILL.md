@@ -33,8 +33,8 @@ session launches immediately; pass `--no-run` to create the task without launchi
   done.
 - `mael task next --run` launches the next ready task. **Execute tasks run no skill**: the plan is
   their content, and the project's always-on "Finishing a task" rule (commit → `/code-review` →
-  fixups → `create-pr --squash` → `/watch-pr` → `task status done`) closes them out. `plan-next-step` tasks plan one more increment and re-queue
-  themselves until the work is done.
+  fixups → `create-pr --squash` → `task status done` → `/watch-pr`) closes them out.
+  `plan-next-step` tasks plan one more increment and re-queue themselves until the work is done.
 
 New tasks **default to plan mode** (`DEFAULT_MODE`): a bare `mael task add "<title>" --run` opens a
 planning session. Pass `--mode auto` for an unattended execute session (Claude's classifier-vetted
@@ -176,23 +176,29 @@ it applies to all mael projects.
 5. Push the PR: `mael gh create-pr <ISSUE-ID> --squash`. The `--squash` flag
    autosquashes the `fixup!` commits into their targets as it rebases onto
    `origin/main` before pushing, so the PR lands with a clean history.
-6. Run `/watch-pr` — take CI to green autonomously: fix each failure
+6. **Close the task.** Run `mael task status done` (defaults to `$MAEL_TASK_ID`). The PR is
+   pushed, so the work is handed off — close it now, while you reliably can, rather than
+   after the CI watch. A leftover PR is visible and gets chased; a task left in
+   `in-progress/` is invisible and blocks its chain. The SessionEnd hook is only a
+   backstop; don't rely on it.
+7. Run `/watch-pr` — take CI to green autonomously: fix each failure
    (fixup for PR-caused, `chore:` for unrelated), `mael sync` to re-push, and loop
    until CI passes or times out.
-7. **Close the task.** Run `mael task status done` (defaults to `$MAEL_TASK_ID`) as the
-   last step before reporting back. The SessionEnd hook also does this as a backstop, but
-   call it explicitly so the task closes deterministically even if the hook fails to fire.
 
 If step 2 returns no blocking findings, skip steps 3–4 and go straight to step 5.
 
 The **entire** sequence runs without confirmation — including the PR push (step 5),
-the CI watch (step 6), and closing the task (step 7). Do not ask "shall I commit?",
+closing the task (step 6), and the CI watch (step 7). Do not ask "shall I commit?",
 "shall I run the review?", or "shall I open the PR?" — just run steps 1–7 and report
 what happened.
 
-The SessionEnd hook moves the task to `done` as a backstop when the session ends, but it can
-fail silently (if `mael` isn't on PATH, git is unavailable, or the process is killed). Don't
-rely on it — run `mael task status done` explicitly as step 7 so the task closes deterministically.
+**The PR is the completion signal** — once it's raised, the work is no longer in danger of being
+forgotten: an open PR is visible on GitHub and gets chased. The task is the fragile half, so close
+it as soon as the PR is pushed, before it can go stray if CI drags on, the session dies, or the PR
+is merged before you get back to it. The SessionEnd hook moves the task to `done` when the session
+ends, but it can fail silently (if `mael` isn't on PATH, git is unavailable, or the process is
+killed). Don't rely on it — run `mael task status done` explicitly at step 6 so the task closes
+deterministically.
 
 If the project supplies `docs/review/coding-standards.md` and/or
 `docs/review/code-smells.md`, the review sub-agent loads them automatically.

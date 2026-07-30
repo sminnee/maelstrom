@@ -14,15 +14,21 @@ asked" rule for mael projects:
 3. Address **Blocking** findings (Advisory at your judgement).
 4. Commit the review fixes as `--fixup` commits (one per blocking finding, targeting the originating commit). Do not amend.
 5. Push the PR with `mael gh create-pr <ISSUE-ID> --squash` — `--squash` autosquashes the fixup commits into their targets as it rebases onto `origin/main` before pushing.
-6. Run `/watch-pr` to take CI to green autonomously (fix → fixup/chore → `mael sync` → wait, looping until CI passes or times out).
-7. **Close the task.** Run `mael task status done` (defaults to `$MAEL_TASK_ID`) as the last step
-   before reporting back. The SessionEnd hook also does this as a backstop, but call it explicitly
-   so the task closes deterministically even if the hook fails to fire.
+6. **Close the task.** Run `mael task status done` (defaults to `$MAEL_TASK_ID`). The PR is pushed,
+   so the work is handed off — close it now, while you reliably can, rather than after the CI watch.
+   A leftover PR is visible and gets chased; a task left in `in-progress/` is invisible and blocks
+   its chain. The SessionEnd hook is only a backstop; don't rely on it.
+7. Run `/watch-pr` to take CI to green autonomously (fix → fixup/chore → `mael sync` → wait, looping until CI passes or times out).
 
 If there are no blocking findings, skip steps 3–4 and go straight to step 5.
 
-This whole sequence runs without user confirmation — including the PR push and CI watch.
+This whole sequence runs without user confirmation — including the PR push (step 5), closing the
+task (step 6), and the CI watch (step 7).
 
-The SessionEnd hook moves the task to `done` as a backstop when the session ends, but it can fail
-silently (if `mael` isn't on PATH, git is unavailable, or the process is killed). Don't rely on it —
-run `mael task status done` explicitly as step 7 so the task closes deterministically.
+**The PR is the completion signal** — once it's raised, the work is no longer in danger of being
+forgotten: an open PR is visible on GitHub and gets chased. The task is the fragile half, so close it
+as soon as the PR is pushed, before it can go stray if CI drags on, the session dies, or the PR is
+merged before you get back to it. The SessionEnd hook moves the task to `done` when the session ends,
+but it can fail silently (if `mael` isn't on PATH, git is unavailable, or the process is killed).
+Don't rely on it — run `mael task status done` explicitly at step 6 so the task closes
+deterministically.
