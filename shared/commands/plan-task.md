@@ -79,7 +79,8 @@ you must **not** implement it yourself.
    closes before any chained session continues.)
    Each execute block's task has an empty `command` and `mode: auto`, so it's a plain unattended
    execute that runs **no skill** (not a re-plan) and finishes via the project's always-on "Finishing a task" rule
-   (commit → `/code-review` → fixups → `create-pr --squash` → `task status done` → `/watch-pr`). **Do NOT implement** — do not write code, edit source files, or create branches;
+   (commit → `/code-review` → fixups → `create-pr --squash` → `task status done` → `/watch-pr`).
+   **Do NOT implement** — do not write code, edit source files, or create branches;
    the head execute session is launched automatically by `--run`, and subsequent increments still
    advance via `mael task next --run`.
 
@@ -108,19 +109,16 @@ it opts the task out of that — it gets its own branch and therefore its own wo
 task starts / finishes, against the `linear.<ID>` parent. Use them so the chain mirrors itself to
 Linear automatically — no manual `set-status`:
 - `pre-action: linear.in-progress` — fired when the task is launched.
-- `post-action: linear.done` — fired when the session ends (task → done; Linear → Unreleased).
 
-**`post-action: linear.done` belongs only on the LAST execute step** — it moves the Linear issue to
-Unreleased, which is wrong while work remains:
-- **Single-session plan** (one `iter` block, no `tail`): it *is* the last step, so set both
-  `pre-action: linear.in-progress` **and** `post-action: linear.done`.
-- **Multi-session plan** (an `iter1` block followed by a `plan-next-step` `tail`): `iter1` is **not**
-  the last step, so set **only** `pre-action: linear.in-progress` — no `post-action`. The
-  `plan-next-step` chain seeds `post-action: linear.done` on whichever step it decides is final.
+**Do not set `post-action: linear.done` on execute steps.** The finishing sequence now closes the
+task at PR push, before `/watch-pr`, so a `post-action` would flip the Linear issue to Unreleased
+while CI is still running — overwriting the "In Review" that `create-pr` just set. Leave the issue
+in In Review and move it on deliberately with `mael linear set-status <ID> done` once the work has
+actually landed.
 
 The planning task already carries `post-action: linear.planned` (seeded by `mael linear plan`), so
-finishing planning flips Linear to Planned and launching each execute step flips it to In Progress;
-only the final step flips it to Unreleased.
+finishing planning flips Linear to Planned and launching each execute step flips it to In Progress.
+The issue then stays In Review (set by `create-pr`) until someone moves it on explicitly.
 
 **Mode markers are required on every block.** New tasks default to *plan* mode, so an Execute block
 that omits `mode:` would wrongly re-plan instead of running its plan. Always set:
@@ -153,7 +151,6 @@ commands instead of implementing anything below — then stop:
 title: "Execute: <ID> — <short desc>"
 mode: auto
 pre-action: linear.in-progress
-post-action: linear.done
 follow-end: "*"
 ---
 # <ID>: <Title>
