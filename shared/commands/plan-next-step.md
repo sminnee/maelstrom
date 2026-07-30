@@ -81,13 +81,14 @@ unattended (Claude's classifier-vetted auto permission mode) instead of re-plann
 on the **`tail`** block so the next `plan-next-step` session opens in plan mode. New tasks default to
 plan mode, so the execute block's `mode: auto` is required.
 
-Put lifecycle actions on the **execute** (`step`) block so each step mirrors itself to Linear.
-Always set `pre-action: linear.in-progress` (fired on launch). Set `post-action: linear.done` (fired
-on session end — Linear → Unreleased) **only on the final step**:
-- **More work remains** (this `step` + a `tail`): set **only** `pre-action: linear.in-progress` — no
-  `post-action`. The issue stays In Progress because there's still a queued `tail`.
-- **Final step** (`step` only, no `tail`): set `post-action: linear.done` as well, so finishing it
-  moves the Linear issue to Unreleased.
+Put lifecycle actions on the **execute** (`step`) block so each step mirrors itself to Linear. Set
+`pre-action: linear.in-progress` (fired on launch) on every step, whether or not a `tail` follows.
+
+**Do not set `post-action: linear.done`** — not even on the final step. The finishing sequence now
+closes the task at PR push, before `/watch-pr`, so a `post-action` would flip the Linear issue to
+Unreleased while CI is still running, overwriting the "In Review" that `create-pr` just set. Leave
+the issue in In Review and move it on deliberately with `mael linear set-status <ID> done` once the
+work has actually landed.
 
 ### More work remains — execute block + `tail`
 
@@ -137,7 +138,6 @@ implementing anything below — then stop:
 title: "Execute: <final step desc>"
 mode: auto
 pre-action: linear.in-progress
-post-action: linear.done
 follow-end: "*"
 ---
 <this final step's detailed plan…>
