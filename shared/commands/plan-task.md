@@ -11,10 +11,11 @@ there.
 
 The brief is **already in your initial prompt** (the planning task's content). Your job is to
 research, plan interactively, then write a **load-many plan file** whose `---CREATE TASK ...---`
-blocks *are* the notebook chain — after approval, run two commands: `mael task load-many … --run`
-(create the chain **and** auto-launch its head execute task in a separate session) **then**
-`mael task status done` (close this planning task). The head execute work runs in that new session —
-you must **not** implement it yourself.
+blocks *are* the notebook chain — after approval, run two commands **in this order**:
+`mael task status done` (close this planning task) **then** `mael task load-many … --run` (create the
+chain **and** auto-launch its head execute task in a separate session). The order matters — see
+**Command Logic** step 6. The head execute work runs in that new session — you must **not** implement
+it yourself.
 
 ## What This Command Does
 
@@ -23,9 +24,9 @@ you must **not** implement it yourself.
 3. **Classify** single-session vs multi-session.
 4. **Refine** the plan interactively with the user.
 5. **Write** the load-many plan file (preamble + `---CREATE TASK ...---` blocks), then present it
-   with ExitPlanMode. Approving it runs `mael task load-many <plan-file> --run` (which also
-   auto-launches the head execute task in a separate session) and marks this task done.
-   Do **not** implement — the new session owns the work.
+   with ExitPlanMode. Approving it marks this task done and then runs
+   `mael task load-many <plan-file> --run` (which also auto-launches the head execute task in a
+   separate session). Do **not** implement — the new session owns the work.
 
 ## Command Logic
 
@@ -59,24 +60,28 @@ you must **not** implement it yourself.
 
    Then present the plan with ExitPlanMode as usual, with
    `allowedPrompts: [{"tool": "Bash", "prompt": "mael task load-many"}, {"tool": "Bash", "prompt": "mael task status done"}]`.
-   The plan file you wrote *is* the chain: approving it runs the three post-approval commands —
+   The plan file you wrote *is* the chain: approving it runs the three post-approval commands, **in
+   this order** —
    ```bash
    mael linear set-status <ID> planned      # mirror the plan to Linear (no plan body written)
+   mael task status done                    # close this planning task ($MAEL_TASK_ID) FIRST
    mael task load-many <plan-file> --run    # create every block's task, then launch the head
-   mael task status done                    # close this planning task ($MAEL_TASK_ID)
    ```
-   `--run` auto-launches the head execute task (the first created block) in a **separate** claude
+   **Order matters.** `--run` only launches tasks that are *actionable*, and the head block's
+   `follow-end: "*"` makes it follow this planning task. While this task is `in-progress` the head is
+   blocked and `--run` launches nothing — silently, exiting 0. Closing this task first puts it in
+   `done/`, satisfying that dependency so the head launches. The SessionEnd hook also closes this
+   task when the session ends, but that is **too late** to unblock the head — it fires after
+   `load-many` has already run. Run `mael task status done` explicitly, before `load-many`; the hook
+   is not an adequate backstop for this ordering.
+
+   `--run` then auto-launches the head execute task (the first created block) in a **separate** claude
    session as soon as the chain is created. That session owns the implementation — you must **not**
    write code yourself. `load-many --run` prints a line naming the launched task; the head runs
-   independently while this planning session closes via `mael task status done`. No reordering of the
-   post-approval commands is needed: `--run` launches the head in its own session, so closing this
-   planning task does not interfere.
+   independently from there.
    `<plan-file>` is a placeholder — substitute the **actual path you wrote the plan file to** (the
    path from system context). There is no plan-file env var; the only source of the path is the file
    you just created. Run `mael task load-many <that-literal-path>`, not `mael task load-many <plan-file>`.
-   (Ending the planning session also auto-closes the task via the SessionEnd hook, so this
-   `mael task status done` is a no-op if the session ends first — but run it anyway so the task
-   closes before any chained session continues.)
    Each execute block's task has an empty `command` and `mode: auto`, so it's a plain unattended
    execute that runs **no skill** (not a re-plan) and finishes via the project's always-on "Finishing a task" rule
    (commit → `/code-review` → fixups → `create-pr --squash` → `task status done` → `/watch-pr`).
@@ -144,8 +149,8 @@ implementation plan:
 ```markdown
 This plan creates the notebook chain for <ID>. To execute this plan, run these
 commands instead of implementing anything below — then stop:
+    mael task status done                   # close this planning task first
     mael task load-many <this file> --run   # create the chain, launch the head task
-    mael task status done                   # close this planning task
 
 ---CREATE TASK iter---
 title: "Execute: <ID> — <short desc>"
@@ -187,8 +192,8 @@ its **body** — it must not be an empty placeholder:
 ```markdown
 This plan creates the notebook chain for <ID>. To execute this plan, run these
 commands instead of implementing anything below — then stop:
+    mael task status done                   # close this planning task first
     mael task load-many <this file> --run   # create the chain, launch the head task
-    mael task status done                   # close this planning task
 
 ---CREATE TASK iter1---
 title: "Execute: <iteration-1 desc>"

@@ -27,10 +27,11 @@ session launches immediately; pass `--no-run` to create the task without launchi
 **How a task flows:**
 - `mael linear plan PROJ-XXX` launches the `plan-task` skill in plan mode, holding the brief.
   The plan file it writes *is* the chain (a marked load-many file); after ExitPlanMode approval it
-  runs `mael task load-many <plan-file>` to create it — an **Execute** task (plan as content, no
+  marks its own planning task done **first**, then runs `mael task load-many <plan-file> --run` to
+  create the chain and launch its head — an **Execute** task (plan as content, no
   skill, **`mode: auto`** so it runs the plan unattended instead of re-planning) and, for multi-session work,
-  a **`plan-next-step`** task carrying the remaining-work tail — then marks its own planning task
-  done.
+  a **`plan-next-step`** task carrying the remaining-work tail. Closing the planning task first is
+  what makes the head actionable — see `plan-task.md` for why `--run` launches nothing otherwise.
 - `mael task next --run` launches the next ready task. **Execute tasks run no skill**: the plan is
   their content, and the project's always-on "Finishing a task" rule (commit → `/code-review` →
   fixups → `create-pr --squash` → `task status done` → `/watch-pr`) closes them out.
