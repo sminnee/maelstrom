@@ -9,9 +9,10 @@ multi-session notebook chain (spec B). `mael task next --run` reached a `plan-ne
 launched a plan-mode session holding that task's content. This skill plans **one** concrete next
 step and writes a **load-many plan file** whose blocks *are* the next chain: an execute block for
 this step and — if work remains — a `tail` `plan-next-step` block with a refreshed picture. After
-approval, run two commands: `mael task load-many … --run` (create the chain **and** auto-launch
-every unblocked block — here just the head execute task, since the `tail` follows it — in a separate
-session) **then** `mael task status done` (close this planning task).
+approval, run two commands **in this order**: `mael task status done` (close this planning task)
+**then** `mael task load-many … --run` (create the chain **and** auto-launch every unblocked block —
+here just the head execute task, since the `tail` follows it — in a separate session). The order
+matters — see **Command Logic** step 3.
 It does **not** implement — the launched session owns the step — and it never writes to Linear.
 
 ## What you already hold
@@ -54,11 +55,19 @@ reality, plan the top item, and hand the next planner an updated tail.
 
    Then present the plan with ExitPlanMode as usual, with
    `allowedPrompts: [{"tool": "Bash", "prompt": "mael task load-many"}, {"tool": "Bash", "prompt": "mael task status done"}]`.
-   The plan file *is* the chain: approving it runs `mael task load-many <plan-file> --run` to create
-   the tasks **and** auto-launch every unblocked block — for this chain shape that is the head
-   execute step alone, since the `tail` follows it — in a separate
-   session, then `mael task status done` closes this planning task (the SessionEnd hook is a safety
-   net if it's missed). `<plan-file>` is a placeholder — substitute the **actual path you wrote the
+   The plan file *is* the chain: approving it first runs `mael task status done` to close this
+   planning task, **then** `mael task load-many <plan-file> --run` to create the tasks **and**
+   auto-launch every unblocked block — for this chain shape that is the head execute step alone,
+   since the `tail` follows it — in a separate session.
+
+   **Order matters.** `--run` only launches tasks that are *actionable*, and the head block's
+   `follow-end: "*"` makes it follow this planning task. While this task is `in-progress` the head is
+   blocked and `--run` launches nothing — silently, exiting 0. Closing this task first puts it in
+   `done/`, satisfying that dependency so the head launches. The SessionEnd hook closes the task too,
+   but only once the session ends — after `load-many` has already run — so it cannot substitute for
+   running `mael task status done` explicitly, in order.
+
+   `<plan-file>` is a placeholder — substitute the **actual path you wrote the
    plan file to** (e.g. `next.md`). There is no plan-file env var; the only source of the path is the
    file you just created, so run `mael task load-many <that-literal-path> --run`. The execute block's
    task runs **no skill** and finishes via the project's always-on "Finishing a task" rule. **Do NOT
@@ -99,8 +108,8 @@ prior-work summary that now includes this step's scope.
 ```markdown
 This step's chain. To execute this plan, run these commands instead of
 implementing anything below — then stop:
+    mael task status done                   # close this planning task first
     mael task load-many <this file> --run   # create the chain, launch the head step
-    mael task status done                   # close this planning task
 
 ---CREATE TASK step---
 title: "Execute: <next step desc>"
@@ -131,8 +140,8 @@ chain ends here. Once its execute session merges, the feature is done.
 ```markdown
 This step's chain. To execute this plan, run these commands instead of
 implementing anything below — then stop:
+    mael task status done                   # close this planning task first
     mael task load-many <this file> --run   # create the chain, launch the head step
-    mael task status done                   # close this planning task
 
 ---CREATE TASK step---
 title: "Execute: <final step desc>"
