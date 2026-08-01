@@ -137,6 +137,9 @@ TASK_FIELDS = (
     # Sort priority (critical/high/medium/low). Appended at the end so existing
     # files keep a stable diff; missing key defaults to medium on load.
     _FieldSpec("priority", block=True),
+    # LLM model for the session (``claude --model``). Free-form: an alias (opus)
+    # or a full id. Empty = inherit the user's Claude Code default.
+    _FieldSpec("model", block=True),
 )
 
 # The frontmatter keys, always emitted in this order for stable diffs. Most
@@ -245,6 +248,9 @@ class Task:
     # Sort priority; drives list ordering and ``task next`` selection. Missing
     # from an on-disk file ⇒ medium (see ``from_markdown``).
     priority: str = DEFAULT_PRIORITY
+    # LLM model for the launched session (``claude --model``). Free-form
+    # passthrough — an alias or a full id; empty inherits the user's default.
+    model: str = ""
     content: str = ""
     steps: str = ""
     log: str = ""
@@ -302,6 +308,7 @@ class Task:
             schedule=str(frontmatter.get("schedule", "")),
             last_run=str(frontmatter.get("last-run", "")),
             priority=str(frontmatter.get("priority", DEFAULT_PRIORITY)) or DEFAULT_PRIORITY,
+            model=str(frontmatter.get("model", "")),
             content=sections.get("content", ""),
             steps=sections.get("steps", ""),
             log=sections.get("log", ""),
@@ -506,6 +513,7 @@ def _meta_from_task(task: Task) -> TaskMeta:
         follows=tuple(task.follows),
         command=task.command,
         mode=task.mode,
+        model=task.model,
         schedule=task.schedule,
         last_run=task.last_run,
         created=task.created,
@@ -528,6 +536,7 @@ def _task_from_meta(meta: TaskMeta) -> Task:
         project=meta.project,
         command=meta.command,
         mode=meta.mode,
+        model=meta.model,
         branch=meta.branch,
         parent=meta.parent,
         follows=list(meta.follows),
@@ -742,6 +751,7 @@ def create(
     title: str,
     command: str = "",
     mode: str = "",
+    model: str = "",
     branch: str = "",
     parent: str = "",
     pre_action: str = "",
@@ -813,6 +823,7 @@ def create(
         schedule=schedule,
         last_run=last_run,
         priority=resolved_priority,
+        model=model,
         content=content,
         status=status,
     )
@@ -834,6 +845,7 @@ def duplicate(
     title: str | None = None,
     command: str | None = None,
     mode: str | None = None,
+    model: str | None = None,
     content: str | None = None,
     pre_action: str | None = None,
     post_action: str | None = None,
@@ -851,7 +863,7 @@ def duplicate(
     """Duplicate ``src_id``'s recipe into a fresh task (in one write).
 
     The model primitive behind ``mael task add --from``. Copies the source's
-    title/command/mode/content/pre_action/post_action; any non-``None`` override
+    title/command/mode/model/content/pre_action/post_action; any non-``None`` override
     wins over the copied default. Source-agnostic — works from any status,
     including ``template/`` — and never mutates the source. ``schedule``/
     ``last_run`` are intentionally *not* copied: ``schedule`` is set only from the
@@ -872,6 +884,7 @@ def duplicate(
         title=title if title is not None else src.title,
         command=command if command is not None else src.command,
         mode=mode if mode is not None else src.mode,
+        model=model if model is not None else src.model,
         branch=branch,
         pre_action=pre_action if pre_action is not None else src.pre_action,
         post_action=post_action if post_action is not None else src.post_action,
@@ -1064,6 +1077,7 @@ def load_many(
                 title=str(args["title"]),
                 command=str(args.get("command", "")),
                 mode=str(args.get("mode", "")),
+                model=str(args.get("model", "")),
                 priority=str(args.get("priority", "")),
                 # An explicit branch: opts the task out of "one PR per parent" —
                 # create() gives it precedence over sibling/parent inheritance,
@@ -1193,6 +1207,7 @@ def update(
     content: str | None = None,
     command: str | None = None,
     mode: str | None = None,
+    model: str | None = None,
     pre_action: str | None = None,
     post_action: str | None = None,
     schedule: str | None = None,
@@ -1225,6 +1240,8 @@ def update(
         task.command = command
     if mode is not None:
         task.mode = mode
+    if model is not None:
+        task.model = model
     if pre_action is not None:
         task.pre_action = pre_action
     if post_action is not None:

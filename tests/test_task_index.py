@@ -175,6 +175,63 @@ class TestSqlitePersistence:
         assert got is not None and got.id == "a"
         assert idx.head() == "sha"
 
+    def _legacy_db(self, tmp_path):
+        """An on-disk ``tasks`` table written before the ``model`` column."""
+        import sqlite3
+
+        db = tmp_path / "index.db"
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "CREATE TABLE tasks ("
+            "project TEXT NOT NULL, id TEXT NOT NULL, status TEXT NOT NULL, "
+            "title TEXT, priority TEXT, branch TEXT, parent TEXT, "
+            "follows TEXT, command TEXT, mode TEXT, schedule TEXT, "
+            "last_run TEXT, created TEXT, updated TEXT, session_id TEXT, "
+            "PRIMARY KEY (project, id))"
+        )
+        conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
+        conn.commit()
+        conn.close()
+        return db
+
+    def test_legacy_write_names_the_remedy(self, tmp_path):
+        # A pre-`model` index fails on the very next `mael task add`. Surface the
+        # one-line fix rather than a bare "no column named model".
+        from maelstrom.task_index import StaleTaskIndexError
+
+        idx = SqliteTaskIndex(self._legacy_db(tmp_path))
+        with pytest.raises(StaleTaskIndexError, match="mael task reindex"):
+            idx.upsert(_meta(id="a"))
+
+    def test_legacy_read_names_the_remedy(self, tmp_path):
+        # `SELECT *` succeeds on the old table; the miss surfaces in _from_row,
+        # so the read path needs the same translation as the write path.
+        import sqlite3
+
+        from maelstrom.task_index import StaleTaskIndexError
+
+        db = self._legacy_db(tmp_path)
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "INSERT INTO tasks (project, id, status) VALUES ('p', 'a', 'todo')"
+        )
+        conn.commit()
+        conn.close()
+
+        idx = SqliteTaskIndex(db)
+        with pytest.raises(StaleTaskIndexError, match="mael task reindex"):
+            idx.find("p", "a")
+        with pytest.raises(StaleTaskIndexError, match="mael task reindex"):
+            idx.list("p")
+
+    def test_reindex_recovers_from_the_stale_schema(self, tmp_path):
+        # The documented upgrade path must actually clear the error.
+        idx = SqliteTaskIndex(self._legacy_db(tmp_path))
+        idx.clear()  # what `mael task reindex` calls
+        idx.upsert(_meta(id="a", model="opus"))
+        got = idx.find("p", "a")
+        assert got is not None and got.model == "opus"
+
 
 # --- model integration: the index stays in lock-step with the .md tree ---
 

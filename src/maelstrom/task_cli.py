@@ -8,12 +8,17 @@ lives in the model; this layer only parses arguments and prints.
 import os
 import subprocess
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 import click
 
 from . import task as model  # noqa: F401  (module, used as `model.*`)
+# Second binding of the same module, for the few functions that take a `model`
+# *parameter* (the `--model` flag / task field) and would otherwise shadow the
+# alias above. Same module object — not a re-export.
+from . import task as task_model
 from . import task_actions
 from . import session_discovery
 from . import session_store
@@ -201,7 +206,7 @@ def _run_task(
         run_cmd(
             build_task_launch_line(
                 project, task.id, perm, env=session_env,
-                session_id=session_id, resume=resume,
+                session_id=session_id, resume=resume, model=task.model or None,
             ),
             cwd=None,
             env=session_env,
@@ -240,6 +245,7 @@ def _run_task(
         env=session_env,
         session_id=session_id,
         resume=resume,
+        model=task.model or None,
     )
     if not placed:
         # cmux couldn't be reached, so no session opened. Roll the task back to
@@ -291,6 +297,185 @@ def _default_parent(parent: str) -> str:
     return parent or os.environ.get("MAEL_TASK_PARENT", "")
 
 
+@dataclass(frozen=True)
+class _Opt:
+    """CLI presentation for a block-settable field. Keyed by TASK_FIELDS key.
+
+    ``help`` is the create-time wording (``task add`` / ``linear plan``);
+    ``update_help`` is the edit-time wording for ``task update``, which reads as
+    "Set the task's …" and, for the clearable fields, documents ``''``. A field
+    with no ``update_help`` is not offered by ``task update`` at all.
+    """
+
+    help: str
+    short: str | None = None
+    choices: tuple[str, ...] | None = None
+    update_help: str | None = None
+
+
+# One row per ``block=True`` field in ``model.TASK_FIELDS`` — except ``title``,
+# which is block-settable but never a flag (a positional argument on ``task add``,
+# hardcoded on ``linear plan``). A field added to ``TASK_FIELDS`` without a row
+# here fails the guard test in tests/test_task_cli.py rather than silently going
+# missing from every task-creating command.
+_BLOCK_OPTIONS: dict[str, _Opt] = {
+    "command": _Opt(
+        "Command to launch the session with.",
+        short="-c",
+        update_help="Set the task's command/skill the session launches with.",
+    ),
+    "mode": _Opt(
+        "Session mode (default: plan; 'auto' for an unattended execute session, "
+        "'normal' for a non-planning session).",
+        short="-m",
+        update_help="Set the task's mode (e.g. normal, plan).",
+    ),
+    "branch": _Opt(
+        "Branch for the task (default: task/<id>).",
+        short="-b",
+        update_help="Set the task's branch.",
+    ),
+    # `parent` is create-time only: re-parenting an existing task would move its
+    # id and branch, which is `task update --id`'s job, not a field edit.
+    "parent": _Opt("Parent task id (creates a child id).", short="-P"),
+    "pre-action": _Opt(
+        "Lifecycle action fired when the task starts (e.g. linear.in-progress).",
+        update_help="Set the start lifecycle action (pass '' to clear).",
+    ),
+    "post-action": _Opt(
+        "Lifecycle action fired when the task finishes (e.g. linear.done).",
+        update_help="Set the finish lifecycle action (pass '' to clear).",
+    ),
+    "priority": _Opt(
+        "Task priority (default: medium; affects list ordering and `task next`).",
+        choices=model.PRIORITIES,
+        update_help="Set the task's priority (affects list ordering and `task next`).",
+    ),
+    "model": _Opt(
+        "LLM model for the session, e.g. 'opus' or a full id "
+        "(default: your Claude Code default).",
+        update_help="Set the task's LLM model, e.g. 'opus' (pass '' to clear).",
+    ),
+}
+
+# Block-settable fields that are never CLI flags. ``title`` is the task's
+# positional argument, not an option.
+_NON_OPTION_BLOCK_KEYS = frozenset({"title"})
+
+
+def _option_specs():
+    """Yield the ``(spec, _Opt)`` pairs that become CLI flags, in field order.
+
+    The one place that walks ``TASK_FIELDS`` and enforces that every
+    block-settable field has presentation metadata, so both derivations below
+    fail loudly on a new field rather than silently omitting it.
+    """
+    for spec in model.TASK_FIELDS:
+        if not spec.block or spec.key in _NON_OPTION_BLOCK_KEYS:
+            continue
+        opt = _BLOCK_OPTIONS.get(spec.key)
+        if opt is None:
+            raise RuntimeError(
+                f"Block-settable field {spec.key!r} has no _BLOCK_OPTIONS row; "
+                "add one (or list it in _NON_OPTION_BLOCK_KEYS) so every "
+                "task-creating command exposes it."
+            )
+        yield spec, opt
+
+
+def block_task_options(f=None, *, distinguish_unset: bool = False):
+    """Apply the click options for every block-settable field, plus
+    --follow/--follow-end. Mirrors _BLOCK_KEYS so the CLI vocabulary and the
+    load-many block vocabulary cannot drift.
+
+    Derived from ``model.TASK_FIELDS`` (the single field declaration) so a new
+    block-settable field appears on every task-creating command at once, with the
+    presentation — help text, short flag, choices — coming from ``_BLOCK_OPTIONS``.
+    Decorators apply bottom-up, so the list is reversed to keep ``--help`` order
+    matching ``TASK_FIELDS`` order.
+
+    ``distinguish_unset=True`` defaults the options to ``None`` instead of ``''``,
+    so a command that supplies its own defaults (``mael linear plan``) can tell
+    "flag not passed" from an explicit ``--post-action ''`` meaning "clear it".
+    Without it an empty value is indistinguishable from unset, and the command's
+    default would silently win — see ``cmd_plan``.
+    """
+    unset = None if distinguish_unset else ""
+
+    def wrap(f):
+        return _apply_block_options(f, unset)
+
+    return wrap if f is None else wrap(f)
+
+
+def _apply_block_options(f, unset: str | None):
+    """Attach one click option per block-settable field. See the caller above."""
+    decorators = []
+    for spec, opt in _option_specs():
+        flags = [f"--{spec.key}"]
+        if opt.short:
+            flags.insert(0, opt.short)
+        kwargs: dict = {"help": opt.help}
+        if opt.choices is not None:
+            # A choice-typed option defaults to None ("unset") rather than "",
+            # so click doesn't have to validate an empty default.
+            kwargs["type"] = click.Choice(opt.choices)
+            kwargs["default"] = None
+        else:
+            kwargs["default"] = unset
+        # Name the dest explicitly: click would derive it from the flag anyway,
+        # but stating it keeps kebab→snake mapping visible at this seam.
+        decorators.append(click.option(*flags, spec.attr, **kwargs))
+    # The follow keys are not task fields (they resolve into `follows` at
+    # creation time), so they ride as an explicit addendum — exactly as
+    # ``_BLOCK_KEYS`` unions them in.
+    decorators.append(
+        click.option(
+            "--follow", "follows", multiple=True,
+            help="Id this task follows (repeatable).",
+        )
+    )
+    decorators.append(
+        click.option(
+            "--follow-end", "follow_ends", multiple=True,
+            help="Follow the end leaves of the given id's follows-chain (repeatable).",
+        )
+    )
+    for decorator in reversed(decorators):
+        f = decorator(f)
+    return f
+
+
+def block_task_update_options(f):
+    """Apply ``task update``'s field options, derived from the same declaration.
+
+    The edit-time sibling of :func:`block_task_options`. Two things differ from
+    the create-time flags, which is why this is a separate derivation rather than
+    a shared one:
+
+    - **Unset means "leave alone".** Every option defaults to ``None`` so
+      :func:`task.update` can distinguish "not passed" from an explicit ``''``
+      that clears the field. The create-time flags default to ``''`` because
+      there is nothing to preserve.
+    - **Fewer fields.** Only those with an ``update_help`` are offered; ``parent``
+      is create-time only (re-parenting is ``--id``'s job).
+
+    Short flags are deliberately *not* carried over: ``task update`` has never had
+    them, and ``-b``/``-c`` on an edit command are easy to fire by accident.
+    """
+    decorators = []
+    for spec, opt in _option_specs():
+        if opt.update_help is None:
+            continue
+        kwargs: dict = {"help": opt.update_help, "default": None}
+        if opt.choices is not None:
+            kwargs["type"] = click.Choice(opt.choices)
+        decorators.append(click.option(f"--{spec.key}", spec.attr, **kwargs))
+    for decorator in reversed(decorators):
+        f = decorator(f)
+    return f
+
+
 @click.group("task")
 def task() -> None:
     """Manage the git-backed task notebook."""
@@ -301,51 +486,7 @@ def task() -> None:
 @click.option(
     "-p", "--project", default=None, help="Project name (default: from cwd)."
 )
-@click.option(
-    "-c", "--command", default="", help="Command to launch the session with."
-)
-@click.option(
-    "-m",
-    "--mode",
-    default="",
-    help="Session mode (default: plan; 'auto' for an unattended execute session, 'normal' for a non-planning session).",
-)
-@click.option(
-    "--priority",
-    type=click.Choice(model.PRIORITIES),
-    default=None,
-    help="Task priority (default: medium; affects list ordering and `task next`).",
-)
-@click.option(
-    "-b", "--branch", default="", help="Branch for the task (default: task/<id>)."
-)
-@click.option(
-    "-P", "--parent", default="", help="Parent task id (creates a child id)."
-)
-@click.option(
-    "--pre-action",
-    "pre_action",
-    default="",
-    help="Lifecycle action fired when the task starts (e.g. linear.in-progress).",
-)
-@click.option(
-    "--post-action",
-    "post_action",
-    default="",
-    help="Lifecycle action fired when the task finishes (e.g. linear.done).",
-)
-@click.option(
-    "--follow",
-    "follows",
-    multiple=True,
-    help="Id this task follows (repeatable).",
-)
-@click.option(
-    "--follow-end",
-    "follow_ends",
-    multiple=True,
-    help="Follow the end leaves of the given id's follows-chain (repeatable).",
-)
+@block_task_options
 @click.option(
     "--content-file",
     default=None,
@@ -388,6 +529,9 @@ def task_add(
     project: str | None,
     command: str,
     mode: str,
+    # NB: shadows the `task as model` module alias for this function's body — it
+    # is the --model flag's value here, and the body never needs the module.
+    model: str,
     priority: str | None,
     branch: str,
     parent: str,
@@ -410,6 +554,7 @@ def task_add(
         project=project,
         command=command,
         mode=mode,
+        model=model,
         priority=priority,
         branch=branch,
         parent=parent,
@@ -433,6 +578,10 @@ def add_task(
     project: str | None,
     command: str = "",
     mode: str = "",
+    # The task's LLM model (`claude --model`). This name shadows the `task as
+    # model` module alias for this body, which therefore reaches the model layer
+    # via the `task_model` binding instead.
+    model: str = "",
     priority: str | None = None,
     branch: str = "",
     parent: str = "",
@@ -447,14 +596,14 @@ def add_task(
     edit: bool = False,
     run: bool = False,
     here: bool = False,
-) -> "model.Task":
+) -> "task_model.Task":
     """Create a task (and optionally launch it), echoing its id.
 
     The single create-and-launch path shared by ``mael task add`` and any other
     command that creates a task (e.g. ``mael linear plan``), so there is exactly
     one place that resolves follows, creates the task, and runs it.
 
-    With ``from_id`` the task is seeded by :func:`model.duplicate` from that
+    With ``from_id`` the task is seeded by :func:`task.duplicate` from that
     source; the remaining flags override the copied recipe. ``is_template`` parks
     the new task in ``template/`` status and ``schedule`` sets its cron metadata.
     ``content`` of ``None`` means "unspecified" (so a duplicate keeps the
@@ -470,21 +619,22 @@ def add_task(
 
     follow_list = list(follows)
     for end_id in follow_ends:
-        follow_list.extend(model._resolve_follow_end(store, proj, end_id, parent))
+        follow_list.extend(task_model._resolve_follow_end(store, proj, end_id, parent))
     # De-dupe while preserving first-seen order.
     deduped = list(dict.fromkeys(follow_list))
 
-    status = model.STATUS_TEMPLATE if is_template else model.STATUS_TODO
+    status = task_model.STATUS_TEMPLATE if is_template else task_model.STATUS_TODO
 
     if from_id is not None:
         try:
-            new = model.duplicate(
+            new = task_model.duplicate(
                 store,
                 proj,
                 from_id,
                 title=title,
                 command=command or None,
                 mode=mode or None,
+                model=model or None,
                 priority=priority,
                 content=content,
                 pre_action=pre_action or None,
@@ -499,13 +649,14 @@ def add_task(
         except KeyError:
             raise click.ClickException(f"Task not found: {from_id}")
     else:
-        new = model.create(
+        new = task_model.create(
             store,
             project=proj,
             title=title or "",
             command=command,
             mode=mode,
-            priority=priority or model.DEFAULT_PRIORITY,
+            model=model,
+            priority=priority or task_model.DEFAULT_PRIORITY,
             branch=branch,
             parent=parent,
             pre_action=pre_action,
@@ -519,7 +670,7 @@ def add_task(
     click.echo(new.id)
     if edit:
         try:
-            model.edit_in_editor(store, proj, new.id, index=index)
+            task_model.edit_in_editor(store, proj, new.id, index=index)
         except KeyError:
             raise click.ClickException(f"Task not found: {new.id}")
         except RuntimeError as e:
@@ -1076,6 +1227,10 @@ def task_show(id: str, project: str | None) -> None:
     click.echo(f"project: {t.project}")
     click.echo(f"command: {t.command}")
     click.echo(f"mode:    {t.mode}")
+    # Conditional like parent/schedule: empty means "inherit the user's Claude
+    # Code default", which is nothing to report.
+    if t.model:
+        click.echo(f"model:   {t.model}")
     click.echo(f"priority: {t.priority}")
     click.echo(f"branch:  {t.branch}")
     if t.parent:
@@ -1153,27 +1308,7 @@ def task_log(id: str, msg: str, project: str | None) -> None:
     default=None,
     help="Re-key the task to this id, rewriting follows/parent references.",
 )
-@click.option("--branch", default=None, help="Set the task's branch.")
-@click.option("--command", default=None, help="Set the task's command/skill the session launches with.")
-@click.option("--mode", default=None, help="Set the task's mode (e.g. normal, plan).")
-@click.option(
-    "--priority",
-    type=click.Choice(model.PRIORITIES),
-    default=None,
-    help="Set the task's priority (affects list ordering and `task next`).",
-)
-@click.option(
-    "--pre-action",
-    "pre_action",
-    default=None,
-    help="Set the start lifecycle action (pass '' to clear).",
-)
-@click.option(
-    "--post-action",
-    "post_action",
-    default=None,
-    help="Set the finish lifecycle action (pass '' to clear).",
-)
+@block_task_update_options
 @click.option(
     "--schedule",
     default=None,
@@ -1192,13 +1327,16 @@ def task_update(
     branch: str | None,
     command: str | None,
     mode: str | None,
+    # Shadows the `task as model` module alias for this body, which therefore
+    # reaches the model layer via the `task_model` binding (see the imports).
+    model: str | None,
     priority: str | None,
     pre_action: str | None,
     post_action: str | None,
     schedule: str | None,
     content_file: str | None,
 ) -> None:
-    """Update a task's fields (title, branch, command, mode, actions, schedule, content).
+    """Update a task's fields (title, branch, command, mode, model, actions, schedule, content).
 
     With ``--id`` the task is re-keyed first (rewriting follows/parent references
     that point at it), then the remaining field updates apply to the new id.
@@ -1215,10 +1353,10 @@ def task_update(
         # worktree/branch are tied to the old id, so renaming would orphan a live
         # Claude session.
         try:
-            t = model.load(store, proj, id)
+            t = task_model.load(store, proj, id)
         except KeyError:
             raise click.ClickException(f"Task not found: {id}")
-        if t.status == model.STATUS_IN_PROGRESS:
+        if t.status == task_model.STATUS_IN_PROGRESS:
             raise click.ClickException(
                 f"Cannot change the id of in-progress task {id}; move it back to todo first."
             )
@@ -1232,7 +1370,7 @@ def task_update(
                 f"Task {id} has an open Claude session; close it before changing its id."
             )
         try:
-            model.rename(store, proj, id, new_id, index=index)
+            task_model.rename(store, proj, id, new_id, index=index)
         except KeyError:
             raise click.ClickException(f"Task not found: {id}")
         except ValueError as e:
@@ -1241,9 +1379,9 @@ def task_update(
         renamed = True
 
     try:
-        model.update(
+        task_model.update(
             store, proj, target, title=title, branch=branch, content=content,
-            command=command, mode=mode, priority=priority,
+            command=command, mode=mode, model=model, priority=priority,
             pre_action=pre_action, post_action=post_action,
             schedule=schedule, index=index,
         )

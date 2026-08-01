@@ -34,6 +34,22 @@ from pathlib import Path
 from typing import Iterator, Protocol
 
 
+_STALE_INDEX_MESSAGE = (
+    "Task index is from an older schema; run 'mael task reindex' to rebuild it."
+)
+
+
+class StaleTaskIndexError(Exception):
+    """An on-disk index.db predating a column this build needs.
+
+    ``CREATE TABLE IF NOT EXISTS`` leaves an existing database on its old schema,
+    so a build that adds a column finds it missing. Raised in place of the bare
+    ``sqlite3.OperationalError`` so the CLI can tell the user the one-line fix
+    (``mael task reindex``, which drops and recreates the table). The index is a
+    rebuildable cache of the ``.md`` tree, so no data is at risk.
+    """
+
+
 @dataclass(frozen=True)
 class TaskMeta:
     """The indexed metadata of a single task — a projection of a ``Task``.
@@ -53,6 +69,7 @@ class TaskMeta:
     follows: tuple[str, ...] = ()
     command: str = ""
     mode: str = ""
+    model: str = ""
     schedule: str = ""
     last_run: str = ""
     created: str = ""
@@ -132,6 +149,7 @@ _COLUMNS = (
     "follows",  # JSON-encoded list text
     "command",
     "mode",
+    "model",
     "schedule",
     "last_run",
     "created",
@@ -190,14 +208,15 @@ class SqliteTaskIndex:
         INDEX`` references a missing column and raises. That is swallowed here so
         ``_connect`` still succeeds and ``task reindex`` — which drops+recreates
         this table under the current schema, then rebuilds the index properly —
-        can run. A plain read against the un-reindexed old table still errors on
-        the missing column (the accepted upgrade path is ``task reindex``).
+        can run. A plain read/write against an un-reindexed old table still errors
+        on any column added since (``session_id``, ``model``); the accepted upgrade
+        path is ``task reindex``.
         """
         conn.execute(
             "CREATE TABLE IF NOT EXISTS tasks ("
             "project TEXT NOT NULL, id TEXT NOT NULL, status TEXT NOT NULL, "
             "title TEXT, priority TEXT, branch TEXT, parent TEXT, "
-            "follows TEXT, command TEXT, mode TEXT, schedule TEXT, "
+            "follows TEXT, command TEXT, mode TEXT, model TEXT, schedule TEXT, "
             "last_run TEXT, created TEXT, updated TEXT, session_id TEXT, "
             "PRIMARY KEY (project, id))"
         )
@@ -229,6 +248,7 @@ class SqliteTaskIndex:
             json.dumps(list(meta.follows)),
             meta.command,
             meta.mode,
+            meta.model,
             meta.schedule,
             meta.last_run,
             meta.created,
@@ -250,6 +270,7 @@ class SqliteTaskIndex:
             follows=follows,
             command=row["command"] or "",
             mode=row["mode"] or "",
+            model=row["model"] or "",
             schedule=row["schedule"] or "",
             last_run=row["last_run"] or "",
             created=row["created"] or "",
@@ -263,11 +284,19 @@ class SqliteTaskIndex:
         if op == "upsert":
             (meta,) = args
             placeholders = ", ".join("?" for _ in _COLUMNS)
-            conn.execute(
-                f"INSERT OR REPLACE INTO tasks ({', '.join(_COLUMNS)}) "
-                f"VALUES ({placeholders})",
-                self._to_row(meta),
-            )
+            try:
+                conn.execute(
+                    f"INSERT OR REPLACE INTO tasks ({', '.join(_COLUMNS)}) "
+                    f"VALUES ({placeholders})",
+                    self._to_row(meta),
+                )
+            except sqlite3.OperationalError as e:
+                # An on-disk table written under an older column set: every
+                # column in _COLUMNS must exist for this INSERT. Name the remedy
+                # rather than surfacing a bare "no column named <x>" — this is
+                # the first thing a user hits after pulling a schema change, and
+                # ``clear``/``reindex`` drops and recreates from the current DDL.
+                raise StaleTaskIndexError(_STALE_INDEX_MESSAGE) from e
         elif op == "remove":
             project, id = args
             conn.execute(
@@ -300,13 +329,26 @@ class SqliteTaskIndex:
         self._write("clear", ())
 
     # --- reads ---
+    #
+    # ``SELECT *`` succeeds on a legacy table; it is ``_from_row`` that then
+    # fails looking up a column the row doesn't carry. Both read paths route
+    # their row mapping through ``_rows`` so the remedy is named once.
+
+    def _row(self, row: "sqlite3.Row | None") -> "TaskMeta | None":
+        """Map one row, translating a legacy-schema miss into a named error."""
+        if row is None:
+            return None
+        try:
+            return self._from_row(row)
+        except (IndexError, KeyError) as e:
+            raise StaleTaskIndexError(_STALE_INDEX_MESSAGE) from e
 
     def find(self, project: str, id: str) -> "TaskMeta | None":
         conn = self._connect()
         row = conn.execute(
             "SELECT * FROM tasks WHERE project = ? AND id = ?", (project, id)
         ).fetchone()
-        return self._from_row(row) if row is not None else None
+        return self._row(row)
 
     def find_by_session_id(self, session_id: str) -> "TaskMeta | None":
         # A blank never resolves: "" is the default for never-launched rows, so
@@ -317,7 +359,7 @@ class SqliteTaskIndex:
         row = conn.execute(
             "SELECT * FROM tasks WHERE session_id = ? LIMIT 1", (session_id,)
         ).fetchone()
-        return self._from_row(row) if row is not None else None
+        return self._row(row)
 
     def list(
         self, project: str, *, status: str | None = None, parent: str | None = None
@@ -335,7 +377,9 @@ class SqliteTaskIndex:
             f"SELECT * FROM tasks WHERE {' AND '.join(clauses)} ORDER BY id",
             params,
         ).fetchall()
-        return [self._from_row(r) for r in rows]
+        # _row never returns None for a non-None row; the cast keeps the
+        # list-comprehension type honest.
+        return [meta for r in rows if (meta := self._row(r)) is not None]
 
     def head(self) -> str | None:
         conn = self._connect()

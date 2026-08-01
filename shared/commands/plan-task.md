@@ -104,8 +104,12 @@ the Linear `<ID>` is also in the brief in your prompt if you need it.
 The plan file is a load-many file: a short preamble (ignored by `load-many`, for the human reviewer)
 followed by `---CREATE TASK <name>---` blocks. Each block is `frontmatter` + `markdown body`; the
 body becomes the created task's Content. Frontmatter keys: `title` (required), `command`, `mode`,
-`priority`, `parent`, `branch`, `pre-action`, `post-action`, `follow`, `follow-end`. A block ends at
-the next open marker or EOF — so back-to-back blocks need no explicit terminator.
+`model`, `priority`, `parent`, `branch`, `pre-action`, `post-action`, `follow`, `follow-end`. A block
+ends at the next open marker or EOF — so back-to-back blocks need no explicit terminator.
+
+`model` pins the session's LLM (`claude --model`) — an alias like `opus` or a full id. Leave it unset
+on **execute** blocks so they inherit the user's default; set it on a `plan-next-step` tail block (see
+below).
 
 `branch` is rarely needed: tasks normally inherit their parent's branch (one PR per parent). Setting
 it opts the task out of that — it gets its own branch and therefore its own worktree and PR.
@@ -131,6 +135,11 @@ that omits `mode:` would wrongly re-plan instead of running its plan. Always set
   (Claude's classifier-vetted auto permission mode), no skill.
 - `mode: plan` on the **`plan-next-step`** tail block — the next increment is planned afresh. Add an optional `---END TASK <name>---` only when prose for the human reviewer
 follows a block (it stops that prose leaking into the block's body).
+
+**Set `model:` on the tail block** to the model *this* session is running — read it from your system
+prompt ("You are powered by the model named …") and write that literal alias (e.g. `model: opus`),
+not an env var. Planning is where the leverage is, so every planner in the chain stays on one model.
+Leave `model:` unset on execute blocks: they inherit the user's default.
 
 **Parent + chaining.** `load-many` defaults each block's `parent` to `$MAEL_TASK_PARENT`
 (`linear.<ID>`), so blocks omit `parent:` and nest under the Linear issue automatically. Chain with:
@@ -223,6 +232,7 @@ How to test this iteration.
 title: Plan next step
 command: plan-next-step
 mode: plan
+model: opus
 follow: iter1
 ---
 ## Remaining work
