@@ -105,6 +105,35 @@ class TestBuildClaudeCommand:
             "abc-123",
         ]
 
+    def test_with_model(self):
+        assert build_claude_command(model="opus") == ["claude", "--model", "opus"]
+
+    def test_model_is_free_form_passthrough(self):
+        # No validation enum — a full id passes through verbatim, exactly as an
+        # alias does; `claude` itself rejects a bad value.
+        assert build_claude_command(model="claude-opus-5") == [
+            "claude",
+            "--model",
+            "claude-opus-5",
+        ]
+
+    def test_empty_model_omits_the_flag(self):
+        # An unset model must leave `claude` on the user's configured default,
+        # never on a `--model ""` that would fail.
+        assert build_claude_command(model="") == ["claude"]
+        assert build_claude_command(model=None) == ["claude"]
+
+    def test_model_with_permission_mode_and_session_id(self):
+        assert build_claude_command("plan", "abc-123", model="opus") == [
+            "claude",
+            "--permission-mode",
+            "plan",
+            "--model",
+            "opus",
+            "--session-id",
+            "abc-123",
+        ]
+
 
 class TestBuildTaskLaunchLine:
     """Tests for the ``mael task prompt <id> | claude`` pipeline builder."""
@@ -122,6 +151,12 @@ class TestBuildTaskLaunchLine:
     def test_auto_permission_mode(self):
         assert describe(build_task_launch_line("proj", "t1", "auto")) == (
             "mael task prompt t1 --project proj | claude --permission-mode auto"
+        )
+
+    def test_model_reaches_the_claude_segment(self):
+        assert describe(build_task_launch_line("proj", "t1", "plan", model="opus")) == (
+            "mael task prompt t1 --project proj | "
+            "claude --permission-mode plan --model opus"
         )
 
     def test_session_id_appended(self):

@@ -19,6 +19,7 @@ from .session_cli import session as session_cli, session_channel as session_chan
 from .task_cli import task as task_cli
 from .task_cli import add_task
 from . import task as task_model
+from .task_index import StaleTaskIndexError
 from .task_store import GitFileStore
 from .schedule_launchd import schedule_group
 from .env import get_env_status, regenerate_and_restart_if_running, stop_env, stop_sessions
@@ -1188,6 +1189,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except click.ClickException as e:
         e.show()
+        return 1
+    except StaleTaskIndexError as e:
+        # Handled here rather than per-command: any task command can be the one
+        # that first touches a pre-schema-change index.db, and the remedy
+        # (`mael task reindex`) is the same for all of them.
+        click.echo(f"Error: {e}", err=True)
         return 1
     except SystemExit as e:
         return e.code if isinstance(e.code, int) else 0

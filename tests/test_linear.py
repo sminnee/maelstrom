@@ -77,6 +77,79 @@ class TestCmdPlan:
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["run"] is False
 
+    @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
+    @patch("maelstrom.task_cli.add_task")
+    @patch("maelstrom.integrations.linear.get_issue")
+    def test_plan_defaults_to_opus(self, mock_get, mock_add):
+        # Planning is pinned to Opus: the plan is the leverage point, so the
+        # created plan-task session runs there regardless of the user's default.
+        mock_get.return_value = {
+            "identifier": "ME-99", "title": "T", "description": "",
+        }
+        result = CliRunner().invoke(linear, ["plan", "ME-99"])
+        assert result.exit_code == 0, result.output
+        assert mock_add.call_args.kwargs["model"] == "opus"
+
+    @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
+    @patch("maelstrom.task_cli.add_task")
+    @patch("maelstrom.integrations.linear.get_issue")
+    def test_plan_flags_override_the_planning_defaults(self, mock_get, mock_add):
+        # Every hardcoded planning value is now a *default* the matching flag
+        # overrides — the point of applying the shared decorator here.
+        mock_get.return_value = {
+            "identifier": "ME-99", "title": "T", "description": "",
+        }
+        result = CliRunner().invoke(linear, [
+            "plan", "ME-99",
+            "--model", "sonnet", "--mode", "auto", "--command", "other",
+            "--parent", "custom", "--post-action", "sentry.resolved",
+        ])
+        assert result.exit_code == 0, result.output
+        kwargs = mock_add.call_args.kwargs
+        assert kwargs["model"] == "sonnet"
+        assert kwargs["mode"] == "auto"
+        assert kwargs["command"] == "other"
+        assert kwargs["parent"] == "custom"
+        assert kwargs["post_action"] == "sentry.resolved"
+
+    @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
+    @patch("maelstrom.task_cli.add_task")
+    @patch("maelstrom.integrations.linear.get_issue")
+    def test_plan_empty_value_clears_rather_than_defaults(self, mock_get, mock_add):
+        # distinguish_unset: an explicit '' must mean "empty", matching
+        # `task add`, not silently fall back to the planning default.
+        mock_get.return_value = {
+            "identifier": "ME-99", "title": "T", "description": "",
+        }
+        result = CliRunner().invoke(
+            linear, ["plan", "ME-99", "--post-action", "", "--command", ""]
+        )
+        assert result.exit_code == 0, result.output
+        kwargs = mock_add.call_args.kwargs
+        assert kwargs["post_action"] == ""
+        assert kwargs["command"] == ""
+
+    @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
+    @patch("maelstrom.task_cli.add_task")
+    @patch("maelstrom.integrations.linear.get_issue")
+    def test_plan_explicit_branch_skips_generation(self, mock_get, mock_add, monkeypatch):
+        # Branch generation shells out to `claude -p`; an explicit --branch must
+        # skip it entirely rather than generate-then-discard.
+        mock_get.return_value = {
+            "identifier": "ME-99", "title": "T", "description": "",
+        }
+        calls = []
+        monkeypatch.setattr(
+            "maelstrom.branch_name.generate_branch_name",
+            lambda *a, **k: calls.append(a) or "generated",
+        )
+        result = CliRunner().invoke(
+            linear, ["plan", "ME-99", "--branch", "mine/explicit"]
+        )
+        assert result.exit_code == 0, result.output
+        assert mock_add.call_args.kwargs["branch"] == "mine/explicit"
+        assert calls == []
+
     @patch("maelstrom.task_cli.add_task")
     @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_forwards_project(self, mock_get, mock_add):

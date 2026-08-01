@@ -74,6 +74,25 @@ class TestRoundTrip:
         back = Task.from_markdown(t.to_markdown())
         assert back.branch == "fix/login"
 
+    @pytest.mark.parametrize("value", ["opus", "claude-opus-5"])
+    def test_model_round_trips(self, value):
+        # Free-form passthrough: an alias and a full id must both survive
+        # unchanged (no validation, nothing to keep in sync as models ship).
+        t = Task(id="x", title="t", project="p", model=value)
+        back = Task.from_markdown(t.to_markdown())
+        assert back.model == value
+
+    def test_missing_model_defaults_to_empty(self):
+        # An old/hand-edited file with no ``model`` key must still load; empty
+        # means "inherit the user's Claude Code default" (no --model emitted).
+        text = (
+            "---\n"
+            "id: x\ntitle: t\nproject: p\ncommand: \"\"\nmode: normal\n"
+            "created: c\nupdated: u\n"
+            "---\n\n## Content\n\n\n## Steps\n\n\n## Log\n\n"
+        )
+        assert Task.from_markdown(text).model == ""
+
     @pytest.mark.parametrize("priority", ["critical", "high", "low"])
     def test_priority_round_trips(self, priority):
         t = Task(id="x", title="t", project="p", priority=priority)
@@ -1162,6 +1181,13 @@ class TestParseTaskBlocks:
         assert blocks[0]["args"]["pre-action"] == "linear.in-progress"
         assert blocks[0]["args"]["post-action"] == "linear.done"
 
+    def test_model_is_block_settable(self):
+        # ``model`` joined _BLOCK_KEYS via TASK_FIELDS, so a block may set it —
+        # this is the vocabulary the plan templates write.
+        text = "---CREATE TASK a---\ntitle: A\nmodel: opus\n---\nbody\n"
+        blocks, _ = model.parse_task_blocks(text)
+        assert blocks[0]["args"]["model"] == "opus"
+
     def test_hyphenated_marker_name_parses(self):
         # A hyphenated name is now valid (block names share is_safe_id's
         # character class, [A-Za-z0-9._-]+) — it must parse, not be rejected.
@@ -1250,6 +1276,17 @@ class TestLoadMany:
         ]
         created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
         assert created[0].follows == [seed.id]
+
+    def test_block_model_reaches_the_created_task(self, store):
+        blocks = [
+            {"name": "a", "args": {"title": "A", "model": "opus"}, "content": ""},
+            {"name": "b", "args": {"title": "B"}, "content": ""},
+        ]
+        created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
+        a, b = created
+        assert a.model == "opus"
+        # An omitted key leaves the task inheriting the user's default.
+        assert b.model == ""
 
     def test_block_actions_are_applied(self, store):
         blocks = [

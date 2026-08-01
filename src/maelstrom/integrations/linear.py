@@ -10,6 +10,10 @@ import click
 
 from ..config import load_config_or_default
 from ..context import resolve_context
+# Imported at module scope (not lazily, like the rest of ``task_cli`` here)
+# because ``block_task_options`` is applied as a decorator at import time.
+# ``task_cli`` does not import this module, so there is no cycle.
+from ..task_cli import block_task_options
 from ._auth import resolve_secret
 from ._http import request_bytes, request_json
 
@@ -730,6 +734,7 @@ def localize_description_images(
 @linear.command("plan")
 @click.argument("issue_id")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
+@block_task_options(distinguish_unset=True)
 @click.option(
     "--run/--no-run",
     default=True,
@@ -740,7 +745,22 @@ def localize_description_images(
     is_flag=True,
     help="With --run, launch in the current shell (no worktree, no new workspace).",
 )
-def cmd_plan(issue_id: str, project: str | None, run: bool, here: bool) -> None:
+def cmd_plan(
+    issue_id: str,
+    project: str | None,
+    command: str | None,
+    mode: str | None,
+    model: str | None,
+    branch: str | None,
+    parent: str | None,
+    pre_action: str | None,
+    post_action: str | None,
+    priority: str | None,
+    follows: tuple[str, ...],
+    follow_ends: tuple[str, ...],
+    run: bool,
+    here: bool,
+) -> None:
     """Seed a notebook planning task from a Linear issue.
 
     Thin wrapper over ``mael task add``: fetches the issue brief and creates a
@@ -749,6 +769,15 @@ def cmd_plan(issue_id: str, project: str | None, run: bool, here: bool) -> None:
     immediately; pass ``--no-run`` to create the task without launching. All
     worktree/launch behaviour comes from the shared ``task add`` path — this
     command adds only the brief fetch and argument assembly.
+
+    Every block-settable field is exposed via the shared ``block_task_options``
+    decorator, so this command's vocabulary can't drift from ``task add``'s. The
+    planning-specific values (``plan-task``/``plan`` mode/``opus``/the
+    ``linear.<ID>`` parent/``linear.planned``) are *defaults* the matching flag
+    overrides; only ``title`` stays fixed at ``Plan <identifier>``. The options
+    default to ``None`` (``distinguish_unset``) rather than ``''``, so passing an
+    explicit empty value — ``--post-action ''`` — clears the field instead of
+    falling back to the planning default, matching ``task add``'s semantics.
     """
     from .. import branch_name, task_cli
 
@@ -771,20 +800,36 @@ def cmd_plan(issue_id: str, project: str | None, run: bool, here: bool) -> None:
     # NORT-123" task we create, so compute the descriptive branch here and pass
     # it explicitly. The bare issue number leads the desc; an explicit branch
     # wins over default_branch and is shared by all children of this parent.
-    branch = branch_name.generate_branch_name(
-        title, description, prefix=identifier.split("-")[-1]
+    # Skipped entirely when --branch is given (including an explicit ''):
+    # generation shells out to `claude -p`, so an overridden branch also spares
+    # that LLM call. An empty --branch falls through to create()'s own
+    # sibling/parent inheritance, same as on `task add`.
+    resolved_branch = (
+        branch
+        if branch is not None
+        else branch_name.generate_branch_name(
+            title, description, prefix=identifier.split("-")[-1]
+        )
     )
 
     task_cli.add_task(
         title=f"Plan {identifier}",
         project=resolved_project,
-        command="plan-task",
-        mode="plan",  # planning always runs in plan mode, independent of DEFAULT_MODE
-        parent=f"linear.{identifier}",
-        branch=branch,
-        content=brief,
+        command="plan-task" if command is None else command,
+        # Planning always runs in plan mode, independent of DEFAULT_MODE.
+        mode="plan" if mode is None else mode,
+        # Planning runs on Opus by default: the plan is the leverage point, and
+        # the sessions the chain goes on to launch inherit their own model.
+        model="opus" if model is None else model,
+        parent=f"linear.{identifier}" if parent is None else parent,
+        branch=resolved_branch,
+        pre_action=pre_action or "",
         # Finishing the planning session moves the Linear issue to Planned.
-        post_action="linear.planned",
+        post_action="linear.planned" if post_action is None else post_action,
+        priority=priority,
+        follows=follows,
+        follow_ends=follow_ends,
+        content=brief,
         run=run,
         here=here,
     )

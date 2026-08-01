@@ -9,11 +9,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import click
 import pytest
 from click.testing import CliRunner
 
 from maelstrom import task as model
 from maelstrom import task_cli
+from maelstrom.integrations.linear import cmd_plan
 from maelstrom.shell import describe
 from maelstrom.task_store import InMemoryStore
 from maelstrom.worktree import WorktreeSetup
@@ -527,6 +529,35 @@ class TestRun:
         assert f"Running {t.id} on {t.branch}" in result.output
         assert "→ p/bravo (created)" in result.output
 
+    def test_run_passes_the_tasks_model_to_the_launcher(
+        self, runner, store, launch
+    ):
+        t = model.create(store, project="p", title="Plan it", model="opus")
+        result = runner.invoke(task_cli.task, ["run", t.id])
+        assert result.exit_code == 0, result.output
+        assert launch.session.call_args.kwargs["model"] == "opus"
+
+    def test_run_without_a_model_passes_none(self, runner, store, launch):
+        # Empty must reach the launcher as None (no --model), not as "".
+        t = model.create(store, project="p", title="Plan it")
+        result = runner.invoke(task_cli.task, ["run", t.id])
+        assert result.exit_code == 0, result.output
+        assert launch.session.call_args.kwargs["model"] is None
+
+    def test_run_here_passes_the_model_too(
+        self, runner, store, launch, monkeypatch
+    ):
+        # The --here placement builds its own launch line, so it needs its own
+        # coverage: a model set on the task must reach that argv as well.
+        calls = []
+        monkeypatch.setattr(
+            task_cli, "run_cmd", lambda cmd, **kw: calls.append(describe(cmd))
+        )
+        t = model.create(store, project="p", title="Plan it", model="opus")
+        result = runner.invoke(task_cli.task, ["run", t.id, "--here"])
+        assert result.exit_code == 0, result.output
+        assert "--model opus" in calls[0]
+
     def test_run_rolls_back_to_todo_when_placement_fails(
         self, runner, store, launch
     ):
@@ -895,6 +926,111 @@ class TestAddShortFlags:
         assert result.exit_code == 0, result.output
         new_id = result.output.splitlines()[0].strip()
         assert model.load(store, "p", new_id).parent == parent.id
+
+
+class TestAddModel:
+    def test_model_flag_sets_the_field(self, runner, store):
+        # No short flag by design: -m is --mode's.
+        result = runner.invoke(task_cli.task, ["add", "T", "--model", "opus"])
+        assert result.exit_code == 0, result.output
+        new_id = result.output.splitlines()[0].strip()
+        assert model.load(store, "p", new_id).model == "opus"
+
+
+def _block_option_keys() -> set[str]:
+    """The block-settable field keys that must appear as CLI flags."""
+    return {
+        f.key
+        for f in model.TASK_FIELDS
+        if f.block and f.key not in task_cli._NON_OPTION_BLOCK_KEYS
+    }
+
+
+class TestBlockTaskOptionsParity:
+    """The mechanism that keeps the CLI vocabulary and _BLOCK_KEYS from drifting.
+
+    Commit 497e63a fixed exactly this class of drift for the key tables ("the
+    same field set was hand-listed in four places … which is how ``branch`` came
+    to be missing"). These assertions make a new block-settable field fail loudly
+    instead of silently going missing from every task-creating command.
+    """
+
+    def test_every_block_field_has_an_option_row(self):
+        missing = _block_option_keys() - set(task_cli._BLOCK_OPTIONS)
+        assert not missing, f"add a _BLOCK_OPTIONS row for: {sorted(missing)}"
+
+    def test_no_stale_option_rows(self):
+        # The converse: a row for a field no longer block-settable (or renamed)
+        # would silently render a flag the model can't accept.
+        stale = set(task_cli._BLOCK_OPTIONS) - _block_option_keys()
+        assert not stale, f"remove stale _BLOCK_OPTIONS rows: {sorted(stale)}"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            pytest.param(task_cli.task_add, id="task-add"),
+            pytest.param(cmd_plan, id="linear-plan"),
+        ],
+    )
+    def test_command_exposes_every_block_field(self, command):
+        names = {p.name for p in command.params}
+        expected = {
+            f.attr
+            for f in model.TASK_FIELDS
+            if f.block and f.key not in task_cli._NON_OPTION_BLOCK_KEYS
+        }
+        assert expected <= names
+        # The follow keys ride as an explicit addendum, mirroring _BLOCK_KEYS.
+        assert {"follows", "follow_ends"} <= names
+
+    def test_short_flags_are_preserved(self):
+        # The pre-existing shorts are behaviour: -c/-m/-b/-P must keep working
+        # after the hand-written options became derived ones.
+        opts = {p.name: p for p in task_cli.task_add.params}
+        assert "-c" in opts["command"].opts
+        assert "-m" in opts["mode"].opts
+        assert "-b" in opts["branch"].opts
+        assert "-P" in opts["parent"].opts
+
+    def test_priority_keeps_its_choices(self):
+        opts = {p.name: p for p in task_cli.task_add.params}
+        assert isinstance(opts["priority"].type, click.Choice)
+        assert tuple(opts["priority"].type.choices) == model.PRIORITIES
+
+    def test_help_lists_every_block_flag(self, runner):
+        result = runner.invoke(task_cli.task, ["add", "--help"])
+        assert result.exit_code == 0, result.output
+        for key in _block_option_keys():
+            assert f"--{key}" in result.output
+
+    def test_update_exposes_every_updatable_block_field(self):
+        # `task update` is the edit-time sibling derivation; it must cover every
+        # field that carries update_help, so the same drift can't reappear there.
+        names = {p.name for p in task_cli.task_update.params}
+        expected = {
+            spec.attr
+            for spec, opt in task_cli._option_specs()
+            if opt.update_help is not None
+        }
+        assert expected <= names
+        # `model` is the field this commit added — assert it by name so the test
+        # states the concrete regression, not just the abstract rule.
+        assert "model" in names
+
+    def test_update_options_default_to_none(self):
+        # Unset must stay distinguishable from an explicit '' so `task update`
+        # can leave a field alone vs clear it.
+        opts = {p.name: p for p in task_cli.task_update.params}
+        for spec, opt in task_cli._option_specs():
+            if opt.update_help is None:
+                continue
+            assert opts[spec.attr].default is None, spec.key
+
+    def test_update_omits_create_only_fields(self):
+        # `parent` has no update_help: re-parenting moves id and branch, which is
+        # `--id`'s job, so it must not appear as a field edit.
+        names = {p.name for p in task_cli.task_update.params}
+        assert "parent" not in names
 
 
 class TestNextRun:
@@ -1602,6 +1738,40 @@ class TestPriority:
         result = runner.invoke(task_cli.task, ["show", t.id])
         assert result.exit_code == 0, result.output
         assert "priority: high" in result.output
+
+    def test_update_sets_the_model(self, runner, store):
+        t = model.create(store, project="p", title="alpha")
+        result = runner.invoke(task_cli.task, ["update", t.id, "--model", "opus"])
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", t.id).model == "opus"
+
+    def test_update_clears_the_model_with_empty_string(self, runner, store):
+        t = model.create(store, project="p", title="alpha", model="opus")
+        result = runner.invoke(task_cli.task, ["update", t.id, "--model", ""])
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", t.id).model == ""
+
+    def test_update_without_model_leaves_it_alone(self, runner, store):
+        # The default=None "unset" semantics: touching another field must not
+        # blank the model.
+        t = model.create(store, project="p", title="alpha", model="opus")
+        result = runner.invoke(task_cli.task, ["update", t.id, "--branch", "x"])
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", t.id).model == "opus"
+
+    def test_show_prints_model_when_set(self, runner, store):
+        t = model.create(store, project="p", title="alpha", model="opus")
+        result = runner.invoke(task_cli.task, ["show", t.id])
+        assert result.exit_code == 0, result.output
+        assert "model:   opus" in result.output
+
+    def test_show_omits_model_when_unset(self, runner, store):
+        # Empty means "inherit the user's default" — nothing to report, so the
+        # line is suppressed like parent/schedule.
+        t = model.create(store, project="p", title="alpha")
+        result = runner.invoke(task_cli.task, ["show", t.id])
+        assert result.exit_code == 0, result.output
+        assert "model:" not in result.output
 
     def test_list_orders_critical_above_low(self, runner, store):
         low = model.create(store, project="p", title="low one", priority="low")

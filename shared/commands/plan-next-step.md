@@ -90,6 +90,12 @@ unattended (Claude's classifier-vetted auto permission mode) instead of re-plann
 on the **`tail`** block so the next `plan-next-step` session opens in plan mode. New tasks default to
 plan mode, so the execute block's `mode: auto` is required.
 
+Set `model:` on the **`tail`** block to the model *this* session is running — read it from your
+system prompt ("You are powered by the model named …") and write that literal alias (e.g.
+`model: opus`), not an env var, so the task file stays self-describing. This keeps every planner in
+the chain on one model. Leave `model:` unset on the execute (`step`) block — it inherits the user's
+Claude Code default.
+
 Put lifecycle actions on the **execute** (`step`) block so each step mirrors itself to Linear. Set
 `pre-action: linear.in-progress` (fired on launch) on every step, whether or not a `tail` follows.
 
@@ -123,6 +129,7 @@ follow-end: "*"
 title: Plan next step
 command: plan-next-step
 mode: plan
+model: opus
 follow: step
 ---
 ## Remaining work
