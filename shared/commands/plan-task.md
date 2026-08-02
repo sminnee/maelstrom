@@ -44,7 +44,8 @@ it yourself.
    - Understand current implementation state.
 
 4. **Classify Session Type**:
-   - **Single-session**: less than ~500 lines of new code; completable in one session.
+   - **Single-session**: up to ~1500 lines of new code — a session's worth, landing as several
+     ~500-line commits; completable in one session.
    - **Multi-session**: larger scope, or a mechanical transformation whose mechanical piece should
      land first.
    - Use AskUserQuestion to confirm the classification with the user.
@@ -111,8 +112,15 @@ ends at the next open marker or EOF — so back-to-back blocks need no explicit 
 on **execute** blocks so they inherit the user's default; set it on a `plan-next-step` tail block (see
 below).
 
-`branch` is rarely needed: tasks normally inherit their parent's branch (one PR per parent). Setting
-it opts the task out of that — it gets its own branch and therefore its own worktree and PR.
+**Leave `branch:` unset on every block.** Tasks inherit their parent's branch, and that default is
+what keeps all iterations of the plan on **one branch** — so the whole task accumulates into a
+**single PR** rather than N separate ones. Each iteration's `create-pr` appends to the PR already
+open on that branch instead of opening another. The task can then be merged **as a whole, once
+every iteration is complete**, rather than iteration-by-iteration as each lands.
+
+Setting `branch:` opts a task out: it gets its own branch, worktree, and PR. That is for genuinely
+unrelated work — **not** for splitting the iterations of one task, which forks a second worktree and
+PR mid-task and gives up the single accumulating PR.
 
 **Lifecycle actions** (`pre-action` / `post-action`) fire a Linear/Sentry status change when the
 task starts / finishes, against the `linear.<ID>` parent. Use them so the chain mirrors itself to
@@ -152,8 +160,8 @@ Leave `model:` unset on execute blocks: they inherit the user's default.
 
 ### Single-Session Plan
 
-For tasks completable in one session (~500 lines or less) — one execute block whose body is the full
-implementation plan:
+For tasks completable in one session (up to ~1500 lines of new code — a session's worth, landing as
+several ~500-line commits) — one execute block whose body is the full implementation plan:
 
 ```markdown
 This plan creates the notebook chain for <ID>. To execute this plan, run these
@@ -222,7 +230,9 @@ Detailed architectural changes across the whole task:
 - Changes to existing interfaces or data flow
 
 ## Iteration 1 scope
-Concrete scope for this first execute session.
+Concrete scope for this first execute session — a thin **vertical** slice cutting through every
+layer it touches, shipping its own tests and delivering user-visible behaviour, sized at up to
+~1500 lines across several ~500-line commits. Not a layer ("the back end", "the tests").
 - ...
 
 ## Verification
@@ -246,13 +256,30 @@ A summary of iteration-1 scope plus the overall goal / architecture context the 
 The chain replaces the old rolling `## Next Iteration` / `## Completed Iteration` machinery that
 used to live in the Linear
 description. Each iteration should:
+- Be a **thin vertical slice**: an end-to-end cut through every layer it touches (back end, front
+  end, and its own tests), delivering user-visible behaviour. Layer-shaped iterations — "the back-end
+  API", "the front end", "the e2e tests" — are an **antipattern**; a plan whose iterations are named
+  after layers has been sliced the wrong way, so re-cut it.
+- **Ship its tests with the slice they cover.** No test-only iterations: the tests for a slice belong
+  in that slice's session.
+- Be sized at up to ~1500 lines of new code — one execute session, landing as several ~500-line
+  commits.
 - Be independently testable and pass CI when merged.
 - Not break existing functionality.
-- Not necessarily deliver end-user functionality (a back-end API before the front-end, or an enabling
-  refactor, are valid iterations).
+- Land on the plan's **shared branch** — leave `branch:` unset so every iteration continues on the
+  same branch, appending to one accumulating PR that can be merged as a whole once every iteration
+  is done.
 - Be ordered by dependency (later iterations can depend on earlier ones).
 - For mechanical transformations: describe the mechanism clearly and note where test/type coverage
   gives confidence.
+  - The same applies to an enabling refactor that is *genuinely* mechanical and cannot be folded
+    into the slice that needs it. This is a narrow exception to the vertical-slice rule above — it
+    does not license splitting feature work by layer.
+
+**Aim for ≤3 iterations per task.** If the breakdown seems to need more, that usually means the
+slices are too thin or sliced by layer — re-cut them vertically first. If it genuinely still needs
+more than three, **stop and ask the user** (AskUserQuestion) whether to split the issue into
+separate tasks or approve a longer chain — rather than silently emitting one.
 
 ## Implementation Notes
 

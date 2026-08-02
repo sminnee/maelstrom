@@ -45,8 +45,13 @@ reality, plan the top item, and hand the next planner an updated tail.
 3. **Plan one concrete step**: Take the **top** item from the remaining-work list and plan it in
    detail — a single, mergeable, independently-testable increment.
    - **Strong bias toward finishing**: if the remaining work is small enough to complete in one
-     execute session (~500 lines or less), plan to finish ALL of it. Each step must leave less work
-     than it found.
+     execute session (up to ~1500 lines of new code — a session's worth, landing as several
+     ~500-line commits), plan to finish ALL of it. Each step must leave less work than it found.
+   - **Re-cut a layer-shaped tail.** The remaining-work list you inherited may itself be sliced by
+     layer ("the front end", "the e2e tests") — an older plan file, or a planner that sliced wrong.
+     Do not faithfully reproduce that. Re-cut the remaining work into thin **vertical** slices (each
+     an end-to-end cut through every layer it touches, shipping its own tests) and plan the top one,
+     handing the re-cut list to the next planner in the `tail` body.
    - Use AskUserQuestion to confirm scope if the boundary is unclear.
    - **Decide: is this the final step?** After scoping, judge whether this step exhausts the
      remaining-work list. That decision picks the plan template (final = no `tail`).
@@ -95,6 +100,13 @@ system prompt ("You are powered by the model named …") and write that literal 
 `model: opus`), not an env var, so the task file stays self-describing. This keeps every planner in
 the chain on one model. Leave `model:` unset on the execute (`step`) block — it inherits the user's
 Claude Code default.
+
+**Leave `branch:` unset on the `step` block** (and on the `tail`). Tasks inherit their parent's
+branch, so every step continues on the **same branch** as the steps before it and `create-pr`
+appends to the PR already open there rather than opening another. That keeps the whole task in one
+accumulating PR, which can be merged **as a whole once every step is complete**, rather than
+step-by-step as each lands. Setting `branch:` forks a new worktree and a separate PR mid-task and
+gives that up.
 
 Put lifecycle actions on the **execute** (`step`) block so each step mirrors itself to Linear. Set
 `pre-action: linear.in-progress` (fired on launch) on every step, whether or not a `tail` follows.
@@ -179,6 +191,9 @@ identically whether the parent is a Linear id or a planning task's own id.
 
 - **Plan mode required**: the `tail` block sets `mode: plan`, so a `plan-next-step` session launches
   in plan mode already; if it didn't, switch via `EnterPlanMode` rather than failing.
-- **One step per session**: plan exactly one increment; let the chain carry the rest.
+- **One step per session**: plan exactly one increment; let the chain carry the rest. One step, not
+  one *small* step — the increment should be a substantial vertical slice (sized up to ~1500 lines,
+  several ~500-line commits), not a layer or a sliver. Where the remaining work is smaller than
+  that, the bias toward finishing wins — don't pad a step to reach the number.
 - **No Linear writes**: never write the plan back to a Linear description.
 - **Progress tracking**: use TodoWrite to track planning progress.
