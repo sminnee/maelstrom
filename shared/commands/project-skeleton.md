@@ -249,7 +249,7 @@ bin/dev to start, bin/test to test, bin/lint to lint, bin/ci-check for full CI c
 **Always load the `/mael` skill before beginning any work.** It provides essential instructions for
 git operations, commits, branches, PRs, Linear tasks, and development workflows.
 
-**Plan mode is required** for `/plan-task`, `/create-subtasks`, and `/review-branch` commands.
+**Plan mode is required** for `/plan-task` and `/review-branch` commands.
 ```
 
 #### .claude/settings.json Generation

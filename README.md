@@ -308,7 +308,6 @@ Once installed, these skills are available in Claude Code:
 | `/mael` | Load git workflow, Linear, Sentry, and env management instructions |
 | `mael linear plan ISSUE_ID [--run]` | Seed a notebook planning task from a Linear brief (launches `plan-task`) |
 | `mael task next --run` | Launch the next ready task in the notebook chain |
-| `/create-subtasks ISSUE_ID` | Break a task into subtasks (requires plan mode) |
 | `/review-branch` | Review code changes before creating a PR (requires plan mode) |
 
 ## Development
