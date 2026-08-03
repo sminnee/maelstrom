@@ -3,6 +3,18 @@ git operations, commits, branches, PRs, Linear tasks, and development workflows.
 
 **Plan mode is required** for the `/plan-task` and `/plan-next-step` skills.
 
+## Language
+
+Write in ASD-STE100 (Simplified Technical English) where possible: short sentences, one
+instruction per sentence, active voice, approved words in their approved meaning.
+
+Two allowances on top of plain STE:
+
+- A minimal amount of software development vocabulary is acceptable (commit, branch, rebase,
+  fixture, type check).
+- Assume the reader knows this project's architecture. Do not explain what a worktree, a task,
+  or a port base is.
+
 ## Finishing a task — run automatically, do not wait to be asked
 
 When implementation work is complete and gates (tests, lint, typecheck) pass, run this
