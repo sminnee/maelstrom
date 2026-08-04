@@ -3,6 +3,22 @@ git operations, commits, branches, PRs, Linear tasks, and development workflows.
 
 **Plan mode is required** for the `/plan-task` and `/plan-next-step` skills.
 
+## Branches — do not change them
+
+Maelstrom assigns the branch for this worktree. Stay on it.
+
+**Never run `git checkout -b`, `git switch -c`, `git branch <name>`, or
+`git checkout <other-branch>`.** If you think the work needs a different branch, stop and ask
+the user first.
+
+Two things that look like a reason to make a new branch are not:
+
+- **The branch already has a merged PR.** `mael gh create-pr` opens a new PR on the same
+  branch. `mael sync` rebases the branch onto `origin/main`, and commits that already merged
+  drop out of the rebase. A recycled branch is normal.
+- **The branch already has commits.** Many commits on one branch are normal. Tasks in one
+  chain share one branch and one PR, so the work merges as a whole.
+
 ## Language
 
 Write in ASD-STE100 (Simplified Technical English) where possible: short sentences, one

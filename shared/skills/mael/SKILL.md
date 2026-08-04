@@ -9,6 +9,31 @@ description: "Git workflow, commits, PRs, branches. Also Linear tasks, Sentry de
 
 **Prefer `mael` commands over raw `git`/`gh`** — they handle worktree context, Linear integration, and status transitions automatically. Use `mael git status` not `git status`, `mael sync` not `git pull --rebase`, `mael gh create-pr` not `gh pr create`, `mael gh read-pr` not `gh pr view`, etc.
 
+## Branches
+
+**`mael` owns the branch. Do not change it.** The task launch puts the session on the correct
+branch before you start. Never run `git checkout -b`, `git switch -c`, `git branch <name>`, or
+`git checkout <other-branch>`. If you think the work needs a different branch, stop and ask the
+user first.
+
+**A recycled branch is normal — `mael` handles it correctly.**
+
+- `mael gh create-pr` reuses a PR only while it is **open**. A merged or closed PR falls through
+  to `gh pr create`, so the same branch gets a new PR. The push uses `--force-with-lease`, so it
+  updates an existing remote branch instead of rejecting it.
+- `mael sync` rebases the branch onto `origin/main` before it pushes. Commits that already
+  merged drop out of the rebase.
+
+**One branch per parent chain.** The branch belongs to the task, not to the worktree. The first
+task under a parent owns the branch, and later siblings in that chain reuse it. This is what
+`--parent` does, and it is why the chain lands as one PR. Many commits on one branch are normal.
+
+**A reopened worktree continues on its branch.** `mael close --force` keeps the branch and its
+unmerged commits, so `/reopen-branch` expects you to carry on there.
+
+If you see old or already-merged commits on your branch, ask the user. Do not make a new branch.
+`mael tidy-branches` clears stale branches out of band.
+
 ## Planning & Doing Work — the task notebook
 
 The primary workflow is the **git-backed task notebook** (`mael task …`). You no longer type
