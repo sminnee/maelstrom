@@ -90,6 +90,8 @@ Run this loop. Each iteration is one CI cycle.
 - **Autonomous loop**: do not stop to ask the user between iterations. Fix → commit → sync → wait,
   and keep going until green. The only stopping conditions are CI pass, CI timeout, or a failure you
   genuinely cannot fix (report what's blocking you and stop).
+- **Stay on the PR's branch.** Never make a new branch here. Every fixup and every `chore:` commit
+  goes on the branch that is already checked out.
 - **Fix everything CI reports**, not just failures attributable to this PR — a red pipeline blocks
   the merge regardless of cause.
 - **Fixup vs chore** is the key call each fix: PR-caused → `git commit --fixup <sha>`;
