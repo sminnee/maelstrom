@@ -1,5 +1,3 @@
-@.claude/CLAUDE.local.md
-
 # CLAUDE.md
 
 @.claude/CLAUDE.local.md
@@ -22,25 +20,43 @@ bin/lint                           # Run pyright type checking (gate before comm
 
 ## Developer Documentation
 
-See `docs/dev/` for detailed architecture and design docs:
+See `docs/dev/` for architecture and design docs:
 
-- `docs/dev/architecture-patterns.md` - Canonical layered-architecture conventions for the Python core (storage / model / CLI layers), using the task subsystem as the worked reference
+- `docs/dev/architecture-patterns.md` — canonical layered-architecture conventions for the
+  Python core (storage / model / CLI layers), using the task subsystem as the worked reference.
+- `docs/dev/tasks.md` — the task domain model: `parent` vs `follows`, dotted ids, session discovery.
+- `docs/dev/scheduled-tasks.md` — launchd firing mechanics for template tasks.
+
+## User Documentation
+
+User-facing documentation lives in `docs/guide/` and `docs/reference/`. Read it before you
+change behaviour a user can see, and update it in the same change:
+
+- `docs/guide/concepts.md` — what maelstrom is and how the components fit together.
+- `docs/guide/multi-agent-workflow.md` — the core loop, end to end.
+- `docs/reference/cli.md` — every command and flag.
+- `docs/reference/configuration.md` — every config key.
+- `docs/reference/environment.md` — every environment variable.
 
 ## Architecture
 
-Maelstrom manages parallel development environments using git worktrees. It uses a bare-like repository structure where worktrees are named using NATO phonetic alphabet (alpha, bravo, charlie, etc.).
+Maelstrom is an orchestration layer for multi-agent development. It uses cmux to manage
+workspaces, git worktrees to isolate code, and Claude Code as its agent. It has its own
+task notebook and its own dev environment manager. Worktrees use NATO phonetic alphabet
+names (alpha, bravo, charlie, …) in a bare-like repository structure.
 
-### Module Structure
+The CLI is built with **Click**. `src/maelstrom/cli.py` is the entry point; each subsystem
+adds its own command group (`task_cli.py`, `env_cli.py`, `git_cli.py`, `github_cli.py`,
+`session_cli.py`, `status_cli.py`, `admin_cli.py`, and the `integrations/` package).
 
-- **cli.py** - Argparse-based CLI entry point (`mael` command). Commands use `resolve_context()` to determine project/worktree from args or cwd.
-- **context.py** - Resolves project/worktree context from CLI args or current directory. Handles `project.worktree` argument parsing and cwd detection.
-- **config.py** - Loads `.maelstrom.yaml` project configuration (port_names, start_cmd, install_cmd).
-- **worktree.py** - Core git worktree operations: create, remove, list. Handles bare repo setup, branch detection, and .env file generation.
-- **ports.py** - Port allocation using PORT_BASE scheme. Checks socket availability and generates `*_PORT` environment variables.
+For the module-by-module picture, read `docs/dev/architecture-patterns.md` — it documents the
+storage / model / CLI layering the modules follow, rather than restating a file list that
+goes stale.
 
 ### Key Concepts
 
-- **Projects** live in `~/Projects/<name>/` (configurable via `~/.maelstrom/config.yaml`)
-- **Worktrees** are subdirectories named alpha, bravo, etc. (not branch names)
-- **PORT_BASE** is a 3-digit number (100-999); each service port = PORT_BASE * 10 + index
-- When creating worktrees, existing `.env` from project root is merged with generated port vars, with `$VAR` substitution
+- **Projects** live in `~/Projects/<name>/` (configurable via `~/.maelstrom/config.yaml`).
+- **Worktrees** are subdirectories named alpha, bravo, etc. (not branch names).
+- **PORT_BASE** is a 3-digit number (300-999); each service port = `PORT_BASE * 10 + index`.
+- When creating worktrees, an existing `.env` from the project root is merged with generated
+  port vars, with `$VAR` substitution.

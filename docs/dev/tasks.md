@@ -82,25 +82,42 @@ task_id)` (a `uuid5` over `project` and `task_id`). `mael task run` passes it as
 Claude Code's own uniqueness rule for that id is **file-based**: it stores the
 session transcript at `~/.claude/projects/<sanitised-cwd>/<session-id>.jsonl` and
 **refuses to start** `claude --session-id <id>` when that file already exists for
-the cwd — whether or not the owning process is still alive. So a leftover
-transcript from a finished run would make a relaunch die at `claude` start.
+the cwd. So a task whose session has run before relaunches with
+`claude --resume <id>` instead, which reattaches the existing conversation.
 
-`session_discovery.py` answers "is there a **live** session for this task?" the
-way Claude itself decides, in three steps — **find the transcript file →
-identify the owning pid → check the pid is alive**:
+`session_discovery.py` answers "is there a **live** session?" from the running
+`claude` processes themselves, not from any file. A live session's **cwd is the
+worktree it was launched in**, so one sweep gives every live session's real
+worktree:
 
-1. **find** — glob `~/.claude/projects/*/<id>.jsonl`. A session id is globally
-   unique, so we match by id and never depend on reconstructing the cwd slug.
-2. **pid** — ask the OS who holds the transcript open (`lsof`), using the
-   `~/.maelstrom` session registry as a cheap `pid`/`cwd` hint first.
-3. **live** — `os.kill(pid, 0)`.
+1. **pids** — `pgrep -x claude`. `-x` matches the exact command name, so `bun`
+   MCP-channel helpers and `Code Helper` are excluded — only the CLI itself.
+2. **cwd** — one batched `lsof -a -d cwd -p <pids> -F pn` resolves every pid's
+   working directory in a single call.
+3. **session id** — one batched `ps -o command=` recovers the `--session-id`
+   `mael` launched each process with, the durable link back to the task.
 
-`mael task run` consults this before launching and **refuses only when the
-session is live** (naming the pid and worktree, hinting `mael task reconcile`). A
-*finished* task whose transcript persists but has no live holder is deliberately
-**not** blocked — it must stay re-runnable. (`reconcile` and `session list` still
-read the port-probe registry directly; only `mael task run` uses this
-transcript-based discovery today.)
+The whole sweep costs ~0.03s. Callers work through `LiveSessionSet`, which sweeps
+once on first use and then answers per-worktree questions off that shared list,
+so a pass over many worktrees still shells out only once.
+
+**Rejected alternatives.** Neither transcripts nor the registry can decide
+liveness:
+
+- **Transcript + `lsof`.** A running `claude` CLI does not hold its transcript
+  file descriptor open (it appends and closes), so `lsof` on transcripts reports
+  nothing for live sessions and false-positives on editor tabs — an empirically
+  wrong signal, and slow: a system-wide `lsof` sweep per worktree made
+  `mael list` take ~49s.
+- **The `~/.maelstrom` session registry.** It misses the current session and its
+  `state` goes stale, so it cannot be the authority. It survives only as
+  *optional enrichment* for `mael session list`.
+
+`mael task run` consults the live sweep before launching and **refuses only when
+the session is live** (naming the pid and worktree, hinting `mael task
+reconcile`). A *finished* task is deliberately **not** blocked — it must stay
+re-runnable. `mael list`, `mael session list` and `mael task reconcile` read the
+same source, so all four always agree.
 
 The registry's primary key is the same deterministic id: because the Claude
 harness does **not** export `CLAUDE_SESSION_ID` to channel subprocesses, `mael

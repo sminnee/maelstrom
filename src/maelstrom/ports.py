@@ -215,11 +215,11 @@ def generate_port_env_vars(port_base: int, port_names: list[str]) -> dict[str, s
     """Generate environment variables for port assignments.
 
     Args:
-        port_base: The 3-digit base (100-999).
+        port_base: The 3-digit base (300-999).
         port_names: List of port names (e.g., ["FRONTEND", "SERVER", "DB"]).
 
     Returns:
-        Dictionary of environment variables (e.g., {"FRONTEND_PORT": "1000", ...}).
+        Dictionary of environment variables (e.g., {"FRONTEND_PORT": "3000", ...}).
     """
     env_vars = {"PORT_BASE": str(port_base)}
     for idx, name in enumerate(port_names):
