@@ -1,348 +1,155 @@
-# Maelstrom
+# Maelstrom: multi-agent development with cmux and Claude Code
 
-Parallel development environment manager using git worktrees. Run multiple isolated development environments simultaneously, each with its own branch, port allocations, and running services. Integrates with GitHub, Linear, and Sentry.
+Maelstrom is an orchestration layer for multi-agent development. It uses cmux to manage
+workspaces, git worktrees to isolate code, and Claude Code as its agent. Integrations with
+Linear, Sentry and GitHub keep the workflow streamlined. It also has its own task management
+system for detailed task management, and dev environment management to create suitably
+isolated environments for each worktree. It is a highly opinionated Swiss-army knife.
+
+One agent on one branch is easy. Several at once is not: each needs its own checkout, its
+own database and ports, and somewhere you can watch it — and something has to track what
+each one is doing, and in what order. Maelstrom automates that.
 
 ## Installation
 
 ```bash
-# Install from PyPI (recommended)
+# From PyPI (recommended)
 uv tool install sminnee-maelstrom
 
 # Or run without installing
 uvx sminnee-maelstrom <command>
 
-# Or install locally for development
+# Or for local development
 git clone https://github.com/sminnee/maelstrom.git
 cd maelstrom
 uv sync
 uv tool install --editable .
 ```
 
-## Quick Start
+Then install the Claude Code skills and hooks:
 
 ```bash
-# Clone a project and initialize it for maelstrom
+mael install
+```
+
+### Prerequisites
+
+[uv](https://docs.astral.sh/uv/), git, [Claude Code](https://claude.com/claude-code),
+[cmux](https://github.com/sminnee/cmux), [GitHub CLI](https://cli.github.com/) and
+[bun](https://bun.sh/). Only `uv` and git are needed to create worktrees; cmux and Claude
+Code are needed to launch agent sessions. See
+[Getting started](docs/guide/getting-started.md#prerequisites) for what each one is for and
+how to install it.
+
+## Quick start
+
+```bash
+# Clone a repository into maelstrom's layout. This creates the "alpha" worktree.
 mael add-project git@github.com:org/repo.git
+cd ~/Projects/repo/repo-alpha
 
-# Create a new worktree for a feature branch
-mael add myproject feature/avatar-upload
-
-# Or from within any worktree directory, the project is auto-detected
+# Add a worktree for a branch. Maelstrom allocates ports and writes .env.
 mael add feature/avatar-upload
+#   → repo/bravo (created)
+#   App: http://localhost:3000
 
-# List all worktrees in a project
-mael list myproject
-
-# Start services
+# Start the project's services in that worktree.
+cd ~/Projects/repo/repo-bravo
 mael env start
 
-# Open a worktree in your editor
-mael open myproject.bravo
+# Launch an agent session. It opens in its own cmux workspace,
+# in plan mode, and plans the work with you first.
+mael task add "Add avatar upload" --run
 
-# Close a worktree when done (syncs, resets to main, ready for reuse)
+# See what is running.
+mael list
+mael task list
+
+# When the work has merged: reset the worktree, keeping its name and ports.
 mael close
 ```
 
-### Targeting Worktrees
+Full walkthrough: [Getting started](docs/guide/getting-started.md).
 
-Most commands accept an optional target argument in the form `project.worktree`:
+## The pieces
 
-```bash
-mael list myproject           # List worktrees in myproject
-mael open myproject.bravo     # Open the bravo worktree
-mael env start myproject.c    # Start services in charlie (shortcode)
-```
+Each component earns its place by the role it plays in the workflow.
 
-Shortcodes map single letters to NATO names: `a` → alpha, `b` → bravo, `c` → charlie, etc. If you're inside a worktree directory, the project and worktree are auto-detected.
+| Component | Role |
+|---|---|
+| [cmux](docs/guide/cmux-workspaces.md) | Manages workspaces — where sessions run and where you watch them |
+| [git worktrees](docs/guide/worktrees.md) | Isolate code — a branch and a checkout per unit of work |
+| Claude Code | The agent that does the work |
+| [Task notebook](docs/guide/tasks.md) | Detailed task management — what each agent is doing, in what order |
+| [Dev environments](docs/guide/dev-environments.md) | Isolated services and ports per worktree |
+| [Linear / Sentry / GitHub](docs/guide/integrations.md) | Streamline the workflow |
 
-## Worktree Management
+Sessions run in cmux workspaces. Maelstrom drives the cmux socket, starts cmux if it is
+down, and fails rather than running an agent somewhere you cannot find it. `--here` is the
+deliberate local-shell escape hatch.
 
-| Command | Description |
-|---------|-------------|
-| `mael add [PROJECT] BRANCH` | Create a new worktree (or recycle a closed one). Options: `--no-open`, `--no-recycle` |
-| `mael remove TARGET` | Remove one or more worktrees. `-f` to skip dirty-file confirmation |
-| `mael list [PROJECT]` | List worktrees with branch, dirty files, local commits, PR info, app URL |
-| `mael list-all` | List worktrees across all projects. `--json` for machine-readable output |
-| `mael open [TARGET]` | Open a worktree in the configured editor |
-| `mael close [TARGET]` | Sync, verify clean, reset to main. Preserves folder and ports for recycling |
-| `mael sync [TARGET]` | Rebase worktree against origin/main and push |
-| `mael sync-all [PROJECT]` | Sync all worktrees in a project |
-| `mael tidy-branches [PROJECT]` | Rebase feature branches, delete merged ones, force-push unmerged |
-| `mael add-project GIT_URL` | Clone a repo and initialize for maelstrom. `--projects-dir` to override location |
+## Documentation
 
-### Worktree Naming
+### Guides
 
-Worktrees use NATO phonetic alphabet names: alpha, bravo, charlie, delta, echo, foxtrot, golf, hotel, india, juliet, kilo, lima, mike, november, oscar, papa, quebec, romeo, sierra, tango, uniform, victor, whiskey, xray, yankee, zulu.
+| Page | What it covers |
+|---|---|
+| [Concepts](docs/guide/concepts.md) | What maelstrom is for, and how the pieces fit together |
+| [Getting started](docs/guide/getting-started.md) | Install → first worktree → first agent session |
+| [The multi-agent workflow](docs/guide/multi-agent-workflow.md) | The core loop: plan → chain → parallel sessions → PR |
+| [cmux workspaces](docs/guide/cmux-workspaces.md) | Workspaces, the three-pane layout, `--here` |
+| [Worktrees](docs/guide/worktrees.md) | Lifecycle, naming, recycling, close vs remove |
+| [Dev environments](docs/guide/dev-environments.md) | `services:`, engines, ports, `.env` |
+| [Tasks](docs/guide/tasks.md) | Tasks, `parent`/`follows`, `load-many`, chains |
+| [Planning](docs/guide/planning.md) | Linear plan → plan-task → chain → PR |
+| [Pull requests](docs/guide/pull-requests.md) | The finishing sequence, code review, watching CI |
+| [Integrations](docs/guide/integrations.md) | Linear, Sentry, Slack, UptimeRobot, GitHub |
+| [Scheduled work](docs/guide/scheduled-work.md) | Templates, cron, launchd |
+| [Troubleshooting](docs/guide/troubleshooting.md) | `doctor`, `reconcile`, `session list`, common failures |
 
-When a worktree is closed with `mael close`, it is reset to `origin/main` but the folder, NATO name, and port allocation are preserved. The next `mael add` will recycle a closed worktree rather than creating a new one.
+### Reference
 
-### Repository Structure
+| Page | What it covers |
+|---|---|
+| [CLI](docs/reference/cli.md) | Every command and flag |
+| [Configuration](docs/reference/configuration.md) | Both config files, every key |
+| [Environment variables](docs/reference/environment.md) | Everything read and set |
 
-```
-~/Projects/myproject/
-├── .git/                          # Shared bare git directory
-├── myproject-alpha/               # Worktree (main branch)
-│   ├── .maelstrom.yaml            # Project config (checked into repo)
-│   ├── .env                       # Generated port assignments (gitignored)
-│   ├── Procfile                   # Service definitions (checked into repo)
-│   └── ...
-├── myproject-bravo/               # Feature worktree
-│   ├── .env                       # Different PORT_BASE
-│   └── ...
-└── myproject-charlie/             # Another feature worktree
-    └── ...
-```
+### For contributors
 
-## Configuration
-
-### Project Configuration (`.maelstrom.yaml`)
-
-Create this file in your repository root:
-
-```yaml
-# Port names — each gets a _PORT environment variable
-port_names:
-  - FRONTEND
-  - SERVER
-  - DB
-  - REDIS
-
-# Shared port names — allocated once per project, shared across worktrees
-shared_port_names:
-  - SHARED_REDIS
-
-# Command to install dependencies (run on worktree creation and env start)
-install_cmd: "uv sync"
-
-# Fallback start command if no `services:` block or Procfile is present
-start_cmd: "npm run dev"
-
-# Preferred: structured service definitions (see "Environment Management" below).
-# When present, `services:` supersedes `port_names` / `shared_port_names` / the
-# Procfile / start_cmd.
-# services:
-#   frontend: { ports: [FRONTEND], command: "npm run dev" }
-#   db-shared: { shared: true, engine: docker, image: postgres:16, ports: [DB] }
-
-# Linear integration
-linear:
-  team_id: "your-team-uuid"
-  workspace_labels: [alpha, bravo, charlie]
-  product_label: "YourProduct"  # Auto-assigned to tasks; used by `mael linear release`
-
-# Sentry integration
-sentry_org: "your-org"
-sentry_project: "your-project-slug"
-```
-
-### Global Configuration (`~/.maelstrom/config.yaml`)
-
-```yaml
-projects_dir: ~/Projects       # Base directory for projects
-open_command: "cursor"         # Editor command (default: "code")
-
-linear:
-  api_key: "lin_api_xxx"       # Linear API key
-```
-
-## Port Allocation
-
-Each worktree is assigned a unique `PORT_BASE` in the range 300–999. Service ports are calculated as `PORT_BASE * 10 + index`.
-
-For example, with `PORT_BASE=300` and port names `[FRONTEND, SERVER, DB]`:
-
-```bash
-PORT_BASE=300
-FRONTEND_PORT=3000
-SERVER_PORT=3001
-DB_PORT=3002
-```
-
-Port allocations are persisted in `~/.maelstrom/port_allocations.json` and checked for socket availability when assigned. The first port (`PORT_BASE * 10`) is used as the app URL.
-
-> **Ceiling:** because ports are `PORT_BASE * 10 + index`, there are only **10 port slots per base** (index 0–9). A worktree needing more than 10 named ports in one scope would collide across bases. Structured `services:` allocate the union of their non-shared named ports off the local base and shared ports off a separate shared base.
-
-## Environment Management
-
-Maelstrom manages service processes for each worktree.
-
-### Services (`services:` in `.maelstrom.yaml`)
-
-The preferred way to define services is a structured `services:` map in
-`.maelstrom.yaml`. Each service either runs a shell `command` or, when it
-declares an `engine`, is a container maelstrom owns end-to-end (it synthesises
-the `rm -f … ; run …` boilerplate for you). Each service lists the **named
-ports** it owns; maelstrom allocates them and exposes `${NAME_PORT}` for use in
-commands and container port-mappings.
-
-```yaml
-services:
-  frontend:
-    ports: [FRONTEND, FRONTEND_HMR]      # -> ${FRONTEND_PORT}, ${FRONTEND_HMR_PORT}
-    dir: frontend
-    command: env PORT=${FRONTEND_PORT} node server-dev.ts
-
-  server:
-    ports: [SERVER]
-    command: env PORT=${SERVER_PORT} uv run serve-dev
-
-  worker:
-    command: uv run serve-dev worker       # no ports, no dir
-
-  db-shared:
-    shared: true                           # shared across worktrees in this project
-    engine: apple-container                # or "docker"
-    image: pgvector/pgvector:pg16
-    ports: [DB]
-    publish: ["${DB_PORT}:5432"]           # host:container mappings
-    volume: /var/lib/postgresql/data       # named volume derived from container name
-    host_var: DB_HOST                       # apple-container: receives the polled VM IP
-    env:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-
-  redis-shared:
-    shared: true
-    engine: apple-container
-    image: redis:8.4-alpine
-    ports: [REDIS]
-    publish: ["${REDIS_PORT}:6379"]
-    volume: /data
-```
-
-**Service type** is inferred: an `engine:` (docker / apple-container) makes it a
-container; otherwise it is a shell `command` service.
-
-**Engines.** `docker` and `apple-container` are both supported. Apple `container`
-runs each container as its own VM on a private `192.168.64.x` network. For those,
-set `host_var:` (e.g. `DB_HOST`) — maelstrom polls `container inspect` for the
-VM's IP at start time and injects it into the process environment of sibling
-services (so a command service's `env:` can reference `${DB_HOST}`). The IP flows
-into the spawn environment only, never into `.env`. If the IP never resolves
-(~10s poll), the start fails loudly rather than leaving services pointed at the
-wrong host. `host_var` is only meaningful for shared apple-container services.
-
-**Shared services.** `shared: true` marks a service as shared across worktrees in
-the same project (started once, subscribed to by later worktrees). Late
-subscribers reuse the already-discovered `host_var` IP rather than re-inspecting.
-
-### Procfile (legacy fallback)
-
-If no `services:` block is present, maelstrom falls back to a `Procfile` in your
-repository root:
-
-```
-web: npm run dev
-worker: python manage.py worker
-redis: redis-server --port $REDIS_PORT
-```
-
-On the Procfile path, services with names ending in `-shared` are shared across
-worktrees. If neither `services:` nor a Procfile is present, maelstrom falls back
-to `start_cmd` from `.maelstrom.yaml`. Precedence is **`services:` → Procfile →
-`start_cmd`**; migrate projects one at a time — there is no flag day.
-
-### Commands
-
-| Command | Description |
-|---------|-------------|
-| `mael env start [TARGET]` | Run install command, then start all services. `--skip-install` to skip |
-| `mael env stop [TARGET]` | Stop all services (SIGTERM, then SIGKILL after 10s) |
-| `mael env status [TARGET]` | Show service PIDs, status, and log file paths |
-| `mael env logs [TARGET] [SERVICE]` | View service logs. `-f` to follow, `-n NUM` for line count |
-| `mael env list [PROJECT]` | List running environments for a project |
-| `mael env list-all` | List all running environments across all projects |
-| `mael env stop-all` | Stop all environments globally |
-
-## GitHub Integration
-
-| Command | Description |
-|---------|-------------|
-| `mael gh create-pr [ISSUE_ID]` | Create or update a pull request. `--draft` for draft PRs, `--target` for worktree |
-| `mael gh read-pr [TARGET]` | Show PR status, unresolved comments, and CI check results |
-| `mael gh show-code [TARGET]` | Show commits and diffs. `--committed` or `--uncommitted` |
-| `mael gh check-log RUN_ID` | View GitHub Actions logs. `--failed-only` for failures |
-| `mael gh download-artifact RUN_ID NAME` | Download a workflow artifact. `-o DIR` for output |
-
-## Linear Integration
-
-| Command | Description |
-|---------|-------------|
-| `mael linear list-tasks` | List tasks in the current cycle. `--status STATUS` to filter |
-| `mael linear read-task ISSUE_ID` | Show task details, subtasks, comments |
-| `mael linear start-task ISSUE_ID` | Mark task as In Progress, add worktree label |
-| `mael linear complete-task ISSUE_ID` | Mark task as Done (subtask) or Unreleased (parent) |
-| `mael linear create-subtask PARENT TITLE [DESC]` | Create a subtask linked to a parent |
-| `mael linear write-plan ISSUE_ID FILE` | Write a plan file to the task description |
-| `mael linear read-plan ISSUE_ID` | Extract and display the plan from a task |
-| `mael linear release` | Promote all "Unreleased" tasks with product label to "Done" |
-
-## Sentry Integration
-
-| Command | Description |
-|---------|-------------|
-| `mael sentry list-issues` | List unresolved issues. `--env ENV` (default: prod) |
-| `mael sentry get-issue ISSUE_ID` | Show exception details, tags, and stacktraces |
-
-## Code Review
-
-| Command | Description |
-|---------|-------------|
-| `mael sync --squash` | Autosquash all `fixup!` commits while rebasing onto `origin/main` |
-
-## Claude Code Integration
-
-Maelstrom includes skills and commands for Claude Code:
-
-```bash
-# Install skills, hooks, and commands into ~/.claude/
-mael install
-
-# Update maelstrom from git
-mael self-update
-```
-
-Once installed, these skills are available in Claude Code:
-
-| Skill | Description |
-|-------|-------------|
-| `/mael` | Load git workflow, Linear, Sentry, and env management instructions |
-| `mael linear plan ISSUE_ID [--run]` | Seed a notebook planning task from a Linear brief (launches `plan-task`) |
-| `mael task next --run` | Launch the next ready task in the notebook chain |
-| `/review-branch` | Review code changes before creating a PR (requires plan mode) |
+- [Architecture patterns](docs/dev/architecture-patterns.md) — the storage / model / CLI layering.
+- [The task domain model](docs/dev/tasks.md) — `parent` vs `follows`, ids, session discovery.
+- [Scheduled tasks](docs/dev/scheduled-tasks.md) — launchd firing mechanics.
 
 ## Development
 
 ```bash
-# Install dev dependencies
-uv sync --all-extras
-
-# Run tests
-uv run pytest
-
-# Run with coverage
-uv run pytest --cov=maelstrom
+uv sync --all-extras           # install dev dependencies
+uv run pytest -m 'not slow'    # tests, skipping slow e2e
+uv run pytest                  # everything
+uv run pytest --cov=maelstrom  # with coverage
+bin/lint                       # pyright type checking
 ```
 
-## Notes for Contributors
+## Contributing
+
+Issues and pull requests are welcome. Please run `bin/lint` and the test suite before
+opening one, and keep documentation in step with behaviour changes.
 
 ### Publishing to PyPI
 
-The package is published to PyPI as `sminnee-maelstrom`. To publish a new version:
+The package is published as `sminnee-maelstrom`:
 
 ```bash
-# Set your PyPI token (or add UV_PUBLISH_TOKEN to .env)
-export UV_PUBLISH_TOKEN=pypi-...
-
-# Publish with a patch version bump (0.1.0 → 0.1.1)
-./bin/publish
-
-# Or bump minor/major
+export UV_PUBLISH_TOKEN=pypi-...   # or add it to .env
+./bin/publish                      # patch bump (0.1.0 → 0.1.1)
 ./bin/publish --minor
 ./bin/publish --major
 ```
 
-This bumps the version, builds, publishes to PyPI, commits the version change, and tags it. After publishing, run `git push && git push --tags`.
+This bumps the version, builds, publishes, commits the version change and tags it.
+Afterwards run `git push && git push --tags`.
 
 ## License
 
-MIT
+[MIT](LICENSE)
