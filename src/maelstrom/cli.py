@@ -14,7 +14,6 @@ from .github import (
 )
 from .cmux import mael_layout
 from .cmux.client import ensure_cmux_running, resolve_socket_path
-from .review_prepare import cmd_review_prepare
 from .session_cli import session as session_cli, session_channel as session_channel_cmd
 from .task_cli import task as task_cli
 from .task_cli import add_task
@@ -1165,7 +1164,6 @@ def cmd_cmux_status() -> None:
 
 
 cli.add_command(cmux_cli)
-cli.add_command(cmd_review_prepare)
 cli.add_command(env_cli)
 cli.add_command(git_cli)
 cli.add_command(gh_cli)
