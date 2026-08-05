@@ -35,6 +35,7 @@ so the target is optional.
 |---|---|
 | `mael add [BRANCH]` | Add a worktree for `BRANCH`. Recycles a closed worktree when one exists. With no `BRANCH`, creates a fresh worktree on main and does not recycle. |
 | `mael add-project GIT_URL` | Clone a repository and set it up for maelstrom. |
+| `mael create-project NAME` | Create a GitHub repository with the maelstrom stub files, check it out, and open a worktree on `feat/start-project`. |
 | `mael list [PROJECT]` | List worktrees with branch, dirty files, local commits, PR, app URL and session. |
 | `mael list-all` | List worktrees across every project. |
 | `mael close [TARGETS]...` | Sync, check the worktree is clean, then check out main. Keeps the folder, name and ports. |
@@ -57,6 +58,18 @@ so the target is optional.
 | Option | Description |
 |---|---|
 | `--projects-dir TEXT` | Base directory for projects. Default: from `~/.maelstrom/config.yaml`, else `~/Projects`. |
+
+**`mael create-project`**
+
+`NAME` is the repository name. Use `owner/name` to create the repository in an
+organization. The seed commit holds `.gitignore` (which ignores the per-worktree `.env` and
+`.claude/CLAUDE.local.md`), a commented `.maelstrom.yaml`, `README.md` and `CLAUDE.md`.
+
+| Option | Description |
+|---|---|
+| `--public` | Create a public repository. Default: private. |
+| `--description TEXT` | Repository description. |
+| `--projects-dir TEXT` | Base directory for projects. Default: from `~/.maelstrom/config.yaml`, else `~/Projects`. With a directory other than the configured one, no worktree is opened: `mael add` finds projects only in the configured directory. |
 
 **`mael close`**
 
