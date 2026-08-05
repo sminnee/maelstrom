@@ -2,12 +2,14 @@
 
 import json
 import os
+import subprocess
 from pathlib import Path
 from unittest.mock import ANY, patch, MagicMock
 
 from click.testing import CliRunner
 
 from maelstrom.cli import cli
+from maelstrom.project_scaffold import scaffold_files
 from maelstrom.worktree import WorktreeInfo
 from maelstrom.worktree_model import CopyBackResult
 
@@ -864,3 +866,191 @@ class TestCmuxStatus:
             result = CliRunner().invoke(cli, ["cmux", "status"])
             assert result.exit_code != 0
             assert "not reachable" in result.output
+
+
+class TestCreateProject:
+    """Tests for `mael create-project`."""
+
+    def _invoke(self, args, tmp_path, *, url="git@github.com:me/proj.git",
+                add_project_error=None):
+        """Run create-project with the remote and checkout halves mocked."""
+        with patch("maelstrom.cli.load_global_config") as mock_config, \
+             patch("maelstrom.cli.create_project_repo", return_value=url) as mock_create, \
+             patch("maelstrom.cli.add_project") as mock_add_project, \
+             patch("maelstrom.cli.cmd_add") as mock_add:
+            mock_config.return_value = MagicMock(projects_dir=tmp_path)
+            mock_add_project.return_value = tmp_path / "proj"
+            if add_project_error is not None:
+                mock_add_project.side_effect = add_project_error
+            result = CliRunner().invoke(cli, ["create-project"] + args)
+        return result, mock_create, mock_add_project, mock_add
+
+    def test_threads_the_url_from_repo_creation_into_checkout(self, tmp_path):
+        result, mock_create, mock_add_project, _ = self._invoke(["proj"], tmp_path)
+
+        assert result.exit_code == 0, result.output
+        mock_create.assert_called_once_with("proj", private=True, description=None)
+        assert mock_add_project.call_args[0][0] == "git@github.com:me/proj.git"
+
+    def test_public_flag_creates_a_public_repo(self, tmp_path):
+        _, mock_create, _, _ = self._invoke(["proj", "--public"], tmp_path)
+        assert mock_create.call_args.kwargs["private"] is False
+
+    def test_description_is_passed_through(self, tmp_path):
+        _, mock_create, _, _ = self._invoke(
+            ["proj", "--description", "A thing"], tmp_path
+        )
+        assert mock_create.call_args.kwargs["description"] == "A thing"
+
+    def test_invalid_name_exits_before_touching_github(self, tmp_path):
+        result, mock_create, _, _ = self._invoke(["foo.bar"], tmp_path)
+
+        assert result.exit_code != 0
+        assert "cannot contain dots" in result.output
+        mock_create.assert_not_called()
+
+    def test_existing_project_dir_fails_before_touching_github(self, tmp_path):
+        (tmp_path / "proj").mkdir()
+        result, mock_create, _, _ = self._invoke(
+            ["proj", "--projects-dir", str(tmp_path)], tmp_path
+        )
+
+        assert result.exit_code != 0
+        assert "already exists" in result.output
+        mock_create.assert_not_called()
+
+    def test_checkout_failure_reports_the_url_and_the_recovery(self, tmp_path):
+        result, _, _, _ = self._invoke(
+            ["proj"], tmp_path, add_project_error=RuntimeError("clone failed")
+        )
+
+        assert result.exit_code != 0
+        assert "git@github.com:me/proj.git" in result.output
+        assert "mael add-project" in result.output
+
+    def test_checkout_failure_reports_the_git_error_not_just_the_exit_code(
+        self, tmp_path
+    ):
+        """A failed git call keeps its reason in stderr, not in str(e)."""
+        err = subprocess.CalledProcessError(
+            128, ["git", "clone"], stderr="fatal: repository not found\n"
+        )
+        result, _, _, _ = self._invoke(["proj"], tmp_path, add_project_error=err)
+
+        assert result.exit_code != 0
+        assert "fatal: repository not found" in result.output
+
+    def test_custom_projects_dir_skips_the_worktree_step(self, tmp_path):
+        """`mael add` resolves via the global projects_dir, so it cannot be used."""
+        other = tmp_path / "elsewhere"
+        other.mkdir()
+        result, _, _, mock_add = self._invoke(
+            ["proj", "--projects-dir", str(other)], tmp_path
+        )
+
+        assert result.exit_code == 0, result.output
+        mock_add.assert_not_called()
+        assert "No worktree opened" in result.output
+
+    def test_projects_dir_naming_the_configured_one_still_opens_a_worktree(
+        self, tmp_path
+    ):
+        """An equivalent path (trailing slash) must not read as 'not configured'."""
+        result, _, _, mock_add = self._invoke(
+            ["proj", "--projects-dir", f"{tmp_path}/"], tmp_path
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "No worktree opened" not in result.output
+        mock_add.assert_called_once()
+
+
+class TestCreateProjectIntegration:
+    """`mael create-project` against real git repos, with only gh and the launch mocked."""
+
+    def _run(self, tmp_path, repo_name="demo", url_name=None):
+        """Seed a bare upstream, then run create-project end to end.
+
+        ``url_name`` names the upstream repo when it differs from the requested
+        name, so the test can tell which of the two the command actually used.
+        """
+        url_name = url_name or repo_name
+        projects = tmp_path / "Projects"
+        projects.mkdir()
+
+        upstream = tmp_path / f"{url_name}.git"
+        subprocess.run(
+            ["git", "init", "--bare", "-b", "main", str(upstream)],
+            check=True, capture_output=True,
+        )
+        seed = tmp_path / "seed"
+        seed.mkdir()
+        for filename, content in scaffold_files(repo_name).items():
+            (seed / filename).write_text(content)
+        for cmd in (
+            ["git", "init", "-b", "main"],
+            ["git", "add", "-A"],
+            ["git", "-c", "user.email=t@t", "-c", "user.name=T",
+             "commit", "-m", "seed"],
+            ["git", "remote", "add", "origin", str(upstream)],
+            ["git", "push", "-u", "origin", "main"],
+        ):
+            subprocess.run(cmd, cwd=seed, check=True, capture_output=True)
+
+        launched = {}
+
+        def fake_launch(path, project=None, worktree=None):
+            launched.update(path=path, project=project, worktree=worktree)
+            return True
+
+        config = MagicMock(projects_dir=projects, open_command="code")
+        with patch("maelstrom.cli.load_global_config", return_value=config), \
+             patch("maelstrom.context.load_global_config", return_value=config), \
+             patch("maelstrom.cli.create_project_repo", return_value=str(upstream)), \
+             patch("maelstrom.cli.launch_claude_in_worktree", side_effect=fake_launch), \
+             patch("maelstrom.cli.run_install_cmd"):
+            result = CliRunner().invoke(cli, ["create-project", repo_name])
+        return result, projects, launched
+
+    def test_checks_out_the_project_and_opens_a_start_branch_worktree(self, tmp_path):
+        result, projects, launched = self._run(tmp_path)
+
+        assert result.exit_code == 0, result.output
+        assert (projects / "demo" / ".mael").exists()
+
+        bravo = projects / "demo" / "demo-bravo"
+        assert bravo.exists()
+        branch = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=bravo, capture_output=True, text=True,
+        ).stdout.strip()
+        assert branch == "feat/start-project"
+        assert launched["project"] == "demo"
+        assert launched["worktree"] == "bravo"
+
+    def test_the_worktree_carries_the_seed_and_generated_files(self, tmp_path):
+        _, projects, _ = self._run(tmp_path)
+
+        bravo = projects / "demo" / "demo-bravo"
+        assert (bravo / "CLAUDE.md").exists()
+        assert (bravo / ".gitignore").exists()
+        assert (bravo / ".maelstrom.yaml").exists()
+        # Generated per worktree, and ignored by the seeded .gitignore.
+        assert (bravo / ".env").exists()
+        assert (bravo / ".claude" / "CLAUDE.local.md").exists()
+
+    def test_reports_the_directory_that_was_actually_created(self, tmp_path):
+        """`add_project` names the directory from the clone URL, not the argument.
+
+        The two normally agree. When they don't, every path the command reports
+        and hands on must follow the directory that exists, not the request.
+        """
+        result, projects, launched = self._run(
+            tmp_path, repo_name="demo", url_name="other"
+        )
+
+        assert result.exit_code == 0, result.output
+        assert (projects / "other").exists()
+        assert str(projects / "other" / "other-alpha") in result.output
+        assert launched["project"] == "other"
+        assert (projects / "other" / "other-bravo").exists()

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, TypeVar
 
+from .project_scaffold import scaffold_files
 from .shell import run_cmd
 from .worktree import run_git, sync_worktree, update_local_main
 
@@ -85,6 +86,63 @@ def get_repo_info(cwd: Path) -> tuple[str, str]:
         return parts[0], parts[1]
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to get repo info: {e.stderr}")
+    except FileNotFoundError:
+        raise RuntimeError("GitHub CLI (gh) is not installed")
+
+
+def create_project_repo(
+    name: str, *, private: bool = True, description: str | None = None
+) -> str:
+    """Create a GitHub repository seeded with maelstrom stub files.
+
+    Builds the seed commit in a temporary directory, then creates and pushes the
+    remote in one ``gh repo create`` call. Nothing exists remotely until the seed
+    is ready, so a local failure leaves no empty repository behind. The seed
+    commit is also what makes the repository usable by ``add_project``, which
+    needs a commit on the default branch.
+
+    Args:
+        name: Repository name. ``owner/name`` passes through to gh unchanged.
+
+    Returns:
+        The clone URL of the new repository.
+
+    Raises:
+        RuntimeError: If the repository cannot be created.
+    """
+    local_name = name.split("/")[-1]
+
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            repo_dir = Path(td) / local_name
+            repo_dir.mkdir()
+            for filename, content in scaffold_files(local_name).items():
+                (repo_dir / filename).write_text(content)
+
+            run_cmd(["git", "init", "-b", "main"], cwd=repo_dir, quiet=True)
+            run_cmd(["git", "add", "-A"], cwd=repo_dir, quiet=True)
+            run_cmd(
+                ["git", "commit", "-m", "chore: initial maelstrom project"],
+                cwd=repo_dir,
+                quiet=True,
+            )
+
+            create_cmd = [
+                "gh", "repo", "create", name,
+                "--source", str(repo_dir),
+                "--push",
+                "--private" if private else "--public",
+            ]
+            if description:
+                create_cmd += ["--description", description]
+            run_cmd(create_cmd, cwd=repo_dir)
+
+            result = run_cmd(
+                ["git", "remote", "get-url", "origin"], cwd=repo_dir, quiet=True
+            )
+            return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Failed to create GitHub repository: {e.stderr}")
     except FileNotFoundError:
         raise RuntimeError("GitHub CLI (gh) is not installed")
 

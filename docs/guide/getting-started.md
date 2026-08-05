@@ -54,6 +54,27 @@ clone; every other command reads `projects_dir` from this file.
 
 ## 3. Add a project
 
+### A new project
+
+```bash
+mael create-project repo
+```
+
+This creates `github.com/<you>/repo`, checks it out, and opens a worktree on
+`feat/start-project` with a Claude session in it. The repository is private; pass
+`--public` for a public one, and use `owner/name` to create it in an organization.
+
+The first commit holds the files a maelstrom project needs:
+
+| File | Purpose |
+|---|---|
+| `.gitignore` | Ignores `.env` and `.claude/CLAUDE.local.md`, which maelstrom generates per worktree. |
+| `.maelstrom.yaml` | Commented stub. Fill it in at step 4. |
+| `README.md` | Project title. |
+| `CLAUDE.md` | Imports `.claude/CLAUDE.local.md`, which the first `mael add` writes. |
+
+### An existing repository
+
 ```bash
 mael add-project git@github.com:org/repo.git
 ```
@@ -67,6 +88,9 @@ This clones the repository into a bare-like layout and creates the first worktre
 ├── .mael            # marker: this is a maelstrom project
 └── repo-alpha/      # worktree on main
 ```
+
+Add `.env` and `.claude/CLAUDE.local.md` to the repository's `.gitignore`. Maelstrom
+generates both per worktree. `mael create-project` does this for you.
 
 ## 4. Describe the project's services
 
@@ -113,8 +137,6 @@ WORKTREE_NUM=1
 
 By default `mael add` also launches a Claude session in a cmux workspace. Pass `--open` to
 open your editor instead.
-
-Add `.env` to `.gitignore` — it is generated per worktree.
 
 ## 6. Start the services
 

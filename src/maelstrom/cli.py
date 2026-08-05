@@ -1,14 +1,16 @@
 """Command-line interface for maelstrom."""
 
+import subprocess
 import sys
 from pathlib import Path
 
 import click
 
 from . import __version__
-from .context import load_global_config, resolve_context
+from .context import load_global_config, resolve_context, validate_project_name
 from .ports import get_app_url
 from .github import (
+    create_project_repo,
     get_pr_number_and_commits,
     wait_for_merge,
 )
@@ -72,6 +74,11 @@ from .worktree_model import (
 )
 
 
+# The branch `mael create-project` opens its first worktree on, so a new project
+# starts on a feature branch rather than on main.
+START_BRANCH = "feat/start-project"
+
+
 def _launch_claude_or_raise(
     worktree_path: Path, project: str | None, worktree: str | None
 ) -> None:
@@ -122,6 +129,93 @@ def cmd_add_project(git_url, projects_dir):
         click.echo(f"Alpha worktree at: {project_path / alpha_folder}")
     except Exception as e:
         raise click.ClickException(str(e))
+
+
+@cli.command("create-project")
+@click.argument("name")
+@click.option("--public", is_flag=True, help="Create a public repository (default: private)")
+@click.option("--description", default=None, help="Repository description")
+@click.option("--projects-dir", help="Base directory for projects (default from ~/.maelstrom/config.yaml or ~/Projects)")
+@click.pass_context
+def cmd_create_project(ctx, name, public, description, projects_dir):
+    """Create a GitHub repository and check it out for use with maelstrom.
+
+    NAME is the repository name, optionally as ``owner/name``. The new
+    repository holds a seed commit with `.gitignore`, `.maelstrom.yaml`,
+    `README.md` and `CLAUDE.md`. It is then checked out as a maelstrom project
+    and a worktree opens on `feat/start-project`.
+    """
+    configured_dir = load_global_config().projects_dir
+    if projects_dir:
+        projects_dir_path = Path(projects_dir).expanduser()
+    else:
+        projects_dir_path = configured_dir
+
+    local_name = name.split("/")[-1]
+    try:
+        validate_project_name(local_name)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    # Check before any remote work, so a name clash never leaves an orphan repo.
+    expected_project_path = projects_dir_path / local_name
+    if expected_project_path.exists():
+        raise click.ClickException(
+            f"Project directory already exists: {expected_project_path}"
+        )
+
+    click.echo(f"Creating GitHub repository {name}...")
+    try:
+        git_url = create_project_repo(name, private=not public, description=description)
+    except RuntimeError as e:
+        raise click.ClickException(str(e))
+    click.echo(f"Repository created: {git_url}")
+
+    click.echo(f"Cloning {git_url}...")
+    try:
+        project_path = add_project(git_url, projects_dir_path)
+    except Exception as e:
+        # The repository exists remotely; do not delete it. Point at the
+        # canonical recovery so the work so far is not lost. A failed git call
+        # keeps its reason in stderr, so `str(e)` alone would say only that the
+        # command exited non-zero.
+        reason = str(e)
+        if isinstance(e, subprocess.CalledProcessError) and e.stderr:
+            reason = e.stderr.strip()
+        raise click.ClickException(
+            f"Repository created at {git_url}, but checkout failed: {reason}\n"
+            f"Retry the checkout with: mael add-project {git_url}"
+        )
+
+    # Name the project after the directory add_project actually made. It derives
+    # that from the clone URL, which need not match the requested name.
+    project_name = project_path.name
+    alpha_folder = get_worktree_folder_name(project_name, "alpha")
+    click.echo(f"Project created at: {project_path}")
+    click.echo(f"Alpha worktree at: {project_path / alpha_folder}")
+
+    # Open a worktree to start work in, the same as `mael add feat/start-project`
+    # run inside the project. `mael add` resolves the project through the global
+    # projects_dir, so it cannot find a project put somewhere else with
+    # --projects-dir; say so rather than failing there.
+    if projects_dir_path.resolve() != configured_dir.resolve():
+        click.echo(
+            f"No worktree opened: {projects_dir_path} is not the configured "
+            f"projects directory, so `mael add` cannot find this project. "
+            f"Set projects_dir in ~/.maelstrom/config.yaml to use it."
+        )
+        return
+
+    # The repository and the checkout are both done by now, so a failure here
+    # must not read as "nothing happened": say what exists and how to retry.
+    try:
+        ctx.invoke(cmd_add, branch=START_BRANCH, project=project_name)
+    except Exception as e:
+        raise click.ClickException(
+            f"Project is checked out at {project_path}, but opening a worktree "
+            f"failed: {e}\n"
+            f"Retry with: mael add {START_BRANCH} -p {project_name}"
+        )
 
 
 @cli.command("add")
