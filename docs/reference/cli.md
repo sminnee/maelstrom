@@ -448,7 +448,6 @@ See [scheduled-work.md](../guide/scheduled-work.md). The agent is opt-in per mac
 | `mael doctor [PROJECT]` | Check project health and fix issues automatically. |
 | `mael install` | Install maelstrom's Claude Code skills and hooks into `~/.claude/`. |
 | `mael self-update` | Update maelstrom to the latest version from git. |
-| `mael review-prepare [RANGE]` | Print the git commands a review sub-agent should run for a commit range. |
 | `mael session-channel` | Launch the Bun-based session-tracking MCP channel. Invoked by Claude Code, not by humans. |
 
 **`mael install`**
@@ -457,9 +456,3 @@ See [scheduled-work.md](../guide/scheduled-work.md). The agent is opt-in per mac
 |---|---|
 | `--no-monitor` | Skip the session-tracking MCP channel, its hooks and its dependencies. |
 
-**`mael review-prepare`**
-
-`RANGE` defaults to `origin/main..HEAD`. A bare SHA expands to `<sha>^..<sha>`. Any other
-argument passes to git as-is. Exits 1 when the worktree has uncommitted changes, the range
-holds no commits, or the range is not a valid git revision range. The `/code-review` skill
-uses it to gate review.
