@@ -9,14 +9,15 @@ sequence **without asking**:
 
 1. Commit the implementation.
 2. Run `/code-review`.
-3. Address **Blocking** findings. Advisory findings are a judgement call.
+3. Triage the findings: apply what is correct and in scope, discard what does not apply, and
+   carry scope changes and potential refactors into the PR description.
 4. Commit each fix as a `--fixup` commit targeting the commit that introduced the issue. Do
    not amend.
 5. Push: `mael gh create-pr <ISSUE-ID> --squash`.
 6. **Close the task:** `mael task status done`.
 7. Run `/watch-pr` to take CI to green.
 
-With no blocking findings, steps 3 and 4 are skipped.
+With nothing worth applying, steps 3 and 4 are skipped.
 
 This overrides the usual "only commit when asked" rule. In a maelstrom project it is
 always on, because an agent that stops to ask at each step cannot run unattended.
@@ -56,22 +57,36 @@ mael gh show-code --committed  # everything since branching from main
 Review is **stateless and one-shot**. Re-invoke it after a fix lands to re-review; there is
 no incremental machinery and no resolved-thread tracking.
 
-It gates first with `mael review-prepare`, which refuses to run when the worktree has
-uncommitted changes or the range is empty. Then a **read-only sub-agent** does the review,
-so the diff never enters the parent's context. Findings come back as:
+It runs `mael git squash` first, so the review sees the commits as they will land instead of
+a history littered with fixups. Rebase conflicts stop the review; a dirty worktree does not,
+because the squash autostashes. This step is skipped when you name an explicit SHA or range.
 
-1. Summary
-2. Design decisions worth calling out
-3. **Blocking findings**
-4. Advisory findings
+Then it reviews the branch **one commit at a time**: one **read-only sub-agent** per commit,
+all running concurrently, so the diff never enters the parent's context. Each reviewer may
+read *later* commits in the branch, so work finished by a follow-up commit is not reported as
+a problem. Findings are merged into one report, in commit order:
 
-If the project supplies `docs/review/coding-standards.md` or `docs/review/code-smells.md`,
-the sub-agent loads them automatically.
+1. Summary (the branch as a whole)
+2. Per commit: design decisions, then findings
+
+Reviewing per commit means every finding is already attributed to the commit that introduced
+it, which is what the fixup below targets.
+
+**Findings are not ranked blocking vs advisory.** A sub-agent reviewing one commit cannot know
+your release pressure or what you already plan to change, so it reports what it found and what
+it costs to leave. The parent then sorts by what each fix would cost: apply the correct,
+in-scope ones; discard the ones that do not apply; raise anything that materially changes scope
+with you. Potential refactors always go in that last bucket — a review is the best place to
+notice them, and dropping them silently is how they get lost.
+
+Every reviewer loads `review-guide.md` from the skill directory — the cross-project baseline for
+correctness, security, architecture, simplicity, naming, tests, and docs. If the project also
+supplies `docs/review/coding-standards.md` or its own `docs/review/review-guide.md`, those load
+too and take precedence.
 
 ### Fixups, not amends
 
-Commit each blocking fix as a `fixup!` commit aimed at the commit that introduced the
-problem:
+Commit each fix as a `fixup!` commit aimed at the commit that introduced the problem:
 
 ```bash
 git commit --fixup <sha>
