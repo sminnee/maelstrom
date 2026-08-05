@@ -39,8 +39,8 @@ asked" rule for mael projects:
 
 1. Commit the implementation work.
 2. Run `/code-review`.
-3. Address **Blocking** findings (Advisory at your judgement).
-4. Commit the review fixes as `--fixup` commits (one per blocking finding, targeting the originating commit). Do not amend.
+3. Triage the findings by what the fix costs: apply what is correct and in scope, discard what does not apply. Carry scope changes and potential refactors into the PR description instead of acting on them.
+4. Commit the review fixes as `--fixup` commits (one per finding fixed, targeting the originating commit). Do not amend.
 5. Push the PR with `mael gh create-pr <ISSUE-ID> --squash` — `--squash` autosquashes the fixup commits into their targets as it rebases onto `origin/main` before pushing.
 6. **Close the task.** Run `mael task status done` (defaults to `$MAEL_TASK_ID`). The PR is pushed,
    so the work is handed off — close it now, while you reliably can, rather than after the CI watch.
@@ -48,7 +48,7 @@ asked" rule for mael projects:
    its chain. The SessionEnd hook is only a backstop; don't rely on it.
 7. Run `/watch-pr` to take CI to green autonomously (fix → fixup/chore → `mael sync` → wait, looping until CI passes or times out).
 
-If there are no blocking findings, skip steps 3–4 and go straight to step 5.
+If there is nothing worth applying, skip steps 3–4 and go straight to step 5.
 
 This whole sequence runs without user confirmation — including the PR push (step 5), closing the
 task (step 6), and the CI watch (step 7).

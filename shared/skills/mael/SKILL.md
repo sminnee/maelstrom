@@ -193,10 +193,13 @@ This is a hard override of the global "only commit when explicitly asked" rule �
 it applies to all mael projects.
 
 1. Commit the implementation work.
-2. `/code-review` — review committed changes via a read-only sub-agent.
-   Findings come back under **Summary**, **Design decisions**, **Blocking**, **Advisory**.
-3. Address **Blocking** findings (Advisory at your judgement).
-4. Commit the review fixes as `--fixup` commits — one per blocking finding,
+2. `/code-review` — review committed changes, one read-only sub-agent per commit.
+   Findings come back under **Summary**, **Design decisions**, **Findings** — not ranked by
+   severity.
+3. Triage the findings by what the fix costs: apply the ones that are correct and in scope,
+   discard the ones that don't apply. Findings that would materially change scope — including
+   potential refactors — are raised with the user, not acted on.
+4. Commit the review fixes as `--fixup` commits — one per finding fixed,
    targeting the commit that introduced the issue. See the code-review skill for
    the exact procedure. Do not amend existing commits.
 5. Push the PR: `mael gh create-pr <ISSUE-ID> --squash`. The `--squash` flag
@@ -211,7 +214,12 @@ it applies to all mael projects.
    (fixup for PR-caused, `chore:` for unrelated), `mael sync` to re-push, and loop
    until CI passes or times out.
 
-If step 2 returns no blocking findings, skip steps 3–4 and go straight to step 5.
+If step 2 returns nothing worth applying, skip steps 3–4 and go straight to step 5.
+
+This sequence runs unattended, so there is no one to answer a scope question mid-run. Apply
+what is clearly in scope, and carry the rest — scope changes and potential refactors — into the
+PR description under "Raised by review, not actioned", so the decision reaches the user without
+blocking the push. Never silently drop them.
 
 The **entire** sequence runs without confirmation — including the PR push (step 5),
 closing the task (step 6), and the CI watch (step 7). Do not ask "shall I commit?",
@@ -227,7 +235,7 @@ killed). Don't rely on it — run `mael task status done` explicitly at step 6 s
 deterministically.
 
 If the project supplies `docs/review/coding-standards.md` and/or
-`docs/review/code-smells.md`, the review sub-agent loads them automatically.
+`docs/review/review-guide.md`, the review sub-agent loads them automatically.
 
 ## Working with PR Failures
 
