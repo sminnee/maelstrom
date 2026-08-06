@@ -5,6 +5,7 @@ import socket
 import time
 from pathlib import Path
 
+from .mv_project import rekey_port_allocations
 from .util import locked_file
 
 
@@ -125,6 +126,27 @@ def remove_port_allocation(project_path: Path, worktree_name: str) -> None:
             if not allocations[project_key]:
                 del allocations[project_key]
             txn.text = json.dumps(allocations, indent=2, sort_keys=True) + "\n"
+
+
+def rename_project_allocations(old_path: Path, new_path: Path) -> None:
+    """Move a project's whole allocation entry from one project path to another.
+
+    Allocations are keyed by absolute project path, so renaming a project must
+    carry its port bases across or ``mael doctor`` will treat every worktree as
+    orphaned and prune it. Runs as a single locked transaction, like the other
+    mutators here.
+
+    Raises:
+        ValueError: If ``new_path`` already has allocations.
+    """
+    old_key = str(old_path.resolve())
+    new_key = str(new_path.resolve())
+    path = _get_allocations_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with locked_file(path) as txn:
+        allocations = json.loads(txn.text) if txn.text.strip() else {}
+        updated = rekey_port_allocations(allocations, old_key, new_key)
+        txn.text = json.dumps(updated, indent=2, sort_keys=True) + "\n"
 
 
 def get_port_allocation(project_path: Path, worktree_name: str) -> int | None:

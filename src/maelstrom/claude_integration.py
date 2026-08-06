@@ -68,13 +68,19 @@ def _symlink_items(source_dir: Path, target_dir: Path) -> list[str]:
     return messages
 
 
-def _read_json(path: Path) -> dict:
+def read_json(path: Path) -> dict:
+    """Read a JSON object, returning ``{}`` if it is missing or unreadable.
+
+    Public because other modules read the same third-party files (notably
+    ``~/.claude.json``); a second private reader would drift from this one.
+    """
     if not path.exists():
         return {}
     try:
-        return json.loads(path.read_text())
+        data = json.loads(path.read_text())
     except (json.JSONDecodeError, OSError):
         return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _write_json(path: Path, data: dict) -> None:
@@ -85,7 +91,7 @@ def _write_json(path: Path, data: dict) -> None:
 def install_session_channel() -> list[str]:
     """Register the mael-session MCP channel in ~/.claude.json."""
     path = Path.home() / ".claude.json"
-    data = _read_json(path)
+    data = read_json(path)
 
     servers = data.setdefault("mcpServers", {})
     if not isinstance(servers, dict):
@@ -162,7 +168,7 @@ def install_session_hooks() -> list[str]:
     are idempotent and stale event/matcher combinations get cleaned up.
     """
     path = Path.home() / ".claude" / "settings.json"
-    data = _read_json(path)
+    data = read_json(path)
 
     hooks = data.setdefault("hooks", {})
     if not isinstance(hooks, dict):

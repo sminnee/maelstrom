@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from maelstrom.worktree import (
     WorktreeInfo,
-    _setup_claude_memory_symlink,
+    setup_claude_memory_symlink,
     add_project,
     close_worktree,
     copy_back_new_env_vars,
@@ -1060,7 +1060,7 @@ class TestSetupWorktreeForBranch:
         # (writing CLAUDE.local.md/.gitignore would dirty it).
         with patch("maelstrom.worktree.update_claude_local_md", return_value=False), \
                 patch("maelstrom.worktree.run_install_cmd"), \
-                patch("maelstrom.worktree._setup_claude_memory_symlink"):
+                patch("maelstrom.worktree.setup_claude_memory_symlink"):
             first = setup_worktree_for_branch(
                 git_repo_with_remote, "test-repo", "feature/original"
             )
@@ -1083,7 +1083,7 @@ class TestSetupWorktreeForBranch:
         """no_recycle=True ignores a closed worktree and creates a new one."""
         with patch("maelstrom.worktree.update_claude_local_md", return_value=False), \
                 patch("maelstrom.worktree.run_install_cmd"), \
-                patch("maelstrom.worktree._setup_claude_memory_symlink"):
+                patch("maelstrom.worktree.setup_claude_memory_symlink"):
             first = setup_worktree_for_branch(
                 git_repo_with_remote, "test-repo", "feature/original"
             )
@@ -1662,7 +1662,7 @@ class TestStaleWorktreeHandling:
 
 
 class TestSetupClaudeMemorySymlink:
-    """Tests for _setup_claude_memory_symlink."""
+    """Tests for setup_claude_memory_symlink."""
 
     def test_creates_symlink_when_nothing_exists(self, tmp_path):
         """Creates central memory dir and symlink when neither exists."""
@@ -1677,7 +1677,7 @@ class TestSetupClaudeMemorySymlink:
         worktree_sanitised = str(worktree_path.resolve()).replace("/", "-")
 
         with patch("maelstrom.worktree.Path.home", return_value=tmp_path):
-            _setup_claude_memory_symlink(project_path, worktree_path)
+            setup_claude_memory_symlink(project_path, worktree_path)
 
         central = claude_projects / project_sanitised / "memory"
         wt_memory = claude_projects / worktree_sanitised / "memory"
@@ -1702,7 +1702,7 @@ class TestSetupClaudeMemorySymlink:
         (wt_memory / "existing_note.md").write_text("some memory")
 
         with patch("maelstrom.worktree.Path.home", return_value=tmp_path):
-            _setup_claude_memory_symlink(project_path, worktree_path)
+            setup_claude_memory_symlink(project_path, worktree_path)
 
         project_sanitised = str(project_path.resolve()).replace("/", "-")
         central = claude_projects / project_sanitised / "memory"
@@ -1735,7 +1735,7 @@ class TestSetupClaudeMemorySymlink:
         (wt_memory / "shared.md").write_text("worktree version")
 
         with patch("maelstrom.worktree.Path.home", return_value=tmp_path):
-            _setup_claude_memory_symlink(project_path, worktree_path)
+            setup_claude_memory_symlink(project_path, worktree_path)
 
         # Central version should be preserved
         assert (central / "shared.md").read_text() == "central version"
@@ -1748,7 +1748,7 @@ class TestSetupClaudeMemorySymlink:
         worktree_path.mkdir()
 
         with patch("maelstrom.worktree.Path.home", return_value=tmp_path):
-            _setup_claude_memory_symlink(project_path, worktree_path)
+            setup_claude_memory_symlink(project_path, worktree_path)
 
         # No directories created
         assert not (tmp_path / ".claude").exists()
@@ -1763,8 +1763,8 @@ class TestSetupClaudeMemorySymlink:
         (tmp_path / ".claude" / "projects").mkdir(parents=True)
 
         with patch("maelstrom.worktree.Path.home", return_value=tmp_path):
-            _setup_claude_memory_symlink(project_path, worktree_path)
-            _setup_claude_memory_symlink(project_path, worktree_path)
+            setup_claude_memory_symlink(project_path, worktree_path)
+            setup_claude_memory_symlink(project_path, worktree_path)
 
         claude_projects = tmp_path / ".claude" / "projects"
         project_sanitised = str(project_path.resolve()).replace("/", "-")

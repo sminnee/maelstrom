@@ -185,6 +185,30 @@ projects_dir: ~/Code
 
 Set it before adding projects. Otherwise maelstrom looks in `~/Projects`.
 
+### Renaming a project
+
+Use `mael mv-project OLD NEW`. Do not rename the directory with `mv`.
+
+A project name is load-bearing. It is not stored as a field — it is the directory
+name, and the worktree folders, task and env directories, port allocations and
+Claude Code state all follow from it. A plain `mv` breaks two of these silently:
+
+- **Git worktree pointers break.** Each worktree records an absolute path to its
+  administrative directory, and the repository records an absolute path back to
+  each worktree. After a `mv` both point at directories that no longer exist, so
+  git commands fail inside every worktree.
+- **The next `mael doctor` deletes the port allocations.** Allocations are keyed
+  by absolute project path. `doctor` prunes allocations whose worktree folders it
+  cannot find, so it garbage-collects every port base for the project. Each
+  worktree then gets new ports on its next start.
+
+`mael mv-project` repairs the git pointers and moves the allocations across. Run
+it with `--dry-run` first to see the full plan, and `mael doctor NEW` afterwards.
+
+It does not migrate Claude sessions. Session ids derive from the project name, so
+a rename orphans them: `mael task run` starts a fresh session rather than
+resuming. The plan reports how many tasks this affects.
+
 ---
 
 ## Dev environments

@@ -36,6 +36,7 @@ so the target is optional.
 | `mael add [BRANCH]` | Add a worktree for `BRANCH`. Recycles a closed worktree when one exists. With no `BRANCH`, creates a fresh worktree detached at `origin/main` and does not recycle. |
 | `mael add-project GIT_URL` | Clone a repository and set it up for maelstrom. |
 | `mael create-project NAME` | Create a GitHub repository with the maelstrom stub files, check it out, and open a worktree on `feat/start-project`. |
+| `mael mv-project OLD NEW` | Rename a project and everything derived from its name. |
 | `mael list [PROJECT]` | List worktrees with branch, dirty files, local commits, PR, app URL and session. |
 | `mael list-all` | List worktrees across every project. |
 | `mael close [TARGETS]...` | Sync, check the worktree is clean, then check out main. Keeps the folder, name and ports. |
@@ -70,6 +71,34 @@ organization. The seed commit holds `.gitignore` (which ignores the per-worktree
 | `--public` | Create a public repository. Default: private. |
 | `--description TEXT` | Repository description. |
 | `--projects-dir TEXT` | Base directory for projects. Default: from `~/.maelstrom/config.yaml`, else `~/Projects`. With a directory other than the configured one, no worktree is opened: `mael add` finds projects only in the configured directory. |
+
+**`mael mv-project`**
+
+A project name is load-bearing. It is not stored as a field — it is the directory
+name, and the worktree folders, task and env directories, port allocations and
+Claude Code state all follow from it. Do not rename a project with `mv`. Use this
+command, which moves the directory and updates each of those.
+
+Run it with `--dry-run` first to see the full plan.
+
+| Option | Description |
+|---|---|
+| `--dry-run` | Show the plan without changing anything. |
+| `-f`, `--force` | Stop running environments and Claude sessions instead of refusing. |
+| `--git-url URL` | Also point `origin` at `URL`. |
+
+The command refuses to run while the project has a running environment or a live
+Claude session. Dirty worktrees are allowed.
+
+Out of scope — these are not changed:
+
+- **Claude session ids.** They derive from the project name, so a rename orphans
+  every existing session. `mael task run` starts a fresh session instead of
+  resuming. The plan reports how many tasks this affects.
+- **`remote.origin.url`**, unless you pass `--git-url`.
+- **Committed files.** A project name in `README.md` or `CLAUDE.md` stays as it is.
+
+Run `mael doctor NEW` afterwards.
 
 **`mael close`**
 

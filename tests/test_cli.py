@@ -638,7 +638,7 @@ class TestCmdAddRecycle:
             "maelstrom.worktree.extract_worktree_name_from_folder", return_value="bravo",
         ))
         stack.enter_context(patch("maelstrom.worktree.reclaim_or_allocate_ports"))
-        stack.enter_context(patch("maelstrom.worktree._setup_claude_memory_symlink"))
+        stack.enter_context(patch("maelstrom.worktree.setup_claude_memory_symlink"))
         stack.enter_context(patch("maelstrom.worktree.update_claude_local_md", return_value=False))
         stack.enter_context(patch("maelstrom.worktree.run_install_cmd"))
         # The recycle env block stays CLI-side and derives the NATO name there too.
@@ -1070,3 +1070,190 @@ class TestCreateProjectIntegration:
         assert str(projects / "other" / "other-alpha") in result.output
         assert launched["project"] == "other"
         assert (projects / "other" / "other-alpha").exists()
+
+
+class TestMvProjectIntegration:
+    """`mael mv-project` against a real git repo, with only global state mocked."""
+
+    def _build(self, tmp_path, project_name="old"):
+        """Build a bare-ish project with a nato worktree and a `_main` worktree."""
+        projects = tmp_path / "Projects"
+        projects.mkdir()
+        project = projects / project_name
+        project.mkdir()
+
+        upstream = tmp_path / "up.git"
+        subprocess.run(
+            ["git", "init", "--bare", "-b", "main", str(upstream)],
+            check=True, capture_output=True,
+        )
+        seed = tmp_path / "seed"
+        seed.mkdir()
+        (seed / "README.md").write_text("hi\n")
+        for cmd in (
+            ["git", "init", "-b", "main"],
+            ["git", "add", "-A"],
+            ["git", "-c", "user.email=t@t", "-c", "user.name=T", "commit", "-m", "seed"],
+            ["git", "remote", "add", "origin", str(upstream)],
+            ["git", "push", "-u", "origin", "main"],
+        ):
+            subprocess.run(cmd, cwd=seed, check=True, capture_output=True)
+
+        subprocess.run(
+            ["git", "clone", "--bare", str(upstream), str(project / ".git")],
+            check=True, capture_output=True,
+        )
+        git_env = {**os.environ, "GIT_DIR": str(project / ".git")}
+        subprocess.run(
+            ["git", "config", "core.bare", "false"],
+            cwd=project, env=git_env, check=True, capture_output=True,
+        )
+        # A bare clone has no remote-tracking refs; fetch them so the project
+        # looks like one `mael add-project` made (and `mael doctor` accepts).
+        for cmd in (
+            ["git", "config", "remote.origin.fetch",
+             "+refs/heads/*:refs/remotes/origin/*"],
+            ["git", "fetch", "origin"],
+        ):
+            subprocess.run(cmd, cwd=project, check=True, capture_output=True)
+        # Detach the repo's own HEAD so `_main` can hold `main`, which is the
+        # layout `mael add-project` produces and `mael doctor` checks for.
+        subprocess.run(
+            ["git", "checkout", "--detach", "main"],
+            cwd=project, check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "worktree", "add", str(project / "_main"), "main"],
+            cwd=project, check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "worktree", "add", "-B", "feat/x",
+             str(project / f"{project_name}-alpha"), "main"],
+            cwd=project, check=True, capture_output=True,
+        )
+        (project / ".mael").touch()
+        return projects, project
+
+    def _run(self, tmp_path, projects, args, home=None):
+        """Invoke mv-project with global state redirected into tmp_path."""
+        home = home or (tmp_path / "home")
+        home.mkdir(exist_ok=True)
+        mael_dir = home / ".maelstrom"
+        mael_dir.mkdir(exist_ok=True)
+        config = MagicMock(projects_dir=projects, open_command="code")
+
+        with patch("maelstrom.mv_project_cli.load_global_config", return_value=config), \
+             patch("maelstrom.context.load_global_config", return_value=config), \
+             patch("maelstrom.cli.load_global_config", return_value=config), \
+             patch("maelstrom.context.get_maelstrom_dir", return_value=mael_dir), \
+             patch("maelstrom.mv_project_cli.get_maelstrom_dir", return_value=mael_dir), \
+             patch("maelstrom.task_store.get_maelstrom_dir", return_value=mael_dir), \
+             patch("pathlib.Path.home", return_value=home), \
+             patch("maelstrom.mv_project_cli.all_live_sessions", return_value=[]), \
+             patch("maelstrom.mv_project_cli.update_claude_local_md"):
+            return CliRunner().invoke(cli, ["mv-project"] + args)
+
+    def test_git_works_inside_the_moved_worktree(self, tmp_path):
+        """The `.git`-file direction: worktree -> admin dir."""
+        projects, _ = self._build(tmp_path)
+        result = self._run(tmp_path, projects, ["old", "new"])
+        assert result.exit_code == 0, result.output
+
+        status = subprocess.run(
+            ["git", "status"], cwd=projects / "new" / "new-alpha",
+            capture_output=True, text=True,
+        )
+        assert status.returncode == 0, status.stderr
+
+    def test_worktree_list_shows_only_new_paths(self, tmp_path):
+        """The `gitdir` direction: admin dir -> worktree."""
+        projects, _ = self._build(tmp_path)
+        self._run(tmp_path, projects, ["old", "new"])
+
+        listing = subprocess.run(
+            ["git", "worktree", "list"], cwd=projects / "new",
+            capture_output=True, text=True, check=True,
+        ).stdout
+        assert str(projects / "new" / "new-alpha") in listing
+        assert "old-alpha" not in listing
+
+    def test_an_uncommitted_file_survives_the_rename(self, tmp_path):
+        projects, project = self._build(tmp_path)
+        (project / "old-alpha" / "wip.txt").write_text("unsaved work\n")
+
+        self._run(tmp_path, projects, ["old", "new"])
+
+        assert (projects / "new" / "new-alpha" / "wip.txt").read_text() == (
+            "unsaved work\n"
+        )
+
+    def test_the_main_worktree_keeps_its_name_and_still_works(self, tmp_path):
+        projects, _ = self._build(tmp_path)
+        self._run(tmp_path, projects, ["old", "new"])
+
+        main = projects / "new" / "_main"
+        assert main.is_dir()
+        status = subprocess.run(
+            ["git", "status"], cwd=main, capture_output=True, text=True,
+        )
+        assert status.returncode == 0, status.stderr
+
+    def test_a_task_moves_and_is_restamped(self, tmp_path):
+        projects, _ = self._build(tmp_path)
+        home = tmp_path / "home"
+        home.mkdir(exist_ok=True)
+        tasks = home / ".maelstrom" / "tasks" / "old" / "todo"
+        tasks.mkdir(parents=True)
+        (tasks / "x.md").write_text(
+            "---\nid: x\nproject: old\ntitle: A task\n---\n\nBody\n"
+        )
+
+        result = self._run(tmp_path, projects, ["old", "new"], home=home)
+        assert result.exit_code == 0, result.output
+
+        moved = home / ".maelstrom" / "tasks" / "new" / "todo" / "x.md"
+        assert moved.exists()
+        assert "project: new" in moved.read_text()
+        assert not (home / ".maelstrom" / "tasks" / "old" / "todo" / "x.md").exists()
+
+    def test_port_allocations_move_to_the_new_path_key(self, tmp_path):
+        projects, project = self._build(tmp_path)
+        home = tmp_path / "home"
+        home.mkdir(exist_ok=True)
+        (home / ".maelstrom").mkdir(exist_ok=True)
+        allocations = home / ".maelstrom" / "port_allocations.json"
+        allocations.write_text(json.dumps({str(project): {"alpha": 310}}))
+
+        self._run(tmp_path, projects, ["old", "new"], home=home)
+
+        data = json.loads(allocations.read_text())
+        assert data == {str(projects / "new"): {"alpha": 310}}
+
+    def test_doctor_afterwards_prunes_nothing(self, tmp_path):
+        """The whole point: doctor must not garbage-collect the port bases."""
+        from maelstrom.doctor import run_doctor
+
+        projects, project = self._build(tmp_path)
+        home = tmp_path / "home"
+        home.mkdir(exist_ok=True)
+        (home / ".maelstrom").mkdir(exist_ok=True)
+        allocations = home / ".maelstrom" / "port_allocations.json"
+        allocations.write_text(json.dumps({str(project): {"alpha": 310}}))
+
+        self._run(tmp_path, projects, ["old", "new"], home=home)
+
+        config = MagicMock(projects_dir=projects, open_command="code")
+        with patch("maelstrom.context.get_maelstrom_dir",
+                   return_value=home / ".maelstrom"), \
+             patch("maelstrom.context.load_global_config", return_value=config), \
+             patch("pathlib.Path.home", return_value=home):
+            doctor_result = run_doctor(projects / "new")
+
+        assert json.loads(allocations.read_text()) == {
+            str(projects / "new"): {"alpha": 310}
+        }
+        bad = [
+            c for c in doctor_result.checks
+            if c.status.name in ("WARNING", "ERROR")
+        ]
+        assert not bad, [(c.status, c.message) for c in bad]
