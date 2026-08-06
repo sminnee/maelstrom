@@ -213,6 +213,56 @@ already be done. It:
 
 Then the same two commands, in the same order: close, then load.
 
+## Auditing an existing project
+
+`/review-project-hygiene` is a second way into a chain. It does not start from a brief. It
+reads a project that already exists — usually after its first MVP — and turns the gaps it
+finds into a plan file, in the same load-many form as above.
+
+```bash
+mael task add "Hygiene audit: forecastel" --run
+```
+
+Then run `/review-project-hygiene` in the planning session.
+
+The skill audits tooling, CI/CD, tests and specs, docs, agent config, security and
+dependencies, dead code, and architecture fences. It looks
+hardest for **gates that report success but cannot fail** — a CI step named "Lint" that runs
+the write variant of a formatter, a deploy that never checks whether the build passed, a
+dead-code config no job invokes. An absent gate is visible. A broken one is not.
+
+Two things it deliberately does not do:
+
+- **It never edits the project.** Every agreed fix becomes a task. The audit reads and
+  reports; the chain it emits does the work.
+- **It checks that code conventions are *documented*, not whether the code follows them.**
+  Reviewing code against a standard is [`/code-review`](pull-requests.md)'s job.
+
+### The table gate
+
+The audit stops in the middle and shows you a table — one row per check, with its state, a
+recommendation, and an S/M/L effort:
+
+| Check | State | Recommendation | Effort |
+|---|---|---|---|
+| Lint gate | ✗ runs `npm run format` (writes, always exits 0) | switch to `format:check` | S |
+| Dead code | ✗ none configured | add knip + CI gate | M |
+| Arch fence | n/a — 2 crates, below threshold | none | — |
+
+**The plan file is written after you confirm this table, from the confirmed rows only.** A row
+you decline is dropped, and nothing that was not in the table reaches the plan.
+
+The `n/a` rows are there on purpose. Showing that a check was considered and declined is what
+makes the table reviewable, and it surfaces a wrong threshold before it becomes a task. If the
+audit declines a check you wanted, or recommends one that makes no sense for the project, say
+so — that is a checklist bug worth fixing.
+
+There are two review points, not one: the table agrees the scope, and ExitPlanMode then
+approves the chain that implements it.
+
+The confirmed rows become one execute block per theme, chained with `follow`, with `branch:`
+unset — so the whole audit lands as one pull request.
+
 ## Linear stays a mirror
 
 The plan of record lives in the notebook chain, not in a Linear description. The planning
