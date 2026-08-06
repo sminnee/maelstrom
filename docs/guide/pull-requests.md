@@ -64,6 +64,12 @@ rebase. A note also survives a change to the commit it sits on, so a commit that
 after review is not reviewed again. The run reports each commit it skips, so you can see when
 that happens.
 
+**One run reviews at most 8 commits** — the oldest 8 that are not yet reviewed. It reports the
+rest as deferred. Run `/code-review` again to review them: the first run tags its commits
+`reviewed`, so the second run skips them and takes the next 8. This cap holds even when you name
+an explicit SHA or range: run the same command again to take the next 8, or name a narrower range
+if you want different commits.
+
 It runs `mael git squash` first, so the review sees the commits as they will land instead of
 a history littered with fixups. Rebase conflicts stop the review; a dirty worktree does not,
 because the squash autostashes. This step is skipped when you name an explicit SHA or range.
@@ -101,6 +107,10 @@ git commit --fixup <sha>
 
 One fixup per finding. Do not amend — amending rewrites commits the review already covered
 and makes the fix impossible to trace.
+
+Fixes are applied and committed **one commit at a time, oldest first**. Each commit's fixups are
+made and committed before the next commit's fixes are written, so a fixup carries only the changes
+for the commit it targets.
 
 `--squash` folds them into their targets at push time, so the PR still lands with clean
 history.

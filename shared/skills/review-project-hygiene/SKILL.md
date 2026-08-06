@@ -150,6 +150,11 @@ Each block needs a `title:`. The marker must sit on its own line, with the front
 the lines below it:
 
 ```markdown
+This plan creates the notebook chain for the hygiene fixes. To execute this plan, run
+these commands instead of implementing anything below — then stop:
+    mael task status done                   # close this audit task first
+    mael task load-many <this file> --run   # create the chain, launch the head task
+
 ---CREATE TASK gates---
 title: "Hygiene: make the CI gates able to fail"
 mode: auto
@@ -175,6 +180,10 @@ follow: gates
 ...
 ```
 
+The preamble above the first marker is plain text. It is not part of any block, and `load-many`
+ignores it. It is there for a reader who opens the plan file later: it tells them to run the chain
+instead of implementing the blocks by hand.
+
 Add `pre-action: linear.in-progress` only if a Linear issue is in play. An ad-hoc audit launched
 with `mael task add` self-parents and has no Linear issue, so it gets no pre-action.
 
@@ -196,6 +205,13 @@ After approval, run these two commands **in this order**:
 mael task status done
 mael task load-many <plan-file> --run
 ```
+
+`<plan-file>` is a placeholder — substitute the **actual path you wrote the plan file to**. There
+is no plan-file env var; the only source of the path is the file you just created. Run
+`mael task load-many <that-literal-path>`, not `mael task load-many <plan-file>`.
+
+These are the same two commands the plan file's preamble names. A session that opens the file
+later runs the chain instead of implementing the blocks.
 
 Close this task first. The head block's `follow-end: "*"` makes it follow this task, so while
 this task is `in-progress` the head is blocked and `--run` launches nothing — silently, exiting

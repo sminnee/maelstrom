@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Review committed changes on the current branch against project standards, security, simplicity, and architectural fit. Invoked as the `/code-review` slash command. Squashes pending fixups onto origin/main first, then reviews each not-yet-reviewed commit with its own read-only sub-agent, skipping commits already tagged as reviewed. The parent then proposes fixes interactively.
+description: Review committed changes on the current branch against project standards, security, simplicity, and architectural fit. Invoked as the `/code-review` slash command. Squashes pending fixups onto origin/main first, then reviews up to 8 not-yet-reviewed commits, oldest first, with one read-only sub-agent per commit, skipping commits already tagged as reviewed and deferring the rest to the next run. The parent then proposes fixes interactively.
 ---
 
 # Code Review
@@ -14,6 +14,9 @@ sub-agent per commit does the actual review against a structured Markdown contra
 note, and a later run passes over it. This is the only state the skill keeps: there is no
 resolved-thread tracking and no JSON output. Naming an explicit SHA or range bypasses the skip
 and forces a fresh review.
+
+**One run reviews at most 8 commits**, oldest first. It reports the rest as deferred, and a later
+run picks them up. The cap has no bypass — it applies to an explicit SHA or range too.
 
 ## The goal
 
@@ -112,6 +115,29 @@ commit needs reviewing again.
 Keep the full commit list from step 3 for the sub-agent prompts. The skip decides what to review,
 not what a reviewer is told about the branch.
 
+### 3c. Cap the run at 8 commits
+
+Take the **oldest 8** of the commits that remain after step 3b. The list from step 3 is already
+`--reverse`, so this is its first 8 entries. A larger fan-out spawns too many concurrent
+sub-agents and returns a report too big to triage well.
+
+Report every commit you defer, one line each, and close the list with the re-run instruction:
+
+```
+Deferred to the next run: <sha> <subject>
+Run /code-review again once these fixups are squashed to review them.
+```
+
+Report it now, and repeat it in the final report (step 8).
+
+This needs no new state. The commits reviewed in this run get `reviewed` notes in step 7 (on their
+fixups) and step 7b (on the commits that reviewed clean), so the next run's step 3b skips them and
+the cap lands on the next 8.
+
+**The cap applies on every run, including an explicit SHA or range.** Steps 1 and 3b are both
+bypassed when `$ARGUMENTS` names a SHA or range. This step is not — there is no bypass. A user who
+wants commits 9 and later of a named range runs the command again, or names a narrower range.
+
 ### 4. Spawn one review sub-agent per commit
 
 Read the reviewer prompt from `reviewer-prompt.md` (alongside this file, at
@@ -167,8 +193,14 @@ copy and drop the rest.
 
 The sub-agents do not rank findings — they report what they found and what it costs to leave.
 Sorting them is your job, and it turns on **what the fix would cost**, not on how serious the
-issue sounds. This is where *better than you found it, without side quests* gets applied. Put
-each finding in one of three buckets:
+issue sounds. This is where *better than you found it, without side quests* gets applied.
+
+Triage is **one pass over the whole merged report**. Bucket every finding, for every commit,
+before you make any fix. Judgement that spans commits depends on it: the duplicate-finding rule in
+step 5, and the "a later commit already handles it" discard ground below. The output of this step
+is a per-commit list of fixes to apply — the work list step 7 walks.
+
+Put each finding in one of three buckets:
 
 **Apply it.** The finding is correct and the fix sits inside the work already done — a missed
 guard, a wrong name, a duplicated helper, a missing test case. Fix these without asking. That is
@@ -176,8 +208,9 @@ what the review is for.
 
 **Raise it with the user.** The fix would materially change scope: a different approach, a new
 abstraction, work in code the branch does not touch, or a trade-off with no clearly right answer.
-Do not start these. Put the choice to the user (AskUserQuestion or a plain prompt) with the fix
-you would make and what it would cost, and wait.
+Do not start these, and do not raise them here — collect them, finish the fix loop in step 7, then
+put them all to the user together in step 7c. That is one interruption for the run instead of one
+per commit.
 
 **Potential refactors belong in this bucket — never in the discard bucket.** A review often
 surfaces that a larger piece of work would pay off: a seam in the wrong place, a pattern several
@@ -186,9 +219,8 @@ this branch, which makes it tempting to drop. Don't. That judgement is the user'
 the findings a review is uniquely placed to catch — the pattern is only visible from across the
 whole change.
 
-Raise each one with what it would cost and what it would buy, and let the user decide whether to
-do it now, file it as a follow-up task, or decline. Say plainly that it is out of scope for the
-current branch, so the choice is clear.
+Record each one with what it would cost and what it would buy. Step 7c puts them to the user, who
+decides whether to do it now, file it as a follow-up task, or decline.
 
 **Discard it.** The finding does not apply — the reviewer missed context, the pattern is
 deliberate, a later commit already handles it, or it is listed as an anti-smell. Drop it. Do not
@@ -206,21 +238,31 @@ Report the split briefly: what you applied, what you are asking about, what you 
 why. If a discard was a close call, say so — it may belong in the project's *Anti-smells*
 section so the next review does not repeat it.
 
-### 7. Commit the fixes
+### 7. Fix one commit at a time
 
-For each finding that was fixed, create one fixup commit targeting the commit the finding was
-reported against. Per-commit review means that SHA is always known:
+Walk the work list from step 6 **one commit at a time, oldest first**. Complete each commit fully
+before you start the next. Two nested loops:
 
-```bash
-git add -- <paths relevant to this finding>
-git commit --fixup=<sha>
-```
+For each commit that has fixes, oldest first:
 
-Stage only the files relevant to that finding before each fixup so the fixups stay aligned with
-their target commits.
+- For each of that commit's findings, one at a time:
+  1. Make the code edits for that finding only.
+  2. Stage them: `git add -- <paths relevant to this finding>`
+  3. Commit them: `git commit --fixup=<sha>`
+  4. Tag the fixup: `git notes add -f -m "reviewed" <fixup-sha>` (see step 7b for what that note
+     does).
+
+The inner loop keeps the rule of **one fixup per finding**. The outer loop keeps each fixup on the
+commit it targets.
+
+Do not let another commit's fixes sit unstaged in the worktree while you commit this one. That is
+how a fixup picks up the wrong hunks: `git add -- <paths>` stages whatever is currently in those
+paths, not only the change you meant. End each commit's turn with a clean staging area, and every
+fixup stays aimed at the right target.
 
 If a fix can't be attributed to a single commit in the range (e.g. it spans multiple commits),
-fall back to `git commit --fixup=HEAD` and call that out in the report.
+fall back to `git commit --fixup=HEAD` and call that out in the report. Do **not** tag that
+commit — see step 7b.
 
 Hard rules:
 
@@ -228,23 +270,22 @@ Hard rules:
 - **Don't run the autosquash rebase yourself** — leave that to the user (`mael sync --squash` or
   `mael git squash`). Step 1 of the *next* review will pick them up.
 
-### 7b. Tag the reviewed commits
+### 7b. Tag the remaining commits
 
-Write a `reviewed` note on two kinds of commit:
+Step 7 already tagged each fixup as it was made. Two kinds of tagging are left.
+
+Tag every commit that reviewed clean, as it stands:
 
 ```bash
-# a commit that reviewed clean, as it stands
 git notes add -f -m "reviewed" <sha>
-
-# each fixup commit made in step 7 — the note rides onto the squashed
-# result, so the fixed commit is not reviewed again next run
-git notes add -f -m "reviewed" <fixup-sha>
 ```
 
 `-f` is mandatory. Without it git concatenates, and the notes pile up.
 
-A commit that had findings is **not** tagged itself — its fixup carries the tag. If the fixup is
-never made, the commit stays untagged and comes back for review next run, which is what you want.
+A commit that had findings is **not** tagged itself — its fixup carries the tag, and the note
+rides onto the squashed result, so the fixed commit is not reviewed again next run. If the fixup
+is never made, the commit stays untagged and comes back for review next run, which is what you
+want.
 
 Do **not** tag a `--fixup=HEAD` fallback commit (the spanning-multiple-commits case in step 7). It
 is not attributable to one commit, so let the commits it touches be reviewed again.
@@ -262,10 +303,25 @@ to origin. They need `notes.rewriteRef`, which `mael doctor` sets — without it
 every note and no commit is ever skipped. `refs/notes/commits` is git's default display ref, so
 `reviewed` appears in `git log` and `git show` with no flag.
 
+### 7c. Raise the scope questions
+
+Put the findings you collected in step 6's **"Raise it with the user"** bucket to the user now, all
+together (AskUserQuestion or a plain prompt). Give each one the fix you would make and what it
+would cost. The fixes are already committed, so the user answers once, with the in-scope work done.
+
+Potential refactors belong here. Say plainly that each is out of scope for the current branch, so
+the choice — do it now, file it as a follow-up task, or decline — is clear. **Never drop one.**
+
 ### 8. Done
 
-Report what was fixed, and which commits you skipped as already reviewed. The user can re-invoke
-`/code-review` with an explicit SHA or range to force a fresh review of a commit.
+Report:
+
+- what was fixed;
+- which commits you skipped as already reviewed (step 3b);
+- which commits you deferred to the next run (step 3c).
+
+The user can re-invoke `/code-review` with an explicit SHA or range to force a fresh review of a
+commit. A plain `/code-review` picks up the deferred commits once the fixups are squashed.
 
 ## Do NOT bake project-specific rules into this skill
 
