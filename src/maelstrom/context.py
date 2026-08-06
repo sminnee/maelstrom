@@ -169,6 +169,16 @@ def harden_global_config() -> list[str]:
     return messages
 
 
+# Names a project may not take, because something else already owns that key
+# space in the shared task store (``~/.maelstrom/tasks``). A task key is
+# ``<project>/<status>/<id>.md``, so a project named ``_wiki`` would write its
+# tasks into the wiki's key space and its tasks would list as wiki pages.
+# Enforcing the name here is what makes :data:`maelstrom.wiki.WIKI_PREFIX` a real
+# guarantee rather than a convention — the leading underscore only makes the
+# collision unlikely, not impossible.
+RESERVED_PROJECT_NAMES = frozenset({"_wiki"})
+
+
 def validate_project_name(name: str) -> None:
     """Validate that a project name is valid.
 
@@ -176,13 +186,17 @@ def validate_project_name(name: str) -> None:
         name: The project name to validate.
 
     Raises:
-        ValueError: If name is empty or contains dots.
+        ValueError: If name is empty, contains dots, or is a reserved name.
     """
     if not name:
         raise ValueError("Project name cannot be empty")
     if "." in name:
         raise ValueError(
             f"Invalid project name '{name}': project names cannot contain dots"
+        )
+    if name in RESERVED_PROJECT_NAMES:
+        raise ValueError(
+            f"Invalid project name '{name}': that name is reserved by maelstrom"
         )
 
 

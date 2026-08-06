@@ -7,7 +7,6 @@ lives in the model; this layer only parses arguments and prints.
 
 import os
 import subprocess
-import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +23,7 @@ from . import session_discovery
 from . import session_store
 from .context import resolve_context
 from .table import draw_table
+from .util import read_content_file
 from .task_index import SqliteTaskIndex
 from .task_store import GitFileStore
 from .cmux.client import ensure_cmux_running
@@ -112,20 +112,15 @@ def _restamp(store: GitFileStore, index: "SqliteTaskIndex", *, was_fresh: bool) 
 
 
 def _read_content_file(content_file: str | None) -> str:
-    """Read the ``--content-file`` argument's contents.
+    """Read the ``--content-file`` argument, converting a missing path to a CLI error.
 
-    ``-`` reads from stdin (the Unix ``cat -`` idiom), so callers can pipe a
-    brief without managing a temp file; any other value is a path that must
-    exist.
+    The reading itself lives in :func:`maelstrom.util.read_content_file`, shared
+    with ``mael wiki update``; this wrapper is the CLI-layer error conversion.
     """
-    if content_file is None:
-        return ""
-    if content_file == "-":
-        return sys.stdin.read()
-    path = Path(content_file)
-    if not path.is_file():
+    try:
+        return read_content_file(content_file)
+    except FileNotFoundError:
         raise click.ClickException(f"Content file not found: {content_file}")
-    return path.read_text()
 
 
 def _run_task(

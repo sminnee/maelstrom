@@ -99,6 +99,33 @@ onto the template's.
 
 Read [tasks.md](tasks.md) for the detail.
 
+### The wiki — cross-project patterns
+
+The wiki is a curated set of markdown pages for design patterns that apply to more than one
+project: which linting tool to use, how to publish a package, how to set up a new service.
+
+It fills a gap that the other two knowledge stores leave open. Claude's memory is
+per-project — maelstrom symlinks each worktree's memory directory to a shared one at the
+project level, so knowledge is unified across the worktrees of one project but not across
+projects. A repo's own `docs/` is scoped to that repo. Neither can hold a pattern that
+belongs to no single project.
+
+Pages live in the same git-backed store as the task notebook, under a reserved prefix, so
+every change is committed and can be rolled back. The store is local: there is no remote
+sync in this version.
+
+A page is markdown with a one-line `description:` in its frontmatter. `mael wiki list`
+prints the path and the description of every page, which is how an agent finds the right
+page without reading all of them. `mael wiki read` prints a page, and `mael wiki update`
+replaces one and commits it.
+
+Page paths are free-form. The convention is `dev-patterns/<language-or-area>/<topic>`, for
+example `dev-patterns/python/pypi-publication`. Maelstrom does not enforce it.
+
+Agents are told to consult the wiki before they solve a cross-project problem, and to
+correct the page they used if it turns out to be wrong. See
+[cli.md](../reference/cli.md) for the commands.
+
 ### Dev environments — isolated services
 
 Each worktree gets a `PORT_BASE` in the range 300-999. Service ports are

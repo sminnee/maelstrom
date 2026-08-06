@@ -22,6 +22,7 @@ from .task_cli import add_task
 from . import task as task_model
 from .task_index import StaleTaskIndexError
 from .task_store import GitFileStore
+from .wiki_cli import wiki as wiki_cli
 from .schedule_launchd import schedule_group
 from .env import get_env_status, regenerate_and_restart_if_running, stop_env, stop_sessions
 from .env_cli import (
@@ -1269,6 +1270,7 @@ cli.add_command(uptimerobot)
 cli.add_command(session_cli)
 cli.add_command(session_channel_cmd)
 cli.add_command(task_cli)
+cli.add_command(wiki_cli)
 cli.add_command(schedule_group)
 cli.add_command(status_cli)
 cli.add_command(cmd_mv_project)

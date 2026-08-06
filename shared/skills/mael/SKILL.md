@@ -141,6 +141,44 @@ mael env list-all                        # All running environments
 
 Run the project's test suite and linting as defined in CLAUDE.md.
 
+## Development patterns — the wiki
+
+The wiki is a curated set of markdown pages for patterns that apply across projects — tool
+choices, publication steps, project setup. It is separate from per-project docs (scoped to
+one repo) and from Claude memory (per-project and auto-curated).
+
+```bash
+mael wiki list                                       # table of contents: page + description
+mael wiki read dev-patterns/python/pypi-publication  # print a page
+printf 'body' | mael wiki update <page> --content-file -   # write the whole page, and commit
+mael wiki update <page> --content-file page.md             # ... or from a file
+```
+
+**Consult it before you solve a cross-project problem.** Run `mael wiki list` and read any
+page whose description matches. **Correct it after.** If the page you used was wrong or
+incomplete, update it in the same session. If no page existed, add one.
+
+`update` writes the whole page — there is no partial edit. Read the page, change the text,
+then write the full body back.
+
+Page paths are free-form, but keep to the convention
+`dev-patterns/<language-or-area>/<topic>`, for example
+`dev-patterns/python/pypi-publication` or `dev-patterns/ci/github-actions`. Give every page
+a one-line `description:` in YAML frontmatter — that line is what `mael wiki list` prints,
+so it is how the next agent finds the page:
+
+```markdown
+---
+description: How to publish a Python package to PyPI
+---
+
+# PyPI publication
+...
+```
+
+Pages live in the same git-backed store as the task notebook (`~/.maelstrom/tasks`), so
+every change is committed. The store is local — there is no remote sync.
+
 ## Finalising Work
 
 ```bash

@@ -267,6 +267,35 @@ next task.
 
 ---
 
+## Wiki
+
+The cross-project development-pattern wiki. Pages live beside the task notebook in
+`~/.maelstrom/tasks`, so every change is committed. See
+[concepts.md](../guide/concepts.md).
+
+| Command | Description |
+|---|---|
+| `mael wiki list` | Print every page with its one-line description. |
+| `mael wiki read PAGE` | Print the raw page content. |
+| `mael wiki update PAGE` | Create or replace a page, and commit it. |
+
+`PAGE` is a relative path such as `dev-patterns/python/pypi-publication`. The `.md` suffix is
+optional. The convention is `dev-patterns/<language-or-area>/<topic>`, but any safe relative
+path is accepted.
+
+**`mael wiki update`**
+
+| Option | Description |
+|---|---|
+| `--content-file TEXT` | File holding the whole page body. `-` reads stdin. Required. |
+
+The content replaces the whole page — there is no partial edit. To change one part, read the
+page first, then write the full body back.
+
+Give each page a one-line `description:` in YAML frontmatter. `mael wiki list` prints it.
+
+---
+
 ## Dev environments
 
 See [dev-environments.md](../guide/dev-environments.md).

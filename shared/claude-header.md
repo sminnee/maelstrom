@@ -19,6 +19,26 @@ Two things that look like a reason to make a new branch are not:
 - **The branch already has commits.** Many commits on one branch are normal. Tasks in one
   chain share one branch and one PR, so the work merges as a whole.
 
+## The wiki — cross-project patterns
+
+The wiki holds design patterns that apply to more than one project: which linting tool to
+use, how to publish a package, how to set up a new service.
+
+**Before you solve a cross-project problem, run `mael wiki list`.** It prints every page and
+a one-line description. If a page covers the problem, read it and follow it.
+
+**After you solve one, record it.** Write a new page, or correct the page you consulted if
+it is wrong or out of date:
+
+```bash
+mael wiki list                                       # table of contents
+mael wiki read dev-patterns/python/pypi-publication  # read a page
+printf '...' | mael wiki update dev-patterns/python/pypi-publication --content-file -
+```
+
+`update` replaces the whole page and commits it. To change one part of a page, read it
+first, then write the full body back.
+
 ## Language
 
 Write in ASD-STE100 (Simplified Technical English) where possible: short sentences, one
