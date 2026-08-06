@@ -109,6 +109,36 @@ def _check_standard_fetch_refspec(project_path: Path) -> CheckResult:
         return CheckResult(CheckStatus.ERROR, "Standard fetch refspec missing and could not be added")
 
 
+def _check_notes_rewrite_ref(project_path: Path) -> CheckResult:
+    """Check that git notes survive a rebase.
+
+    ``/code-review`` tags a reviewed commit with a git note so a later run skips
+    it. Without ``notes.rewriteRef`` every rebase drops the note, so nothing is
+    ever skipped and the feature silently does nothing.
+    """
+    expected = "refs/notes/*"
+    result = run_cmd(
+        ["git", "config", "--get-all", "notes.rewriteRef"],
+        cwd=project_path,
+        quiet=True,
+        check=False,
+    )
+    values = result.stdout.splitlines() if result.returncode == 0 else []
+
+    if expected in values:
+        return CheckResult(CheckStatus.OK, "notes.rewriteRef configured")
+
+    # Auto-fix
+    try:
+        if not values:
+            run_git(["config", "notes.rewriteRef", expected], cwd=project_path)
+        else:
+            run_git(["config", "--add", "notes.rewriteRef", expected], cwd=project_path)
+        return CheckResult(CheckStatus.FIXED, "notes.rewriteRef was missing → added")
+    except subprocess.CalledProcessError:
+        return CheckResult(CheckStatus.ERROR, "notes.rewriteRef missing and could not be added")
+
+
 def _check_local_main_sync(project_path: Path) -> CheckResult:
     """Try to fast-forward local main to match origin/main."""
     result = update_local_main(project_path)
@@ -317,6 +347,7 @@ def run_doctor(project_path: Path) -> DoctorResult:
         _check_mael_marker,
         _check_core_bare,
         _check_standard_fetch_refspec,
+        _check_notes_rewrite_ref,
         _check_origin_remote,
         _check_origin_main,
         _check_local_main_sync,

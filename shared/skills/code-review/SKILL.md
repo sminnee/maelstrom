@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Review committed changes on the current branch against project standards, security, simplicity, and architectural fit. Invoked as the `/code-review` slash command. Squashes pending fixups onto origin/main first, then reviews each commit with its own read-only sub-agent. The parent then proposes fixes interactively.
+description: Review committed changes on the current branch against project standards, security, simplicity, and architectural fit. Invoked as the `/code-review` slash command. Squashes pending fixups onto origin/main first, then reviews each not-yet-reviewed commit with its own read-only sub-agent, skipping commits already tagged as reviewed. The parent then proposes fixes interactively.
 ---
 
 # Code Review
@@ -10,8 +10,10 @@ project-standards conformance, security, simplicity, and reuse, and reports find
 user. The parent agent (this skill's top-level section) drives the workflow; one read-only
 sub-agent per commit does the actual review against a structured Markdown contract.
 
-**Stateless and one-shot.** Re-invoke `/code-review` after a fix commit lands to re-review — there
-is no incremental-review machinery, no resolved-thread tracking, no JSON output.
+**Reviewed commits are skipped.** A commit that has been through review carries a `reviewed` git
+note, and a later run passes over it. This is the only state the skill keeps: there is no
+resolved-thread tracking and no JSON output. Naming an explicit SHA or range bypasses the skip
+and forces a fresh review.
 
 ## The goal
 
@@ -78,6 +80,37 @@ work list and the branch context you pass to every sub-agent, so run it once and
 
 If the output is empty, tell the user there are no commits to review and stop — **do not spawn
 any sub-agent**. If the command fails, the range is invalid: print the git error and stop.
+
+### 3b. Drop the commits that were already reviewed
+
+For each commit from step 3:
+
+```bash
+git notes show <sha> 2>/dev/null | grep -qx 'reviewed'
+```
+
+Skip the commit when that matches. Review it otherwise — a non-zero exit means no note, which is
+the normal case. Match the whole line (`grep -qx`) so an unrelated note on `refs/notes/commits`
+cannot be read as a pass.
+
+Report every commit you skip:
+
+```
+Already reviewed: <sha> <subject>
+```
+
+Always report this. A note outlives a change to the commit it sits on (see step 7b), so a skipped
+commit may have changed since it was reviewed, and this report is the only place that shows.
+
+If every commit is skipped, say so and stop — **do not spawn any sub-agent**. Give the user the
+command that reviews them again: `/code-review origin/main..HEAD`.
+
+Skip this whole step when `$ARGUMENTS` names an explicit SHA or range, exactly as step 1 does: a
+user who names a commit is asking for it to be reviewed. This is also the manual override when a
+commit needs reviewing again.
+
+Keep the full commit list from step 3 for the sub-agent prompts. The skip decides what to review,
+not what a reviewer is told about the branch.
 
 ### 4. Spawn one review sub-agent per commit
 
@@ -195,10 +228,44 @@ Hard rules:
 - **Don't run the autosquash rebase yourself** — leave that to the user (`mael sync --squash` or
   `mael git squash`). Step 1 of the *next* review will pick them up.
 
+### 7b. Tag the reviewed commits
+
+Write a `reviewed` note on two kinds of commit:
+
+```bash
+# a commit that reviewed clean, as it stands
+git notes add -f -m "reviewed" <sha>
+
+# each fixup commit made in step 7 — the note rides onto the squashed
+# result, so the fixed commit is not reviewed again next run
+git notes add -f -m "reviewed" <fixup-sha>
+```
+
+`-f` is mandatory. Without it git concatenates, and the notes pile up.
+
+A commit that had findings is **not** tagged itself — its fixup carries the tag. If the fixup is
+never made, the commit stays untagged and comes back for review next run, which is what you want.
+
+Do **not** tag a `--fixup=HEAD` fallback commit (the spanning-multiple-commits case in step 7). It
+is not attributable to one commit, so let the commits it touches be reviewed again.
+
+On an explicit-SHA or range run, where step 3b was bypassed and a tagged commit was reviewed
+anyway, remove the note if that commit is found wanting. A stale tag must not linger on a commit
+now known to have findings:
+
+```bash
+git notes remove --ignore-missing <sha>
+```
+
+Notes are local: sibling worktrees share them through the common git dir, and nothing pushes them
+to origin. They need `notes.rewriteRef`, which `mael doctor` sets — without it a rebase drops
+every note and no commit is ever skipped. `refs/notes/commits` is git's default display ref, so
+`reviewed` appears in `git log` and `git show` with no flag.
+
 ### 8. Done
 
-Report what was fixed. The user can re-invoke `/code-review` to re-review if they want — this skill
-is stateless.
+Report what was fixed, and which commits you skipped as already reviewed. The user can re-invoke
+`/code-review` with an explicit SHA or range to force a fresh review of a commit.
 
 ## Do NOT bake project-specific rules into this skill
 
@@ -219,7 +286,7 @@ file, `reviewer-prompt.md`, or `review-guide.md`:
 
 Also out of scope:
 
-- Incremental-review mode / resolved-thread tracking.
+- Resolved-thread tracking.
 - GitHub PR comment posting or any CI-gate-specific output (JSON contract, `resolve_thread_ids`,
   inline-anchor rules).
 - GraphQL thread IDs.
