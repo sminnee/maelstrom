@@ -1,21 +1,43 @@
 """Leaf utilities shared across the maelstrom core.
 
 Pure helpers with no Click dependency and no domain knowledge: a UTC timestamp
-formatter, an atomic JSON writer, the locked-file transaction primitive, and a
-permission-tightening helper. These were previously duplicated or scattered
-across ``task.py``, ``session_cli.py``, ``env.py``, and ``worktree.py``; this is
-their single home.
+formatter, an atomic JSON writer, the locked-file transaction primitive, a
+permission-tightening helper, and the ``--content-file`` reader. These were
+previously duplicated or scattered across ``task.py``, ``session_cli.py``,
+``env.py``, and ``worktree.py``; this is their single home.
 """
 
 import fcntl
 import json
 import os
 import stat
+import sys
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
+
+
+def read_content_file(content_file: str | None) -> str:
+    """Read a ``--content-file`` argument's contents.
+
+    ``-`` reads from stdin (the Unix ``cat -`` idiom), so a caller can pipe
+    content without managing a temp file; any other value is a path that must
+    exist. ``None`` means "no content supplied" and yields an empty string.
+
+    Raises ``FileNotFoundError`` when the path is not a readable file. Callers in
+    the CLI layer convert that to a :class:`click.ClickException` — this helper
+    stays Click-free so it can live here.
+    """
+    if content_file is None:
+        return ""
+    if content_file == "-":
+        return sys.stdin.read()
+    path = Path(content_file)
+    if not path.is_file():
+        raise FileNotFoundError(content_file)
+    return path.read_text()
 
 
 def now_iso() -> str:

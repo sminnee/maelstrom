@@ -214,6 +214,15 @@ class TestValidateProjectName:
         with pytest.raises(ValueError, match="cannot contain dots"):
             validate_project_name("my.project.name")
 
+    def test_reserved_wiki_name_raises_error(self):
+        """A project named '_wiki' would collide with the wiki's key space."""
+        with pytest.raises(ValueError, match="reserved"):
+            validate_project_name("_wiki")
+
+    def test_other_underscore_names_are_allowed(self):
+        """Only the exact reserved names are rejected, not every underscore name."""
+        validate_project_name("_archive")  # Should not raise
+
     def test_empty_raises_error(self):
         """Test that empty name raises error."""
         with pytest.raises(ValueError, match="cannot be empty"):

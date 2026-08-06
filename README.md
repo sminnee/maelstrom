@@ -82,6 +82,7 @@ Each component earns its place by the role it plays in the workflow.
 | [git worktrees](docs/guide/worktrees.md) | Isolate code — a branch and a checkout per unit of work |
 | Claude Code | The agent that does the work |
 | [Task notebook](docs/guide/tasks.md) | Detailed task management — what each agent is doing, in what order |
+| [Wiki](docs/guide/concepts.md) | Design patterns that apply across projects |
 | [Dev environments](docs/guide/dev-environments.md) | Isolated services and ports per worktree |
 | [Linear / Sentry / GitHub](docs/guide/integrations.md) | Streamline the workflow |
 
