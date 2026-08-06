@@ -1087,7 +1087,7 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
     write_env_file(alpha_path, {"WORKTREE": "alpha", "WORKTREE_NUM": "0"})
 
     # Unify Claude Code memory across worktrees
-    _setup_claude_memory_symlink(project_path, alpha_path)
+    setup_claude_memory_symlink(project_path, alpha_path)
 
     # Create .mael marker file to identify this as a Maelstrom project
     (project_path / ".mael").touch()
@@ -1230,7 +1230,7 @@ def _setup_claude_settings_symlink(worktree_path: Path) -> None:
     settings_local.symlink_to("settings.json")
 
 
-def _setup_claude_memory_symlink(project_path: Path, worktree_path: Path) -> None:
+def setup_claude_memory_symlink(project_path: Path, worktree_path: Path) -> None:
     """Unify Claude Code memory across worktrees by symlinking to a shared dir.
 
     Claude Code stores memories in ~/.claude/projects/<sanitised-path>/memory/.
@@ -1302,7 +1302,7 @@ def _finalize_worktree(project_path: Path, worktree_path: Path, worktree_name: s
     """
     _build_env_file(project_path, worktree_path, worktree_name)
     _setup_claude_settings_symlink(worktree_path)
-    _setup_claude_memory_symlink(project_path, worktree_path)
+    setup_claude_memory_symlink(project_path, worktree_path)
     return worktree_path
 
 
@@ -1789,7 +1789,7 @@ def setup_worktree_for_branch(
                 if wt_name:
                     reclaim_or_allocate_ports(project_path, worktree_path, wt_name)
                 # Recycled worktrees skip _finalize_worktree; set up memory symlink.
-                _setup_claude_memory_symlink(project_path, worktree_path)
+                setup_claude_memory_symlink(project_path, worktree_path)
             except Exception as e:
                 print(
                     f"Warning: Could not recycle worktree: {e}; creating new one.",

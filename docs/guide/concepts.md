@@ -61,6 +61,10 @@ Names are stable and reusable. When you finish work, `mael close` resets the wor
 main but keeps the folder, the name and the port allocation. The next `mael add` recycles
 it. So `myproject-bravo` is a durable slot, and its ports never change.
 
+The **project name is load-bearing** too: the worktree folders, task directories, port
+allocations and each task's Claude session id all derive from it. `mael mv-project` is the
+only safe way to change it — see [troubleshooting](troubleshooting.md#renaming-a-project).
+
 ### Claude Code — the agent
 
 Maelstrom launches `claude` with the right working directory, the right permission mode,

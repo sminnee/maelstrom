@@ -755,6 +755,25 @@ def _unsubscribe_shared(
     return messages
 
 
+def stop_shared_services(
+    store: EnvStore, project: str, *, timeout: float = 10.0
+) -> list[str]:
+    """Stop a project's shared services outright, whatever the subscriber list.
+
+    :func:`_unsubscribe_shared` only stops them when the *last* subscriber
+    leaves, so it cannot help a caller that must guarantee nothing is running —
+    notably ``mael mv-project``, which is about to move the directory the
+    services run in. Returns one status message per service; a project with no
+    shared state returns ``[]``.
+    """
+    shared_state = load_shared_state(store, project)
+    if shared_state is None:
+        return []
+    messages = _stop_services(shared_state.services, timeout=timeout, label="shared")
+    remove_shared_state(store, project)
+    return messages
+
+
 def stop_env(
     store: EnvStore, project: str, worktree: str, *, timeout: float = 10.0
 ) -> list[str]:

@@ -38,6 +38,7 @@ from .integrations.linear import linear
 from .integrations.sentry import sentry
 from .integrations.slack import slack
 from .integrations.uptimerobot import uptimerobot
+from .mv_project_cli import cmd_mv_project
 from .status_cli import status as status_cli
 from .admin_cli import cmd_install, cmd_self_update
 from . import session_discovery
@@ -1270,6 +1271,7 @@ cli.add_command(session_channel_cmd)
 cli.add_command(task_cli)
 cli.add_command(schedule_group)
 cli.add_command(status_cli)
+cli.add_command(cmd_mv_project)
 cli.add_command(cmd_install)
 cli.add_command(cmd_self_update)
 
