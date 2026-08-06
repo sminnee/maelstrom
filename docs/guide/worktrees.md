@@ -14,13 +14,23 @@ Maelstrom uses a bare-like layout: one shared `.git`, and each worktree beside i
 ~/Projects/myproject/
 ├── .git/                   # shared bare git directory
 ├── .mael                   # marker: this is a maelstrom project
-├── myproject-alpha/        # worktree, usually on main
+├── _main/                  # main branch, for reference (not a workspace)
+├── myproject-alpha/        # feature worktree
 │   ├── .maelstrom.yaml     # project config (checked in)
 │   ├── .env                # generated ports (gitignored)
 │   └── ...
 ├── myproject-bravo/        # feature worktree, different PORT_BASE
 └── myproject-charlie/
 ```
+
+## `_main`
+
+`_main` holds the main branch. It is a reference checkout, not a workspace: it gets no
+ports and no `.env`, `mael list` does not show it, and `mael add` never recycles it.
+
+Keeping main there leaves every NATO worktree free for feature work. Git allows one
+worktree per branch, so a fresh `alpha` is created detached — which makes it a closed
+worktree that `mael add <branch>` recycles for the first task.
 
 ## Naming
 
@@ -162,9 +172,9 @@ mael doctor
 ```
 
 Checks and repairs the project layout: the `.mael` marker, the bare repository, the fetch
-refspec, local main against origin, the origin remote, stale worktree registrations, port
-allocations, `.env` markers, and the permissions on files holding secrets. See
-[troubleshooting.md](troubleshooting.md).
+refspec, local main against origin, the origin remote, main being checked out in `_main`,
+stale worktree registrations, port allocations, `.env` markers, and the permissions on
+files holding secrets. See [troubleshooting.md](troubleshooting.md).
 
 ## See also
 

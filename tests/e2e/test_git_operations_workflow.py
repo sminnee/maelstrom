@@ -18,6 +18,18 @@ from maelstrom.worktree import (
 from .conftest import create_commit, run_git
 
 
+def _restore_head(worktree_path, original_branch):
+    """Check ``original_branch`` back out, or restore a detached HEAD.
+
+    A fresh alpha worktree is detached (main lives in ``_main``), so
+    ``--show-current`` returns empty for it. Checking out "" is an error.
+    """
+    if original_branch:
+        run_git(worktree_path, "checkout", original_branch)
+    else:
+        run_git(worktree_path, "checkout", "--detach", "origin/main")
+
+
 @pytest.mark.e2e
 class TestGitOperationsWorkflow:
     """End-to-end tidy-branches workflow."""
@@ -49,7 +61,7 @@ class TestGitOperationsWorkflow:
         run_git(gp.worktree_path, "checkout", "-b", branch)
         create_commit(gp.worktree_path, "tidy-push.txt", "content", "Push test")
         run_git(gp.worktree_path, "push", "origin", branch)
-        run_git(gp.worktree_path, "checkout", original_branch)
+        _restore_head(gp.worktree_path, original_branch)
 
         # Add a new commit on main so the branch needs rebasing
         source_clone = base / "tidy-source"
@@ -76,7 +88,7 @@ class TestGitOperationsWorkflow:
         original_branch = run_git(gp.worktree_path, "branch", "--show-current").stdout.strip()
         run_git(gp.worktree_path, "checkout", "-b", branch)
         create_commit(gp.worktree_path, "README.md", "conflict version", "Conflicting change")
-        run_git(gp.worktree_path, "checkout", original_branch)
+        _restore_head(gp.worktree_path, original_branch)
 
         # Modify README.md on main via remote
         conflict_clone = base / "conflict-tidy-source"
@@ -169,6 +181,12 @@ class TestGitMergeWorkflow:
         # Without --close, the branch is left checked out in the worktree.
         assert branch in list_local_branches(gp.project_path)
         assert get_current_branch(gp.worktree_path) == branch
+
+        # _main holds main, so the merge must move its working tree too. Moving
+        # the ref alone would leave the merged files staged as deletions there.
+        main_wt = gp.project_path / "_main"
+        assert run_git(main_wt, "status", "--short").stdout.strip() == ""
+        assert (main_wt / "feature.txt").exists()
 
     def test_merge_with_close(self, git_project):
         """--close detaches the worktree and deletes the branch locally and on origin."""

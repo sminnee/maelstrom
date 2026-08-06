@@ -1018,26 +1018,42 @@ class TestCreateProjectIntegration:
         assert result.exit_code == 0, result.output
         assert (projects / "demo" / ".mael").exists()
 
-        bravo = projects / "demo" / "demo-bravo"
-        assert bravo.exists()
+        # main lives in _main, so alpha is free and gets recycled for the
+        # start branch rather than a fresh bravo being made.
+        assert (projects / "demo" / "_main").exists()
+        alpha = projects / "demo" / "demo-alpha"
+        assert alpha.exists()
         branch = subprocess.run(
             ["git", "branch", "--show-current"],
-            cwd=bravo, capture_output=True, text=True,
+            cwd=alpha, capture_output=True, text=True,
         ).stdout.strip()
         assert branch == "feat/start-project"
         assert launched["project"] == "demo"
-        assert launched["worktree"] == "bravo"
+        assert launched["worktree"] == "alpha"
 
     def test_the_worktree_carries_the_seed_and_generated_files(self, tmp_path):
         _, projects, _ = self._run(tmp_path)
 
-        bravo = projects / "demo" / "demo-bravo"
-        assert (bravo / "CLAUDE.md").exists()
-        assert (bravo / ".gitignore").exists()
-        assert (bravo / ".maelstrom.yaml").exists()
+        alpha = projects / "demo" / "demo-alpha"
+        assert (alpha / "CLAUDE.md").exists()
+        assert (alpha / ".gitignore").exists()
+        assert (alpha / ".maelstrom.yaml").exists()
         # Generated per worktree, and ignored by the seeded .gitignore.
-        assert (bravo / ".env").exists()
-        assert (bravo / ".claude" / "CLAUDE.local.md").exists()
+        assert (alpha / ".env").exists()
+        assert (alpha / ".claude" / "CLAUDE.local.md").exists()
+
+    def test_main_is_checked_out_beside_the_worktrees_not_into_one(self, tmp_path):
+        """`_main` holds main, so no NATO worktree is burned on it."""
+        _, projects, _ = self._run(tmp_path)
+
+        main_dir = projects / "demo" / "_main"
+        branch = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=main_dir, capture_output=True, text=True,
+        ).stdout.strip()
+        assert branch == "main"
+        # A reference checkout, not a workspace: no ports, no .env.
+        assert not (main_dir / ".env").exists()
 
     def test_reports_the_directory_that_was_actually_created(self, tmp_path):
         """`add_project` names the directory from the clone URL, not the argument.
@@ -1053,4 +1069,4 @@ class TestCreateProjectIntegration:
         assert (projects / "other").exists()
         assert str(projects / "other" / "other-alpha") in result.output
         assert launched["project"] == "other"
-        assert (projects / "other" / "other-bravo").exists()
+        assert (projects / "other" / "other-alpha").exists()

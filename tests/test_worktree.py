@@ -11,6 +11,7 @@ from unittest.mock import patch
 from maelstrom.worktree import (
     WorktreeInfo,
     _setup_claude_memory_symlink,
+    add_project,
     close_worktree,
     copy_back_new_env_vars,
     managed_keys_in_env,
@@ -2089,3 +2090,72 @@ class TestCopyBackNewEnvVars:
         assert conflict.key == "APP_URL"
         assert conflict.parent_value == "http://localhost:${WEB_PORT}"
         assert conflict.worktree_value == "http://localhost:9999"
+
+
+class TestAddProjectLayout:
+    """`add_project` puts main in _main and leaves alpha free for work."""
+
+    def _remote(self, tmp_path):
+        """Build a bare remote with one commit on main."""
+        source = tmp_path / "source"
+        source.mkdir()
+        subprocess.run(["git", "init", "-b", "main", str(source)],
+                       check=True, capture_output=True)
+        (source / "README.md").write_text("# demo\n")
+        for cmd in (
+            ["git", "add", "-A"],
+            ["git", "-c", "user.email=t@t", "-c", "user.name=T",
+             "commit", "-m", "initial"],
+        ):
+            subprocess.run(cmd, cwd=source, check=True, capture_output=True)
+
+        remote = tmp_path / "demo.git"
+        subprocess.run(["git", "clone", "--bare", str(source), str(remote)],
+                       check=True, capture_output=True)
+        return remote
+
+    def _branch_of(self, path):
+        return subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=path, capture_output=True, text=True,
+        ).stdout.strip()
+
+    @pytest.fixture
+    def project(self, tmp_path):
+        """A project laid out by add_project. Shared: the clone is not cheap."""
+        return add_project(str(self._remote(tmp_path)), tmp_path / "Projects")
+
+    def test_main_is_checked_out_in_the_main_folder(self, project):
+        assert self._branch_of(project / "_main") == "main"
+
+    def test_main_folder_is_a_reference_checkout_not_a_workspace(self, project):
+        """No .env means no ports and no dev environment for _main."""
+        assert not (project / "_main" / ".env").exists()
+
+    def test_alpha_is_detached_so_it_can_be_recycled(self, project):
+        """Main is taken, so alpha starts closed and the first task reuses it."""
+        alpha = project / "demo-alpha"
+        assert alpha.exists()
+        assert self._branch_of(alpha) == ""
+
+        closed = find_closed_worktree(project)
+        assert closed is not None
+        assert closed.path.resolve() == alpha.resolve()
+
+    def test_main_folder_is_never_offered_for_recycling(self, project):
+        """Even detached, _main must not be recycled — main would be lost."""
+        main_path = project / "_main"
+        subprocess.run(
+            ["git", "checkout", "--detach", "HEAD"],
+            cwd=main_path, check=True, capture_output=True,
+        )
+        # Take alpha out of the running so _main is the only closed candidate.
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", str(project / "demo-alpha")],
+            cwd=project, check=True, capture_output=True,
+        )
+
+        assert find_closed_worktree(project) is None
+
+    def test_alpha_is_still_a_workspace(self, project):
+        assert (project / "demo-alpha" / ".env").exists()

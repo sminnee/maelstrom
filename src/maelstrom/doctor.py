@@ -22,6 +22,7 @@ from .worktree_model import (
     ENV_SECTION_END,
     ENV_SECTION_START,
     MAIN_BRANCH,
+    MAIN_WORKTREE_FOLDER,
     extract_worktree_name_from_folder,
 )
 
@@ -143,6 +144,51 @@ def _check_origin_main(project_path: Path) -> CheckResult:
     if result.returncode == 0:
         return CheckResult(CheckStatus.OK, f"origin/{MAIN_BRANCH} exists")
     return CheckResult(CheckStatus.ERROR, f"origin/{MAIN_BRANCH} does not exist — try 'git fetch origin'")
+
+
+def _check_main_worktree(project_path: Path) -> CheckResult:
+    """Check that main is checked out in ``_main``, not in a NATO worktree.
+
+    Projects created before ``_main`` existed hold main in a NATO worktree,
+    which burns a workspace. Reported rather than fixed: moving main means
+    moving a checkout the user may be sitting in.
+    """
+    # git reports resolved paths, so resolve before comparing.
+    main_path = (project_path / MAIN_WORKTREE_FOLDER).resolve()
+    add_cmd = (
+        f"git -C {project_path} worktree add {MAIN_WORKTREE_FOLDER} {MAIN_BRANCH}"
+    )
+
+    for wt in list_worktrees(project_path):
+        if wt.branch != MAIN_BRANCH:
+            continue
+        if wt.path.resolve() == main_path:
+            return CheckResult(
+                CheckStatus.OK, f"{MAIN_BRANCH} is checked out in {MAIN_WORKTREE_FOLDER}"
+            )
+        # git allows one worktree per branch, so main must be freed before it
+        # can be added at _main. A bare `worktree add` here would fail.
+        return CheckResult(
+            CheckStatus.WARNING,
+            f"{MAIN_BRANCH} is checked out in {wt.path.name}, not "
+            f"{MAIN_WORKTREE_FOLDER} — that worktree cannot be used for work. "
+            f"Move it with: git -C {wt.path} checkout --detach && {add_cmd}",
+        )
+
+    # No worktree holds main. A leftover _main directory is the awkward case:
+    # it is not a checkout of main, and if it is a detached worktree it can be
+    # recycled as a feature workspace.
+    if main_path.exists():
+        return CheckResult(
+            CheckStatus.WARNING,
+            f"{MAIN_WORKTREE_FOLDER} exists but does not hold {MAIN_BRANCH} — "
+            f"remove it and recreate with: git -C {project_path} worktree remove "
+            f"{MAIN_WORKTREE_FOLDER} && {add_cmd}",
+        )
+    return CheckResult(
+        CheckStatus.WARNING,
+        f"No {MAIN_WORKTREE_FOLDER} worktree — create it with: {add_cmd}",
+    )
 
 
 def _check_stale_worktrees(project_path: Path) -> CheckResult:
@@ -320,6 +366,7 @@ def run_doctor(project_path: Path) -> DoctorResult:
         _check_origin_remote,
         _check_origin_main,
         _check_local_main_sync,
+        _check_main_worktree,
         _check_stale_worktrees,
         _check_port_allocations,
         _check_env_markers,

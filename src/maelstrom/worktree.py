@@ -28,6 +28,7 @@ from .worktree_model import (
     ENV_SECTION_START,
     MAELSTROM_MANAGED_FILES,
     MAIN_BRANCH,
+    MAIN_WORKTREE_FOLDER,
     WORKTREE_NAMES,
     CopyBackResult,
     EnvConflict,
@@ -384,6 +385,11 @@ def find_closed_worktree(project_path: Path) -> WorktreeInfo | None:
         # Skip the project root itself
         if wt.path == project_path:
             continue
+        # _main is a reference checkout, not a workspace. It normally has main
+        # checked out (so it is not "closed"), but never recycle it even when
+        # detached — the project would lose its main checkout.
+        if wt.path.name == MAIN_WORKTREE_FOLDER:
+            continue
         if is_worktree_closed(wt):
             return wt
 
@@ -664,11 +670,17 @@ def merge_to_main(worktree_path: Path, *, squash: bool = True, close: bool = Fal
     if not result.success:
         return result  # conflicts / fetch failure already populated
 
-    # 2. fast-forward local main to the rebased branch tip. main is not checked
-    #    out in the feature worktree, so manipulate the ref directly from the
-    #    project root (same approach as update_local_main).
+    # 2. fast-forward local main to the rebased branch tip. main is normally
+    #    checked out in _main, so merge there to move the ref *and* the working
+    #    tree — update-ref alone would leave that checkout showing the merged
+    #    files as pending deletions. Fall back to update-ref when nothing holds
+    #    main (same approach as update_local_main).
     branch_sha = run_git(["rev-parse", "HEAD"], cwd=worktree_path, quiet=True).stdout.strip()
-    run_git(["update-ref", f"refs/heads/{MAIN_BRANCH}", branch_sha], cwd=project_path)
+    main_worktree = find_worktree_by_branch(project_path, MAIN_BRANCH)
+    if main_worktree is not None:
+        run_git(["merge", "--ff-only", branch_sha], cwd=main_worktree)
+    else:
+        run_git(["update-ref", f"refs/heads/{MAIN_BRANCH}", branch_sha], cwd=project_path)
 
     # 3. push main (carries any local-only commits)
     push = run_cmd(["git", "push", "origin", MAIN_BRANCH], cwd=project_path, check=False)
@@ -1005,8 +1017,9 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
     """Clone a git repository in bare format for use with maelstrom.
 
     Creates the structure:
-        ~/Projects/<project>/.git  (bare clone)
-        ~/Projects/<project>/alpha (initial worktree)
+        ~/Projects/<project>/.git            (bare clone)
+        ~/Projects/<project>/_main           (main, for reference)
+        ~/Projects/<project>/<project>-alpha (first worktree, detached)
 
     Args:
         git_url: Git URL to clone.
@@ -1051,10 +1064,19 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
     head_sha = run_git(["rev-parse", "HEAD"], cwd=project_path, quiet=True).stdout.strip()
     run_git(["update-ref", "--no-deref", "HEAD", head_sha], cwd=project_path, quiet=True)
 
-    # Create the alpha worktree
+    # Check the default branch out into _main. It is a reference checkout, not a
+    # workspace: keeping main there leaves every NATO worktree free for work.
+    main_path = project_path / MAIN_WORKTREE_FOLDER
+    run_git(["worktree", "add", str(main_path), default_branch], cwd=project_path)
+
+    # Create the alpha worktree. Detached, because main is checked out in _main
+    # and git allows one worktree per branch.
     alpha_folder = get_worktree_folder_name(project_name, "alpha")
     alpha_path = project_path / alpha_folder
-    run_git(["worktree", "add", str(alpha_path), default_branch], cwd=project_path)
+    run_git(
+        ["worktree", "add", "--detach", str(alpha_path), default_branch],
+        cwd=project_path,
+    )
 
     # Generate .env for the initial worktree
     write_env_file(alpha_path, {"WORKTREE": "alpha", "WORKTREE_NUM": "0"})
