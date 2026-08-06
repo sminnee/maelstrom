@@ -42,6 +42,7 @@ def _create_project_repo():
 
     # Configure like add_project does (core.bare stays true from bare clone)
     run_git(project_path, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+    run_git(project_path, "config", "notes.rewriteRef", "refs/notes/*")
     run_git(project_path, "config", "user.email", "test@test.com")
     run_git(project_path, "config", "user.name", "Test")
     run_git(project_path, "fetch", "origin")
@@ -191,6 +192,19 @@ class TestDoctor:
             assert len(result.checks) == 1
             assert result.checks[0].status == CheckStatus.ERROR
             assert ".mael" in result.checks[0].message
+
+    def test_sets_notes_rewrite_ref_when_unset(self):
+        """Sets notes.rewriteRef so review notes survive a rebase."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            run_git(project_path, "config", "--unset-all", "notes.rewriteRef")
+
+            result = run_doctor(project_path)
+
+            notes_check = [c for c in result.checks if "notes.rewriteRef" in c.message][0]
+            assert notes_check.status == CheckStatus.FIXED
+            value = run_git(project_path, "config", "--get", "notes.rewriteRef").stdout.strip()
+            assert value == "refs/notes/*"
 
     def test_warns_local_main_ahead(self):
         """Warns when local main is ahead of origin/main."""

@@ -54,8 +54,15 @@ mael gh show-code --committed  # everything since branching from main
 /code-review <range>      # any git range
 ```
 
-Review is **stateless and one-shot**. Re-invoke it after a fix lands to re-review; there is
-no incremental machinery and no resolved-thread tracking.
+Review **skips commits it has already reviewed**. A reviewed commit carries a `reviewed` git
+note, which `git log` shows with no flag. Name an explicit SHA or range to review a commit
+again. There is no resolved-thread tracking.
+
+A note is local to your machine — sibling worktrees share it, but it is never pushed to
+origin. `mael doctor` sets `notes.rewriteRef`, which keeps a note on its commit through a
+rebase. A note also survives a change to the commit it sits on, so a commit that is modified
+after review is not reviewed again. The run reports each commit it skips, so you can see when
+that happens.
 
 It runs `mael git squash` first, so the review sees the commits as they will land instead of
 a history littered with fixups. Rebase conflicts stop the review; a dirty worktree does not,
