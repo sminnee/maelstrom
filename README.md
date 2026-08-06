@@ -44,17 +44,18 @@ how to install it.
 ## Quick start
 
 ```bash
-# Clone a repository into maelstrom's layout. This creates the "alpha" worktree.
+# Clone a repository into maelstrom's layout. main goes in "_main", and this
+# creates the "alpha" worktree for work.
 mael add-project git@github.com:org/repo.git
 cd ~/Projects/repo/repo-alpha
 
 # Add a worktree for a branch. Maelstrom allocates ports and writes .env.
+# On a new project alpha is still free, so it is recycled.
 mael add feature/avatar-upload
-#   → repo/bravo (created)
+#   Worktree recycled at: ~/Projects/repo/repo-alpha
 #   App: http://localhost:3000
 
 # Start the project's services in that worktree.
-cd ~/Projects/repo/repo-bravo
 mael env start
 
 # Launch an agent session. It opens in its own cmux workspace,

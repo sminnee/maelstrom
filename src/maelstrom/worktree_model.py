@@ -48,6 +48,12 @@ ENV_SECTION_END = "# End Maelstrom port allocations"
 # Main branch name (hardcoded - no master support)
 MAIN_BRANCH = "main"
 
+# Folder holding the main branch, beside the NATO worktrees. The leading
+# underscore keeps it out of the `<project>-<nato>` pattern, so it is a
+# reference checkout rather than a workspace: no ports, no .env, never
+# recycled, and absent from `mael list`.
+MAIN_WORKTREE_FOLDER = "_main"
+
 
 def sanitize_branch_name(branch: str) -> str:
     """Convert branch name to directory-safe name (slashes → dashes)."""

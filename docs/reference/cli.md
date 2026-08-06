@@ -33,7 +33,7 @@ so the target is optional.
 
 | Command | Description |
 |---|---|
-| `mael add [BRANCH]` | Add a worktree for `BRANCH`. Recycles a closed worktree when one exists. With no `BRANCH`, creates a fresh worktree on main and does not recycle. |
+| `mael add [BRANCH]` | Add a worktree for `BRANCH`. Recycles a closed worktree when one exists. With no `BRANCH`, creates a fresh worktree detached at `origin/main` and does not recycle. |
 | `mael add-project GIT_URL` | Clone a repository and set it up for maelstrom. |
 | `mael create-project NAME` | Create a GitHub repository with the maelstrom stub files, check it out, and open a worktree on `feat/start-project`. |
 | `mael list [PROJECT]` | List worktrees with branch, dirty files, local commits, PR, app URL and session. |

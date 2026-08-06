@@ -12,7 +12,7 @@ mael task reconcile    # do tasks and sessions agree?
 
 ## `mael doctor`
 
-Doctor runs ten checks in order and fixes what it safely can. Each reports **OK**,
+Doctor runs eleven checks in order and fixes what it safely can. Each reports **OK**,
 **FIXED**, **WARNING** or **ERROR**.
 
 | Check | Fixes |
@@ -23,6 +23,7 @@ Doctor runs ten checks in order and fixes what it safely can. Each reports **OK*
 | `origin` remote configured | No |
 | `origin/main` exists | No — try `git fetch origin`. |
 | Local main against origin | Yes |
+| main is checked out in `_main` | No — moving main moves a checkout you may be working in. Doctor prints the commands. |
 | Stale worktree registrations | Yes |
 | Port allocations against worktrees | Yes |
 | `.env` section markers | Reports |

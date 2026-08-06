@@ -227,11 +227,11 @@ def cmd_add(branch, project, open, no_recycle):
     """Add a new worktree for a branch.
 
     If BRANCH is provided:
-      - Tries to recycle a closed worktree (one on main branch) if available
+      - Tries to recycle a closed worktree (a detached, clean one) if available
       - Otherwise creates a new worktree
 
     If BRANCH is omitted:
-      - Creates a new worktree on the main branch
+      - Creates a new worktree detached at origin/main
       - Does NOT recycle (for when you just want a fresh workspace)
 
     Use --no-recycle to always create a new worktree even when closed ones exist.

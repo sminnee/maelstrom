@@ -51,6 +51,9 @@ def _create_project_repo():
     head_sha = run_git(project_path, "rev-parse", "HEAD").stdout.strip()
     run_git(project_path, "update-ref", "--no-deref", "HEAD", head_sha)
 
+    # main lives in _main, like add_project does
+    run_git(project_path, "worktree", "add", str(project_path / "_main"), "main")
+
     # Create .mael marker
     (project_path / ".mael").touch()
 
@@ -95,11 +98,8 @@ class TestUpdateLocalMain:
         """Returns warning when local main is ahead of origin/main."""
         tmpdir, project_path = _create_project_repo()
         with tmpdir:
-            # Create a worktree on main to make commits
-            wt_path = project_path / "test-repo-alpha"
-            run_git(project_path, "worktree", "add", str(wt_path), "main")
-
-            # Add a local commit to main
+            # main is checked out in _main; commit there to get ahead of origin
+            wt_path = project_path / "_main"
             create_commit(wt_path, "local.txt", "local", "Local commit")
 
             # Detach the worktree so main isn't checked out
@@ -108,9 +108,6 @@ class TestUpdateLocalMain:
             result = update_local_main(project_path)
             assert result.status == "warning"
             assert "ahead" in result.message
-
-            # Clean up worktree
-            run_git(project_path, "worktree", "remove", str(wt_path))
 
     def test_skips_when_already_in_sync(self):
         """Skips when local main equals origin/main."""
@@ -123,9 +120,8 @@ class TestUpdateLocalMain:
         """Fast-forwards main via merge when checked out in a worktree."""
         tmpdir, project_path = _create_project_repo()
         with tmpdir:
-            # Create a worktree on main
-            wt_path = project_path / "test-repo-alpha"
-            run_git(project_path, "worktree", "add", str(wt_path), "main")
+            # main is checked out in _main
+            wt_path = project_path / "_main"
 
             # Push a new commit to remote so local is behind
             source_path = Path(tmpdir.name) / "source"
@@ -182,6 +178,56 @@ class TestDoctor:
             core_bare_check = [c for c in result.checks if "core.bare" in c.message][0]
             assert core_bare_check.status == CheckStatus.FIXED
 
+    def test_warns_when_main_is_in_a_nato_worktree(self):
+        """A project predating _main holds main in a workspace that cannot be used."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            # Undo the _main layout and put main in alpha, as older projects did.
+            run_git(project_path, "worktree", "remove", str(project_path / "_main"))
+            alpha = project_path / "test-repo-alpha"
+            run_git(project_path, "worktree", "add", str(alpha), "main")
+
+            result = run_doctor(project_path)
+
+            check = [c for c in result.checks if "test-repo-alpha" in c.message][0]
+            assert check.status == CheckStatus.WARNING
+            assert "worktree add" in check.message
+
+    def test_warns_when_there_is_no_main_worktree(self):
+        """No _main at all is also worth flagging."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            run_git(project_path, "worktree", "remove", str(project_path / "_main"))
+
+            result = run_doctor(project_path)
+
+            check = [c for c in result.checks if "No _main" in c.message][0]
+            assert check.status == CheckStatus.WARNING
+
+    def test_warns_when_main_worktree_is_detached(self):
+        """A detached _main is not a main checkout, whatever the folder is called."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            run_git(project_path / "_main", "checkout", "--detach", "HEAD")
+
+            result = run_doctor(project_path)
+
+            check = [c for c in result.checks if "does not hold main" in c.message][0]
+            assert check.status == CheckStatus.WARNING
+
+    def test_main_in_a_nato_worktree_is_told_to_free_it_first(self):
+        """git refuses `worktree add main` while another worktree holds it."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            run_git(project_path, "worktree", "remove", str(project_path / "_main"))
+            alpha = project_path / "test-repo-alpha"
+            run_git(project_path, "worktree", "add", str(alpha), "main")
+
+            result = run_doctor(project_path)
+
+            check = [c for c in result.checks if "test-repo-alpha" in c.message][0]
+            assert "checkout --detach" in check.message
+
     def test_stops_early_without_mael_marker(self):
         """Stops checking if .mael marker is missing."""
         tmpdir, project_path = _create_project_repo()
@@ -210,9 +256,8 @@ class TestDoctor:
         """Warns when local main is ahead of origin/main."""
         tmpdir, project_path = _create_project_repo()
         with tmpdir:
-            # Create a worktree on main, commit, then detach
-            wt_path = project_path / "test-repo-alpha"
-            run_git(project_path, "worktree", "add", str(wt_path), "main")
+            # main is checked out in _main; commit there, then detach
+            wt_path = project_path / "_main"
             create_commit(wt_path, "local.txt", "local", "Local commit")
             run_git(wt_path, "checkout", "--detach", "HEAD")
 
@@ -221,8 +266,6 @@ class TestDoctor:
             main_check = [c for c in result.checks if "ahead" in c.message]
             assert len(main_check) == 1
             assert main_check[0].status == CheckStatus.WARNING
-
-            run_git(project_path, "worktree", "remove", str(wt_path))
 
 
 class TestCheckSecretFilePerms:

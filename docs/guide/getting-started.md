@@ -79,15 +79,19 @@ The first commit holds the files a maelstrom project needs:
 mael add-project git@github.com:org/repo.git
 ```
 
-This clones the repository into a bare-like layout and creates the first worktree,
-**alpha**, on the main branch:
+This clones the repository into a bare-like layout, checks main out into `_main`, and
+creates the first worktree, **alpha**:
 
 ```
 ~/Projects/repo/
 ├── .git/            # shared bare git directory
 ├── .mael            # marker: this is a maelstrom project
-└── repo-alpha/      # worktree on main
+├── _main/           # main branch, for reference (not a workspace)
+└── repo-alpha/      # first feature worktree
 ```
+
+Main stays in `_main` so every NATO worktree is free for feature work. See
+[worktrees.md](worktrees.md).
 
 Add `.env` and `.claude/CLAUDE.local.md` to the repository's `.gitignore`. Maelstrom
 generates both per worktree. `mael create-project` does this for you.
@@ -116,24 +120,26 @@ cd ~/Projects/repo/repo-alpha
 mael add feature/hello
 ```
 
-Maelstrom creates the branch, adds the worktree as **bravo**, allocates ports, and writes
-a `.env`:
+Maelstrom creates the branch, allocates ports, and writes a `.env`. On a new project
+**alpha** is still free, so it is recycled rather than a new worktree being made:
 
 ```
-Worktree created at: ~/Projects/repo/repo-bravo
-  → repo/bravo (created)
+Worktree recycled at: ~/Projects/repo/repo-alpha
+Regenerated .env for repo/alpha.
 App: http://localhost:3000
 ```
 
 ```bash
-$ cat ~/Projects/repo/repo-bravo/.env
+$ cat ~/Projects/repo/repo-alpha/.env
 # Maelstrom port allocations
 FRONTEND_PORT=3000
 PORT_BASE=300
-WORKTREE=bravo
-WORKTREE_NUM=1
+WORKTREE=alpha
+WORKTREE_NUM=0
 # End Maelstrom port allocations
 ```
+
+Once alpha is busy, the next `mael add` creates **bravo**, and so on.
 
 By default `mael add` also launches a Claude session in a cmux workspace. Pass `--open` to
 open your editor instead.
@@ -141,7 +147,7 @@ open your editor instead.
 ## 6. Start the services
 
 ```bash
-cd ~/Projects/repo/repo-bravo
+cd ~/Projects/repo/repo-alpha
 mael env start
 ```
 
@@ -151,7 +157,7 @@ This runs `install_cmd`, then starts every service and reports where the app is:
 APP RUNNING AT: *3000 • UPTIME: 6s
 
 SERVICE  PID    STATUS   LOG
-web      5442   running  ~/.maelstrom/logs/repo/bravo/web.log
+web      5442   running  ~/.maelstrom/logs/repo/alpha/web.log
 ```
 
 Useful follow-ups:
