@@ -44,12 +44,8 @@ first, then write the full body back.
 Write in ASD-STE100 (Simplified Technical English) where possible: short sentences, one
 instruction per sentence, active voice, approved words in their approved meaning.
 
-Two allowances on top of plain STE:
-
-- A minimal amount of software development vocabulary is acceptable (commit, branch, rebase,
-  fixture, type check).
-- Assume the reader knows this project's architecture. Do not explain what a worktree, a task,
-  or a port base is.
+**Load the `writing-for-humans` skill before writing prose a human reads.** It carries the full
+rules: document shape, sentence caps, vocabulary, and a re-read pass to run before you finish.
 
 ## Finishing a task — run automatically, do not wait to be asked
 
