@@ -28,6 +28,26 @@ use, how to publish a package, how to set up a new service.
 problem, read it and follow it. **After you solve one, record it** — write a new page, or
 correct the page you used. `/mael` has the commands.
 
+## Building — test-first
+
+**Load the `tdd` skill before you write implementation code** — a new feature, a bug fix, any
+change with a behavioural test, however the work arrived: a planned task, an ad-hoc request, or a
+follow-up in an open session. Red → green, one vertical slice at a time.
+
+Tests go at **agreed seams** only — the public boundary you observe behaviour through, never
+internals. Where you get them depends on how the work arrived:
+
+- **Planned work** — the plan settles them. Work to the **Seams under test** section in your task
+  content. An execute session runs unattended, so if that section is missing, name the seam you
+  used and why in the commit message and carry it into the PR — do not stop and wait.
+- **Unplanned or resumed work** — no plan agreed them, and the user is here. Agree the seams with
+  them before you write the first test, as the skill describes.
+
+Use `codebase-design` for the vocabulary when the boundary itself is the open question.
+
+Refactoring is not part of the loop — it belongs to `/code-review`, step 2 of the task-completion
+flow. Get to green first.
+
 ## Language
 
 Write in ASD-STE100 (Simplified Technical English): short sentences, one instruction per

@@ -68,4 +68,7 @@ Load the `mael` skill first if it isn't already — all `mael`/`git` commands ne
   automatically.
 - This is an **orientation** command: gather context and hand control back. The user drives the
   actual finishing work.
+- Resumed work has no fresh plan, so there is no agreed **Seams under test** section to inherit.
+  It is the "unplanned or resumed" case in the always-on test-first rule: agree the seams with the
+  user before the first test.
 - All `mael`/`git` commands need `dangerouslyDisableSandbox: true`.

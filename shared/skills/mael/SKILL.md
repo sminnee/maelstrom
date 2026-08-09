@@ -113,6 +113,14 @@ Unreleased -> Done           (release)
 
 ## Testing work
 
+**Build test-first with the `tdd` skill** — the always-on rule covers when to load it and where
+the seams come from. Two consequences for this workflow:
+
+- **The plan carries the seams.** Planners write a **Seams under test** section into each execute
+  block, so an unattended `mode: auto` session inherits agreed seams instead of stopping to ask.
+- **Refactoring is not part of the loop.** It belongs to the review stage — step 2 of the
+  task-completion flow below. Get to green first, then let review find the cleanups.
+
 **Stop environments during heavy editing** — file watchers trigger constant rebuilds. Run
 `mael env stop` before multi-file edits and `mael env start` when you are ready to test.
 
