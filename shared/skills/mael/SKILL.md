@@ -5,9 +5,19 @@ description: "Git workflow, commits, PRs, branches. Also Linear tasks, Sentry de
 
 # Maelstrom CLI Skill
 
-**All `mael` and `git` commands require `dangerouslyDisableSandbox: true`** — they need network access and git write access.
+The conventions behind `mael` — what the commands mean and why the workflow is shaped this way.
 
-**Prefer `mael` commands over raw `git`/`gh`** — they handle worktree context, Linear integration, and status transitions automatically. Use `mael git status` not `git status`, `mael sync` not `git pull --rebase`, `mael gh create-pr` not `gh pr create`, `mael gh read-pr` not `gh pr view`, etc.
+**The command surface comes from `--help`, not from this file.** Run `mael --help` for the
+command groups, `mael <group> --help` for a group, and `mael <group> <command> --help` for flags
+and exit codes. That output is authoritative and lists flags this guide does not. If `--help` is
+unavailable to you, ask the user rather than guessing a flag.
+
+**All `mael` and `git` commands require `dangerouslyDisableSandbox: true`** — they need network
+access and git write access.
+
+**Prefer `mael` commands over raw `git`/`gh`** — they handle worktree context, Linear integration,
+and status transitions automatically. Use `mael git status` not `git status`, `mael sync` not
+`git pull --rebase`, `mael gh create-pr` not `gh pr create`, `mael gh read-pr` not `gh pr view`.
 
 ## Branches
 
@@ -34,112 +44,175 @@ unmerged commits, so `/reopen-branch` expects you to carry on there.
 If you see old or already-merged commits on your branch, ask the user. Do not make a new branch.
 `mael tidy-branches` clears stale branches out of band.
 
-## Planning & Doing Work — the task notebook
+## The task notebook
 
-The primary workflow is the **git-backed task notebook** (`mael task …`). You no longer type
-`/plan-task` or `/continue-task` in a shell you open yourself — `mael` launches sessions, and each
-task's `command` field decides which skill (if any) runs inside. The everyday loop is:
-
-```bash
-mael linear plan PROJ-XXX          # create + launch a plan-mode session for a Linear issue
-mael task next --run               # launch the next ready task in the chain (repeat to advance)
-```
-
-`mael linear plan` is a thin wrapper over `mael task add` that seeds a `plan-task` task with the
-Linear brief as content (parented under `linear.PROJ-XXX`). It **runs by default** — the planning
-session launches immediately; pass `--no-run` to create the task without launching.
+The primary workflow is the **git-backed task notebook** (`mael task …`). `mael` launches
+sessions, and each task's `command` field decides which skill (if any) runs inside. The everyday
+loop is `mael linear plan PROJ-XXX` to plan a Linear issue, then `mael task next --run` to
+advance the chain.
 
 **How a task flows:**
-- `mael linear plan PROJ-XXX` launches the `plan-task` skill in plan mode, holding the brief.
-  The plan file it writes *is* the chain (a marked load-many file); after ExitPlanMode approval it
-  marks its own planning task done **first**, then runs `mael task load-many <plan-file> --run` to
-  create the chain and launch its head — an **Execute** task (plan as content, no
-  skill, **`mode: auto`** so it runs the plan unattended instead of re-planning) and, for multi-session work,
-  a **`plan-next-step`** task carrying the remaining-work tail. Closing the planning task first is
-  what makes the head actionable — see `plan-task.md` for why `--run` launches nothing otherwise.
-- `mael task next --run` launches the next ready task. **Execute tasks run no skill**: the plan is
-  their content, and the project's always-on "Finishing a task" rule (commit → `/code-review` →
-  fixups → `create-pr --squash` → `task status done` → `/watch-pr`) closes them out.
-  `plan-next-step` tasks plan one more increment and re-queue themselves until the work is done.
 
-New tasks **default to plan mode** (`DEFAULT_MODE`): a bare `mael task add "<title>" --run` opens a
-planning session. Pass `--mode auto` for an unattended execute session (Claude's classifier-vetted
-auto permission mode — `⏵⏵ auto mode on`), or `--mode normal` for a direct execute session that
-prompts on each action. In a load-many plan file each block may carry a `mode:` key; Execute blocks
-set `mode: auto`, planning blocks omit it (or set `mode: plan`).
+- `mael linear plan PROJ-XXX` is a thin wrapper over `mael task add` that seeds a `plan-task`
+  task with the Linear brief as content, parented under `linear.PROJ-XXX`. It runs by default.
+  It launches the `plan-task` skill in plan mode, holding the brief.
+- The plan file that session writes *is* the chain (a marked `load-many` file). After
+  ExitPlanMode approval it marks its own planning task done **first**, then runs
+  `mael task load-many <plan-file> --run` to create the chain and launch its head. Closing the
+  planning task first is what makes the head actionable — see `plan-task.md` for why `--run`
+  launches nothing otherwise.
+- The head is an **Execute** task: the plan is its content, it runs no skill, and it carries
+  `mode: auto` so it runs the plan unattended instead of re-planning. Multi-session work also
+  gets a **`plan-next-step`** task carrying the remaining-work tail, which plans one more
+  increment and re-queues itself until the work is done.
+- **Execute tasks run no skill.** The project's always-on "Finishing a task" rule closes them
+  out — see the task-completion flow below.
 
-**The `mael task` surface:**
-```bash
-mael task add "<title>" [--run]          # create (and optionally launch) a task (plan mode by default)
-mael task add "<title>" --mode auto      # an unattended execute session (no planning step)
-mael task add "<title>" --command plan-task --parent linear.PROJ-XXX --content-file brief.md
-mael task add "<title>" --follow-end '*' --content-file plan.md   # append after the parent's siblings
-mael task add "<title>" --content-file -                  # read content from stdin
-mael task load-many <file>               # create a whole chain from a marked plan file ('-' = stdin)
-mael task next [--run] [--parent <id>]   # next actionable task (id, or launch it)
-mael task run <id>                       # launch a specific task
-mael task list                           # actionable tasks (default)
-mael task list --all-todo                # include blocked-but-waiting
-mael task list --all                     # include done/cancelled
-mael task show <id> / read <id>          # summary / raw file
-mael task log <id> "note"                # append a log line
-mael task status todo|start|done|cancel|block [<id>]   # move between status folders ([<id>] defaults to $MAEL_TASK_ID)
-mael task rm <id>                        # delete and strip from dependents
-```
+**Modes.** New tasks default to plan mode, so a bare `mael task add "<title>" --run` opens a
+planning session. `--mode auto` gives an unattended execute session (Claude's classifier-vetted
+auto permission mode — `⏵⏵ auto mode on`); `--mode normal` gives a direct execute session that
+prompts on each action. In a `load-many` plan file each block may carry a `mode:` key: Execute
+blocks set `mode: auto`, planning blocks omit it or set `mode: plan`.
 
-`--follow` / `--follow-end` build the chain (a task becomes actionable only once everything it
-follows is done); `--follow-end '*'` appends after the leaf of the parent's existing child-chain.
-`--parent` groups the task into a linear chain sharing one branch/PR (ids nest via dots) and
-**defaults to `$MAEL_TASK_PARENT`** when unset, so chain tasks a launched
-session emits nest under the same parent without spelling it out. `$MAEL_TASK_PARENT` is the
-launching task's parent, or the task's own id when it has none — so a parentless planning session
-still chains its children under one parent/branch (for a Linear-rooted task it is the
-`linear.<ID>` parent). `--command` selects the skill
-the launched session runs; `--content-file` (or `-` for stdin) seeds the task's content. Launched
-sessions export `MAEL_TASK_ID` / `MAEL_TASK_PARENT` so skills can self-reference; `mael task status`
-and `--parent` both fall back to those env vars.
+**Chaining.** `--follow` and `--follow-end` build the chain — a task becomes actionable only once
+everything it follows is done. `--follow-end '*'` appends after the leaf of the parent's existing
+child-chain.
 
-### Ad-hoc work (no Linear issue)
+**Parenting.** `--parent` groups a task into a linear chain sharing one branch and one PR (ids
+nest via dots). It **defaults to `$MAEL_TASK_PARENT`**, so chain tasks that a launched session
+emits nest under the same parent without spelling it out. `$MAEL_TASK_PARENT` is the launching
+task's parent, or the task's own id when it has none — so a parentless planning session still
+chains its children under one parent and branch. For a Linear-rooted task it is the
+`linear.<ID>` parent.
 
-```bash
-mael task add "Fix flaky port test"          # create only
-mael task add "Fix flaky port test" --run    # create + launch a plain execute session
-```
-
-### Linear as a product-level mirror
-
-Linear stays the product-level mirror — read briefs, set status, and complete tasks there, but the
-plan-of-record lives in the notebook chain, not in the Linear description.
-
-```bash
-mael linear read-task PROJ-XXX                          # Read task details, subtasks, comments
-mael linear list-tasks [--status STATUS]                # List tasks in current cycle
-mael linear start-task PROJ-XXX                          # Set "In Progress", add worktree label
-mael linear set-status PROJ-XXX planned|in-progress|done # Set status (done -> Unreleased)
-```
-
-`mael sync` rebases on origin/main before starting. Run project checks from CLAUDE.md (tests,
-linting, typecheck) as part of any implementation session.
+Launched sessions export `MAEL_TASK_ID` and `MAEL_TASK_PARENT` so skills can self-reference.
+`mael task status` and `--parent` both fall back to those env vars.
 
 The `/plan-task` and `/plan-next-step` skills are **prompts that run inside notebook sessions**
-`mael` launches (selected by a task's `command` field) — not commands you type directly.
-`/continue-task` is **removed** — advance work with `mael task next --run` instead.
+`mael` launches, selected by a task's `command` field — not commands you type directly. Advance
+work with `mael task next --run`.
 
-## Testing Work
+## Linear as a product-level mirror
 
-**Stop environments during heavy editing** — file watchers trigger constant rebuilds. Restart when ready to test.
+Linear stays the product-level mirror — read briefs, set status, and complete tasks there, but
+the plan-of-record lives in the notebook chain, not in the Linear description.
 
-```bash
-mael env stop                            # Stop before multi-file edits
-# ... make changes ...
-mael env start                           # Start services (runs install_cmd first)
-mael env start --skip-install            # Skip install_cmd
-mael env status                          # Check service status
-mael env list                            # Running environments for this project
-mael env list-all                        # All running environments
+`mael linear set-status` applies to the issue as-is: it does not auto-transition parents. Move a
+parent to "Unreleased" yourself with `mael linear set-status <parent> done` once its subtasks are
+complete.
+
+Status transitions:
+
+```
+Todo -> Planned              (set-status … planned, or create-subtask)
+Planned/Todo -> In Progress  (start-task, or set-status … in-progress)
+In Progress -> In Review     (create-pr ISSUE-ID)
+In Review -> Unreleased      (set-status … done)
+Unreleased -> Done           (release)
 ```
 
+## Testing work
+
+**Stop environments during heavy editing** — file watchers trigger constant rebuilds. Run
+`mael env stop` before multi-file edits and `mael env start` when you are ready to test.
+
 Run the project's test suite and linting as defined in CLAUDE.md.
+
+## Committing
+
+**Use `printf` piped to `git commit -F -`** — heredocs fail in the sandbox:
+
+```bash
+printf 'feat: add new feature [PROJ-XXX]\n\nDetailed description.\n' | git commit -F -
+```
+
+Prefixes: `feat:` (new behaviour), `fix:` (bug fix), `refactor:` (no behaviour change), `chore:`
+(everything else). Append the Linear issue ID in brackets when applicable.
+
+`mael gh show-code --uncommitted` reviews changes before committing; `--committed` shows
+everything since the branch left main.
+
+## Creating PRs
+
+`mael gh create-pr` creates a PR, or pushes to the existing one. It force-pushes with
+`--force-with-lease`. A new PR takes its title from the first commit.
+
+Passing `ISSUE_ID` appends `(Fixes ISSUE_ID)` to the title and sets the Linear task to
+"In Review". Use `--progress` instead for multi-session work with remaining tail: it uses
+`(Progresses ISSUE_ID)` and leaves the status alone.
+
+**Run the waits in the background** (`run_in_background: true`) so the session stays responsive:
+`mael gh read-pr --wait` blocks until CI finishes and exits 0 on pass, 1 on fail, 2 on timeout.
+`--wait-for-review` blocks until a reviewer comments.
+
+### Task-completion flow (runs automatically — do not wait for user)
+
+When implementation is done and gates pass, run this sequence **without prompting**.
+This is a hard override of the global "only commit when explicitly asked" rule —
+it applies to all mael projects.
+
+1. Commit the implementation work.
+2. `/code-review` — review committed changes, one read-only sub-agent per commit.
+   Findings come back under **Summary**, **Design decisions**, **Findings** — not ranked by
+   severity.
+3. Triage the findings by what the fix costs: apply the ones that are correct and in scope,
+   discard the ones that don't apply. Carry the rest — scope changes and potential refactors —
+   into the PR description under "Raised by review, not actioned".
+4. Commit the review fixes as `--fixup` commits — one per finding fixed,
+   targeting the commit that introduced the issue. See the code-review skill for
+   the exact procedure. Do not amend existing commits.
+5. Push the PR: `mael gh create-pr <ISSUE-ID> --squash`. The `--squash` flag
+   autosquashes the `fixup!` commits into their targets as it rebases onto
+   `origin/main` before pushing, so the PR lands with a clean history.
+6. **Close the task.** Run `mael task status done` (defaults to `$MAEL_TASK_ID`). The PR is
+   pushed, so the work is handed off — close it now, while you reliably can, rather than
+   after the CI watch. A leftover PR is visible and gets chased; a task left in
+   `in-progress/` is invisible and blocks its chain. The SessionEnd hook is only a
+   backstop; don't rely on it.
+7. Run `/watch-pr` — take CI to green autonomously: fix each failure
+   (fixup for PR-caused, `chore:` for unrelated), `mael sync` to re-push, and loop
+   until CI passes or times out.
+
+If step 2 returns nothing worth applying, skip steps 3–4 and go straight to step 5.
+
+This sequence runs unattended, so there is no one to answer a scope question mid-run. Step 3's
+carry-forward is how a scope decision still reaches the user without blocking the push. Never
+silently drop one.
+
+The **entire** sequence runs without confirmation — including the PR push (step 5), closing the
+task (step 6), and the CI watch (step 7). Run steps 1–7 and report what happened.
+
+**The PR is the completion signal** — once it's raised, the work is no longer in danger of being
+forgotten: an open PR is visible on GitHub and gets chased. The task is the fragile half, so close
+it as soon as the PR is pushed, before it can go stray if CI drags on, the session dies, or the PR
+is merged before you get back to it. The SessionEnd hook moves the task to `done` when the session
+ends, but it can fail silently (if `mael` isn't on PATH, git is unavailable, or the process is
+killed). Don't rely on it — run `mael task status done` explicitly at step 6 so the task closes
+deterministically.
+
+If the project supplies `docs/review/coding-standards.md` and/or
+`docs/review/review-guide.md`, the review sub-agent loads them automatically.
+
+## Working with PR failures
+
+`mael gh read-pr` shows merge status, comments, review summaries, and unresolved inline review
+threads. Comments older than the most recent push collapse into a count line; `--all-comments`
+expands them.
+
+For a failing run, `mael gh check-log <run_id> --failed-only` gives the failing steps, and
+`mael gh download-artifact <run_id> <name>` pulls test results, screenshots, and traces.
+
+## Monitoring production
+
+**Sentry.** Prioritise by escalating trend > recency > frequency, then investigate the stacktrace
+and fix. Use `mael sentry resolve-issue` only when the issue is confirmed fixed in current code —
+for example the reported release pre-dates the fix commit and call-sites now handle the case.
+Treat it as a write action and confirm with the user first.
+
+**UptimeRobot.** `mael uptimerobot status` answers "is anything down right now?"; `outages`
+investigates recent incidents. Run `monitors` once to discover IDs, then list them under
+`uptimerobot.monitors` in `.maelstrom.yaml`. With no monitors configured, commands fall back to
+all monitors on the account.
 
 ## Development patterns — the wiki
 
@@ -147,19 +220,12 @@ The wiki is a curated set of markdown pages for patterns that apply across proje
 choices, publication steps, project setup. It is separate from per-project docs (scoped to
 one repo) and from Claude memory (per-project and auto-curated).
 
-```bash
-mael wiki list                                       # table of contents: page + description
-mael wiki read dev-patterns/python/pypi-publication  # print a page
-printf 'body' | mael wiki update <page> --content-file -   # write the whole page, and commit
-mael wiki update <page> --content-file page.md             # ... or from a file
-```
-
 **Consult it before you solve a cross-project problem.** Run `mael wiki list` and read any
 page whose description matches. **Correct it after.** If the page you used was wrong or
 incomplete, update it in the same session. If no page existed, add one.
 
-`update` writes the whole page — there is no partial edit. Read the page, change the text,
-then write the full body back.
+`mael wiki update` writes the whole page — there is no partial edit. Read the page, change the
+text, then write the full body back.
 
 Page paths are free-form, but keep to the convention
 `dev-patterns/<language-or-area>/<topic>`, for example
@@ -179,191 +245,22 @@ description: How to publish a Python package to PyPI
 Pages live in the same git-backed store as the task notebook (`~/.maelstrom/tasks`), so
 every change is committed. The store is local — there is no remote sync.
 
-## Finalising Work
-
-```bash
-mael linear set-status PROJ-XXX done     # Mark complete -> "Unreleased"
-mael linear add-comment PROJ-XXX file.md # Add progress/completion notes
-mael linear release                      # Promote all "Unreleased" with product label to "Done"
-```
-
-`set-status` applies to the issue as-is — it does not auto-transition parents. Move a parent to
-"Unreleased" yourself with `mael linear set-status <parent> done` once its subtasks are complete.
-
-## Committing & Creating PRs
-
-**Commit format** — use `printf` piped to `git commit -F -` (heredocs fail in sandbox):
-```bash
-mael gh show-code --uncommitted          # Review changes before committing
-git add file1.py file2.py
-printf 'feat: add new feature [PROJ-XXX]\n\nDetailed description.\n' | git commit -F -
-```
-
-Prefixes: `feat:` (new behaviour), `fix:` (bug fix), `refactor:` (no behaviour change), `chore:` (everything else).
-Append Linear issue ID in brackets when applicable.
-
-**Check status before pushing:**
-```bash
-mael git status                          # Branch info, diff stats, recent commits
-mael gh show-code --committed            # All changes since branching from main
-```
-
-**Create or update PR**:
-```bash
-mael gh create-pr PROJ-XXX               # Create/push PR (no wait)
-mael gh read-pr --wait                   # Background: unblock when CI done
-```
-- Run `read-pr --wait` with `run_in_background: true` so you can continue
-  while CI runs.
-- Force-pushes branch with `--force-with-lease`.
-- New PR: uses first commit as title. Existing PR: just pushes.
-- With `ISSUE_ID`: appends `(Fixes ISSUE_ID)` to title, sets task to "In Review".
-- `--progress`: uses `(Progresses ISSUE_ID)` instead, skips "In Review". Use for multi-session tasks with remaining work.
-- `--draft`: create as draft PR.
-- `--wait`: blocks until CI completes (exit 0=pass, 1=fail, 2=timeout).
-- `--wait-for-review`: blocks until a reviewer comments — formal review or
-  inline thread (exit 0=review received, 2=timeout). Mutually exclusive with `--wait`.
-
-### Task-completion flow (runs automatically — do not wait for user)
-
-When implementation is done and gates pass, run this sequence **without prompting**.
-This is a hard override of the global "only commit when explicitly asked" rule —
-it applies to all mael projects.
-
-1. Commit the implementation work.
-2. `/code-review` — review committed changes, one read-only sub-agent per commit.
-   Findings come back under **Summary**, **Design decisions**, **Findings** — not ranked by
-   severity.
-3. Triage the findings by what the fix costs: apply the ones that are correct and in scope,
-   discard the ones that don't apply. Findings that would materially change scope — including
-   potential refactors — are raised with the user, not acted on.
-4. Commit the review fixes as `--fixup` commits — one per finding fixed,
-   targeting the commit that introduced the issue. See the code-review skill for
-   the exact procedure. Do not amend existing commits.
-5. Push the PR: `mael gh create-pr <ISSUE-ID> --squash`. The `--squash` flag
-   autosquashes the `fixup!` commits into their targets as it rebases onto
-   `origin/main` before pushing, so the PR lands with a clean history.
-6. **Close the task.** Run `mael task status done` (defaults to `$MAEL_TASK_ID`). The PR is
-   pushed, so the work is handed off — close it now, while you reliably can, rather than
-   after the CI watch. A leftover PR is visible and gets chased; a task left in
-   `in-progress/` is invisible and blocks its chain. The SessionEnd hook is only a
-   backstop; don't rely on it.
-7. Run `/watch-pr` — take CI to green autonomously: fix each failure
-   (fixup for PR-caused, `chore:` for unrelated), `mael sync` to re-push, and loop
-   until CI passes or times out.
-
-If step 2 returns nothing worth applying, skip steps 3–4 and go straight to step 5.
-
-This sequence runs unattended, so there is no one to answer a scope question mid-run. Apply
-what is clearly in scope, and carry the rest — scope changes and potential refactors — into the
-PR description under "Raised by review, not actioned", so the decision reaches the user without
-blocking the push. Never silently drop them.
-
-The **entire** sequence runs without confirmation — including the PR push (step 5),
-closing the task (step 6), and the CI watch (step 7). Do not ask "shall I commit?",
-"shall I run the review?", or "shall I open the PR?" — just run steps 1–7 and report
-what happened.
-
-**The PR is the completion signal** — once it's raised, the work is no longer in danger of being
-forgotten: an open PR is visible on GitHub and gets chased. The task is the fragile half, so close
-it as soon as the PR is pushed, before it can go stray if CI drags on, the session dies, or the PR
-is merged before you get back to it. The SessionEnd hook moves the task to `done` when the session
-ends, but it can fail silently (if `mael` isn't on PATH, git is unavailable, or the process is
-killed). Don't rely on it — run `mael task status done` explicitly at step 6 so the task closes
-deterministically.
-
-If the project supplies `docs/review/coding-standards.md` and/or
-`docs/review/review-guide.md`, the review sub-agent loads them automatically.
-
-## Working with PR Failures
-
-```bash
-mael gh read-pr                          # Merge status, comments, CI results
-mael gh read-pr --all-comments           # Include comments older than the last push
-mael gh read-pr --wait                   # Wait for CI to finish (use run_in_background)
-mael gh read-pr --wait-for-review        # Wait for first reviewer comment (use run_in_background)
-mael gh check-log <run_id>               # Full GitHub Actions logs
-mael gh check-log <run_id> --failed-only # Just failed steps
-mael gh download-artifact <run_id> <name>            # Test results, screenshots, etc.
-```
-
-`read-pr` shows top-level PR comments, review summaries, and unresolved inline review threads. Comments older than the most recent push are collapsed into a count line by default; pass `--all-comments` to expand them.
-
-Fix issues, commit, then re-push:
-```bash
-mael gh create-pr PROJ-XXX               # Push fixes (no wait)
-mael gh read-pr --wait                   # Background: unblock when CI done
-```
-
-## Working with Sentry
-
-```bash
-mael sentry list-issues [--env ENV]      # Unresolved issues (default: prod)
-mael sentry get-issue <issue-id>         # Full details with stacktrace and variables
-mael sentry resolve-issue <issue-id>     # Mark as resolved in next release
-```
-
-Prioritize by: escalating trend > recency > frequency. Investigate the stacktrace and fix.
-
-Use `resolve-issue` when a Sentry issue is confirmed fixed in current code (e.g. the
-reported release pre-dates the fix commit, and call-sites now handle the case). Treat
-it as a write action — confirm with the user first.
-
-## Working with UptimeRobot
-
-```bash
-mael uptimerobot status                  # Current status of configured monitors with 24h/7d/30d uptime
-mael uptimerobot outages [--since 24h] [--limit 20]   # Recent down events, newest first
-mael uptimerobot monitors                # All monitors on the account with IDs (for initial setup)
-```
-
-Use `status` for "is anything down right now?" and `outages` to investigate
-recent incidents. Run `monitors` once to discover IDs, then list them under
-`uptimerobot.monitors` in `.maelstrom.yaml`. With no monitors configured,
-commands fall back to all monitors on the account.
-
-`--since` accepts `30m`, `24h`, `7d`, etc.
-
-## Status Transitions
-
-```
-Todo -> Planned        (set-status … planned, or create-subtask)
-Planned/Todo -> In Progress  (start-task, or set-status … in-progress)
-In Progress -> In Review     (create-pr ISSUE-ID)
-In Review -> Unreleased      (set-status … done)
-Unreleased -> Done           (release)
-```
-
-`set-status` takes `planned` / `in-progress` / `done` (where `done` -> "Unreleased") and applies to
-the named issue only — no automatic parent/subtask transitions. Move a parent to "Unreleased"
-explicitly with `mael linear set-status <parent> done` once its subtasks are complete.
-
 ## Scheduled (template) tasks
 
-The hourly launchd agent that runs scheduled templates is **opt-in per machine**.
+The hourly launchd agent that runs scheduled templates is **opt-in per machine**
+(`mael schedule install`). It fires hourly and once on load (`RunAtLoad`), with one coalesced
+catch-up on wake and **no backfill**.
 
-```bash
-mael schedule install              # opt in (write marker + load agent)
-mael schedule install --wake-at 09:00   # also wake a sleeping Mac via pmset (needs sudo)
-mael schedule uninstall            # opt out (remove marker, unload, clear wake)
-mael schedule status               # diagnose: marker / plist / loaded / pmset wake / log tail
-```
+`--wake-at HH:MM` adds a single daily `pmset` wake. There is one system-wide recurring wake only,
+at a fixed time, and a closed clamshell on battery may ignore it.
 
-Fires hourly + once on load (`RunAtLoad`); one coalesced catch-up on wake, **no
-backfill**. `--wake-at HH:MM` adds a single daily `pmset` wake (one system-wide
-recurring wake only, fixed time, clamshell-on-battery may ignore it). Run
-`mael schedule status` first when a scheduled task didn't fire. See
+Run `mael schedule status` first when a scheduled task didn't fire. See
 `docs/dev/scheduled-tasks.md`.
-
-## Workspace Status
-
-```bash
-mael status set "Working on PROJ-XXX"    # Shown in cmux status bar
-mael status clear
-```
 
 ## Prerequisites
 
 - **GitHub CLI:** `brew install gh && gh auth login`
-- **Env vars** in `.env`: `LINEAR_API_KEY`, `SENTRY_API_KEY`, `UPTIMEROBOT_API_KEY` (or set under `uptimerobot.api_key` in `~/.maelstrom/config.yaml`)
-- **Config** in `.maelstrom.yaml`: `linear.team_id`, `sentry.org`, `sentry.project_id`, `uptimerobot.monitors`
+- **Env vars** in `.env`: `LINEAR_API_KEY`, `SENTRY_API_KEY`, `UPTIMEROBOT_API_KEY` (or set under
+  `uptimerobot.api_key` in `~/.maelstrom/config.yaml`)
+- **Config** in `.maelstrom.yaml`: `linear.team_id`, `sentry.org`, `sentry.project_id`,
+  `uptimerobot.monitors`
