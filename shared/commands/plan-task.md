@@ -191,6 +191,10 @@ Brief description of the problem and why this change is needed.
 |------|--------|
 | ... | ... |
 
+## Seams under test
+The public boundaries this slice is tested at, and what each one verifies. Agreeing these
+here is what lets the execute session write tests without stopping to ask.
+
 ## Verification
 - How to test the changes
 - Expected outcomes
@@ -235,6 +239,10 @@ layer it touches, shipping its own tests and delivering user-visible behaviour, 
 ~1500 lines across several ~500-line commits. Not a layer ("the back end", "the tests").
 - ...
 
+## Seams under test
+The public boundaries this iteration is tested at, and what each one verifies. Agreeing these
+here is what lets the execute session write tests without stopping to ask.
+
 ## Verification
 How to test this iteration.
 
@@ -262,6 +270,11 @@ description. Each iteration should:
   after layers has been sliced the wrong way, so re-cut it.
 - **Ship its tests with the slice they cover.** No test-only iterations: the tests for a slice belong
   in that slice's session.
+- **Name the seams it is tested at.** The execute session builds test-first (`/tdd`), and that skill
+  forbids testing at a seam nobody agreed. An unattended `mode: auto` session has no one to ask, so
+  the seams must be settled here, under plan approval. Name the public boundary each test observes
+  behaviour through — not the internals behind it. Use `/codebase-design` for the vocabulary when
+  the boundary itself is the open question.
 - Be sized at up to ~1500 lines of new code — one execute session, landing as several ~500-line
   commits.
 - Be independently testable and pass CI when merged.

@@ -47,6 +47,8 @@ follow-end: "*"
 ...
 ## Iteration 1 scope
 ...
+## Seams under test
+...
 ## Verification
 ...
 
@@ -113,6 +115,20 @@ way. Re-cut it. Tests ship with the slice they cover; there are no test-only ite
 
 Aim for three iterations or fewer per task. More than that usually means the slices are too
 thin or sliced by layer.
+
+### Build test-first, at agreed seams
+
+The execute session builds test-first: one failing test, then enough code to pass it, then the
+next. A **seam** is the public boundary a test observes behaviour through. Tests go at seams,
+never against internals — that is what lets the code be rewritten without rewriting the tests.
+
+Seams are agreed, not chosen mid-implementation. The plan names them in a **Seams under test**
+section, and approving the plan agrees them. This matters because an execute session runs
+unattended: there is nobody to ask once it starts. Deciding the seams at plan time is what lets
+the session write tests without stopping, and it puts the decision where you can still change it.
+
+If you are working outside a plan, agree the seams with the agent before it writes the first
+test.
 
 ## 3. Run several agents at once
 
