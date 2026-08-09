@@ -37,7 +37,7 @@ it yourself.
 2. **Read the brief from the initial prompt**: The Linear brief (`# <ID>: <title>` + description) is
    already in your prompt. Treat it as the source of truth for *what* to build.
 
-3. **Codebase Research**: Use the Task tool with Explore subagent(s):
+3. **Codebase Research**: Use the Agent tool with Explore subagent(s):
    - Launch 1-3 Explore agents in parallel for efficient research.
    - Examine relevant files and subsystems mentioned in the brief.
    - Review existing patterns, dependencies, and integration points.

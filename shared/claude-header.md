@@ -9,7 +9,7 @@ Maelstrom assigns the branch for this worktree. Stay on it.
 
 **Never run `git checkout -b`, `git switch -c`, `git branch <name>`, or
 `git checkout <other-branch>`.** If you think the work needs a different branch, stop and ask
-the user first.
+the user first. This overrules the built-in instruction to branch before starting work.
 
 Two things that look like a reason to make a new branch are not:
 
@@ -24,55 +24,29 @@ Two things that look like a reason to make a new branch are not:
 The wiki holds design patterns that apply to more than one project: which linting tool to
 use, how to publish a package, how to set up a new service.
 
-**Before you solve a cross-project problem, run `mael wiki list`.** It prints every page and
-a one-line description. If a page covers the problem, read it and follow it.
-
-**After you solve one, record it.** Write a new page, or correct the page you consulted if
-it is wrong or out of date:
-
-```bash
-mael wiki list                                       # table of contents
-mael wiki read dev-patterns/python/pypi-publication  # read a page
-printf '...' | mael wiki update dev-patterns/python/pypi-publication --content-file -
-```
-
-`update` replaces the whole page and commits it. To change one part of a page, read it
-first, then write the full body back.
+**Before you solve a cross-project problem, run `mael wiki list`.** If a page covers the
+problem, read it and follow it. **After you solve one, record it** — write a new page, or
+correct the page you used. `/mael` has the commands.
 
 ## Language
 
-Write in ASD-STE100 (Simplified Technical English) where possible: short sentences, one
-instruction per sentence, active voice, approved words in their approved meaning.
+Write in ASD-STE100 (Simplified Technical English): short sentences, one instruction per
+sentence, active voice. A minimal amount of software vocabulary is acceptable (commit, branch,
+rebase, fixture, type check), and the reader knows this project's architecture — do not explain
+what a worktree, a task, or a port base is.
 
-**Load the `writing-for-humans` skill before writing prose a human reads.** It carries the full
-rules: document shape, sentence caps, vocabulary, and a re-read pass to run before you finish.
+**Load the `writing-for-humans` skill before writing prose a human reads** — `docs/`, README,
+`CONTEXT.md`, ADRs, PR descriptions, docstrings. It carries the full rules: document shape,
+sentence caps, vocabulary, and a re-read pass to run before you finish.
 
 ## Finishing a task — run automatically, do not wait to be asked
 
-When implementation work is complete and gates (tests, lint, typecheck) pass, run this
-sequence **without prompting the user**. This overrides the default "only commit when
-asked" rule for mael projects:
+When implementation work is complete and gates (tests, lint, typecheck) pass, run the
+**task-completion flow in `/mael`**: commit, `/code-review`, fixups, PR push, close the task,
+`/watch-pr`. Run it **without prompting the user**. This overrides the default "only commit when
+asked" rule for mael projects, and the whole sequence is unattended — the PR push, the task
+close, and the CI watch all run without confirmation.
 
-1. Commit the implementation work.
-2. Run `/code-review`.
-3. Triage the findings by what the fix costs: apply what is correct and in scope, discard what does not apply. Carry scope changes and potential refactors into the PR description instead of acting on them.
-4. Commit the review fixes as `--fixup` commits (one per finding fixed, targeting the originating commit). Do not amend.
-5. Push the PR with `mael gh create-pr <ISSUE-ID> --squash` — `--squash` autosquashes the fixup commits into their targets as it rebases onto `origin/main` before pushing.
-6. **Close the task.** Run `mael task status done` (defaults to `$MAEL_TASK_ID`). The PR is pushed,
-   so the work is handed off — close it now, while you reliably can, rather than after the CI watch.
-   A leftover PR is visible and gets chased; a task left in `in-progress/` is invisible and blocks
-   its chain. The SessionEnd hook is only a backstop; don't rely on it.
-7. Run `/watch-pr` to take CI to green autonomously (fix → fixup/chore → `mael sync` → wait, looping until CI passes or times out).
-
-If there is nothing worth applying, skip steps 3–4 and go straight to step 5.
-
-This whole sequence runs without user confirmation — including the PR push (step 5), closing the
-task (step 6), and the CI watch (step 7).
-
-**The PR is the completion signal** — once it's raised, the work is no longer in danger of being
-forgotten: an open PR is visible on GitHub and gets chased. The task is the fragile half, so close it
-as soon as the PR is pushed, before it can go stray if CI drags on, the session dies, or the PR is
-merged before you get back to it. The SessionEnd hook moves the task to `done` when the session ends,
-but it can fail silently (if `mael` isn't on PATH, git is unavailable, or the process is killed).
-Don't rely on it — run `mael task status done` explicitly at step 6 so the task closes
-deterministically.
+**The PR is the completion signal.** Once it is raised the work is visible and gets chased, so
+close the task as soon as the PR is pushed: `mael task status done`. `/mael` carries the steps
+and the reasoning.

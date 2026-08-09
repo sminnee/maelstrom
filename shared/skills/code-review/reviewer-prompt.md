@@ -13,8 +13,8 @@ exact shape specified below. You have read-only access to the repo.
 
 Always:
 
-- `review-guide.md` — in this same directory (`~/.claude/skills/code-review/review-guide.md`).
-  The cross-project review baseline: what to look for and what not to report. Load it first.
+- `~/.claude/skills/code-review/review-guide.md` — the cross-project review baseline: what to
+  look for and what not to report. Load it first.
 - `CLAUDE.md` at the repo root if present.
 
 Conditionally (only if the file/directory exists in the project):

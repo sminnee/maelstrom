@@ -140,11 +140,10 @@ wants commits 9 and later of a named range runs the command again, or names a na
 
 ### 4. Spawn one review sub-agent per commit
 
-Read the reviewer prompt from `reviewer-prompt.md` (alongside this file, at
-`~/.claude/skills/code-review/reviewer-prompt.md`).
+Read the reviewer prompt from `reviewer-prompt.md`, alongside this file.
 
 Spawn **one sub-agent per commit**, all in a single message so they run concurrently. Use the
-Task tool with `subagent_type: "Explore"` (read-only — matches the brief: no edits, no tests, no
+Agent tool with `subagent_type: "Explore"` (read-only — matches the brief: no edits, no tests, no
 builds; it can run `git log` / `git diff` via Bash).
 
 Each sub-agent's prompt is the contents of `reviewer-prompt.md`, followed by that commit's
