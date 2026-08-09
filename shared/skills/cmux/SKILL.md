@@ -23,22 +23,8 @@ maelstrom uses a standard **3-pane layout** per worktree workspace:
 - **pane 1** — shell (the install command runs here on first create)
 - **pane 2** — browsers (the app preview and the recycled github.com tab live here)
 
-### How maelstrom drives cmux (for code, not shell)
-
-Inside the codebase, cmux is a three-layer package (`src/maelstrom/cmux/`):
-
-- `client.py` — transport (`CmuxClient` Protocol, real `SubprocessCmuxClient`,
-  fake `RecordingCmuxClient`, `CmuxResult` parsing, `current_client`/`is_cmux_mode`).
-- `model.py` — `CmuxLayout`: pure cmux mechanics over a client. Its verbs are
-  **partial and idempotent** — each `ensure_*` asserts that *at least one* of an
-  entity exists (creating it only if none does), touching just its own subset and
-  leaving every other pane/tab/browser the user opened undisturbed. `add_*` is the
-  explicit "add another" operation. `ensure_absent_*` is the removal dual.
-- `mael_layout.py` — policy: the only layer that knows the `{project}-{worktree}`
-  name and the pane 0/1/2 convention. CLI call sites use these functions.
-
-Everything degrades silently outside cmux (`current_client()`/`CmuxLayout.current()`
-return `None`). The shell-level `cmux` CLI below is unchanged by this structure.
+To drive cmux from maelstrom's own Python rather than the shell, read `docs/dev/cmux.md` in the
+maelstrom repo.
 
 ## Detection
 

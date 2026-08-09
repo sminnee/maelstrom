@@ -1,8 +1,6 @@
 # Review Guide
 
-The universal review baseline. The `/code-review` sub-agent loads this file for every review, in
-every project. It is symlinked into `~/.claude/skills/` with the rest of the skill, so it travels
-wherever the skill is installed.
+The universal review baseline, loaded for every review in every project.
 
 **This file holds rules that are true in every project.** Project-specific rules belong in that
 project's `docs/review/coding-standards.md` (prescriptive rules) and `docs/review/review-guide.md`

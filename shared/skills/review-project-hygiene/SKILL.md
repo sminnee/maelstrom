@@ -73,14 +73,11 @@ Record what you decided and why — step 5 shows the declined checks to the user
 
 ### 3. Spawn one auditor sub-agent per applicable category
 
-Read the auditor prompt from `auditor-prompt.md` (alongside this file, at
-`~/.claude/skills/review-project-hygiene/auditor-prompt.md`).
-
-Read the checklist from `hygiene-checklist.md` (at
-`~/.claude/skills/review-project-hygiene/hygiene-checklist.md`).
+Read the auditor prompt from `auditor-prompt.md` and the checklist from
+`hygiene-checklist.md`, both alongside this file.
 
 Spawn **one sub-agent per applicable category**, all in a single message so they run
-concurrently. Use the Task tool with `subagent_type: "Explore"` — read-only, which matches the
+concurrently. Use the Agent tool with `subagent_type: "Explore"` — read-only, which matches the
 brief: no edits, no test runs, no builds.
 
 The checklist's `## Category:` headings are the canonical category list. Use those names
