@@ -10,7 +10,7 @@ Run `mael --help` or `mael <group> --help` to see the same information in the te
 | Option | Description |
 |---|---|
 | `--version` | Print the version and exit. |
-| `--json` | Print machine-readable JSON instead of a table. |
+| `--json` | Print machine-readable JSON instead of a table. Honoured by `mael list-all` and `mael git status` only; every other command ignores it. |
 | `--help` | Print help and exit. |
 
 ## Targets
@@ -140,6 +140,22 @@ Run `mael doctor NEW` afterwards.
 
 None of these take options beyond `--help`.
 
+**`mael session record`**
+
+`EVENT` is one of a fixed set. Each value maps to the session state maelstrom records:
+
+| `EVENT` | Session state |
+|---|---|
+| `user-prompt-submit`, `ask-user-post` | `processing` |
+| `stop`, `stop-failure`, `idle-prompt` | `idle` |
+| `permission-prompt`, `elicitation-prompt` | `awaiting-permission` |
+| `ask-user-pre` | `awaiting-user-input` |
+| `session-end` | Closes the launching task and deletes the session file. Sets no state. |
+| `heartbeat` | Bumps `updated_at` and leaves the state alone. |
+
+`mael install` wires each hook to the right value, so you never pass `EVENT` yourself. An
+unknown `EVENT` exits 2.
+
 ---
 
 ## Tasks
@@ -166,7 +182,8 @@ The task notebook. See [tasks.md](../guide/tasks.md).
 | `mael task add-scheduled` | Fire every due template: duplicate it into a dated run and advance its watermark. |
 
 Every task command takes `--project TEXT` (default: from the current directory), except
-`reindex`, which spans all projects.
+`reindex`, which spans all projects. Only `task add` and `task add-scheduled` accept the
+short form `-p`; every other task command takes `--project` in full.
 
 **`mael task add`**
 
@@ -193,12 +210,23 @@ Every task command takes `--project TEXT` (default: from the current directory),
 
 **`mael task update`**
 
-Takes `--id` plus the same field flags as `add`: `--command`, `--mode`, `--branch`,
-`--pre-action`, `--post-action`, `--priority`, `--model`, `--schedule`, `--content-file`.
+`ID` is a required positional argument — the task to update. An optional `TITLE` follows it.
+The field flags are the same as `add`, with two differences: there is no `--parent` (a task's
+parent is set at creation only), and `task update` has long forms only, no short flags.
 
 | Option | Description |
 |---|---|
-| `--id TEXT` | Re-key the task, rewriting `follows` and `parent` references that point at it. |
+| `--id TEXT` | Re-key the task to a new id, rewriting `follows` and `parent` references that point at it. Applied first; the other flags then apply to the new id. |
+| `--project TEXT` | Project name. Default: from the current directory. |
+| `--command TEXT` | Skill the launched session runs. |
+| `--mode TEXT` | Session mode, e.g. `plan`, `auto`, `normal`. |
+| `--branch TEXT` | Branch for the task. |
+| `--pre-action TEXT` | Lifecycle action fired when the task starts. |
+| `--post-action TEXT` | Lifecycle action fired when the task finishes. |
+| `--priority [critical\|high\|medium\|low]` | Task priority. |
+| `--model TEXT` | LLM model for the session. |
+| `--schedule TEXT` | Cron expression. Acted on only for template tasks. |
+| `--content-file TEXT` | File whose contents replace the Content section. `-` reads stdin. |
 
 Pass `''` to `--pre-action`, `--post-action`, `--model` or `--schedule` to clear the field.
 
@@ -233,7 +261,7 @@ next task.
 
 | Option | Description |
 |---|---|
-| `--run` | Launch every unblocked task created. Blocked tasks wait for `mael task next --run`. |
+| `--run` | Launch every actionable task created. A task that still follows an unfinished id waits for `mael task next --run`. |
 | `--here` | With `--run`, launch only the head task in the current shell. |
 
 **`mael task status`**
@@ -317,7 +345,7 @@ See [dev-environments.md](../guide/dev-environments.md).
 |---|---|---|
 | `env start` | `--skip-install` | Skip the install step before starting. |
 | `env restart` | `--install` | Run the install step before starting. |
-| `env logs` | `-n INTEGER` | Number of lines to show. |
+| `env logs` | `-n INTEGER` | Number of lines to show. Default: 100. |
 | `env logs` | `-f`, `--follow` | Follow log output. |
 
 ---

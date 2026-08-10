@@ -26,6 +26,12 @@ See `docs/dev/` for architecture and design docs:
   Python core (storage / model / CLI layers), using the task subsystem as the worked reference.
 - `docs/dev/tasks.md` — the task domain model: `parent` vs `follows`, dotted ids, session discovery.
 - `docs/dev/scheduled-tasks.md` — launchd firing mechanics for template tasks.
+- `docs/dev/cmux.md` — how the `cmux/` package drives cmux: the three layers, the idempotent
+  `ensure_*` verbs, and the pane 0/1/2 convention.
+
+`CONTEXT.md` at the repo root is the domain glossary. Read it before you write prose or name
+anything, and reuse its terms verbatim, including each term's `_Avoid_` list. Add new domain
+terms there rather than defining them inline.
 
 ## User Documentation
 

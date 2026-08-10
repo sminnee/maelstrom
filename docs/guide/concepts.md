@@ -31,6 +31,7 @@ Each component earns its place by the role it plays in the loop.
 | [git worktrees](worktrees.md) | Isolate code — a branch and a checkout per unit of work |
 | Claude Code | The agent that does the work |
 | [Task notebook](tasks.md) | Detailed task management — what each agent is doing, in what order |
+| [Wiki](#the-wiki--cross-project-patterns) | Design patterns that apply to more than one project |
 | [Dev environments](dev-environments.md) | Isolated services and ports per worktree |
 | [Linear / Sentry / GitHub](integrations.md) | Streamline the workflow |
 
