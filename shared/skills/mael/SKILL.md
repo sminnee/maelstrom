@@ -259,8 +259,9 @@ The hourly launchd agent that runs scheduled templates is **opt-in per machine**
 (`mael schedule install`). It fires hourly and once on load (`RunAtLoad`), with one coalesced
 catch-up on wake and **no backfill**.
 
-`--wake-at HH:MM` adds a single daily `pmset` wake. There is one system-wide recurring wake only,
-at a fixed time, and a closed clamshell on battery may ignore it.
+Nothing wakes a sleeping Mac — launchd starts the missed job on the next wake by itself. `install`
+needs no sudo. `uninstall` clears a wake left by the removed `--wake-at`, and prompts for sudo only
+on a machine that has one.
 
 Run `mael schedule status` first when a scheduled task didn't fire. See
 `docs/dev/scheduled-tasks.md`.

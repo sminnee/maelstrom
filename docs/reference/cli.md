@@ -501,14 +501,10 @@ See [scheduled-work.md](../guide/scheduled-work.md). The agent is opt-in per mac
 | Command | Description |
 |---|---|
 | `mael schedule install` | Opt this machine in: write the marker and load the launchd agent. |
-| `mael schedule uninstall` | Opt this machine out: remove the marker and tear the agent down. |
-| `mael schedule status` | Report the marker, plist, loaded job, `pmset` wake and log tail. |
+| `mael schedule uninstall` | Opt this machine out: remove the marker and tear the agent down. Clears a repeating `pmset` wake left by the removed `--wake-at`, asking for sudo only if one is set. |
+| `mael schedule status` | Report the marker, plist, loaded job and log tail. |
 
-**`mael schedule install`**
-
-| Option | Description |
-|---|---|
-| `--wake-at HH:MM` | Schedule a daily `pmset` wake so a sleeping Mac runs the job. Needs sudo. `HH:MM` is local time. One system-wide repeating wake only; it replaces any prior one and is set one minute before `HH:MM`. Clamshell-on-battery laptops may ignore it. |
+A sleeping Mac runs the job on its next wake, as one coalesced catch-up. No command wakes it.
 
 ---
 

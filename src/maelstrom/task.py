@@ -154,8 +154,8 @@ _FRONTMATTER_ATTR = {f.key: f.attr for f in TASK_FIELDS if f.attr != f.key}
 
 def _today() -> str:
     # Local calendar date: .astimezone() yields an aware datetime in the
-    # machine's local zone, so the ID date prefix follows the user's day
-    # (matching --wake-at) rather than UTC.
+    # machine's local zone, so the ID date prefix follows the user's day rather
+    # than UTC.
     return datetime.now().astimezone().date().isoformat()
 
 
