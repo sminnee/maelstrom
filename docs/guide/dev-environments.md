@@ -4,7 +4,7 @@ Each worktree gets its own services and its own ports, so agents never collide.
 
 ## The problem
 
-Two agents, two checkouts, two dev servers — both hardcoded to port 3000. The second one
+Two agents, two worktrees, two dev servers — both hardcoded to port 3000. The second one
 fails to bind, or worse, the first one serves the second one's requests.
 
 Maelstrom gives each worktree a **port base** and derives every service port from it. You
@@ -84,17 +84,18 @@ services:
     ports: [DB]
     publish: ["${DB_PORT}:5432"]           # host:container
     volume: /var/lib/postgresql/data       # named volume from the container name
-    host_var: DB_HOST                      # apple-container: receives the VM IP
+    host_var: DB_HOST                      # apple-container: receives the VM's IP address
     env:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
 ```
 
 ### Apple `container` and `host_var`
 
-Apple `container` runs each container as its own VM on a private `192.168.64.x` network, so
-`localhost` does not reach it. Set `host_var:` and maelstrom polls `container inspect` for
-the VM's IP at start time, then injects it into the **process environment of sibling
-services** — so a command service's `env:` can reference `${DB_HOST}`.
+Apple `container` runs each container as its own virtual machine (VM) on a private
+`192.168.64.x` network, so `localhost` does not reach it. Set `host_var:` and maelstrom polls
+`container inspect` for the VM's IP address at start time. Maelstrom then injects the address
+into the **process environment of sibling services**, so a command service's `env:` can
+reference `${DB_HOST}`.
 
 The IP flows into the spawn environment only, never into `.env`, because it changes between
 starts. If the IP never resolves (about a 10s poll), the start **fails loudly** rather than
@@ -185,8 +186,8 @@ from the flat `port_names` and `shared_port_names` lists.
 
 With neither, maelstrom falls back to `start_cmd`.
 
-Precedence is **`services:` → Procfile → `start_cmd`**. Migrate projects one at a time —
-there is no flag day.
+Precedence is **`services:` → Procfile → `start_cmd`**. All three paths stay supported, so
+migrate projects one at a time.
 
 ## See also
 

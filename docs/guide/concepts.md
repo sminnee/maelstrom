@@ -13,11 +13,11 @@ Swiss-army knife.
 
 One agent working on one branch is easy. You open a terminal, start Claude Code, and watch.
 
-Several agents at once is not. Each agent needs its own checkout, or they overwrite each
+Several agents at once is not. Each agent needs its own working directory, or they overwrite each
 other. Each needs its own database and its own ports, or their dev servers collide. You
 need to know which agent is doing what, and in what order, because some work must wait for
 other work. You need somewhere to watch them all. And when an agent finishes, someone has
-to review the code, open the pull request and take CI to green.
+to review the code, open the pull request and take CI (continuous integration) to green.
 
 Doing that by hand does not scale past about two agents. Maelstrom automates it.
 
@@ -28,7 +28,7 @@ Each component earns its place by the role it plays in the loop.
 | Component | Role |
 |---|---|
 | [cmux](cmux-workspaces.md) | Manages workspaces — where sessions run and where you watch them |
-| [git worktrees](worktrees.md) | Isolate code — a branch and a checkout per unit of work |
+| [git worktrees](worktrees.md) | Isolate code — a branch and a working directory per unit of work |
 | Claude Code | The agent that does the work |
 | [Task notebook](tasks.md) | Detailed task management — what each agent is doing, in what order |
 | [Wiki](#the-wiki--cross-project-patterns) | Design patterns that apply to more than one project |
@@ -54,9 +54,10 @@ worktree, every agent is always in a known place.
 
 ### git worktrees — isolating code
 
-A worktree is a second checkout of the same repository on its own branch. Maelstrom names
-them from the NATO phonetic alphabet — alpha, bravo, charlie — rather than after branches,
-because a worktree outlives the branch it currently holds.
+A worktree is a second working directory on the same repository, holding its own branch.
+Maelstrom names worktrees from the NATO (North Atlantic Treaty Organization) phonetic
+alphabet — alpha, bravo, charlie — rather than after branches, because a worktree outlives
+the branch it currently holds.
 
 Names are stable and reusable. When you finish work, `mael close` resets the worktree to
 main but keeps the folder, the name and the port allocation. The next `mael add` recycles

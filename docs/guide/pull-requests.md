@@ -5,7 +5,8 @@ How work leaves an agent session and lands on GitHub.
 ## The finishing sequence
 
 When an execute session's implementation is done and the project's gates pass, it runs this
-sequence **without asking**:
+sequence **without asking**. The gates are the project's automated checks — tests, lint and
+type check, as CLAUDE.md defines them:
 
 1. Commit the implementation.
 2. Run `/code-review`.
@@ -15,7 +16,7 @@ sequence **without asking**:
    not amend.
 5. Push: `mael gh create-pr <ISSUE-ID> --squash`.
 6. **Close the task:** `mael task status done`.
-7. Run `/watch-pr` to take CI to green.
+7. Run `/watch-pr` to take CI (continuous integration) to green.
 
 With nothing worth applying, steps 3 and 4 are skipped.
 

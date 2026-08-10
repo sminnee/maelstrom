@@ -87,8 +87,9 @@ pre-action: linear.in-progress     # fires when the task launches
 ```
 
 Do **not** put `post-action: linear.done` on execute steps. The finishing sequence closes
-the task at PR push, before the CI watch, so it would flip Linear to Unreleased while CI is
-still running and overwrite the "In Review" that `create-pr` just set.
+the task at PR push, before the CI (continuous integration) watch. A post-action would
+therefore flip Linear to Unreleased while CI is still running, overwriting the "In Review"
+that `create-pr` just set.
 
 ### Other commands
 

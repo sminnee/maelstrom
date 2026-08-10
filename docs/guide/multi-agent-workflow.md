@@ -144,7 +144,7 @@ mael linear plan PROJ-125     # → e.g. echo
 Each takes the next free worktree slot and the next free port base. The names and numbers
 depend on what is already in use, not on the issue id.
 
-They cannot collide. Different checkouts, different branches, different ports.
+They cannot collide. Different worktrees, different branches, different ports.
 
 Watch them:
 
@@ -169,7 +169,9 @@ Three or four in flight is comfortable; ten means the pull requests queue up beh
 
 ## 4. Finish
 
-When an execute session's gates pass, it runs the finishing sequence **without asking**:
+When an execute session's gates pass, it runs the finishing sequence **without asking**. The
+gates are the project's automated checks — tests, lint and type check, as CLAUDE.md defines
+them:
 
 1. Commit the implementation.
 2. Run `/code-review`.
@@ -178,7 +180,7 @@ When an execute session's gates pass, it runs the finishing sequence **without a
 5. Push: `mael gh create-pr PROJ-123 --squash`. The `--squash` autosquashes the fixups into
    their targets while rebasing onto `origin/main`, so the PR lands with clean history.
 6. Close the task: `mael task status done`.
-7. Run `/watch-pr` to take CI to green.
+7. Run `/watch-pr` to take CI (continuous integration) to green.
 
 ### Why the task closes at step 6, not step 7
 

@@ -207,7 +207,7 @@ redis: redis-server --port $REDIS_PORT
 ```
 
 On this path, a service whose name ends in `-shared` is shared across worktrees. Migrate
-projects to `services:` one at a time — there is no flag day.
+projects to `services:` one at a time. All three paths stay supported.
 
 ---
 

@@ -1,14 +1,14 @@
 # Maelstrom: multi-agent development with cmux and Claude Code
 
-Maelstrom is an orchestration layer for multi-agent development. It uses cmux to manage
-workspaces, git worktrees to isolate code, and Claude Code as its agent. Integrations with
-Linear, Sentry and GitHub keep the workflow streamlined. It also has its own task management
-system for detailed task management, and dev environment management to create suitably
-isolated environments for each worktree. It is a highly opinionated Swiss-army knife.
+One agent on one branch is easy. Several at once is not: each needs its own working
+directory, its own database and ports, and somewhere you can watch it — and something has to
+track what each one is doing, and in what order.
 
-One agent on one branch is easy. Several at once is not: each needs its own checkout, its
-own database and ports, and somewhere you can watch it — and something has to track what
-each one is doing, and in what order. Maelstrom automates that.
+Maelstrom automates that. It uses cmux to manage workspaces, git worktrees to isolate code,
+and Claude Code as its agent. Integrations with Linear, Sentry and GitHub keep the workflow
+streamlined. Maelstrom adds two things of its own: a task notebook that tracks what each
+agent is doing and in what order, and a dev environment manager that gives each worktree
+isolated services and ports. It is a highly opinionated Swiss-army knife.
 
 ## Installation
 
@@ -74,12 +74,12 @@ Full walkthrough: [Getting started](docs/guide/getting-started.md).
 
 ## The pieces
 
-Each component earns its place by the role it plays in the workflow.
+Each component earns its place by the role it plays in the loop.
 
 | Component | Role |
 |---|---|
 | [cmux](docs/guide/cmux-workspaces.md) | Manages workspaces — where sessions run and where you watch them |
-| [git worktrees](docs/guide/worktrees.md) | Isolate code — a branch and a checkout per unit of work |
+| [git worktrees](docs/guide/worktrees.md) | Isolate code — a branch and a working directory per unit of work |
 | Claude Code | The agent that does the work |
 | [Task notebook](docs/guide/tasks.md) | Detailed task management — what each agent is doing, in what order |
 | [Wiki](docs/guide/concepts.md#the-wiki--cross-project-patterns) | Design patterns that apply to more than one project |
