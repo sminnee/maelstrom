@@ -418,6 +418,12 @@ class TestActionable:
         model.move(store, "p", a.id, "cancelled", now=NOW)
         assert not model.is_actionable(model.load(store, "p", a.id), store)
 
+    def test_blocked_status_not_actionable(self, store):
+        """A task parked in ``blocked/`` never launches, deps satisfied or not."""
+        a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        model.move(store, "p", a.id, model.STATUS_BLOCKED, now=NOW)
+        assert not model.is_actionable(model.load(store, "p", a.id), store)
+
 
 # --- status moves ---
 

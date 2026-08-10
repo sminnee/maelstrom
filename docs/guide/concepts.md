@@ -81,7 +81,12 @@ plan *is* its content, and it implements it directly.
 ### The task notebook — what each agent is doing
 
 The notebook is a git-backed set of markdown files. Each task is one file, and **its status
-is the folder it sits in** — `todo/`, `in-progress/`, `done/`.
+is the folder it sits in** — `todo/`, `in-progress/`, `blocked/`, `done/`, `cancelled/` or
+`template/`.
+
+Two of the six statuses park a task rather than track its progress. A `template/` task is a
+recipe to duplicate from. A `blocked/` task is one you parked by hand. Maelstrom never launches
+either, whatever their `follows` say.
 
 Three ideas describe how tasks relate, and they are separable. This is the single most
 important idea in the system:

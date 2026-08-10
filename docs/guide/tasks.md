@@ -12,7 +12,7 @@ A task is a markdown file with YAML frontmatter, stored in a git-backed notebook
 ├── todo/           actionable, or waiting on a dependency
 ├── in-progress/    a session is running it
 ├── done/
-├── blocked/
+├── blocked/        parked by hand; never actionable itself
 ├── cancelled/
 └── template/       a reusable recipe; never actionable itself
 ```

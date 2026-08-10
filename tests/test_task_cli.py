@@ -458,9 +458,10 @@ class TestList:
         all_ = runner.invoke(task_cli.task, ["list", "--all"])
         assert "ACTIONABLE" in all_.output
 
-    def test_blocked_folder_with_deps_done_shows_by_default(self, runner, store):
-        # A task sitting in blocked/ but with all follows done is actionable,
-        # so it must show by default — we key off is_actionable, not the folder.
+    def test_blocked_folder_hidden_by_default_even_with_deps_done(self, runner, store):
+        # blocked/ parks a task by hand: it never launches, so it stays out of
+        # the default view even when every id it follows is done. --all-todo is
+        # the flag that reveals it.
         dep = model.create(store, project="p", title="dep")
         model.move(store, "p", dep.id, model.STATUS_DONE)
         t = model.create(store, project="p", title="manually-blocked", follows=[dep.id])
@@ -468,7 +469,10 @@ class TestList:
 
         result = runner.invoke(task_cli.task, ["list"])
         assert result.exit_code == 0, result.output
-        assert t.id in result.output
+        assert t.id not in result.output
+
+        all_todo = runner.invoke(task_cli.task, ["list", "--all-todo"])
+        assert t.id in all_todo.output
 
 
 # --- rm ---
