@@ -143,7 +143,7 @@ sessions hand work off — see [planning.md](planning.md).
 
 ```bash
 mael task load-many plan.md            # create the chain
-mael task load-many plan.md --run      # ...and launch every unblocked task
+mael task load-many plan.md --run      # ...and launch every actionable task
 mael task load-many - --run            # read from stdin
 ```
 

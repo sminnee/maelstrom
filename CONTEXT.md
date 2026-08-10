@@ -128,6 +128,14 @@ The 3-digit number, 300 to 999, that one worktree owns. Each service port is
 `port_base * 10 + index`, so two worktrees never collide. The pseudo-worktree `_shared` holds
 the project's shared port base.
 
+## Quality checks
+
+**Gate**:
+An automated check that blocks work when it fails — the project's tests, lint and type check.
+A gate that cannot fail is not a gate. A point where a human approves something is a
+*checkpoint*, not a gate.
+_Avoid_: Gate (for a human approval step)
+
 ## Knowledge stores
 
 **Task notebook**:

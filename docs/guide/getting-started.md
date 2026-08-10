@@ -86,11 +86,12 @@ creates the first worktree, **alpha**:
 ~/Projects/repo/
 ├── .git/            # shared bare git directory
 ├── .mael            # marker: this is a maelstrom project
-├── _main/           # main branch, for reference (not a workspace)
+├── _main/           # main branch: the reference checkout, not a worktree
 └── repo-alpha/      # first feature worktree
 ```
 
-Main stays in `_main` so every NATO worktree is free for feature work. See
+Main stays in `_main` so every NATO (North Atlantic Treaty Organization) phonetic-alphabet
+worktree is free for feature work. See
 [worktrees.md](worktrees.md).
 
 Add `.env` and `.claude/CLAUDE.local.md` to the repository's `.gitignore`. Maelstrom

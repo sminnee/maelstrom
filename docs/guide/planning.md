@@ -166,8 +166,9 @@ blocks so they inherit your default.
 
 - `pre-action: linear.in-progress` on execute blocks — fires when the task launches.
 - **Do not set `post-action: linear.done` on execute steps.** The finishing sequence closes
-  the task at PR push, before the CI watch, so a post-action would flip Linear to Unreleased
-  while CI is still running — overwriting the "In Review" that `create-pr` just set. Move
+  the task at PR push, before the CI (continuous integration) watch. A post-action would
+  therefore flip Linear to Unreleased while CI is still running, overwriting the "In Review"
+  that `create-pr` just set. Move
   the issue on deliberately with `mael linear set-status <ID> done` once the work has landed.
 
 ## Slice vertically
@@ -216,7 +217,8 @@ Then the same two commands, in the same order: close, then load.
 ## Auditing an existing project
 
 `/review-project-hygiene` is a second way into a chain. It does not start from a brief. It
-reads a project that already exists — usually after its first MVP — and turns the gaps it
+reads a project that already exists — usually after its first minimum viable product (MVP) —
+and turns the gaps it
 finds into a plan file, in the same load-many form as above.
 
 ```bash
@@ -238,7 +240,7 @@ Two things it deliberately does not do:
 - **It checks that code conventions are *documented*, not whether the code follows them.**
   Reviewing code against a standard is [`/code-review`](pull-requests.md)'s job.
 
-### The table gate
+### The table checkpoint
 
 The audit stops in the middle and shows you a table — one row per check, with its state, a
 recommendation, and an S/M/L effort:
@@ -257,8 +259,8 @@ makes the table reviewable, and it surfaces a wrong threshold before it becomes 
 audit declines a check you wanted, or recommends one that makes no sense for the project, say
 so — that is a checklist bug worth fixing.
 
-There are two review points, not one: the table agrees the scope, and ExitPlanMode then
-approves the chain that implements it.
+There are two review points, not one: the table checkpoint agrees the scope, and ExitPlanMode
+then approves the chain that implements it.
 
 The confirmed rows become one execute block per theme, chained with `follow`, with `branch:`
 unset — so the whole audit lands as one pull request.

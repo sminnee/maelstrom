@@ -1,6 +1,6 @@
 # Worktrees
 
-A worktree isolates code: one branch, one checkout, one set of ports.
+A worktree isolates code: one branch, one working directory, one set of ports.
 
 ## Why worktrees, not clones
 
@@ -14,7 +14,7 @@ Maelstrom uses a bare-like layout: one shared `.git`, and each worktree beside i
 ~/Projects/myproject/
 ├── .git/                   # shared bare git directory
 ├── .mael                   # marker: this is a maelstrom project
-├── _main/                  # main branch, for reference (not a workspace)
+├── _main/                  # main branch: the reference checkout, not a worktree
 ├── myproject-alpha/        # feature worktree
 │   ├── .maelstrom.yaml     # project config (checked in)
 │   ├── .env                # generated ports (gitignored)
@@ -25,8 +25,8 @@ Maelstrom uses a bare-like layout: one shared `.git`, and each worktree beside i
 
 ## `_main`
 
-`_main` holds the main branch. It is a reference checkout, not a workspace: it gets no
-ports and no `.env`, `mael list` does not show it, and `mael add` never recycles it.
+`_main` holds the main branch. `_main` is the **reference checkout**, not a worktree: it has
+no ports and no `.env`. `mael list` does not show it, and `mael add` never recycles it.
 
 Keeping main there leaves every NATO worktree free for feature work. Git allows one
 worktree per branch, so a fresh `alpha` is created detached — which makes it a closed
@@ -40,9 +40,9 @@ Worktrees take NATO phonetic alphabet names, in order:
 > mike, november, oscar, papa, quebec, romeo, sierra, tango, uniform, victor, whiskey,
 > xray, yankee, zulu
 
-They are **not** named after branches, because a worktree outlives the branch it currently
-holds. `myproject-bravo` is a durable slot: its folder, its name and its ports stay put
-while branches come and go through it.
+They are **not** named after branches. A worktree is a durable **slot** that outlives the
+branch it currently holds, which is why it is never named after one. The folder, the name and
+the ports of `myproject-bravo` stay put while branches come and go through it.
 
 Target one by name or shortcode:
 
