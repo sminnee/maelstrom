@@ -28,11 +28,14 @@ the store never imports the model.
 ### 1. Three layers per feature
 
 Storage / pure model / thin CLI, as above. The task subsystem is the worked
-example: [`task_store.py`](../../src/maelstrom/task_store.py) defines the
-[`TaskStore` Protocol](../../src/maelstrom/task_store.py#L33)
-(`list_dir` / `read` / `write` / `delete` / `exists` / `transaction`) with
-`InMemoryStore` and `GitFileStore` backends; [`task.py`](../../src/maelstrom/task.py)
-is the pure model; [`task_cli.py`](../../src/maelstrom/task_cli.py) is the thin CLI.
+example:
+
+- [`task_store.py`](../../src/maelstrom/task_store.py) — storage. Defines the
+  [`TaskStore` Protocol](../../src/maelstrom/task_store.py#L33)
+  (`list_dir` / `read` / `write` / `delete` / `exists` / `transaction`), with
+  `InMemoryStore` and `GitFileStore` backends.
+- [`task.py`](../../src/maelstrom/task.py) — the pure model.
+- [`task_cli.py`](../../src/maelstrom/task_cli.py) — the thin CLI.
 
 ### 2. No I/O or printing in model code
 
@@ -89,11 +92,10 @@ re-export through the package, and **never** import another module's `_private`
 helpers.
 
 If two modules need a helper, promote it to a public function with a real name.
-This was previously violated by `cli.py` importing `_ensure_cmux_browser` and
-`_print_service_status` from `env_cli`; both are now public
-([`ensure_cmux_browser`](../../src/maelstrom/env_cli.py) /
-[`print_service_status`](../../src/maelstrom/env_cli.py)). A leading underscore
-means "private to this module" — reaching across for it couples the two files.
+[`ensure_cmux_browser`](../../src/maelstrom/env_cli.py) and
+[`print_service_status`](../../src/maelstrom/env_cli.py) are public for exactly
+this reason — `cli.py` needs them. A leading underscore means "private to this
+module", and reaching across for it couples the two files.
 
 ### 5. All persistence goes through a store abstraction
 
@@ -102,12 +104,12 @@ not ad-hoc `json.dump`. A store gives you a swappable in-memory backend for test
 a single place for atomicity and locking, and (for `GitFileStore`) versioning and
 transactions for free.
 
-The env subsystem is the worked example of this convention beyond `task`:
+The env subsystem is the worked example of this convention beyond `task`.
 [`env_store.py`](../../src/maelstrom/env_store.py) defines the
-[`EnvStore` Protocol](../../src/maelstrom/env_store.py) with an `InMemoryEnvStore`
-and a `JsonEnvStore` (atomic write-to-temp-then-rename via
-[`util.atomic_write_json`](../../src/maelstrom/util.py)), and `env.py` writes only
-through it.
+[`EnvStore` Protocol](../../src/maelstrom/env_store.py), with an `InMemoryEnvStore`
+and a `JsonEnvStore` backend. `JsonEnvStore` writes to a temp file then renames it,
+via [`util.atomic_write_json`](../../src/maelstrom/util.py). `env.py` writes only
+through the store.
 
 Counter-example still to migrate: [`ports.py`](../../src/maelstrom/ports.py)
 reads and writes `~/.maelstrom/port_allocations.json` directly with `json.load` /
@@ -119,10 +121,9 @@ in-memory backend for tests) is the target.
 
 No function-body imports. This repeats
 [`.claude/review-guides/python.md`](../../.claude/review-guides/python.md) because
-it has been violated (the now-removed `cmd_ui` / `cmd_self_update` build code used
-`import subprocess` inside the function body). Module-level imports keep
-dependencies visible and avoid per-call import cost. New and refactored code must
-not reintroduce them.
+the rule is easy to break by accident. Module-level imports keep dependencies
+visible and avoid per-call import cost. New and refactored code must not
+reintroduce them, whatever the surrounding module already does.
 
 ## Applying this
 

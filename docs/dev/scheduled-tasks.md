@@ -58,6 +58,6 @@ command **only** — `ensure_schedule_agent()` is called by `mael install` and
 
 Each firing duplicates the template into a run keyed `<template>.<date>`. The run
 is created **parentless but dot-named**: its id names it under the template, while
-its empty `parent` roots its own chain, so the run's follow-ups nest under the run
-rather than piling onto the template's chain. See
+its empty `parent` roots its own chain. The run's follow-ups therefore nest under
+the run rather than piling onto the template's chain. See
 [`tasks.md`](tasks.md#scheduled-runs) for the `parent`-vs-dot-id distinction.

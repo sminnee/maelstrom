@@ -65,9 +65,9 @@ out the parent. An explicit `--parent` always wins.
 ## Scheduled runs
 
 A scheduled *run* is a dot-id child *name* of its template
-(`<template>.<date>`) but a **parentless chain root**. Because its `parent` is
-empty, the launcher exports `MAEL_TASK_PARENT = run.id`, so each firing's
-follow-ups nest under **the run**, not the template — every firing is isolated
+(`<template>.<date>`) but a **parentless chain root**. Its `parent` is empty, so
+the launcher exports `MAEL_TASK_PARENT = run.id`. Each firing's
+follow-ups therefore nest under **the run**, not the template — every firing is isolated
 rather than piling onto the template's chain. The trade-offs (a generated branch
 and PR per firing; the run is not listed under `list --parent <template>`) are
 deliberate. See [`scheduled-tasks.md`](scheduled-tasks.md) for the launchd
@@ -109,11 +109,11 @@ so a pass over many worktrees still shells out only once.
 **Rejected alternatives.** Neither transcripts nor the registry can decide
 liveness:
 
-- **Transcript + `lsof`.** A running `claude` CLI does not hold its transcript
-  file descriptor open (it appends and closes), so `lsof` on transcripts reports
-  nothing for live sessions and false-positives on editor tabs — an empirically
-  wrong signal, and slow: a system-wide `lsof` sweep per worktree made
-  `mael list` take ~49s.
+- **Transcript + `lsof`.** A running `claude` CLI appends to its transcript and
+  closes it, rather than holding the file descriptor open. `lsof` on transcripts
+  therefore reports nothing for live sessions, and false-positives on editor
+  tabs. It is also slow: a system-wide `lsof` sweep per worktree made `mael list`
+  take ~49s.
 - **The `~/.maelstrom` session registry.** It misses the current session and its
   `state` goes stale, so it cannot be the authority. It survives only as
   *optional enrichment* for `mael session list`.
@@ -124,9 +124,9 @@ reconcile`). A *finished* task is deliberately **not** blocked — it must stay
 re-runnable. `mael list`, `mael session list` and `mael task reconcile` read the
 same source, so all four always agree.
 
-The registry's primary key is the same deterministic id: because the Claude
-harness does **not** export `CLAUDE_SESSION_ID` to channel subprocesses, `mael
-task run` exports it as `MAEL_SESSION_ID` on the `claude` command, and the
-session-channel records that as the registry `session_id`. Discovery does not
-depend on this (it globs by id), but it keeps the registry-hint fast-path and
-`reconcile`'s primary-key match trustworthy.
+The registry's primary key is the same deterministic id. The Claude harness does
+**not** export `CLAUDE_SESSION_ID` to channel subprocesses, so `mael task run`
+exports it as `MAEL_SESSION_ID` on the `claude` command. The session-channel then
+records that as the registry `session_id`. Discovery does not depend on this — it
+globs by id — but it keeps the registry-hint fast-path and `reconcile`'s
+primary-key match trustworthy.

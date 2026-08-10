@@ -66,12 +66,11 @@ follow: iter1
 Two rules do most of the work here:
 
 - **Set `mode:` on every block.** New tasks default to plan mode, so an execute block that
-  omits `mode: auto` would re-plan instead of running its plan.
-- **Leave `branch:` unset on every block.** Tasks inherit their parent's branch. That
-  default is what keeps every iteration on one branch, so they accumulate into a **single
-  pull request** that merges as a whole. Setting `branch:` opts a task out into its own
-  worktree and its own PR — right for unrelated work, wrong for splitting one task's
-  iterations.
+  omits `mode: auto` re-plans instead of running its plan.
+- **Leave `branch:` unset on every block.** Tasks inherit their parent's branch. That default
+  keeps every iteration on one branch, accumulating into a **single pull request** that merges
+  as a whole. Setting `branch:` opts a task out into its own worktree and PR — right for
+  genuinely unrelated work, wrong for splitting one task's iterations.
 
 ### Close the planning task before you load the chain
 
@@ -82,12 +81,12 @@ mael task status done                    # close the planning task FIRST
 mael task load-many <plan-file> --run    # create the chain, launch its head
 ```
 
-The head block carries `follow-end: "*"`, so it follows the planning task. While the
-planning task is `in-progress`, the head is blocked, and `--run` launches **nothing** —
-silently, exiting 0. Closing the planning task first satisfies that dependency.
+The head block carries `follow-end: "*"`, so it follows the planning task. While the planning
+task is `in-progress`, the head is blocked and `--run` launches **nothing** — silently,
+exiting 0. Closing the planning task first satisfies that dependency.
 
-The SessionEnd hook also closes the planning task, but it fires *after* `load-many` has
-already run. It is not an adequate backstop for this ordering. Close the task explicitly.
+The SessionEnd hook also closes the planning task, but it fires *after* `load-many` has run.
+It is not a backstop for this ordering.
 
 ## 2. Chain
 

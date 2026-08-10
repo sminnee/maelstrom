@@ -218,8 +218,8 @@ Error: Worktree 'bravo' has uncommitted changes.
 Error: Worktree 'bravo' has commits not merged to main.
 ```
 
-Commit and merge first. If you must free the slot with work still in flight, use
-`mael close --force` — it discards nothing: uncommitted changes are committed as
+Commit and merge first. To free the slot with work still in flight, use
+`mael close --force`. That flag discards nothing: uncommitted changes are committed as
 `wip: uncommitted changes`, the branch and its PR survive, and maelstrom creates a
 "Reopen" task so the work is not forgotten.
 

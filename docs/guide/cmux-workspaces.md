@@ -2,11 +2,16 @@
 
 cmux manages the workspaces agent sessions run in. This is where you watch them.
 
+[cmux](https://github.com/sminnee/cmux) is a terminal workspace manager: it holds named
+workspaces, each split into panes that can run a shell or show a browser. Maelstrom drives it
+over a socket. Install it before you launch a session — see
+[Getting started](getting-started.md#prerequisites).
+
 ## Why a workspace manager
 
-You cannot supervise what you cannot find. Run three agents in three terminal tabs and
-within an hour you have lost track of which tab holds which branch, which app is on which
-port, and which agent is waiting on you.
+You cannot supervise what you cannot find. Run three agents in three terminal tabs, and
+within an hour you have lost track. Which tab holds which branch? Which app is on which
+port? Which agent is waiting on you?
 
 Maelstrom gives every worktree **one workspace, always in the same place**, named after the
 worktree. So `myproject-bravo` is where bravo's agent runs, its app is shown, and its shell

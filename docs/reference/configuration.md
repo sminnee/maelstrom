@@ -62,9 +62,12 @@ Each entry is a named service. Maelstrom infers the type: an `engine` makes it a
 | `env` | map | both | Extra environment variables for the service. |
 | `shared` | bool | both | Default `false`. When true, the service is shared across worktrees in the project. |
 
-Maelstrom rejects the config when a container service has no `image`, a command service has
-no `command`, `engine` is not a known engine, `ports` is not a list of names, or `host_var`
-is set on a non-`apple-container` service.
+Maelstrom rejects the config when any of these is true:
+
+- A container service has no `image`, or a command service has no `command`.
+- `engine` is not a known engine.
+- `ports` is not a list of names.
+- `host_var` is set on a service that is not `apple-container`.
 
 ```yaml
 services:

@@ -41,8 +41,8 @@ priority: medium
 
 ## The three relationships
 
-`parent`, `follows` and dotted ids do three different jobs. They are separable, and
-understanding that is the single most important idea in the system.
+`parent`, `follows` and dotted ids do three different jobs. **Their separability is the
+single most important idea in the system** — each one can vary without the other two.
 
 ### `parent` groups a chain — one PR per parent
 
@@ -120,7 +120,8 @@ New tasks default to **plan** mode, so a bare `--run` opens a planning session.
 | `auto` | Unattended execute session. Runs its plan without prompting. |
 | `normal` | Execute session that prompts on each action. |
 
-An **execute task runs no skill**: its content *is* its plan, and it implements it directly.
+An **execute task runs no skill**: the task's content *is* the plan, and the session
+implements that plan directly.
 Set `--command` to run a skill instead, such as `plan-task` or `plan-next-step`.
 
 ### Other fields
@@ -174,7 +175,8 @@ mael task load-many plan.md --run      # then
 
 `--run` only launches **actionable** tasks. The head block carries `follow-end: "*"`, so it
 follows the planning task. While the planning task is `in-progress`, the head is blocked and
-`--run` launches nothing — silently, exiting 0.
+`--run` launches **nothing** — silently, exiting 0. Closing the planning task first satisfies
+that dependency.
 
 The SessionEnd hook also closes the planning task, but it fires *after* `load-many` has run.
 It is not a backstop for this ordering.
@@ -198,7 +200,7 @@ Ordering is by priority (critical → low), then by dependency.
 
 ```bash
 mael task list              # actionable now
-mael task list --all-todo   # include blocked-but-waiting
+mael task list --all-todo   # include waiting and parked tasks
 mael task list --all        # include done and cancelled
 mael task list --parent linear.PROJ-123
 mael task show <id>         # summary
@@ -231,10 +233,13 @@ mael task reconcile --fix    # apply the corrections
 ```
 
 Liveness comes from live `claude` processes, the same source `mael task run`'s
-duplicate-launch guard uses, so the two always agree. Reconcile distinguishes an
-`in-progress` task that *ran* before (a transcript persists → `done`) from one that *never
-ran* (no transcript → `todo`), and a live session whose task is not `in-progress`
-(→ `in-progress`).
+duplicate-launch guard uses, so the two always agree. Reconcile corrects three mismatches:
+
+| Observed state | Evidence | Corrected to |
+|---|---|---|
+| `in-progress`, no live session | A transcript persists — the task ran | `done` |
+| `in-progress`, no live session | No transcript — the task never ran | `todo` |
+| Not `in-progress` | A live session is working on it | `in-progress` |
 
 The metadata index is a rebuildable cache. If a manual edit diverges it:
 

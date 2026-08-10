@@ -140,10 +140,11 @@ mael task status done                     # close this planning task FIRST
 mael task load-many <plan-file> --run     # create the chain, launch the head
 ```
 
-The head block's `follow-end: "*"` makes it follow the planning task. While that task is
-`in-progress` the head is blocked and `--run` launches **nothing** — silently, exiting 0.
+The head block carries `follow-end: "*"`, so it follows the planning task. While the planning
+task is `in-progress`, the head is blocked and `--run` launches **nothing** — silently,
+exiting 0. Closing the planning task first satisfies that dependency.
 
-The SessionEnd hook closes the planning task too, but it fires *after* `load-many` has run.
+The SessionEnd hook also closes the planning task, but it fires *after* `load-many` has run.
 It is not a backstop for this ordering.
 
 ### Chain with `follow-end` and `follow`
@@ -217,9 +218,8 @@ Then the same two commands, in the same order: close, then load.
 ## Auditing an existing project
 
 `/review-project-hygiene` is a second way into a chain. It does not start from a brief. It
-reads a project that already exists — usually after its first minimum viable product (MVP) —
-and turns the gaps it
-finds into a plan file, in the same load-many form as above.
+reads a project that already exists, usually after its first minimum viable product (MVP).
+The skill turns the gaps it finds into a plan file, in the same load-many form as above.
 
 ```bash
 mael task add "Hygiene audit: forecastel" --run
@@ -229,8 +229,8 @@ Then run `/review-project-hygiene` in the planning session.
 
 The skill audits tooling, CI/CD, tests and specs, docs, agent config, security and
 dependencies, dead code, and architecture fences. It looks
-hardest for **gates that report success but cannot fail** — a CI step named "Lint" that runs
-the write variant of a formatter, a deploy that never checks whether the build passed, a
+hardest for **gates that report success but cannot fail**. A CI step named "Lint" that runs
+the write variant of a formatter. A deploy that never checks whether the build passed. A
 dead-code config no job invokes. An absent gate is visible. A broken one is not.
 
 Two things it deliberately does not do:
@@ -252,7 +252,7 @@ recommendation, and an S/M/L effort:
 | Arch fence | n/a — 2 crates, below threshold | none | — |
 
 **The plan file is written after you confirm this table, from the confirmed rows only.** A row
-you decline is dropped, and nothing that was not in the table reaches the plan.
+you decline is dropped. Nothing that was not in the table reaches the plan.
 
 The `n/a` rows are there on purpose. Showing that a check was considered and declined is what
 makes the table reviewable, and it surfaces a wrong threshold before it becomes a task. If the
@@ -271,7 +271,7 @@ The plan of record lives in the notebook chain, not in a Linear description. The
 skill mirrors *status* with `set-status … planned`, but never writes the plan body back to
 Linear.
 
-`mael linear write-plan` / `read-plan` / `edit-plan` still exist for when you do want a plan
+`mael linear write-plan` / `read-plan` / `edit-plan` are there for when you do want a plan
 in the issue description.
 
 ## See also

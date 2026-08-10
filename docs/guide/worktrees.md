@@ -171,10 +171,15 @@ in a worktree are skipped. A conflicting rebase aborts and skips that branch.
 mael doctor
 ```
 
-Checks and repairs the project layout: the `.mael` marker, the bare repository, the fetch
-refspec, local main against origin, the origin remote, main being checked out in `_main`,
-stale worktree registrations, port allocations, `.env` markers, and the permissions on
-files holding secrets. See [troubleshooting.md](troubleshooting.md).
+Checks and repairs the project layout:
+
+- The `.mael` marker and the bare repository.
+- The fetch refspec, the origin remote, and local main against origin.
+- Main being checked out in `_main`.
+- Stale worktree registrations, port allocations and `.env` markers.
+- The permissions on files holding secrets.
+
+See [troubleshooting.md](troubleshooting.md).
 
 ## See also
 
