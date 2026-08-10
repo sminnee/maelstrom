@@ -13,6 +13,12 @@ Run `mael --help` or `mael <group> --help` to see the same information in the te
 | `--json` | Print machine-readable JSON instead of a table. Honoured by `mael list-all` and `mael git status` only; every other command ignores it. |
 | `--help` | Print help and exit. |
 
+```bash
+mael --version
+mael --json list-all         # one of the two commands that honour --json
+mael task add --help         # per-command flags, straight from the source
+```
+
 ## Targets
 
 Most commands take an optional target in the form `project.worktree`:
@@ -45,6 +51,12 @@ so the target is optional.
 | `mael sync [TARGET]` | Rebase the worktree against `origin/main`. |
 | `mael sync-all [PROJECT]` | Sync every worktree in the project. |
 | `mael tidy-branches [PROJECT]` | Rebase feature branches, delete merged ones, force-push unmerged ones. |
+
+```bash
+mael add-project git@github.com:org/repo.git   # clone into maelstrom's layout
+mael add feature/avatar-upload                 # worktree for a branch, ports allocated
+mael close                                     # done: reset, keep name and ports
+```
 
 **`mael add`**
 
@@ -138,6 +150,12 @@ Run `mael doctor NEW` afterwards.
 | `mael status set TEXT` | Set the workspace status text shown in the cmux status bar. |
 | `mael status clear` | Clear the workspace status. |
 
+```bash
+mael open                          # Claude session in the current worktree
+mael open myproject.b              # ...in bravo
+mael session list                  # what is running, and in what state
+```
+
 None of these take options beyond `--help`.
 
 **`mael session record`**
@@ -181,6 +199,20 @@ The task notebook. See [tasks.md](../guide/tasks.md).
 | `mael task reindex` | Rebuild the metadata index from the notebook across all projects. |
 | `mael task add-scheduled` | Fire every due template: duplicate it into a dated run and advance its watermark. |
 
+```bash
+mael task add "Add avatar upload" --run       # plan-mode session, launched now
+mael task add "Wire the API" --mode auto \
+  --follow-end '*'                            # append after the chain's current leaf
+mael task next --run                          # launch the next actionable task
+mael task status done                         # close $MAEL_TASK_ID
+```
+
+Quote `'*'` — an unquoted `*` is expanded by the shell before `mael` sees it.
+
+`'*'` resolves against the task's parent, which defaults to `$MAEL_TASK_PARENT`. It therefore
+appends to the chain only inside a launched session. Run from a plain shell with no parent set,
+it silently resolves to nothing and the task follows nothing at all.
+
 Every task command takes `--project TEXT` (default: from the current directory), except
 `reindex`, which spans all projects. Only `task add` and `task add-scheduled` accept the
 short form `-p`; every other task command takes `--project` in full.
@@ -211,8 +243,9 @@ short form `-p`; every other task command takes `--project` in full.
 **`mael task update`**
 
 `ID` is a required positional argument — the task to update. An optional `TITLE` follows it.
-The field flags are the same as `add`, with two differences: there is no `--parent` (a task's
-parent is set at creation only), and `task update` has long forms only, no short flags.
+The field flags below are a **subset** of `add`'s, in long form only. `task update` has no
+short flags, and it cannot set `--parent`, `--follow`, `--follow-end`, `--from`, `--template`,
+`--edit`, `--run` or `--here`. A task's parent and its chain position are set at creation.
 
 | Option | Description |
 |---|---|
@@ -264,6 +297,46 @@ next task.
 | `--run` | Launch every actionable task created. A task that still follows an unfinished id waits for `mael task next --run`. |
 | `--here` | With `--run`, launch only the head task in the current shell. |
 
+`FILE` is a preamble the human reads, then one `---CREATE TASK <name>---` block per task.
+Each block is frontmatter, then a body that becomes the task's content. A block ends at the
+next marker or at end of file:
+
+```markdown
+Any preamble here is ignored by load-many.
+
+---CREATE TASK build-endpoint---
+title: Build the upload endpoint
+mode: auto
+follow-end: "*"
+---
+
+Accept a multipart POST at /avatar. Store to S3. Return the URL.
+
+---CREATE TASK wire-ui---
+title: Wire the upload button
+mode: auto
+follow: build-endpoint
+---
+
+Call the endpoint from the profile page and show the result.
+```
+
+The `---` after the frontmatter is required. Without it the whole block reads as body text and
+`load-many` fails with "Block '&lt;name&gt;' is missing a title".
+
+Set `mode: auto` on every execute block — the default is plan mode, so a block that omits it
+re-plans instead of running. Leave `branch:` unset so the chain shares one branch and one PR.
+
+```bash
+mael task status done                  # close the planning task FIRST
+mael task load-many plan.md --run      # then create the chain and launch its head
+mael task load-many - --run            # read the plan from stdin
+```
+
+Closing the planning task first is what makes the head actionable. The head block follows the
+planning task, so `--run` launches nothing — silently, exiting 0 — while that task is still
+`in-progress`.
+
 **`mael task status`**
 
 | Command | Moves the task to |
@@ -307,6 +380,13 @@ The cross-project development-pattern wiki. Pages live beside the task notebook 
 | `mael wiki read PAGE` | Print the raw page content. |
 | `mael wiki update PAGE` | Create or replace a page, and commit it. |
 
+```bash
+mael wiki list                                        # every page, with descriptions
+mael wiki read dev-patterns/python/pypi-publication   # read one
+printf '%s\n' "$body" | mael wiki update dev-patterns/python/pypi-publication \
+  --content-file -                                    # replace it, and commit
+```
+
 `PAGE` is a relative path such as `dev-patterns/python/pypi-publication`. The `.md` suffix is
 optional. The convention is `dev-patterns/<language-or-area>/<topic>`, but any safe relative
 path is accepted.
@@ -341,6 +421,14 @@ See [dev-environments.md](../guide/dev-environments.md).
 | `mael env reset [TARGET]` | Regenerate the `.env` file, e.g. after changing ports in `.maelstrom.yaml`. |
 | `mael env open [TARGET]` | Open the browser pane for a running environment. |
 
+```bash
+mael env start                     # install, then start every service
+mael env logs -f                   # follow every service's log
+mael env logs myproject.b frontend -f   # ...or one named service
+mael env stop                      # before heavy multi-file editing
+mael env reset                     # regenerate .env after changing ports
+```
+
 | Command | Option | Description |
 |---|---|---|
 | `env start` | `--skip-install` | Skip the install step before starting. |
@@ -360,6 +448,13 @@ See [dev-environments.md](../guide/dev-environments.md).
 | `mael gh check-log RUN_ID` | Show full log output for a GitHub Actions run. |
 | `mael gh download-artifact RUN_ID ARTIFACT_NAME` | Download an artifact from a workflow run. |
 | `mael gh wait-for-pr [TARGET]` | Wait for CI checks to finish on the current PR. |
+
+```bash
+mael gh show-code --uncommitted      # review before committing
+mael gh create-pr ME-41 --squash     # autosquash fixups, push, set Linear "In Review"
+mael gh read-pr                      # status, comments, unresolved threads
+mael gh check-log 12345678 --failed-only
+```
 
 **`mael gh create-pr`**
 
@@ -415,6 +510,12 @@ Exit codes: 0 = passed, 1 = failed, 2 = timeout.
 | `mael git squash [TARGET]` | Rebase onto `origin/main`, autosquashing `fixup!` commits. Does not push. |
 | `mael git merge [TARGET]` | Rebase the current branch onto main, fast-forward main to it, and push. |
 
+```bash
+mael git status              # compact summary; the only other --json consumer
+mael git squash              # tidy fixups without pushing
+mael git merge --close       # merge, then close the worktree
+```
+
 **`mael git merge`**
 
 | Option | Description |
@@ -442,6 +543,14 @@ See [integrations.md](../guide/integrations.md).
 | `mael linear read-plan ISSUE_ID` | Read the plan from the issue description. |
 | `mael linear edit-plan ISSUE_ID OLD_ARG NEW_ARG` | Search and replace within the plan section. |
 | `mael linear release` | Promote every "Unreleased" issue with the product label to "Done". |
+
+```bash
+mael linear plan ME-41                          # plan an issue; launches the session
+mael linear read-task ME-41                     # the brief, as markdown
+mael linear edit-plan ME-41 old.md new.md       # arguments are file paths...
+mael linear edit-plan ME-41 'old text' 'new text' --string   # ...unless -s
+mael linear set-status ME-41 done               # "Unreleased"
+```
 
 `set-status` applies to the named issue only. It does not transition parents or subtasks.
 
@@ -482,6 +591,11 @@ overrides. Passing an explicit empty value, e.g. `--post-action ''`, clears the 
 | `mael sentry get-issue ISSUE_ID` | Get issue details as markdown, with stacktrace and variables. |
 | `mael sentry resolve-issue ISSUE_ID` | Mark an issue as resolved in the next release. |
 
+```bash
+mael sentry list-issues --since 24h    # what broke today
+mael sentry get-issue 4521             # stacktrace and variables
+```
+
 **`mael sentry list-issues`**
 
 | Option | Description |
@@ -497,6 +611,11 @@ overrides. Passing an explicit empty value, e.g. `--post-action ''`, clears the 
 |---|---|
 | `mael slack post [MESSAGE]` | Post a message to Slack. Reads stdin when `MESSAGE` is omitted. |
 
+```bash
+mael slack post "Deploy finished"
+printf 'Release notes\n' | mael slack post --channel releases
+```
+
 | Option | Description |
 |---|---|
 | `--channel TEXT` | Webhook name from `slack.webhooks`. Default: the first one defined. |
@@ -510,6 +629,12 @@ overrides. Passing an explicit empty value, e.g. `--post-action ''`, clears the 
 | `mael uptimerobot status` | Show current status and uptime of the configured monitors. |
 | `mael uptimerobot outages` | List recent outage log entries across the configured monitors. |
 | `mael uptimerobot monitors` | List every monitor on the account, ignoring project config. Use this to discover ids. |
+
+```bash
+mael uptimerobot status               # is anything down right now?
+mael uptimerobot monitors             # run once to discover ids for .maelstrom.yaml
+mael uptimerobot outages --since 7d
+```
 
 **`mael uptimerobot outages`**
 
@@ -532,7 +657,14 @@ See [scheduled-work.md](../guide/scheduled-work.md). The agent is opt-in per mac
 | `mael schedule uninstall` | Opt this machine out: remove the marker and tear the agent down. Clears a repeating `pmset` wake left by the removed `--wake-at`, asking for sudo only if one is set. |
 | `mael schedule status` | Report the marker, plist, loaded job and log tail. |
 
+```bash
+mael schedule install       # opt this machine in; no sudo, asks nothing
+mael schedule status        # run this first when a task did not fire
+```
+
 A sleeping Mac runs the job on its next wake, as one coalesced catch-up. No command wakes it.
+
+None of these take options beyond `--help`.
 
 ---
 
@@ -544,6 +676,12 @@ A sleeping Mac runs the job on its next wake, as one coalesced catch-up. No comm
 | `mael install` | Install maelstrom's Claude Code skills and hooks into `~/.claude/`. |
 | `mael self-update` | Update maelstrom to the latest version from git. |
 | `mael session-channel` | Launch the Bun-based session-tracking MCP channel. Invoked by Claude Code, not by humans. |
+
+```bash
+mael install                 # skills and hooks into ~/.claude/
+mael doctor myproject        # check project health, and fix what it can
+mael self-update
+```
 
 **`mael install`**
 

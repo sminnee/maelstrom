@@ -31,6 +31,19 @@ Put this file in your repository root.
 When `services:` is present it supersedes `port_names`, `shared_port_names`, the Procfile
 and `start_cmd`. Precedence is **`services:` → Procfile → `start_cmd`**.
 
+The legacy flat form still works. Use it for a single-process project:
+
+```yaml
+install_cmd: "npm install"
+start_cmd: "npm run dev"           # used only with no services: and no Procfile
+port_names: [FRONTEND, SERVER]     # -> FRONTEND_PORT, SERVER_PORT
+shared_port_names: [DB]            # -> DB_PORT, one copy for the whole project
+```
+
+`port_names` and `shared_port_names` still allocate ports and write `.env` on this path. Only
+the start mechanism differs. `start_cmd` runs as one service named `app`. With no `services:`,
+no Procfile and no `start_cmd`, `mael env start` fails.
+
 ### `services:`
 
 Each entry is a named service. Maelstrom infers the type: an `engine` makes it a
