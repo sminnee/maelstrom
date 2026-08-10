@@ -1,5 +1,8 @@
 # Troubleshooting
 
+What to run when something is wrong, and what the common failures mean. After the first two
+sections, this page is organised by subsystem — find the heading that matches what broke.
+
 ## Start here
 
 ```bash
@@ -89,9 +92,13 @@ mael task reconcile          # show the mismatches
 mael task reconcile --fix    # apply the corrections
 ```
 
-Reconcile distinguishes an `in-progress` task that ran before (a transcript persists →
-`done`) from one that never ran (no transcript → `todo`), and a live session whose task is
-not `in-progress` (→ `in-progress`).
+Reconcile corrects three mismatches:
+
+| Observed state | Evidence | Corrected to |
+|---|---|---|
+| `in-progress`, no live session | A transcript persists — the task ran | `done` |
+| `in-progress`, no live session | No transcript — the task never ran | `todo` |
+| Not `in-progress` | A live session is working on it | `in-progress` |
 
 ---
 
@@ -125,11 +132,12 @@ Leave `branch:` unset on plan blocks.
 ### `mael task next` returns nothing
 
 ```bash
-mael task list --all-todo     # includes blocked-but-waiting tasks
+mael task list --all-todo     # includes waiting and parked tasks
 ```
 
-A task is actionable only once everything it `follows` is done. If everything is blocked, an
-upstream task has not closed — see "stuck in `in-progress/`" above.
+A task is actionable only once everything it `follows` is done, and only if it is not parked
+in `blocked/` or `template/`. If nothing is actionable, either an upstream task has not closed
+— see "stuck in `in-progress/`" above — or the task you expect was parked by hand.
 
 By default `next` prefers the current git branch, then falls back globally. `--branch`
 removes the fallback, so it can legitimately return nothing.
@@ -189,9 +197,9 @@ Set it before adding projects. Otherwise maelstrom looks in `~/Projects`.
 
 Use `mael mv-project OLD NEW`. Do not rename the directory with `mv`.
 
-A project name is load-bearing. It is not stored as a field — it is the directory
-name, and the worktree folders, task and env directories, port allocations and
-Claude Code state all follow from it. A plain `mv` breaks two of these silently:
+A project name is load-bearing. The name is not stored as a field — it *is* the directory
+name. The worktree folders, task and env directories, port allocations and Claude Code state
+all follow from it. A plain `mv` breaks two of these silently:
 
 - **Git worktree pointers break.** Each worktree records an absolute path to its
   administrative directory, and the repository records an absolute path back to
@@ -253,6 +261,8 @@ mael env stop
 # ... make changes ...
 mael env start
 ```
+
+See [dev-environments.md](dev-environments.md#running) for why this is worth doing.
 
 ---
 

@@ -67,9 +67,9 @@ that happens.
 
 **One run reviews at most 8 commits** — the oldest 8 that are not yet reviewed. It reports the
 rest as deferred. Run `/code-review` again to review them: the first run tags its commits
-`reviewed`, so the second run skips them and takes the next 8. This cap holds even when you name
-an explicit SHA or range: run the same command again to take the next 8, or name a narrower range
-if you want different commits.
+`reviewed`, so the second run skips them and takes the next 8. The cap holds even when you name
+an explicit SHA or range. Run the same command again to take the next 8, or name a narrower
+range if you want different commits.
 
 It runs `mael git squash` first, so the review sees the commits as they will land instead of
 a history littered with fixups. Rebase conflicts stop the review; a dirty worktree does not,
@@ -87,8 +87,8 @@ Reviewing per commit means every finding is already attributed to the commit tha
 it, which is what the fixup below targets.
 
 **Findings are not ranked blocking vs advisory.** A sub-agent reviewing one commit cannot know
-your release pressure or what you already plan to change, so it reports what it found and what
-it costs to leave. The parent then sorts by what each fix would cost: apply the correct,
+your release pressure, or what you already plan to change. It therefore reports what it found
+and what it costs to leave. The parent then sorts by what each fix would cost: apply the correct,
 in-scope ones; discard the ones that do not apply; raise anything that materially changes scope
 with you. Potential refactors always go in that last bucket — a review is the best place to
 notice them, and dropping them silently is how they get lost.
@@ -152,8 +152,8 @@ the rest of its chain** — every task that follows it stays unactionable. So cl
 you reliably can, rather than after a CI watch that might drag on, time out, or lose its
 session.
 
-The SessionEnd hook moves the task to `done` when the session ends, but it can fail
-silently — if `mael` is not on `PATH`, if git is unavailable, or if the process is killed.
+The SessionEnd hook moves the task to `done` when the session ends. That hook can fail
+silently: `mael` may not be on `PATH`, git may be unavailable, or the process may be killed.
 Run `mael task status done` explicitly.
 
 ## Taking CI to green

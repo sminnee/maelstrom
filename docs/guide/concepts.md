@@ -1,12 +1,15 @@
 # Concepts
 
+What maelstrom is, the problem it solves, and how its components fit together. Read this
+first — the other guides assume the vocabulary it introduces.
+
 ## What maelstrom is for
 
 Maelstrom is an orchestration layer for multi-agent development. It uses cmux to manage
 workspaces, git worktrees to isolate code, and Claude Code as its agent. Integrations with
-Linear, Sentry and GitHub keep the workflow streamlined. It adds two things of its own: a
-task notebook that tracks what each agent is doing and in what order, and a dev environment
-manager that gives each worktree isolated services and ports. It is a highly opinionated
+Linear, Sentry and GitHub keep the workflow streamlined. Maelstrom adds two things of its
+own. A task notebook tracks what each agent is doing and in what order. A dev environment
+manager gives each worktree isolated services and ports. It is a highly opinionated
 Swiss-army knife.
 
 ## The problem
@@ -77,8 +80,8 @@ a deterministic session id, and the task's content piped in as the opening promp
 - `auto` — an unattended execute session that runs its plan without prompting.
 - `normal` — an execute session that prompts on each action.
 
-A task's `command` selects which skill runs, if any. An execute task runs no skill: its
-plan *is* its content, and it implements it directly.
+A task's `command` selects which skill runs, if any. An execute task runs no skill: the
+task's content *is* the plan, and the session implements that plan directly.
 
 ### The task notebook — what each agent is doing
 
@@ -90,8 +93,8 @@ Two of the six statuses park a task rather than track its progress. A `template/
 recipe to duplicate from. A `blocked/` task is one you parked by hand. Maelstrom never launches
 either, whatever their `follows` say.
 
-Three ideas describe how tasks relate, and they are separable. This is the single most
-important idea in the system:
+Three ideas describe how tasks relate. **Their separability is the single most important
+idea in the system** — each one can vary without the other two:
 
 - **`parent` groups a chain that shares one branch and one pull request.** One PR per
   parent. Siblings under a parent run in order and merge together.
@@ -101,25 +104,24 @@ important idea in the system:
   `maintenance.2026-07-02` is a scheduled run of the `maintenance` template.
 
 They are separable on purpose. A scheduled run is named as a child of its template through
-its dot-id, yet has an empty `parent`, so each firing roots its own chain instead of piling
-onto the template's.
+its dot-id, yet has an empty `parent`. Each firing therefore roots its own chain instead of
+piling onto the template's.
 
 Read [tasks.md](tasks.md) for the detail.
 
 ### The wiki — cross-project patterns
 
 The wiki is a curated set of markdown pages for design patterns that apply to more than one
-project: which linting tool to use, how to publish a package, how to set up a new service.
+project. Which linting tool to use, how to publish a package, how to set up a new service.
 
-It fills a gap that the other two knowledge stores leave open. Claude's memory is
-per-project — maelstrom symlinks each worktree's memory directory to a shared one at the
-project level, so knowledge is unified across the worktrees of one project but not across
-projects. A repo's own `docs/` is scoped to that repo. Neither can hold a pattern that
+The wiki fills a gap that the other two knowledge stores leave open. Claude's memory is
+per-project: maelstrom symlinks each worktree's memory directory to a shared one at the
+project level. Knowledge is therefore unified across the worktrees of one project, but not
+across projects. A repo's own `docs/` is scoped to that repo. Neither can hold a pattern that
 belongs to no single project.
 
 Pages live in the same git-backed store as the task notebook, under a reserved prefix, so
-every change is committed and can be rolled back. The store is local: there is no remote
-sync in this version.
+every change is committed and can be rolled back. The store is local, with no remote sync.
 
 A page is markdown with a one-line `description:` in its frontmatter. `mael wiki list`
 prints the path and the description of every page, which is how an agent finds the right

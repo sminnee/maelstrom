@@ -105,18 +105,9 @@ set yourself as well.
 
 ## When a scheduled task did not fire
 
-Run this first:
-
-```bash
-mael schedule status
-```
-
-It reports the marker, the plist, whether launchd has the job loaded, and the tail of
-`~/.maelstrom/schedule.log`.
-
-Every `add-scheduled` run writes a dated header to that log before doing anything else, so
-the log records *when* the agent last fired even when nothing was due. No header means the
-agent did not run; a header with no runs means nothing was due.
+Run `mael schedule status` first. See
+[troubleshooting.md](troubleshooting.md#a-scheduled-task-did-not-fire) for what it reports
+and the common causes.
 
 ## See also
 

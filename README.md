@@ -1,14 +1,14 @@
 # Maelstrom: multi-agent development with cmux and Claude Code
 
-One agent on one branch is easy. Several at once is not: each needs its own working
-directory, its own database and ports, and somewhere you can watch it — and something has to
-track what each one is doing, and in what order.
+One agent on one branch is easy. Several at once is not. Each agent needs its own working
+directory, its own database and ports, and somewhere you can watch it. Something has to track
+what each one is doing, and in what order.
 
 Maelstrom automates that. It uses cmux to manage workspaces, git worktrees to isolate code,
 and Claude Code as its agent. Integrations with Linear, Sentry and GitHub keep the workflow
-streamlined. Maelstrom adds two things of its own: a task notebook that tracks what each
-agent is doing and in what order, and a dev environment manager that gives each worktree
-isolated services and ports. It is a highly opinionated Swiss-army knife.
+streamlined. Maelstrom adds two things of its own. A task notebook tracks what each agent is
+doing and in what order. A dev environment manager gives each worktree isolated services and
+ports. It is a highly opinionated Swiss-army knife.
 
 ## Installation
 

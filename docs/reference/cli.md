@@ -86,9 +86,9 @@ organization. The seed commit holds `.gitignore` (which ignores the per-worktree
 
 **`mael mv-project`**
 
-A project name is load-bearing. It is not stored as a field — it is the directory
-name, and the worktree folders, task and env directories, port allocations and
-Claude Code state all follow from it. Do not rename a project with `mv`. Use this
+A project name is load-bearing. The name is not stored as a field — it *is* the
+directory name. The worktree folders, task and env directories, port allocations
+and Claude Code state all follow from it. Do not rename a project with `mv`. Use this
 command, which moves the directory and updates each of those.
 
 Run it with `--dry-run` first to see the full plan.
