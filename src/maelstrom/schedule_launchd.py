@@ -15,11 +15,20 @@ The launchd→cmux path needs no secret in the plist: a *user* LaunchAgent runs 
 the logged-in GUI session and so reaches the same keychain the ``cmux`` CLI falls
 through to. It needs no ``CMUX_SOCKET_PATH`` either — the CLI defaults to the
 conventional socket path when the var is unset — so the plist sets only ``PATH``.
+
+Nothing here wakes a sleeping Mac, and nothing needs to: launchd starts a job
+missed during sleep on the next wake, coalescing missed intervals into one event.
+That single fire is what ``schedule.due_templates`` expects — one run per due
+template, no backfill. See ``docs/dev/scheduled-tasks.md``.
+
+The one remaining ``pmset`` call is :func:`clear_leftover_wake`, which cleans up
+after the superseded ``--wake-at`` design. It runs from ``mael schedule
+uninstall`` only — never from :func:`ensure_schedule_agent`, which must stay
+non-interactive for ``mael install`` / ``mael self-update``.
 """
 
 import os
 import platform
-import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -27,9 +36,6 @@ from pathlib import Path
 import click
 
 LABEL = "nz.tangerinelabs.maelstrom.schedule"
-
-# Accepts a 24-hour ``HH:MM`` with leading zeros optional on the hour.
-_HHMM_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 
 
 def _maelstrom_dir() -> Path:
@@ -39,33 +45,6 @@ def _maelstrom_dir() -> Path:
 def marker_path() -> Path:
     """Path of the opt-in marker. Presence = "this machine wants the agent"."""
     return _maelstrom_dir() / "schedule.enabled"
-
-
-def validate_hhmm(value: str) -> str:
-    """Normalise an ``HH:MM`` string to zero-padded form, raising on bad input."""
-    m = _HHMM_RE.match(value.strip())
-    if not m:
-        raise ValueError(f"Invalid time {value!r}; expected 24-hour HH:MM.")
-    return f"{int(m.group(1)):02d}:{m.group(2)}"
-
-
-def wake_time() -> str | None:
-    """Return the marker's wake time (validated ``HH:MM``), or ``None``.
-
-    An empty marker body means awake-only (no wake). A malformed body is treated
-    as no wake rather than raising, so a hand-corrupted marker never wedges
-    reconciliation.
-    """
-    marker = marker_path()
-    if not marker.exists():
-        return None
-    body = marker.read_text().strip()
-    if not body:
-        return None
-    try:
-        return validate_hhmm(body)
-    except ValueError:
-        return None
 
 
 def plist_path() -> Path:
@@ -180,55 +159,15 @@ def _bootstrap(path: Path) -> None:
     )
 
 
-# --- pmset wake glue (macOS, needs sudo — interactive at install only) ---
-
-
-def _minute_before(hhmm: str) -> str:
-    """Return the ``HH:MM`` one minute earlier (wrapping past midnight)."""
-    hh, mm = (int(p) for p in hhmm.split(":"))
-    total = (hh * 60 + mm - 1) % (24 * 60)
-    return f"{total // 60:02d}:{total % 60:02d}"
-
-
-def _schedule_wake(hhmm: str) -> None:
-    """Schedule a daily ``pmset`` wake one minute before ``hhmm``.
-
-    Runs ``sudo pmset repeat wakeorpoweron MTWRFSU HH:MM:00`` so the next launchd
-    tick at ``hhmm`` finds the Mac awake. Only one repeating ``pmset`` wake exists
-    system-wide, so this replaces any prior one. Stdin is left attached so the
-    ``sudo`` password prompt reaches the user.
-    """
-    wake = _minute_before(hhmm)
-    subprocess.run(
-        ["sudo", "pmset", "repeat", "wakeorpoweron", "MTWRFSU", f"{wake}:00"],
-        check=True,
-    )
-
-
-def _clear_wake() -> None:
-    """Cancel any repeating ``pmset`` wake (best-effort).
-
-    Idempotent: cancelling when none is set is harmless. Failures (e.g. no sudo)
-    are swallowed so reconciliation of the launchd agent still completes.
-    """
-    subprocess.run(
-        ["sudo", "pmset", "repeat", "cancel"],
-        capture_output=True,
-        text=True,
-    )
-
-
 def ensure_schedule_agent() -> list[str]:
     """Reconcile the loaded launchd agent to the opt-in marker. Idempotent.
 
     - Non-macOS: no-op (returns a skip message).
     - Marker absent: ensure no agent — ``bootout`` and remove any stale plist so
-      ``uninstall`` fully takes effect even if it only cleared the marker. Also
-      clears any ``pmset`` wake.
+      ``uninstall`` fully takes effect even if it only cleared the marker.
     - Marker present: render the plist with the *current* absolute ``mael`` path
       and ``bootstrap`` it (replacing any existing one) — self-healing a stale
-      path after a ``self-update``. If the marker carries a wake time, re-assert
-      the ``pmset`` wake; otherwise clear it.
+      path after a ``self-update``.
     """
     if platform.system() != "Darwin":
         return ["Schedule agent: skipped (not macOS)."]
@@ -240,7 +179,6 @@ def ensure_schedule_agent() -> list[str]:
             _bootout()
             plist.unlink()
             removed = True
-        _clear_wake()
         return [
             "Schedule agent: removed (opt-out)."
             if removed
@@ -259,51 +197,18 @@ def ensure_schedule_agent() -> list[str]:
     except subprocess.CalledProcessError as e:
         return [f"Schedule agent: bootstrap failed: {e.stderr or e.stdout or e}"]
 
-    msgs = [f"Schedule agent: loaded ({mael})."]
-    wake = wake_time()
-    if wake:
-        # Compare against the actual pmset target (_minute_before(wake)), not
-        # `wake` itself — _pmset_wake_hhmm() reports the wake pmset holds, which
-        # is one minute before the fire time.
-        desired = _minute_before(wake)
-        if _pmset_wake_hhmm() == desired:
-            # Already exactly what we'd set — skip the sudo pmset call (and its
-            # password prompt) on the common "nothing changed" path.
-            msgs.append(
-                f"Schedule wake: pmset already set for {desired} (unchanged)."
-            )
-        else:
-            try:
-                _schedule_wake(wake)
-            except (subprocess.CalledProcessError, OSError) as e:
-                # The launchd agent is loaded regardless; report the wake failure
-                # without aborting. The marker keeps the wake intent, so the next
-                # install / self-update re-attempts it.
-                msgs.append(
-                    f"Schedule wake: pmset failed ({e}); agent loaded but no wake "
-                    f"set. Re-run `mael schedule install --wake-at {wake}` with sudo."
-                )
-            else:
-                msgs.append(
-                    f"Schedule wake: pmset set for {desired} "
-                    f"(one minute before {wake})."
-                )
-    else:
-        _clear_wake()
-        msgs.append("Schedule wake: none configured.")
-    return msgs
+    return [f"Schedule agent: loaded ({mael})."]
 
 
-def install_marker(wake_at: str | None = None) -> None:
-    """Create/update the opt-in marker (idempotent).
+def install_marker() -> None:
+    """Create the opt-in marker (idempotent).
 
-    The marker body carries the optional wake time: empty for awake-only, or a
-    validated ``HH:MM`` to request a daily ``pmset`` wake. ``wake_at`` is
-    validated/normalised here so a bad value fails before any launchd work.
+    The marker is a bare presence flag, so the file is written empty. Any body an
+    older version left behind is overwritten and, either way, never read.
     """
     marker = marker_path()
     marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text(validate_hhmm(wake_at) if wake_at else "")
+    marker.write_text("")
 
 
 def uninstall_marker() -> None:
@@ -311,6 +216,61 @@ def uninstall_marker() -> None:
     marker = marker_path()
     if marker.exists():
         marker.unlink()
+
+
+def _has_repeating_wake() -> bool:
+    """Return whether ``pmset`` holds a repeating wake.
+
+    Reads only the "Repeating power events" section. The "Scheduled power events"
+    section lists transient one-off system alarms we did not set, which would
+    otherwise look like ours.
+    """
+    result = subprocess.run(["pmset", "-g", "sched"], capture_output=True, text=True)
+    if result.returncode != 0:
+        return False
+    in_repeating = False
+    for line in result.stdout.splitlines():
+        low = line.lower()
+        if low.startswith("repeating power events"):
+            in_repeating = True
+            continue
+        if low.endswith("power events:"):
+            in_repeating = False
+            continue
+        if in_repeating and line.strip():
+            return True
+    return False
+
+
+def clear_leftover_wake() -> list[str]:
+    """Cancel a repeating ``pmset`` wake left by an older ``--wake-at`` install.
+
+    Maelstrom no longer sets a wake, but a machine that once ran
+    ``mael schedule install --wake-at HH:MM`` keeps its wake until something
+    cancels it. Clean up the system state we created rather than leaving it to
+    the user.
+
+    Returns no message when there is nothing to clear, which is the common case.
+    The read is free; only an actual cancel needs ``sudo``, so the password
+    prompt appears only on the machines that need it.
+
+    **Call this from the CLI only.** ``ensure_schedule_agent`` runs unattended
+    from ``mael install`` / ``mael self-update``, and a sudo prompt would block
+    them. A human is always present for ``mael schedule uninstall``.
+
+    ``pmset repeat cancel`` clears the one system-wide repeating wake, so it also
+    clears a wake the user set themselves. That is why only ``uninstall`` — an
+    explicit teardown — does this, and why it says what it did.
+    """
+    if platform.system() != "Darwin" or not _has_repeating_wake():
+        return []
+    result = subprocess.run(["sudo", "pmset", "repeat", "cancel"])
+    if result.returncode != 0:
+        return [
+            "Schedule wake: found a repeating pmset wake but could not clear it. "
+            "Run `sudo pmset repeat cancel` yourself."
+        ]
+    return ["Schedule wake: cleared the repeating pmset wake (set by an old --wake-at)."]
 
 
 # --- status reporting (read-only; the missing diagnostic that hid this bug) ---
@@ -326,57 +286,6 @@ def _job_loaded() -> bool:
     return result.returncode == 0
 
 
-def _pmset_wake_line() -> str | None:
-    """Return the *repeating* wake line from ``pmset -g sched``, if any.
-
-    Only the "Repeating power events" section is reported — the "Scheduled power
-    events" section lists transient one-off system alarms we did not set and that
-    would otherwise masquerade as our wake.
-    """
-    result = subprocess.run(
-        ["pmset", "-g", "sched"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        return None
-    in_repeating = False
-    for line in result.stdout.splitlines():
-        low = line.lower()
-        if low.startswith("repeating power events"):
-            in_repeating = True
-            continue
-        if low.endswith("power events:"):
-            # Any other section header ends the repeating section.
-            in_repeating = False
-            continue
-        if in_repeating and line.strip():
-            return line.strip()
-    return None
-
-
-def _pmset_wake_hhmm() -> str | None:
-    """Return the current repeating-wake time as 24-hour ``HH:MM``, if any.
-
-    Parses the ``pmset -g sched`` repeating line (e.g. ``wakepoweron at 7:59AM
-    every day``) and normalises the ``H:MMAM`` token to ``HH:MM`` so it can be
-    compared against :func:`_minute_before`. Returns ``None`` when there is no
-    repeating wake or the line doesn't parse (unknown -> treat as "re-apply").
-    """
-    line = _pmset_wake_line()
-    if line is None:
-        return None
-    m = re.search(r"\bat\s+(\d{1,2}):(\d{2})\s*([AP]M)\b", line, re.IGNORECASE)
-    if not m:
-        return None
-    hh, mm, meridiem = int(m.group(1)), int(m.group(2)), m.group(3).upper()
-    if hh == 12:
-        hh = 0
-    if meridiem == "PM":
-        hh += 12
-    return f"{hh:02d}:{mm:02d}"
-
-
 def _log_tail(n: int = 5) -> list[str]:
     """Return the last ``n`` non-empty lines of the schedule log (newest last)."""
     log = log_path()
@@ -389,29 +298,19 @@ def _log_tail(n: int = 5) -> list[str]:
 def status_lines() -> list[str]:
     """Build a side-effect-free status report of the schedule agent.
 
-    Reports marker presence (+ wake time), plist presence, whether launchd has
-    the job loaded, the ``pmset`` repeating-wake line, and the log path + tail.
+    Reports marker presence, plist presence, whether launchd has the job loaded,
+    and the log path + tail.
     """
     if platform.system() != "Darwin":
         return ["Schedule status: skipped (not macOS)."]
 
     out: list[str] = []
     marker = marker_path()
-    if marker.exists():
-        wake = wake_time()
-        out.append(
-            f"Marker: present ({marker})"
-            + (f" — wake at {wake}" if wake else " — no wake configured")
-        )
-    else:
-        out.append(f"Marker: absent ({marker})")
+    out.append(f"Marker: {'present' if marker.exists() else 'absent'} ({marker})")
 
     plist = plist_path()
     out.append(f"Plist: {'present' if plist.exists() else 'absent'} ({plist})")
     out.append(f"Job loaded: {'yes' if _job_loaded() else 'no'}")
-
-    wake_line = _pmset_wake_line()
-    out.append(f"pmset wake: {wake_line if wake_line else 'none'}")
 
     log = log_path()
     out.append(f"Log: {log}")
@@ -433,40 +332,30 @@ def schedule_group() -> None:
 
 
 @schedule_group.command("install")
-@click.option(
-    "--wake-at",
-    metavar="HH:MM",
-    default=None,
-    help=(
-        "Schedule a daily pmset wake so a sleeping Mac runs the job (needs "
-        "sudo). HH:MM is the machine's LOCAL time (pmset uses local time, as "
-        "does the launchd hourly tick it lines up with). One system-wide "
-        "repeating wake only — replaces any prior one; the wake is set one "
-        "minute before HH:MM. Clamshell-on-battery laptops may ignore it."
-    ),
-)
-def schedule_install(wake_at: str | None) -> None:
+def schedule_install() -> None:
     """Opt this machine in: write the marker and load the launchd agent."""
-    if wake_at is not None:
-        try:
-            wake_at = validate_hhmm(wake_at)
-        except ValueError as e:
-            raise click.BadParameter(str(e), param_hint="--wake-at")
-    install_marker(wake_at)
+    install_marker()
     for msg in ensure_schedule_agent():
         click.echo(msg)
 
 
 @schedule_group.command("uninstall")
 def schedule_uninstall() -> None:
-    """Opt this machine out: remove the marker and tear the agent down."""
+    """Opt this machine out: remove the marker and tear the agent down.
+
+    Also clears a repeating ``pmset`` wake left by an older ``--wake-at``
+    install. That step needs ``sudo``, and prompts only on a machine that has
+    such a wake.
+    """
     uninstall_marker()
     for msg in ensure_schedule_agent():
+        click.echo(msg)
+    for msg in clear_leftover_wake():
         click.echo(msg)
 
 
 @schedule_group.command("status")
 def schedule_status() -> None:
-    """Report agent state (marker, plist, loaded job, pmset wake, log tail)."""
+    """Report agent state (marker, plist, loaded job, log tail)."""
     for msg in status_lines():
         click.echo(msg)

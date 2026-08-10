@@ -152,7 +152,7 @@ def _parse_iso(value: str) -> datetime | None:
     Normalising to local (rather than UTC) keeps the stored ``last-run``
     watermark and the incoming local ``now`` in the same zone, so the
     ``date_of()`` boundary key aligns with the local calendar day — matching
-    the local date inference used for task ids and ``--wake-at``.
+    the local date inference used for task ids.
     """
     if not value:
         return None

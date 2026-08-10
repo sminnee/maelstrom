@@ -294,14 +294,15 @@ gh auth login
 mael schedule status
 ```
 
-It reports the marker, the plist, whether launchd loaded the job, the `pmset` wake line, and
-the tail of `~/.maelstrom/schedule.log`.
+It reports the marker, the plist, whether launchd loaded the job, and the tail of
+`~/.maelstrom/schedule.log`.
 
 Common causes:
 
 - **The agent was never installed.** It is opt-in per machine: `mael schedule install`.
-- **The Mac was asleep.** Without `--wake-at` it does not wake. There is **no backfill** —
-  you get one catch-up run per template, not one per missed boundary.
+- **The Mac was asleep.** Maelstrom does not wake it. The job runs on the next wake, and
+  there is **no backfill** — you get one catch-up run per template, not one per missed
+  boundary.
 - **Nothing was due.** Every run writes a dated header to the log first, so a header with no
   runs means the agent fired and found nothing due.
 

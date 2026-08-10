@@ -9,6 +9,7 @@ import subprocess
 from unittest.mock import MagicMock
 
 import pytest
+from click.testing import CliRunner
 
 from maelstrom import schedule_launchd as sl
 
@@ -70,35 +71,40 @@ def darwin(monkeypatch):
 
 @pytest.fixture
 def launchctl(monkeypatch):
-    """Mock the launchctl bootstrap/bootout and pmset wake calls."""
+    """Mock the launchctl bootstrap/bootout calls."""
     bootstrap = MagicMock()
     bootout = MagicMock()
-    schedule_wake = MagicMock()
-    clear_wake = MagicMock()
     monkeypatch.setattr(sl, "_bootstrap", bootstrap)
     monkeypatch.setattr(sl, "_bootout", bootout)
-    monkeypatch.setattr(sl, "_schedule_wake", schedule_wake)
-    monkeypatch.setattr(sl, "_clear_wake", clear_wake)
-    return type(
-        "LC",
-        (),
-        {
-            "bootstrap": bootstrap,
-            "bootout": bootout,
-            "schedule_wake": schedule_wake,
-            "clear_wake": clear_wake,
-        },
-    )()
+    return type("LC", (), {"bootstrap": bootstrap, "bootout": bootout})()
+
+
+@pytest.fixture
+def no_power_commands(monkeypatch):
+    """Fail the test if anything shells out to ``sudo`` or ``pmset``.
+
+    The wake is launchd's job now (the hourly ``StartCalendarInterval`` fires on
+    the next wake), so no code path may reach for the OS power scheduler.
+    """
+
+    def fake_run(args, **kwargs):
+        if args and args[0] in ("sudo", "pmset"):
+            raise AssertionError(f"unexpected power-scheduler call: {args}")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(sl.subprocess, "run", fake_run)
 
 
 class TestEnsureScheduleAgent:
-    def test_noop_when_marker_absent(self, home, darwin, launchctl):
+    def test_noop_when_marker_absent(self, home, darwin, launchctl, no_power_commands):
         msgs = sl.ensure_schedule_agent()
         assert not sl.plist_path().exists()
         launchctl.bootstrap.assert_not_called()
         assert any("not enabled" in m or "removed" in m for m in msgs)
 
-    def test_installs_when_marker_present(self, home, darwin, launchctl, monkeypatch):
+    def test_installs_when_marker_present(
+        self, home, darwin, launchctl, no_power_commands, monkeypatch
+    ):
         monkeypatch.setattr(sl, "_mael_path", lambda: "/abs/bin/mael")
         sl.install_marker()
         msgs = sl.ensure_schedule_agent()
@@ -155,149 +161,70 @@ def test_install_integration_skips_launchd_without_marker(home, monkeypatch):
     assert any("not enabled" in m for m in msgs)
 
 
-# --- wake-time marker parsing ---
+# --- the marker is a bare presence flag ---
 
 
-class TestWakeTime:
-    def test_empty_marker_is_no_wake(self, home):
+class TestMarker:
+    def test_install_marker_writes_empty_marker(self, home):
         sl.install_marker()
-        assert sl.wake_time() is None
+        assert sl.marker_path().read_text() == ""
 
-    def test_marker_carries_wake_time(self, home):
-        sl.install_marker("09:00")
-        assert sl.marker_path().read_text() == "09:00"
-        assert sl.wake_time() == "09:00"
-
-    def test_wake_time_normalises_single_digit_hour(self, home):
-        sl.install_marker("9:05")
-        assert sl.wake_time() == "09:05"
-
-    def test_absent_marker_is_no_wake(self, home):
-        assert sl.wake_time() is None
-
-    def test_corrupt_marker_body_is_no_wake(self, home):
-        sl.install_marker()
-        sl.marker_path().write_text("not-a-time")
-        assert sl.wake_time() is None
-
-    @pytest.mark.parametrize("bad", ["24:00", "12:60", "99:99", "9", "9:5", "ab:cd"])
-    def test_install_marker_rejects_bad_wake(self, home, bad):
-        with pytest.raises(ValueError):
-            sl.install_marker(bad)
-
-    def test_minute_before_wraps_midnight(self):
-        assert sl._minute_before("00:00") == "23:59"
-        assert sl._minute_before("09:00") == "08:59"
-        assert sl._minute_before("09:30") == "09:29"
+    def test_install_rejects_wake_at_option(self, home, darwin, launchctl):
+        """``--wake-at`` is gone: Click rejects it as an unknown option."""
+        result = CliRunner().invoke(sl.schedule_group, ["install", "--wake-at", "09:00"])
+        assert result.exit_code == 2
+        assert "no such option" in result.output.lower()
 
 
-# --- wake reconciliation in ensure_schedule_agent ---
+# --- uninstall clears a wake left by an older --wake-at install ---
 
 
-class TestWakeReconciliation:
-    def test_marker_with_wake_schedules_pmset(
-        self, home, darwin, launchctl, monkeypatch
-    ):
-        monkeypatch.setattr(sl, "_mael_path", lambda: "/abs/bin/mael")
-        # Force a mismatch so the real pmset read isn't hit and the set path fires.
-        monkeypatch.setattr(sl, "_pmset_wake_hhmm", lambda: None)
-        sl.install_marker("09:00")
-        msgs = sl.ensure_schedule_agent()
-        # Wake scheduled one minute before the intended fire.
-        launchctl.schedule_wake.assert_called_once_with("09:00")
-        launchctl.clear_wake.assert_not_called()
-        assert any("08:59" in m for m in msgs)
+class TestLeftoverWakeCleanup:
+    """``mael schedule uninstall`` clears the repeating wake it used to set.
 
-    def test_marker_without_wake_clears_pmset(
-        self, home, darwin, launchctl, monkeypatch
-    ):
-        monkeypatch.setattr(sl, "_mael_path", lambda: "/abs/bin/mael")
-        sl.install_marker()
-        msgs = sl.ensure_schedule_agent()
-        launchctl.schedule_wake.assert_not_called()
-        launchctl.clear_wake.assert_called_once()
-        assert any("none configured" in m for m in msgs)
+    Only the CLI command does this. ``ensure_schedule_agent`` runs unattended
+    from ``mael install`` / ``mael self-update``, so a sudo prompt there would
+    block those; a human is always present for ``uninstall``.
+    """
 
-    def test_marker_absent_clears_pmset(self, home, darwin, launchctl):
-        sl.ensure_schedule_agent()
-        launchctl.clear_wake.assert_called_once()
-        launchctl.schedule_wake.assert_not_called()
+    @pytest.fixture
+    def pmset(self, monkeypatch):
+        """Record pmset reads/cancels; ``state['repeating']`` sets what is set."""
+        state = {"repeating": "", "cancelled": False}
 
-    def test_wake_failure_is_reported_not_raised(
-        self, home, darwin, launchctl, monkeypatch
-    ):
-        monkeypatch.setattr(sl, "_mael_path", lambda: "/abs/bin/mael")
-        monkeypatch.setattr(sl, "_pmset_wake_hhmm", lambda: None)
-        launchctl.schedule_wake.side_effect = subprocess.CalledProcessError(
-            1, ["sudo", "pmset"]
+        def fake_run(args, **kwargs):
+            if args[:1] == ["pmset"]:
+                return subprocess.CompletedProcess(args, 0, state["repeating"], "")
+            if args[:4] == ["sudo", "pmset", "repeat", "cancel"]:
+                state["cancelled"] = True
+                return subprocess.CompletedProcess(args, 0, "", "")
+            raise AssertionError(f"unexpected subprocess call: {args}")
+
+        monkeypatch.setattr(sl.subprocess, "run", fake_run)
+        return state
+
+    def test_clears_a_leftover_wake(self, home, darwin, launchctl, pmset):
+        pmset["repeating"] = (
+            "Repeating power events:\n  wakepoweron at 7:59AM every day\n"
         )
-        sl.install_marker("09:00")
-        # The agent still loads; the wake failure is a message, not an exception.
-        msgs = sl.ensure_schedule_agent()
-        assert any("loaded" in m for m in msgs)
-        assert any("pmset failed" in m for m in msgs)
+        msgs = sl.clear_leftover_wake()
+        assert pmset["cancelled"]
+        assert any("cleared" in m for m in msgs)
 
-    def test_skips_pmset_when_already_set(
-        self, home, darwin, launchctl, monkeypatch
-    ):
-        """The core fix: skip the sudo pmset call when the wake already matches."""
-        monkeypatch.setattr(sl, "_mael_path", lambda: "/abs/bin/mael")
-        # Current repeating wake already equals _minute_before("09:00").
-        monkeypatch.setattr(sl, "_pmset_wake_hhmm", lambda: "08:59")
-        sl.install_marker("09:00")
-        msgs = sl.ensure_schedule_agent()
-        launchctl.schedule_wake.assert_not_called()
-        assert any("unchanged" in m for m in msgs)
+    def test_no_sudo_when_no_wake_is_set(self, home, darwin, launchctl, pmset):
+        """The common case: nothing set, so no sudo prompt."""
+        msgs = sl.clear_leftover_wake()
+        assert not pmset["cancelled"]
+        assert msgs == []
 
-    def test_reapplies_pmset_when_time_differs(
-        self, home, darwin, launchctl, monkeypatch
-    ):
-        monkeypatch.setattr(sl, "_mael_path", lambda: "/abs/bin/mael")
-        monkeypatch.setattr(sl, "_pmset_wake_hhmm", lambda: "07:59")
-        sl.install_marker("09:00")
-        sl.ensure_schedule_agent()
-        launchctl.schedule_wake.assert_called_once_with("09:00")
-
-    def test_reapplies_pmset_when_none_set(
-        self, home, darwin, launchctl, monkeypatch
-    ):
-        monkeypatch.setattr(sl, "_mael_path", lambda: "/abs/bin/mael")
-        monkeypatch.setattr(sl, "_pmset_wake_hhmm", lambda: None)
-        sl.install_marker("09:00")
-        sl.ensure_schedule_agent()
-        launchctl.schedule_wake.assert_called_once_with("09:00")
-
-    def test_skips_pmset_via_real_parse(self, home, darwin, launchctl, monkeypatch):
-        """End-to-end: a realistic pmset line matching the target skips the sudo call.
-
-        Stubs _pmset_wake_line (not _pmset_wake_hhmm) so the real parse-and-compare
-        path is exercised: '8:59AM' must normalise to '08:59' == _minute_before('09:00').
-        """
-        monkeypatch.setattr(sl, "_mael_path", lambda: "/abs/bin/mael")
-        monkeypatch.setattr(
-            sl, "_pmset_wake_line", lambda: "wakepoweron at 8:59AM every day"
+    def test_ignores_non_repeating_events(self, home, darwin, launchctl, pmset):
+        """One-off system alarms are not ours — they must not trigger a cancel."""
+        pmset["repeating"] = (
+            "Scheduled power events:\n"
+            " [0]  wake at 08/11/2026 00:31:06 by 'com.apple.alarm.foo'\n"
         )
-        sl.install_marker("09:00")
-        msgs = sl.ensure_schedule_agent()
-        launchctl.schedule_wake.assert_not_called()
-        assert any("unchanged" in m for m in msgs)
-
-
-class TestPmsetWakeHhmm:
-    @pytest.mark.parametrize(
-        "line,expected",
-        [
-            ("wakepoweron at 7:59AM every day", "07:59"),
-            ("wakepoweron at 12:00AM every day", "00:00"),
-            ("wakepoweron at 12:30PM every day", "12:30"),
-            ("wakepoweron at 1:05PM every day", "13:05"),
-            (None, None),
-            ("some unparseable line", None),
-        ],
-    )
-    def test_parses_repeating_wake_time(self, monkeypatch, line, expected):
-        monkeypatch.setattr(sl, "_pmset_wake_line", lambda: line)
-        assert sl._pmset_wake_hhmm() == expected
+        sl.clear_leftover_wake()
+        assert not pmset["cancelled"]
 
 
 # --- _bootstrap tolerates the already-loaded race ---
@@ -335,21 +262,19 @@ class TestBootstrapRace:
 
 @pytest.fixture
 def status_subprocess(monkeypatch):
-    """Mock the read-only subprocess calls status_lines makes.
+    """Mock the read-only subprocess call status_lines makes.
 
-    Returns a controller letting each test set whether the job is loaded and
-    what ``pmset -g sched`` emits.
+    Returns a controller letting each test set whether the job is loaded. Any
+    other command is a test failure — status must not shell out to ``pmset``.
     """
 
-    state = {"loaded": False, "pmset": ""}
+    state = {"loaded": False}
 
     def fake_run(args, **kwargs):
         if args[:2] == ["launchctl", "print"]:
             return subprocess.CompletedProcess(
                 args, 0 if state["loaded"] else 1, "", ""
             )
-        if args[:1] == ["pmset"]:
-            return subprocess.CompletedProcess(args, 0, state["pmset"], "")
         raise AssertionError(f"unexpected subprocess call: {args}")
 
     monkeypatch.setattr(sl.subprocess, "run", fake_run)
@@ -362,13 +287,11 @@ class TestStatus:
         assert "Marker: absent" in out
         assert "Plist: absent" in out
         assert "Job loaded: no" in out
-        assert "pmset wake: none" in out
 
     def test_marker_not_loaded(self, home, darwin, status_subprocess):
         sl.install_marker()
         out = "\n".join(sl.status_lines())
         assert "Marker: present" in out
-        assert "no wake configured" in out
         assert "Job loaded: no" in out
 
     def test_loaded(self, home, darwin, status_subprocess):
@@ -376,18 +299,6 @@ class TestStatus:
         status_subprocess["loaded"] = True
         out = "\n".join(sl.status_lines())
         assert "Job loaded: yes" in out
-
-    def test_loaded_with_wake(self, home, darwin, status_subprocess):
-        sl.install_marker("09:00")
-        status_subprocess["loaded"] = True
-        status_subprocess["pmset"] = (
-            "Repeating power events:\n"
-            "  wakeorpoweron at 8:59AM every day\n"
-        )
-        out = "\n".join(sl.status_lines())
-        assert "wake at 09:00" in out
-        assert "Job loaded: yes" in out
-        assert "wakeorpoweron" in out
 
     def test_log_tail(self, home, darwin, status_subprocess):
         sl.install_marker()
