@@ -893,7 +893,8 @@ def task_add_scheduled(
     "--all-todo",
     "all_todo",
     is_flag=True,
-    help="Also show blocked-but-todo tasks (incomplete deps); still hides done/cancelled.",
+    help="Also show waiting and parked tasks (incomplete deps, or in blocked/); "
+    "still hides done/cancelled.",
 )
 @click.option(
     "--all",
@@ -911,7 +912,7 @@ def task_list(
     """List actionable tasks (those that can be started now).
 
     By default only actionable tasks are shown. ``--all-todo`` also includes
-    blocked-but-todo tasks (incomplete ``follows`` deps or in ``blocked/``);
+    tasks waiting on incomplete ``follows`` deps and tasks parked in ``blocked/``;
     ``--all`` additionally includes done and cancelled. ``--status`` still
     constrains the folder scanned, so e.g. ``--status done`` without ``--all``
     naturally shows nothing.

@@ -40,6 +40,10 @@ STATUS_TODO = "todo"
 STATUS_IN_PROGRESS = "in-progress"
 STATUS_DONE = "done"
 STATUS_CANCELLED = "cancelled"
+# A task a human has parked by hand. Never actionable, whatever its ``follows``
+# say, so it stays out of the default scans. Distinct from a *todo* task waiting
+# on its ``follows`` — that is the ordinary blocking mechanism and needs no
+# status change.
 STATUS_BLOCKED = "blocked"
 # A parking folder for tasks you duplicate *from* regularly (templates). Kept
 # out of the actionable/WIP scans (next_task/list_tasks default, is_actionable),
@@ -653,16 +657,17 @@ def is_actionable(
 ) -> bool:
     """Return whether ``task`` can be started now.
 
-    A task is actionable when it is not terminal, not a parked template, and
-    every id it follows is in ``done/``. A ``template/`` task is a recipe to
-    duplicate from, never something to launch directly, so it is never
-    actionable and so stays out of the default ``task list``/``task next`` views.
+    A task is actionable when it is not terminal, not parked, and every id it
+    follows is in ``done/``. Two statuses park a task. A ``template/`` task is a
+    recipe to duplicate from, never something to launch directly. A ``blocked/``
+    task is one a human has parked by hand. Neither is ever actionable, so both
+    stay out of the default ``task list``/``task next`` views.
 
     A fresh index resolves each ``follows`` dependency's status with a single-row
     lookup, killing the per-dep full-scan that dominated this hot path; otherwise
     (stale, or ``no_index=True``) the store is scanned per dependency.
     """
-    if is_terminal(task.status) or task.status == STATUS_TEMPLATE:
+    if is_terminal(task.status) or task.status in (STATUS_TEMPLATE, STATUS_BLOCKED):
         return False
     index = _read_index(index, no_index)
     if index is not None and _index_fresh(index, head):

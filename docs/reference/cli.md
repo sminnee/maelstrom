@@ -208,7 +208,7 @@ Pass `''` to `--pre-action`, `--post-action`, `--model` or `--schedule` to clear
 |---|---|
 | `--status TEXT` | Filter by status (folder). |
 | `--parent TEXT` | Filter by parent id. |
-| `--all-todo` | Also show blocked-but-todo tasks. Still hides done and cancelled. |
+| `--all-todo` | Also show waiting tasks (incomplete deps) and tasks parked in `blocked/`. Still hides done and cancelled. |
 | `--all` | Show everything, including done and cancelled. Takes precedence over `--all-todo`. |
 
 **`mael task next`**
