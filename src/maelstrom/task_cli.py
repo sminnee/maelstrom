@@ -1247,6 +1247,50 @@ def task_show(id: str, project: str | None) -> None:
         click.echo(t.content)
 
 
+@task.command("get-status")
+@click.argument("id", required=False)
+@click.option("--project", default=None, help="Project name (default: from cwd).")
+def task_get_status(id: str | None, project: str | None) -> None:
+    """Print a task's status and nothing else.
+
+    Sits outside the "task status" group, whose subcommands are the lifecycle
+    moves. The output is the bare status word, so a shell prompt or a script
+    can embed it without parsing.
+    """
+    task_id = _resolve_task_id(id)
+    proj = _resolve_project(project)
+    store = _store()
+    try:
+        t = model.load(store, proj, task_id)
+    except KeyError:
+        raise click.ClickException(f"Task not found: {task_id}")
+    click.echo(t.status)
+
+
+@task.command("current")
+@click.option("--project", default=None, help="Project name (default: from cwd).")
+def task_current(project: str | None) -> None:
+    """Print the session's task as "ID:STATUS", or nothing.
+
+    Built for a shell prompt or status line, which redraws constantly and has
+    nowhere to show an error. So both "no task in this session" and "the task
+    has gone away" print an empty line and exit 0, and the caller can use the
+    output as-is.
+    """
+    task_id = os.environ.get("MAEL_TASK_ID")
+    status: str | None = None
+    if task_id:
+        try:
+            status = model.load(_store(), _resolve_project(project), task_id).status
+        except Exception:
+            # Every lookup failure is the same answer here: nothing to show. The
+            # catch is broad on purpose — a cwd outside any project, an unsafe
+            # id and a missing task all raise differently, and a prompt must
+            # render whatever the caller's context.
+            status = None
+    click.echo(f"{task_id}:{status}" if status is not None else "")
+
+
 @task.command("read")
 @click.argument("id")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
