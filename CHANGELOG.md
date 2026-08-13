@@ -10,6 +10,8 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-08-11
+
 ### Added
 
 - **Published to PyPI as `sminnee-maelstrom`.** Install with `uv tool install sminnee-maelstrom`,
