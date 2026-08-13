@@ -1176,6 +1176,171 @@ class TestContentFile:
         assert "Content file not found" in result.output
 
 
+class TestDraft:
+    def test_draft_writes_roundtrippable_file(self, runner, tmp_path):
+        f = tmp_path / "draft-iter1.md"
+        result = runner.invoke(
+            task_cli.task,
+            [
+                "draft", str(f), "Execute: demo",
+                "--mode", "auto", "--pre-action", "linear.in-progress",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        t = model.Task.from_markdown(f.read_text())
+        assert t.title == "Execute: demo"
+        assert t.mode == "auto"
+        assert t.pre_action == "linear.in-progress"
+        # Identity fields stay empty: the draft is not in the notebook.
+        assert t.id == ""
+        assert t.created == ""
+        assert t.follows == []
+
+    def test_draft_requires_title(self, runner, tmp_path):
+        result = runner.invoke(task_cli.task, ["draft", str(tmp_path / "d.md")])
+        assert result.exit_code != 0
+        assert "title" in result.output.lower()
+        assert not (tmp_path / "d.md").exists()
+
+    def test_draft_refuses_overwrite_without_force(self, runner, tmp_path):
+        f = tmp_path / "d.md"
+        f.write_text("sculpted by hand\n")
+        result = runner.invoke(task_cli.task, ["draft", str(f), "T"])
+        assert result.exit_code != 0
+        assert "--force" in result.output
+        assert f.read_text() == "sculpted by hand\n"
+
+    def test_draft_force_overwrites(self, runner, tmp_path):
+        f = tmp_path / "d.md"
+        f.write_text("old\n")
+        result = runner.invoke(task_cli.task, ["draft", str(f), "T", "--force"])
+        assert result.exit_code == 0, result.output
+        assert model.Task.from_markdown(f.read_text()).title == "T"
+
+    def test_draft_content_file(self, runner, tmp_path):
+        src = tmp_path / "body.md"
+        src.write_text("The plan body.\n")
+        f = tmp_path / "d.md"
+        result = runner.invoke(
+            task_cli.task, ["draft", str(f), "T", "--content-file", str(src)]
+        )
+        assert result.exit_code == 0, result.output
+        assert model.Task.from_markdown(f.read_text()).content == "The plan body."
+
+    def test_draft_rejects_follow_flags(self, runner, tmp_path):
+        # Chain wiring happens at promote time; draft has no --follow.
+        result = runner.invoke(
+            task_cli.task, ["draft", str(tmp_path / "d.md"), "T", "--follow", "x"]
+        )
+        assert result.exit_code != 0
+
+    def test_draft_is_inert_until_promoted(self, runner, store, tmp_path):
+        # The approval gate is structural: a draft never reaches the store, so
+        # it is invisible to list/next/follow-end until promote loads it.
+        result = runner.invoke(task_cli.task, ["draft", str(tmp_path / "d.md"), "T"])
+        assert result.exit_code == 0, result.output
+        assert model.list_tasks(store, project="p") == []
+
+
+class TestPromote:
+    def _draft(self, runner, tmp_path, name="d.md", title="Execute: demo", *args):
+        f = tmp_path / name
+        result = runner.invoke(task_cli.task, ["draft", str(f), title, *args])
+        assert result.exit_code == 0, result.output
+        return f
+
+    def test_promote_creates_todo_task_and_consumes_file(
+        self, runner, store, tmp_path
+    ):
+        f = self._draft(
+            runner, tmp_path, "d.md", "Execute: demo",
+            "--mode", "auto", "--command", "plan-next-step",
+            "--pre-action", "linear.in-progress", "--model", "opus",
+        )
+        result = runner.invoke(task_cli.task, ["promote", str(f)])
+        assert result.exit_code == 0, result.output
+        new_id = result.output.strip()
+        t = model.load(store, "p", new_id)
+        assert t.status == "todo"
+        assert t.title == "Execute: demo"
+        assert t.mode == "auto"
+        assert t.command == "plan-next-step"
+        assert t.pre_action == "linear.in-progress"
+        assert t.model == "opus"
+        # Promotion consumes the draft — it has moved into the notebook.
+        assert not f.exists()
+
+    def test_promote_body_content_becomes_task_content(
+        self, runner, store, tmp_path
+    ):
+        f = self._draft(runner, tmp_path)
+        text = f.read_text().replace(
+            "## Content\n\n", "## Content\n\nThe sculpted plan.\n"
+        )
+        f.write_text(text)
+        result = runner.invoke(task_cli.task, ["promote", str(f)])
+        assert result.exit_code == 0, result.output
+        t = model.load(store, "p", result.output.strip())
+        assert t.content == "The sculpted plan."
+
+    def test_promote_flag_overrides_file_field(self, runner, store, tmp_path):
+        f = self._draft(runner, tmp_path, "d.md", "T", "--mode", "auto")
+        result = runner.invoke(
+            task_cli.task, ["promote", str(f), "--mode", "normal"]
+        )
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", result.output.strip()).mode == "normal"
+
+    def test_promote_wires_follow(self, runner, store, tmp_path):
+        first = model.create(store, project="p", title="first")
+        f = self._draft(runner, tmp_path)
+        result = runner.invoke(
+            task_cli.task, ["promote", str(f), "--follow", first.id]
+        )
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", result.output.strip()).follows == [first.id]
+
+    def test_promote_follow_end_wildcard_appends_to_parent_chain(
+        self, runner, store, monkeypatch, tmp_path
+    ):
+        monkeypatch.setenv("MAEL_TASK_PARENT", "linear.NORT-9")
+        existing = model.create(
+            store, project="p", title="prev", parent="linear.NORT-9"
+        )
+        f = self._draft(runner, tmp_path)
+        result = runner.invoke(
+            task_cli.task, ["promote", str(f), "--follow-end", "*"]
+        )
+        assert result.exit_code == 0, result.output
+        t = model.load(store, "p", result.output.strip())
+        assert t.parent == "linear.NORT-9"
+        assert t.follows == [existing.id]
+
+    def test_promote_missing_file_errors(self, runner, store, tmp_path):
+        result = runner.invoke(
+            task_cli.task, ["promote", str(tmp_path / "absent.md")]
+        )
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower()
+
+    def test_promote_bad_frontmatter_leaves_file(self, runner, store, tmp_path):
+        f = tmp_path / "d.md"
+        f.write_text('---\ntitle: "unclosed\n---\n\nBody.\n')
+        result = runner.invoke(task_cli.task, ["promote", str(f)])
+        assert result.exit_code != 0
+        assert f.exists()
+        assert model.list_tasks(store, project="p") == []
+
+    def test_promote_missing_title_leaves_file(self, runner, store, tmp_path):
+        f = tmp_path / "d.md"
+        f.write_text("---\nmode: auto\n---\n\n## Content\n\nBody.\n")
+        result = runner.invoke(task_cli.task, ["promote", str(f)])
+        assert result.exit_code != 0
+        assert "title" in result.output.lower()
+        assert f.exists()
+        assert model.list_tasks(store, project="p") == []
+
+
 class TestLoadMany:
     def test_creates_chain_with_block_follow(self, runner, store, tmp_path):
         f = tmp_path / "plan.md"

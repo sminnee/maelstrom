@@ -906,6 +906,73 @@ def duplicate(
     )
 
 
+# --- draft files ---
+
+
+def draft_markdown(
+    *,
+    title: str,
+    command: str = "",
+    mode: str = "",
+    model: str = "",
+    branch: str = "",
+    parent: str = "",
+    pre_action: str = "",
+    post_action: str = "",
+    priority: str = "",
+    content: str = "",
+) -> str:
+    """Render a draft task file: a task-file-format recipe outside the notebook.
+
+    A draft carries only the recipe fields; the identity fields (``id``,
+    ``project``, ``created``, ``updated``, ``follows``) stay empty — they are
+    allocated when :func:`parse_draft` + ``create()`` promote it into the store.
+    ``mode``/``priority`` fall back to their defaults so the file states what
+    the promoted task will actually get.
+    """
+    resolved_priority = priority or DEFAULT_PRIORITY
+    validate_priority(resolved_priority)
+    task = Task(
+        id="",
+        title=title,
+        project="",
+        command=command,
+        mode=mode or DEFAULT_MODE,
+        branch=branch,
+        parent=parent,
+        pre_action=pre_action,
+        post_action=post_action,
+        priority=resolved_priority,
+        model=model,
+        content=content,
+    )
+    return task.to_markdown()
+
+
+def parse_draft(text: str) -> Task:
+    """Parse a draft task file into an unsaved :class:`Task`.
+
+    Stricter than ``from_markdown`` where a silent fallback would swallow a
+    user's edit: a YAML error in the frontmatter raises ``ValueError`` instead
+    of degrading to an empty recipe, and a missing title raises too (there is
+    nothing sensible to promote). Missing keys are still fine — a hand-written
+    minimal draft loads with defaults.
+    """
+    import yaml
+
+    # Pre-flight validation only: the result is discarded, and from_markdown
+    # below re-parses tolerantly. Splitting strictly first is what turns a YAML
+    # error into a loud failure instead of an empty recipe.
+    try:
+        _split_frontmatter(text, strict=True)
+    except yaml.YAMLError as e:
+        raise ValueError(f"Invalid draft frontmatter: {e}") from e
+    task = Task.from_markdown(text)
+    if not task.title.strip():
+        raise ValueError("Draft has no title.")
+    return task
+
+
 # --- plan-file (load-many) parsing + batch creation ---
 
 # Frontmatter keys allowed in a `---CREATE TASK---` block. These are
