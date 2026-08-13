@@ -187,6 +187,10 @@ with `mael task add` self-parents and has no Linear issue, so it gets no pre-act
 The block format and the rules behind it are documented in `docs/guide/planning.md`. Read it
 rather than guessing the syntax.
 
+**Show it to the user.** The moment the file first exists, run `richview <plan-file>` — the literal
+path you just wrote to. It opens the plan formatted, so the user reads it as a document instead of
+a diff. `richview` live-updates, so every later edit to that file shows up by itself.
+
 ### 7. Exit plan mode
 
 Present the plan with `ExitPlanMode`, with

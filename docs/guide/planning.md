@@ -18,6 +18,10 @@ Execute session(s) — auto mode, own worktree
 
 The plan file is not a document you then act on by hand. **Its blocks *are* the chain.**
 
+Every planning skill opens the plan file in [`richview`](https://github.com/sminnee/richview) as
+soon as it writes it, so you read the plan formatted. `richview` live-updates, so later edits
+appear without a second command.
+
 ## Starting a plan
 
 From a Linear issue:

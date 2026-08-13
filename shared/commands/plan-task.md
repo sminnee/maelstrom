@@ -59,6 +59,10 @@ it yourself.
    **Plan Structure** below for the templates: single-session = one `iter` execute block;
    multi-session = an `iter1` execute block plus a `tail` `plan-next-step` block.
 
+   **Show it to the user.** The moment the file first exists, run `richview <plan-file>` — the
+   literal path you just wrote to. It opens the plan formatted, so the user reads it as a document
+   instead of a diff. `richview` live-updates, so every later edit to that file shows up by itself.
+
    Then present the plan with ExitPlanMode as usual, with
    `allowedPrompts: [{"tool": "Bash", "prompt": "mael task load-many"}, {"tool": "Bash", "prompt": "mael task status done"}]`.
    The plan file you wrote *is* the chain: approving it runs the three post-approval commands, **in
