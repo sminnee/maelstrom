@@ -14,13 +14,13 @@ not macOS-only, but `mael schedule` is: it drives launchd, and no-ops on other p
 | [cmux](https://github.com/sminnee/cmux) | Manages the workspaces sessions run in. | See the cmux README. |
 | [GitHub CLI](https://cli.github.com/) | Pull requests and CI. | `brew install gh && gh auth login` |
 | [bun](https://bun.sh/) | Runs the session-tracking channel. | `curl -fsSL https://bun.sh/install \| bash` |
-| [richview](https://github.com/sminnee/richview) | Shows plan files formatted. | See the richview README. |
+| [richview](https://github.com/sminnee/richview) | Shows draft task files formatted. | See the richview README. |
 | git | Worktrees. | Preinstalled on macOS. |
 
 Only `uv` and git are needed to create worktrees. You need cmux and Claude Code to launch
 agent sessions, `gh` for pull requests, and `bun` for session tracking. Skip the channel
 with `mael install --no-monitor` if you do not want it. Without `richview` a planning session
-still writes its plan, but you read it unformatted.
+still writes its draft task files, but you read them unformatted.
 
 ## 1. Install maelstrom
 

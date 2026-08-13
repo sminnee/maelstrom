@@ -85,6 +85,12 @@ A `schedule` on a template drives the scheduler.
 **Chain**:
 The sibling tasks that share one parent, ordered by follows, merging as a single pull request.
 
+**Draft**:
+A task file outside the notebook, written by a planning session into the worktree directory.
+A draft is inert — invisible to listing, `next` and follow-end resolution — until
+`mael task promote` creates the real task from it and deletes the file.
+_Avoid_: Proposal, pending task, plan file
+
 ## Sessions
 
 **Session**:

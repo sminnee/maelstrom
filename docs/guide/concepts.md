@@ -160,10 +160,10 @@ These are not peers of the components above. They remove manual steps:
 Linear issue
    │  mael linear plan PROJ-123
    ▼
-Planning session (plan mode, in a cmux workspace)
-   │  writes a plan file whose blocks ARE the chain
+Planning session (normal mode, in a cmux workspace)
+   │  sculpts draft task files with you
    ▼
-mael task status done  →  mael task load-many <plan> --run
+mael task promote <draft>…  →  mael task status done  →  mael task next --run
    │
    ▼
 Execute session (auto mode, own worktree, own ports)
@@ -182,9 +182,9 @@ agents in flight.
 ## Ideas worth internalising
 
 - **One PR per parent.** `parent` groups; `follows` orders; dot-ids express lineage.
-- **Leave `branch:` unset in plan blocks.** Tasks inherit their parent's branch, so every
+- **Leave `branch:` unset on drafts.** Tasks inherit their parent's branch, so every
   iteration accumulates into one pull request.
-- **Plans become tasks.** The plan file *is* the chain.
+- **Drafts become tasks.** A draft is inert until it is promoted into the chain.
 - **Sessions run in cmux workspaces.** `--here` is the local escape hatch.
 - **Close preserves, remove deletes.** `mael close --force` discards nothing.
 - **Thin vertical slices.** Never layer-shaped iterations.

@@ -8,18 +8,21 @@ How a brief becomes a chain of tasks that agents execute.
 Linear issue (or a bare idea)
    │  mael linear plan PROJ-123
    ▼
-Planning session — plan mode, in a cmux workspace
-   │  research → discuss → write a plan file
+Planning session — normal mode, in a cmux workspace
+   │  research → discuss → sculpt draft task files
    ▼
-mael task status done  →  mael task load-many <plan> --run
+mael task promote <draft>…  →  mael task status done  →  mael task next --run
    ▼
 Execute session(s) — auto mode, own worktree
 ```
 
-The plan file is not a document you then act on by hand. **Its blocks *are* the chain.**
+The planning session writes **draft task files**: one file per future task, in the task-file
+format, in the worktree directory. A draft is not in the notebook. It is inert until
+`mael task promote` loads it, so approval is structural — nothing you draft can run until you
+promote it.
 
-Every planning skill opens the plan file in [`richview`](https://github.com/sminnee/richview) as
-soon as it writes it, so you read the plan formatted. `richview` live-updates, so later edits
+The planning skills open each draft in [`richview`](https://github.com/sminnee/richview) as
+soon as they write it, so you read the plan formatted. `richview` live-updates, so later edits
 appear without a second command.
 
 ## Starting a plan
@@ -33,9 +36,9 @@ mael linear plan PROJ-123 --no-run  # create only
 
 `mael linear plan` is a thin wrapper over `mael task add`. It fetches the issue brief, makes
 a `plan-task` task holding the brief as content, parents it under `linear.PROJ-123`, and
-launches a plan-mode session. The planning defaults — `plan-task`, plan mode, the `opus`
-model, the `linear.<ID>` parent, `linear.planned` post-action — are all overridable with the
-matching flag.
+launches the session. The planning defaults — `plan-task`, normal mode, the `opus` model, the
+`linear.<ID>` parent, `linear.planned` post-action — are all overridable with the matching
+flag.
 
 Without a Linear issue, the same thing directly:
 
@@ -50,71 +53,74 @@ parents under the planning task's own id.
 
 The `plan-task` skill runs there. It:
 
-1. Confirms it is in plan mode.
-2. Researches the codebase with Explore sub-agents.
-3. Classifies the work as single-session or multi-session.
-4. Refines the plan with you interactively.
-5. Writes the plan file and presents it with ExitPlanMode.
+1. Researches the codebase with Explore sub-agents.
+2. Classifies the work as single-session or multi-session.
+3. Creates the draft task files early and opens each in `richview`.
+4. Sculpts the drafts with you interactively.
+5. Promotes the drafts once you approve them.
 
 The brief is already in the session's opening prompt. You do not paste it.
 
-Approving the plan runs the hand-off commands. The planning session **does not implement** —
-a separate session owns the work.
+The planning session **does not implement** — a separate session owns the work. The skill
+forbids source edits; the session's only output is the drafts.
+
+## Drafting tasks
+
+`mael task draft` writes a draft file. It takes the same recipe flags as `mael task add`:
+
+```bash
+mael task draft draft-iter1.md "Execute: PROJ-123 — add avatar upload" \
+    --mode auto --pre-action linear.in-progress
+```
+
+The file is a normal task file with the identity fields (`id`, `project`, `created`,
+`follows`) empty. Edit it directly — the `## Content` section is the plan the execute session
+receives. `draft` refuses to overwrite an existing file unless you pass `--force`, so a
+sculpted draft survives a re-run. A hand-written file in the same format works too; the
+command is just the path that guarantees a valid one.
+
+Draft files sit untracked in the worktree while you plan. Promotion consumes them; delete any
+draft you abandon, so it cannot be swept into a later commit.
+
+## Promoting drafts
+
+`mael task promote` creates the task from a draft, prints the new id, and deletes the file:
+
+```bash
+mael task promote draft-iter1.md --follow-end '*'   # prints e.g. linear.PROJ-123.2
+mael task promote draft-tail.md --follow linear.PROJ-123.2
+```
+
+Chain wiring happens here, not in the draft: `--follow` and `--follow-end` run at promote
+time, when the ids they reference exist. Promote in dependency order and feed each printed id
+to the next `--follow`. Any recipe flag overrides the file's value, the same way
+`add --from` flags override the copied recipe. On an error — missing file, bad frontmatter,
+no title — the file is left untouched and no task is created.
 
 ## Single-session vs multi-session
 
 **Single-session** — up to about 1500 lines of new code, landing as several ~500-line
-commits. One execute block:
+commits. One execute draft:
 
-```markdown
----CREATE TASK iter---
-title: "Execute: PROJ-123 — add avatar upload"
-mode: auto
-pre-action: linear.in-progress
-follow-end: "*"
----
-# PROJ-123: Avatar upload
-
-## Context
-...
-## Implementation steps
-...
-## Verification
-...
+```bash
+mael task draft draft-iter.md "Execute: PROJ-123 — add avatar upload" \
+    --mode auto --pre-action linear.in-progress
 ```
+
+Its body carries the full implementation plan: context, steps, seams under test,
+verification.
 
 **Multi-session** — larger, or a mechanical transformation that should land first. One
-concrete execute block plus a `plan-next-step` tail carrying the remaining work:
+concrete execute draft plus a `plan-next-step` tail carrying the remaining work:
 
-```markdown
----CREATE TASK iter1---
-title: "Execute: avatar upload — iteration 1"
-mode: auto
-pre-action: linear.in-progress
-follow-end: "*"
----
-# PROJ-123: Avatar upload — Iteration 1
-
-## Overall goal
-## Architecture & design
-## Iteration 1 scope
-## Verification
-
----CREATE TASK tail---
-title: Plan next step
-command: plan-next-step
-mode: plan
-model: opus
-follow: iter1
----
-## Remaining work
-- ...
-## What should already be done
-- ...
+```bash
+mael task draft draft-tail.md "Plan next step" \
+    --command plan-next-step --mode normal --model opus
 ```
 
-The `tail` block must carry a real remaining-work picture in its body. An empty placeholder
-gives the next planner nothing to work from.
+The tail draft must carry a real remaining-work picture in its body — a `## Remaining work`
+list plus a `## What should already be done` summary. An empty placeholder gives the next
+planner nothing to work from.
 
 ## The rules that make it work
 
@@ -128,48 +134,48 @@ Setting `branch:` opts a task out into its own branch, worktree and PR. That is 
 genuinely unrelated work — not for splitting one task's iterations, which forks a second
 worktree and PR mid-task and gives up the accumulating PR.
 
-### Set `mode:` on every block
+### Set the mode on every draft
 
-New tasks default to plan mode. An execute block that omits `mode: auto` would **re-plan**
+New tasks default to plan mode. An execute draft that omits `--mode auto` would **re-plan**
 instead of running its plan.
 
-- `mode: auto` on every execute block.
-- `mode: plan` on a `plan-next-step` tail block.
+- `--mode auto` on every execute draft.
+- `--mode normal` on a `plan-next-step` tail draft.
 
-### Close the planning task before `load-many --run`
+### Close the planning task before `task next --run`
 
 ```bash
 mael linear set-status PROJ-123 planned   # mirror to Linear
-mael task status done                     # close this planning task FIRST
-mael task load-many <plan-file> --run     # create the chain, launch the head
+mael task promote draft-iter1.md --follow-end '*'
+mael task promote draft-tail.md --follow <id from the line above>
+mael task status done                     # close this planning task
+mael task next --run --parent "$MAEL_TASK_PARENT"   # head now actionable — launches it
 ```
 
-The head block carries `follow-end: "*"`, so it follows the planning task. While the planning
-task is `in-progress`, the head is blocked and `--run` launches **nothing** — silently,
-exiting 0. Closing the planning task first satisfies that dependency.
+The head promotes with `--follow-end '*'`, so it follows the planning task itself. While the
+planning task is `in-progress`, the head is blocked. Closing the planning task satisfies that
+dependency, and `mael task next --run` then launches the head. `--parent` scopes the launch
+to this chain, so an unrelated actionable task cannot be picked instead. `next --run` prints
+the id it launches; when nothing in the chain is actionable it exits non-zero with "No
+actionable task."
 
-The SessionEnd hook also closes the planning task, but it fires *after* `load-many` has run.
-It is not a backstop for this ordering.
+### Chain with `--follow-end` and `--follow`
 
-### Chain with `follow-end` and `follow`
+- `--follow-end '*'` on the **head** promote — append after the current leaf of the parent's
+  child-chain, so the plan queues behind work already chained under the issue.
+- `--follow <id>` on later promotes — the id printed by the promote before it.
 
-- `follow-end: "*"` on the **head** block — append after the current leaf of the parent's
-  child-chain, so the plan queues behind work already chained under the issue. Always quote
-  the `*`.
-- `follow: <block-name>` — intra-file ordering. A block runs only after the named block in
-  the same file.
+Drafts omit `parent:`; it defaults to `$MAEL_TASK_PARENT` at promote time.
 
-Blocks omit `parent:`; it defaults to `$MAEL_TASK_PARENT`.
+### Set the model on the tail, not on execute drafts
 
-### Set `model:` on the tail, not on execute blocks
-
-Pin the tail block to the model the planning session is running, so every planner in the
-chain stays on one model. Planning is where the leverage is. Leave `model:` unset on execute
-blocks so they inherit your default.
+Pin the tail draft to the model the planning session is running, so every planner in the
+chain stays on one model. Planning is where the leverage is. Leave `--model` unset on execute
+drafts so they inherit your default.
 
 ### Lifecycle actions mirror to Linear
 
-- `pre-action: linear.in-progress` on execute blocks — fires when the task launches.
+- `--pre-action linear.in-progress` on execute drafts — fires when the task launches.
 - **Do not set `post-action: linear.done` on execute steps.** The finishing sequence closes
   the task at PR push, before the CI (continuous integration) watch. A post-action would
   therefore flip Linear to Unreleased while CI is still running, overwriting the "In Review"
@@ -214,16 +220,18 @@ already be done. It:
 1. Reconciles what the summary claims against what the repository shows.
 2. Plans **one** concrete next step, biased toward finishing.
 3. Re-cuts a layer-shaped tail vertically rather than reproducing it faithfully.
-4. Decides whether this step is the last one. If so, its plan file has no `tail` block.
-5. Writes a new plan file and hands the refreshed tail to the next planner.
+4. Decides whether this step is the last one. If so, it writes no tail draft.
+5. Sculpts a fresh execute draft (and tail draft, when work remains) with you, then promotes
+   them on approval.
 
-Then the same two commands, in the same order: close, then load.
+Then the same close-and-advance pair: `mael task status done`, `mael task next --run`.
 
 ## Auditing an existing project
 
 `/review-project-hygiene` is a second way into a chain. It does not start from a brief. It
 reads a project that already exists, usually after its first minimum viable product (MVP).
-The skill turns the gaps it finds into a plan file, in the same load-many form as above.
+The skill turns the gaps it finds into a batch of tasks, written as a
+[`load-many`](tasks.md) plan file — the bulk form suited to many similar blocks.
 
 ```bash
 mael task add "Hygiene audit: forecastel" --run
@@ -280,5 +288,5 @@ in the issue description.
 
 ## See also
 
-- [Tasks](tasks.md) — parent, follows, load-many.
+- [Tasks](tasks.md) — parent, follows, drafts, load-many.
 - [Pull requests](pull-requests.md) — how an execute session finishes.

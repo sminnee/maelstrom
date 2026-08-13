@@ -17,7 +17,7 @@ Start from a Linear issue:
 mael linear plan PROJ-123
 ```
 
-This creates a planning task holding the issue brief, then launches a plan-mode session in
+This creates a planning task holding the issue brief, then launches a planning session in
 its own cmux workspace. Without a Linear issue, do the same thing directly:
 
 ```bash
@@ -27,71 +27,58 @@ mael task add "Fix flaky port test" --run
 New tasks default to plan mode, so a bare `--run` opens a planning session.
 
 Inside that session, the agent researches the codebase, discusses the approach with you,
-and writes a **plan file**. The plan file is not a document you then act on by hand — its
-`---CREATE TASK ...---` blocks *are* the chain.
+and sculpts **draft task files** — one file per future task, previewed live with `richview`.
+A draft is inert: it becomes a real task only when it is promoted into the notebook.
 
-### Plans become tasks
+### Drafts become tasks
 
-A plan file is a preamble the reviewer reads, followed by blocks:
+Each draft is a task file with its recipe in the frontmatter and the execute session's plan
+in the body (abridged — `mael task draft` emits every frontmatter key and all three body
+sections):
 
 ```markdown
----CREATE TASK iter1---
+---
 title: "Execute: PROJ-123 — add the upload endpoint"
 mode: auto
 pre-action: linear.in-progress
-follow-end: "*"
 ---
+
+## Content
+
 # PROJ-123: Avatar upload — Iteration 1
 
-## Overall goal
-...
-## Iteration 1 scope
-...
-## Seams under test
-...
-## Verification
-...
-
----CREATE TASK tail---
-title: Plan next step
-command: plan-next-step
-mode: plan
-model: opus
-follow: iter1
----
-## Remaining work
-...
+Overall goal, iteration scope, seams under test, verification…
 ```
 
 Two rules do most of the work here:
 
-- **Set `mode:` on every block.** New tasks default to plan mode, so an execute block that
+- **Set the mode on every draft.** New tasks default to plan mode, so an execute draft that
   omits `mode: auto` re-plans instead of running its plan.
-- **Leave `branch:` unset on every block.** Tasks inherit their parent's branch. That default
+- **Leave `branch:` unset on every draft.** Tasks inherit their parent's branch. That default
   keeps every iteration on one branch, accumulating into a **single pull request** that merges
   as a whole. Setting `branch:` opts a task out into its own worktree and PR — right for
   genuinely unrelated work, wrong for splitting one task's iterations.
 
-### Close the planning task before you load the chain
+### Approval promotes the drafts
 
-Order matters:
+When you approve the plan, the session promotes each draft in dependency order, closes its
+own planning task, and launches the head:
 
 ```bash
-mael task status done                    # close the planning task FIRST
-mael task load-many <plan-file> --run    # create the chain, launch its head
+mael task promote draft-iter1.md --follow-end '*'   # create the head; prints its id
+mael task promote draft-tail.md --follow <that id>  # multi-session only
+mael task status done                               # close the planning task
+mael task next --run --parent "$MAEL_TASK_PARENT"   # head now actionable — launches it
 ```
 
-The head block carries `follow-end: "*"`, so it follows the planning task. While the planning
-task is `in-progress`, the head is blocked and `--run` launches **nothing** — silently,
-exiting 0. Closing the planning task first satisfies that dependency.
-
-The SessionEnd hook also closes the planning task, but it fires *after* `load-many` has run.
-It is not a backstop for this ordering.
+Promotion consumes each draft file and wires the chain (`--follow` / `--follow-end`) at the
+moment ids exist. The head follows the planning task, so closing the planning task is what
+makes the head actionable. `--parent` scopes the launch to this chain, and `next --run`
+prints the id it launches.
 
 ## 2. Chain
 
-`load-many` creates every block as a task and launches the head in a **separate** session.
-That session owns the implementation.
+The promoted head runs in a **separate** session. That session owns the implementation.
 
 Advance the chain with:
 

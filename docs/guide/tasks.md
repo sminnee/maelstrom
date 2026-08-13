@@ -137,10 +137,34 @@ mael task add "..." --post-action linear.done
 Lifecycle actions fire a Linear status change when a task starts or finishes, so the chain
 mirrors itself without manual `set-status` calls.
 
-## Chains from a plan file
+## Drafts and promotion
 
-`mael task load-many` creates a whole chain from a marked plan file. This is how planning
-sessions hand work off — see [planning.md](planning.md).
+A **draft** is a task file outside the notebook. It sits in the worktree directory, invisible
+to `list`, `next`, and follow-end resolution, until `promote` loads it into the store. This
+is how planning sessions hand work off — the draft is sculpted first, then promoted on
+approval. See [planning.md](planning.md).
+
+```bash
+mael task draft d1.md "Execute: add avatar upload" --mode auto \
+    --pre-action linear.in-progress          # write the draft file
+mael task promote d1.md --follow-end '*'     # create the task, print its id, delete the file
+```
+
+`draft` takes the same recipe flags as `add` (`--command`, `--mode`, `--model`,
+`--priority`, `--pre-action`, `--post-action`, `--content-file`, …). It writes a normal task
+file with the identity fields (`id`, `project`, `created`, `follows`) empty, and refuses to
+overwrite an existing file unless you pass `--force`. Edit the file freely — the `## Content`
+section becomes the task's content.
+
+`promote` parses the file, creates the task in `todo`, prints the new id, and deletes the
+file. Chain wiring happens here: `--follow <id>` and `--follow-end '*'` resolve at promote
+time, when the ids exist. Any recipe flag overrides the file's value. On an error — missing
+file, bad frontmatter, no title — the file is left untouched and no task is created.
+
+## Bulk chains with load-many
+
+`mael task load-many` creates a whole chain from one marked plan file — the bulk form used
+by `/review-project-hygiene`, which emits many similar blocks at once.
 
 ```bash
 mael task load-many plan.md            # create the chain
@@ -166,20 +190,9 @@ keeps every iteration on one branch, accumulating into a **single pull request**
 as a whole. Setting `branch:` opts a task out into its own worktree and PR — right for
 genuinely unrelated work, wrong for splitting one task's iterations.
 
-### Close the planning task before `--run`
-
-```bash
-mael task status done                  # FIRST
-mael task load-many plan.md --run      # then
-```
-
-`--run` only launches **actionable** tasks. The head block carries `follow-end: "*"`, so it
-follows the planning task. While the planning task is `in-progress`, the head is blocked and
-`--run` launches **nothing** — silently, exiting 0. Closing the planning task first satisfies
-that dependency.
-
-The SessionEnd hook also closes the planning task, but it fires *after* `load-many` has run.
-It is not a backstop for this ordering.
+`--run` only launches **actionable** tasks. A block that follows a task still `in-progress`
+— for example via `follow-end: "*"` while the session that loaded it is running — stays in
+`todo` until that task closes; advance it later with `mael task next --run`.
 
 ## Advancing a chain
 
@@ -249,6 +262,6 @@ mael task reindex
 
 ## See also
 
-- [Planning](planning.md) — how plan files become chains.
+- [Planning](planning.md) — how drafts become chains.
 - [Scheduled work](scheduled-work.md) — templates and cron.
 - [The task domain model](../dev/tasks.md) — the developer-level view.
