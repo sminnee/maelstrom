@@ -183,6 +183,8 @@ The task notebook. See [tasks.md](../guide/tasks.md).
 | Command | Description |
 |---|---|
 | `mael task add [TITLE]` | Create a task and print its id. |
+| `mael task draft FILE [TITLE]` | Write a draft task file — a task recipe outside the notebook. |
+| `mael task promote FILE` | Create a task from a draft file, print its id, delete the file. |
 | `mael task load-many FILE` | Create a chain of tasks from a marked plan file. `-` reads stdin. |
 | `mael task next` | Print the id of the next actionable task. |
 | `mael task run ID` | Launch a task as a Claude session. Creates its worktree first. |
@@ -241,6 +243,49 @@ short form `-p`; every other task command takes `--project` in full.
 | `-e`, `--edit` | Open the new task in `$EDITOR` after creating it. |
 | `-r`, `--run` | Launch the task as a session immediately. |
 | `--here` | With `--run`, launch in the current shell. No worktree, no new workspace. |
+
+**`mael task draft`**
+
+Writes a task file to `FILE` instead of the store. The file is inert — invisible to `list`,
+`next` and follow-end resolution — until `mael task promote` loads it. Identity fields
+(`id`, `project`, `created`, `follows`) stay empty; they are allocated at promote time.
+
+`TITLE` is required. The recipe flags are the same as `add`'s (`-c`/`--command`,
+`-m`/`--mode`, `-b`/`--branch`, `-P`/`--parent`, `--pre-action`, `--post-action`,
+`--priority`, `--model`, `--content-file`), plus:
+
+| Option | Description |
+|---|---|
+| `--force` | Overwrite `FILE` if it already exists. Without it an existing file is an error. |
+
+`draft` has no `--follow`, `--follow-end`, `--run` or `--template` — chain wiring and
+launching happen at promote time. Prints the path it wrote.
+
+```bash
+mael task draft d1.md "Execute: add avatar upload" --mode auto \
+    --pre-action linear.in-progress
+```
+
+**`mael task promote`**
+
+Parses a draft file, creates the task in `todo`, prints the new id, and deletes the file.
+Recipe fields come from the file; any flag given here overrides the file's value (the same
+semantics as `add --from`). On an error — missing file, bad frontmatter, no title — the file
+is left untouched and no task is created.
+
+Takes `--project` and the recipe flags (`-c/--command`, `-m/--mode`, `-b/--branch`,
+`-P/--parent`, `--pre-action`, `--post-action`, `--priority`, `--model`). There is no
+`--content-file` — the draft's body already carries the content. Plus:
+
+| Option | Description |
+|---|---|
+| `--follow TEXT` | Id the new task follows. Repeatable. |
+| `--follow-end TEXT` | Follow the end leaves of the given id's follows-chain. Repeatable. Quote `"*"`. |
+
+```bash
+id=$(mael task promote d1.md --follow-end '*')   # capture the id to chain the next promote
+mael task promote d2.md --follow "$id"
+```
 
 **`mael task update`**
 
@@ -330,14 +375,12 @@ Set `mode: auto` on every execute block — the default is plan mode, so a block
 re-plans instead of running. Leave `branch:` unset so the chain shares one branch and one PR.
 
 ```bash
-mael task status done                  # close the planning task FIRST
-mael task load-many plan.md --run      # then create the chain and launch its head
+mael task load-many plan.md --run      # create the chain and launch every actionable task
 mael task load-many - --run            # read the plan from stdin
 ```
 
-Closing the planning task first is what makes the head actionable. The head block follows the
-planning task, so `--run` launches nothing — silently, exiting 0 — while that task is still
-`in-progress`.
+`--run` only launches **actionable** tasks. A block that follows a task still `in-progress`
+stays in `todo`; advance it later with `mael task next --run`.
 
 **`mael task status`**
 
@@ -567,7 +610,7 @@ block-settable options as `mael task add` — `--project`, `-c/--command`, `-m/-
 |---|---|
 | `--run` / `--no-run` | Launch the planning session immediately. Default: run. |
 
-The planning defaults (`plan-task` command, `plan` mode, `opus` model, the
+The planning defaults (`plan-task` command, `normal` mode, `opus` model, the
 `linear.<ID>` parent, `linear.planned` post-action) are defaults the matching flag
 overrides. Passing an explicit empty value, e.g. `--post-action ''`, clears the field.
 

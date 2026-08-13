@@ -55,12 +55,12 @@ advance the chain.
 
 - `mael linear plan PROJ-XXX` is a thin wrapper over `mael task add` that seeds a `plan-task`
   task with the Linear brief as content, parented under `linear.PROJ-XXX`. It runs by default.
-  It launches the `plan-task` skill in plan mode, holding the brief.
-- The plan file that session writes *is* the chain (a marked `load-many` file). After
-  ExitPlanMode approval it marks its own planning task done **first**, then runs
-  `mael task load-many <plan-file> --run` to create the chain and launch its head. Closing the
-  planning task first is what makes the head actionable — see `plan-task.md` for why `--run`
-  launches nothing otherwise.
+  It launches the `plan-task` skill in normal mode, holding the brief.
+- That session sculpts **draft task files** with the user — inert task files in the worktree
+  cwd (see the `planning` skill). On approval it runs `mael task promote <draft>` per file to
+  create the chain, closes its own planning task (`mael task status done`), then
+  `mael task next --run --parent "$MAEL_TASK_PARENT"` launches the head. Closing the planning
+  task first is what makes the head actionable — the head follows it via `--follow-end '*'`.
 - The head is an **Execute** task: the plan is its content, it runs no skill, and it carries
   `mode: auto` so it runs the plan unattended instead of re-planning. Multi-session work also
   gets a **`plan-next-step`** task carrying the remaining-work tail, which plans one more
@@ -69,10 +69,10 @@ advance the chain.
   out — see the task-completion flow below.
 
 **Modes.** New tasks default to plan mode, so a bare `mael task add "<title>" --run` opens a
-planning session. `--mode auto` gives an unattended execute session (Claude's classifier-vetted
-auto permission mode — `⏵⏵ auto mode on`); `--mode normal` gives a direct execute session that
-prompts on each action. In a `load-many` plan file each block may carry a `mode:` key: Execute
-blocks set `mode: auto`, planning blocks omit it or set `mode: plan`.
+planning session. `--mode auto` gives an unattended session (Claude's classifier-vetted
+auto permission mode — `⏵⏵ auto mode on`); `--mode normal` gives a session with Claude's
+default prompting — used both for direct execute work and for planning sessions that write
+drafts. Execute drafts set `--mode auto`; `plan-next-step` tail drafts set `--mode normal`.
 
 **Chaining.** `--follow` and `--follow-end` build the chain — a task becomes actionable only once
 everything it follows is done. `--follow-end '*'` appends after the leaf of the parent's existing

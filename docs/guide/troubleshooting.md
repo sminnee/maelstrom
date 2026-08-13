@@ -104,21 +104,9 @@ Reconcile corrects three mismatches:
 
 ## Tasks
 
-### `load-many --run` launched nothing, and exited 0
-
-The head block follows the planning task. While that task is `in-progress`, the head is
-blocked, and `--run` launches nothing — silently.
-
-Close the planning task **first**:
-
-```bash
-mael task status done
-mael task load-many plan.md --run
-```
-
 ### An execute task re-planned instead of implementing
 
-Its block omitted `mode: auto`. New tasks default to plan mode.
+Its draft omitted `--mode auto`. New tasks default to plan mode.
 
 ```bash
 mael task update <id> --mode auto
@@ -126,8 +114,8 @@ mael task update <id> --mode auto
 
 ### Iterations opened separate pull requests
 
-A block set `branch:`. Tasks must inherit their parent's branch to accumulate into one PR.
-Leave `branch:` unset on plan blocks.
+A task set `branch:`. Tasks must inherit their parent's branch to accumulate into one PR.
+Leave `branch:` unset on drafts.
 
 ### `mael task next` returns nothing
 
