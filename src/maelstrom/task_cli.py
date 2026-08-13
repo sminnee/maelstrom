@@ -1494,7 +1494,7 @@ def task_status() -> None:
 
 
 def _status_command(name: str, status: str, help_text: str):
-    @task_status.command(name)
+    @task_status.command(name, help=help_text)
     @click.argument("id", required=False)
     @click.option("--project", default=None, help="Project name (default: from cwd).")
     def _cmd(id: str | None, project: str | None) -> None:
@@ -1527,7 +1527,6 @@ def _status_command(name: str, status: str, help_text: str):
                     )
                     click.echo(f"  {nxt.id}{title}")
 
-    _cmd.__doc__ = help_text
     return _cmd
 
 

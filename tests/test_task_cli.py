@@ -1523,6 +1523,14 @@ class TestStatus:
         result = runner.invoke(task_cli.task, ["done", t.id])
         assert result.exit_code != 0
 
+    def test_group_help_describes_each_subcommand(self, runner):
+        # _status_command generates these, so the help text has to reach the
+        # decorator: Click reads it when it builds the Command.
+        result = runner.invoke(task_cli.task, ["status", "--help"])
+        assert result.exit_code == 0, result.output
+        assert "Move a task to in-progress." in result.output
+        assert "Park a task as a reusable template." in result.output
+
 
 class TestGetStatus:
     def test_prints_bare_status(self, runner, store):
