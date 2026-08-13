@@ -824,7 +824,7 @@ def cmd_plan(
 
     Every block-settable field is exposed via the shared ``block_task_options``
     decorator, so this command's vocabulary can't drift from ``task add``'s. The
-    planning-specific values (``plan-task``/``plan`` mode/``opus``/the
+    planning-specific values (``plan-task``/``normal`` mode/``opus``/the
     ``linear.<ID>`` parent/``linear.planned``) are *defaults* the matching flag
     overrides; only ``title`` stays fixed at ``Plan <identifier>``. The options
     default to ``None`` (``distinguish_unset``) rather than ``''``, so passing an
@@ -868,8 +868,9 @@ def cmd_plan(
         title=f"Plan {identifier}",
         project=resolved_project,
         command="plan-task" if command is None else command,
-        # Planning always runs in plan mode, independent of DEFAULT_MODE.
-        mode="plan" if mode is None else mode,
+        # Planning runs in normal mode: the session's deliverable is draft task
+        # files, and the plan-task skill (not plan mode) forbids code edits.
+        mode="normal" if mode is None else mode,
         # Planning runs on Opus by default: the plan is the leverage point, and
         # the sessions the chain goes on to launch inherit their own model.
         model="opus" if model is None else model,

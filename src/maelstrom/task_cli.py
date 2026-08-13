@@ -378,7 +378,9 @@ def _option_specs():
         yield spec, opt
 
 
-def block_task_options(f=None, *, distinguish_unset: bool = False):
+def block_task_options(
+    f=None, *, distinguish_unset: bool = False, follows: bool = True
+):
     """Apply the click options for every block-settable field, plus
     --follow/--follow-end. Mirrors _BLOCK_KEYS so the CLI vocabulary and the
     load-many block vocabulary cannot drift.
@@ -394,16 +396,20 @@ def block_task_options(f=None, *, distinguish_unset: bool = False):
     "flag not passed" from an explicit ``--post-action ''`` meaning "clear it".
     Without it an empty value is indistinguishable from unset, and the command's
     default would silently win — see ``cmd_plan``.
+
+    ``follows=False`` drops the --follow/--follow-end addendum for a command
+    that has nothing to wire (``task draft``: chain wiring happens at promote
+    time, when ids exist).
     """
     unset = None if distinguish_unset else ""
 
     def wrap(f):
-        return _apply_block_options(f, unset)
+        return _apply_block_options(f, unset, follows=follows)
 
     return wrap if f is None else wrap(f)
 
 
-def _apply_block_options(f, unset: str | None):
+def _apply_block_options(f, unset: str | None, *, follows: bool = True):
     """Attach one click option per block-settable field. See the caller above."""
     decorators = []
     for spec, opt in _option_specs():
@@ -424,18 +430,19 @@ def _apply_block_options(f, unset: str | None):
     # The follow keys are not task fields (they resolve into `follows` at
     # creation time), so they ride as an explicit addendum — exactly as
     # ``_BLOCK_KEYS`` unions them in.
-    decorators.append(
-        click.option(
-            "--follow", "follows", multiple=True,
-            help="Id this task follows (repeatable).",
+    if follows:
+        decorators.append(
+            click.option(
+                "--follow", "follows", multiple=True,
+                help="Id this task follows (repeatable).",
+            )
         )
-    )
-    decorators.append(
-        click.option(
-            "--follow-end", "follow_ends", multiple=True,
-            help="Follow the end leaves of the given id's follows-chain (repeatable).",
+        decorators.append(
+            click.option(
+                "--follow-end", "follow_ends", multiple=True,
+                help="Follow the end leaves of the given id's follows-chain (repeatable).",
+            )
         )
-    )
     for decorator in reversed(decorators):
         f = decorator(f)
     return f
@@ -674,6 +681,120 @@ def add_task(
     if run:
         _run_task(store, proj, new, here=here, fresh=True)
     return new
+
+
+@task.command("draft")
+@click.argument("file")
+@click.argument("title", required=False, default=None)
+@block_task_options(follows=False)
+@click.option(
+    "--content-file",
+    default=None,
+    help="File whose contents become the draft's Content section ('-' reads stdin).",
+)
+@click.option(
+    "--force", is_flag=True, help="Overwrite FILE if it already exists."
+)
+def task_draft(
+    file: str,
+    title: str | None,
+    command: str,
+    mode: str,
+    model: str,  # the --model flag; shadows the module alias (see add_task)
+    priority: str | None,
+    branch: str,
+    parent: str,
+    pre_action: str,
+    post_action: str,
+    content_file: str | None,
+    force: bool,
+) -> None:
+    """Write a draft task file — a task recipe outside the notebook.
+
+    The draft is inert until ``mael task promote FILE`` loads it into the
+    store; edit it freely in the meantime. Chain wiring (--follow/--follow-end)
+    and launching happen at promote time.
+    """
+    if not (title and title.strip()):
+        raise click.ClickException("A title is required.")
+    path = Path(file)
+    if path.exists() and not force:
+        raise click.ClickException(
+            f"File exists: {file} (pass --force to overwrite)."
+        )
+    content = _read_content_file(content_file)
+    try:
+        text = task_model.draft_markdown(
+            title=title,
+            command=command,
+            mode=mode,
+            model=model,
+            priority=priority or "",
+            branch=branch,
+            parent=parent,
+            pre_action=pre_action,
+            post_action=post_action,
+            content=content,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
+    path.write_text(text)
+    click.echo(file)
+
+
+@task.command("promote")
+@click.argument("file")
+@click.option(
+    "-p", "--project", default=None, help="Project name (default: from cwd)."
+)
+@block_task_options(distinguish_unset=True)
+def task_promote(
+    file: str,
+    project: str | None,
+    command: str | None,
+    mode: str | None,
+    model: str | None,  # the --model flag; shadows the module alias (see add_task)
+    priority: str | None,
+    branch: str | None,
+    parent: str | None,
+    pre_action: str | None,
+    post_action: str | None,
+    follows: tuple[str, ...],
+    follow_ends: tuple[str, ...],
+) -> None:
+    """Create a task from a draft file, then delete the file.
+
+    The draft's recipe fields seed the task; any flag given here overrides the
+    file's value (same semantics as ``add --from``). --follow/--follow-end wire
+    the chain at this moment, when the ids they reference exist. Prints the new
+    task's id. A draft that fails to parse is left untouched with no task
+    created; the file is deleted only after the task exists in the store.
+    """
+    path = Path(file)
+    if not path.is_file():
+        raise click.ClickException(f"Draft file not found: {file}")
+    try:
+        draft = task_model.parse_draft(path.read_text())
+    except ValueError as e:
+        raise click.ClickException(f"{file}: {e}")
+    add_task(
+        title=draft.title,
+        project=project,
+        command=command if command is not None else draft.command,
+        mode=mode if mode is not None else draft.mode,
+        model=model if model is not None else draft.model,
+        priority=priority if priority is not None else draft.priority,
+        branch=branch if branch is not None else draft.branch,
+        parent=parent if parent is not None else draft.parent,
+        pre_action=pre_action if pre_action is not None else draft.pre_action,
+        post_action=post_action if post_action is not None else draft.post_action,
+        follows=follows,
+        follow_ends=follow_ends,
+        content=draft.content,
+    )
+    # The draft has moved into the notebook; consume it so nothing stale
+    # lingers in the worktree.
+    path.unlink()
 
 
 @task.command("load-many")

@@ -94,6 +94,30 @@ class TestCmdPlan:
     @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
     @patch("maelstrom.task_cli.add_task")
     @patch("maelstrom.integrations.linear.get_issue")
+    def test_plan_defaults_to_normal_mode(self, mock_get, mock_add):
+        # The planning session writes draft task files in normal permission
+        # mode; the skill prompt, not plan mode, forbids code edits.
+        mock_get.return_value = {
+            "identifier": "ME-99", "title": "T", "description": "",
+        }
+        result = CliRunner().invoke(linear, ["plan", "ME-99"])
+        assert result.exit_code == 0, result.output
+        assert mock_add.call_args.kwargs["mode"] == "normal"
+
+    @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
+    @patch("maelstrom.task_cli.add_task")
+    @patch("maelstrom.integrations.linear.get_issue")
+    def test_plan_explicit_mode_overrides_default(self, mock_get, mock_add):
+        mock_get.return_value = {
+            "identifier": "ME-99", "title": "T", "description": "",
+        }
+        result = CliRunner().invoke(linear, ["plan", "ME-99", "--mode", "plan"])
+        assert result.exit_code == 0, result.output
+        assert mock_add.call_args.kwargs["mode"] == "plan"
+
+    @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
+    @patch("maelstrom.task_cli.add_task")
+    @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_flags_override_the_planning_defaults(self, mock_get, mock_add):
         # Every hardcoded planning value is now a *default* the matching flag
         # overrides — the point of applying the shared decorator here.

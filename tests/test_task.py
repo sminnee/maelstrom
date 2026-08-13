@@ -187,6 +187,76 @@ class TestRoundTrip:
         assert back.post_action == ""
 
 
+# --- draft files ---
+
+
+class TestDraftMarkdown:
+    def test_recipe_fields_round_trip(self):
+        text = model.draft_markdown(
+            title="Execute: demo",
+            command="plan-next-step",
+            mode="auto",
+            model="opus",
+            priority="high",
+            pre_action="linear.in-progress",
+            post_action="linear.done",
+            content="The plan body.",
+        )
+        back = Task.from_markdown(text)
+        assert back.title == "Execute: demo"
+        assert back.command == "plan-next-step"
+        assert back.mode == "auto"
+        assert back.model == "opus"
+        assert back.priority == "high"
+        assert back.pre_action == "linear.in-progress"
+        assert back.post_action == "linear.done"
+        assert back.content == "The plan body."
+
+    def test_identity_fields_are_empty(self):
+        # A draft is not in the notebook: no id/project/timestamps, and no
+        # follows — chain wiring happens at promote time.
+        text = model.draft_markdown(title="T")
+        back = Task.from_markdown(text)
+        assert back.id == ""
+        assert back.project == ""
+        assert back.created == ""
+        assert back.updated == ""
+        assert back.follows == []
+
+    def test_unset_mode_and_priority_take_defaults(self):
+        back = Task.from_markdown(model.draft_markdown(title="T"))
+        assert back.mode == model.DEFAULT_MODE
+        assert back.priority == model.DEFAULT_PRIORITY
+
+    def test_invalid_priority_rejected(self):
+        with pytest.raises(ValueError):
+            model.draft_markdown(title="T", priority="urgent")
+
+
+class TestParseDraft:
+    def test_parses_a_drafted_file(self):
+        text = model.draft_markdown(title="T", mode="auto")
+        t = model.parse_draft(text)
+        assert t.title == "T"
+        assert t.mode == "auto"
+
+    def test_minimal_hand_written_draft_loads(self):
+        # from_markdown tolerates missing keys, so a hand-written draft with
+        # only a title still parses; unset fields take their defaults.
+        t = model.parse_draft("---\ntitle: Quick fix\n---\n\n## Content\n\nBody.\n")
+        assert t.title == "Quick fix"
+        assert t.mode == model.DEFAULT_MODE
+        assert t.content == "Body."
+
+    def test_missing_title_raises(self):
+        with pytest.raises(ValueError, match="title"):
+            model.parse_draft("---\nmode: auto\n---\n\n## Content\n\nBody.\n")
+
+    def test_bad_frontmatter_raises(self):
+        with pytest.raises(ValueError):
+            model.parse_draft('---\ntitle: "unclosed\n---\n\nBody.\n')
+
+
 # --- id allocation ---
 
 
