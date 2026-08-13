@@ -1524,6 +1524,78 @@ class TestStatus:
         assert result.exit_code != 0
 
 
+class TestGetStatus:
+    def test_prints_bare_status(self, runner, store):
+        # The status line embeds the output verbatim, so it must be the status
+        # word alone — no label, no id.
+        t = model.create(store, project="p", title="t")
+        model.move(store, "p", t.id, model.STATUS_IN_PROGRESS)
+        result = runner.invoke(task_cli.task, ["get-status", t.id])
+        assert result.exit_code == 0, result.output
+        assert result.output == f"{model.STATUS_IN_PROGRESS}\n"
+
+    def test_env_fallback(self, runner, store, monkeypatch):
+        t = model.create(store, project="p", title="t")
+        monkeypatch.setenv("MAEL_TASK_ID", t.id)
+        result = runner.invoke(task_cli.task, ["get-status"])
+        assert result.exit_code == 0, result.output
+        assert result.output == f"{model.STATUS_TODO}\n"
+
+    def test_no_id_and_no_env_errors(self, runner, store, monkeypatch):
+        model.create(store, project="p", title="t")
+        monkeypatch.delenv("MAEL_TASK_ID", raising=False)
+        result = runner.invoke(task_cli.task, ["get-status"])
+        assert result.exit_code != 0
+        assert "No task id" in result.output
+
+    def test_unknown_id_errors(self, runner, store, monkeypatch):
+        monkeypatch.delenv("MAEL_TASK_ID", raising=False)
+        result = runner.invoke(task_cli.task, ["get-status", "nope"])
+        assert result.exit_code != 0
+        assert "Task not found" in result.output
+
+
+class TestCurrent:
+    def test_prints_id_and_status(self, runner, store, monkeypatch):
+        t = model.create(store, project="p", title="t")
+        model.move(store, "p", t.id, model.STATUS_IN_PROGRESS)
+        monkeypatch.setenv("MAEL_TASK_ID", t.id)
+        result = runner.invoke(task_cli.task, ["current"])
+        assert result.exit_code == 0, result.output
+        assert result.output == f"{t.id}:{model.STATUS_IN_PROGRESS}\n"
+
+    def test_outside_a_task_session_prints_nothing(self, runner, store, monkeypatch):
+        model.create(store, project="p", title="t")
+        # A prompt calls this on every redraw, so "no task" is an ordinary
+        # answer: empty output, exit 0 — never an error.
+        monkeypatch.delenv("MAEL_TASK_ID", raising=False)
+        result = runner.invoke(task_cli.task, ["current"])
+        assert result.exit_code == 0, result.output
+        assert result.output == "\n"
+
+    def test_outside_a_project_dir_prints_nothing(self, runner, store, monkeypatch):
+        # A prompt runs from anywhere, including outside any project, where
+        # _resolve_project raises. The store fixture stubs that call out, so
+        # override it to get the real failure back.
+        def _boom(project):
+            raise ValueError("Could not determine project.")
+
+        monkeypatch.setattr(task_cli, "_resolve_project", _boom)
+        monkeypatch.setenv("MAEL_TASK_ID", "2026-06-11.3")
+        result = runner.invoke(task_cli.task, ["current"])
+        assert result.exit_code == 0, result.output
+        assert result.output == "\n"
+
+    def test_vanished_task_prints_nothing(self, runner, store, monkeypatch):
+        # The id outlives the task if it is deleted mid-session. The prompt must
+        # still render, so degrade to empty rather than failing.
+        model.create(store, project="p", title="t")
+        monkeypatch.setenv("MAEL_TASK_ID", "nope")
+        result = runner.invoke(task_cli.task, ["current"])
+        assert result.exit_code == 0, result.output
+        assert result.output == "\n"
+
+
 class TestEnvThreading:
     def test_run_threads_task_id_and_parent_env(self, runner, store, launch):
         # A child task carries a parent; both ids should reach the session env.

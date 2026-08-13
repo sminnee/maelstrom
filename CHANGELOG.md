@@ -10,6 +10,13 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+### Added
+
+- **Read a task's status.** `mael task get-status [ID]` prints the status word by itself, and
+  falls back to `$MAEL_TASK_ID` like the other task commands. `mael task current` prints the
+  session's task as `ID:STATUS`, for a shell prompt or status line: it prints an empty line and
+  exits 0 when there is no task, so a prompt keeps rendering wherever it runs.
+
 ## [0.1.2] - 2026-08-11
 
 ### Added

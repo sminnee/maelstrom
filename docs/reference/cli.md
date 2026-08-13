@@ -188,6 +188,8 @@ The task notebook. See [tasks.md](../guide/tasks.md).
 | `mael task run ID` | Launch a task as a Claude session. Creates its worktree first. |
 | `mael task list` | List actionable tasks. |
 | `mael task show ID` | Show a summary of a task. |
+| `mael task get-status [ID]` | Print a task's status alone. Defaults to `$MAEL_TASK_ID`. |
+| `mael task current` | Print the session's task as `ID:STATUS`, for a shell prompt. Prints an empty line outside a task session. |
 | `mael task read ID` | Print the raw task file. |
 | `mael task edit ID` | Open the task file in `$EDITOR` (default `vi`). Commits if it changed. |
 | `mael task update ID [TITLE]` | Update a task's fields. |
