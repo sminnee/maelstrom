@@ -62,6 +62,10 @@ reality, plan the top item, and hand the next planner an updated tail.
      remaining-work list. That decision picks the plan template (final = no `tail`).
    - Write a **load-many plan file** (e.g. `next.md`) using the matching template in
      **Plan templates** below.
+   - **Show it to the user.** The moment the file first exists, run `richview <plan-file>` — the
+     literal path you just wrote to. It opens the plan formatted, so the user reads it as a
+     document instead of a diff. `richview` live-updates, so every later edit to that file shows
+     up by itself.
 
    Then present the plan with ExitPlanMode as usual, with
    `allowedPrompts: [{"tool": "Bash", "prompt": "mael task load-many"}, {"tool": "Bash", "prompt": "mael task status done"}]`.
