@@ -101,6 +101,7 @@ deliberate local-shell escape hatch.
 | [The multi-agent workflow](docs/guide/multi-agent-workflow.md) | The core loop: plan → chain → parallel sessions → PR |
 | [cmux workspaces](docs/guide/cmux-workspaces.md) | Workspaces, the three-pane layout, `--here` |
 | [Worktrees](docs/guide/worktrees.md) | Lifecycle, naming, recycling, close vs remove |
+| [Reading `mael list`](docs/guide/listing.md) | What each column means, and where each fact comes from |
 | [Dev environments](docs/guide/dev-environments.md) | `services:`, engines, ports, `.env` |
 | [Tasks](docs/guide/tasks.md) | Tasks, `parent`/`follows`, `load-many`, chains |
 | [Planning](docs/guide/planning.md) | Linear plan → plan-task → chain → PR |

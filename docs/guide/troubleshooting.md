@@ -8,7 +8,7 @@ sections, this page is organised by subsystem — find the heading that matches 
 ```bash
 mael doctor            # project health, with automatic fixes
 mael cmux status       # can maelstrom reach cmux?
-mael list              # worktrees, branches, PRs, sessions
+mael list              # what every worktree is doing — see listing.md
 mael session list      # live Claude sessions
 mael task reconcile    # do tasks and sessions agree?
 ```

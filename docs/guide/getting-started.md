@@ -196,7 +196,7 @@ mael task add "Quick fix" --run --here
 Watch what is running:
 
 ```bash
-mael list             # worktrees, branches, PRs, app URLs, sessions
+mael list             # what every worktree is doing — see listing.md
 mael task list        # tasks you can start now
 mael session list     # live Claude sessions
 ```

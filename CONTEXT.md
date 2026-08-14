@@ -49,6 +49,17 @@ Delete the worktree folder and free its port allocation. The branch survives.
 The state that makes a worktree available for recycling: detached HEAD, no dirty files, and no
 commits ahead of `origin/main`.
 
+**Dirty file**:
+A file `git status` reports as changed in a worktree, staged or unstaged. `.env` is excluded,
+because maelstrom generates it — a changed `.env` is not the agent's work.
+_Avoid_: Modified file, uncommitted change
+
+**Local commit**:
+A commit that exists only on this machine, measured against `origin/<branch>`. A local commit
+is work that would be lost with the disk. A branch that is pushed has no local commits, however
+far ahead of main it is.
+_Avoid_: Unpushed commit, commit ahead
+
 ## Task notebook
 
 **Task**:
