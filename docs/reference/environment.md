@@ -80,10 +80,25 @@ A **task-backed** launch — `mael task run` or `mael task next --run` — expor
 |---|---|
 | `MAEL_TASK_ID` | The launched task's id. `mael task status done` and `mael task get-status` fall back to it, so a session can close its own task without naming it. `mael task current` reports it as `ID:STATUS`. |
 | `MAEL_TASK_PARENT` | The launching task's `parent`, or its own id when it has none. New tasks default their `--parent` to it, so a session's follow-ups continue the same chain and land in the same PR. |
-| `MAEL_SESSION_ID` | The deterministic Claude session id. No Python reads it — the only consumer is the session-channel, which records it in the `~/.maelstrom` registry because Claude Code does not export `CLAUDE_SESSION_ID` to subprocesses. |
+| `MAEL_TASK_SESSION_ID` | The task's derived Claude session id — a **task key, not a reference to the session running now**. No Python reads it. The only consumer is the session-channel, which uses it to key the task's file in the `~/.maelstrom` registry. |
 
-`MAEL_SESSION_ID` rides on the `claude` command line rather than in the environment dict
+`MAEL_TASK_SESSION_ID` rides on the `claude` command line rather than in the environment dict
 beside `MAEL_TASK_ID`, but a task-backed launch is the only path that sets any of the three.
+
+**Two session ids answer two different questions.** Use the one that matches your question:
+
+| Question | Variable | Behaviour |
+|---|---|---|
+| Which task is this? | `MAEL_TASK_SESSION_ID` | Derived from the task. Set before the session starts, and never changes. |
+| Which conversation is running now? | `CLAUDE_CODE_SESSION_ID` | Set by Claude Code. A `/clear` starts a new conversation and moves it. |
+
+`CLAUDE_CODE_SESSION_ID` is Claude Code's own variable, not maelstrom's, and every session has it.
+`mael session info` and `mael session end` read it to find the session you run them in. Those
+commands fall back to `CLAUDE_PID` — also Claude Code's — because a `/clear` leaves the live id in
+no command line, so the pid is the only handle that always resolves.
+
+Do not use `MAEL_TASK_SESSION_ID` to name the session you are in. It holds the id the session
+started with, which is right until a `/clear` and points at a finished transcript after one.
 
 **`mael open` and `mael claude` set none of them.** Those commands launch a plain session with
 no task attached. `mael task status done` in such a session fails with "No task id given and

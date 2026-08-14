@@ -622,6 +622,29 @@ class TestSessionList:
         assert result.exit_code == 0, result.output
         assert "4242" in result.output
 
+    def test_id_column_shows_the_session_id_prefix(self, tmp_path):
+        # The ID column is what makes a listed session addressable: it prints the
+        # first 8 characters, which is what `session info <prefix>` takes.
+        sess = _live(4242, "/w/alpha")
+        sess.session_id = "97894d02-f335-5ea3-9d9f-050330a4902b"
+        with _patch_maelstrom_dir(tmp_path), _patch_live([sess]):
+            result = CliRunner().invoke(cli, ["session", "list"])
+        assert result.exit_code == 0, result.output
+        assert "ID" in result.output
+        assert "97894d02" in result.output
+
+    def test_id_column_blank_for_a_bare_claude(self, tmp_path):
+        # A session started outside mael carries no --session-id. The ID cell
+        # must be empty rather than "None" — the pid is how you name it.
+        with _patch_maelstrom_dir(tmp_path), _patch_live([_live(4242, "/w/alpha")]):
+            result = CliRunner().invoke(cli, ["session", "list"])
+        assert result.exit_code == 0, result.output
+        assert "None" not in result.output
+        row = next(line for line in result.output.splitlines() if "4242" in line)
+        header = result.output.splitlines()[0]
+        start = header.index("ID")
+        assert row[start:start + len("ID")].strip() == ""
+
 
 class TestLivenessCheck:
     def test_zero_port_is_dead(self):
@@ -640,3 +663,203 @@ class TestLivenessCheck:
             assert session_cli._liveness_check(port) is True
         finally:
             srv.close()
+
+
+class TestSessionInfo:
+    """``mael session info [ID]`` — the fields for one session.
+
+    The handle defaults from the environment, so the four cases are the same
+    ones ``TestGetStatus`` pins for ``mael task get-status``: explicit argument,
+    environment fallback, neither, and an unknown id.
+    """
+
+    _SID = "97894d02-f335-5ea3-9d9f-050330a4902b"
+
+    @pytest.fixture(autouse=True)
+    def _fresh_index(self, monkeypatch):
+        monkeypatch.setattr(
+            session_cli, "_task_index", lambda: SqliteTaskIndex(":memory:")
+        )
+        # A session command must never read the ambient session env of the
+        # process running the tests.
+        monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+        monkeypatch.delenv("CLAUDE_PID", raising=False)
+
+    def _sess(self, pid=4242, cwd="/w/alpha", session_id=None):
+        s = _live(pid, cwd)
+        s.session_id = session_id
+        return s
+
+    def test_explicit_id_shows_the_session(self, tmp_path):
+        with _patch_maelstrom_dir(tmp_path), _patch_live(
+            [self._sess(session_id=self._SID)]
+        ):
+            result = CliRunner().invoke(cli, ["session", "info", self._SID])
+        assert result.exit_code == 0, result.output
+        assert self._SID in result.output
+        assert "4242" in result.output
+        assert "/w/alpha" in result.output
+
+    def test_resolves_an_id_prefix(self, tmp_path):
+        with _patch_maelstrom_dir(tmp_path), _patch_live(
+            [self._sess(session_id=self._SID)]
+        ):
+            result = CliRunner().invoke(cli, ["session", "info", "97894d02"])
+        assert result.exit_code == 0, result.output
+        assert self._SID in result.output
+
+    def test_resolves_a_pid(self, tmp_path):
+        with _patch_maelstrom_dir(tmp_path), _patch_live([self._sess()]):
+            result = CliRunner().invoke(cli, ["session", "info", "4242"])
+        assert result.exit_code == 0, result.output
+        assert "4242" in result.output
+
+    def test_defaults_to_the_live_session_id_from_the_environment(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", self._SID)
+        with _patch_maelstrom_dir(tmp_path), _patch_live(
+            [self._sess(session_id=self._SID)]
+        ):
+            result = CliRunner().invoke(cli, ["session", "info"])
+        assert result.exit_code == 0, result.output
+        assert self._SID in result.output
+
+    def test_falls_back_to_claude_pid_when_the_live_id_does_not_match(
+        self, tmp_path, monkeypatch
+    ):
+        # After a /clear the live id is not the one in argv, so the pid is the
+        # only handle that still resolves. Both are tried, in that order.
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "cleared-and-unknown-id")
+        monkeypatch.setenv("CLAUDE_PID", "4242")
+        with _patch_maelstrom_dir(tmp_path), _patch_live(
+            [self._sess(session_id=self._SID)]
+        ):
+            result = CliRunner().invoke(cli, ["session", "info"])
+        assert result.exit_code == 0, result.output
+        assert "4242" in result.output
+
+    def test_an_explicit_id_never_falls_back_to_the_environment(
+        self, tmp_path, monkeypatch
+    ):
+        # A named session that does not exist is an error, even when the
+        # environment could have resolved some other session. Falling back would
+        # silently show the wrong session.
+        monkeypatch.setenv("CLAUDE_PID", "4242")
+        with _patch_maelstrom_dir(tmp_path), _patch_live([self._sess()]):
+            result = CliRunner().invoke(cli, ["session", "info", "zzzzzzzz"])
+        assert result.exit_code != 0
+        assert "zzzzzzzz" in result.output
+
+    def test_errors_when_no_id_and_no_environment(self, tmp_path):
+        # Both variables that would have resolved it get named, so a user
+        # debugging a hook environment does not chase only one of them.
+        with _patch_maelstrom_dir(tmp_path), _patch_live([self._sess()]):
+            result = CliRunner().invoke(cli, ["session", "info"])
+        assert result.exit_code != 0
+        assert "CLAUDE_CODE_SESSION_ID" in result.output
+        assert "CLAUDE_PID" in result.output
+
+    def test_errors_on_an_unknown_id(self, tmp_path):
+        with _patch_maelstrom_dir(tmp_path), _patch_live([self._sess()]):
+            result = CliRunner().invoke(cli, ["session", "info", "zzzzzzzz"])
+        assert result.exit_code != 0
+        assert "zzzzzzzz" in result.output
+
+    def test_errors_on_an_ambiguous_prefix(self, tmp_path):
+        sessions = [
+            self._sess(pid=1, cwd="/w/a", session_id="abcd1111-0000-0000-0000-000000000000"),
+            self._sess(pid=2, cwd="/w/b", session_id="abcd2222-0000-0000-0000-000000000000"),
+        ]
+        with _patch_maelstrom_dir(tmp_path), _patch_live(sessions):
+            result = CliRunner().invoke(cli, ["session", "info", "abcd"])
+        assert result.exit_code != 0
+        assert "ambiguous" in result.output
+
+    def test_json_output_via_the_global_flag(self, tmp_path):
+        with _patch_maelstrom_dir(tmp_path), _patch_live(
+            [self._sess(session_id=self._SID)]
+        ):
+            result = CliRunner().invoke(
+                cli, ["--json", "session", "info", self._SID]
+            )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["id"] == self._SID
+        assert data["pid"] == 4242
+        assert data["cwd"] == "/w/alpha"
+
+    def test_shows_the_task_when_the_index_resolves_it(self, tmp_path, monkeypatch):
+        sid = model.session_id_for("askastro", "2026-07-03.7")
+        index = SqliteTaskIndex(":memory:")
+        index.upsert(
+            TaskMeta(
+                project="askastro", id="2026-07-03.7",
+                status="in-progress", session_id=sid,
+            )
+        )
+        monkeypatch.setattr(session_cli, "_task_index", lambda: index)
+        with _patch_maelstrom_dir(tmp_path), _patch_live([self._sess(session_id=sid)]):
+            result = CliRunner().invoke(cli, ["session", "info", sid])
+        assert result.exit_code == 0, result.output
+        assert "2026-07-03.7" in result.output
+
+
+class TestSessionEnd:
+    """``mael session end [ID]`` — stop one session without closing its worktree."""
+
+    _SID = "97894d02-f335-5ea3-9d9f-050330a4902b"
+
+    @pytest.fixture(autouse=True)
+    def _no_ambient_env(self, monkeypatch):
+        monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+        monkeypatch.delenv("CLAUDE_PID", raising=False)
+
+    def test_stops_the_named_session(self, tmp_path, monkeypatch):
+        sess = _live(4242, "/w/alpha")
+        sess.session_id = self._SID
+        stopped = []
+
+        def fake_stop(sessions, **kwargs):
+            stopped.extend(sessions)
+            return [f"claude session (pid {s.pid}): stopped" for s in sessions]
+
+        monkeypatch.setattr(session_cli, "stop_sessions", fake_stop)
+        with _patch_maelstrom_dir(tmp_path), _patch_live([sess]):
+            result = CliRunner().invoke(cli, ["session", "end", "97894d02"])
+
+        assert result.exit_code == 0, result.output
+        assert [s.pid for s in stopped] == [4242]
+        assert "stopped" in result.output
+
+    def test_ending_our_own_session_says_so_and_stops_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        # Running `session end` inside the session it names must not kill this
+        # process, and must say why nothing happened — silence reads as a crash.
+        import os
+
+        sess = _live(os.getpid(), "/w/alpha")
+        stopped = []
+        monkeypatch.setattr(
+            session_cli, "stop_sessions", lambda s, **kw: stopped.extend(s) or []
+        )
+        monkeypatch.setenv("CLAUDE_PID", str(os.getpid()))
+        with _patch_maelstrom_dir(tmp_path), _patch_live([sess]):
+            result = CliRunner().invoke(cli, ["session", "end"])
+
+        assert result.exit_code == 0, result.output
+        assert stopped == []  # never even handed to the stopper
+        assert "this session" in result.output
+
+    def test_errors_on_an_unknown_id(self, tmp_path):
+        with _patch_maelstrom_dir(tmp_path), _patch_live([_live(4242, "/w/alpha")]):
+            result = CliRunner().invoke(cli, ["session", "end", "zzzzzzzz"])
+        assert result.exit_code != 0
+        assert "zzzzzzzz" in result.output
+
+    def test_errors_when_no_id_and_no_environment(self, tmp_path):
+        with _patch_maelstrom_dir(tmp_path), _patch_live([_live(4242, "/w/alpha")]):
+            result = CliRunner().invoke(cli, ["session", "end"])
+        assert result.exit_code != 0
+        assert "CLAUDE_CODE_SESSION_ID" in result.output

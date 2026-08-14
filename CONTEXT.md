@@ -94,13 +94,27 @@ _Avoid_: Proposal, pending task, plan file
 ## Sessions
 
 **Session**:
-One Claude Code conversation, tied to exactly one task. Each task maps to a deterministic
-session id derived from the project name and task id, so the same task always resolves to the
-same session.
+One Claude Code conversation. A session maelstrom launches is tied to exactly one task.
 
 **Live session**:
 A session whose `claude` process is currently running, established from the running processes
 themselves rather than from any file. Only a live session stops a task from being re-run.
+
+**Task session id**:
+The session id derived from the project name and the task id. The task session id exists before
+the session is launched and never changes, so it is what links a session back to its task. It
+keys the session's file in the registry, and rides into the session as `MAEL_TASK_SESSION_ID`.
+Use the task session id to answer "which task is this?".
+_Avoid_: Session id (for this concept)
+
+**Session id**:
+The id of the conversation running now, reported by Claude Code as `CLAUDE_CODE_SESSION_ID`. A
+`/clear` starts a new conversation and moves the session id, so it is not stable and cannot key
+a task. Use the session id to answer "which conversation am I in now?". A session starts with
+its task session id as its session id, so the two agree until the first `/clear`.
+
+`session_key` is neither term: it is the registry filename only. `session_key` holds the task
+session id where maelstrom launched the session, and `claude-<pid>` where it did not.
 
 **Workspace**:
 A cmux workspace named `<project>-<worktree>`, holding three panes: pane 0 the Claude session,
@@ -153,13 +167,8 @@ the gap that per-project memory and a repo's own `docs/` both leave open.
 
 ## Open questions
 
-These are unresolved. Do not treat either as settled intent.
+This is unresolved. Do not treat it as settled intent.
 
 **Cancelled dependencies**: Follows gating tests for `done` only, so a cancelled task stalls
 everything that follows it permanently. Whether cancelling should release or block its
 followers is undecided.
-
-**Session identity**: The session registry stores both `session_id` and `session_key` for one
-concept. The two hold the same value for a maelstrom-launched session; `session_key` falls back
-to `claude-<pid>` for a session maelstrom did not launch. The naming is ambiguous and needs
-thought before either name is relied on.

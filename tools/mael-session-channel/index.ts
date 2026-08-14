@@ -18,20 +18,32 @@ const SESSIONS_DIR = join(homedir(), ".maelstrom", "sessions");
 
 type Env = Record<string, string | undefined>;
 
-// The deterministic Claude session id for this session, if known. Claude Code
-// does NOT export CLAUDE_SESSION_ID to channel subprocesses, so `mael task run`
-// exports the id it computed as MAEL_SESSION_ID; that is the real primary key
-// the registry records. CLAUDE_SESSION_ID is kept as a fallback for sessions
-// launched some other way. Exported (with an injectable `env`) so it is unit
-// testable without spawning a real channel.
+// The session id this registry file is keyed by, if known.
+//
+// There are two different session ids, answering two different questions:
+//
+//   - The id `mael task run` derives from the task. It exists before the session
+//     is launched and never changes, so it is what links a registry file back to
+//     its task. It arrives as MAEL_TASK_SESSION_ID.
+//   - The id of the conversation running now. Claude Code exports this as
+//     CLAUDE_CODE_SESSION_ID. A `/clear` starts a new conversation and moves it,
+//     so it cannot key a task.
+//
+// The derived id therefore wins. MAEL_SESSION_ID is the old name for it, kept so
+// a session launched before the rename keeps the same key for its whole life.
+// CLAUDE_CODE_SESSION_ID is the last resort, for a session `mael` did not launch.
+// Exported (with an injectable `env`) so it is unit testable without spawning a
+// real channel.
 export function sessionId(env: Env = process.env): string | null {
-  const maelId = env.MAEL_SESSION_ID;
-  if (maelId && maelId.length > 0) {
-    return maelId;
-  }
-  const envId = env.CLAUDE_SESSION_ID;
-  if (envId && envId.length > 0) {
-    return envId;
+  const candidates = [
+    env.MAEL_TASK_SESSION_ID,
+    env.MAEL_SESSION_ID,
+    env.CLAUDE_CODE_SESSION_ID,
+  ];
+  for (const id of candidates) {
+    if (id && id.length > 0) {
+      return id;
+    }
   }
   return null;
 }

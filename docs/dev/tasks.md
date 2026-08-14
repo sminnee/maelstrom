@@ -124,9 +124,15 @@ reconcile`). A *finished* task is deliberately **not** blocked — it must stay
 re-runnable. `mael list`, `mael session list` and `mael task reconcile` read the
 same source, so all four always agree.
 
-The registry's primary key is the same deterministic id. The Claude harness does
-**not** export `CLAUDE_SESSION_ID` to channel subprocesses, so `mael task run`
-exports it as `MAEL_SESSION_ID` on the `claude` command. The session-channel then
-records that as the registry `session_id`. Discovery does not depend on this — it
-globs by id — but it keeps the registry-hint fast-path and `reconcile`'s
-primary-key match trustworthy.
+The registry's primary key is the same derived id. `mael task run` exports it as
+`MAEL_TASK_SESSION_ID` on the `claude` command, and the session-channel records
+that as the registry `session_id`. Discovery does not depend on this — it globs
+by id — but it keeps the registry-hint fast-path and `reconcile`'s primary-key
+match trustworthy.
+
+The harness does export a session id of its own, as `CLAUDE_CODE_SESSION_ID`, but
+that id cannot key a task. `CLAUDE_CODE_SESSION_ID` names the conversation running
+now, and a `/clear` starts a new conversation and moves it. The derived id never
+moves, so the registry keys on the derived id. `mael session info` and
+`mael session end` are the commands that want the live id, and they read
+`CLAUDE_CODE_SESSION_ID` for it.
