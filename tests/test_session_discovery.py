@@ -382,3 +382,88 @@ class TestResolve:
             session_discovery.LiveSession(pid=1234, cwd=Path("/w/a"), session_id="1234abcd-0000-0000-0000-000000000000"),
         ])
         assert live.resolve("1234").pid == 1234
+
+
+class TestSessionForPid:
+    """``session_for_pid`` — a session read from one process, not from a sweep.
+
+    The sweep misses the ``claude`` that runs ``mael`` on some setups, so a pid
+    the caller already trusts is read directly. It answers ``None`` rather than
+    guessing: a pid that is not a ``claude``, or whose cwd cannot be read, is not
+    a session this can describe.
+    """
+
+    _CLAUDE = "/opt/homebrew/bin/claude --session-id 1111abcd-0000-0000-0000-000000000000"
+
+    def test_reads_cwd_and_session_id_from_the_process(self, monkeypatch):
+        monkeypatch.setattr(
+            session_discovery,
+            "run_cmd",
+            _fake_run_cmd("", _lsof_records([(42, "/w/alpha")]),
+                          _ps_records([(42, self._CLAUDE)])),
+        )
+        sess = session_discovery.session_for_pid(42)
+        assert sess is not None
+        assert sess.pid == 42
+        assert sess.cwd == Path("/w/alpha")
+        assert sess.session_id == "1111abcd-0000-0000-0000-000000000000"
+
+    def test_resolves_a_claude_started_without_a_session_id(self, monkeypatch):
+        # A bare `claude` carries no --session-id. It is still a session.
+        monkeypatch.setattr(
+            session_discovery,
+            "run_cmd",
+            _fake_run_cmd("", _lsof_records([(42, "/w/alpha")]),
+                          _ps_records([(42, "/opt/homebrew/bin/claude")])),
+        )
+        sess = session_discovery.session_for_pid(42)
+        assert sess is not None
+        assert sess.session_id is None
+
+    def test_none_when_the_pid_is_not_a_claude(self, monkeypatch):
+        # Ending a session signals the pid, so a pid that is not a claude must
+        # not resolve — a typo would otherwise SIGTERM an unrelated process.
+        monkeypatch.setattr(
+            session_discovery,
+            "run_cmd",
+            _fake_run_cmd("", _lsof_records([(42, "/w/alpha")]),
+                          _ps_records([(42, "/usr/local/bin/postgres -D /data")])),
+        )
+        assert session_discovery.session_for_pid(42) is None
+
+    def test_none_when_the_process_is_gone(self, monkeypatch):
+        # `ps` reports nothing for a pid that has already exited.
+        monkeypatch.setattr(
+            session_discovery, "run_cmd", _fake_run_cmd("", "", ""),
+        )
+        assert session_discovery.session_for_pid(42) is None
+
+    def test_none_when_the_cwd_cannot_be_read(self, monkeypatch):
+        # Without a cwd there is no project or worktree to report, and the
+        # caller's own cwd must never stand in for the session's.
+        monkeypatch.setattr(
+            session_discovery,
+            "run_cmd",
+            _fake_run_cmd("", "", _ps_records([(42, self._CLAUDE)])),
+        )
+        assert session_discovery.session_for_pid(42) is None
+
+    def test_a_claude_named_by_a_path_still_resolves(self, monkeypatch):
+        # The command is a path, so match the executable name, not the whole line.
+        monkeypatch.setattr(
+            session_discovery,
+            "run_cmd",
+            _fake_run_cmd("", _lsof_records([(42, "/w/alpha")]),
+                          _ps_records([(42, "/Users/me/.local/bin/claude --resume x")])),
+        )
+        assert session_discovery.session_for_pid(42) is not None
+
+    def test_a_command_merely_mentioning_claude_does_not_resolve(self, monkeypatch):
+        # `mael` itself has "claude" all over its argv; only the executable counts.
+        monkeypatch.setattr(
+            session_discovery,
+            "run_cmd",
+            _fake_run_cmd("", _lsof_records([(42, "/w/alpha")]),
+                          _ps_records([(42, "python -m maelstrom session end claude")])),
+        )
+        assert session_discovery.session_for_pid(42) is None

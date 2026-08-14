@@ -20,6 +20,12 @@ session registry to decide liveness:
   and its ``state`` goes stale, so it cannot be the liveness authority. It
   survives only as *optional enrichment* for ``mael session list``.
 
+``pgrep`` finds most sessions, not all of them: the ``claude`` that runs ``mael``
+can be missing from its own sweep. So a caller that already holds a pid —
+``CLAUDE_PID``, or one a user typed — uses :func:`session_for_pid`, which asks
+the process directly instead of searching the sweep. The process stays the
+authority either way; only the search for it is incomplete.
+
 Callers work through :class:`LiveSessionSet`, which sweeps once on first use,
 then answers per-worktree questions (``count_for`` / ``active_for`` / ``all_for``)
 off that shared list — each session attributing itself to a worktree via
@@ -31,7 +37,7 @@ with no import cycle: ``session_store`` never imports this module.
 import re
 from dataclasses import dataclass
 from functools import cached_property
-from pathlib import Path
+from pathlib import Path, PurePath
 
 from .shell import run_cmd
 
@@ -108,6 +114,33 @@ def all_live_sessions() -> list[LiveSession]:
     return sessions
 
 
+def session_for_pid(pid: int) -> LiveSession | None:
+    """The live session for ``pid``, built from the process rather than a sweep.
+
+    ``all_live_sessions`` finds sessions with ``pgrep``, which does not report
+    every live ``claude``: on some setups the ``claude`` that is running ``mael``
+    is itself missing from the sweep, so a session cannot look itself up. A pid
+    the caller already trusts — ``CLAUDE_PID``, or one a user typed — needs no
+    search, so this reads the process directly.
+
+    ``None`` for a pid this cannot describe as a session. That is either a pid
+    whose command is not ``claude``, or one whose cwd ``lsof`` cannot read.
+    Neither may be guessed at: ``mael session end`` signals the pid it resolves,
+    so a mistyped pid must not reach an unrelated process, and a missing cwd
+    would otherwise be reported as the caller's own.
+    """
+    command = _commands_for_pids([pid]).get(pid)
+    if command is None or not _is_claude_command(command):
+        return None
+    sessions = _cwds_for_pids([pid])
+    found = next((s for s in sessions if s.pid == pid), None)
+    if found is None:
+        return None
+    match = _SESSION_ID_RE.search(command)
+    found.session_id = match.group(1) if match else None
+    return found
+
+
 def _claude_pids() -> list[int]:
     """Pids of the running ``claude`` CLI, via ``pgrep -x claude``.
 
@@ -158,17 +191,14 @@ def _cwds_for_pids(pids: list[int]) -> list[LiveSession]:
     return sessions
 
 
-def _session_ids_for_pids(pids: list[int]) -> dict[int, str]:
-    """Map ``pid -> session-id`` by reading each pid's command line via ``ps``.
+def _commands_for_pids(pids: list[int]) -> dict[int, str]:
+    """Map ``pid -> command line`` with one batched ``ps``.
 
-    One batched ``ps -ww -o pid=,command= -p <pids>``: each line is
-    ``<pid> <cmd…>``, and we regex the ``--session-id`` uuid out of the rest of
-    the line. ``-ww`` prints the command line at unlimited width, so the flag is
-    never clipped by column truncation regardless of how long or how late in the
-    args it sits. A pid whose line lacks the flag is simply absent from the map (→
-    ``session_id=None``). ``check=False`` because ``ps`` exits non-zero when some
-    pids have already gone; a missing ``ps`` binary yields an empty map, costing
-    only the session-ids.
+    ``ps -ww -o pid=,command= -p <pids>`` gives one ``<pid> <cmd…>`` line per
+    live pid. ``-ww`` prints the command line at unlimited width, so a flag late
+    in the args is never clipped by column truncation. A pid that has already
+    gone is absent from the map. ``check=False`` because ``ps`` exits non-zero
+    when some pids have gone; a missing ``ps`` binary yields an empty map.
     """
     args = ["ps", "-ww", "-o", "pid=,command=", "-p", ",".join(str(p) for p in pids)]
     try:
@@ -185,7 +215,32 @@ def _session_ids_for_pids(pids: list[int]) -> dict[int, str]:
             pid = int(head)
         except ValueError:
             continue
-        m = _SESSION_ID_RE.search(rest)
+        mapping[pid] = rest
+    return mapping
+
+
+def _is_claude_command(command: str) -> bool:
+    """Whether ``command`` is a ``claude`` CLI process, from its ``ps`` line.
+
+    Only the executable counts, so a command that merely mentions ``claude`` in
+    its arguments — ``mael`` itself does, constantly — is not a session. This is
+    the same test ``pgrep -x claude`` makes, applied to one process the sweep did
+    not return.
+    """
+    head = command.split(maxsplit=1)[0] if command.strip() else ""
+    return PurePath(head).name == "claude"
+
+
+def _session_ids_for_pids(pids: list[int]) -> dict[int, str]:
+    """Map ``pid -> session-id``, read from each pid's command line.
+
+    The id comes from the ``--session-id`` flag the launcher passes. A pid whose
+    line lacks the flag is simply absent from the map (→ ``session_id=None``);
+    a bare ``claude`` the user started carries no id.
+    """
+    mapping: dict[int, str] = {}
+    for pid, command in _commands_for_pids(pids).items():
+        m = _SESSION_ID_RE.search(command)
         if m:
             mapping[pid] = m.group(1)
     return mapping

@@ -375,6 +375,11 @@ def _find_session(id: str | None) -> session_discovery.LiveSession:
     becomes a ``ClickException``. An ambiguous prefix fails immediately rather
     than falling through: the user named something real, and picking one of the
     candidates for them would be a guess.
+
+    A pid the sweep does not know resolves through
+    :func:`~maelstrom.session_discovery.session_for_pid`, which reads the process
+    itself. Without it a session whose ``pgrep`` sweep misses it — its own,
+    often — could not name itself.
     """
     handles = _session_handles(id)
     if not handles:
@@ -390,6 +395,10 @@ def _find_session(id: str | None) -> session_discovery.LiveSession:
         except ValueError as e:
             raise click.ClickException(str(e))
         except KeyError:
+            if handle.isdigit():
+                found = session_discovery.session_for_pid(int(handle))
+                if found is not None:
+                    return found
             continue
     raise click.ClickException(f"No live session matching '{handles[0]}'")
 
@@ -450,10 +459,9 @@ def session_end(id: str | None) -> None:
     """
     sess = _find_session(id)
 
-    # Guard our own process here rather than relying on `stop_sessions` to skip
-    # it. That filter exists for `mael close`, so leaning on it would make this
-    # command self-destructive if it ever changed. Saying so beats silence: an
-    # empty run and a crash look identical otherwise.
+    # Refuse to signal the `mael` process itself. Only a handle naming `mael`
+    # directly reaches here; the enclosing session resolves to the parent pid.
+    # Saying so beats silence: an empty run and a crash look identical otherwise.
     if sess.pid == os.getpid():
         click.echo(f"claude session (pid {sess.pid}) is this session; not stopping it.")
         return

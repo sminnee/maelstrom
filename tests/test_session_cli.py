@@ -434,6 +434,19 @@ def _patch_live(sessions):
     )
 
 
+def _patch_pid_lookup(pid, cwd="/w/alpha"):
+    """Patch the single-process lookup the sweep-blind pid fallback uses.
+
+    ``pid=None`` answers "no session for that pid" — a dead pid, or a live one
+    that is not a ``claude``. Patched rather than run for real so no test shells
+    out to `ps`/`lsof` and depends on what is running on the machine.
+    """
+    from maelstrom import session_discovery
+
+    found = None if pid is None else _live(pid, cwd)
+    return patch.object(session_discovery, "session_for_pid", return_value=found)
+
+
 def _live(pid, cwd):
     from maelstrom.session_discovery import LiveSession
 
@@ -751,6 +764,19 @@ class TestSessionInfo:
         assert result.exit_code != 0
         assert "zzzzzzzz" in result.output
 
+    def test_claude_pid_resolves_when_the_sweep_cannot_see_this_session(
+        self, tmp_path, monkeypatch
+    ):
+        # The real case this defends: `pgrep` does not list the claude running
+        # `mael`, so the sweep is blind to the current session. CLAUDE_PID is
+        # authoritative for "which process am I", so `session info` still works —
+        # with the process-only fields, since there is no swept session to enrich.
+        monkeypatch.setenv("CLAUDE_PID", "4242")
+        with _patch_maelstrom_dir(tmp_path), _patch_live([]), _patch_pid_lookup(4242):
+            result = CliRunner().invoke(cli, ["session", "info"])
+        assert result.exit_code == 0, result.output
+        assert "4242" in result.output
+
     def test_errors_when_no_id_and_no_environment(self, tmp_path):
         # Both variables that would have resolved it get named, so a user
         # debugging a hook environment does not chase only one of them.
@@ -835,8 +861,8 @@ class TestSessionEnd:
     def test_ending_our_own_session_says_so_and_stops_nothing(
         self, tmp_path, monkeypatch
     ):
-        # Running `session end` inside the session it names must not kill this
-        # process, and must say why nothing happened — silence reads as a crash.
+        # A handle that names the `mael` process must not signal it, and must say
+        # why nothing happened — silence reads as a crash.
         import os
 
         sess = _live(os.getpid(), "/w/alpha")
@@ -857,6 +883,36 @@ class TestSessionEnd:
             result = CliRunner().invoke(cli, ["session", "end", "zzzzzzzz"])
         assert result.exit_code != 0
         assert "zzzzzzzz" in result.output
+
+    def test_stops_a_live_pid_the_sweep_cannot_see(self, tmp_path, monkeypatch):
+        # `pgrep` does not report every live claude — the session running `mael`
+        # is itself missing from the sweep on some setups. A pid read straight
+        # from the process resolves even with an empty sweep.
+        stopped = []
+        monkeypatch.setattr(
+            session_cli, "stop_sessions",
+            lambda s, **kw: stopped.extend(s) or ["stopped"],
+        )
+        with _patch_maelstrom_dir(tmp_path), _patch_live([]), _patch_pid_lookup(4242):
+            result = CliRunner().invoke(cli, ["session", "end", "4242"])
+
+        assert result.exit_code == 0, result.output
+        assert [s.pid for s in stopped] == [4242]
+
+    def test_a_pid_that_is_no_session_is_an_error(self, tmp_path, monkeypatch):
+        # A dead pid, or a live one that is not a claude. `session end` signals
+        # what it resolves, so neither may resolve — a typo must not reach an
+        # unrelated process.
+        stopped = []
+        monkeypatch.setattr(
+            session_cli, "stop_sessions",
+            lambda s, **kw: stopped.extend(s) or ["stopped"],
+        )
+        with _patch_maelstrom_dir(tmp_path), _patch_live([]), _patch_pid_lookup(None):
+            result = CliRunner().invoke(cli, ["session", "end", "4242"])
+        assert result.exit_code != 0
+        assert "4242" in result.output
+        assert stopped == []
 
     def test_errors_when_no_id_and_no_environment(self, tmp_path):
         with _patch_maelstrom_dir(tmp_path), _patch_live([_live(4242, "/w/alpha")]):
