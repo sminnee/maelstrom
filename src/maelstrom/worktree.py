@@ -34,6 +34,7 @@ from .worktree_model import (
     MAIN_WORKTREE_FOLDER,
     WORKTREE_NAMES,
     CopyBackResult,
+    print_flushed,
     EnvConflict,
     _build_managed_section,
     _format_copy_back_block,
@@ -672,48 +673,23 @@ def sync_worktree(
     )
 
 
-def sync_worktree_with_autorepair(
+def _repair_conflicted_rebase(
     worktree_path: Path,
-    *,
-    skip_fetch: bool = False,
-    squash: bool = False,
-    close_if_empty: bool = False,
-    repair_runner: Callable[[Path], subprocess.CompletedProcess] | None = None,
-) -> SyncResult:
-    """Sync a worktree, resolving a rebase conflict with a headless Claude session.
+    first: SyncResult,
+    repair_runner: Callable[[Path], subprocess.CompletedProcess] | None,
+    announce: Callable[[str], None],
+) -> SyncResult | None:
+    """Run one repair session over a conflicted rebase.
 
-    Runs :func:`sync_worktree` first. A conflict is left in place — not aborted —
-    so the repair session sees the conflicted tree. The session
-    (``/resolve-rebase-conflicts``) resolves the conflicts and continues the
-    rebase; a second sync then completes the push.
-
-    Only one repair attempt is made. Every failure path aborts the rebase, so the
-    worktree is never left mid-rebase for the caller to trip over. The exception
-    is a repair session that finished the rebase but left the worktree on another
-    branch: there is nothing to abort, and the state needs a human.
-
-    Args:
-        worktree_path: Path to the worktree directory.
-        skip_fetch: If True, skip the fetch step.
-        squash: If True, autosquash ``fixup!`` commits while rebasing.
-        close_if_empty: If True, delete an empty branch and close the worktree.
-        repair_runner: Callable taking the worktree path and returning a
-            ``CompletedProcess``. Defaults to the real headless session; tests
-            substitute their own.
+    Shared by the sync and squash autorepair variants: both leave the conflict in
+    place, hand the tree to one session, and check the same three things. They
+    differ only in the rebase that came before and what follows a repair.
 
     Returns:
-        SyncResult. ``repaired`` is True when a repair session fixed the rebase.
+        ``None`` when the rebase is repaired and the caller may continue. A
+        ``SyncResult`` when the repair did not happen or did not work — the
+        caller returns it unchanged.
     """
-    first = sync_worktree(
-        worktree_path,
-        skip_fetch=skip_fetch,
-        squash=squash,
-        abort_on_conflict=False,
-        close_if_empty=close_if_empty,
-    )
-    if first.success or not first.had_conflicts:
-        return first  # success, or a fetch failure there is no repairing
-
     # ``had_conflicts`` means "the rebase exited non-zero", which covers failures
     # with nothing to resolve — a refused rebase, a bad --autosquash target, a
     # locked index. Only a rebase left in progress has conflicts to repair;
@@ -723,14 +699,10 @@ def sync_worktree_with_autorepair(
 
     # The session streams its own output. Say what started it first, so the
     # console does not go from a sync line straight to a Claude session with
-    # nothing to explain why an agent is now running. Bare print, not
-    # click.echo: this is the model layer, which stays click-free like
-    # github.py and task.py. flush keeps the line ahead of the session's
-    # output, which goes straight to the shared stdout.
-    print(
+    # nothing to explain why an agent is now running.
+    announce(
         f"Rebase conflict on {first.branch}. Starting autorepair: a headless "
-        f"Claude session resolves the conflicts and continues the rebase.",
-        flush=True,
+        f"Claude session resolves the conflicts and continues the rebase."
     )
 
     runner = repair_runner or run_resolve_rebase_session
@@ -768,6 +740,113 @@ def sync_worktree_with_autorepair(
             ),
             had_conflicts=True,
         )
+
+    return None
+
+
+def squash_worktree_with_autorepair(
+    worktree_path: Path,
+    *,
+    skip_fetch: bool = False,
+    squash: bool = True,
+    repair_runner: Callable[[Path], subprocess.CompletedProcess] | None = None,
+    announce: Callable[[str], None] = print_flushed,
+) -> SyncResult:
+    """Rebase a worktree, resolving a conflict with a headless Claude session.
+
+    The no-push counterpart of :func:`sync_worktree_with_autorepair`, built on
+    :func:`squash_worktree`. A repaired rebase is the whole job here: nothing is
+    published, so the branch is left rebased and unpushed for the caller to
+    inspect.
+
+    Only one repair attempt is made, and every failure path aborts the rebase.
+
+    Args:
+        worktree_path: Path to the worktree directory.
+        skip_fetch: If True, skip the fetch step.
+        squash: If True, autosquash ``fixup!`` commits while rebasing.
+        repair_runner: Callable taking the worktree path and returning a
+            ``CompletedProcess``. Defaults to the real headless session; tests
+            substitute their own.
+        announce: Callable taking one line of progress text. Defaults to a
+            flushed ``print``; the CLI passes ``click.echo``.
+
+    Returns:
+        SyncResult. ``repaired`` is True when a repair session fixed the rebase.
+        ``pushed`` is always False — this function never pushes.
+    """
+    first = squash_worktree(
+        worktree_path,
+        skip_fetch=skip_fetch,
+        squash=squash,
+        abort_on_conflict=False,
+    )
+    if first.success or not first.had_conflicts:
+        return first  # success, or a fetch failure there is no repairing
+
+    failure = _repair_conflicted_rebase(worktree_path, first, repair_runner, announce)
+    if failure is not None:
+        return failure
+
+    # The rebase is finished and nothing needs pushing, so the repair is the
+    # whole result. Build it fresh rather than from ``first``: that result
+    # carries the conflict flags of the rebase the repair just resolved.
+    return SyncResult(
+        success=True,
+        branch=first.branch,
+        message=f"Rebased {first.branch} onto origin/main",
+        repaired=True,
+    )
+
+
+def sync_worktree_with_autorepair(
+    worktree_path: Path,
+    *,
+    skip_fetch: bool = False,
+    squash: bool = False,
+    close_if_empty: bool = False,
+    repair_runner: Callable[[Path], subprocess.CompletedProcess] | None = None,
+    announce: Callable[[str], None] = print_flushed,
+) -> SyncResult:
+    """Sync a worktree, resolving a rebase conflict with a headless Claude session.
+
+    Runs :func:`sync_worktree` first. A conflict is left in place — not aborted —
+    so the repair session sees the conflicted tree. The session
+    (``/resolve-rebase-conflicts``) resolves the conflicts and continues the
+    rebase; a second sync then completes the push.
+
+    Only one repair attempt is made. Every failure path aborts the rebase, so the
+    worktree is never left mid-rebase for the caller to trip over. The exception
+    is a repair session that finished the rebase but left the worktree on another
+    branch: there is nothing to abort, and the state needs a human.
+
+    Args:
+        worktree_path: Path to the worktree directory.
+        skip_fetch: If True, skip the fetch step.
+        squash: If True, autosquash ``fixup!`` commits while rebasing.
+        close_if_empty: If True, delete an empty branch and close the worktree.
+        repair_runner: Callable taking the worktree path and returning a
+            ``CompletedProcess``. Defaults to the real headless session; tests
+            substitute their own.
+        announce: Callable taking one line of progress text. Defaults to a
+            flushed ``print``; the CLI passes ``click.echo``.
+
+    Returns:
+        SyncResult. ``repaired`` is True when a repair session fixed the rebase.
+    """
+    first = sync_worktree(
+        worktree_path,
+        skip_fetch=skip_fetch,
+        squash=squash,
+        abort_on_conflict=False,
+        close_if_empty=close_if_empty,
+    )
+    if first.success or not first.had_conflicts:
+        return first  # success, or a fetch failure there is no repairing
+
+    failure = _repair_conflicted_rebase(worktree_path, first, repair_runner, announce)
+    if failure is not None:
+        return failure
 
     # The rebase is done, so this second pass is a no-op rebase that pushes.
     final = sync_worktree(

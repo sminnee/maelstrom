@@ -89,6 +89,23 @@ class TestGhCliRegistration:
         ):
             assert cmd in result.output
 
+    def _run_create_pr(self, args):
+        """Invoke `gh create-pr` with create_pr mocked; return its kwargs."""
+        with patch("maelstrom.github_cli.resolve_context") as mock_ctx, patch(
+            "maelstrom.github_cli.create_pr", return_value=("https://example/pr", True)
+        ) as mock_create, patch("maelstrom.github_cli._open_pr_in_cmux"):
+            mock_ctx.return_value.worktree_path = None
+            result = CliRunner().invoke(cli, ["gh", "create-pr", *args])
+        assert result.exit_code == 0, result.output
+        return mock_create.call_args.kwargs
+
+    def test_create_pr_passes_autorepair_through(self):
+        assert self._run_create_pr(["--autorepair"])["autorepair"] is True
+
+    def test_create_pr_leaves_autorepair_off_by_default(self):
+        """A PR push must not start an agent unasked."""
+        assert self._run_create_pr([])["autorepair"] is False
+
     def test_show_code_smoke(self):
         with patch("maelstrom.github_cli.resolve_context") as mock_ctx, patch(
             "maelstrom.github_cli.get_worktree_code"

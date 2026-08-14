@@ -6,7 +6,14 @@ from unittest.mock import patch
 
 import pytest
 
-from maelstrom.github import CheckRun, PRInfo, create_project_repo, wait_for_merge
+from maelstrom.github import (
+    CheckRun,
+    PRInfo,
+    create_pr,
+    create_project_repo,
+    wait_for_merge,
+)
+from maelstrom.worktree import SyncResult
 
 
 def _pr(state="OPEN", merged=False, number=7):
@@ -163,3 +170,84 @@ class TestCreateProjectRepo:
         with patch("maelstrom.github.run_cmd", side_effect=FileNotFoundError()):
             with pytest.raises(RuntimeError, match="gh.*not installed"):
                 create_project_repo("proj")
+
+
+class TestCreatePrAutorepair:
+    """`create_pr` chooses its pre-push sync by the ``autorepair`` argument."""
+
+    def _run(self, tmp_path, **kwargs):
+        """Call create_pr with both syncs stubbed; return (plain, repair)."""
+        sync_result = SyncResult(success=True, branch="feature/work", message="ok")
+        with patch("maelstrom.github.sync_worktree", return_value=sync_result) as plain, \
+             patch(
+                 "maelstrom.github.sync_worktree_with_autorepair", return_value=sync_result,
+             ) as repair, \
+             patch("maelstrom.github.run_cmd") as run, \
+             patch("maelstrom.github.run_git") as git, \
+             patch("maelstrom.github.update_local_main"):
+            run.return_value = subprocess.CompletedProcess(
+                args=["gh"], returncode=0, stdout="https://example/pr OPEN", stderr="",
+            )
+            git.return_value = subprocess.CompletedProcess(
+                args=["git"], returncode=0, stdout="feature/work", stderr="",
+            )
+            create_pr(cwd=tmp_path, **kwargs)
+        return plain, repair
+
+    def test_autorepair_routes_to_the_repairing_sync(self, tmp_path):
+        plain, repair = self._run(tmp_path, autorepair=True)
+
+        repair.assert_called_once()
+        plain.assert_not_called()
+
+    def test_default_uses_the_plain_sync(self, tmp_path):
+        """Off by default: a PR push must not start an agent unasked."""
+        plain, repair = self._run(tmp_path)
+
+        plain.assert_called_once()
+        repair.assert_not_called()
+
+    def test_squash_carries_through_to_the_repairing_sync(self, tmp_path):
+        _, repair = self._run(tmp_path, autorepair=True, squash=True)
+
+        assert repair.call_args.kwargs["squash"] is True
+
+    def test_a_repaired_sync_says_an_agent_resolved_it(self, tmp_path, capsys):
+        """Repaired commits are about to be pushed to a PR.
+
+        The push publishes work a headless session wrote, so the user must be
+        told before it lands in review.
+        """
+        repaired = SyncResult(
+            success=True, branch="feature/work", message="ok", repaired=True,
+        )
+        with patch("maelstrom.github.sync_worktree_with_autorepair", return_value=repaired), \
+             patch("maelstrom.github.run_cmd") as run, \
+             patch("maelstrom.github.run_git") as git, \
+             patch("maelstrom.github.update_local_main"):
+            run.return_value = subprocess.CompletedProcess(
+                args=["gh"], returncode=0, stdout="https://example/pr OPEN", stderr="",
+            )
+            git.return_value = subprocess.CompletedProcess(
+                args=["git"], returncode=0, stdout="feature/work", stderr="",
+            )
+            create_pr(cwd=tmp_path, autorepair=True)
+
+        assert "resolved by a headless Claude session" in capsys.readouterr().out
+
+    def test_a_failure_that_left_a_rebase_still_gives_the_manual_steps(self, tmp_path):
+        """Not every autorepair failure aborts.
+
+        A session that finished on the wrong branch leaves a tree needing
+        hands-on work, so the resolution steps must survive.
+        """
+        stranded = SyncResult(
+            success=False,
+            branch="feature/work",
+            message="Autorepair finished the rebase but left the worktree on other.",
+            had_conflicts=True,
+            aborted=False,
+        )
+        with patch("maelstrom.github.sync_worktree_with_autorepair", return_value=stranded):
+            with pytest.raises(RuntimeError, match="git rebase --continue"):
+                create_pr(cwd=tmp_path, autorepair=True)

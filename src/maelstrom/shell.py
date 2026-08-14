@@ -13,9 +13,14 @@ Three public entry points, all owned here so callers stay shell-agnostic:
   ``Command``/``Pipeline`` uses shell syntax (pipes, ``KEY=val`` prefixes) so it
   goes through ``sh -c``. Whether a shell is needed is a property of the *node*,
   decided once here — not a flag the caller toggles.
-- ``run_cmd`` — the single execution chokepoint: fork-and-wait, or exec-replace
-  via ``replace_process``. Every command in the codebase routes through here, so
-  it is the one seam to mock / log / intercept.
+- ``run_cmd`` — fork-and-wait, returning a ``CompletedProcess``.
+- ``exec_cmd`` — exec-replace, never returning. Split from ``run_cmd`` because an
+  exec has no result to check, no output to capture, and no wait to bound, so
+  those options would be dead weight on one of the two paths.
+
+``run_cmd`` and ``exec_cmd`` together are the execution chokepoint: every command
+in the codebase routes through one of them, so they are the seam to mock / log /
+intercept.
 
 Quoting/escaping happens in exactly one place: ``_shell_string``. This module is
 a leaf — it imports only stdlib, so anything may depend on it without cycles.
@@ -97,16 +102,49 @@ def to_argv(expr: ShellExpr, *, replace_process: bool = False) -> list[str]:
             assert_never(expr)
 
 
-def run_cmd(cmd: ShellExpr, cwd: Path | None = None, quiet: bool = False, check: bool = True, stream: bool = False, env: dict | None = None, replace_process: bool = False, timeout: float | None = None) -> "subprocess.CompletedProcess | NoReturn":
-    """Run a ``ShellExpr`` — the single execution chokepoint.
+def _echo(cmd: ShellExpr) -> None:
+    """Print the `$ cmd` line.
+
+    Flushed: a streamed child writes to the shared stdout directly, and a
+    block-buffered echo would land after the output it labels.
+    """
+    print(f"$ {describe(cmd)}", flush=True)
+
+
+def exec_cmd(cmd: ShellExpr, *, cwd: Path | None = None, quiet: bool = False, env: dict | None = None) -> NoReturn:
+    """Replace this process with a ``ShellExpr`` — the exec half of the chokepoint.
+
+    Never returns. ``to_argv`` prefixes ``exec`` so a wrapping ``sh`` replaces
+    itself and nothing lingers.
+
+    This is deliberately separate from :func:`run_cmd`. An exec has no result to
+    check, no output to capture or stream, and no wait to time out, so the
+    options that describe those are absent here rather than silently ignored.
+
+    If ``env`` is provided, its keys are merged over the current process
+    environment (``os.environ``) rather than replacing it wholesale.
+    """
+    if not quiet:
+        _echo(cmd)
+    if cwd is not None:
+        os.chdir(cwd)
+    if env:
+        os.environ.update(env)
+    argv = to_argv(cmd, replace_process=True)
+    os.execvp(argv[0], argv)  # NoReturn
+
+
+def run_cmd(cmd: ShellExpr, *, cwd: Path | None = None, quiet: bool = False, check: bool = True, stream: bool = False, env: dict | None = None, timeout: float | None = None) -> subprocess.CompletedProcess:
+    """Run a ``ShellExpr`` and wait for it — the fork-and-wait half of the chokepoint.
 
     The shell-vs-no-shell decision lives in :func:`to_argv`: a bare argv runs
     directly with ``shell=False`` (the ~30 git sites stay byte-identical), a
     ``Command``/``Pipeline`` goes through ``sh -c``.
 
-    ``replace_process=True`` execs over this process (the old ``exec_claude``) and
-    never returns; ``to_argv`` prefixes ``exec`` so the wrapping ``sh`` replaces
-    itself and nothing lingers.
+    Use :func:`exec_cmd` to replace this process instead of forking.
+
+    ``stream=True`` sends the child's output to this process's stdout as it runs,
+    rather than capturing it, so ``stdout``/``stderr`` on the result are empty.
 
     If ``env`` is provided, its keys are merged over the current process
     environment (``os.environ``) rather than replacing it wholesale.
@@ -114,20 +152,10 @@ def run_cmd(cmd: ShellExpr, cwd: Path | None = None, quiet: bool = False, check:
     ``timeout`` bounds the wait in seconds and raises
     ``subprocess.TimeoutExpired`` when it passes; ``None`` waits forever. It
     applies to a streamed command as much as a captured one, so a long-running
-    child can be watched and still be given a deadline. It has no meaning with
-    ``replace_process``, which never returns to enforce one.
+    child can be watched and still be given a deadline.
     """
     if not quiet:
-        # Flush: a streamed child writes to the shared stdout directly, and a
-        # block-buffered echo would land after the output it labels.
-        print(f"$ {describe(cmd)}", flush=True)
-    if replace_process:
-        if cwd is not None:
-            os.chdir(cwd)
-        if env:
-            os.environ.update(env)
-        argv = to_argv(cmd, replace_process=True)
-        os.execvp(argv[0], argv)  # NoReturn
+        _echo(cmd)
     merged_env = {**os.environ, **env} if env is not None else None
     return subprocess.run(
         to_argv(cmd),

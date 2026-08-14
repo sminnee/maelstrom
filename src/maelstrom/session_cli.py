@@ -22,7 +22,7 @@ from .session_store import (
 )
 from .table import draw_table
 from .util import atomic_write_json, now_iso
-from .shell import run_cmd
+from .shell import exec_cmd
 
 
 def _find_session_file(
@@ -83,7 +83,7 @@ def session_channel() -> None:
         sys.exit(1)
 
     try:
-        run_cmd(["bun", "run", str(script)], replace_process=True)
+        exec_cmd(["bun", "run", str(script)])
     except FileNotFoundError:
         click.echo(
             "bun is not installed or not on PATH. Install from https://bun.sh.",

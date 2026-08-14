@@ -6,8 +6,8 @@ pipeline for a task) and places it **inside cmux** — always. ``mael`` starts a
 Claude session by driving the cmux socket; if the app is down it starts it, and
 if it can't be reached it fails rather than running Claude locally. The only path
 that runs Claude in the current terminal is the explicit ``--here`` choice, which
-bypasses this module entirely (``task_cli._run_task`` calls ``run_cmd(...,
-replace_process=True)`` directly). See memory ``project-launch-always-via-cmux-socket``.
+bypasses this module entirely (``task_cli._run_task`` calls ``exec_cmd``
+directly). See memory ``project-launch-always-via-cmux-socket``.
 
 Conceptually it belongs to the CLI/adapter layer of the three-layer split
 documented in ``docs/dev/architecture-patterns.md`` (storage / model / CLI); it is
@@ -180,7 +180,7 @@ def launch_claude_in_worktree(
     **cmux-or-fail**: start the cmux app if it is down, then place a workspace.
     There is no local-execvp fallback — running Claude in the current process is
     the exclusive job of the explicit ``--here`` path, which bypasses this wrapper
-    and calls ``run_cmd(..., replace_process=True)`` with ``cwd=None`` directly.
+    and calls ``exec_cmd`` with ``cwd=None`` directly.
     Returns False when cmux can't be started or the placement itself fails; the
     caller decides what to do (roll a task back to TODO, or raise).
 

@@ -2,7 +2,6 @@
 
 import subprocess
 import sys
-from unittest.mock import patch
 
 import pytest
 
@@ -107,6 +106,20 @@ class TestToArgv:
 
 class TestRunCmdEnv:
     """Tests for the env merging behaviour of run_cmd (the execution chokepoint)."""
+
+    def test_options_are_keyword_only(self):
+        """Eight parameters read badly positionally, and drift silently."""
+        with pytest.raises(TypeError):
+            run_cmd(["true"], None, True)  # type: ignore[misc]
+
+    def test_the_exec_path_is_no_longer_reachable_from_run_cmd(self):
+        """exec_cmd owns it, so run_cmd's options can no longer conflict.
+
+        A timeout no exec can enforce, and a captured result no exec returns,
+        are now unrepresentable rather than silently ignored.
+        """
+        with pytest.raises(TypeError):
+            run_cmd(["true"], quiet=True, replace_process=True)  # type: ignore[call-arg]
 
     def test_env_merges_over_os_environ(self, monkeypatch):
         """A provided env dict is merged over os.environ, not used wholesale."""

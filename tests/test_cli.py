@@ -950,6 +950,77 @@ class TestCmdSyncAutorepair:
         # No mid-rebase state remains, so the manual-resolution help is not printed.
         assert "git rebase --continue" not in result.output
 
+    def test_a_failure_that_left_a_rebase_still_prints_the_manual_help(self, tmp_path):
+        """Not every autorepair failure aborts.
+
+        A session that finished the rebase on the wrong branch leaves work for a
+        human, so the resolution steps must survive.
+        """
+        sync = _failed_sync(
+            "Autorepair finished the rebase but left the worktree on other.",
+            had_conflicts=True,
+            aborted=False,
+        )
+        result, _, _ = self._run(["--autorepair"], sync, tmp_path)
+
+        assert result.exit_code == 1
+        assert "git rebase --continue" in result.output
+
+    def test_sync_all_flag_routes_to_the_autorepair_sync(self, tmp_path):
+        """`mael sync-all --autorepair` repairs each worktree it sweeps."""
+        from contextlib import ExitStack
+
+        project_path = tmp_path / "proj"
+        wt_path = project_path / "proj-bravo"
+        wt_path.mkdir(parents=True)
+        ctx = MagicMock(project="proj", project_path=project_path)
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("maelstrom.cli.resolve_context", return_value=ctx))
+            stack.enter_context(patch(
+                "maelstrom.cli.list_worktrees",
+                return_value=[MagicMock(path=wt_path, branch="feature/work")],
+            ))
+            stack.enter_context(patch("maelstrom.cli.run_git"))
+            stack.enter_context(patch("maelstrom.worktree.update_local_main"))
+            plain = stack.enter_context(patch("maelstrom.cli.sync_worktree"))
+            repair = stack.enter_context(patch(
+                "maelstrom.cli.sync_worktree_with_autorepair",
+                return_value=_sync_result(repaired=True),
+            ))
+            result = CliRunner().invoke(cli, ["sync-all", "--autorepair"])
+
+        assert result.exit_code == 0, result.output
+        repair.assert_called_once()
+        plain.assert_not_called()
+        assert "resolved by a headless Claude session" in result.output
+
+    def test_sync_all_without_the_flag_uses_the_plain_sync(self, tmp_path):
+        from contextlib import ExitStack
+
+        project_path = tmp_path / "proj"
+        wt_path = project_path / "proj-bravo"
+        wt_path.mkdir(parents=True)
+        ctx = MagicMock(project="proj", project_path=project_path)
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("maelstrom.cli.resolve_context", return_value=ctx))
+            stack.enter_context(patch(
+                "maelstrom.cli.list_worktrees",
+                return_value=[MagicMock(path=wt_path, branch="feature/work")],
+            ))
+            stack.enter_context(patch("maelstrom.cli.run_git"))
+            stack.enter_context(patch("maelstrom.worktree.update_local_main"))
+            plain = stack.enter_context(patch(
+                "maelstrom.cli.sync_worktree", return_value=_sync_result(),
+            ))
+            repair = stack.enter_context(patch("maelstrom.cli.sync_worktree_with_autorepair"))
+            result = CliRunner().invoke(cli, ["sync-all"])
+
+        assert result.exit_code == 0, result.output
+        plain.assert_called_once()
+        repair.assert_not_called()
+
     def test_the_start_of_an_autorepair_reaches_the_terminal(self, tmp_path):
         """The model layer stays click-free, so it announces with bare print.
 

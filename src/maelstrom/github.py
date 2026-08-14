@@ -11,7 +11,13 @@ from typing import Callable, TypeVar
 
 from .project_scaffold import scaffold_files
 from .shell import run_cmd
-from .worktree import run_git, sync_worktree, update_local_main
+from .worktree_model import REPAIRED_MESSAGE, print_flushed
+from .worktree import (
+    run_git,
+    sync_worktree,
+    sync_worktree_with_autorepair,
+    update_local_main,
+)
 
 
 @dataclass
@@ -234,7 +240,7 @@ def get_pr_url(cwd: Path) -> str:
         raise RuntimeError("GitHub CLI (gh) is not installed")
 
 
-def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None = None, progress: bool = False, squash: bool = False) -> tuple[str, bool]:
+def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None = None, progress: bool = False, squash: bool = False, autorepair: bool = False, announce: Callable[[str], None] = print_flushed) -> tuple[str, bool]:
     """Create a pull request for the current worktree branch, or push if PR exists.
 
     Syncs (rebases onto origin/main) before pushing.
@@ -246,6 +252,11 @@ def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None
         progress: If True, use "Progresses" instead of "Fixes" in PR title for
             multi-session tasks that aren't complete yet.
         squash: If True, autosquash ``fixup!`` commits during the pre-push sync.
+        autorepair: If True, a conflict in the pre-push sync starts a headless
+            Claude session to resolve it. Off by default: a PR push must not
+            start an agent unasked.
+        announce: Callable taking one line of progress text. Defaults to a
+            flushed ``print``; the CLI passes ``click.echo``.
 
     Returns:
         Tuple of (PR URL, created) where created is True if new PR was created.
@@ -257,9 +268,15 @@ def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None
         cwd = Path.cwd()
 
     # Sync first (rebase onto origin/main)
-    sync_result = sync_worktree(cwd, squash=squash)
+    if autorepair:
+        sync_result = sync_worktree_with_autorepair(cwd, squash=squash, announce=announce)
+    else:
+        sync_result = sync_worktree(cwd, squash=squash)
     if not sync_result.success:
-        if sync_result.had_conflicts:
+        # An aborted rebase is restored, so the manual-resolution steps would
+        # name a rebase that is no longer there. A repair that failed without
+        # aborting — one that landed on the wrong branch — still needs them.
+        if sync_result.had_conflicts and not sync_result.aborted:
             raise RuntimeError(
                 f"Sync failed due to conflicts. Resolve them first:\n"
                 f"  git status\n"
@@ -268,6 +285,11 @@ def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None
                 f"  git rebase --continue"
             )
         raise RuntimeError(f"Sync failed: {sync_result.message}")
+
+    # The push publishes commits the session rewrote, so say so before it lands
+    # in a PR.
+    if sync_result.repaired:
+        announce(REPAIRED_MESSAGE)
 
     # Check if PR already exists (and is open)
     pr_exists = False

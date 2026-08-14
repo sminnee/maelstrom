@@ -375,6 +375,118 @@ class TestGitSquashCommand:
         assert "git log abc1234..def5678 --oneline" in result.output
         assert "git rebase --continue" in result.output
 
+    @patch("maelstrom.git_cli.squash_worktree_with_autorepair")
+    @patch("maelstrom.git_cli.squash_worktree")
+    @patch("maelstrom.git_cli.resolve_context")
+    def test_autorepair_routes_to_the_repairing_squash(
+        self, mock_ctx, mock_squash, mock_repair
+    ):
+        from maelstrom.worktree import SyncResult
+
+        mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
+        mock_repair.return_value = SyncResult(
+            success=True, branch="feat/test", message="Rebased feat/test onto origin/main",
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["git", "squash", "--autorepair"])
+        assert result.exit_code == 0, result.output
+        mock_repair.assert_called_once()
+        mock_squash.assert_not_called()
+
+    @patch("maelstrom.git_cli.squash_worktree_with_autorepair")
+    @patch("maelstrom.git_cli.resolve_context")
+    def test_a_repaired_rebase_says_an_agent_resolved_it(self, mock_ctx, mock_repair):
+        """A repaired tree must not read as a clean rebase.
+
+        A headless session rewrote the commits, so the user needs to know to
+        review them.
+        """
+        from maelstrom.worktree import SyncResult
+
+        mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
+        mock_repair.return_value = SyncResult(
+            success=True,
+            branch="feat/test",
+            message="Rebased feat/test onto origin/main",
+            repaired=True,
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["git", "squash", "--autorepair"])
+        assert result.exit_code == 0, result.output
+        assert "resolved by a headless Claude session" in result.output
+
+    @patch("maelstrom.git_cli.squash_worktree_with_autorepair")
+    @patch("maelstrom.git_cli.resolve_context")
+    def test_a_failure_that_left_a_rebase_still_prints_the_manual_help(
+        self, mock_ctx, mock_repair
+    ):
+        """Not every autorepair failure aborts.
+
+        A session that finished the rebase on the wrong branch leaves work for a
+        human, so suppressing the resolution steps strands the user.
+        """
+        from maelstrom.worktree import SyncResult
+
+        mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
+        mock_repair.return_value = SyncResult(
+            success=False,
+            branch="feat/test",
+            message="Autorepair finished the rebase but left the worktree on other.",
+            had_conflicts=True,
+            aborted=False,
+            merge_base="abc1234",
+            upstream_head="def5678",
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["git", "squash", "--autorepair"])
+        assert result.exit_code == 1
+        assert "git rebase --continue" in result.output
+
+    @patch("maelstrom.git_cli.squash_worktree_with_autorepair")
+    @patch("maelstrom.git_cli.squash_worktree")
+    @patch("maelstrom.git_cli.resolve_context")
+    def test_without_the_flag_the_plain_squash_runs(
+        self, mock_ctx, mock_squash, mock_repair
+    ):
+        from maelstrom.worktree import SyncResult
+
+        mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
+        mock_squash.return_value = SyncResult(
+            success=True, branch="feat/test", message="Rebased feat/test onto origin/main",
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["git", "squash"])
+        assert result.exit_code == 0, result.output
+        mock_squash.assert_called_once()
+        mock_repair.assert_not_called()
+
+    @patch("maelstrom.git_cli.squash_worktree_with_autorepair")
+    @patch("maelstrom.git_cli.resolve_context")
+    def test_autorepair_failure_skips_the_manual_conflict_help(
+        self, mock_ctx, mock_repair
+    ):
+        """An autorepair failure restores the worktree, so no rebase remains."""
+        from maelstrom.worktree import SyncResult
+
+        mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
+        mock_repair.return_value = SyncResult(
+            success=False,
+            branch="feat/test",
+            message="Autorepair did not complete the rebase; aborted and restored.",
+            had_conflicts=True,
+            aborted=True,
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["git", "squash", "--autorepair"])
+        assert result.exit_code == 1
+        assert "aborted and restored" in result.output
+        assert "git rebase --continue" not in result.output
+
     @patch("maelstrom.git_cli.squash_worktree")
     @patch("maelstrom.git_cli.resolve_context")
     def test_other_failure_raises_click_exception(self, mock_ctx, mock_squash):

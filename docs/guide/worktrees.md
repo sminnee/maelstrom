@@ -177,9 +177,15 @@ result and pushes. This is the same repair the open flow uses, so you can run it
 after a blocked `mael add`.
 
 One repair attempt is made. If the session fails, exits non-zero, or leaves the rebase
-unfinished, `mael sync` aborts the rebase and restores the worktree — so `--autorepair`
-never leaves you mid-rebase, and supersedes `--abort`. The command needs `mael install` to
-have linked `/resolve-rebase-conflicts` into `~/.claude/commands/`.
+unfinished, `mael sync` aborts the rebase and restores the worktree. `--autorepair`
+supersedes `--abort`.
+
+One case ends differently. A session that finished the rebase but left the worktree on
+another branch has nothing to abort. `mael sync` says which branch you are on, and prints
+the steps to finish by hand.
+
+The command needs `mael install` to have linked `/resolve-rebase-conflicts` into
+`~/.claude/commands/`.
 
 The repair session runs unattended, in the same auto permission mode as a `mode: auto`
 task. The session edits files in the worktree and runs the project's checks without asking.
@@ -200,6 +206,19 @@ $ claude -p /resolve-rebase-conflicts --permission-mode auto --strict-mcp-config
 
 A repair takes up to 600 seconds. Watch the streamed output to see what the session
 changed, and why a rebase that failed now passes.
+
+Every command that rebases takes the flag:
+
+```bash
+mael sync --autorepair             # this worktree
+mael sync-all --autorepair         # every worktree, one session per conflict
+mael git squash --autorepair       # rebase and autosquash, no push
+mael gh create-pr ME-41 --autorepair   # the pre-push sync
+```
+
+`--autorepair` is off by default on all four. The flag starts an unattended agent, so it
+is for commands you run yourself. An agent already in a session resolves its own conflicts
+instead of starting a second session to do it.
 
 ## Tidying branches
 
