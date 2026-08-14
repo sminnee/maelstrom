@@ -145,6 +145,8 @@ Run `mael doctor NEW` afterwards.
 | `mael claude [TARGET]` | Same as `mael open`. |
 | `mael ide [TARGET]` | Open a worktree in the configured editor. |
 | `mael session list` | List active Claude Code sessions. |
+| `mael session info [ID]` | Show the fields of one session. Defaults to the session you run it in. |
+| `mael session end [ID]` | Stop one session and leave its worktree in place. Defaults to the session you run it in. |
 | `mael session record EVENT` | Update session state from a Claude Code hook event. Reads the payload as JSON on stdin. Not meant for humans. |
 | `mael cmux status` | Report whether maelstrom can place a session into cmux. Starts cmux if it is down. Exits non-zero when cmux cannot be reached. |
 | `mael status set TEXT` | Set the workspace status text shown in the cmux status bar. |
@@ -154,9 +156,35 @@ Run `mael doctor NEW` afterwards.
 mael open                          # Claude session in the current worktree
 mael open myproject.b              # ...in bravo
 mael session list                  # what is running, and in what state
+mael session info                  # the session you are in
+mael session info 97894d02         # ...named by an id prefix from the ID column
+mael session info 4242             # ...named by a pid from the PID column
+mael --json session info 97894d02  # the same fields as JSON
+mael session end 97894d02          # stop that session
 ```
 
-None of these take options beyond `--help`.
+**`mael session info` and `mael session end`**
+
+`ID` is a session id, a unique prefix of one (4 characters or more), or a pid. `mael session list`
+prints both: the `ID` column holds the first 8 characters of the session id, and the `PID` column
+holds the pid. A session maelstrom did not launch has a blank `ID`, so name that session by its
+pid.
+
+Without `ID`, both commands act on the session you run them in. Both exit non-zero when no session
+matches, or when an id prefix matches more than one session.
+
+`mael session end` stops the session and leaves the worktree in place — use `mael close` to tear
+down the worktree as well. The stop is graceful: it sends SIGINT so a busy session can wind down,
+waits 5 seconds, then sends SIGTERM to a survivor and waits 10 more. A session that ends on the
+first signal returns at once, so the 15 seconds is the worst case. `mael session end` never sends
+SIGKILL, which would risk a half-written transcript.
+
+A session never stops itself, so `mael session end` with no `ID` inside that session does nothing.
+
+`mael session end` does not close the task the session was launched for. The Claude `session-end`
+hook still fires as the session shuts down, and that hook closes the task.
+
+None of the other commands here take options beyond `--help`.
 
 **`mael session record`**
 

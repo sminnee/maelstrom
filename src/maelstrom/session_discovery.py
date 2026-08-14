@@ -249,3 +249,45 @@ class LiveSessionSet:
         return next(
             (s for s in self.sessions if s.session_id == session_id), None
         )
+
+    def resolve(self, handle: str) -> LiveSession:
+        """The live session a user-typed ``handle`` names.
+
+        A handle is a **pid**, a full session-id uuid, or a unique prefix of one
+        (four characters or more, so a typo cannot silently hit a session). An
+        all-digit handle is always read as a pid: a uuid holds dashes and hex, and
+        a pid is what a user reads off ``mael session list``.
+
+        A pid is accepted because it is the only handle that always resolves. A
+        session started outside ``mael`` carries no ``--session-id``, and a session
+        that has run ``/clear`` holds a new live id that its command line never
+        learns about.
+
+        Raises ``KeyError`` when nothing matches, and ``ValueError`` naming the
+        candidates when a prefix matches more than one session. The CLI layer turns
+        both into a ``ClickException``.
+        """
+        if handle.isdigit():
+            match = next((s for s in self.sessions if s.pid == int(handle)), None)
+            if match is None:
+                raise KeyError(f"No live session with pid {handle}")
+            return match
+
+        exact = self.for_session_id(handle)
+        if exact is not None:
+            return exact
+
+        if len(handle) >= 4:
+            matches = [
+                s for s in self.sessions
+                if s.session_id and s.session_id.startswith(handle)
+            ]
+            if len(matches) == 1:
+                return matches[0]
+            if len(matches) > 1:
+                ids = ", ".join(sorted(str(s.session_id) for s in matches))
+                raise ValueError(
+                    f"Session id prefix '{handle}' is ambiguous: {ids}"
+                )
+
+        raise KeyError(f"No live session matching '{handle}'")

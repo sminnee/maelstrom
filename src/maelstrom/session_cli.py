@@ -3,7 +3,6 @@
 import json
 import os
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 import click
@@ -13,7 +12,9 @@ from .task_index import SqliteTaskIndex
 from .task_store import GitFileStore
 
 from . import session_discovery
+from . import session_view
 from .context import resolve_context
+from .env import stop_sessions
 from .session_store import (
     liveness_check as _liveness_check,
     read_session_file as _read_session_file,
@@ -219,25 +220,6 @@ def session_record(event: str) -> None:
     atomic_write_json(path, data)
 
 
-def _format_age(started_at: str) -> str:
-    try:
-        start = datetime.fromisoformat(started_at)
-    except ValueError:
-        return ""
-    now = datetime.now(timezone.utc)
-    delta = now - start
-    total = int(delta.total_seconds())
-    if total < 0:
-        return "0s"
-    if total < 60:
-        return f"{total}s"
-    if total < 3600:
-        return f"{total // 60}m"
-    if total < 86400:
-        return f"{total // 3600}h"
-    return f"{total // 86400}d"
-
-
 def _derive_project_worktree(cwd: str | None) -> tuple[str | None, str | None]:
     if not cwd:
         return (None, None)
@@ -251,29 +233,6 @@ def _derive_project_worktree(cwd: str | None) -> tuple[str | None, str | None]:
     except ValueError:
         return (None, None)
     return (ctx.project, ctx.worktree)
-
-
-# Claude Code doesn't fire a hook on ESC / user-interrupt, so a session
-# stuck in `processing` would never resolve on its own. If updated_at is
-# older than this threshold, treat the state as idle (and rewrite the
-# file so subsequent listings agree).
-#
-# The heartbeat hooks (matcher "" on PreToolUse/PostToolUse) bump
-# updated_at every tool call, so a session genuinely doing work keeps
-# ticking. The threshold needs to be longer than the slowest single tool
-# call — 5 minutes accommodates long Bash runs and Task sub-agents.
-STALE_PROCESSING_SECS = 300
-
-
-def _is_stale_processing(state: str, updated_at: str) -> bool:
-    if state != "processing" or not updated_at:
-        return False
-    try:
-        ts = datetime.fromisoformat(updated_at)
-    except ValueError:
-        return False
-    age = (datetime.now(timezone.utc) - ts).total_seconds()
-    return age > STALE_PROCESSING_SECS
 
 
 def _scan_registry() -> list[dict]:
@@ -303,31 +262,6 @@ def _scan_registry() -> list[dict]:
     return live
 
 
-def _registry_enrichment(pid: int, cwd: str, registry: list[dict]) -> dict | None:
-    """The registry entry in ``registry`` matching ``(pid, cwd)``, or ``None``.
-
-    Matches a live process to its recorded session so ``mael session list`` can
-    show the Claude hook ``state`` and ``started_at`` age the process itself
-    can't report. Prefers an exact pid+cwd match, falling back to cwd alone
-    (a session recorded before its pid was known). ``None`` when nothing
-    matches — enrichment is optional, not required.
-
-    The cwd-only fallback can misattribute when two live sessions share one cwd
-    (the first process may show the other's STATE/AGE). That is acceptable here:
-    STATE/AGE are best-effort display fields, and PID/CWD — which come from the
-    process itself — are always correct.
-    """
-    by_cwd: dict | None = None
-    for entry in registry:
-        if entry.get("cwd") != cwd:
-            continue
-        if entry.get("pid") == pid:
-            return entry
-        if by_cwd is None:
-            by_cwd = entry
-    return by_cwd
-
-
 def _task_index() -> SqliteTaskIndex:
     """The on-disk task metadata index living beside the task store.
 
@@ -338,59 +272,59 @@ def _task_index() -> SqliteTaskIndex:
     return open_index(GitFileStore())
 
 
+ID_PREFIX_LEN = 8
+
+
+def _build_row(
+    sess: session_discovery.LiveSession,
+    registry: list[dict],
+    index: SqliteTaskIndex,
+) -> dict:
+    """One session's display fields, with this layer's I/O injected.
+
+    :func:`maelstrom.session_view.build_session_row` holds the logic and stays
+    pure. Resolving a cwd to a project reads config and walks the filesystem, so
+    that resolver is supplied here, in the layer allowed to do I/O.
+    """
+    return session_view.build_session_row(
+        sess, registry, index, _derive_project_worktree
+    )
+
+
 @session.command("list")
 def session_list() -> None:
     """List active Claude Code sessions.
 
     Live sessions come from running ``claude`` processes and their cwd (the
     same source ``mael list`` / ``task reconcile`` use), so the list is accurate
-    even when the registry is stale. STATE and AGE are registry-only fields, so
-    they are enriched from a matching registry entry when one exists and left
-    blank otherwise. TASK is resolved by an indexed reverse lookup of each
-    session's ``--session-id`` in the task metadata index (falling back to the
-    registry's ``mael_task_id`` when the index is cold/stale or the session
-    isn't indexed), left blank for a non-``mael`` ``claude``. The registry
-    directory is GC'd in the same single scan.
+    even when the registry is stale. Each row is built by
+    :func:`build_session_row`, which also feeds ``session info``. STATE and AGE
+    are registry-only fields, so they are blank when nothing matches. TASK is an
+    indexed reverse lookup of the session's ``--session-id``, left blank for a
+    non-``mael`` ``claude``. ID is the first characters of that session-id — the
+    handle ``session info`` and ``session end`` take. The registry directory is
+    GC'd in the same single scan.
     """
     registry = _scan_registry()
-
     sessions = session_discovery.all_live_sessions()
     index = _task_index()
 
     rows = []
     for sess in sessions:
-        cwd = str(sess.cwd)
-        project, worktree = _derive_project_worktree(cwd)
-        pw = f"{project}/{worktree}" if project and worktree else (project or "")
-
-        state = ""
-        age = ""
-        entry = _registry_enrichment(sess.pid, cwd, registry)
-        if entry is not None:
-            state = entry.get("state", "")
-            updated_at = entry.get("updated_at", "")
-            if _is_stale_processing(state, updated_at):
-                state = "idle"  # display-only; ESC/interrupt leaves it stuck
-            age = _format_age(entry.get("started_at", ""))
-
-        # Indexed reverse lookup on the session-id first; fall back to the
-        # registry's recorded task id when the index doesn't resolve it (cold or
-        # stale cache, or a session the process carried no --session-id for).
-        task_id = ""
-        if sess.session_id:
-            meta = index.find_by_session_id(sess.session_id)
-            if meta is not None:
-                task_id = meta.id
-        if not task_id and entry is not None:
-            task_id = entry.get("mael_task_id", "") or ""
-
+        row = _build_row(sess, registry, index)
+        pw = (
+            f"{row['project']}/{row['worktree']}"
+            if row["project"] and row["worktree"]
+            else row["project"]
+        )
         rows.append({
-            "STATE": state,
+            "STATE": row["state"],
+            "ID": row["id"][:ID_PREFIX_LEN],
             "PROJECT/WORKTREE": pw,
-            "TASK": task_id,
-            "CWD": cwd,
-            "AGE": age,
-            "PID": str(sess.pid),
+            "TASK": row["task"],
+            "CWD": row["cwd"],
+            "AGE": row["age"],
+            "PID": str(row["pid"]),
         })
 
     if not rows:
@@ -398,4 +332,131 @@ def session_list() -> None:
         return
 
     rows.sort(key=lambda r: (r["PROJECT/WORKTREE"], r["PID"]))
-    draw_table(rows, ["STATE", "PROJECT/WORKTREE", "TASK", "CWD", "AGE", "PID"])
+    draw_table(
+        rows, ["STATE", "ID", "PROJECT/WORKTREE", "TASK", "CWD", "AGE", "PID"]
+    )
+
+
+def _session_handles(id: str | None) -> list[str]:
+    """The handles to try, in order, for ``id`` or for the current session.
+
+    An explicit argument is the only candidate — a named session that does not
+    exist is an error, never a silent fall back to some other session.
+
+    Without one, the candidates are the two ids a running session knows about
+    itself, most precise first:
+
+    - ``CLAUDE_CODE_SESSION_ID`` — the id of the conversation happening *now*.
+      A ``/clear`` starts a new conversation and moves it.
+    - ``CLAUDE_PID`` — the pid, which always resolves.
+
+    Both are tried because the live id usually does *not* match a swept session:
+    the command line holds the id the session launched with. So the pid is what
+    resolves a session that has run ``/clear``.
+
+    ``MAEL_TASK_SESSION_ID`` is deliberately not consulted. It is a task key, not
+    a live-session reference: it holds the id the task was launched with, which is
+    correct until a ``/clear`` and points at a dead transcript after one.
+    """
+    if id:
+        return [id]
+    found = [
+        os.environ.get("CLAUDE_CODE_SESSION_ID"),
+        os.environ.get("CLAUDE_PID"),
+    ]
+    return [h for h in found if h]
+
+
+def _find_session(id: str | None) -> session_discovery.LiveSession:
+    """Resolve ``id`` (or the current session) to one live session.
+
+    Tries each handle :func:`_session_handles` gives, and returns the first that
+    resolves. The CLI layer is where a model-layer ``KeyError``/``ValueError``
+    becomes a ``ClickException``. An ambiguous prefix fails immediately rather
+    than falling through: the user named something real, and picking one of the
+    candidates for them would be a guess.
+    """
+    handles = _session_handles(id)
+    if not handles:
+        raise click.ClickException(
+            "No session id given, and neither CLAUDE_CODE_SESSION_ID nor "
+            "CLAUDE_PID is set."
+        )
+
+    live = session_discovery.LiveSessionSet()
+    for handle in handles:
+        try:
+            return live.resolve(handle)
+        except ValueError as e:
+            raise click.ClickException(str(e))
+        except KeyError:
+            continue
+    raise click.ClickException(f"No live session matching '{handles[0]}'")
+
+
+@session.command("info")
+@click.argument("id", required=False)
+@click.pass_context
+def session_info(ctx, id: str | None) -> None:
+    """Show the fields of one live session.
+
+    ID is a session id, a unique prefix of one, or a pid — the ID and PID columns
+    of ``mael session list``. Without it, the session you run this in is used.
+
+    ``mael --json session info`` prints the same fields as JSON. The text form
+    omits a field with nothing to report; the JSON form always carries every key,
+    so a script can rely on the shape.
+    """
+    sess = _find_session(id)
+    row = _build_row(sess, _scan_registry(), _task_index())
+
+    if ctx.obj.get("json", False) if ctx.obj else False:
+        click.echo(json.dumps(row, indent=2))
+        return
+
+    click.echo(f"pid:      {row['pid']}")
+    # Optional fields are omitted when blank, like `mael task show`: a bare
+    # `claude` has no id and no registry entry to enrich it from.
+    if row["id"]:
+        click.echo(f"id:       {row['id']}")
+    if row["state"]:
+        click.echo(f"state:    {row['state']}")
+    if row["project"]:
+        click.echo(f"project:  {row['project']}")
+    if row["worktree"]:
+        click.echo(f"worktree: {row['worktree']}")
+    if row["task"]:
+        click.echo(f"task:     {row['task']}")
+    click.echo(f"cwd:      {row['cwd']}")
+    if row["age"]:
+        click.echo(f"age:      {row['age']}")
+    if row["model"]:
+        click.echo(f"model:    {row['model']}")
+
+
+@session.command("end")
+@click.argument("id", required=False)
+def session_end(id: str | None) -> None:
+    """Stop a live session, leaving its worktree in place.
+
+    ID takes the same forms as ``mael session info``. Without it, the session you
+    run this in is used — which is a safe no-op, because the stop never signals
+    its own process.
+
+    The stop is graceful and can take up to 15 seconds: SIGINT to let a busy
+    session wind down, then SIGTERM to any survivor, never SIGKILL. This does not
+    close the task the session was launched for. The Claude ``session-end`` hook
+    still fires on shutdown and closes it.
+    """
+    sess = _find_session(id)
+
+    # Guard our own process here rather than relying on `stop_sessions` to skip
+    # it. That filter exists for `mael close`, so leaning on it would make this
+    # command self-destructive if it ever changed. Saying so beats silence: an
+    # empty run and a crash look identical otherwise.
+    if sess.pid == os.getpid():
+        click.echo(f"claude session (pid {sess.pid}) is this session; not stopping it.")
+        return
+
+    for msg in stop_sessions([sess]):
+        click.echo(msg)

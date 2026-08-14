@@ -10,6 +10,8 @@ worktree-prefix tiebreak.
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from maelstrom import session_discovery
 
 
@@ -309,3 +311,74 @@ class TestLiveSessionSet:
         assert live.count_for(alpha) == 1
         assert live.all_for(alpha)[0].pid == 1
         assert calls == [1]  # swept once, then reused
+
+
+class TestResolve:
+    """``LiveSessionSet.resolve`` — pid, full uuid, or unique uuid prefix.
+
+    A handle is what a user types on the command line, so it has to cover both
+    ids a session can be named by. A pid always resolves: a session started
+    outside ``mael`` carries no ``--session-id``, and a session that has run
+    ``/clear`` no longer carries its live id in argv.
+    """
+
+    _A = "97894d02-f335-5ea3-9d9f-050330a4902b"
+    _B = "94063899-7207-57ac-9629-4cc8d130667f"
+
+    def _set(self):
+        return session_discovery.LiveSessionSet([
+            session_discovery.LiveSession(pid=101, cwd=Path("/w/a"), session_id=self._A),
+            session_discovery.LiveSession(pid=202, cwd=Path("/w/b"), session_id=self._B),
+            session_discovery.LiveSession(pid=303, cwd=Path("/w/c")),
+        ])
+
+    def test_resolves_a_pid(self):
+        assert self._set().resolve("202").pid == 202
+
+    def test_resolves_a_pid_for_a_session_with_no_session_id(self):
+        assert self._set().resolve("303").pid == 303
+
+    def test_resolves_a_full_uuid(self):
+        assert self._set().resolve(self._A).pid == 101
+
+    def test_resolves_a_unique_prefix(self):
+        assert self._set().resolve("97894d02").pid == 101
+
+    def test_rejects_a_prefix_shorter_than_four_characters(self):
+        # "b9c" prefixes exactly one session id, but three characters is below
+        # the floor, so it is a miss rather than a match.
+        live = session_discovery.LiveSessionSet([
+            session_discovery.LiveSession(
+                pid=1, cwd=Path("/w/a"),
+                session_id="b9c4d02f-f335-5ea3-9d9f-050330a4902b",
+            ),
+        ])
+        with pytest.raises(KeyError):
+            live.resolve("b9c")
+        assert live.resolve("b9c4").pid == 1
+
+    def test_ambiguous_prefix_raises_value_error_naming_candidates(self):
+        live = session_discovery.LiveSessionSet([
+            session_discovery.LiveSession(pid=1, cwd=Path("/w/a"), session_id="abcd1111"),
+            session_discovery.LiveSession(pid=2, cwd=Path("/w/b"), session_id="abcd2222"),
+        ])
+        with pytest.raises(ValueError) as exc:
+            live.resolve("abcd")
+        assert "abcd1111" in str(exc.value)
+        assert "abcd2222" in str(exc.value)
+
+    def test_unknown_handle_raises_key_error(self):
+        with pytest.raises(KeyError):
+            self._set().resolve("zzzzzzzz")
+
+    def test_unknown_pid_raises_key_error(self):
+        with pytest.raises(KeyError):
+            self._set().resolve("999")
+
+    def test_a_full_uuid_wins_over_a_pid_shaped_lookup(self):
+        # An all-digit handle is a pid, never a uuid prefix: uuids are hex with
+        # dashes, and a pid is what a user reads off `session list`.
+        live = session_discovery.LiveSessionSet([
+            session_discovery.LiveSession(pid=1234, cwd=Path("/w/a"), session_id="1234abcd-0000-0000-0000-000000000000"),
+        ])
+        assert live.resolve("1234").pid == 1234

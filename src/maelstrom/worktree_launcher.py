@@ -62,8 +62,10 @@ def build_claude_command(
 
     The initial prompt is no longer an argv argument — it is piped into ``claude``
     on stdin via :func:`build_task_launch_line`. When ``session_id`` is given it
-    becomes ``--session-id``, pinning the task to a deterministic Claude session
-    (Claude then re-exports it as ``CLAUDE_SESSION_ID``).
+    becomes ``--session-id``, pinning the task to a deterministic Claude session.
+    ``--session-id`` sets the id the session *starts* with; it does not hold it
+    for the life of the process, because a ``/clear`` starts a new conversation
+    with a new id. The session reports that live id as ``CLAUDE_CODE_SESSION_ID``.
 
     ``model`` becomes ``--model`` — a free-form passthrough (an alias like ``opus``
     or a full id); falsy means "omit the flag", so the session inherits the user's
@@ -106,14 +108,18 @@ def build_task_launch_line(
     front-of-line scoping bug unrepresentable: env is a property of a single
     ``Command``, never of the whole ``Pipeline``. ``session_id`` pins the task's
     deterministic Claude session id (see :func:`build_claude_command`) and also
-    rides as ``MAEL_SESSION_ID`` so the session-channel records the real id in
-    the ``~/.maelstrom`` registry — the harness does not export
-    ``CLAUDE_SESSION_ID`` to subprocesses, so this restores the registry's
-    primary key for ``reconcile`` / ``session list``.
+    rides as ``MAEL_TASK_SESSION_ID`` so the session-channel keys the
+    ``~/.maelstrom`` registry on it, which is what ``reconcile`` and
+    ``session list`` match on.
+
+    The name pairs with ``MAEL_TASK_ID`` / ``MAEL_TASK_PARENT`` because that is
+    what it is: a **task key**, not a reference to the conversation running now.
+    The harness does export a live session id (``CLAUDE_CODE_SESSION_ID``), but a
+    ``/clear`` moves it, so it cannot key a task. The derived id never moves.
     """
     claude_env = dict(env or {})
     if session_id:
-        claude_env["MAEL_SESSION_ID"] = session_id
+        claude_env["MAEL_TASK_SESSION_ID"] = session_id
     return Pipeline([
         Command(["mael", "task", "prompt", task_id, "--project", project]),
         Command(
