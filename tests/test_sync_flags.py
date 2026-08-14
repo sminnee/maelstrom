@@ -12,6 +12,7 @@ pattern (mirroring ``tests/test_tidy_branches.py``); CLI tests drive ``cmd_sync`
 through ``CliRunner`` with ``sync_worktree`` mocked.
 """
 
+import os
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -30,9 +31,14 @@ from maelstrom.worktree import (
     SyncResult,
     _detach_and_free_ports,
     close_worktree,
+    get_current_branch,
+    setup_worktree_for_branch,
     squash_worktree,
     sync_worktree,
+    sync_worktree_with_autorepair,
 )
+from maelstrom.worktree import rebase_in_progress as _rebase_in_progress
+from maelstrom.rebase_repair import _REPAIR_TIMEOUT, run_resolve_rebase_session
 
 from tests.git_helpers import create_commit, run_git, setup_git_repo
 
@@ -40,19 +46,6 @@ from tests.git_helpers import create_commit, run_git, setup_git_repo
 # ---------------------------------------------------------------------------
 # Real-git fixtures
 # ---------------------------------------------------------------------------
-
-
-def _rebase_in_progress(worktree_path: Path) -> bool:
-    """True if a rebase is currently in progress in the worktree."""
-    result = run_git(worktree_path, "rev-parse", "--git-path", "rebase-merge", check=False)
-    rebase_merge = Path(result.stdout.strip())
-    if not rebase_merge.is_absolute():
-        rebase_merge = worktree_path / rebase_merge
-    result2 = run_git(worktree_path, "rev-parse", "--git-path", "rebase-apply", check=False)
-    rebase_apply = Path(result2.stdout.strip())
-    if not rebase_apply.is_absolute():
-        rebase_apply = worktree_path / rebase_apply
-    return rebase_merge.exists() or rebase_apply.exists()
 
 
 def _current_head(path: Path) -> str:
@@ -145,6 +138,29 @@ def _advance_origin_main(project_path: Path, remote_path: Path) -> None:
     run_git(project_path, "fetch", "origin")
 
 
+def _make_conflict(project_path: Path, worktree_path: Path, remote_path: Path) -> None:
+    """Create a divergent edit to README so a rebase onto origin/main conflicts."""
+    # Upstream changes README on main.
+    with TemporaryDirectory() as tmpdir:
+        clone = Path(tmpdir) / "pusher"
+        subprocess.run(
+            ["git", "clone", str(remote_path), str(clone)],
+            check=True, capture_output=True,
+        )
+        run_git(clone, "config", "user.email", "test@test.com")
+        run_git(clone, "config", "user.name", "Test")
+        (clone / "README.md").write_text("# Upstream version\n")
+        run_git(clone, "add", "README.md")
+        run_git(clone, "commit", "-m", "Upstream README")
+        run_git(clone, "push", "origin", "HEAD:main")
+    run_git(project_path, "fetch", "origin")
+
+    # The worktree branch edits the same line differently.
+    (worktree_path / "README.md").write_text("# Feature version\n")
+    run_git(worktree_path, "add", "README.md")
+    run_git(worktree_path, "commit", "-m", "Feature README")
+
+
 # ---------------------------------------------------------------------------
 # squash_worktree(abort_on_conflict=…)
 # ---------------------------------------------------------------------------
@@ -154,26 +170,7 @@ class TestSquashAbort:
     """`squash_worktree(abort_on_conflict=…)`."""
 
     def _make_conflict(self, project_path, worktree_path, remote_path):
-        """Create a divergent edit to README so a rebase onto origin/main conflicts."""
-        # Upstream changes README on main.
-        with TemporaryDirectory() as tmpdir:
-            clone = Path(tmpdir) / "pusher"
-            subprocess.run(
-                ["git", "clone", str(remote_path), str(clone)],
-                check=True, capture_output=True,
-            )
-            run_git(clone, "config", "user.email", "test@test.com")
-            run_git(clone, "config", "user.name", "Test")
-            (clone / "README.md").write_text("# Upstream version\n")
-            run_git(clone, "add", "README.md")
-            run_git(clone, "commit", "-m", "Upstream README")
-            run_git(clone, "push", "origin", "HEAD:main")
-        run_git(project_path, "fetch", "origin")
-
-        # The worktree branch edits the same line differently.
-        (worktree_path / "README.md").write_text("# Feature version\n")
-        run_git(worktree_path, "add", "README.md")
-        run_git(worktree_path, "commit", "-m", "Feature README")
+        _make_conflict(project_path, worktree_path, remote_path)
 
     def test_conflict_with_abort_restores_worktree(self, project_with_worktree):
         project_path, worktree_path, remote_path = project_with_worktree
@@ -325,6 +322,396 @@ class TestSyncClose:
 
 def _current_head_of_ref(path: Path, ref: str) -> str:
     return run_git(path, "rev-parse", ref).stdout.strip()
+
+
+# ---------------------------------------------------------------------------
+# sync_worktree_with_autorepair
+# ---------------------------------------------------------------------------
+
+
+def _repairing_runner(worktree_path: Path):
+    """A stub repair session that actually resolves the README conflict."""
+    (worktree_path / "README.md").write_text("# Merged version\n")
+    run_git(worktree_path, "add", "README.md")
+    subprocess.run(
+        ["git", "rebase", "--continue"],
+        cwd=worktree_path, check=True, capture_output=True,
+        env={**os.environ, "GIT_EDITOR": "true"},
+    )
+    return subprocess.CompletedProcess(args=["claude"], returncode=0, stdout="", stderr="")
+
+
+def _idle_runner(worktree_path: Path):
+    """A stub repair session that exits cleanly without touching the rebase."""
+    return subprocess.CompletedProcess(args=["claude"], returncode=0, stdout="", stderr="")
+
+
+class TestRunResolveRebaseSession:
+    """The real repair runner. Every other test substitutes its own."""
+
+    def test_runs_the_resolve_command_headlessly_in_the_worktree(self, tmp_path):
+        with patch("maelstrom.rebase_repair.subprocess.run") as run:
+            run_resolve_rebase_session(tmp_path)
+
+        argv, kwargs = run.call_args.args[0], run.call_args.kwargs
+        assert argv[0] == "claude"
+        assert "-p" in argv
+        assert "/resolve-rebase-conflicts" in argv
+        # Unattended: the session must not stop to ask for permission, and must
+        # not load project MCP servers.
+        assert argv[argv.index("--permission-mode") + 1] == "auto"
+        assert "--strict-mcp-config" in argv
+        # It runs in the worktree, so it sees the mid-rebase tree.
+        assert kwargs["cwd"] == tmp_path
+        # A non-zero exit is a result to inspect, not an exception to raise.
+        assert kwargs["check"] is False
+        assert kwargs["timeout"] == _REPAIR_TIMEOUT
+
+
+class TestSyncAutorepair:
+    """`sync_worktree_with_autorepair` against real git, repair session stubbed."""
+
+    def test_successful_repair_completes_the_rebase_and_pushes(self, project_with_worktree):
+        project_path, worktree_path, remote_path = project_with_worktree
+        _push_branch(worktree_path, "feature/work")
+        _make_conflict(project_path, worktree_path, remote_path)
+
+        result = sync_worktree_with_autorepair(
+            worktree_path, skip_fetch=True, repair_runner=_repairing_runner,
+        )
+
+        assert result.success is True, result.message
+        assert result.repaired is True
+        assert not _rebase_in_progress(worktree_path)
+        assert get_current_branch(worktree_path) == "feature/work"
+        # The branch was pushed: origin now matches the rebased local tip.
+        assert result.pushed is True
+        run_git(worktree_path, "fetch", "origin")
+        assert _current_head_of_ref(worktree_path, "origin/feature/work") == _current_head(
+            worktree_path
+        )
+
+    def test_repair_that_does_nothing_aborts_and_restores(self, project_with_worktree):
+        project_path, worktree_path, remote_path = project_with_worktree
+        _make_conflict(project_path, worktree_path, remote_path)
+        head_before = _current_head(worktree_path)
+
+        result = sync_worktree_with_autorepair(
+            worktree_path, skip_fetch=True, repair_runner=_idle_runner,
+        )
+
+        assert result.success is False
+        assert result.aborted is True
+        assert result.repaired is False
+        assert not _rebase_in_progress(worktree_path)
+        assert _current_head(worktree_path) == head_before
+
+    def test_repair_session_failure_aborts(self, project_with_worktree):
+        project_path, worktree_path, remote_path = project_with_worktree
+        _make_conflict(project_path, worktree_path, remote_path)
+        head_before = _current_head(worktree_path)
+
+        def failing(path):
+            return subprocess.CompletedProcess(args=["claude"], returncode=1, stdout="", stderr="boom")
+
+        result = sync_worktree_with_autorepair(
+            worktree_path, skip_fetch=True, repair_runner=failing,
+        )
+
+        assert result.success is False
+        assert result.aborted is True
+        assert not _rebase_in_progress(worktree_path)
+        assert _current_head(worktree_path) == head_before
+
+    def test_repair_that_raises_aborts_the_rebase(self, project_with_worktree):
+        project_path, worktree_path, remote_path = project_with_worktree
+        _make_conflict(project_path, worktree_path, remote_path)
+        head_before = _current_head(worktree_path)
+
+        def exploding(path):
+            raise OSError("claude: not found")
+
+        result = sync_worktree_with_autorepair(
+            worktree_path, skip_fetch=True, repair_runner=exploding,
+        )
+
+        assert result.success is False
+        assert result.aborted is True
+        assert "claude: not found" in result.message
+        assert not _rebase_in_progress(worktree_path)
+        assert _current_head(worktree_path) == head_before
+
+    def test_repair_leaving_the_wrong_branch_fails_naming_the_branch(
+        self, project_with_worktree
+    ):
+        project_path, worktree_path, remote_path = project_with_worktree
+        _make_conflict(project_path, worktree_path, remote_path)
+
+        def wanders(path):
+            _repairing_runner(path)
+            run_git(path, "checkout", "-b", "some/other-branch")
+            return subprocess.CompletedProcess(args=["claude"], returncode=0, stdout="", stderr="")
+
+        result = sync_worktree_with_autorepair(
+            worktree_path, skip_fetch=True, repair_runner=wanders,
+        )
+
+        assert result.success is False
+        # Both branches are named: the one expected, and the one it is on now —
+        # without the latter the user cannot tell what to check back out.
+        assert "feature/work" in result.message
+        assert "some/other-branch" in result.message
+
+    def test_clean_rebase_never_calls_the_repair_runner(self, project_with_worktree):
+        project_path, worktree_path, remote_path = project_with_worktree
+        create_commit(worktree_path, "feature.txt", "feature\n", "Feature commit")
+        _advance_origin_main(project_path, remote_path)
+        runner = MagicMock()
+
+        result = sync_worktree_with_autorepair(
+            worktree_path, skip_fetch=True, repair_runner=runner,
+        )
+
+        assert result.success is True
+        assert result.repaired is False
+        runner.assert_not_called()
+
+    def test_rebase_failing_without_a_conflict_never_calls_the_repair_runner(
+        self, project_with_worktree
+    ):
+        """A rebase can fail with no conflict, leaving no rebase in progress.
+
+        ``squash_worktree`` reports ``had_conflicts`` for any non-zero rebase
+        exit, so the conflict flag alone must not trigger a repair session:
+        there would be nothing for it to resolve.
+        """
+        project_path, worktree_path, remote_path = project_with_worktree
+        create_commit(worktree_path, "feature.txt", "feature\n", "Feature commit")
+        _advance_origin_main(project_path, remote_path)
+        runner = MagicMock()
+
+        # A stale index.lock makes git refuse to rebase at all: the rebase exits
+        # non-zero, and no rebase is left in progress.
+        lock = Path(
+            run_git(worktree_path, "rev-parse", "--git-path", "index.lock").stdout.strip()
+        )
+        if not lock.is_absolute():
+            lock = worktree_path / lock
+        lock.write_text("")
+        try:
+            result = sync_worktree_with_autorepair(
+                worktree_path, skip_fetch=True, repair_runner=runner,
+            )
+        finally:
+            lock.unlink(missing_ok=True)
+
+        assert result.success is False
+        runner.assert_not_called()
+        assert not _rebase_in_progress(worktree_path)
+
+    def test_fetch_failure_blocks_before_any_repair(self, project_with_worktree):
+        project_path, worktree_path, remote_path = project_with_worktree
+        run_git(worktree_path, "remote", "set-url", "origin", str(project_path / "nonexistent.git"))
+        runner = MagicMock()
+
+        result = sync_worktree_with_autorepair(worktree_path, repair_runner=runner)
+
+        assert result.success is False
+        assert result.had_conflicts is False
+        assert "fetch" in result.message.lower()
+        runner.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# setup_worktree_for_branch: sync when the worktree is opened
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def quiet_finalize():
+    """Stub the finalize side-effects so worktrees stay clean for real-git assertions."""
+    with patch("maelstrom.worktree.update_claude_local_md", return_value=False), \
+            patch("maelstrom.worktree.run_install_cmd"), \
+            patch("maelstrom.worktree.setup_claude_memory_symlink"):
+        yield
+
+
+class TestSetupWorktreeSyncOnOpen:
+    """`setup_worktree_for_branch` syncs when it opens a worktree, not when it reuses one."""
+
+    def _stale_branch(self, project_path, worktree_path, remote_path, branch="feature/stale"):
+        """Push ``branch`` from the alpha worktree, then advance origin/main past it.
+
+        Leaves the branch checked out nowhere: the alpha worktree goes back to a
+        detached HEAD so ``setup_worktree_for_branch`` is free to claim the branch.
+        """
+        run_git(worktree_path, "checkout", "-b", branch)
+        create_commit(worktree_path, "work.txt", "work\n", "Branch work")
+        _push_branch(worktree_path, branch)
+        run_git(worktree_path, "checkout", "--detach", "origin/main")
+        run_git(worktree_path, "branch", "-D", branch)
+        run_git(worktree_path, "fetch", "origin")
+        _advance_origin_main(project_path, remote_path)
+        return branch
+
+    def test_created_worktree_is_rebased_and_pushed(
+        self, project_with_worktree, quiet_finalize
+    ):
+        project_path, worktree_path, remote_path = project_with_worktree
+        branch = self._stale_branch(project_path, worktree_path, remote_path)
+
+        result = setup_worktree_for_branch(
+            project_path, "test-repo", branch, no_recycle=True, run_install=False,
+        )
+
+        assert result.action == "created"
+        assert result.sync is not None
+        assert result.sync.success is True, result.sync.message
+        # origin/main is now an ancestor of the branch tip: it was rebased.
+        merged = run_git(
+            result.path, "merge-base", "--is-ancestor", "origin/main", "HEAD", check=False,
+        )
+        assert merged.returncode == 0
+        assert result.sync.pushed is True
+
+    def test_recycled_worktree_is_rebased(self, project_with_worktree, quiet_finalize):
+        project_path, worktree_path, remote_path = project_with_worktree
+        branch = self._stale_branch(project_path, worktree_path, remote_path)
+        # The alpha worktree is detached, clean and at origin/main → recyclable.
+
+        result = setup_worktree_for_branch(
+            project_path, "test-repo", branch, run_install=False,
+        )
+
+        assert result.action == "recycled"
+        assert result.sync is not None
+        assert result.sync.success is True, result.sync.message
+        merged = run_git(
+            result.path, "merge-base", "--is-ancestor", "origin/main", "HEAD", check=False,
+        )
+        assert merged.returncode == 0
+
+    def test_reused_worktree_is_never_synced(self, project_with_worktree, quiet_finalize):
+        project_path, worktree_path, remote_path = project_with_worktree
+        # The fixture's alpha worktree already has feature/work checked out.
+        with patch("maelstrom.worktree.sync_worktree_with_autorepair") as sync:
+            result = setup_worktree_for_branch(
+                project_path, "test-repo", "feature/work", run_install=False,
+            )
+
+        assert result.action == "reused"
+        assert result.sync is None
+        sync.assert_not_called()
+
+    def test_brand_new_branch_is_synced_but_never_closed(
+        self, project_with_worktree, quiet_finalize
+    ):
+        """A branch with no commits is 'empty' — close_if_empty must stay off."""
+        project_path, worktree_path, remote_path = project_with_worktree
+
+        result = setup_worktree_for_branch(
+            project_path, "test-repo", "feature/brand-new",
+            no_recycle=True, run_install=False,
+        )
+
+        assert result.sync is not None
+        assert result.sync.success is True, result.sync.message
+        assert result.sync.closed is False
+        assert result.sync.pushed is False  # no origin/<branch> to push to
+        assert get_current_branch(result.path) == "feature/brand-new"
+
+    def test_conflicting_branch_with_failed_repair_blocks_and_aborts(
+        self, project_with_worktree, quiet_finalize
+    ):
+        project_path, worktree_path, remote_path = project_with_worktree
+        branch = self._conflicting_branch(project_path, worktree_path, remote_path)
+
+        with patch(
+            "maelstrom.worktree.run_resolve_rebase_session", side_effect=_idle_runner,
+        ):
+            result = setup_worktree_for_branch(
+                project_path, "test-repo", branch, no_recycle=True, run_install=False,
+            )
+
+        assert result.sync is not None
+        assert result.sync.success is False
+        assert result.sync.aborted is True
+        assert not _rebase_in_progress(result.path)
+        # No conflict residue: tracked files are clean (the generated .env is
+        # untracked maelstrom state, not rebase leftovers).
+        tracked = run_git(result.path, "status", "--porcelain", "--untracked-files=no")
+        assert tracked.stdout.strip() == ""
+
+    def test_a_blocked_worktree_is_still_finalized(self, project_with_worktree):
+        """A failed sync must not leave the worktree without CLAUDE.local.md.
+
+        The user's documented recovery is `mael sync --autorepair` in the
+        worktree, which rebases but never finalizes. If finalize were skipped
+        here, nothing short of another `mael add` would ever write it.
+        """
+        project_path, worktree_path, remote_path = project_with_worktree
+        branch = self._conflicting_branch(project_path, worktree_path, remote_path)
+
+        with patch("maelstrom.worktree.setup_claude_memory_symlink"), \
+                patch("maelstrom.worktree.run_install_cmd"), \
+                patch(
+                    "maelstrom.worktree.update_claude_local_md", return_value=False,
+                ) as local_md, \
+                patch(
+                    "maelstrom.worktree.run_resolve_rebase_session",
+                    side_effect=_idle_runner,
+                ):
+            result = setup_worktree_for_branch(
+                project_path, "test-repo", branch, no_recycle=True, run_install=False,
+            )
+
+        assert result.sync is not None and result.sync.success is False
+        local_md.assert_called_once()
+
+    def test_conflicting_branch_with_successful_repair_reports_repaired(
+        self, project_with_worktree, quiet_finalize
+    ):
+        project_path, worktree_path, remote_path = project_with_worktree
+        branch = self._conflicting_branch(project_path, worktree_path, remote_path)
+
+        with patch(
+            "maelstrom.worktree.run_resolve_rebase_session", side_effect=_repairing_runner,
+        ):
+            result = setup_worktree_for_branch(
+                project_path, "test-repo", branch, no_recycle=True, run_install=False,
+            )
+
+        assert result.sync is not None
+        assert result.sync.success is True, result.sync.message
+        assert result.sync.repaired is True
+
+    def _conflicting_branch(self, project_path, worktree_path, remote_path):
+        """A pushed branch whose README edit conflicts with a later origin/main edit."""
+        branch = "feature/conflicting"
+        run_git(worktree_path, "checkout", "-b", branch)
+        (worktree_path / "README.md").write_text("# Feature version\n")
+        run_git(worktree_path, "add", "README.md")
+        run_git(worktree_path, "commit", "-m", "Feature README")
+        _push_branch(worktree_path, branch)
+        run_git(worktree_path, "checkout", "--detach", "origin/main")
+        run_git(worktree_path, "branch", "-D", branch)
+
+        # Upstream edits the same line.
+        with TemporaryDirectory() as tmpdir:
+            clone = Path(tmpdir) / "pusher"
+            subprocess.run(
+                ["git", "clone", str(remote_path), str(clone)],
+                check=True, capture_output=True,
+            )
+            run_git(clone, "config", "user.email", "test@test.com")
+            run_git(clone, "config", "user.name", "Test")
+            (clone / "README.md").write_text("# Upstream version\n")
+            run_git(clone, "add", "README.md")
+            run_git(clone, "commit", "-m", "Upstream README")
+            run_git(clone, "push", "origin", "HEAD:main")
+        run_git(project_path, "fetch", "origin")
+        run_git(worktree_path, "fetch", "origin")
+        return branch
 
 
 # ---------------------------------------------------------------------------

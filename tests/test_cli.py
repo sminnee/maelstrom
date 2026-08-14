@@ -1,5 +1,6 @@
 """Tests for maelstrom.cli module."""
 
+import dataclasses
 import json
 import os
 import subprocess
@@ -10,8 +11,23 @@ from click.testing import CliRunner
 
 from maelstrom.cli import cli
 from maelstrom.project_scaffold import scaffold_files
-from maelstrom.worktree import WorktreeInfo
+from maelstrom.worktree import SyncResult, WorktreeInfo, WorktreeSetup
 from maelstrom.worktree_model import CopyBackResult
+
+
+def _sync_result(**overrides) -> SyncResult:
+    """A successful open-flow SyncResult, with fields overridden as needed."""
+    base = SyncResult(
+        success=True,
+        branch="feat-x",
+        message="Successfully rebased feat-x onto origin/main",
+    )
+    return dataclasses.replace(base, **overrides) if overrides else base
+
+
+def _failed_sync(message: str, **overrides) -> SyncResult:
+    """A failed open-flow SyncResult. ``had_conflicts`` picks the caller's path."""
+    return _sync_result(success=False, message=message, **overrides)
 
 
 class TestListAllJson:
@@ -641,6 +657,11 @@ class TestCmdAddRecycle:
         stack.enter_context(patch("maelstrom.worktree.setup_claude_memory_symlink"))
         stack.enter_context(patch("maelstrom.worktree.update_claude_local_md", return_value=False))
         stack.enter_context(patch("maelstrom.worktree.run_install_cmd"))
+        # An opened worktree is synced before finalize; these mocks have no real git.
+        stack.enter_context(patch(
+            "maelstrom.worktree.sync_worktree_with_autorepair",
+            return_value=_sync_result(),
+        ))
         # The recycle env block stays CLI-side and derives the NATO name there too.
         stack.enter_context(patch(
             "maelstrom.cli.extract_worktree_name_from_folder", return_value="bravo",
@@ -730,6 +751,11 @@ class TestCmdAddExistingBranch:
         stack.enter_context(patch(
             "maelstrom.worktree.extract_worktree_name_from_folder", return_value="bravo",
         ))
+        # An opened worktree is synced before finalize; these mocks have no real git.
+        stack.enter_context(patch(
+            "maelstrom.worktree.sync_worktree_with_autorepair",
+            return_value=_sync_result(),
+        ))
 
         mocks = {
             "create_worktree": stack.enter_context(
@@ -800,6 +826,129 @@ class TestCmdAddExistingBranch:
             mocks["run_install_cmd"].assert_not_called()
             # The create echo names the worktree.
             assert "→ proj/bravo (created)" in result.output
+
+
+class TestCmdAddSync:
+    """`mael add` reports the open-flow sync, and blocks the launch when it fails."""
+
+    def _run(self, tmp_path, sync):
+        """Invoke `mael add feat-x` with a stubbed setup carrying ``sync``."""
+        from contextlib import ExitStack
+
+        project_path = tmp_path / "proj"
+        project_path.mkdir()
+        worktree_path = tmp_path / "proj-bravo"
+        worktree_path.mkdir()
+        ctx = MagicMock(
+            project="proj", project_path=project_path,
+            worktree=None, worktree_path=None,
+        )
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("maelstrom.cli.resolve_context", return_value=ctx))
+            stack.enter_context(patch(
+                "maelstrom.cli.setup_worktree_for_branch",
+                return_value=WorktreeSetup(
+                    path=worktree_path, name="bravo", action="created", sync=sync,
+                ),
+            ))
+            stack.enter_context(patch("maelstrom.cli.get_app_url", return_value=None))
+            launch = stack.enter_context(patch("maelstrom.cli.launch_claude_in_worktree"))
+            result = CliRunner().invoke(cli, ["add", "feat-x"])
+        return result, launch
+
+    def test_aborted_conflict_blocks_the_launch(self, tmp_path):
+        sync = _failed_sync(
+            "Autorepair did not complete the rebase; aborted and restored.",
+            had_conflicts=True,
+            aborted=True,
+        )
+        result, launch = self._run(tmp_path, sync)
+
+        assert result.exit_code == 1
+        assert "aborted and restored" in result.output
+        assert "mael sync --autorepair" in result.output
+        launch.assert_not_called()
+
+    def test_fetch_failure_blocks_the_launch(self, tmp_path):
+        sync = _failed_sync("Failed to fetch from origin: no route")
+        result, launch = self._run(tmp_path, sync)
+
+        assert result.exit_code != 0
+        assert "Sync failed" in result.output
+        launch.assert_not_called()
+
+    def test_successful_sync_is_reported_and_the_launch_proceeds(self, tmp_path):
+        sync = _sync_result(repaired=True, pushed=True, push_message="Pushed feat-x to origin")
+        result, launch = self._run(tmp_path, sync)
+
+        assert result.exit_code == 0, result.output
+        assert "Successfully rebased feat-x onto origin/main" in result.output
+        assert "Pushed feat-x to origin" in result.output
+        assert "resolved by a headless Claude session" in result.output
+        launch.assert_called_once()
+
+    def test_reused_worktree_reports_no_sync(self, tmp_path):
+        """``sync is None`` (the reuse path) prints nothing and never blocks."""
+        result, launch = self._run(tmp_path, None)
+
+        assert result.exit_code == 0, result.output
+        assert "rebased" not in result.output
+        launch.assert_called_once()
+
+
+class TestCmdSyncAutorepair:
+    """`mael sync --autorepair` routing and reporting."""
+
+    def _run(self, args, sync_result, tmp_path):
+        from contextlib import ExitStack
+
+        worktree_path = tmp_path / "proj-bravo"
+        worktree_path.mkdir()
+        ctx = MagicMock(project="proj", worktree="bravo", worktree_path=worktree_path)
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("maelstrom.cli.resolve_context", return_value=ctx))
+            plain = stack.enter_context(patch("maelstrom.cli.sync_worktree"))
+            repair = stack.enter_context(patch(
+                "maelstrom.cli.sync_worktree_with_autorepair", return_value=sync_result,
+            ))
+            plain.return_value = sync_result
+            result = CliRunner().invoke(cli, ["sync", *args])
+        return result, plain, repair
+
+    def test_flag_routes_to_the_autorepair_sync(self, tmp_path):
+        result, plain, repair = self._run(["--autorepair"], _sync_result(), tmp_path)
+
+        assert result.exit_code == 0, result.output
+        repair.assert_called_once()
+        plain.assert_not_called()
+
+    def test_without_the_flag_the_plain_sync_runs(self, tmp_path):
+        result, plain, repair = self._run([], _sync_result(), tmp_path)
+
+        assert result.exit_code == 0, result.output
+        plain.assert_called_once()
+        repair.assert_not_called()
+
+    def test_repaired_success_says_so(self, tmp_path):
+        result, _, _ = self._run(["--autorepair"], _sync_result(repaired=True), tmp_path)
+
+        assert result.exit_code == 0, result.output
+        assert "resolved by a headless Claude session" in result.output
+
+    def test_failure_exits_non_zero_without_conflict_help(self, tmp_path):
+        sync = _failed_sync(
+            "Autorepair did not complete the rebase; aborted and restored.",
+            had_conflicts=True,
+            aborted=True,
+        )
+        result, _, _ = self._run(["--autorepair"], sync, tmp_path)
+
+        assert result.exit_code == 1
+        assert "aborted and restored" in result.output
+        # No mid-rebase state remains, so the manual-resolution help is not printed.
+        assert "git rebase --continue" not in result.output
 
 
 class TestClaudePlacementFailure:

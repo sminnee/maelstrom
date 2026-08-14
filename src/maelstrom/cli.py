@@ -45,6 +45,7 @@ from .admin_cli import cmd_install, cmd_self_update
 from . import session_discovery
 from .table import draw_table
 from .worktree import (
+    SyncResult,
     add_project,
     close_worktree,
     copy_back_new_env_vars,
@@ -60,6 +61,7 @@ from .worktree import (
     run_install_cmd,
     setup_worktree_for_branch,
     sync_worktree,
+    sync_worktree_with_autorepair,
     tidy_branches,
     update_claude_local_md,
 )
@@ -95,6 +97,40 @@ def _launch_claude_or_raise(
         raise click.ClickException(
             "cmux is not running and could not be started; start cmux and retry"
         )
+
+
+_REPAIRED_MESSAGE = "Rebase conflicts resolved by a headless Claude session."
+
+
+def _report_open_sync(sync: SyncResult | None) -> None:
+    """Echo the result of the sync that ran when a worktree was opened.
+
+    ``None`` means no sync ran (the worktree was reused), so there is nothing to
+    say. A failure exits non-zero: the caller must not launch a session onto
+    code that was never rebased.
+    """
+    if sync is None:
+        return
+
+    if not sync.success:
+        if sync.had_conflicts:
+            click.echo(sync.message, err=True)
+            click.echo(
+                "Resolve them by running `mael sync --autorepair` in the worktree, "
+                "or rebase by hand.",
+                err=True,
+            )
+            raise SystemExit(1)
+        raise click.ClickException(f"Sync failed: {sync.message}")
+
+    click.echo(sync.message)
+    if sync.repaired:
+        click.echo(_REPAIRED_MESSAGE)
+    if sync.push_message:
+        # A rejected push still leaves a usable worktree, so the launch goes
+        # ahead — but the branch and its remote have diverged, which is a
+        # warning, not progress.
+        click.echo(sync.push_message, err=not sync.pushed)
 
 
 @click.group()
@@ -323,6 +359,12 @@ def cmd_add(branch, project, open, no_recycle):
     elif result.action == "created":
         click.echo(f"Worktree created at: {worktree_path}")
         click.echo(f"  → {ctx.project}/{wt_name} (created)")
+
+    # Opening a worktree rebases its branch onto origin/main first. A failed sync
+    # blocks the launch: a session must never start on unrebased code. Reported
+    # after the env regen above so a retry (which reuses the worktree, and so
+    # never syncs) doesn't skip the regen.
+    _report_open_sync(result.sync)
 
     app_info = get_app_url(project_path, wt_name)
     if app_info:
@@ -807,8 +849,19 @@ def cmd_claude(target):
     is_flag=True,
     help="If the branch is empty after rebasing, delete it (local + remote) and close the worktree",
 )
-def cmd_sync(target, squash, abort, close):
-    """Rebase worktree against origin/main."""
+@click.option(
+    "--autorepair",
+    is_flag=True,
+    help="On rebase conflict, run a headless Claude session "
+    "(/resolve-rebase-conflicts) to resolve and continue",
+)
+def cmd_sync(target, squash, abort, close, autorepair):
+    """Rebase worktree against origin/main.
+
+    With --autorepair, a rebase conflict starts a headless Claude session that
+    resolves it and continues the rebase. This supersedes --abort: every
+    autorepair failure path already aborts and restores the worktree.
+    """
     try:
         ctx = resolve_context(
             target,
@@ -827,16 +880,31 @@ def cmd_sync(target, squash, abort, close):
         click.echo(f"Syncing {ctx.worktree} with origin/main (autosquashing fixup! commits)...")
     else:
         click.echo(f"Syncing {ctx.worktree} with origin/main...")
-    result = sync_worktree(worktree_path, squash=squash, abort_on_conflict=abort, close_if_empty=close)
+    if autorepair:
+        result = sync_worktree_with_autorepair(
+            worktree_path, squash=squash, close_if_empty=close,
+        )
+    else:
+        result = sync_worktree(
+            worktree_path, squash=squash, abort_on_conflict=abort, close_if_empty=close,
+        )
 
     if result.success:
         if result.closed:
             click.echo(result.message)
             return
         click.echo(result.message)
+        if result.repaired:
+            click.echo(_REPAIRED_MESSAGE)
         if result.push_message:
             click.echo(result.push_message)
         return
+
+    # An autorepair failure always leaves the worktree restored, so there is no
+    # mid-rebase state for the manual-resolution help to talk about.
+    if autorepair:
+        click.echo(result.message, err=True)
+        raise SystemExit(1)
 
     # Handle conflicts
     if result.had_conflicts:

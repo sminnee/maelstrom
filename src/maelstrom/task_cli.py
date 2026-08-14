@@ -220,6 +220,20 @@ def _run_task(
     result = setup_worktree_for_branch(
         project_path, project, branch, run_install=False
     )
+    # Opening the worktree rebased its branch onto origin/main. If that failed,
+    # block: an unattended session must not run against stale code. The failure
+    # lands before the in-progress write below, so the task never leaves TODO —
+    # the same end state as the cmux rollback, with no rollback write needed.
+    if result.sync is not None and not result.sync.success:
+        raise click.ClickException(
+            f"Sync of {branch} failed; {task.id} left TODO: {result.sync.message}"
+        )
+    # A rejected push is not a failed sync: the rebase landed, so the session may
+    # start. Say so anyway — the branch and its remote have diverged, and nobody
+    # is watching this run to notice.
+    if result.sync is not None and result.sync.push_message:
+        click.echo(result.sync.push_message, err=True)
+
     # Resume a previously-started (now-stopped) session rather than re-creating
     # its id: the worktree the session lives in is the one just set up.
     # fresh ⇒ never resume; see docstring.

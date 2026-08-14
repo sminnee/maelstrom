@@ -18,7 +18,7 @@ from maelstrom import task_cli
 from maelstrom.integrations.linear import cmd_plan
 from maelstrom.shell import describe
 from maelstrom.task_store import InMemoryStore
-from maelstrom.worktree import WorktreeSetup
+from maelstrom.worktree import SyncResult, WorktreeSetup
 
 
 @pytest.fixture
@@ -575,6 +575,53 @@ class TestRun:
         assert model.load(store, "p", t.id).status == model.STATUS_TODO
         assert "cmux unavailable" in result.output
         assert t.id in result.output
+
+    def test_run_blocks_and_leaves_the_task_todo_when_the_sync_fails(
+        self, runner, store, launch
+    ):
+        # The worktree's branch could not be rebased onto origin/main, so the
+        # session must not start on stale code. The failure is known before the
+        # in-progress write, so the task simply never leaves TODO.
+        launch.setup.return_value = WorktreeSetup(
+            path=launch.wt_path, name="bravo", action="created",
+            sync=SyncResult(
+                success=False,
+                branch="feat/x",
+                message="Autorepair did not complete the rebase; aborted and restored.",
+                had_conflicts=True,
+                aborted=True,
+            ),
+        )
+        t = model.create(store, project="p", title="Plan it")
+
+        result = runner.invoke(task_cli.task, ["run", t.id])
+
+        assert result.exit_code != 0
+        assert model.load(store, "p", t.id).status == model.STATUS_TODO
+        launch.session.assert_not_called()
+        assert "Sync" in result.output
+        assert t.id in result.output
+
+    def test_run_reports_a_failed_push_but_still_launches(self, runner, store, launch):
+        # sync_worktree reports a rejected push as success=True plus a
+        # push_message. The rebase landed, so the session may start — but an
+        # unattended run must still say the branch and its remote have diverged.
+        launch.setup.return_value = WorktreeSetup(
+            path=launch.wt_path, name="bravo", action="created",
+            sync=SyncResult(
+                success=True,
+                branch="feat/x",
+                message="Successfully rebased feat/x onto origin/main",
+                push_message="Push failed: rejected (stale info)",
+            ),
+        )
+        t = model.create(store, project="p", title="Plan it")
+
+        result = runner.invoke(task_cli.task, ["run", t.id])
+
+        assert result.exit_code == 0, result.output
+        assert "Push failed" in result.output
+        launch.session.assert_called_once()
 
     def test_run_existing_task_resumes_stale_transcript(
         self, runner, store, launch, monkeypatch

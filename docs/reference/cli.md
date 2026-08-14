@@ -39,7 +39,7 @@ so the target is optional.
 
 | Command | Description |
 |---|---|
-| `mael add [BRANCH]` | Add a worktree for `BRANCH`. Recycles a closed worktree when one exists. With no `BRANCH`, creates a fresh worktree detached at `origin/main` and does not recycle. |
+| `mael add [BRANCH]` | Add a worktree for `BRANCH`, and rebase `BRANCH` onto `origin/main` before the session starts. Recycles a closed worktree when one exists. With no `BRANCH`, creates a fresh worktree detached at `origin/main`: there is no branch to rebase, and no worktree is recycled. |
 | `mael add-project GIT_URL` | Clone a repository and set it up for maelstrom. |
 | `mael create-project NAME` | Create a GitHub repository with the maelstrom stub files, check it out, and open a worktree on `feat/start-project`. |
 | `mael mv-project OLD NEW` | Rename a project and everything derived from its name. |
@@ -134,6 +134,11 @@ Run `mael doctor NEW` afterwards.
 | `--squash` | Autosquash `fixup!` commits while rebasing onto `origin/main`. |
 | `--abort` | On conflict, abort the rebase and restore the worktree. |
 | `--close` | If the branch is empty after the rebase, delete it (local and remote) and close the worktree. |
+| `--autorepair` | On conflict, run a headless Claude session (`/resolve-rebase-conflicts`) to resolve it and continue the rebase. Supersedes `--abort`: every failure path already aborts and restores the worktree. |
+
+```bash
+mael sync --autorepair             # let a headless session resolve the conflict
+```
 
 ---
 
@@ -223,7 +228,7 @@ The task notebook. See [tasks.md](../guide/tasks.md).
 | `mael task promote FILE` | Create a task from a draft file, print its id, delete the file. |
 | `mael task load-many FILE` | Create a chain of tasks from a marked plan file. `-` reads stdin. |
 | `mael task next` | Print the id of the next actionable task. |
-| `mael task run ID` | Launch a task as a Claude session. Creates its worktree first. |
+| `mael task run ID` | Launch a task as a Claude session. Creates its worktree first, and rebases the branch onto `origin/main`. A failed rebase blocks the launch and leaves the task TODO. |
 | `mael task list` | List actionable tasks. |
 | `mael task show ID` | Show a summary of a task. |
 | `mael task get-status [ID]` | Print a task's status alone. Defaults to `$MAEL_TASK_ID`. |

@@ -31,6 +31,12 @@ names and ports stay stable over time.
 
 The three verbs differ in what they preserve. Close preserves, remove deletes.
 
+**Open**:
+Put a branch into a worktree ready to work in: create the worktree or recycle a closed one,
+then rebase the branch onto `origin/main` before the session starts. Reusing a worktree that
+already holds the branch is not opening it — nothing is set up and no rebase runs.
+_Avoid_: Set up, provision
+
 **Close**:
 Return a worktree to an empty slot: detach to `origin/main`, free the port allocation, keep the
 folder and keep the branch. `close --force` commits outstanding work as `wip: uncommitted
