@@ -65,6 +65,15 @@ with no git and no filesystem (see the task unit tests).
 >   the per-engine table live in `services.py`; the two-phase start (containers
 >   first, VM IP injected into sibling command services' spawn env) lives in
 >   [`env.py`](../../src/maelstrom/env.py).
+> - resolving a rebase conflict
+>   ([`rebase_repair.py`](../../src/maelstrom/rebase_repair.py)), which runs
+>   `claude -p /resolve-rebase-conflicts` in the conflicted worktree. Same
+>   containment as `branch_name.py`: the subprocess is reached through an
+>   injectable `repair_runner` on `sync_worktree_with_autorepair`, so the state
+>   machine around it — abort on failure, verify the branch, re-sync to push — is
+>   exercised against real git with a fake runner. The module is a leaf: it
+>   imports only `subprocess` and `pathlib`, so `worktree.py` can call it without
+>   reaching the launcher layer.
 
 ### 3. One error contract
 

@@ -64,6 +64,20 @@ mael add feature/x --open         # open the editor instead of a Claude session
 `mael add` fetches, creates the branch from `origin/main`, allocates ports, writes `.env`,
 and launches a Claude session. Alpha is created for you by `mael add-project`.
 
+Opening a worktree also rebases its branch onto `origin/main` first, so the session always
+starts on current code. This matters when the branch already exists: a branch preserved by
+`mael close --force`, or one that only lives on the remote, is checked out at its own tip
+and can be many commits behind. A conflict is handed to a headless Claude session that
+resolves it — see [the sync section](#keeping-worktrees-current). If the rebase cannot be
+completed, `mael add` reports the failure and does not start the session.
+
+That rebase is a full `mael sync`, so **opening a worktree force-pushes the rebased branch
+to origin** when the branch is already on the remote. The push uses `--force-with-lease`,
+so it refuses to overwrite remote commits maelstrom has not seen. It still rewrites the
+branch history, so anyone else holding a local copy of that branch has to reset onto it.
+A branch that exists only locally is not pushed. `mael add` with no branch never rebases
+or pushes: there is no branch to rebase.
+
 ## Recycling
 
 Recycling is why the naming works. `mael close` resets a worktree to main but keeps
@@ -149,11 +163,29 @@ mael sync                  # rebase this worktree onto origin/main
 mael sync --squash         # autosquash fixup! commits while rebasing
 mael sync --abort          # on conflict, abort and restore rather than stopping mid-rebase
 mael sync --close          # if the branch is empty after rebasing, delete it and close
+mael sync --autorepair     # on conflict, let a headless Claude session resolve it
 mael sync-all              # every worktree in the project
 ```
 
 `--abort` is worth knowing: without it, a conflicting rebase leaves the worktree
 mid-operation for you to resolve. With it, the worktree returns to its prior state.
+
+`--autorepair` tries to finish the job instead. On a conflict it runs a headless Claude
+session (`/resolve-rebase-conflicts`) in the worktree. That session resolves each conflict
+by intent, continues the rebase to its end, and hands back. `mael sync` then checks the
+result and pushes. This is the same repair the open flow uses, so you can run it by hand
+after a blocked `mael add`.
+
+One repair attempt is made. If the session fails, exits non-zero, or leaves the rebase
+unfinished, `mael sync` aborts the rebase and restores the worktree — so `--autorepair`
+never leaves you mid-rebase, and supersedes `--abort`. The command needs `mael install` to
+have linked `/resolve-rebase-conflicts` into `~/.claude/commands/`.
+
+The repair session runs unattended, in the same auto permission mode as a `mode: auto`
+task. It edits files in the worktree and runs the project's checks without asking. It is
+told never to abort the rebase, never to push, and never to change branch. This is the same
+session the open flow starts, so `mael add` on a conflicting branch also starts an
+unattended agent.
 
 ## Tidying branches
 

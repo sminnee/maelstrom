@@ -1,12 +1,15 @@
 """Worktree management for maelstrom projects."""
 
+import dataclasses
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from .claude_integration import get_shared_dir
+from .rebase_repair import run_resolve_rebase_session
 from .config import (
     load_config_or_default,
     service_port_names,
@@ -316,6 +319,7 @@ class SyncResult:
     aborted: bool = False  # rebase aborted on conflict (--abort)
     closed: bool = False  # branch was empty: deleted + worktree closed (--close)
     deleted_remote: bool = False  # remote branch also deleted
+    repaired: bool = False  # conflicts were resolved by a headless Claude session
 
 
 @dataclass
@@ -394,6 +398,40 @@ def find_closed_worktree(project_path: Path) -> WorktreeInfo | None:
             return wt
 
     return None
+
+
+def rebase_in_progress(worktree_path: Path) -> bool:
+    """True if a rebase is currently in progress in the worktree.
+
+    Git records an in-progress rebase in one of two state directories, depending
+    on which backend it used. ``git rev-parse --git-path`` resolves both against
+    the worktree's own git dir.
+    """
+    for state_dir in ("rebase-merge", "rebase-apply"):
+        result = run_cmd(
+            ["git", "rev-parse", "--git-path", state_dir],
+            cwd=worktree_path,
+            quiet=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            continue
+        path = Path(result.stdout.strip())
+        if not path.is_absolute():
+            path = worktree_path / path
+        if path.exists():
+            return True
+    return False
+
+
+def _abort_rebase(worktree_path: Path) -> None:
+    """Abort an in-progress rebase, restoring the worktree to its previous state."""
+    run_cmd(
+        ["git", "rebase", "--abort"],
+        cwd=worktree_path,
+        quiet=True,
+        check=False,
+    )
 
 
 def squash_worktree(
@@ -486,12 +524,7 @@ def squash_worktree(
     if result.returncode != 0:
         # Rebase failed - likely conflicts
         if abort_on_conflict:
-            run_cmd(
-                ["git", "rebase", "--abort"],
-                cwd=worktree_path,
-                quiet=True,
-                check=False,
-            )
+            _abort_rebase(worktree_path)
             return SyncResult(
                 success=False,
                 branch=branch,
@@ -637,6 +670,102 @@ def sync_worktree(
         pushed=pushed,
         push_message=push_message,
     )
+
+
+def sync_worktree_with_autorepair(
+    worktree_path: Path,
+    *,
+    skip_fetch: bool = False,
+    squash: bool = False,
+    close_if_empty: bool = False,
+    repair_runner: Callable[[Path], subprocess.CompletedProcess] | None = None,
+) -> SyncResult:
+    """Sync a worktree, resolving a rebase conflict with a headless Claude session.
+
+    Runs :func:`sync_worktree` first. A conflict is left in place — not aborted —
+    so the repair session sees the conflicted tree. The session
+    (``/resolve-rebase-conflicts``) resolves the conflicts and continues the
+    rebase; a second sync then completes the push.
+
+    Only one repair attempt is made. Every failure path aborts the rebase, so the
+    worktree is never left mid-rebase for the caller to trip over. The exception
+    is a repair session that finished the rebase but left the worktree on another
+    branch: there is nothing to abort, and the state needs a human.
+
+    Args:
+        worktree_path: Path to the worktree directory.
+        skip_fetch: If True, skip the fetch step.
+        squash: If True, autosquash ``fixup!`` commits while rebasing.
+        close_if_empty: If True, delete an empty branch and close the worktree.
+        repair_runner: Callable taking the worktree path and returning a
+            ``CompletedProcess``. Defaults to the real headless session; tests
+            substitute their own.
+
+    Returns:
+        SyncResult. ``repaired`` is True when a repair session fixed the rebase.
+    """
+    first = sync_worktree(
+        worktree_path,
+        skip_fetch=skip_fetch,
+        squash=squash,
+        abort_on_conflict=False,
+        close_if_empty=close_if_empty,
+    )
+    if first.success or not first.had_conflicts:
+        return first  # success, or a fetch failure there is no repairing
+
+    # ``had_conflicts`` means "the rebase exited non-zero", which covers failures
+    # with nothing to resolve — a refused rebase, a bad --autosquash target, a
+    # locked index. Only a rebase left in progress has conflicts to repair;
+    # anything else would spend a whole repair session to reach the same error.
+    if not rebase_in_progress(worktree_path):
+        return first
+
+    runner = repair_runner or run_resolve_rebase_session
+    try:
+        proc = runner(worktree_path)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        _abort_rebase(worktree_path)
+        return SyncResult(
+            success=False,
+            branch=first.branch,
+            message=f"Autorepair session failed: {e}; rebase aborted.",
+            had_conflicts=True,
+            aborted=True,
+        )
+
+    if proc.returncode != 0 or rebase_in_progress(worktree_path):
+        _abort_rebase(worktree_path)
+        return SyncResult(
+            success=False,
+            branch=first.branch,
+            message="Autorepair did not complete the rebase; aborted and restored.",
+            had_conflicts=True,
+            aborted=True,
+        )
+
+    landed_on = get_current_branch(worktree_path)
+    if landed_on != first.branch:
+        return SyncResult(
+            success=False,
+            branch=first.branch,
+            message=(
+                f"Autorepair finished the rebase but left the worktree on "
+                f"{landed_on}, not {first.branch}. Check out {first.branch} "
+                f"again by hand, then re-run the sync."
+            ),
+            had_conflicts=True,
+        )
+
+    # The rebase is done, so this second pass is a no-op rebase that pushes.
+    final = sync_worktree(
+        worktree_path,
+        skip_fetch=True,
+        squash=squash,
+        abort_on_conflict=True,
+        close_if_empty=close_if_empty,
+    )
+    return dataclasses.replace(final, repaired=True) if final.success else final
 
 
 def merge_to_main(worktree_path: Path, *, squash: bool = True, close: bool = False) -> SyncResult:
@@ -1738,11 +1867,18 @@ class WorktreeSetup:
     ``action`` is one of ``"reused"`` (an existing worktree for the branch was
     returned untouched), ``"recycled"`` (a closed worktree was repurposed), or
     ``"created"`` (a fresh worktree was created).
+
+    ``sync`` is the result of the sync that runs when the worktree is opened. It
+    is ``None`` on the ``"reused"`` path, where no sync runs. A ``sync`` that
+    failed means the branch was not rebased: the caller must block the launch
+    rather than start a session on stale code. The worktree itself is still set
+    up, so a repair in place and a re-run will pick it up.
     """
 
     path: Path
     name: str  # NATO name, e.g. "bravo"
     action: str  # "reused" | "recycled" | "created"
+    sync: SyncResult | None = None  # None ⇒ no sync ran (reused)
 
 
 def setup_worktree_for_branch(
@@ -1809,12 +1945,24 @@ def setup_worktree_for_branch(
             f"Could not derive worktree name from '{worktree_path.name}'."
         )
 
+    # An opened worktree starts on rebased code. A branch that already existed —
+    # locally or on origin — is checked out at its own tip, which can be many
+    # commits behind origin/main. Sync before install so install runs against the
+    # rebased tree. close_if_empty stays off: a brand-new branch is "empty" and
+    # must never be deleted here.
+    sync = sync_worktree_with_autorepair(worktree_path)
+
     # Finalize (recycle + create): write CLAUDE.local.md, run install command.
+    # CLAUDE.local.md is written even when the sync failed. The worktree exists
+    # either way, and the caller's advice for a failed sync is to repair it in
+    # the worktree — which never writes the file, so skipping it here would
+    # leave it missing until the next `mael add`. Install is skipped instead:
+    # it must not run against a tree that was never rebased.
     update_claude_local_md(project_path, worktree_path, name)
-    if run_install:
+    if run_install and sync.success:
         run_install_cmd(worktree_path)
 
-    return WorktreeSetup(path=worktree_path, name=name, action=action)
+    return WorktreeSetup(path=worktree_path, name=name, action=action, sync=sync)
 
 
 def remove_worktree(project_path: Path, branch: str) -> None:
