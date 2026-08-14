@@ -48,6 +48,21 @@ ENV_SECTION_END = "# End Maelstrom port allocations"
 # Main branch name (hardcoded - no master support)
 MAIN_BRANCH = "main"
 
+# Printed when an autorepair session resolved the conflicts. Every command that
+# takes --autorepair reports it: a repaired tree holds commits an agent
+# rewrote, and it must never read as a clean rebase.
+REPAIRED_MESSAGE = "Rebase conflicts resolved by a headless Claude session."
+
+
+def print_flushed(line: str) -> None:
+    """Default ``announce`` for the model layer: print a line and flush it.
+
+    A streamed subprocess writes straight to the shared stdout, so an unflushed
+    line would land after the output it introduces. CLI callers pass
+    ``click.echo`` instead, which keeps the model layer click-free.
+    """
+    print(line, flush=True)
+
 # Folder holding the main branch, beside the NATO worktrees. The leading
 # underscore keeps it out of the `<project>-<nato>` pattern, so it is a
 # reference checkout rather than a workspace: no ports, no .env, never

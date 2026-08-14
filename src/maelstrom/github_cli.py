@@ -62,8 +62,9 @@ def _open_pr_in_cmux(url: str) -> None:
 @click.option("--wait", is_flag=True, help="Wait for CI checks to complete after creating PR")
 @click.option("--wait-for-review", "wait_for_review_flag", is_flag=True, help="Wait until a reviewer leaves feedback (review or inline thread). Exits 0 on first review, 2 on timeout.")
 @click.option("--squash", is_flag=True, help="Autosquash fixup! commits before pushing")
+@click.option("--autorepair", is_flag=True, help="On a conflict in the pre-push sync, run a headless Claude session (/resolve-rebase-conflicts) to resolve it and continue")
 @click.option("--target", default=None, help="Project/worktree target for directory resolution")
-def gh_create_pr(issue_id, draft, progress, wait, wait_for_review_flag, squash, target):
+def gh_create_pr(issue_id, draft, progress, wait, wait_for_review_flag, squash, autorepair, target):
     """Create a PR for the current worktree (or push if PR exists).
 
     If ISSUE_ID is provided (e.g., ME-41), appends (Fixes ISSUE_ID) to the PR title
@@ -87,7 +88,7 @@ def gh_create_pr(issue_id, draft, progress, wait, wait_for_review_flag, squash, 
         cwd = Path.cwd()
 
     try:
-        url, created = create_pr(cwd=cwd, draft=draft, issue_id=issue_id, progress=progress, squash=squash)
+        url, created = create_pr(cwd=cwd, draft=draft, issue_id=issue_id, progress=progress, squash=squash, autorepair=autorepair, announce=click.echo)
         if created:
             click.echo(f"PR created: {url}")
         else:

@@ -10,7 +10,7 @@ import pytest
 
 from unittest.mock import patch
 
-from maelstrom.shell import Command, Pipeline, describe, run_cmd
+from maelstrom.shell import Command, Pipeline, describe, exec_cmd
 from maelstrom.worktree_launcher import (
     build_claude_command,
     build_task_launch_line,
@@ -222,10 +222,10 @@ class TestBuildTaskLaunchLine:
             assert result.stdout.strip().splitlines()[-1] == "t1"
 
 
-class TestRunCmdReplaceProcess:
-    """Tests for ``run_cmd(..., replace_process=True)`` — the old exec_claude.
+class TestExecCmd:
+    """Tests for ``exec_cmd`` — the old exec_claude.
 
-    Lives here because the launcher is the primary caller; ``run_cmd`` itself
+    Lives here because the launcher is the primary caller; ``exec_cmd`` itself
     lives in the ``shell`` subsystem, so patching targets ``maelstrom.shell.os``.
     """
 
@@ -240,7 +240,7 @@ class TestRunCmdReplaceProcess:
              patch("maelstrom.shell.os.execvp",
                    side_effect=self._STOP) as mock_execvp:
             with pytest.raises(SystemExit):
-                run_cmd(["claude"], cwd=None, replace_process=True)
+                exec_cmd(["claude"], cwd=None)
             mock_chdir.assert_not_called()
             mock_execvp.assert_called_once_with("claude", ["claude"])
 
@@ -251,7 +251,7 @@ class TestRunCmdReplaceProcess:
                  patch("maelstrom.shell.os.execvp",
                        side_effect=self._STOP) as mock_execvp:
                 with pytest.raises(SystemExit):
-                    run_cmd(["claude"], cwd=worktree_path, replace_process=True)
+                    exec_cmd(["claude"], cwd=worktree_path)
                 mock_chdir.assert_called_once_with(worktree_path)
                 mock_execvp.assert_called_once_with("claude", ["claude"])
 
@@ -260,8 +260,7 @@ class TestRunCmdReplaceProcess:
              patch("maelstrom.shell.os.execvp", side_effect=self._STOP), \
              patch.dict("maelstrom.shell.os.environ", {}, clear=True):
             with pytest.raises(SystemExit):
-                run_cmd(["claude"], cwd=None, env={"MAEL_TASK_ID": "x"},
-                        replace_process=True)
+                exec_cmd(["claude"], cwd=None, env={"MAEL_TASK_ID": "x"})
             assert os.environ["MAEL_TASK_ID"] == "x"
 
     def test_plain_command_execs_via_sh(self):
@@ -271,7 +270,7 @@ class TestRunCmdReplaceProcess:
              patch("maelstrom.shell.os.execvp",
                    side_effect=self._STOP) as mock_execvp:
             with pytest.raises(SystemExit):
-                run_cmd(Command(["claude"]), cwd=None, replace_process=True)
+                exec_cmd(Command(["claude"]), cwd=None)
             mock_execvp.assert_called_once_with(
                 "sh", ["sh", "-c", "exec claude"]
             )
@@ -286,7 +285,7 @@ class TestRunCmdReplaceProcess:
              patch("maelstrom.shell.os.execvp",
                    side_effect=self._STOP) as mock_execvp:
             with pytest.raises(SystemExit):
-                run_cmd(expr, cwd=None, replace_process=True)
+                exec_cmd(expr, cwd=None)
             mock_execvp.assert_called_once_with(
                 "sh",
                 ["sh", "-c",
@@ -400,7 +399,7 @@ class TestLaunchClaudeInWorktree:
     (``ensure_cmux_running``), then delegates placement to
     ``open_claude_workspace`` and returns its bool. Running Claude in the current
     process is the exclusive job of the explicit ``--here`` path, which bypasses
-    this function — so ``run_cmd(..., replace_process=True)`` must NEVER fire here.
+    this function — so ``exec_cmd`` must NEVER fire here.
     """
 
     def test_returns_true_when_cmux_up_and_placed(self):

@@ -50,7 +50,7 @@ def launch(monkeypatch, tmp_path):
 
     Returns a namespace with the mocked ``setup`` and ``session`` (the
     worktree-placement wrapper) callables, plus ``exec`` (the --here
-    ``run_cmd(..., replace_process=True)`` peer), and the worktree path the fake
+    ``exec_cmd`` peer), and the worktree path the fake
     setup returns.
     """
     project_path = tmp_path / "proj"
@@ -67,18 +67,18 @@ def launch(monkeypatch, tmp_path):
     # Placement succeeds by default (True) so the task stays IN_PROGRESS; tests
     # that exercise the failure path override ``session.return_value = False``.
     session = MagicMock(return_value=True)
-    run_cmd = MagicMock()
+    exec_cmd = MagicMock()
     ensure_cmux = MagicMock(return_value=True)
     monkeypatch.setattr(task_cli, "setup_worktree_for_branch", setup)
     monkeypatch.setattr(task_cli, "launch_claude_in_worktree", session)
-    monkeypatch.setattr(task_cli, "run_cmd", run_cmd)
+    monkeypatch.setattr(task_cli, "exec_cmd", exec_cmd)
     monkeypatch.setattr(task_cli, "ensure_cmux_running", ensure_cmux)
     # No live session for the task by default — the duplicate-launch pre-check
     # would otherwise sweep live claude processes. Patch the sweep to empty so
     # `for_session_id` finds nothing.
     _patch_live_sessions(monkeypatch, [])
     return SimpleNamespace(
-        setup=setup, session=session, exec=run_cmd,
+        setup=setup, session=session, exec=exec_cmd,
         ensure_cmux=ensure_cmux, wt_path=wt_path,
     )
 
@@ -555,7 +555,7 @@ class TestRun:
         # coverage: a model set on the task must reach that argv as well.
         calls = []
         monkeypatch.setattr(
-            task_cli, "run_cmd", lambda cmd, **kw: calls.append(describe(cmd))
+            task_cli, "exec_cmd", lambda cmd, **kw: calls.append(describe(cmd))
         )
         t = model.create(store, project="p", title="Plan it", model="opus")
         result = runner.invoke(task_cli.task, ["run", t.id, "--here"])
@@ -1134,7 +1134,8 @@ class TestRunHere:
         assert kwargs["cwd"] is None
         assert kwargs["env"]["MAEL_TASK_ID"] == t.id
         assert kwargs["env"]["MAEL_TASK_PARENT"] == t.id
-        assert kwargs["replace_process"] is True
+        # exec_cmd is the exec path: calling it replaces this process.
+        launch.exec.assert_called_once()
         assert f"Running {t.id} here (current shell)" in result.output
 
     def test_add_run_here(self, runner, store, launch):
@@ -2396,5 +2397,5 @@ class TestAddScheduled:
         launch.ensure_cmux.assert_not_called()
         launch.session.assert_not_called()
         launch.exec.assert_called_once()
-        # replace_process exec in the current shell.
-        assert launch.exec.call_args.kwargs["replace_process"] is True
+        # exec_cmd replaces the current shell — no flag to check, the
+        # call itself is the exec.

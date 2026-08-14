@@ -34,6 +34,7 @@ from maelstrom.worktree import (
     get_current_branch,
     setup_worktree_for_branch,
     squash_worktree,
+    squash_worktree_with_autorepair,
     sync_worktree,
     sync_worktree_with_autorepair,
 )
@@ -428,6 +429,26 @@ class TestSyncAutorepair:
         assert result.success is True, result.message
         assert "Starting autorepair" in seen[0]
 
+    def test_the_caller_can_supply_its_own_announce(self, project_with_worktree):
+        """The model layer stays click-free.
+
+        The CLI passes ``click.echo`` so the line goes out the same way as every
+        other command message, without ``worktree.py`` importing click.
+        """
+        project_path, worktree_path, remote_path = project_with_worktree
+        _make_conflict(project_path, worktree_path, remote_path)
+        lines = []
+
+        result = sync_worktree_with_autorepair(
+            worktree_path,
+            skip_fetch=True,
+            repair_runner=_repairing_runner,
+            announce=lines.append,
+        )
+
+        assert result.success is True, result.message
+        assert any("Starting autorepair" in line for line in lines)
+
     def test_repair_that_does_nothing_aborts_and_restores(self, project_with_worktree):
         project_path, worktree_path, remote_path = project_with_worktree
         _make_conflict(project_path, worktree_path, remote_path)
@@ -556,6 +577,68 @@ class TestSyncAutorepair:
         assert result.success is False
         assert result.had_conflicts is False
         assert "fetch" in result.message.lower()
+        runner.assert_not_called()
+
+
+class TestSquashAutorepair:
+    """`squash_worktree_with_autorepair`: repair a rebase, and never push."""
+
+    def test_successful_repair_completes_the_rebase_without_pushing(
+        self, project_with_worktree
+    ):
+        """The squash variant rebases only.
+
+        `mael git squash` publishes nothing, so a repaired rebase must leave
+        origin where it was.
+        """
+        project_path, worktree_path, remote_path = project_with_worktree
+        _push_branch(worktree_path, "feature/work")
+        origin_before = _current_head_of_ref(worktree_path, "origin/feature/work")
+        _make_conflict(project_path, worktree_path, remote_path)
+
+        result = squash_worktree_with_autorepair(
+            worktree_path, skip_fetch=True, repair_runner=_repairing_runner,
+        )
+
+        assert result.success is True, result.message
+        assert result.repaired is True
+        assert not _rebase_in_progress(worktree_path)
+        assert get_current_branch(worktree_path) == "feature/work"
+        # Nothing was published: origin still points where it did.
+        assert result.pushed is False
+        run_git(worktree_path, "fetch", "origin")
+        assert _current_head_of_ref(worktree_path, "origin/feature/work") == origin_before
+        # A successful result never reports conflicts: the repair resolved them,
+        # and a caller reading the flag would see a conflict that is gone.
+        assert result.had_conflicts is False
+
+    def test_repair_that_does_nothing_aborts_and_restores(self, project_with_worktree):
+        project_path, worktree_path, remote_path = project_with_worktree
+        _make_conflict(project_path, worktree_path, remote_path)
+        head_before = _current_head(worktree_path)
+
+        result = squash_worktree_with_autorepair(
+            worktree_path, skip_fetch=True, repair_runner=_idle_runner,
+        )
+
+        assert result.success is False
+        assert result.aborted is True
+        assert result.repaired is False
+        assert not _rebase_in_progress(worktree_path)
+        assert _current_head(worktree_path) == head_before
+
+    def test_clean_rebase_never_calls_the_repair_runner(self, project_with_worktree):
+        project_path, worktree_path, remote_path = project_with_worktree
+        create_commit(worktree_path, "feature.txt", "feature\n", "Feature commit")
+        _advance_origin_main(project_path, remote_path)
+        runner = MagicMock()
+
+        result = squash_worktree_with_autorepair(
+            worktree_path, skip_fetch=True, repair_runner=runner,
+        )
+
+        assert result.success is True
+        assert result.repaired is False
         runner.assert_not_called()
 
 

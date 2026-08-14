@@ -14,8 +14,9 @@ from .worktree import (
     get_local_only_commits,
     merge_to_main,
     squash_worktree,
+    squash_worktree_with_autorepair,
 )
-from .worktree_model import MAIN_BRANCH
+from .worktree_model import MAIN_BRANCH, REPAIRED_MESSAGE
 
 
 def print_rebase_conflict_help(result: SyncResult) -> None:
@@ -278,8 +279,19 @@ def git_status(ctx, target):
 
 @git.command("squash")
 @click.argument("target", required=False, default=None)
-def git_squash(target):
-    """Rebase the current branch onto origin/main, autosquashing fixup! commits (no push)."""
+@click.option(
+    "--autorepair",
+    is_flag=True,
+    help="On conflict, run a headless Claude session "
+    "(/resolve-rebase-conflicts) to resolve it and continue",
+)
+def git_squash(target, autorepair):
+    """Rebase the current branch onto origin/main, autosquashing fixup! commits (no push).
+
+    With --autorepair, a rebase conflict starts a headless Claude session that
+    resolves it and continues the rebase. Every autorepair failure path aborts
+    and restores the worktree.
+    """
     try:
         context = resolve_context(target, require_project=True, require_worktree=True)
     except ValueError as e:
@@ -289,11 +301,25 @@ def git_squash(target):
     if worktree_path is None or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
-    result = squash_worktree(worktree_path, squash=True)
+    if autorepair:
+        result = squash_worktree_with_autorepair(
+            worktree_path, squash=True, announce=click.echo,
+        )
+    else:
+        result = squash_worktree(worktree_path, squash=True)
 
     if result.success:
         click.echo(result.message)
+        if result.repaired:
+            click.echo(REPAIRED_MESSAGE)
         return
+
+    # An aborted rebase is restored, so the manual-resolution help would name a
+    # rebase that is no longer there. A repair that failed without aborting —
+    # one that landed on the wrong branch — still leaves work for a human.
+    if result.aborted:
+        click.echo(result.message, err=True)
+        raise SystemExit(1)
 
     if result.had_conflicts:
         print_rebase_conflict_help(result)

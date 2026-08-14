@@ -27,7 +27,7 @@ from .util import read_content_file
 from .task_index import SqliteTaskIndex
 from .task_store import GitFileStore
 from .cmux.client import ensure_cmux_running
-from .shell import run_cmd
+from .shell import exec_cmd
 from .worktree import (
     get_current_branch,
     list_worktrees,
@@ -134,7 +134,7 @@ def _run_task(
     """Mark a task in-progress and launch its Claude session.
 
     With ``here=True`` the session runs in the current shell via
-    ``run_cmd(..., replace_process=True)`` — an ``execvp`` that never returns —
+    ``exec_cmd`` — an ``execvp`` that never returns —
     so every store write MUST complete before it, and the status move re-stamps
     HEAD up-front. No worktree reconciliation, no new cmux workspace.
 
@@ -198,14 +198,13 @@ def _run_task(
         _restamp(store, index, was_fresh=was_fresh)
         suffix = " (resuming)" if resume else ""
         click.echo(f"Running {task.id} here (current shell){suffix}")
-        run_cmd(
+        exec_cmd(
             build_task_launch_line(
                 project, task.id, perm, env=session_env,
                 session_id=session_id, resume=resume, model=task.model or None,
             ),
             cwd=None,
             env=session_env,
-            replace_process=True,
         )
         return
 
@@ -853,7 +852,7 @@ def task_load_many(file: str, project: str | None, run: bool, here: bool) -> Non
         return
 
     if here:
-        # `run_cmd(..., replace_process=True)` is an execvp that never returns, so
+        # `exec_cmd` is an execvp that never returns, so
         # only one task can be launched this way: the head, matching the
         # single-launch behaviour --run had before it went multi. Print BEFORE
         # _run_task — after the execvp nothing here reaches the terminal.

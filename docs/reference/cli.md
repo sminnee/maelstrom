@@ -134,11 +134,26 @@ Run `mael doctor NEW` afterwards.
 | `--squash` | Autosquash `fixup!` commits while rebasing onto `origin/main`. |
 | `--abort` | On conflict, abort the rebase and restore the worktree. |
 | `--close` | If the branch is empty after the rebase, delete it (local and remote) and close the worktree. |
-| `--autorepair` | On conflict, run a headless Claude session (`/resolve-rebase-conflicts`) to resolve it and continue the rebase. Announces the repair, then streams the session's output to the console. Supersedes `--abort`: every failure path already aborts and restores the worktree. |
+| `--autorepair` | On conflict, run a headless Claude session (`/resolve-rebase-conflicts`) to resolve it and continue the rebase. Announces the repair, then streams the session's output to the console. Supersedes `--abort`: a failure aborts and restores the worktree, except where the session finished the rebase on another branch and there is nothing to abort. |
 
 ```bash
 mael sync --autorepair             # let a headless session resolve the conflict
 ```
+
+**`mael sync-all`**
+
+| Option | Description |
+|---|---|
+| `--autorepair` | On conflict, run a headless Claude session (`/resolve-rebase-conflicts`) to resolve it and continue. One session runs per conflicting worktree, in turn. |
+
+```bash
+mael sync-all --autorepair         # repair each conflicting worktree in the sweep
+```
+
+`--autorepair` is available on every command that rebases: `mael sync`, `mael sync-all`,
+`mael git squash`, and `mael gh create-pr`. Each one is off by default. The flag starts an
+unattended agent, so it is for commands you run yourself. An agent already in a session
+resolves its own conflicts instead.
 
 ---
 
@@ -554,6 +569,7 @@ auto-linking and sets the Linear issue to "In Review".
 | `--wait` | Wait for CI checks to finish after creating the PR. |
 | `--wait-for-review` | Wait until a reviewer leaves feedback. Exits 0 on the first review, 2 on timeout. |
 | `--squash` | Autosquash `fixup!` commits before pushing. |
+| `--autorepair` | On a conflict in the pre-push sync, run a headless Claude session (`/resolve-rebase-conflicts`) to resolve it and continue. |
 | `--target TEXT` | Project/worktree target for directory resolution. |
 
 **`mael gh read-pr`**
@@ -601,6 +617,12 @@ mael git status              # compact summary; the only other --json consumer
 mael git squash              # tidy fixups without pushing
 mael git merge --close       # merge, then close the worktree
 ```
+
+**`mael git squash`**
+
+| Option | Description |
+|---|---|
+| `--autorepair` | On conflict, run a headless Claude session (`/resolve-rebase-conflicts`) to resolve it and continue the rebase. The command still pushes nothing. |
 
 **`mael git merge`**
 
