@@ -182,10 +182,24 @@ never leaves you mid-rebase, and supersedes `--abort`. The command needs `mael i
 have linked `/resolve-rebase-conflicts` into `~/.claude/commands/`.
 
 The repair session runs unattended, in the same auto permission mode as a `mode: auto`
-task. It edits files in the worktree and runs the project's checks without asking. It is
-told never to abort the rebase, never to push, and never to change branch. This is the same
-session the open flow starts, so `mael add` on a conflicting branch also starts an
+task. The session edits files in the worktree and runs the project's checks without asking.
+It is told never to abort the rebase, never to push, and never to change branch. This is
+the same session the open flow starts, so `mael add` on a conflicting branch also starts an
 unattended agent.
+
+Maelstrom announces the repair before the session starts, then streams the session's output
+to your console as it works:
+
+```
+Syncing bravo with origin/main...
+Rebase conflict on feature/work. Starting autorepair: a headless Claude session
+resolves the conflicts and continues the rebase.
+$ claude -p /resolve-rebase-conflicts --permission-mode auto --strict-mcp-config
+...session output...
+```
+
+A repair takes up to 600 seconds. Watch the streamed output to see what the session
+changed, and why a rebase that failed now passes.
 
 ## Tidying branches
 

@@ -350,7 +350,7 @@ class TestRunResolveRebaseSession:
     """The real repair runner. Every other test substitutes its own."""
 
     def test_runs_the_resolve_command_headlessly_in_the_worktree(self, tmp_path):
-        with patch("maelstrom.rebase_repair.subprocess.run") as run:
+        with patch("maelstrom.rebase_repair.run_cmd") as run:
             run_resolve_rebase_session(tmp_path)
 
         argv, kwargs = run.call_args.args[0], run.call_args.kwargs
@@ -366,6 +366,17 @@ class TestRunResolveRebaseSession:
         # A non-zero exit is a result to inspect, not an exception to raise.
         assert kwargs["check"] is False
         assert kwargs["timeout"] == _REPAIR_TIMEOUT
+
+    def test_streams_session_output_to_the_console(self, tmp_path):
+        """The repair can run for minutes: the user watches it work.
+
+        Capturing the output would hold it until the session exits, so the
+        console stays silent for the whole repair.
+        """
+        with patch("maelstrom.rebase_repair.run_cmd") as run:
+            run_resolve_rebase_session(tmp_path)
+
+        assert run.call_args.kwargs["stream"] is True
 
 
 class TestSyncAutorepair:
@@ -390,6 +401,32 @@ class TestSyncAutorepair:
         assert _current_head_of_ref(worktree_path, "origin/feature/work") == _current_head(
             worktree_path
         )
+
+    def test_announces_the_repair_before_the_session_starts(
+        self, project_with_worktree, capsys
+    ):
+        """The session streams its own output, so say what started it.
+
+        Without this the console jumps from a sync line to raw Claude output
+        with nothing to explain why an agent is running.
+        """
+        project_path, worktree_path, remote_path = project_with_worktree
+        _make_conflict(project_path, worktree_path, remote_path)
+
+        seen = []
+
+        def announcing_runner(path):
+            # Drain on the way in, so what is captured is what the console had
+            # before the session started — not a summary printed afterwards.
+            seen.append(capsys.readouterr().out)
+            return _repairing_runner(path)
+
+        result = sync_worktree_with_autorepair(
+            worktree_path, skip_fetch=True, repair_runner=announcing_runner,
+        )
+
+        assert result.success is True, result.message
+        assert "Starting autorepair" in seen[0]
 
     def test_repair_that_does_nothing_aborts_and_restores(self, project_with_worktree):
         project_path, worktree_path, remote_path = project_with_worktree

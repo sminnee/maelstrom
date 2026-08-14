@@ -134,7 +134,7 @@ Run `mael doctor NEW` afterwards.
 | `--squash` | Autosquash `fixup!` commits while rebasing onto `origin/main`. |
 | `--abort` | On conflict, abort the rebase and restore the worktree. |
 | `--close` | If the branch is empty after the rebase, delete it (local and remote) and close the worktree. |
-| `--autorepair` | On conflict, run a headless Claude session (`/resolve-rebase-conflicts`) to resolve it and continue the rebase. Supersedes `--abort`: every failure path already aborts and restores the worktree. |
+| `--autorepair` | On conflict, run a headless Claude session (`/resolve-rebase-conflicts`) to resolve it and continue the rebase. Announces the repair, then streams the session's output to the console. Supersedes `--abort`: every failure path already aborts and restores the worktree. |
 
 ```bash
 mael sync --autorepair             # let a headless session resolve the conflict

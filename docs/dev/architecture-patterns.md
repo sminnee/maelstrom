@@ -69,11 +69,12 @@ with no git and no filesystem (see the task unit tests).
 >   ([`rebase_repair.py`](../../src/maelstrom/rebase_repair.py)), which runs
 >   `claude -p /resolve-rebase-conflicts` in the conflicted worktree. Same
 >   containment as `branch_name.py`: the subprocess is reached through an
->   injectable `repair_runner` on `sync_worktree_with_autorepair`, so the state
->   machine around it — abort on failure, verify the branch, re-sync to push — is
->   exercised against real git with a fake runner. The module is a leaf: it
->   imports only `subprocess` and `pathlib`, so `worktree.py` can call it without
->   reaching the launcher layer.
+>   injectable `repair_runner` on both autorepair entry points
+>   (`sync_worktree_with_autorepair` and `squash_worktree_with_autorepair`), so
+>   the state machine around it — abort on failure, verify the branch, re-sync to
+>   push — is exercised against real git with a fake runner. The module is a
+>   leaf: it imports only the standard library and `shell`, which is itself a
+>   leaf, so `worktree.py` can call it without reaching the launcher layer.
 
 ### 3. One error contract
 

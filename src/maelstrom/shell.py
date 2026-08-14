@@ -97,7 +97,7 @@ def to_argv(expr: ShellExpr, *, replace_process: bool = False) -> list[str]:
             assert_never(expr)
 
 
-def run_cmd(cmd: ShellExpr, cwd: Path | None = None, quiet: bool = False, check: bool = True, stream: bool = False, env: dict | None = None, replace_process: bool = False) -> "subprocess.CompletedProcess | NoReturn":
+def run_cmd(cmd: ShellExpr, cwd: Path | None = None, quiet: bool = False, check: bool = True, stream: bool = False, env: dict | None = None, replace_process: bool = False, timeout: float | None = None) -> "subprocess.CompletedProcess | NoReturn":
     """Run a ``ShellExpr`` — the single execution chokepoint.
 
     The shell-vs-no-shell decision lives in :func:`to_argv`: a bare argv runs
@@ -110,9 +110,17 @@ def run_cmd(cmd: ShellExpr, cwd: Path | None = None, quiet: bool = False, check:
 
     If ``env`` is provided, its keys are merged over the current process
     environment (``os.environ``) rather than replacing it wholesale.
+
+    ``timeout`` bounds the wait in seconds and raises
+    ``subprocess.TimeoutExpired`` when it passes; ``None`` waits forever. It
+    applies to a streamed command as much as a captured one, so a long-running
+    child can be watched and still be given a deadline. It has no meaning with
+    ``replace_process``, which never returns to enforce one.
     """
     if not quiet:
-        print(f"$ {describe(cmd)}")
+        # Flush: a streamed child writes to the shared stdout directly, and a
+        # block-buffered echo would land after the output it labels.
+        print(f"$ {describe(cmd)}", flush=True)
     if replace_process:
         if cwd is not None:
             os.chdir(cwd)
@@ -128,4 +136,5 @@ def run_cmd(cmd: ShellExpr, cwd: Path | None = None, quiet: bool = False, check:
         text=True,
         check=check,
         env=merged_env,
+        timeout=timeout,
     )

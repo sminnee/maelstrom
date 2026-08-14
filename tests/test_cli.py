@@ -950,6 +950,39 @@ class TestCmdSyncAutorepair:
         # No mid-rebase state remains, so the manual-resolution help is not printed.
         assert "git rebase --continue" not in result.output
 
+    def test_the_start_of_an_autorepair_reaches_the_terminal(self, tmp_path):
+        """The model layer stays click-free, so it announces with bare print.
+
+        Ordering and wording are covered at the model layer, in test_sync_flags.
+        The one thing only this layer can show is that a non-click.echo line
+        still reaches the user through Click's output machinery.
+        """
+        from contextlib import ExitStack
+
+        worktree_path = tmp_path / "proj-bravo"
+        worktree_path.mkdir()
+        ctx = MagicMock(project="proj", worktree="bravo", worktree_path=worktree_path)
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("maelstrom.cli.resolve_context", return_value=ctx))
+            # Stop after the announcement: a conflicted rebase is set up in
+            # test_sync_flags, and this asserts only that the line gets out.
+            stack.enter_context(patch(
+                "maelstrom.worktree.sync_worktree",
+                return_value=_failed_sync("Rebase hit conflicts", had_conflicts=True),
+            ))
+            stack.enter_context(patch(
+                "maelstrom.worktree.rebase_in_progress", return_value=True,
+            ))
+            stack.enter_context(patch(
+                "maelstrom.worktree.run_resolve_rebase_session",
+                side_effect=OSError("claude: not found"),
+            ))
+            stack.enter_context(patch("maelstrom.worktree._abort_rebase"))
+            result = CliRunner().invoke(cli, ["sync", "--autorepair"])
+
+        assert "Starting autorepair" in result.output
+
 
 class TestClaudePlacementFailure:
     """`mael claude` / `mael open` cmux-or-error behaviour.
