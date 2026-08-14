@@ -43,8 +43,8 @@ so the target is optional.
 | `mael add-project GIT_URL` | Clone a repository and set it up for maelstrom. |
 | `mael create-project NAME` | Create a GitHub repository with the maelstrom stub files, check it out, and open a worktree on `feat/start-project`. |
 | `mael mv-project OLD NEW` | Rename a project and everything derived from its name. |
-| `mael list [PROJECT]` | List worktrees with branch, dirty files, local commits, PR, app URL and session. |
-| `mael list-all` | List worktrees across every project. |
+| `mael list [PROJECT]` | List open worktrees with branch, dirty files, local commits, PR, app URL and session. Closed worktrees are named on one line under the table. See [listing.md](../guide/listing.md) for what each column means. |
+| `mael list-all` | List worktrees across every project. Adds a `PROJECT` column, and names worktrees by folder rather than by NATO name. Supports `mael --json list-all`. |
 | `mael close [TARGETS]...` | Sync, check the worktree is clean, then check out main. Keeps the folder, name and ports. |
 | `mael remove TARGETS...` | Delete one or more worktrees. |
 | `mael rm TARGETS...` | Alias for `mael remove`. |

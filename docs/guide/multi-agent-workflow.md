@@ -139,7 +139,7 @@ They cannot collide. Different worktrees, different branches, different ports.
 Watch them:
 
 ```bash
-mael list             # worktrees: branch, dirty files, PR, app URL, session
+mael list             # what every worktree is doing — see listing.md
 mael session list     # live Claude sessions
 mael task list        # what is actionable now
 ```

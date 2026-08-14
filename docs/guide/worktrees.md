@@ -26,7 +26,8 @@ Maelstrom uses a bare-like layout: one shared `.git`, and each worktree beside i
 ## `_main`
 
 `_main` holds the main branch. `_main` is the **reference checkout**, not a worktree: it has
-no ports and no `.env`. `mael list` does not show it, and `mael add` never recycles it.
+no ports and no `.env`, and `mael add` never recycles it. `mael list` shows it as a row with an
+empty APP column, because it has no ports to serve.
 
 Keeping main there leaves every NATO worktree free for feature work. Git allows one
 worktree per branch, so a fresh `alpha` is created detached — which makes it a closed

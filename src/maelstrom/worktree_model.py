@@ -65,8 +65,9 @@ def print_flushed(line: str) -> None:
 
 # Folder holding the main branch, beside the NATO worktrees. The leading
 # underscore keeps it out of the `<project>-<nato>` pattern, so it is a
-# reference checkout rather than a workspace: no ports, no .env, never
-# recycled, and absent from `mael list`.
+# reference checkout rather than a workspace: no ports, no .env, and never
+# recycled. It still appears as a `mael list` row, with an empty APP column —
+# it has `main` checked out, so it is never closed.
 MAIN_WORKTREE_FOLDER = "_main"
 
 
