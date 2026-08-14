@@ -1,5 +1,9 @@
 """Tests for maelstrom.shell — the closed command algebra and its two views."""
 
+import subprocess
+import sys
+from unittest.mock import patch
+
 import pytest
 
 from maelstrom.shell import Command, Pipeline, describe, run_cmd, to_argv
@@ -114,6 +118,38 @@ class TestRunCmdEnv:
         )
         # Parent var survives the merge, and the override is applied.
         assert result.stdout.strip() == "from_parent added"
+
+    def test_timeout_kills_a_command_that_overruns(self):
+        """A long-running command needs a deadline the caller can set.
+
+        The chokepoint owns it, so a streaming command can be bounded the same
+        way a captured one is.
+        """
+        with pytest.raises(subprocess.TimeoutExpired):
+            run_cmd(["sleep", "5"], quiet=True, timeout=0.1)
+
+    def test_echo_precedes_a_streamed_command_output(self):
+        """The `$ cmd` line must land before the output it describes.
+
+        A streamed child writes to the shared stdout directly. Python block-buffers
+        its own stdout when stdout is not a terminal, so an unflushed echo arrives
+        after the child's output and appears to label the wrong command. This runs
+        in a real subprocess through a pipe: pytest's capture replaces stdout and
+        hides the interleaving.
+        """
+        out = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from maelstrom.shell import run_cmd;"
+                "run_cmd(['echo', 'child-output'], stream=True)",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+
+        assert out.index("$ echo child-output") < out.index("child-output\n")
 
     def test_env_none_uses_inherited_environment(self, monkeypatch):
         """With env=None the child inherits the parent environment unchanged."""

@@ -721,6 +721,18 @@ def sync_worktree_with_autorepair(
     if not rebase_in_progress(worktree_path):
         return first
 
+    # The session streams its own output. Say what started it first, so the
+    # console does not go from a sync line straight to a Claude session with
+    # nothing to explain why an agent is now running. Bare print, not
+    # click.echo: this is the model layer, which stays click-free like
+    # github.py and task.py. flush keeps the line ahead of the session's
+    # output, which goes straight to the shared stdout.
+    print(
+        f"Rebase conflict on {first.branch}. Starting autorepair: a headless "
+        f"Claude session resolves the conflicts and continues the rebase.",
+        flush=True,
+    )
+
     runner = repair_runner or run_resolve_rebase_session
     try:
         proc = runner(worktree_path)
