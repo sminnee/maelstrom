@@ -66,6 +66,7 @@ implement the work yourself.
    mael task promote draft-tail.md --follow <id1>       # multi-session only; <id1> = the echoed head id
    mael task status done                            # close this planning task ($MAEL_TASK_ID)
    mael task next --run --parent "$MAEL_TASK_PARENT"    # head now actionable — launches it
+   mael session end                                 # stop this planning session
    ```
 
    `--follow-end '*'` appends the head after the leaves of the parent's existing child-chain —
@@ -79,6 +80,9 @@ implement the work yourself.
    The launched session owns the implementation — you must **not** write code yourself.
    Promotion consumes each draft file, so nothing is left to clean up. If the user rejects the
    plan instead, delete the draft files.
+
+   `mael session end` runs **last, and without asking** — see **End the session when the plan is
+   launched** in the `planning` skill.
 
 ## Knowing your own task id
 

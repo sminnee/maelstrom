@@ -69,12 +69,16 @@ mael task promote draft-iter1.md --follow-end '*'   # create the head; prints it
 mael task promote draft-tail.md --follow <that id>  # multi-session only
 mael task status done                               # close the planning task
 mael task next --run --parent "$MAEL_TASK_PARENT"   # head now actionable — launches it
+mael session end                                    # stop the planning session
 ```
 
 Promotion consumes each draft file and wires the chain (`--follow` / `--follow-end`) at the
 moment ids exist. The head follows the planning task, so closing the planning task is what
 makes the head actionable. `--parent` scopes the launch to this chain, and `next --run`
 prints the id it launches.
+
+The head runs in its own session, so the planning session has no work left. It ends itself. The
+worktree stays in place — the head usually reuses it, because it inherits the same branch.
 
 ## 2. Chain
 

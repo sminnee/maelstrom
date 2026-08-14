@@ -173,13 +173,21 @@ pid.
 Without `ID`, both commands act on the session you run them in. Both exit non-zero when no session
 matches, or when an id prefix matches more than one session.
 
+A pid resolves even when `mael session list` does not show that session. The list comes from a
+process sweep, and the sweep misses some sessions — frequently the one you are in. A pid is read
+from the process itself, so it always resolves, and such a session shows only the fields the
+process supplies. A pid that is not a running Claude session does not resolve.
+
 `mael session end` stops the session and leaves the worktree in place — use `mael close` to tear
 down the worktree as well. The stop is graceful: it sends SIGINT so a busy session can wind down,
 waits 5 seconds, then sends SIGTERM to a survivor and waits 10 more. A session that ends on the
 first signal returns at once, so the 15 seconds is the worst case. `mael session end` never sends
 SIGKILL, which would risk a half-written transcript.
 
-A session never stops itself, so `mael session end` with no `ID` inside that session does nothing.
+`mael session end` with no `ID` inside a session stops that session. The `mael` process is a
+child of the session, so it signals its parent and exits once the parent is gone.
+
+An ended session stays on disk. Its transcript is complete, and `claude --resume` opens it again.
 
 `mael session end` does not close the task the session was launched for. The Claude `session-end`
 hook still fires as the session shuts down, and that hook closes the task.

@@ -858,7 +858,7 @@ class TestSessionEnd:
         assert [s.pid for s in stopped] == [4242]
         assert "stopped" in result.output
 
-    def test_ending_our_own_session_says_so_and_stops_nothing(
+    def test_ending_the_mael_process_itself_says_so_and_stops_nothing(
         self, tmp_path, monkeypatch
     ):
         # A handle that names the `mael` process must not signal it, and must say
