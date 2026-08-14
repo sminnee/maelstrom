@@ -77,6 +77,7 @@ reality, plan the top item, and hand the next planner an updated tail.
    mael task promote draft-tail.md --follow <id1>      # only if a tail exists; <id1> = the echoed step id
    mael task status done                           # close this planning task ($MAEL_TASK_ID)
    mael task next --run --parent "$MAEL_TASK_PARENT"   # step now actionable — launches it
+   mael session end                                # stop this planning session
    ```
 
    `--follow-end '*'` appends the step after the leaves of the parent's existing child-chain —
@@ -90,6 +91,9 @@ reality, plan the top item, and hand the next planner an updated tail.
    The launched session owns the implementation — you must **not** write code, edit source
    files, or create branches. Promotion consumes each draft file. If the user rejects the plan
    instead, delete the draft files. No Linear step here — this skill never writes to Linear.
+
+   `mael session end` runs **last, and without asking** — see **End the session when the plan is
+   launched** in the `planning` skill.
 
 ## Draft recipes
 

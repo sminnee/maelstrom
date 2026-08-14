@@ -70,3 +70,22 @@ close, and the CI watch all run without confirmation.
 **The PR is the completion signal.** Once it is raised the work is visible and gets chased, so
 close the task as soon as the PR is pushed: `mael task status done`. `/mael` carries the steps
 and the reasoning.
+
+## Ending a session — run automatically, do not wait to be asked
+
+When the session has no work left, run `mael session end`. It stops the session and leaves the
+worktree in place. Run it without asking and without checking first: an ended session is
+resumable, so the cost of ending one too early is a `claude --resume`, not lost work.
+
+End the session when:
+
+- the user says the work is done — "bye", "that's it", "this task is done" — after you answer
+  them;
+- a planning session has launched its head;
+- planning that started outside a task has created the tasks and launched the first one.
+
+**Finish outstanding work first.** If a task is still in progress, a PR is unpushed, or
+`/watch-pr` is still running, run the task-completion flow above to the end, then end the
+session. This holds even when the user is the one who said the work is done — the session-end
+hook moves the task to `done` on the way out, so ending early marks unfinished work complete.
+`/mael` carries the full rule.

@@ -150,6 +150,7 @@ mael task promote draft-iter1.md --follow-end '*'
 mael task promote draft-tail.md --follow <id from the line above>
 mael task status done                     # close this planning task
 mael task next --run --parent "$MAEL_TASK_PARENT"   # head now actionable — launches it
+mael session end                          # stop this planning session
 ```
 
 The head promotes with `--follow-end '*'`, so it follows the planning task itself. While the
@@ -158,6 +159,9 @@ dependency, and `mael task next --run` then launches the head. `--parent` scopes
 to this chain, so an unrelated actionable task cannot be picked instead. `next --run` prints
 the id it launches; when nothing in the chain is actionable it exits non-zero with "No
 actionable task."
+
+`mael session end` comes last. The head runs in its own session, so ending the planning session
+does not touch it, and an ended session is resumable.
 
 ### Chain with `--follow-end` and `--follow`
 

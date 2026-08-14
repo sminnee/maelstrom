@@ -58,6 +58,18 @@ mael task promote draft-second.md --follow <id-from-first>
 echoed id to wire the next `--follow`. Flags override the file's fields, same as
 `add --from`. On rejection, delete the draft files — nothing was created.
 
+## End the session when the plan is launched
+
+Planning is finished once the tasks exist and the first one is launched. Run `mael session end`
+as the last step, after `mael task next --run` reports the launch.
+
+Run it without asking, and without checking first. The launched task runs in its own session, so
+ending this one does not touch it, and an ended session is resumable: `claude --resume` opens it
+again with the transcript complete.
+
+This holds for planning that started outside a task as well. Such a session has no task to close,
+but it still has no work left once the tasks are created and the first is launched.
+
 ## Discipline
 
 This session plans. It writes draft task files and nothing else: no project source edits, no

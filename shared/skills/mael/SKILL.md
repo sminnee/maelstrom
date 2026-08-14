@@ -201,6 +201,22 @@ deterministically.
 If the project supplies `docs/review/coding-standards.md` and/or
 `docs/review/review-guide.md`, the review sub-agent loads them automatically.
 
+### Ending the session
+
+`mael session end` stops this session and leaves the worktree in place. The always-on rule for
+*when* to run it is in the project header — this section covers what it does not.
+
+`mael session end` does not close the task. The Claude `session-end` hook closes it, and that
+hook is a backstop: it can fail silently. Close the task explicitly at step 6 above, then end the
+session. Never end the session *instead of* closing the task.
+
+Ending a session does not tear down the worktree, its branch, or its ports. `mael close` does
+that. So a session ended in error costs a `claude --resume`, and nothing else.
+
+A session with a task still in progress is not finished, whoever says otherwise. Run the
+task-completion flow to the end first — the hook would move that task to `done` on the way out,
+which marks unfinished work complete.
+
 ## Working with PR failures
 
 `mael gh read-pr` shows merge status, comments, review summaries, and unresolved inline review

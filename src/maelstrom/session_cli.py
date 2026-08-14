@@ -449,8 +449,9 @@ def session_end(id: str | None) -> None:
     """Stop a live session, leaving its worktree in place.
 
     ID takes the same forms as ``mael session info``. Without it, the session you
-    run this in is used — which is a safe no-op, because the stop never signals
-    its own process.
+    run this in is stopped: ``mael`` is a child of that session, so it signals its
+    parent and exits with it. The ended session is resumable — its transcript is
+    complete and ``claude --resume`` opens it again.
 
     The stop is graceful and can take up to 15 seconds: SIGINT to let a busy
     session wind down, then SIGTERM to any survivor, never SIGKILL. This does not
