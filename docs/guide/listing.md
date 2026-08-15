@@ -146,7 +146,7 @@ correct after a session dies unexpectedly.
 
 ## Where each fact comes from
 
-The command builds each row from seven sources. Most run once for the whole project. Only the
+The command builds each row from eight sources. Most run once for the whole project. Only the
 per-worktree ones grow with the number of open worktrees.
 
 ```
@@ -154,15 +154,16 @@ git worktree list ──────────────────► WORK
 one rev-list ───────────────────────► which worktrees are closed   once per project
 gh api graphql ─────────────────────► PR (COMMITS)                 once per project, over the network
 one pgrep + lsof sweep ─────────────► SESSION (live count)         once per project
-git status ─────────────────────────► DIRTY FILES                  once per open worktree
+git status ─────────────────────────► DIRTY FILES                  once per worktree
 git rev-list ───────────────────────► LOCAL COMMITS                once per open worktree
 port allocation + port probe ───────► APP                          once per open worktree
 transcript file checks ─────────────► SESSION (— stopped)          once per task on the branch
 ```
 
 Four of those run once per project, however many worktrees it holds: the worktree list, the
-closed check, the pull request lookup and the session sweep. A closed worktree costs nothing
-beyond the batch that classified it.
+closed check, the pull request lookup and the session sweep. A closed worktree still costs one
+`git status`, because the closed check must know whether the worktree is clean. It costs nothing
+else.
 
 The `— stopped` marker is not part of the session sweep. It checks for a transcript file per
 task on the branch, so a branch with many tasks costs several file checks.
