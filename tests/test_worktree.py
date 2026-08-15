@@ -3,6 +3,7 @@
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +14,8 @@ from maelstrom.worktree import (
     setup_claude_memory_symlink,
     add_project,
     close_worktree,
+    closed_worktrees,
+    _commits_ahead_batch,
     copy_back_new_env_vars,
     managed_keys_in_env,
     create_worktree,
@@ -597,6 +600,154 @@ class TestIsWorktreeClosed:
         with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]):
             with patch("maelstrom.worktree.get_commits_ahead", return_value=2):
                 assert is_worktree_closed(wt) is False
+
+
+class TestClosedWorktrees:
+    """The batch form of the closed check, used by ``mael list``.
+
+    ``is_worktree_closed`` costs two subprocesses per worktree, and ``list``
+    calls it for every one. On a project with a dozen closed slots that was the
+    single largest cost in the command. This resolves the commits-ahead half for
+    every worktree in one ``rev-list``, and must agree with the per-worktree
+    function exactly — a worktree wrongly called closed vanishes from the table.
+    """
+
+    def test_a_branch_is_never_closed_and_costs_no_subprocess(self):
+        """The branch check short-circuits, as it does per-worktree."""
+        wts = [WorktreeInfo(path=Path("/a"), branch="feat/x", commit="aaa")]
+        with patch("maelstrom.worktree.run_cmd") as run:
+            assert closed_worktrees(Path("/p"), wts) == set()
+        run.assert_not_called()
+
+    def test_detached_clean_and_contained_is_closed(self):
+        wts = [WorktreeInfo(path=Path("/a"), branch="", commit="aaa")]
+        with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]), \
+             patch("maelstrom.worktree._commits_ahead_batch", return_value={"aaa": 0}):
+            assert closed_worktrees(Path("/p"), wts) == {Path("/a")}
+
+    def test_a_dirty_worktree_is_not_closed(self):
+        wts = [WorktreeInfo(path=Path("/a"), branch="", commit="aaa")]
+        with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=["f.txt"]), \
+             patch("maelstrom.worktree._commits_ahead_batch", return_value={"aaa": 0}):
+            assert closed_worktrees(Path("/p"), wts) == set()
+
+    def test_a_worktree_ahead_of_main_is_not_closed(self):
+        wts = [WorktreeInfo(path=Path("/a"), branch="", commit="aaa")]
+        with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]), \
+             patch("maelstrom.worktree._commits_ahead_batch", return_value={"aaa": 3}):
+            assert closed_worktrees(Path("/p"), wts) == set()
+
+    def test_a_worktree_ahead_of_main_costs_no_git_status(self):
+        """The batch already ruled it out, so do not pay for a status too.
+
+        ``git status`` is a subprocess per worktree, and it is the only
+        per-worktree cost left in this check. A worktree with commits on it
+        cannot be closed whatever its working tree looks like.
+        """
+        wts = [WorktreeInfo(path=Path("/a"), branch="", commit="aaa")]
+        with patch("maelstrom.worktree.get_worktree_dirty_files") as dirty, \
+             patch("maelstrom.worktree._commits_ahead_batch", return_value={"aaa": 3}):
+            assert closed_worktrees(Path("/p"), wts) == set()
+        dirty.assert_not_called()
+
+    def test_an_unclassified_worktree_costs_no_git_status(self):
+        wts = [WorktreeInfo(path=Path("/a"), branch="", commit="aaa")]
+        with patch("maelstrom.worktree.get_worktree_dirty_files") as dirty, \
+             patch("maelstrom.worktree._commits_ahead_batch", return_value={}):
+            assert closed_worktrees(Path("/p"), wts) == set()
+        dirty.assert_not_called()
+
+    def test_an_unresolved_commit_is_treated_as_ahead(self):
+        """A SHA the batch could not classify must not be called closed.
+
+        Missing from the map means unknown, and the safe reading of unknown is
+        "has work" — calling it closed would drop the row from ``mael list`` and
+        offer the slot up for recycling.
+        """
+        wts = [WorktreeInfo(path=Path("/a"), branch="", commit="aaa")]
+        with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]), \
+             patch("maelstrom.worktree._commits_ahead_batch", return_value={}):
+            assert closed_worktrees(Path("/p"), wts) == set()
+
+    def test_it_agrees_with_the_per_worktree_function(self):
+        """The batch and the single check must not drift apart."""
+        wts = [
+            WorktreeInfo(path=Path("/closed"), branch="", commit="aaa"),
+            WorktreeInfo(path=Path("/ahead"), branch="", commit="bbb"),
+            WorktreeInfo(path=Path("/onbranch"), branch="feat/x", commit="ccc"),
+        ]
+        ahead = {"aaa": 0, "bbb": 2, "ccc": 0}
+
+        with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]), \
+             patch("maelstrom.worktree._commits_ahead_batch", return_value=ahead):
+            batch = closed_worktrees(Path("/p"), wts)
+
+        with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]):
+            for wt in wts:
+                with patch("maelstrom.worktree.get_commits_ahead", return_value=ahead[wt.commit]):
+                    assert (wt.path in batch) is is_worktree_closed(wt)
+
+
+class TestCommitsAheadBatch:
+    """One ``rev-list`` classifies every detached HEAD at once."""
+
+    def test_a_commit_reachable_from_origin_main_is_not_ahead(self):
+        out = SimpleNamespace(returncode=0, stdout="", stderr="")
+        with patch("maelstrom.worktree.run_cmd", return_value=out):
+            assert _commits_ahead_batch(Path("/p"), ["aaa"]) == {"aaa": 0}
+
+    def test_a_commit_not_reachable_is_ahead(self):
+        out = SimpleNamespace(returncode=0, stdout="aaa\n", stderr="")
+        with patch("maelstrom.worktree.run_cmd", return_value=out):
+            assert _commits_ahead_batch(Path("/p"), ["aaa"]) == {"aaa": 1}
+
+    def test_it_classifies_a_mixed_set_in_one_call(self):
+        out = SimpleNamespace(returncode=0, stdout="bbb\n", stderr="")
+        with patch("maelstrom.worktree.run_cmd", return_value=out) as run:
+            assert _commits_ahead_batch(Path("/p"), ["aaa", "bbb"]) == {"aaa": 0, "bbb": 1}
+        assert run.call_count == 1
+
+    def test_no_commits_makes_no_call(self):
+        with patch("maelstrom.worktree.run_cmd") as run:
+            assert _commits_ahead_batch(Path("/p"), []) == {}
+        run.assert_not_called()
+
+    def test_a_missing_origin_main_reads_as_not_ahead(self):
+        """A project that was never pushed has no ``origin/main`` to compare to.
+
+        ``get_commits_ahead`` returns 0 when its ``rev-list`` fails, so a clean
+        detached worktree in such a project counts as closed. The batch must
+        reach the same verdict, or ``mael list`` would show every worktree in a
+        never-pushed project as open.
+        """
+        out = SimpleNamespace(returncode=1, stdout="", stderr="unknown revision")
+        with patch("maelstrom.worktree.run_cmd", return_value=out), \
+             patch("maelstrom.worktree._has_origin_main", return_value=False):
+            assert _commits_ahead_batch(Path("/p"), ["aaa"]) == {"aaa": 0}
+
+    def test_a_failed_call_with_origin_main_present_classifies_nothing(self):
+        """A real failure stays unknown, which callers read as "not closed"."""
+        out = SimpleNamespace(returncode=1, stdout="", stderr="boom")
+        with patch("maelstrom.worktree.run_cmd", return_value=out), \
+             patch("maelstrom.worktree._has_origin_main", return_value=True):
+            assert _commits_ahead_batch(Path("/p"), ["aaa"]) == {}
+
+    def test_an_empty_sha_does_not_poison_the_whole_batch(self):
+        """``git worktree list`` reports the bare project root with no HEAD.
+
+        Passing that empty string to ``rev-list`` makes the entire call fail
+        ("ambiguous argument"), so every other worktree in the project falls
+        back to unclassified and renders as open. Drop it before it is sent.
+        """
+        out = SimpleNamespace(returncode=0, stdout="", stderr="")
+        with patch("maelstrom.worktree.run_cmd", return_value=out) as run:
+            assert _commits_ahead_batch(Path("/p"), ["", "aaa"]) == {"aaa": 0}
+        assert "" not in run.call_args[0][0]
+
+    def test_only_empty_shas_makes_no_call(self):
+        with patch("maelstrom.worktree.run_cmd") as run:
+            assert _commits_ahead_batch(Path("/p"), ["", ""]) == {}
+        run.assert_not_called()
 
 
 class TestFindClosedWorktree:

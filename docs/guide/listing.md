@@ -128,6 +128,10 @@ request". So on a machine without a working `gh`, every row shows the bare remot
 blank, and every open pull request disappears from the table. Run `gh auth status` when the
 column looks emptier than you expect.
 
+The lookup asks for every open pull request in the repository at once. When that one call
+fails, each branch is retried on its own, so a single failure costs you one blank row rather
+than a blank column.
+
 ### `SESSION`
 
 The column resolves in three steps:
@@ -142,23 +146,30 @@ correct after a session dies unexpectedly.
 
 ## Where each fact comes from
 
-The command builds each row from six sources. The per-worktree sources cost time, which is
-why `mael list` takes seconds rather than milliseconds on a busy project.
+The command builds each row from seven sources. Most run once for the whole project. Only the
+per-worktree ones grow with the number of open worktrees.
 
 ```
 git worktree list ──────────────────► WORKTREE, BRANCH             once per project
-git status / rev-list ──────────────► DIRTY FILES, LOCAL COMMITS   once per worktree
-gh pr list --head <branch> ─────────► PR (COMMITS)                 once per worktree, over the network
-port allocation + port probe ───────► APP                          once per worktree
+one rev-list ───────────────────────► which worktrees are closed   once per project
+gh api graphql ─────────────────────► PR (COMMITS)                 once per project, over the network
 one pgrep + lsof sweep ─────────────► SESSION (live count)         once per project
+git status ─────────────────────────► DIRTY FILES                  once per open worktree
+git rev-list ───────────────────────► LOCAL COMMITS                once per open worktree
+port allocation + port probe ───────► APP                          once per open worktree
 transcript file checks ─────────────► SESSION (— stopped)          once per task on the branch
 ```
 
-The session sweep runs once for the whole table, not once per row. The git and `gh` calls do
-not: each open worktree pays for its own. The `gh` call is the slowest of them.
+Four of those run once per project, however many worktrees it holds: the worktree list, the
+closed check, the pull request lookup and the session sweep. A closed worktree costs nothing
+beyond the batch that classified it.
 
-The `— stopped` marker is not part of that sweep. It checks for a transcript file per task on
-the branch, so a branch with many tasks costs several file checks.
+The `— stopped` marker is not part of the session sweep. It checks for a transcript file per
+task on the branch, so a branch with many tasks costs several file checks.
+
+The pull request lookup is one GraphQL query for every open pull request in the repository,
+rather than one `gh` call per branch. It is still the slowest single source, because it is the
+only one that leaves the machine.
 
 ## Open and closed worktrees
 

@@ -17,6 +17,15 @@ release while that section is empty, and retitles it to the version it is releas
   session's task as `ID:STATUS`, for a shell prompt or status line: it prints an empty line and
   exits 0 when there is no task, so a prompt keeps rendering wherever it runs.
 
+### Changed
+
+- **`mael list` is roughly twice as fast.** On a project with 6 open and 12 closed worktrees it
+  went from 7.5s to about 3s. Two lookups that ran once per worktree now run once per project:
+  the pull request lookup is a single GraphQL query for every open pull request, and the
+  closed-worktree check is a single `rev-list`. The table is unchanged. When the batched pull
+  request lookup fails, each branch falls back to its own lookup, so a failure costs one blank
+  row rather than a blank column.
+
 ## [0.1.2] - 2026-08-11
 
 ### Added

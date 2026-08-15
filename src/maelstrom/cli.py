@@ -11,6 +11,7 @@ from .context import load_global_config, resolve_context, validate_project_name
 from .ports import get_app_url
 from .github import (
     create_project_repo,
+    get_open_prs,
     get_pr_number_and_commits,
     wait_for_merge,
 )
@@ -48,13 +49,13 @@ from .worktree import (
     SyncResult,
     add_project,
     close_worktree,
+    closed_worktrees,
     copy_back_new_env_vars,
     create_worktree,
     find_all_projects,
     get_local_only_commits,
     get_pushed_commit_count,
     get_worktree_dirty_files,
-    is_worktree_closed,
     list_worktrees,
     remove_worktree_by_path,
     run_git,
@@ -482,6 +483,22 @@ def _branch_session_ids(project_name):
         return {}
 
 
+def _resolve_pr(open_prs, project_path, branch):
+    """Resolve ``branch`` to ``(pr_number, commit_count)`` for the PR column.
+
+    ``open_prs`` is the whole-repo batch from :func:`get_open_prs`, or ``None``
+    when that call failed. A successful batch is authoritative: a branch missing
+    from it has no open PR, so we answer without a second network call. A failed
+    batch falls back to the per-branch lookup, which keeps a broken ``gh`` no
+    worse than it was before batching — one blank row rather than a blank column.
+    """
+    if not branch:
+        return (None, None)
+    if open_prs is not None:
+        return open_prs.get(branch, (None, None))
+    return get_pr_number_and_commits(project_path, branch)
+
+
 def _session_display(count, worktree_path, branch, branch_sessions):
     """Render the SESSION cell: live count wins, else a stopped marker, else blank.
 
@@ -529,12 +546,14 @@ def cmd_list(project):
         click.echo("No worktrees found.")
         return
 
-    # Partition worktrees into open and closed
+    # Partition worktrees into open and closed. One batched check for the whole
+    # project, rather than two subprocesses per worktree.
+    closed_paths = closed_worktrees(project_path, worktrees)
     closed_names = []
     open_worktrees = []
     for wt in worktrees:
         display_name = extract_worktree_name_from_folder(project_name, wt.path.name) or wt.path.name
-        if is_worktree_closed(wt):
+        if wt.path in closed_paths:
             closed_names.append(display_name)
         else:
             open_worktrees.append((wt, display_name))
@@ -554,6 +573,9 @@ def cmd_list(project):
     # Branch → task session ids, built once, so the SESSION column can show a
     # stopped marker (transcript exists, no live session) vs blank (never run).
     branch_sessions = _branch_session_ids(project_name)
+    # Every open PR in one call, rather than one `gh pr list` per row. The
+    # per-branch call is ~0.8s, so this is most of the command's runtime.
+    open_prs = get_open_prs(project_path)
 
     # Gather extended info for each open worktree
     rows = []
@@ -569,7 +591,7 @@ def cmd_list(project):
         local_display = str(local_commits) if local_commits > 0 else ""
 
         # PR info (number and commit count)
-        pr_num, pr_commits = get_pr_number_and_commits(project_path, wt.branch) if wt.branch else (None, None)
+        pr_num, pr_commits = _resolve_pr(open_prs, project_path, wt.branch)
         if pr_num:
             pr_display = f"#{pr_num} ({pr_commits})"
         elif wt.branch:
@@ -638,6 +660,14 @@ def cmd_list_all():
         worktree_data = []
         # Branch → task session ids for this project (stopped-marker detection).
         branch_sessions = _branch_session_ids(project_name)
+        # One PR lookup per project, not per worktree. The batch is repo-scoped,
+        # so it belongs inside this loop. A project whose worktrees are all
+        # detached has no branch to ask about, and `list-all` visits every
+        # project — so skip the round trip rather than spend one per project.
+        open_prs = get_open_prs(project_path) if any(wt.branch for wt in worktrees) else {}
+        # Likewise the closed check: one batch per project, not two subprocesses
+        # per worktree.
+        closed_paths = closed_worktrees(project_path, worktrees)
 
         for wt in worktrees:
             # Skip the project root (bare repo)
@@ -647,7 +677,7 @@ def cmd_list_all():
             display_name = extract_worktree_name_from_folder(project_name, wt.path.name) or wt.path.name
 
             # Check if worktree is closed (detached at origin/main)
-            closed = is_worktree_closed(wt)
+            closed = wt.path in closed_paths
 
             if closed:
                 closed_by_project.setdefault(project_name, []).append(display_name)
@@ -681,7 +711,7 @@ def cmd_list_all():
             local_display = str(local_commits) if local_commits > 0 else ""
 
             # PR info (number and commit count)
-            pr_num, pr_commits = get_pr_number_and_commits(project_path, wt.branch) if wt.branch else (None, None)
+            pr_num, pr_commits = _resolve_pr(open_prs, project_path, wt.branch)
             pushed_commits = None
             if pr_num:
                 pr_display = f"#{pr_num} ({pr_commits})"

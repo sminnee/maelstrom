@@ -209,6 +209,90 @@ def get_pr_number_and_commits(cwd: Path, branch: str) -> tuple[int | None, int |
         return (None, None)
 
 
+# Open PRs and their commit counts, for the whole repo, in one round trip.
+#
+# ``gh pr list --json commits`` cannot do this in bulk: its ``commits`` field
+# expands every commit object (with authors), so asking for 100 PRs exceeds
+# GitHub's 500,000-node budget and the call fails outright. Selecting
+# ``commits { totalCount }`` asks for the count instead of the commits, which
+# stays well inside the budget. Same number, one request rather than one per
+# branch.
+_OPEN_PRS_QUERY = """
+query($owner: String!, $repo: String!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequests(states: OPEN, first: 100, after: $after) {
+      nodes { number headRefName commits { totalCount } }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}
+"""
+
+# Bound the paging loop. 100 pages is 10,000 open PRs — far past any real repo,
+# and a backstop against a malformed cursor looping forever.
+_OPEN_PRS_MAX_PAGES = 100
+
+
+def get_open_prs(cwd: Path) -> dict[str, tuple[int, int]] | None:
+    """Map branch -> (pr_number, commit_count) for every open PR in the repo.
+
+    One GraphQL call for the whole repo, in place of one ``gh pr list`` per
+    branch. On a project with seven worktrees that is ~0.7s instead of ~5.6s,
+    which is most of what ``mael list`` spends.
+
+    Args:
+        cwd: Working directory (must be in a git repo).
+
+    Returns:
+        Branch name -> (PR number, commit count) for every open PR. ``{}`` when
+        the repo genuinely has none. ``None`` when the lookup failed, so the
+        caller can fall back per branch rather than render every PR as absent —
+        an empty column and a broken ``gh`` must not look the same.
+    """
+    prs: dict[str, tuple[int, int]] = {}
+    cursor: str | None = None
+    try:
+        for _ in range(_OPEN_PRS_MAX_PAGES):
+            cmd = [
+                "gh", "api", "graphql",
+                "-f", f"query={_OPEN_PRS_QUERY}",
+                "-F", "owner=:owner",
+                "-F", "repo=:repo",
+            ]
+            if cursor:
+                # -f, not -F: the cursor is a declared String. -F coerces a
+                # value that looks like a number, and GraphQL then rejects it.
+                cmd += ["-f", f"after={cursor}"]
+            result = run_cmd(cmd, cwd=cwd, quiet=True, check=False)
+            if result.returncode != 0 or not result.stdout.strip():
+                return None
+
+            payload = json.loads(result.stdout.strip())
+            # gh exits 0 on a GraphQL error payload (rate limit, bad scope), so
+            # the return code alone does not prove the data is there.
+            if payload.get("errors"):
+                return None
+            connection = payload["data"]["repository"]["pullRequests"]
+
+            for node in connection["nodes"]:
+                prs[node["headRefName"]] = (
+                    int(node["number"]),
+                    int(node["commits"]["totalCount"]),
+                )
+
+            page_info = connection.get("pageInfo") or {}
+            if not page_info.get("hasNextPage"):
+                return prs
+            cursor = page_info.get("endCursor")
+            if not cursor:
+                return prs
+        # Ran out of pages before the cursor did. Report failure rather than a
+        # truncated map that would silently blank the overflow branches.
+        return None
+    except (ValueError, KeyError, TypeError, FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
 def get_pr_url(cwd: Path) -> str:
     """Get the PR URL for the current branch.
 
