@@ -1,7 +1,9 @@
 """Tests for GitHub polling helpers."""
 
+import json
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -11,6 +13,7 @@ from maelstrom.github import (
     PRInfo,
     create_pr,
     create_project_repo,
+    get_open_prs,
     wait_for_merge,
 )
 from maelstrom.worktree import SyncResult
@@ -251,3 +254,86 @@ class TestCreatePrAutorepair:
         with patch("maelstrom.github.sync_worktree_with_autorepair", return_value=stranded):
             with pytest.raises(RuntimeError, match="git rebase --continue"):
                 create_pr(cwd=tmp_path, autorepair=True)
+
+
+def _graphql_page(nodes, has_next=False, cursor=None):
+    """Build one ``gh api graphql`` response page."""
+    return json.dumps({
+        "data": {
+            "repository": {
+                "pullRequests": {
+                    "nodes": nodes,
+                    "pageInfo": {"hasNextPage": has_next, "endCursor": cursor},
+                }
+            }
+        }
+    })
+
+
+def _node(number, branch, commits):
+    return {"number": number, "headRefName": branch, "commits": {"totalCount": commits}}
+
+
+def _ok(stdout):
+    return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+
+class TestGetOpenPrs:
+    """One GraphQL call replaces one ``gh pr list`` per branch.
+
+    The per-branch REST call cost ~0.8s each and dominated ``mael list``. The
+    batch must return the same numbers, and must fail in a way callers can tell
+    apart from "this repo has no open PRs".
+    """
+
+    def test_maps_every_open_pr_by_branch(self):
+        page = _graphql_page([
+            _node(1837, "refactor/document-derivatives", 10),
+            _node(1543, "feat/pgsql-users", 2),
+        ])
+        with patch("maelstrom.github.run_cmd", return_value=_ok(page)):
+            assert get_open_prs(Path(".")) == {
+                "refactor/document-derivatives": (1837, 10),
+                "feat/pgsql-users": (1543, 2),
+            }
+
+    def test_a_repo_with_no_open_prs_maps_to_nothing(self):
+        with patch("maelstrom.github.run_cmd", return_value=_ok(_graphql_page([]))):
+            assert get_open_prs(Path(".")) == {}
+
+    def test_follows_pagination_to_the_last_page(self):
+        """``first:`` is a page size, not a total. A repo with more open PRs
+        than one page must not silently lose the overflow — a missing branch
+        renders blank, which reads as "no PR"."""
+        pages = [
+            _ok(_graphql_page([_node(1, "one", 3)], has_next=True, cursor="CUR")),
+            _ok(_graphql_page([_node(2, "two", 4)])),
+        ]
+        with patch("maelstrom.github.run_cmd", side_effect=pages) as run:
+            assert get_open_prs(Path(".")) == {"one": (1, 3), "two": (2, 4)}
+        assert run.call_count == 2
+        # The cursor goes through -f, not -F. -F types the value, so a cursor
+        # that looks like a number is sent as one and GraphQL rejects it
+        # against the declared String.
+        second = run.call_args_list[1][0][0]
+        assert second[second.index("after=CUR") - 1] == "-f"
+
+    def test_a_failed_call_is_distinct_from_an_empty_repo(self):
+        """A batch failure must not blank the whole column silently. ``None``
+        lets the caller fall back per branch; ``{}`` would claim no PRs exist."""
+        with patch("maelstrom.github.run_cmd", return_value=SimpleNamespace(returncode=1, stdout="", stderr="boom")):
+            assert get_open_prs(Path(".")) is None
+
+    def test_missing_gh_is_a_failure_not_an_empty_repo(self):
+        with patch("maelstrom.github.run_cmd", side_effect=FileNotFoundError):
+            assert get_open_prs(Path(".")) is None
+
+    def test_unparseable_output_is_a_failure_not_an_empty_repo(self):
+        with patch("maelstrom.github.run_cmd", return_value=_ok("not json")):
+            assert get_open_prs(Path(".")) is None
+
+    def test_a_graphql_error_payload_is_a_failure(self):
+        """gh exits 0 on a GraphQL error payload, so returncode is not enough."""
+        errors = json.dumps({"errors": [{"message": "rate limited"}]})
+        with patch("maelstrom.github.run_cmd", return_value=_ok(errors)):
+            assert get_open_prs(Path(".")) is None

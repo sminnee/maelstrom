@@ -375,6 +375,99 @@ def is_worktree_closed(worktree_info: WorktreeInfo) -> bool:
     return True
 
 
+def _has_origin_main(project_path: Path) -> bool:
+    """True when ``origin/main`` resolves in ``project_path``.
+
+    Distinguishes a project that was never pushed (no such ref) from a genuine
+    failure of the commits-ahead batch, which the two cases must not share.
+    """
+    result = run_cmd(
+        ["git", "rev-parse", "--verify", "--quiet", f"origin/{MAIN_BRANCH}"],
+        cwd=project_path, quiet=True, check=False,
+    )
+    return result.returncode == 0
+
+
+def _commits_ahead_batch(project_path: Path, commits: list[str]) -> dict[str, int]:
+    """Classify each commit as ahead of ``origin/main`` or not, in one call.
+
+    ``git rev-list <shas> --not origin/main`` lists the given commits that
+    ``origin/main`` does not already contain. Anything it prints has work on it;
+    anything it omits is contained. That is one subprocess for every worktree,
+    rather than one ``rev-list`` each.
+
+    This answers "ahead or not", not "how far ahead" — the returned ``1`` is a
+    marker, not a count. :func:`is_worktree_closed` only compares against zero,
+    which is why the cheaper question is enough. Do not use this where the
+    magnitude matters; use :func:`get_commits_ahead`.
+
+    Returns:
+        ``{commit: 0 | 1}`` for each classified commit. A commit missing from the
+        map could not be classified, and callers must treat that as unknown
+        rather than as zero.
+    """
+    # ``git worktree list`` reports the bare project root with no HEAD. An empty
+    # string reaching rev-list fails the whole call ("ambiguous argument"), which
+    # would leave every other worktree in the project unclassified.
+    unique = [c for c in dict.fromkeys(commits) if c]
+    if not unique:
+        return {}
+    result = run_cmd(
+        ["git", "rev-list", *unique, "--not", f"origin/{MAIN_BRANCH}"],
+        cwd=project_path, quiet=True, check=False,
+    )
+    if result.returncode != 0:
+        # A project that was never pushed has no origin/main to compare against.
+        # get_commits_ahead answers 0 there, so a clean detached worktree counts
+        # as closed; match that rather than showing the whole project as open.
+        if not _has_origin_main(project_path):
+            return {commit: 0 for commit in unique}
+        # Anything else is a real failure. Classify nothing; the caller falls
+        # back to "not closed", which keeps the row visible.
+        return {}
+
+    ahead = set(result.stdout.split())
+    # rev-list walks history, so it prints ancestors of the given commits too.
+    # Only the commits we asked about are ours to classify.
+    return {commit: (1 if commit in ahead else 0) for commit in unique}
+
+
+def closed_worktrees(project_path: Path, worktrees: list[WorktreeInfo]) -> set[Path]:
+    """Return the paths of every closed worktree in ``worktrees``.
+
+    The batch form of :func:`is_worktree_closed`, for callers that check a whole
+    project at once. It applies the same three rules and reaches the same verdict,
+    but resolves the commits-ahead rule for every worktree in one ``rev-list``
+    instead of one per worktree. ``mael list`` spent more time on that check than
+    on anything else once the PR lookup was batched.
+
+    The dirty-file check stays per-worktree: ``git status`` reads a working tree,
+    so there is nothing to batch. It runs last here, rather than second as it does
+    per-worktree, so a worktree the batch has already ruled out costs no
+    subprocess at all. The rules are independent, so the order does not change
+    which worktrees come back — only how many ``git status`` calls it takes.
+    """
+    detached = [wt for wt in worktrees if not wt.branch]
+    if not detached:
+        return set()
+
+    ahead = _commits_ahead_batch(project_path, [wt.commit for wt in detached])
+
+    closed = set()
+    for wt in detached:
+        # The commits-ahead rule is already answered, so test it first: a
+        # worktree with work on it cannot be closed whatever its working tree
+        # holds, and skipping it here saves the `git status` below. Missing
+        # means unclassified. Read that as "has work": calling a worktree closed
+        # drops it from the table and offers it up for recycling.
+        if ahead.get(wt.commit, 1) > 0:
+            continue
+        if get_worktree_dirty_files(wt.path):
+            continue
+        closed.add(wt.path)
+    return closed
+
+
 def find_closed_worktree(project_path: Path) -> WorktreeInfo | None:
     """Find a closed worktree available for recycling.
 
