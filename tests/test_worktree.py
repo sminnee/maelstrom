@@ -17,6 +17,7 @@ from maelstrom.worktree import (
     managed_keys_in_env,
     create_worktree,
     find_closed_worktree,
+    find_worktree_by_branch,
     get_commits_ahead,
     get_worktree_dirty_files,
     has_root_worktree,
@@ -38,6 +39,7 @@ from maelstrom.worktree_model import (
     ENV_SECTION_END,
     ENV_SECTION_START,
     MAIN_BRANCH,
+    MAIN_WORKTREE_FOLDER,
     WORKTREE_NAMES,
     parse_env_text,
 )
@@ -511,6 +513,23 @@ class TestWorktreeIntegration:
         with pytest.raises(RuntimeError, match="No worktree found for branch"):
             remove_worktree(git_repo, "nonexistent-branch")
 
+    def test_find_worktree_by_branch_accepts_an_unresolved_project_path(self, git_repo):
+        """find_worktree_by_branch matches when the caller passes a symlinked path.
+
+        The unit tests mock list_worktrees, so every path is a child of the
+        project by construction. git reports resolved paths, but a caller need
+        not: config only expands ~ on projects_dir, and on macOS a temporary
+        directory is reached through /var -> /private/var. Only a real worktree
+        found through the unresolved path proves the comparison survives that.
+        """
+        create_worktree(git_repo, "feature/real")
+        if git_repo == git_repo.resolve():
+            pytest.skip("temp directory is not reached through a symlink")
+
+        result = find_worktree_by_branch(git_repo, "feature/real")
+        assert result is not None
+        assert result.name == "test-repo-alpha"
+
     def test_run_install_cmd(self, git_repo):
         """Test that run_install_cmd runs the configured install command."""
         # Create .maelstrom.yaml with install_cmd
@@ -614,6 +633,67 @@ class TestFindClosedWorktree:
             with patch("maelstrom.worktree.is_worktree_closed", return_value=True):
                 result = find_closed_worktree(project_path)
                 assert result == wt_alpha
+
+
+class TestFindWorktreeByBranch:
+    """Tests for find_worktree_by_branch function."""
+
+    project = Path("/fake/askastro")
+
+    def test_skips_worktree_outside_the_project(self):
+        """A worktree on the branch but outside the project is not managed."""
+        stray = WorktreeInfo(
+            path=Path("/private/tmp/claude/main-check"),
+            branch="fix/db-hardening",
+            commit="abc",
+        )
+        managed = WorktreeInfo(
+            path=self.project / "askastro-november",
+            branch="fix/db-hardening",
+            commit="abc",
+        )
+        with patch("maelstrom.worktree.list_worktrees", return_value=[stray, managed]):
+            result = find_worktree_by_branch(self.project, "fix/db-hardening")
+            assert result == managed.path
+
+    def test_returns_none_when_only_unmanaged_matches(self):
+        """An unmanaged worktree never stands in for a managed one."""
+        stray = WorktreeInfo(
+            path=Path("/private/tmp/claude/main-check"),
+            branch="fix/db-hardening",
+            commit="abc",
+        )
+        with patch("maelstrom.worktree.list_worktrees", return_value=[stray]):
+            assert find_worktree_by_branch(self.project, "fix/db-hardening") is None
+
+    def test_skips_folder_that_is_not_nato_named(self):
+        """A child folder without a NATO suffix is not managed."""
+        odd = WorktreeInfo(
+            path=self.project / "askastro-scratch",
+            branch="fix/db-hardening",
+            commit="abc",
+        )
+        with patch("maelstrom.worktree.list_worktrees", return_value=[odd]):
+            assert find_worktree_by_branch(self.project, "fix/db-hardening") is None
+
+    def test_excludes_main_worktree_by_default(self):
+        """_main holds main but cannot be named, so it is excluded by default."""
+        main_wt = WorktreeInfo(
+            path=self.project / MAIN_WORKTREE_FOLDER, branch=MAIN_BRANCH, commit="abc"
+        )
+        with patch("maelstrom.worktree.list_worktrees", return_value=[main_wt]):
+            assert find_worktree_by_branch(self.project, MAIN_BRANCH) is None
+
+    def test_includes_main_worktree_when_requested(self):
+        """include_main finds _main, which merge_to_main fast-forwards."""
+        main_wt = WorktreeInfo(
+            path=self.project / MAIN_WORKTREE_FOLDER, branch=MAIN_BRANCH, commit="abc"
+        )
+        with patch("maelstrom.worktree.list_worktrees", return_value=[main_wt]):
+            result = find_worktree_by_branch(
+                self.project, MAIN_BRANCH, include_main=True
+            )
+            assert result == main_wt.path
 
 
 class TestCloseWorktreeIntegration:

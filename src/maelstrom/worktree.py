@@ -896,7 +896,9 @@ def merge_to_main(worktree_path: Path, *, squash: bool = True, close: bool = Fal
     #    files as pending deletions. Fall back to update-ref when nothing holds
     #    main (same approach as update_local_main).
     branch_sha = run_git(["rev-parse", "HEAD"], cwd=worktree_path, quiet=True).stdout.strip()
-    main_worktree = find_worktree_by_branch(project_path, MAIN_BRANCH)
+    main_worktree = find_worktree_by_branch(
+        project_path, MAIN_BRANCH, include_main=True
+    )
     if main_worktree is not None:
         run_git(["merge", "--ff-only", branch_sha], cwd=main_worktree)
     else:
@@ -1935,18 +1937,37 @@ def write_env_file(
         txn.text = new_content
 
 
-def find_worktree_by_branch(project_path: Path, branch: str) -> Path | None:
-    """Find a worktree by its branch name.
+def find_worktree_by_branch(
+    project_path: Path, branch: str, *, include_main: bool = False
+) -> Path | None:
+    """Find a maelstrom-managed worktree by its branch name.
+
+    Only managed worktrees count: a direct child of the project root named
+    ``<project>-<nato>``. Git also lists worktrees created by hand elsewhere on
+    disk, and one of those can hold the branch we want. Callers use the result to
+    derive a NATO name and a port allocation, so returning a foreign path fails
+    later and further from the cause.
 
     Args:
         project_path: Path to the project root.
         branch: Branch name to search for.
+        include_main: Also match the ``_main`` reference checkout. It has no NATO
+            name, so only a caller that just needs the path may ask for it.
 
     Returns:
         Path to the worktree directory, or None if not found.
     """
+    # git reports resolved paths, so resolve ours before comparing. Callers may
+    # pass a symlinked path (macOS /var -> /private/var; config only expands ~),
+    # which would otherwise match nothing and look like the bug this filter fixes.
+    project_path = project_path.resolve()
+    project_name = project_path.name
     for wt in list_worktrees(project_path):
-        if wt.branch == branch:
+        if wt.branch != branch or wt.path.parent != project_path:
+            continue
+        if extract_worktree_name_from_folder(project_name, wt.path.name) is not None:
+            return wt.path
+        if include_main and wt.path.name == MAIN_WORKTREE_FOLDER:
             return wt.path
     return None
 
