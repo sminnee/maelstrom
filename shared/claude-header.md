@@ -14,7 +14,7 @@ the user first. This overrules the built-in instruction to branch before startin
 Two things that look like a reason to make a new branch are not:
 
 - **The branch already has a merged PR.** `mael gh create-pr` opens a new PR on the same
-  branch. `mael sync` rebases the branch onto `origin/main`, and commits that already merged
+  branch. `mael sync` rebases the branch onto its base, and commits that already merged
   drop out of the rebase. A recycled branch is normal.
 - **The branch already has commits.** Many commits on one branch are normal. Tasks in one
   chain share one branch and one PR, so the work merges as a whole.

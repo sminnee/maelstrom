@@ -31,8 +31,8 @@ user first.
 - `mael gh create-pr` reuses a PR only while it is **open**. A merged or closed PR falls through
   to `gh pr create`, so the same branch gets a new PR. The push uses `--force-with-lease`, so it
   updates an existing remote branch instead of rejecting it.
-- `mael sync` rebases the branch onto `origin/main` before it pushes. Commits that already
-  merged drop out of the rebase.
+- `mael sync` rebases the branch onto its base before it pushes — `origin/main` unless the
+  branch is stacked on another branch. Commits that already merged drop out of the rebase.
 
 **One branch per parent chain.** The branch belongs to the task, not to the worktree. The first
 task under a parent owns the branch, and later siblings in that chain reuse it. This is what
