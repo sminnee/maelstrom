@@ -8,12 +8,16 @@ from unittest.mock import patch
 
 import pytest
 
+from maelstrom.base_store import InMemoryBaseStore
+from maelstrom.worktree_model import BaseRef
 from maelstrom.github import (
     CheckRun,
     PRInfo,
     create_pr,
     create_project_repo,
     get_open_prs,
+    get_worktree_code,
+    stack_chain,
     wait_for_merge,
 )
 from maelstrom.worktree import SyncResult
@@ -187,6 +191,7 @@ class TestCreatePrAutorepair:
              ) as repair, \
              patch("maelstrom.github.run_cmd") as run, \
              patch("maelstrom.github.run_git") as git, \
+             patch("maelstrom.github.get_current_branch", return_value="feature/work"), \
              patch("maelstrom.github.update_local_main"):
             run.return_value = subprocess.CompletedProcess(
                 args=["gh"], returncode=0, stdout="https://example/pr OPEN", stderr="",
@@ -227,6 +232,7 @@ class TestCreatePrAutorepair:
         with patch("maelstrom.github.sync_worktree_with_autorepair", return_value=repaired), \
              patch("maelstrom.github.run_cmd") as run, \
              patch("maelstrom.github.run_git") as git, \
+             patch("maelstrom.github.get_current_branch", return_value="feature/work"), \
              patch("maelstrom.github.update_local_main"):
             run.return_value = subprocess.CompletedProcess(
                 args=["gh"], returncode=0, stdout="https://example/pr OPEN", stderr="",
@@ -337,3 +343,226 @@ class TestGetOpenPrs:
         errors = json.dumps({"errors": [{"message": "rate limited"}]})
         with patch("maelstrom.github.run_cmd", return_value=_ok(errors)):
             assert get_open_prs(Path(".")) is None
+
+
+class TestCreatePrRegistersTheStack:
+    """`create_pr` registers a stacked chain on GitHub with ``gh stack link``.
+
+    ``link`` is the only ``gh stack`` command used, because every local one is
+    unusable from a maelstrom worktree — see ``docs/dev/stacking.md``. The last
+    test here is the guard that keeps it that way.
+    """
+
+    def _run(self, tmp_path, bases, branch="feat/child", *, link_fails=False, pr_open=True):
+        """Call create_pr with a fake store and captured gh/git argv."""
+        store = InMemoryBaseStore()
+        for child, parent in bases.items():
+            store.write(child, BaseRef(branch=parent))
+
+        calls: list[list[str]] = []
+        sync_result = SyncResult(success=True, branch=branch, message="ok")
+
+        def fake_run_cmd(cmd, *args, **kwargs):
+            calls.append(list(cmd))
+            if cmd[:3] == ["gh", "stack", "link"] and link_fails:
+                return subprocess.CompletedProcess(
+                    args=cmd, returncode=1, stdout="", stderr="link exploded",
+                )
+            if cmd[:3] == ["gh", "pr", "view"]:
+                out = "https://example/pr OPEN" if pr_open else "https://example/pr MERGED"
+                return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=out, stderr="")
+            if cmd[:3] == ["gh", "pr", "create"]:
+                return subprocess.CompletedProcess(
+                    args=cmd, returncode=0, stdout="https://example/new-pr", stderr="",
+                )
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+        def fake_run_git(cmd, *args, **kwargs):
+            calls.append(["git", *cmd])
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout=branch, stderr="",
+            )
+
+        with patch("maelstrom.github.sync_worktree", return_value=sync_result), \
+             patch("maelstrom.github.GitConfigBaseStore", return_value=store), \
+             patch("maelstrom.github.get_current_branch", return_value=branch), \
+             patch("maelstrom.github.run_cmd", side_effect=fake_run_cmd), \
+             patch("maelstrom.github.run_git", side_effect=fake_run_git), \
+             patch("maelstrom.github.update_local_main"):
+            url, created = create_pr(cwd=tmp_path)
+        return url, created, calls
+
+    def _links(self, calls):
+        return [c for c in calls if c[:3] == ["gh", "stack", "link"]]
+
+    def test_a_stacked_branch_links_the_chain_bottom_to_top(self, tmp_path):
+        _, _, calls = self._run(
+            tmp_path, {"feat/child": "feat/parent", "feat/parent": "feat/grandparent"}
+        )
+
+        assert self._links(calls) == [
+            ["gh", "stack", "link", "feat/grandparent", "feat/parent", "feat/child"]
+        ]
+
+    def test_a_two_branch_stack_links_both(self, tmp_path):
+        _, _, calls = self._run(tmp_path, {"feat/child": "feat/parent"})
+
+        assert self._links(calls) == [["gh", "stack", "link", "feat/parent", "feat/child"]]
+
+    def test_an_unstacked_branch_never_calls_gh_stack(self, tmp_path):
+        """No base, no stack — and no dependency on a public-preview extension."""
+        _, _, calls = self._run(tmp_path, {}, branch="feat/solo")
+
+        assert not [c for c in calls if c[:2] == ["gh", "stack"]]
+
+    def test_no_base_flag_is_passed_to_gh_pr_create(self, tmp_path):
+        """``link`` owns base chaining; a --base here would fight it.
+
+        Everything still merges into main — the chained bases are review-time
+        scaffolding that GitHub collapses as each PR lands.
+        """
+        _, _, calls = self._run(
+            tmp_path, {"feat/child": "feat/parent"}, pr_open=False
+        )
+
+        creates = [c for c in calls if c[:3] == ["gh", "pr", "create"]]
+        assert creates, "expected a PR to be created"
+        assert all("--base" not in c for c in creates)
+
+    def test_a_link_failure_warns_and_still_returns_the_pr_url(self, tmp_path, capsys):
+        """Registration is decoration. The branch is pushed and the PR exists."""
+        url, _, calls = self._run(
+            tmp_path, {"feat/child": "feat/parent"}, link_fails=True
+        )
+
+        assert url == "https://example/pr"
+        assert self._links(calls), "link was still attempted"
+        assert "stack" in capsys.readouterr().out.lower()
+
+    def test_a_missing_gh_stack_extension_warns_and_still_returns_the_url(
+        self, tmp_path, capsys
+    ):
+        """``gh stack`` is a separate extension; not having it must not fail the PR."""
+        store = InMemoryBaseStore()
+        store.write("feat/child", BaseRef(branch="feat/parent"))
+
+        def fake_run_cmd(cmd, *args, **kwargs):
+            if cmd[:3] == ["gh", "stack", "link"]:
+                raise FileNotFoundError("gh stack")
+            if cmd[:3] == ["gh", "pr", "view"]:
+                return subprocess.CompletedProcess(
+                    args=cmd, returncode=0, stdout="https://example/pr OPEN", stderr="",
+                )
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+        with patch("maelstrom.github.sync_worktree",
+                   return_value=SyncResult(success=True, branch="feat/child", message="ok")), \
+             patch("maelstrom.github.GitConfigBaseStore", return_value=store), \
+             patch("maelstrom.github.get_current_branch", return_value="feat/child"), \
+             patch("maelstrom.github.run_cmd", side_effect=fake_run_cmd), \
+             patch("maelstrom.github.run_git"), \
+             patch("maelstrom.github.update_local_main"):
+            url, _ = create_pr(cwd=tmp_path)
+
+        assert url == "https://example/pr"
+        assert "gh extension install github/gh-stack" in capsys.readouterr().out
+
+    def test_no_local_gh_stack_subcommand_is_ever_invoked(self, tmp_path):
+        """The guard that keeps us clear of the worktree state bug (issue #35)."""
+        _, _, calls = self._run(tmp_path, {"feat/child": "feat/parent"})
+
+        local = {"rebase", "sync", "push", "submit", "modify", "init", "add", "checkout", "unstack"}
+        for call in calls:
+            if call[:2] == ["gh", "stack"]:
+                assert call[2] not in local, f"local gh stack command invoked: {call}"
+
+
+class TestGetWorktreeCodeUsesTheBase:
+    """A review must see this branch's own work, not the whole stack."""
+
+    def _run(self, tmp_path, bases, branch="feat/child"):
+        store = InMemoryBaseStore()
+        for child, parent in bases.items():
+            store.write(child, BaseRef(branch=parent))
+        calls: list[list[str]] = []
+
+        def fake_run_git(cmd, *args, **kwargs):
+            calls.append(list(cmd))
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="deadbeef", stderr="",
+            )
+
+        with patch("maelstrom.github.GitConfigBaseStore", return_value=store), \
+             patch("maelstrom.github.get_current_branch", return_value=branch), \
+             patch("maelstrom.github.run_git", side_effect=fake_run_git):
+            get_worktree_code(tmp_path)
+        return calls
+
+    def test_a_stacked_branch_diffs_against_its_base(self, tmp_path):
+        """Diffing against main would show the parent's commits as this PR's work."""
+        calls = self._run(tmp_path, {"feat/child": "feat/parent"})
+
+        merge_bases = [c for c in calls if c[0] == "merge-base"]
+        assert merge_bases == [["merge-base", "HEAD", "origin/feat/parent"]]
+
+    def test_a_base_whose_ref_is_gone_falls_back_to_main(self, tmp_path):
+        """A merged-and-pruned base must not leave the reviewer with no diff at all.
+
+        ``merge-base`` against a ref that does not resolve raises, the caller
+        swallows it, and ``commits_output`` comes back empty — so a reviewing agent
+        silently receives no code rather than the branch's work.
+        """
+        store = InMemoryBaseStore()
+        store.write("feat/child", BaseRef(branch="feat/gone"))
+        calls: list[list[str]] = []
+
+        def fake_run_git(cmd, *args, **kwargs):
+            calls.append(list(cmd))
+            if cmd[:1] == ["merge-base"] and "origin/feat/gone" in cmd:
+                raise subprocess.CalledProcessError(128, cmd)
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="deadbeef", stderr="",
+            )
+
+        with patch("maelstrom.github.GitConfigBaseStore", return_value=store), \
+             patch("maelstrom.github.get_current_branch", return_value="feat/child"), \
+             patch("maelstrom.github.run_git", side_effect=fake_run_git):
+            get_worktree_code(tmp_path)
+
+        merge_bases = [c for c in calls if c[0] == "merge-base"]
+        assert ["merge-base", "HEAD", "origin/main"] in merge_bases
+
+    def test_an_unstacked_branch_still_diffs_against_main(self, tmp_path):
+        calls = self._run(tmp_path, {}, branch="feat/solo")
+
+        merge_bases = [c for c in calls if c[0] == "merge-base"]
+        assert merge_bases == [["merge-base", "HEAD", "origin/main"]]
+
+
+class TestStackChain:
+    """`stack_chain` — the bottom-to-top branch list `gh stack link` wants."""
+
+    def test_an_unstacked_branch_is_a_chain_of_one(self):
+        assert stack_chain("feat/solo", {}) == ["feat/solo"]
+
+    def test_a_two_branch_stack_reads_bottom_to_top(self):
+        assert stack_chain("feat/b", {"feat/b": "feat/a"}) == ["feat/a", "feat/b"]
+
+    def test_a_deep_stack_reads_bottom_to_top(self):
+        bases = {"feat/c": "feat/b", "feat/b": "feat/a"}
+        assert stack_chain("feat/c", bases) == ["feat/a", "feat/b", "feat/c"]
+
+    def test_the_walk_stops_at_main(self):
+        assert stack_chain("feat/b", {"feat/b": "feat/a", "feat/a": "main"}) == [
+            "feat/a", "feat/b",
+        ]
+
+    def test_unrelated_bases_do_not_join_the_chain(self):
+        bases = {"feat/b": "feat/a", "feat/x": "feat/y"}
+        assert stack_chain("feat/b", bases) == ["feat/a", "feat/b"]
+
+    def test_a_cycle_terminates_rather_than_hanging(self):
+        """Cycles are rejected at set time; this is the belt-and-braces stop."""
+        assert stack_chain("feat/a", {"feat/a": "feat/b", "feat/b": "feat/a"}) == [
+            "feat/b", "feat/a",
+        ]
