@@ -21,6 +21,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
+from maelstrom.base_store import InMemoryBaseStore
 from maelstrom.cli import cli
 from maelstrom.ports import (
     get_port_allocation,
@@ -38,6 +39,7 @@ from maelstrom.worktree import (
     sync_worktree,
     sync_worktree_with_autorepair,
 )
+from maelstrom.worktree_model import BaseRef, StackTip
 from maelstrom.worktree import rebase_in_progress as _rebase_in_progress
 from maelstrom.rebase_repair import _REPAIR_TIMEOUT, run_resolve_rebase_session
 
@@ -991,3 +993,268 @@ class TestSyncCli:
         _, kwargs = mock_sync.call_args
         assert kwargs["abort_on_conflict"] is True
         assert kwargs["close_if_empty"] is True
+
+
+class TestSyncBaseCli:
+    """`mael sync --base` — set, change, and clear a branch's base."""
+
+    def _ctx(self):
+        mock_ctx = MagicMock()
+        mock_ctx.worktree = "alpha"
+        mock_ctx.project = "myproject"
+        mock_ctx.worktree_path = MagicMock()
+        mock_ctx.worktree_path.exists.return_value = True
+        return mock_ctx
+
+    def _run(self, args, *, bases=None, branch="feature/work"):
+        """Invoke `mael sync` with an in-memory base store."""
+        store = InMemoryBaseStore()
+        for child, parent in (bases or {}).items():
+            store.write(child, BaseRef(branch=parent))
+        sync_result = SyncResult(
+            success=True,
+            branch=branch,
+            message=f"Successfully rebased {branch} onto origin/main",
+        )
+        runner = CliRunner()
+        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
+             patch("maelstrom.cli.GitConfigBaseStore", return_value=store), \
+             patch("maelstrom.cli.get_current_branch", return_value=branch), \
+             patch("maelstrom.cli.check_base_exists"), \
+             patch("maelstrom.cli.sync_worktree", return_value=sync_result):
+            result = runner.invoke(cli, ["sync", "myproject.alpha", *args])
+        return result, store
+
+    def test_base_sets_the_base_before_syncing(self):
+        result, store = self._run(["--base", "feat/parent"])
+
+        assert result.exit_code == 0
+        assert store.read("feature/work") == BaseRef(branch="feat/parent")
+
+    def test_changing_the_base_clears_the_stale_tip(self):
+        """The old tip points into the old base's history; keeping it would misreplay."""
+        store = InMemoryBaseStore()
+        store.write("feature/work", BaseRef(branch="feat/one", tip="abc123"))
+        sync_result = SyncResult(success=True, branch="feature/work", message="ok")
+        runner = CliRunner()
+        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
+             patch("maelstrom.cli.GitConfigBaseStore", return_value=store), \
+             patch("maelstrom.cli.get_current_branch", return_value="feature/work"), \
+             patch("maelstrom.cli.check_base_exists"), \
+             patch("maelstrom.cli.sync_worktree", return_value=sync_result):
+            result = runner.invoke(cli, ["sync", "--base", "feat/two"])
+
+        assert result.exit_code == 0
+        assert store.read("feature/work") == BaseRef(branch="feat/two", tip=None)
+
+    def test_base_main_clears_the_base(self):
+        result, store = self._run(["--base", "main"], bases={"feature/work": "feat/parent"})
+
+        assert result.exit_code == 0
+        assert store.read("feature/work") == BaseRef()
+        assert store.all() == {}
+
+    def test_self_base_exits_one_with_the_validation_message(self):
+        result, store = self._run(["--base", "feature/work"])
+
+        assert result.exit_code == 1
+        assert "cannot be based on itself" in result.output
+        assert store.all() == {}
+
+    def test_a_cyclic_base_exits_one(self):
+        result, store = self._run(["--base", "feat/a"], bases={"feat/a": "feature/work"})
+
+        assert result.exit_code == 1
+        assert "Cycle" in result.output
+        # The rejected base is not written, so the store is left as it was.
+        assert store.all() == {"feat/a": "feature/work"}
+
+    def test_a_base_that_does_not_exist_exits_one(self):
+        """A typo must be refused, not accepted and silently collapsed later."""
+        store = InMemoryBaseStore()
+        sync_result = SyncResult(success=True, branch="feature/work", message="ok")
+        runner = CliRunner()
+        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
+             patch("maelstrom.cli.GitConfigBaseStore", return_value=store), \
+             patch("maelstrom.cli.get_current_branch", return_value="feature/work"), \
+             patch("maelstrom.cli.check_base_exists",
+                   side_effect=ValueError("No such branch to stack on: feat/typo.")), \
+             patch("maelstrom.cli.sync_worktree", return_value=sync_result):
+            result = runner.invoke(cli, ["sync", "--base", "feat/typo"])
+
+        assert result.exit_code == 1
+        assert "No such branch to stack on" in result.output
+        assert store.all() == {}
+
+    def test_no_base_flag_leaves_the_store_untouched(self):
+        """A plain `mael sync` must not write anything."""
+        result, store = self._run([], bases={"feature/work": "feat/parent"})
+
+        assert result.exit_code == 0
+        assert store.read("feature/work") == BaseRef(branch="feat/parent")
+
+
+class TestBaseCli:
+    """`mael base` — show the current branch's base."""
+
+    def _ctx(self):
+        mock_ctx = MagicMock()
+        mock_ctx.worktree = "alpha"
+        mock_ctx.project = "myproject"
+        mock_ctx.worktree_path = MagicMock()
+        mock_ctx.worktree_path.exists.return_value = True
+        return mock_ctx
+
+    def _run(self, bases, branch="feature/work"):
+        store = InMemoryBaseStore()
+        for child, parent in bases.items():
+            store.write(child, BaseRef(branch=parent))
+        runner = CliRunner()
+        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
+             patch("maelstrom.cli.GitConfigBaseStore", return_value=store), \
+             patch("maelstrom.cli.get_current_branch", return_value=branch):
+            return runner.invoke(cli, ["base"]), store
+
+    def test_shows_the_stacked_base(self):
+        result, _ = self._run({"feature/work": "feat/parent"})
+
+        assert result.exit_code == 0
+        assert "feat/parent" in result.output
+
+    def test_an_unstacked_branch_shows_main(self):
+        result, _ = self._run({})
+
+        assert result.exit_code == 0
+        assert "main" in result.output
+
+
+class TestStackTipCli:
+    """`mael stack-tip` — show or move where new work stacks."""
+
+    def _ctx(self, project_path=None):
+        mock_ctx = MagicMock()
+        mock_ctx.project = "myproject"
+        mock_ctx.project_path = project_path or MagicMock()
+        mock_ctx.project_path.exists.return_value = True
+        return mock_ctx
+
+    def _run(self, args, *, tip="main", bases=None):
+        store = InMemoryBaseStore()
+        store.write_stack_tip(tip)
+        for child, parent in (bases or {}).items():
+            store.write(child, BaseRef(branch=parent))
+        runner = CliRunner()
+        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
+             patch("maelstrom.cli.GitConfigBaseStore", return_value=store), \
+             patch("maelstrom.cli.check_base_exists"), \
+             patch("maelstrom.cli.current_stack_tip", return_value=StackTip(tip)):
+            result = runner.invoke(cli, ["stack-tip", *args])
+        return result, store
+
+    def test_with_no_argument_it_shows_the_tip(self):
+        result, store = self._run([], tip="feat/parent")
+
+        assert result.exit_code == 0
+        assert "feat/parent" in result.output
+        assert store.read_stack_tip() == "feat/parent"
+
+    def test_it_moves_the_tip_to_a_named_branch(self):
+        result, store = self._run(["feat/other"], tip="feat/parent")
+
+        assert result.exit_code == 0
+        assert store.read_stack_tip() == "feat/other"
+
+    def test_a_tip_that_does_not_exist_exits_one(self):
+        """A tip naming no branch would be healed back to main at the next add."""
+        store = InMemoryBaseStore()
+        store.write_stack_tip("main")
+        runner = CliRunner()
+        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
+             patch("maelstrom.cli.GitConfigBaseStore", return_value=store), \
+             patch("maelstrom.cli.check_base_exists",
+                   side_effect=ValueError("No such branch to stack on: feat/typo.")):
+            result = runner.invoke(cli, ["stack-tip", "feat/typo"])
+
+        assert result.exit_code == 1
+        assert store.read_stack_tip() == "main"
+
+    def test_main_resets_the_tip_to_the_bottom(self):
+        """The one-command escape from a deepening stack."""
+        result, store = self._run(["main"], tip="feat/parent")
+
+        assert result.exit_code == 0
+        assert store.read_stack_tip() == "main"
+
+
+class TestPromoteAndEjectCli:
+    """`mael promote` and `mael eject` — the urgent-PR escape hatches."""
+
+    def _ctx(self):
+        mock_ctx = MagicMock()
+        mock_ctx.project = "myproject"
+        mock_ctx.worktree = "alpha"
+        mock_ctx.project_path = MagicMock()
+        mock_ctx.project_path.exists.return_value = True
+        mock_ctx.worktree_path = MagicMock()
+        mock_ctx.worktree_path.exists.return_value = True
+        return mock_ctx
+
+    def _run(self, command, args, bases, branch="feat/urgent"):
+        store = InMemoryBaseStore()
+        for child, parent in bases.items():
+            store.write(child, BaseRef(branch=parent))
+        runner = CliRunner()
+        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
+             patch("maelstrom.cli.GitConfigBaseStore", return_value=store), \
+             patch("maelstrom.cli.get_current_branch", return_value=branch):
+            result = runner.invoke(cli, [command, *args])
+        return result, store
+
+    def test_promote_moves_the_branch_to_the_bottom(self):
+        """Merge order is enforced bottom-up, so an urgent PR must be able to jump."""
+        result, store = self._run(
+            "promote", [], {"feat/urgent": "feat/parent", "feat/parent": "main"}
+        )
+
+        assert result.exit_code == 0
+        assert store.read("feat/urgent") == BaseRef()
+
+    def test_promote_repoints_the_branches_that_were_based_on_it(self):
+        """Otherwise a child would be stacked on a branch that left from under it."""
+        result, store = self._run(
+            "promote",
+            [],
+            {"feat/urgent": "feat/parent", "feat/child": "feat/urgent"},
+        )
+
+        assert result.exit_code == 0
+        assert store.read("feat/child").branch == "feat/parent"
+
+    def test_promote_clears_a_repointed_childs_stale_tip(self):
+        store = InMemoryBaseStore()
+        store.write("feat/urgent", BaseRef(branch="feat/parent"))
+        store.write("feat/child", BaseRef(branch="feat/urgent", tip="abc123"))
+        runner = CliRunner()
+        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
+             patch("maelstrom.cli.GitConfigBaseStore", return_value=store), \
+             patch("maelstrom.cli.get_current_branch", return_value="feat/urgent"):
+            result = runner.invoke(cli, ["promote"])
+
+        assert result.exit_code == 0
+        assert store.read("feat/child").tip is None
+
+    def test_promote_on_an_unstacked_branch_is_a_no_op(self):
+        result, store = self._run("promote", [], {})
+
+        assert result.exit_code == 0
+        assert store.all() == {}
+
+    def test_eject_unstacks_the_branch_and_leaves_the_rest_alone(self):
+        """Eject is promote without the re-point: pull one branch out, touch nothing else."""
+        result, store = self._run(
+            "eject", [], {"feat/urgent": "feat/parent", "feat/child": "feat/urgent"}
+        )
+
+        assert result.exit_code == 0
+        assert store.read("feat/urgent") == BaseRef()
+        assert store.read("feat/child").branch == "feat/urgent"

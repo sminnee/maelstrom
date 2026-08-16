@@ -35,9 +35,11 @@ def print_rebase_conflict_help(result: SyncResult) -> None:
         click.echo(f"  git log {result.merge_base}..{result.upstream_head} --oneline")
         click.echo(f"  git diff {result.merge_base}...{result.upstream_head}")
     else:
+        # A stacked branch conflicts with its base, not with main.
+        base_ref = f"origin/{result.base}"
         click.echo("To see what changed upstream:")
-        click.echo("  git log HEAD..origin/main --oneline")
-        click.echo("  git diff HEAD...origin/main")
+        click.echo(f"  git log HEAD..{base_ref} --oneline")
+        click.echo(f"  git diff HEAD...{base_ref}")
 
     click.echo()
     click.echo("To resolve conflicts:")
@@ -286,7 +288,7 @@ def git_status(ctx, target):
     "(/resolve-rebase-conflicts) to resolve it and continue",
 )
 def git_squash(target, autorepair):
-    """Rebase the current branch onto origin/main, autosquashing fixup! commits (no push).
+    """Rebase the current branch onto its base, autosquashing fixup! commits (no push).
 
     With --autorepair, a rebase conflict starts a headless Claude session that
     resolves it and continues the rebase. Every autorepair failure path aborts
