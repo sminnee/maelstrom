@@ -60,7 +60,7 @@ Closed worktrees are not rows. `mael list` names them on one line under the tabl
 | Column | What it shows | Blank means |
 |---|---|---|
 | `WORKTREE` | The NATO name — `bravo`, not `myproject-bravo` | Never blank |
-| `BRANCH` | The checked-out branch, or `(detached)` | Never blank |
+| `BRANCH` | The checked-out branch, or `(detached)`. A stacked branch reads `feat/child ← feat/parent` | Never blank |
 | `DIRTY FILES` | How many files `git status` reports as changed | No uncommitted changes |
 | `LOCAL COMMITS` | Commits that exist only on this machine | Nothing unpushed |
 | `PR (COMMITS)` | `#1766 (6)` — the open pull request and its commit count | No pull request and nothing pushed |
@@ -146,11 +146,12 @@ correct after a session dies unexpectedly.
 
 ## Where each fact comes from
 
-The command builds each row from eight sources. Most run once for the whole project. Only the
+The command builds each row from nine sources. Most run once for the whole project. Only the
 per-worktree ones grow with the number of open worktrees.
 
 ```
 git worktree list ──────────────────► WORKTREE, BRANCH             once per project
+one git config --get-regexp ────────► BRANCH (the ← base)          once per project
 one rev-list ───────────────────────► which worktrees are closed   once per project
 gh api graphql ─────────────────────► PR (COMMITS)                 once per project, over the network
 one pgrep + lsof sweep ─────────────► SESSION (live count)         once per project
@@ -160,8 +161,9 @@ port allocation + port probe ───────► APP                       
 transcript file checks ─────────────► SESSION (— stopped)          once per task on the branch
 ```
 
-Four of those run once per project, however many worktrees it holds: the worktree list, the
-closed check, the pull request lookup and the session sweep. A closed worktree still costs one
+Five of those run once per project, however many worktrees it holds: the worktree list, the
+base lookup, the closed check, the pull request lookup and the session sweep. A closed
+worktree still costs one
 `git status`, because the closed check must know whether the worktree is clean. It costs nothing
 else.
 

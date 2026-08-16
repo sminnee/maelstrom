@@ -25,6 +25,8 @@ See `docs/dev/` for architecture and design docs:
 - `docs/dev/architecture-patterns.md` — canonical layered-architecture conventions for the
   Python core (storage / model / CLI layers), using the task subsystem as the worked reference.
 - `docs/dev/tasks.md` — the task domain model: `parent` vs `follows`, dotted ids, session discovery.
+- `docs/dev/stacking.md` — stacked branches: what a base is, why the base tip is stored, the
+  stack tip, and why only `gh stack link` is used.
 - `docs/dev/scheduled-tasks.md` — launchd firing mechanics for template tasks.
 - `docs/dev/cmux.md` — how the `cmux/` package drives cmux: the three layers, the idempotent
   `ensure_*` verbs, and the pane 0/1/2 convention.

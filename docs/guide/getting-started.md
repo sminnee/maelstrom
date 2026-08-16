@@ -209,7 +209,7 @@ When the work has merged:
 mael close
 ```
 
-Close syncs against `origin/main`, checks the worktree is clean, and resets it to main. It
+Close syncs against the branch's base, checks the worktree is clean, and resets it to main. It
 **keeps** the folder, the NATO name and the port allocation, so the next `mael add`
 recycles the slot.
 

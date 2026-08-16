@@ -134,7 +134,20 @@ mael linear plan PROJ-125     # → e.g. echo
 Each takes the next free worktree slot and the next free port base. The names and numbers
 depend on what is already in use, not on the issue id.
 
-They cannot collide. Different worktrees, different branches, different ports.
+Their **workspaces** cannot collide: different worktrees, different branches, different ports.
+Their **code** still can. Chains that touch the same files conflict on rebase, and the last one
+to merge does the work of reconciling.
+
+Stacking is the answer to that. Base one chain's branch on another's, and the auto-rebase
+cascades the parent's changes into the child as they land, instead of saving the whole
+reconciliation for merge time:
+
+```bash
+mael stack-tip feat/first-chain    # new worktrees stack on this branch
+mael stack-tip main                # back to independent chains
+```
+
+See [stacking.md](../dev/stacking.md).
 
 Watch them:
 
@@ -168,7 +181,7 @@ them:
 3. Address blocking findings.
 4. Commit each fix as a `--fixup` commit targeting the commit that introduced it.
 5. Push: `mael gh create-pr PROJ-123 --squash`. The `--squash` autosquashes the fixups into
-   their targets while rebasing onto `origin/main`, so the PR lands with clean history.
+   their targets while rebasing onto the branch's base, so the PR lands with clean history.
 6. Close the task: `mael task status done`.
 7. Run `/watch-pr` to take CI (continuous integration) to green.
 

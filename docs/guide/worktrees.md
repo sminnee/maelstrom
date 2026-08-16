@@ -65,7 +65,7 @@ mael add feature/x --open         # open the editor instead of a Claude session
 `mael add` fetches, creates the branch from `origin/main`, allocates ports, writes `.env`,
 and launches a Claude session. Alpha is created for you by `mael add-project`.
 
-Opening a worktree also rebases its branch onto `origin/main` first, so the session always
+Opening a worktree also rebases its branch onto its base first, so the session always
 starts on current code. This matters when the branch already exists: a branch preserved by
 `mael close --force`, or one that only lives on the remote, is checked out at its own tip
 and can be many commits behind. A conflict is handed to a headless Claude session that
@@ -114,10 +114,13 @@ mael close --wait         # wait for the PR to merge first
 
 Close, in order:
 
-1. Sync against `origin/main` (rebase).
+1. Sync against the branch's base (rebase).
 2. Check there are no uncommitted changes.
 3. Check there are no unmerged commits.
 4. Check out main.
+
+A branch another branch is stacked on keeps its branch. Only the worktree closes —
+deleting the branch would strand its children on a ref that no longer resolves.
 
 It refuses at step 2 or 3 rather than losing work:
 
@@ -160,7 +163,7 @@ are modified or untracked files. `mael rm` is an alias.
 ## Keeping worktrees current
 
 ```bash
-mael sync                  # rebase this worktree onto origin/main
+mael sync                  # rebase this worktree onto its base
 mael sync --squash         # autosquash fixup! commits while rebasing
 mael sync --abort          # on conflict, abort and restore rather than stopping mid-rebase
 mael sync --close          # if the branch is empty after rebasing, delete it and close

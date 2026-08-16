@@ -33,9 +33,32 @@ The three verbs differ in what they preserve. Close preserves, remove deletes.
 
 **Open**:
 Put a branch into a worktree ready to work in: create the worktree or recycle a closed one,
-then rebase the branch onto `origin/main` before the session starts. Reusing a worktree that
+then rebase the branch onto its base before the session starts. Reusing a worktree that
 already holds the branch is not opening it — nothing is set up and no rebase runs.
 _Avoid_: Set up, provision
+
+**Base**:
+The branch a branch's work is stacked on. Every rebase maelstrom runs targets the base, and
+`main` is the base a branch has when it has none of its own. Stored per branch in git config,
+so every worktree in the project reads the same value.
+_Avoid_: Parent branch, upstream, target branch
+
+**Base tip**:
+The SHA `origin/<base>` had at the last successful rebase — the point a branch's own commits
+start at. Re-recorded on every successful rebase, because a base amended during review leaves
+a stale tip that conflicts.
+_Avoid_: Merge base, fork point
+
+**Stack tip**:
+One pointer per project naming the branch new worktrees stack on. It advances to each new
+branch, falls back to `main` when its branch is deleted, and is moved by `mael stack-tip`.
+_Avoid_: Head, current branch, newest branch
+
+**Collapse**:
+What happens to a stacked branch when its base branch is gone — merged or abandoned. The
+branch rebases onto `origin/main`, keeping only its own commits, and its stored base is
+cleared.
+_Avoid_: Flatten, unstack, rebase down
 
 **Close**:
 Return a worktree to an empty slot: detach to `origin/main`, free the port allocation, keep the

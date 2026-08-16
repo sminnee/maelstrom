@@ -209,7 +209,7 @@ next task. `--branch` removes the fallback.
 
 Ordering is by priority (critical → low), then by dependency.
 
-Launching a task opens its worktree, which rebases the branch onto `origin/main` first. If
+Launching a task opens its worktree, which rebases the branch onto its base first. If
 that rebase fails — a conflict the headless repair session could not resolve, or an offline
 fetch — the launch is blocked and the task stays `todo`. Nothing is left half-done: the task
 re-fires on the next `mael task next --run`. Fix the branch first, with

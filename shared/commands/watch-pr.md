@@ -69,7 +69,8 @@ Run this loop. Each iteration is one CI cycle.
    When in doubt about classification, look at *what the failure touches* versus *what this PR
    changed*: if the broken code path is part of this PR's diff, it's a fixup; otherwise it's a chore.
 
-6. **Resubmit via `mael sync`** — rebase on `origin/main` and re-push:
+6. **Resubmit via `mael sync`** — rebase on the branch's base (`origin/main` unless the branch
+   is stacked) and re-push:
 
    ```bash
    mael sync

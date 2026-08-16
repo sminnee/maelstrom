@@ -39,7 +39,7 @@ so the target is optional.
 
 | Command | Description |
 |---|---|
-| `mael add [BRANCH]` | Add a worktree for `BRANCH`, and rebase `BRANCH` onto `origin/main` before the session starts. Recycles a closed worktree when one exists. With no `BRANCH`, creates a fresh worktree detached at `origin/main`: there is no branch to rebase, and no worktree is recycled. |
+| `mael add [BRANCH]` | Add a worktree for `BRANCH`, and rebase `BRANCH` onto its base before the session starts. A new branch stacks on the project's stack tip. Recycles a closed worktree when one exists. With no `BRANCH`, creates a fresh worktree detached at `origin/main`: there is no branch to rebase, and no worktree is recycled. |
 | `mael add-project GIT_URL` | Clone a repository and set it up for maelstrom. |
 | `mael create-project NAME` | Create a GitHub repository with the maelstrom stub files, check it out, and open a worktree on `feat/start-project`. |
 | `mael mv-project OLD NEW` | Rename a project and everything derived from its name. |
@@ -48,9 +48,13 @@ so the target is optional.
 | `mael close [TARGETS]...` | Sync, check the worktree is clean, then check out main. Keeps the folder, name and ports. |
 | `mael remove TARGETS...` | Delete one or more worktrees. |
 | `mael rm TARGETS...` | Alias for `mael remove`. |
-| `mael sync [TARGET]` | Rebase the worktree against `origin/main`. |
-| `mael sync-all [PROJECT]` | Sync every worktree in the project. |
-| `mael tidy-branches [PROJECT]` | Rebase feature branches, delete merged ones, force-push unmerged ones. |
+| `mael sync [TARGET]` | Rebase the worktree against its base (`origin/main` unless the branch is stacked). |
+| `mael sync-all [PROJECT]` | Sync every worktree in the project, parents before their children. |
+| `mael tidy-branches [PROJECT]` | Rebase feature branches, delete merged ones, force-push unmerged ones. Skips any branch another branch is stacked on. |
+| `mael base [TARGET]` | Show the branch this worktree's work is stacked on. |
+| `mael stack-tip [BRANCH]` | Show or move the branch new worktrees stack on. `main` resets it. |
+| `mael promote [TARGET]` | Move this branch to the bottom of its stack so it can merge first. |
+| `mael eject [TARGET]` | Pull this branch out of its stack onto `main`, leaving the rest alone. |
 
 ```bash
 mael add-project git@github.com:org/repo.git   # clone into maelstrom's layout
@@ -65,6 +69,7 @@ mael close                                     # done: reset, keep name and port
 | `-p`, `--project TEXT` | Project name. Default: detect from the current directory. |
 | `--open` | Open the configured editor instead of a Claude session. |
 | `--no-recycle` | Always create a new worktree, even when closed ones exist. |
+| `--base TEXT` | Stack the new branch on this branch. Default: the project's stack tip. Use `main` to start unstacked. |
 
 **`mael add-project`**
 
@@ -131,13 +136,16 @@ Run `mael doctor NEW` afterwards.
 
 | Option | Description |
 |---|---|
-| `--squash` | Autosquash `fixup!` commits while rebasing onto `origin/main`. |
+| `--squash` | Autosquash `fixup!` commits while rebasing onto the base. A `fixup!` aimed at a commit in the *parent* branch does not squash — put it in the parent's worktree. |
+| `--base TEXT` | Stack this branch on `TEXT` before rebasing. `main` unstacks it. Rejects a self-base or a cycle with exit code 1. |
 | `--abort` | On conflict, abort the rebase and restore the worktree. |
 | `--close` | If the branch is empty after the rebase, delete it (local and remote) and close the worktree. |
 | `--autorepair` | On conflict, run a headless Claude session (`/resolve-rebase-conflicts`) to resolve it and continue the rebase. Announces the repair, then streams the session's output to the console. Supersedes `--abort`: a failure aborts and restores the worktree, except where the session finished the rebase on another branch and there is nothing to abort. |
 
 ```bash
 mael sync --autorepair             # let a headless session resolve the conflict
+mael sync --base feat/parent       # stack this branch on feat/parent, then rebase
+mael sync --base main              # unstack it again
 ```
 
 **`mael sync-all`**
@@ -149,6 +157,41 @@ mael sync --autorepair             # let a headless session resolve the conflict
 ```bash
 mael sync-all --autorepair         # repair each conflicting worktree in the sweep
 ```
+
+**`mael base`**
+
+Prints the branch this worktree's work is stacked on. Change it with `mael sync --base`.
+
+```bash
+mael base                          # "feat/child is based on feat/parent."
+```
+
+**`mael stack-tip`**
+
+The stack tip is one pointer per project: the branch new worktrees stack on. It advances to
+each new branch, so stacks form a chain. When its branch is deleted the tip falls back to
+`main`, so new work can never stack on a merged or abandoned branch. When its branch has had
+no commits for 30 days, `mael add` warns and proceeds.
+
+```bash
+mael stack-tip                     # show where new work will stack
+mael stack-tip feat/parent         # move it
+mael stack-tip main                # reset — start unrelated work
+```
+
+**`mael promote` / `mael eject`**
+
+A stack registered on GitHub merges bottom-up, so an urgent PR stuck mid-stack needs a way
+out. `promote` re-points this branch onto `main` **and** re-points anything based on it onto
+this branch's old base, closing the stack up. `eject` skips that second half and leaves the
+rest of the stack alone. Run `mael sync` afterwards, here and in any re-pointed worktree.
+
+```bash
+mael promote                       # jump the merge queue
+mael eject                         # just leave the stack
+```
+
+See [stacking.md](../dev/stacking.md) for the full model.
 
 `--autorepair` is available on every command that rebases: `mael sync`, `mael sync-all`,
 `mael git squash`, and `mael gh create-pr`. Each one is off by default. The flag starts an
@@ -243,7 +286,7 @@ The task notebook. See [tasks.md](../guide/tasks.md).
 | `mael task promote FILE` | Create a task from a draft file, print its id, delete the file. |
 | `mael task load-many FILE` | Create a chain of tasks from a marked plan file. `-` reads stdin. |
 | `mael task next` | Print the id of the next actionable task. |
-| `mael task run ID` | Launch a task as a Claude session. Creates its worktree first, and rebases the branch onto `origin/main`. A failed rebase blocks the launch and leaves the task TODO. |
+| `mael task run ID` | Launch a task as a Claude session. Creates its worktree first, and rebases the branch onto its base. A failed rebase blocks the launch and leaves the task TODO. |
 | `mael task list` | List actionable tasks. |
 | `mael task show ID` | Show a summary of a task. |
 | `mael task get-status [ID]` | Print a task's status alone. Defaults to `$MAEL_TASK_ID`. |
@@ -290,6 +333,7 @@ short form `-p`; every other task command takes `--project` in full.
 | `--post-action TEXT` | Lifecycle action fired when the task finishes, e.g. `linear.done`. |
 | `--priority [critical\|high\|medium\|low]` | Task priority. Default `medium`. Affects list ordering and `task next`. |
 | `--model TEXT` | LLM model for the session, e.g. `opus` or a full id. Default: your Claude Code default. |
+| `--base TEXT` | Branch to stack this task's branch on. Default: the project's stack tip. Not the same as `--parent`: `--parent` shares one branch and one PR, `--base` stacks a different branch as its own PR. |
 | `--follow TEXT` | Id this task follows. Repeatable. |
 | `--follow-end TEXT` | Follow the end leaves of the given id's follows-chain. Repeatable. Quote `"*"`. |
 | `--content-file TEXT` | File whose contents become the task's Content section. `-` reads stdin. |
@@ -361,10 +405,12 @@ short flags, and it cannot set `--parent`, `--follow`, `--follow-end`, `--from`,
 | `--post-action TEXT` | Lifecycle action fired when the task finishes. |
 | `--priority [critical\|high\|medium\|low]` | Task priority. |
 | `--model TEXT` | LLM model for the session. |
+| `--base TEXT` | Branch this task's branch stacks on. |
 | `--schedule TEXT` | Cron expression. Acted on only for template tasks. |
 | `--content-file TEXT` | File whose contents replace the Content section. `-` reads stdin. |
 
-Pass `''` to `--pre-action`, `--post-action`, `--model` or `--schedule` to clear the field.
+Pass `''` to `--pre-action`, `--post-action`, `--model`, `--base` or `--schedule` to clear
+the field.
 
 **`mael task list`**
 
@@ -609,7 +655,7 @@ Exit codes: 0 = passed, 1 = failed, 2 = timeout.
 | Command | Description |
 |---|---|
 | `mael git status [TARGET]` | Show a compact git status summary. |
-| `mael git squash [TARGET]` | Rebase onto `origin/main`, autosquashing `fixup!` commits. Does not push. |
+| `mael git squash [TARGET]` | Rebase onto the branch's base (`origin/main` unless the branch is stacked), autosquashing `fixup!` commits. Does not push. |
 | `mael git merge [TARGET]` | Rebase the current branch onto main, fast-forward main to it, and push. |
 
 ```bash
