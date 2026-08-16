@@ -144,6 +144,13 @@ TASK_FIELDS = (
     # LLM model for the session (``claude --model``). Free-form: an alias (opus)
     # or a full id. Empty = inherit the user's Claude Code default.
     _FieldSpec("model", block=True),
+    # The branch this task's branch is stacked on -- a declarative input that
+    # seeds the branch's stored base when the worktree is set up. Empty = use the
+    # project's stack tip. Appended at the end so existing files keep a stable
+    # diff. Not to be confused with ``parent``: near-identical name, near-opposite
+    # meaning. ``parent`` groups tasks onto ONE branch and ONE PR; ``base`` stacks
+    # a DIFFERENT branch as its own PR. See ``docs/dev/stacking.md``.
+    _FieldSpec("base", block=True),
 )
 
 # The frontmatter keys, always emitted in this order for stable diffs. Most
@@ -255,6 +262,9 @@ class Task:
     # LLM model for the launched session (``claude --model``). Free-form
     # passthrough — an alias or a full id; empty inherits the user's default.
     model: str = ""
+    # Branch to stack this task's branch on; empty uses the project's stack tip.
+    # Declarative input only — the stored base in git config is the live value.
+    base: str = ""
     content: str = ""
     steps: str = ""
     log: str = ""
@@ -313,6 +323,7 @@ class Task:
             last_run=str(frontmatter.get("last-run", "")),
             priority=str(frontmatter.get("priority", DEFAULT_PRIORITY)) or DEFAULT_PRIORITY,
             model=str(frontmatter.get("model", "")),
+            base=str(frontmatter.get("base", "")),
             content=sections.get("content", ""),
             steps=sections.get("steps", ""),
             log=sections.get("log", ""),
@@ -757,6 +768,7 @@ def create(
     command: str = "",
     mode: str = "",
     model: str = "",
+    base: str = "",
     branch: str = "",
     parent: str = "",
     pre_action: str = "",
@@ -829,6 +841,7 @@ def create(
         last_run=last_run,
         priority=resolved_priority,
         model=model,
+        base=base,
         content=content,
         status=status,
     )
@@ -915,6 +928,7 @@ def draft_markdown(
     command: str = "",
     mode: str = "",
     model: str = "",
+    base: str = "",
     branch: str = "",
     parent: str = "",
     pre_action: str = "",
@@ -944,6 +958,7 @@ def draft_markdown(
         post_action=post_action,
         priority=resolved_priority,
         model=model,
+        base=base,
         content=content,
     )
     return task.to_markdown()
@@ -1280,6 +1295,7 @@ def update(
     command: str | None = None,
     mode: str | None = None,
     model: str | None = None,
+    base: str | None = None,
     pre_action: str | None = None,
     post_action: str | None = None,
     schedule: str | None = None,
@@ -1314,6 +1330,8 @@ def update(
         task.mode = mode
     if model is not None:
         task.model = model
+    if base is not None:
+        task.base = base
     if pre_action is not None:
         task.pre_action = pre_action
     if post_action is not None:

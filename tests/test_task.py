@@ -93,6 +93,30 @@ class TestRoundTrip:
         )
         assert Task.from_markdown(text).model == ""
 
+    def test_base_round_trips(self):
+        # `base` is a declarative input: it seeds the branch's stored base when
+        # the worktree is set up. Near-identical name to `parent`, near-opposite
+        # meaning -- `parent` shares one branch and one PR, `base` stacks a
+        # different branch as a separate PR.
+        t = Task(id="x", title="t", project="p", base="feat/parent")
+        back = Task.from_markdown(t.to_markdown())
+        assert back.base == "feat/parent"
+
+    def test_missing_base_defaults_to_empty(self):
+        # An old file with no `base` key must still load; empty means "use the
+        # project's stack tip", which is what every task did before stacking.
+        text = (
+            "---\n"
+            "id: x\ntitle: t\nproject: p\ncommand: \"\"\nmode: normal\n"
+            "created: c\nupdated: u\n"
+            "---\n\n## Content\n\n\n## Steps\n\n\n## Log\n\n"
+        )
+        assert Task.from_markdown(text).base == ""
+
+    def test_base_is_last_in_the_frontmatter_order(self):
+        # Field order is load-bearing for stable diffs, so a new field appends.
+        assert model.FRONTMATTER_KEYS[-1] == "base"
+
     @pytest.mark.parametrize("priority", ["critical", "high", "low"])
     def test_priority_round_trips(self, priority):
         t = Task(id="x", title="t", project="p", priority=priority)

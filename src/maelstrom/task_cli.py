@@ -216,10 +216,17 @@ def _run_task(
         )
     branch = task.branch or model.default_branch(task.id, task.parent)
     # The launcher owns install (shell pane on create, blocking in non-cmux).
-    result = setup_worktree_for_branch(
-        project_path, project, branch, run_install=False
-    )
-    # Opening the worktree rebased its branch onto origin/main. If that failed,
+    # ``task.base`` is a declarative input: it seeds the branch's stored base the
+    # first time the worktree is set up. Empty falls through to the stack tip,
+    # which is what every task did before stacking existed.
+    try:
+        result = setup_worktree_for_branch(
+            project_path, project, branch, run_install=False,
+            base=task.base or None, announce=click.echo,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
+    # Opening the worktree rebased its branch onto its base. If that failed,
     # block: an unattended session must not run against stale code. The failure
     # lands before the in-progress write below, so the task never leaves TODO —
     # the same end state as the cmux rollback, with no rollback write needed.
@@ -363,6 +370,12 @@ _BLOCK_OPTIONS: dict[str, _Opt] = {
         "LLM model for the session, e.g. 'opus' or a full id "
         "(default: your Claude Code default).",
         update_help="Set the task's LLM model, e.g. 'opus' (pass '' to clear).",
+    ),
+    "base": _Opt(
+        "Branch to stack this task's branch on (default: the project's stack tip). "
+        "Not the same as --parent: --parent shares one branch and one PR, "
+        "--base stacks a different branch as its own PR.",
+        update_help="Set the branch this task's branch stacks on (pass '' to clear).",
     ),
 }
 
@@ -547,6 +560,7 @@ def task_add(
     # NB: shadows the `task as model` module alias for this function's body — it
     # is the --model flag's value here, and the body never needs the module.
     model: str,
+    base: str,
     priority: str | None,
     branch: str,
     parent: str,
@@ -570,6 +584,7 @@ def task_add(
         command=command,
         mode=mode,
         model=model,
+        base=base,
         priority=priority,
         branch=branch,
         parent=parent,
@@ -597,6 +612,8 @@ def add_task(
     # model` module alias for this body, which therefore reaches the model layer
     # via the `task_model` binding instead.
     model: str = "",
+    # Branch to stack this task's branch on; empty uses the project's stack tip.
+    base: str = "",
     priority: str | None = None,
     branch: str = "",
     parent: str = "",
@@ -671,6 +688,7 @@ def add_task(
             command=command,
             mode=mode,
             model=model,
+            base=base,
             priority=priority or task_model.DEFAULT_PRIORITY,
             branch=branch,
             parent=parent,
@@ -714,6 +732,7 @@ def task_draft(
     command: str,
     mode: str,
     model: str,  # the --model flag; shadows the module alias (see add_task)
+    base: str,
     priority: str | None,
     branch: str,
     parent: str,
@@ -742,6 +761,7 @@ def task_draft(
             command=command,
             mode=mode,
             model=model,
+            base=base,
             priority=priority or "",
             branch=branch,
             parent=parent,
@@ -767,6 +787,7 @@ def task_promote(
     command: str | None,
     mode: str | None,
     model: str | None,  # the --model flag; shadows the module alias (see add_task)
+    base: str | None,
     priority: str | None,
     branch: str | None,
     parent: str | None,
@@ -796,6 +817,7 @@ def task_promote(
         command=command if command is not None else draft.command,
         mode=mode if mode is not None else draft.mode,
         model=model if model is not None else draft.model,
+        base=base if base is not None else draft.base,
         priority=priority if priority is not None else draft.priority,
         branch=branch if branch is not None else draft.branch,
         parent=parent if parent is not None else draft.parent,
@@ -1504,13 +1526,14 @@ def task_update(
     # Shadows the `task as model` module alias for this body, which therefore
     # reaches the model layer via the `task_model` binding (see the imports).
     model: str | None,
+    base: str | None,
     priority: str | None,
     pre_action: str | None,
     post_action: str | None,
     schedule: str | None,
     content_file: str | None,
 ) -> None:
-    """Update a task's fields (title, branch, command, mode, model, actions, schedule, content).
+    """Update a task's fields (title, branch, base, command, mode, model, actions, schedule, content).
 
     With ``--id`` the task is re-keyed first (rewriting follows/parent references
     that point at it), then the remaining field updates apply to the new id.
@@ -1555,7 +1578,7 @@ def task_update(
     try:
         task_model.update(
             store, proj, target, title=title, branch=branch, content=content,
-            command=command, mode=mode, model=model, priority=priority,
+            command=command, mode=mode, model=model, base=base, priority=priority,
             pre_action=pre_action, post_action=post_action,
             schedule=schedule, index=index,
         )
