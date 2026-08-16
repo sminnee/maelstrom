@@ -2,18 +2,26 @@
 
 from pathlib import Path
 
+import pytest
+
 from maelstrom.worktree_model import (
     WORKTREE_NAMES,
     WORKTREE_SHORTCODES,
+    BaseRef,
+    StackTip,
     claude_transcript_path,
     extract_project_name,
     extract_worktree_name_from_folder,
     get_worktree_folder_name,
     has_claude_transcript,
+    order_by_stack,
     parse_env_text,
+    plan_rebase,
+    resolve_stack_tip,
     resolve_worktree_shortcode,
     sanitise_path_for_claude,
     sanitize_branch_name,
+    validate_base,
 )
 
 
@@ -196,3 +204,187 @@ class TestParseEnvText:
 
     def test_empty_text(self):
         assert parse_env_text("") == {}
+
+
+class TestPlanRebase:
+    """Tests for plan_rebase — the pure rebase-target decision."""
+
+    def test_default_base_is_a_plain_rebase_onto_origin_main(self):
+        """The default base must produce today's exact rebase: no --onto branch.
+
+        ``upstream=None`` is what keeps the default path byte-identical to the
+        pre-stacking argv. Anything else here is a behaviour change for every
+        unstacked worktree in existence.
+        """
+        plan = plan_rebase(BaseRef(), base_exists=True)
+        assert plan.onto == "origin/main"
+        assert plan.upstream is None
+        assert plan.collapsed is False
+        assert plan.label == "origin/main"
+
+    def test_default_base_ignores_base_exists(self):
+        """``main`` is never "gone"; the default plan does not depend on the flag."""
+        assert plan_rebase(BaseRef(), base_exists=False) == plan_rebase(
+            BaseRef(), base_exists=True
+        )
+
+    def test_live_base_rebases_onto_the_base_from_its_recorded_tip(self):
+        plan = plan_rebase(BaseRef(branch="feat/parent", tip="abc123"), base_exists=True)
+        assert plan.onto == "origin/feat/parent"
+        assert plan.upstream == "abc123"
+        assert plan.collapsed is False
+        assert plan.label == "origin/feat/parent"
+
+    def test_missing_base_collapses_onto_main_keeping_the_tip(self):
+        """A base whose remote branch is gone merged or was abandoned.
+
+        The recorded tip is still the right ``<upstream>``: it is where this
+        branch's own commits start, so replaying from it onto main drops the
+        parent's commits whether or not their patch-ids survived the merge.
+        """
+        plan = plan_rebase(BaseRef(branch="feat/parent", tip="abc123"), base_exists=False)
+        assert plan.onto == "origin/main"
+        assert plan.upstream == "abc123"
+        assert plan.collapsed is True
+        assert plan.label == "origin/main"
+
+    def test_the_plan_names_the_branch_it_actually_lands_on(self):
+        """``effective_base`` must always agree with ``onto``.
+
+        Callers report this as ``SyncResult.base`` and build ``origin/<base>``
+        from it. A plan that lands on main while naming a branch whose ref is
+        gone produces a ref that does not resolve, and the caller's git call
+        fails rather than answering.
+        """
+        for base, exists in [
+            (BaseRef(), True),
+            (BaseRef(branch="feat/parent", tip="abc"), True),
+            (BaseRef(branch="feat/parent", tip="abc"), False),
+        ]:
+            plan = plan_rebase(base, base_exists=exists)
+            assert plan.onto == f"origin/{plan.effective_base}", plan
+
+    def test_a_missing_base_reports_main_as_the_effective_base(self):
+        plan = plan_rebase(BaseRef(branch="feat/gone", tip="abc"), base_exists=False)
+        assert plan.effective_base == "main"
+
+    def test_a_live_base_reports_itself_as_the_effective_base(self):
+        plan = plan_rebase(BaseRef(branch="feat/parent"), base_exists=True)
+        assert plan.effective_base == "feat/parent"
+
+    def test_live_base_without_a_tip_falls_back_to_a_plain_rebase(self):
+        """A base set but never yet rebased has no tip to replay from."""
+        plan = plan_rebase(BaseRef(branch="feat/parent", tip=None), base_exists=True)
+        assert plan.onto == "origin/feat/parent"
+        assert plan.upstream is None
+
+    def test_missing_base_without_a_tip_collapses_to_a_plain_rebase(self):
+        plan = plan_rebase(BaseRef(branch="feat/parent", tip=None), base_exists=False)
+        assert plan.onto == "origin/main"
+        assert plan.upstream is None
+        assert plan.collapsed is True
+
+
+class TestBaseRef:
+    """Tests for the BaseRef value object."""
+
+    def test_default_is_main_with_no_tip(self):
+        base = BaseRef()
+        assert base.branch == "main"
+        assert base.tip is None
+        assert base.is_default is True
+
+    def test_a_named_base_is_not_default(self):
+        assert BaseRef(branch="feat/parent").is_default is False
+
+    def test_main_with_a_tip_is_not_default(self):
+        """A recorded tip means a real rebase happened; do not take the fast path."""
+        assert BaseRef(branch="main", tip="abc123").is_default is False
+
+
+class TestValidateBase:
+    """Tests for validate_base — cycle and self-reference rejection."""
+
+    def test_accepts_a_valid_chain(self):
+        validate_base("feat/c", "feat/b", {"feat/b": "feat/a", "feat/a": "main"})
+
+    def test_accepts_main_as_a_base(self):
+        validate_base("feat/a", "main", {})
+
+    def test_rejects_self_base(self):
+        with pytest.raises(ValueError, match="itself"):
+            validate_base("feat/a", "feat/a", {})
+
+    def test_rejects_a_two_cycle(self):
+        with pytest.raises(ValueError, match="[Cc]ycle"):
+            validate_base("feat/a", "feat/b", {"feat/b": "feat/a"})
+
+    def test_rejects_a_three_cycle(self):
+        """A→B→C→A, caught when setting C→A closes the loop."""
+        with pytest.raises(ValueError, match="[Cc]ycle"):
+            validate_base("feat/c", "feat/a", {"feat/a": "feat/b", "feat/b": "feat/c"})
+
+    def test_a_chain_ending_at_an_unregistered_branch_is_valid(self):
+        """Not every ancestor need have a stored base; an unset one is main."""
+        validate_base("feat/b", "feat/a", {})
+
+
+class TestResolveStackTip:
+    """Tests for resolve_stack_tip — self-healing and stale-tip warning."""
+
+    def test_main_is_always_valid_and_never_stale(self):
+        assert resolve_stack_tip("main", {}, stale_days=30) == StackTip("main")
+
+    def test_a_live_recent_tip_is_kept(self):
+        tip = resolve_stack_tip("feat/a", {"feat/a": 3}, stale_days=30)
+        assert tip == StackTip("feat/a")
+
+    def test_a_deleted_tip_self_heals_to_main(self):
+        """A merged or abandoned base must never be what new work stacks on."""
+        tip = resolve_stack_tip("feat/gone", {"feat/other": 1}, stale_days=30)
+        assert tip.branch == "main"
+        assert tip.healed is True
+        assert tip.stale_days is None
+
+    def test_a_stale_tip_warns_but_is_still_used(self):
+        """Warn, never block: an unattended agent session must not stall."""
+        tip = resolve_stack_tip("feat/old", {"feat/old": 180}, stale_days=30)
+        assert tip.branch == "feat/old"
+        assert tip.stale_days == 180
+        assert tip.healed is False
+
+    def test_the_staleness_boundary_is_exclusive(self):
+        assert resolve_stack_tip("feat/a", {"feat/a": 30}, stale_days=30).stale_days is None
+        assert resolve_stack_tip("feat/a", {"feat/a": 31}, stale_days=30).stale_days == 31
+
+    def test_an_empty_tip_reads_as_main(self):
+        assert resolve_stack_tip("", {}, stale_days=30) == StackTip("main")
+
+
+class TestOrderByStack:
+    """Tests for order_by_stack — parents sync before their children."""
+
+    def test_an_unstacked_set_keeps_its_order(self):
+        assert order_by_stack(["b", "a", "c"], {}) == ["b", "a", "c"]
+
+    def test_a_parent_sorts_before_its_child(self):
+        assert order_by_stack(["child", "parent"], {"child": "parent"}) == [
+            "parent", "child",
+        ]
+
+    def test_a_deep_chain_sorts_bottom_up(self):
+        bases = {"c": "b", "b": "a"}
+        assert order_by_stack(["c", "a", "b"], bases) == ["a", "b", "c"]
+
+    def test_a_base_outside_the_set_does_not_break_the_sort(self):
+        """sync-all only sees branches with worktrees; a base may have none."""
+        assert order_by_stack(["child"], {"child": "absent-parent"}) == ["child"]
+
+    def test_a_cycle_still_returns_every_branch(self):
+        """Convergence, not correctness: a second sync-all fixes the order."""
+        result = order_by_stack(["a", "b"], {"a": "b", "b": "a"})
+        assert sorted(result) == ["a", "b"]
+
+    def test_siblings_on_one_base_keep_their_relative_order(self):
+        bases = {"x": "base", "y": "base"}
+        assert order_by_stack(["base", "x", "y"], bases) == ["base", "x", "y"]
