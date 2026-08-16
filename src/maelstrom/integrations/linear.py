@@ -803,6 +803,7 @@ def cmd_plan(
     command: str | None,
     mode: str | None,
     model: str | None,
+    base: str | None,
     branch: str | None,
     parent: str | None,
     pre_action: str | None,
@@ -874,6 +875,7 @@ def cmd_plan(
         # Planning runs on Opus by default: the plan is the leverage point, and
         # the sessions the chain goes on to launch inherit their own model.
         model="opus" if model is None else model,
+        base=base or "",
         parent=f"linear.{identifier}" if parent is None else parent,
         branch=resolved_branch,
         pre_action=pre_action or "",
