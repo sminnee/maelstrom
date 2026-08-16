@@ -9,10 +9,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, TypeVar
 
+from .base_store import GitConfigBaseStore
 from .project_scaffold import scaffold_files
 from .shell import run_cmd
-from .worktree_model import REPAIRED_MESSAGE, print_flushed
+from .worktree_model import MAIN_BRANCH, REPAIRED_MESSAGE, print_flushed
 from .worktree import (
+    get_current_branch,
     run_git,
     sync_worktree,
     sync_worktree_with_autorepair,
@@ -327,7 +329,8 @@ def get_pr_url(cwd: Path) -> str:
 def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None = None, progress: bool = False, squash: bool = False, autorepair: bool = False, announce: Callable[[str], None] = print_flushed) -> tuple[str, bool]:
     """Create a pull request for the current worktree branch, or push if PR exists.
 
-    Syncs (rebases onto origin/main) before pushing.
+    Syncs (rebases onto this branch's base) before pushing. A stacked chain is
+    registered on GitHub with ``gh stack link`` once the PR exists.
 
     Args:
         cwd: Current working directory (default: actual cwd).
@@ -416,13 +419,14 @@ def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None
     except FileNotFoundError:
         raise RuntimeError("git is not installed")
 
-    # If PR exists, just return the URL
-    if pr_exists:
-        return existing_url, False
+    branch_name = get_current_branch(cwd)
 
-    # Get current branch name for --head flag
-    branch_result = run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=cwd, quiet=True)
-    branch_name = branch_result.stdout.strip()
+    # If PR exists, just return the URL. Registration still runs: the stack may
+    # have grown or collapsed since the PR was opened, and `link` is how GitHub
+    # learns about it.
+    if pr_exists:
+        _register_stack(cwd, branch_name, announce=announce)
+        return existing_url, False
 
     # Try to get the first commit message for title
     try:
@@ -446,7 +450,90 @@ def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None
     if result.returncode != 0:
         raise RuntimeError(f"Failed to create PR: {result.stderr}")
 
-    return result.stdout.strip(), True
+    new_url = result.stdout.strip()
+    _register_stack(cwd, branch_name, announce=announce)
+    return new_url, True
+
+
+def _base_refs_for_diff(cwd: Path) -> list[str]:
+    """Refs to diff a review against, best first.
+
+    A stacked branch diffs against its base, so a review sees only this branch's
+    own work rather than the whole stack. ``origin/main`` follows as a fallback for
+    a base that has merged and been pruned.
+    """
+    base = _resolve_base_branch(cwd)
+    refs = [f"origin/{base}"]
+    if base != MAIN_BRANCH:
+        refs.append(f"origin/{MAIN_BRANCH}")
+    return refs
+
+
+def _resolve_base_branch(cwd: Path) -> str:
+    """The branch ``cwd``'s work is stacked on, or ``main`` if it is not stacked.
+
+    Never raises: a worktree whose branch or config cannot be read falls back to
+    ``main``, which is what every branch used before stacking existed.
+    """
+    try:
+        return GitConfigBaseStore(cwd).read(get_current_branch(cwd)).branch
+    except Exception:
+        return MAIN_BRANCH
+
+
+def stack_chain(branch: str, bases: dict[str, str]) -> list[str]:
+    """The branches from the bottom of ``branch``'s stack up to ``branch`` itself.
+
+    Walks the stored bases down to ``main`` and returns the result bottom-to-top,
+    which is the order ``gh stack link`` wants. A branch with no base returns just
+    itself, so callers can test the length to decide whether there is a stack at
+    all.
+
+    ``bases`` is validated against cycles when it is written, so the walk
+    terminates; the visited set is a belt-and-braces stop rather than the guard.
+    """
+    chain = [branch]
+    seen = {branch}
+    current = bases.get(branch)
+    while current and current != MAIN_BRANCH and current not in seen:
+        chain.append(current)
+        seen.add(current)
+        current = bases.get(current)
+    chain.reverse()
+    return chain
+
+
+def _register_stack(
+    cwd: Path, branch: str, *, announce: Callable[[str], None] = print_flushed
+) -> None:
+    """Register this branch's stack on GitHub, so its PRs show as a stack.
+
+    ``gh stack link`` is the only ``gh stack`` command used, and it runs only after
+    the branch is pushed and its PR exists. Every *local* one is unusable from a
+    maelstrom worktree; ``docs/dev/stacking.md`` has the reasoning.
+
+    Never fatal: a failed registration costs the stack view and nothing else, so it
+    warns and returns.
+    """
+    chain = stack_chain(branch, GitConfigBaseStore(cwd).all())
+    if len(chain) < 2:
+        return  # not stacked; nothing to register
+
+    try:
+        result = run_cmd(["gh", "stack", "link", *chain], cwd=cwd, check=False)
+    except FileNotFoundError:
+        announce(
+            "Warning: could not register the stack on GitHub — the gh stack "
+            "extension is not installed (gh extension install github/gh-stack). "
+            "The PR is pushed; only the stack view is missing."
+        )
+        return
+    if result.returncode != 0:
+        announce(
+            f"Warning: could not register the stack on GitHub "
+            f"({result.stderr.strip() or 'gh stack link failed'}). "
+            f"The PR is pushed; only the stack view is missing."
+        )
 
 
 def get_pr_info(cwd: Path) -> PRInfo:
@@ -1065,16 +1152,27 @@ def get_worktree_code(cwd: Path) -> tuple[str, str]:
     Raises:
         RuntimeError: If git commands fail.
     """
-    # Get commits since diverging from origin/main
+    # Get commits since diverging from this branch's base. For a stacked branch
+    # that is its parent, not main: diffing against main would present the
+    # parent's commits as this PR's work, and a reviewing agent would report on
+    # code that belongs to a different PR.
     commits_output = ""
     try:
-        # Get the merge-base
-        merge_base_result = run_git(
-            ["merge-base", "HEAD", "origin/main"],
-            cwd=cwd,
-            quiet=True,
-        )
-        merge_base = merge_base_result.stdout.strip()
+        # A base that merged and was pruned no longer resolves. Falling back to
+        # main keeps the reviewer seeing this branch's work; without it the
+        # merge-base raises, the handler below swallows it, and the review is
+        # handed no code at all.
+        merge_base = ""
+        for base_ref in _base_refs_for_diff(cwd):
+            try:
+                merge_base = run_git(
+                    ["merge-base", "HEAD", base_ref], cwd=cwd, quiet=True,
+                ).stdout.strip()
+                break
+            except subprocess.CalledProcessError:
+                continue
+        if not merge_base:
+            raise subprocess.CalledProcessError(1, "merge-base")
 
         # Get log of commits
         log_result = run_git(
