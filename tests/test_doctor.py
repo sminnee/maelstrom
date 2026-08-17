@@ -53,6 +53,7 @@ def _create_project_repo():
 
     # main lives in _main, like add_project does
     run_git(project_path, "worktree", "add", str(project_path / "_main"), "main")
+    run_git(project_path, "branch", "--set-upstream-to", "origin/main", "main")
 
     # Create .mael marker
     (project_path / ".mael").touch()
@@ -251,6 +252,73 @@ class TestDoctor:
             assert notes_check.status == CheckStatus.FIXED
             value = run_git(project_path, "config", "--get", "notes.rewriteRef").stdout.strip()
             assert value == "refs/notes/*"
+
+    @staticmethod
+    def _upstream_check(result):
+        """The one check whose message names an upstream."""
+        checks = [c for c in result.checks if "upstream" in c.message]
+        assert len(checks) == 1, f"expected 1 upstream check, got {checks}"
+        return checks[0]
+
+    @staticmethod
+    def _upstream_config(project_path):
+        return (
+            run_git(project_path, "config", "--get", "branch.main.remote").stdout.strip(),
+            run_git(project_path, "config", "--get", "branch.main.merge").stdout.strip(),
+        )
+
+    def test_sets_the_main_upstream_when_unset(self):
+        """A bare clone writes no branch.main.*, so main tracks nothing."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            run_git(project_path, "config", "--unset", "branch.main.remote")
+            run_git(project_path, "config", "--unset", "branch.main.merge")
+
+            result = run_doctor(project_path)
+
+            check = self._upstream_check(result)
+            assert check.status == CheckStatus.FIXED
+            assert check.message == "main had no upstream → set to origin/main"
+            assert self._upstream_config(project_path) == ("origin", "refs/heads/main")
+
+    def test_names_the_upstream_it_repointed(self):
+        """A main tracking elsewhere is repointed, and the report says so."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            run_git(project_path, "config", "branch.main.remote", "upstream")
+            run_git(project_path, "config", "branch.main.merge", "refs/heads/trunk")
+
+            result = run_doctor(project_path)
+
+            check = self._upstream_check(result)
+            assert check.status == CheckStatus.FIXED
+            assert check.message == "main tracked upstream/trunk → set to origin/main"
+            assert self._upstream_config(project_path) == ("origin", "refs/heads/main")
+
+    def test_reports_an_error_when_origin_main_is_missing(self):
+        """--set-upstream-to cannot run without the ref. _check_origin_main
+        already names that cause, so this check does not repeat it."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            run_git(project_path, "config", "--unset", "branch.main.remote")
+            run_git(project_path, "config", "--unset", "branch.main.merge")
+            run_git(project_path, "update-ref", "-d", "refs/remotes/origin/main")
+
+            result = run_doctor(project_path)
+
+            check = self._upstream_check(result)
+            assert check.status == CheckStatus.ERROR
+
+    def test_leaves_a_configured_main_upstream_alone(self):
+        """Already tracking origin/main: report OK, rewrite nothing."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            result = run_doctor(project_path)
+
+            check = self._upstream_check(result)
+            assert check.status == CheckStatus.OK
+            assert check.message == "main upstream is origin/main"
+            assert self._upstream_config(project_path) == ("origin", "refs/heads/main")
 
     def test_warns_local_main_ahead(self):
         """Warns when local main is ahead of origin/main."""

@@ -15,7 +15,7 @@ mael task reconcile    # do tasks and sessions agree?
 
 ## `mael doctor`
 
-Doctor runs eleven checks in order and fixes what it safely can. Each reports **OK**,
+Doctor runs thirteen checks in order and fixes what it safely can. Each reports **OK**,
 **FIXED**, **WARNING** or **ERROR**.
 
 | Check | Fixes |
@@ -23,8 +23,10 @@ Doctor runs eleven checks in order and fixes what it safely can. Each reports **
 | `.mael` marker | No — its absence means this is not a maelstrom project, and doctor stops. |
 | `core.bare = true` | Yes |
 | Standard fetch refspec | Yes |
+| `notes.rewriteRef` | Yes — without it a rebase drops the notes `/code-review` writes. |
 | `origin` remote configured | No |
 | `origin/main` exists | No — try `git fetch origin`. |
+| main tracks `origin/main` | Yes — a bare clone sets no upstream, so `git pull` in `_main` fails. |
 | Local main against origin | Yes |
 | main is checked out in `_main` | No — moving main moves a checkout you may be working in. Doctor prints the commands. |
 | Stale worktree registrations | Yes |
