@@ -85,6 +85,29 @@ def _git_config_all(project_path: Path, key: str) -> list[str]:
     return result.stdout.splitlines() if result.returncode == 0 else []
 
 
+def _default_branch(project_path: Path) -> str:
+    """The project's default branch, e.g. ``main``, ``develop`` or ``master``.
+
+    Reads ``refs/remotes/origin/HEAD``, which the clone writes and ``git remote
+    set-head`` repairs. Falls back to :data:`MAIN_BRANCH` when that symref is
+    missing, which is the case for a project cloned before maelstrom fetched.
+
+    Most of maelstrom still assumes ``main`` — see ``MAIN_BRANCH`` in
+    ``worktree_model``. This function is deliberately local to doctor, whose
+    repairs would otherwise report a project on ``develop`` as broken.
+    """
+    result = run_cmd(
+        ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        cwd=project_path,
+        quiet=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return MAIN_BRANCH
+    ref = result.stdout.strip()
+    return ref.removeprefix("origin/") or MAIN_BRANCH
+
+
 def _check_mael_marker(project_path: Path) -> CheckResult:
     """Check that the .mael marker file exists."""
     if (project_path / ".mael").exists():
@@ -173,97 +196,99 @@ def _check_origin_remote(project_path: Path) -> CheckResult:
 
 
 def _check_origin_main(project_path: Path) -> CheckResult:
-    """Check that origin/main exists."""
+    """Check that the remote default branch exists locally."""
+    branch = _default_branch(project_path)
     result = run_cmd(
-        ["git", "rev-parse", "--verify", f"origin/{MAIN_BRANCH}"],
+        ["git", "rev-parse", "--verify", f"origin/{branch}"],
         cwd=project_path,
         quiet=True,
         check=False,
     )
     if result.returncode == 0:
-        return CheckResult(CheckStatus.OK, f"origin/{MAIN_BRANCH} exists")
-    return CheckResult(CheckStatus.ERROR, f"origin/{MAIN_BRANCH} does not exist — try 'git fetch origin'")
+        return CheckResult(CheckStatus.OK, f"origin/{branch} exists")
+    return CheckResult(CheckStatus.ERROR, f"origin/{branch} does not exist — try 'git fetch origin'")
 
 
 def _check_main_upstream(project_path: Path) -> CheckResult:
-    """Check that local main tracks origin/main.
+    """Check that the default branch tracks its remote branch.
 
-    A bare clone writes no ``branch.main.remote`` or ``branch.main.merge``, so
-    main tracks nothing. Maelstrom always names ``origin/main`` explicitly, so
-    the gap only bites a human working in ``_main``: no ahead/behind count, and
-    a bare ``git pull`` or ``git push`` fails. The config is repo-scoped, so it
-    reads the same from the project root as from ``_main``.
+    A bare clone writes no ``branch.<name>.remote`` or ``branch.<name>.merge``,
+    so the branch tracks nothing. Maelstrom always names the remote branch
+    explicitly, so the gap only bites a human working in ``_main``: no
+    ahead/behind count, and a bare ``git pull`` or ``git push`` fails. The
+    config is repo-scoped, so it reads the same from the project root as from
+    ``_main``.
     """
-    remote = _git_config(project_path, f"branch.{MAIN_BRANCH}.remote")
-    merge = _git_config(project_path, f"branch.{MAIN_BRANCH}.merge")
-    if remote == "origin" and merge == f"refs/heads/{MAIN_BRANCH}":
-        return CheckResult(
-            CheckStatus.OK, f"{MAIN_BRANCH} upstream is origin/{MAIN_BRANCH}"
-        )
+    branch = _default_branch(project_path)
+    remote = _git_config(project_path, f"branch.{branch}.remote")
+    merge = _git_config(project_path, f"branch.{branch}.merge")
+    if remote == "origin" and merge == f"refs/heads/{branch}":
+        return CheckResult(CheckStatus.OK, f"{branch} upstream is origin/{branch}")
 
     # An upstream pointing elsewhere is repointed, not left alone: maelstrom
-    # owns the layout and rebases against origin/main throughout. Name what was
-    # there, so a deliberate upstream is not overwritten silently.
+    # owns the layout and rebases against the remote default branch throughout.
+    # Name what was there, so a deliberate upstream is not overwritten silently.
     was = (
         f"tracked {remote}/{merge.rsplit('/', 1)[-1]}"
         if remote and merge
         else "had no upstream"
     )
 
-    # Auto-fix. _check_origin_main runs first and reports a missing
-    # origin/main, so this check does not repeat that diagnosis.
+    # Auto-fix. _check_origin_main runs first and reports a missing remote
+    # branch, so this check does not repeat that diagnosis.
     try:
         run_git(
-            ["branch", f"--set-upstream-to=origin/{MAIN_BRANCH}", MAIN_BRANCH],
+            ["branch", f"--set-upstream-to=origin/{branch}", branch],
             cwd=project_path,
         )
         return CheckResult(
             CheckStatus.FIXED,
-            f"{MAIN_BRANCH} {was} → set to origin/{MAIN_BRANCH}",
+            f"{branch} {was} → set to origin/{branch}",
         )
     except subprocess.CalledProcessError:
         return CheckResult(
             CheckStatus.ERROR,
-            f"{MAIN_BRANCH} {was} and could not be set to origin/{MAIN_BRANCH}",
+            f"{branch} {was} and could not be set to origin/{branch}",
         )
 
 
 def _check_main_worktree(project_path: Path) -> CheckResult:
-    """Check that main is checked out in ``_main``, not in a NATO worktree.
+    """Check that the default branch is checked out in ``_main``.
 
-    Projects created before ``_main`` existed hold main in a NATO worktree,
-    which burns a workspace. Reported rather than fixed: moving main means
-    moving a checkout the user may be sitting in.
+    Projects created before ``_main`` existed hold the branch in a NATO
+    worktree, which burns a workspace. Reported rather than fixed: moving the
+    branch means moving a checkout the user may be sitting in.
     """
+    branch = _default_branch(project_path)
     # git reports resolved paths, so resolve before comparing.
     main_path = (project_path / MAIN_WORKTREE_FOLDER).resolve()
     add_cmd = (
-        f"git -C {project_path} worktree add {MAIN_WORKTREE_FOLDER} {MAIN_BRANCH}"
+        f"git -C {project_path} worktree add {MAIN_WORKTREE_FOLDER} {branch}"
     )
 
     for wt in list_worktrees(project_path):
-        if wt.branch != MAIN_BRANCH:
+        if wt.branch != branch:
             continue
         if wt.path.resolve() == main_path:
             return CheckResult(
-                CheckStatus.OK, f"{MAIN_BRANCH} is checked out in {MAIN_WORKTREE_FOLDER}"
+                CheckStatus.OK, f"{branch} is checked out in {MAIN_WORKTREE_FOLDER}"
             )
-        # git allows one worktree per branch, so main must be freed before it
-        # can be added at _main. A bare `worktree add` here would fail.
+        # git allows one worktree per branch, so the branch must be freed before
+        # it can be added at _main. A bare `worktree add` here would fail.
         return CheckResult(
             CheckStatus.WARNING,
-            f"{MAIN_BRANCH} is checked out in {wt.path.name}, not "
+            f"{branch} is checked out in {wt.path.name}, not "
             f"{MAIN_WORKTREE_FOLDER} — that worktree cannot be used for work. "
             f"Move it with: git -C {wt.path} checkout --detach && {add_cmd}",
         )
 
-    # No worktree holds main. A leftover _main directory is the awkward case:
-    # it is not a checkout of main, and if it is a detached worktree it can be
-    # recycled as a feature workspace.
+    # No worktree holds the branch. A leftover _main directory is the awkward
+    # case: it is not a checkout of the branch, and if it is a detached worktree
+    # it can be recycled as a feature workspace.
     if main_path.exists():
         return CheckResult(
             CheckStatus.WARNING,
-            f"{MAIN_WORKTREE_FOLDER} exists but does not hold {MAIN_BRANCH} — "
+            f"{MAIN_WORKTREE_FOLDER} exists but does not hold {branch} — "
             f"remove it and recreate with: git -C {project_path} worktree remove "
             f"{MAIN_WORKTREE_FOLDER} && {add_cmd}",
         )
