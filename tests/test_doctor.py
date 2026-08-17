@@ -12,7 +12,7 @@ from maelstrom.worktree import update_local_main
 from tests.git_helpers import create_commit, run_git, setup_git_repo
 
 
-def _create_project_repo():
+def _create_project_repo(default_branch="main"):
     """Create a maelstrom-style project repo with remote. Returns (tmpdir, project_path)."""
     tmpdir = TemporaryDirectory()
     tmp = Path(tmpdir.name)
@@ -22,7 +22,7 @@ def _create_project_repo():
     source_path.mkdir()
     setup_git_repo(source_path)
     create_commit(source_path, "README.md", "# Test", "Initial commit")
-    run_git(source_path, "branch", "-M", "main")
+    run_git(source_path, "branch", "-M", default_branch)
 
     # Clone as bare to create remote
     remote_path = tmp / "remote.git"
@@ -51,9 +51,12 @@ def _create_project_repo():
     head_sha = run_git(project_path, "rev-parse", "HEAD").stdout.strip()
     run_git(project_path, "update-ref", "--no-deref", "HEAD", head_sha)
 
-    # main lives in _main, like add_project does
-    run_git(project_path, "worktree", "add", str(project_path / "_main"), "main")
-    run_git(project_path, "branch", "--set-upstream-to", "origin/main", "main")
+    # The default branch lives in _main, like add_project does
+    run_git(project_path, "worktree", "add", str(project_path / "_main"), default_branch)
+    run_git(
+        project_path, "branch", "--set-upstream-to",
+        f"origin/{default_branch}", default_branch,
+    )
 
     # Create .mael marker
     (project_path / ".mael").touch()
@@ -319,6 +322,34 @@ class TestDoctor:
 
             check = self._upstream_check(result)
             assert check.status == CheckStatus.ERROR
+
+    def test_sets_the_upstream_on_a_non_main_default_branch(self):
+        """8 of ~50 local projects default to develop, master or 6, not main."""
+        tmpdir, project_path = _create_project_repo(default_branch="develop")
+        with tmpdir:
+            run_git(project_path, "config", "--unset", "branch.develop.remote")
+            run_git(project_path, "config", "--unset", "branch.develop.merge")
+
+            result = run_doctor(project_path)
+
+            check = self._upstream_check(result)
+            assert check.status == CheckStatus.FIXED
+            assert check.message == "develop had no upstream → set to origin/develop"
+            remote = run_git(project_path, "config", "--get", "branch.develop.remote")
+            merge = run_git(project_path, "config", "--get", "branch.develop.merge")
+            assert remote.stdout.strip() == "origin"
+            assert merge.stdout.strip() == "refs/heads/develop"
+
+    def test_a_non_main_default_branch_project_is_healthy(self):
+        """A develop-default project must not report spurious issues."""
+        tmpdir, project_path = _create_project_repo(default_branch="develop")
+        with tmpdir:
+            result = run_doctor(project_path)
+
+            assert result.issues_found == 0, [
+                (c.name, c.message) for c in result.checks
+                if c.status != CheckStatus.OK
+            ]
 
     def test_leaves_a_configured_main_upstream_alone(self):
         """Already tracking origin/main: report OK, rewrite nothing."""

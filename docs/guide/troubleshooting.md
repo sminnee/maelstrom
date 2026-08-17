@@ -25,10 +25,10 @@ Doctor runs thirteen checks in order and fixes what it safely can. Each reports 
 | Standard fetch refspec | Yes |
 | `notes.rewriteRef` | Yes — without it a rebase drops the notes `/code-review` writes. |
 | `origin` remote configured | No |
-| `origin/main` exists | No — try `git fetch origin`. |
-| main tracks `origin/main` | Yes — a bare clone sets no upstream, so `git pull` in `_main` fails. |
+| Remote default branch exists | No — try `git fetch origin`. |
+| Default branch tracks its remote | Yes — a bare clone sets no upstream, so `git pull` in `_main` fails. |
 | Local main against origin | Yes |
-| main is checked out in `_main` | No — moving main moves a checkout you may be working in. Doctor prints the commands. |
+| Default branch is checked out in `_main` | No — moving it moves a checkout you may be working in. Doctor prints the commands. |
 | Stale worktree registrations | Yes |
 | Port allocations against worktrees | Yes |
 | `.env` section markers | Reports |
@@ -39,6 +39,10 @@ Run it against a specific project:
 ```bash
 mael doctor myproject
 ```
+
+Doctor reads the default branch from `refs/remotes/origin/HEAD`, so a project on `develop`,
+`master` or any other branch is checked against that branch. The rest of maelstrom still
+assumes `main`.
 
 ---
 
