@@ -2390,3 +2390,22 @@ class TestAddProjectLayout:
 
     def test_alpha_is_still_a_workspace(self, project):
         assert (project / "demo-alpha" / ".env").exists()
+
+    def test_main_tracks_its_remote_branch(self, project):
+        """A bare clone writes no branch.main.*, so add_project must set it."""
+        def config(key):
+            return subprocess.run(
+                ["git", "config", "--get", key],
+                cwd=project, capture_output=True, text=True,
+            ).stdout.strip()
+
+        assert config("branch.main.remote") == "origin"
+        assert config("branch.main.merge") == "refs/heads/main"
+
+    def test_upstream_resolves_from_the_main_folder(self, project):
+        """A human in _main gets ahead/behind, `git pull` and `git push`."""
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+            cwd=project / "_main", capture_output=True, text=True, check=True,
+        )
+        assert result.stdout.strip() == "origin/main"
