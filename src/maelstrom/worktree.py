@@ -1543,6 +1543,10 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
     # (core.bare stays true from the bare clone — worktrees work fine with it)
     run_git(["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"], cwd=project_path)
 
+    # Populate origin/* — the bare clone predates the refspec above, so it
+    # wrote refs/heads/* only. Every object is local, so this is a ref exchange.
+    run_git(["fetch", "origin"], cwd=project_path)
+
     # Keep a git note on its commit through a rebase. /code-review tags a reviewed
     # commit with a note; without this every rebase drops it. mael doctor repairs
     # projects created before this line.
@@ -1562,6 +1566,14 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
     # workspace: keeping main there leaves every NATO worktree free for work.
     main_path = project_path / MAIN_WORKTREE_FOLDER
     run_git(["worktree", "add", str(main_path), default_branch], cwd=project_path)
+
+    # A bare clone sets no upstream; without this a human in _main gets no
+    # ahead/behind count and a bare `git pull` fails. mael doctor repairs
+    # projects created before this line.
+    run_git(
+        ["branch", "--set-upstream-to", f"origin/{default_branch}", default_branch],
+        cwd=project_path,
+    )
 
     # Create the alpha worktree. Detached, because main is checked out in _main
     # and git allows one worktree per branch.
