@@ -58,6 +58,28 @@ class DoctorResult:
         return sum(1 for c in self.checks if c.status in (CheckStatus.WARNING, CheckStatus.ERROR))
 
 
+def _git_config(project_path: Path, key: str) -> str:
+    """Read one git config value, or "" when the key is unset."""
+    result = run_cmd(
+        ["git", "config", "--get", key],
+        cwd=project_path,
+        quiet=True,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _git_config_all(project_path: Path, key: str) -> list[str]:
+    """Read every value of a multi-valued git config key."""
+    result = run_cmd(
+        ["git", "config", "--get-all", key],
+        cwd=project_path,
+        quiet=True,
+        check=False,
+    )
+    return result.stdout.splitlines() if result.returncode == 0 else []
+
+
 def _check_mael_marker(project_path: Path) -> CheckResult:
     """Check that the .mael marker file exists."""
     if (project_path / ".mael").exists():
@@ -67,13 +89,7 @@ def _check_mael_marker(project_path: Path) -> CheckResult:
 
 def _check_core_bare(project_path: Path) -> CheckResult:
     """Check that core.bare = true (project root should be bare, not a working tree)."""
-    result = run_cmd(
-        ["git", "config", "--get", "core.bare"],
-        cwd=project_path,
-        quiet=True,
-        check=False,
-    )
-    value = result.stdout.strip() if result.returncode == 0 else ""
+    value = _git_config(project_path, "core.bare")
     if value == "true":
         return CheckResult(CheckStatus.OK, "core.bare = true")
 
@@ -88,13 +104,7 @@ def _check_core_bare(project_path: Path) -> CheckResult:
 def _check_standard_fetch_refspec(project_path: Path) -> CheckResult:
     """Check that the standard fetch refspec is configured."""
     expected = "+refs/heads/*:refs/remotes/origin/*"
-    result = run_cmd(
-        ["git", "config", "--get-all", "remote.origin.fetch"],
-        cwd=project_path,
-        quiet=True,
-        check=False,
-    )
-    refspecs = result.stdout.splitlines() if result.returncode == 0 else []
+    refspecs = _git_config_all(project_path, "remote.origin.fetch")
 
     if expected in refspecs:
         return CheckResult(CheckStatus.OK, "Standard fetch refspec configured")
@@ -118,13 +128,7 @@ def _check_notes_rewrite_ref(project_path: Path) -> CheckResult:
     ever skipped and the feature silently does nothing.
     """
     expected = "refs/notes/*"
-    result = run_cmd(
-        ["git", "config", "--get-all", "notes.rewriteRef"],
-        cwd=project_path,
-        quiet=True,
-        check=False,
-    )
-    values = result.stdout.splitlines() if result.returncode == 0 else []
+    values = _git_config_all(project_path, "notes.rewriteRef")
 
     if expected in values:
         return CheckResult(CheckStatus.OK, "notes.rewriteRef configured")
@@ -185,17 +189,8 @@ def _check_main_upstream(project_path: Path) -> CheckResult:
     a bare ``git pull`` or ``git push`` fails. The config is repo-scoped, so it
     reads the same from the project root as from ``_main``.
     """
-    def config(key: str) -> str:
-        result = run_cmd(
-            ["git", "config", "--get", key],
-            cwd=project_path,
-            quiet=True,
-            check=False,
-        )
-        return result.stdout.strip() if result.returncode == 0 else ""
-
-    remote = config(f"branch.{MAIN_BRANCH}.remote")
-    merge = config(f"branch.{MAIN_BRANCH}.merge")
+    remote = _git_config(project_path, f"branch.{MAIN_BRANCH}.remote")
+    merge = _git_config(project_path, f"branch.{MAIN_BRANCH}.merge")
     if remote == "origin" and merge == f"refs/heads/{MAIN_BRANCH}":
         return CheckResult(
             CheckStatus.OK, f"{MAIN_BRANCH} upstream is origin/{MAIN_BRANCH}"
