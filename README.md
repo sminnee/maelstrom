@@ -46,7 +46,7 @@ how to install it.
 ```bash
 # Clone a repository into maelstrom's layout. main goes in "_main", and this
 # creates the "alpha" worktree for work.
-mael add-project git@github.com:org/repo.git
+mael add-project https://github.com/org/repo.git
 cd ~/Projects/repo/repo-alpha
 
 # Add a worktree for a branch. Maelstrom allocates ports and writes .env.

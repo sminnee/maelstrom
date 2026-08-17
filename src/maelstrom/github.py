@@ -113,7 +113,7 @@ def create_project_repo(
         name: Repository name. ``owner/name`` passes through to gh unchanged.
 
     Returns:
-        The clone URL of the new repository.
+        The HTTPS clone URL of the new repository.
 
     Raises:
         RuntimeError: If the repository cannot be created.
@@ -145,8 +145,12 @@ def create_project_repo(
                 create_cmd += ["--description", description]
             run_cmd(create_cmd, cwd=repo_dir)
 
+            # Ask GitHub rather than reading back origin: gh writes that remote
+            # using the ambient `git_protocol`, and agent pushes need HTTPS. The
+            # `url` field is always the HTTPS form.
             result = run_cmd(
-                ["git", "remote", "get-url", "origin"], cwd=repo_dir, quiet=True
+                ["gh", "repo", "view", name, "--json", "url", "-q", ".url"],
+                quiet=True,
             )
             return result.stdout.strip()
     except subprocess.CalledProcessError as e:

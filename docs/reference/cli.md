@@ -57,9 +57,9 @@ so the target is optional.
 | `mael eject [TARGET]` | Pull this branch out of its stack onto `main`, leaving the rest alone. |
 
 ```bash
-mael add-project git@github.com:org/repo.git   # clone into maelstrom's layout
-mael add feature/avatar-upload                 # worktree for a branch, ports allocated
-mael close                                     # done: reset, keep name and ports
+mael add-project https://github.com/org/repo.git  # clone into maelstrom's layout
+mael add feature/avatar-upload                    # worktree for a branch, ports allocated
+mael close                                        # done: reset, keep name and ports
 ```
 
 **`mael add`**
@@ -82,6 +82,10 @@ mael close                                     # done: reset, keep name and port
 `NAME` is the repository name. Use `owner/name` to create the repository in an
 organization. The seed commit holds `.gitignore` (which ignores the per-worktree `.env` and
 `.claude/CLAUDE.local.md`), a commented `.maelstrom.yaml`, `README.md` and `CLAUDE.md`.
+
+The project is cloned over HTTPS, whatever `gh config get git_protocol` reports. Agents push
+with a token over HTTPS, so an SSH remote breaks an unattended session. `mael add-project`
+takes the URL you give it and does not rewrite the protocol.
 
 | Option | Description |
 |---|---|
