@@ -167,6 +167,17 @@ class TestDoctor:
             assert result.issues_found == 0
             assert all(c.status == CheckStatus.OK for c in result.checks)
 
+    def test_every_result_carries_its_check_name(self):
+        """Callers select a result by name, so no result may go unnamed."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            result = run_doctor(project_path)
+
+            names = [c.name for c in result.checks]
+            assert all(names)
+            assert len(set(names)) == len(names)
+            assert "main_upstream" in names
+
     def test_fixes_wrong_core_bare(self):
         """Fixes core.bare when set to false instead of true."""
         tmpdir, project_path = _create_project_repo()
@@ -255,9 +266,9 @@ class TestDoctor:
 
     @staticmethod
     def _upstream_check(result):
-        """The one check whose message names an upstream."""
-        checks = [c for c in result.checks if "upstream" in c.message]
-        assert len(checks) == 1, f"expected 1 upstream check, got {checks}"
+        """The main-upstream check, selected by name rather than by message."""
+        checks = [c for c in result.checks if c.name == "main_upstream"]
+        assert len(checks) == 1, f"expected 1 main_upstream check, got {checks}"
         return checks[0]
 
     @staticmethod

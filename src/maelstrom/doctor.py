@@ -38,6 +38,11 @@ class CheckStatus(Enum):
 class CheckResult:
     status: CheckStatus
     message: str
+    #: Stable identifier for the check that produced this result, e.g.
+    #: ``main_upstream``. ``run_doctor`` fills it from the check function's own
+    #: name, so callers can select a result without matching on ``message``,
+    #: which is prose and free to change. Empty on a hand-built result.
+    name: str = ""
 
 
 @dataclass
@@ -454,6 +459,9 @@ def run_doctor(project_path: Path) -> DoctorResult:
 
     for check in checks:
         check_result = check(project_path)
+        # Name the result after the check that produced it, so no check has to
+        # repeat its own name and the two can never disagree.
+        check_result.name = check.__name__.removeprefix("_check_")
         result.checks.append(check_result)
 
         # Stop early if .mael marker is missing — not a maelstrom project
