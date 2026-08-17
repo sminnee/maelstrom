@@ -78,8 +78,12 @@ The first commit holds the files a maelstrom project needs:
 ### An existing repository
 
 ```bash
-mael add-project git@github.com:org/repo.git
+mael add-project https://github.com/org/repo.git
 ```
+
+Use the HTTPS URL. Agents push with a token over HTTPS, so an SSH remote breaks an
+unattended session. `mael add-project` clones the URL you give it and does not rewrite
+the protocol.
 
 This clones the repository into a bare-like layout, checks main out into `_main`, and
 creates the first worktree, **alpha**:

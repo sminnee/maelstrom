@@ -92,15 +92,15 @@ class TestCreateProjectRepo:
     """`create_project_repo` builds a seed commit, then creates + pushes the repo."""
 
     @staticmethod
-    def _fake_run_cmd(url="git@github.com:me/proj.git", seen=None):
-        """Stand in for run_cmd: record every call, answer `remote get-url`."""
+    def _fake_run_cmd(url="https://github.com/me/proj", seen=None):
+        """Stand in for run_cmd: record every call, answer `gh repo view`."""
         def _run(cmd, cwd=None, quiet=False, check=True, **kwargs):
             if seen is not None:
                 seen.append((cmd, cwd))
             return subprocess.CompletedProcess(cmd, 0, stdout=f"{url}\n", stderr="")
         return _run
 
-    def _run_create(self, *args, url="git@github.com:me/proj.git", **kwargs):
+    def _run_create(self, *args, url="https://github.com/me/proj", **kwargs):
         """Call create_project_repo with run_cmd mocked; return (result, calls)."""
         seen = []
         with patch("maelstrom.github.run_cmd", side_effect=self._fake_run_cmd(url, seen)):
@@ -164,8 +164,30 @@ class TestCreateProjectRepo:
         assert seen[0][1] is not None and seen[0][1].name == "proj"
 
     def test_returns_the_stripped_clone_url(self):
-        url, _ = self._run_create("proj", url="https://github.com/me/proj.git")
-        assert url == "https://github.com/me/proj.git"
+        url, _ = self._run_create("proj", url="https://github.com/me/proj")
+        assert url == "https://github.com/me/proj"
+
+    def test_returns_the_https_url_gh_reports(self):
+        """`gh repo create` follows the user's git_protocol; the returned URL must not.
+
+        Agent pushes authenticate with a PAT over HTTPS, so an SSH remote breaks
+        them. ``gh repo view --json url`` reports the HTTPS form whatever
+        ``git_protocol`` is set to.
+        """
+        def _run(cmd, cwd=None, quiet=False, check=True, **kwargs):
+            if cmd[:3] == ["gh", "repo", "view"]:
+                out = "https://github.com/me/proj\n"
+            else:
+                out = "git@github.com:me/proj.git\n"
+            return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
+
+        with patch("maelstrom.github.run_cmd", side_effect=_run):
+            assert create_project_repo("proj") == "https://github.com/me/proj"
+
+    def test_never_reads_the_origin_gh_wrote(self):
+        """That remote follows git_protocol, so it must not be the URL source."""
+        _, seen = self._run_create("proj")
+        assert ["git", "remote", "get-url", "origin"] not in [cmd for cmd, _ in seen]
 
     def test_called_process_error_becomes_runtime_error(self):
         err = subprocess.CalledProcessError(1, ["gh"], stderr="name already exists")
