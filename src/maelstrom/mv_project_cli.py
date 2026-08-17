@@ -35,7 +35,7 @@ from .session_discovery import LiveSession, all_live_sessions
 from .session_store import read_session_file, sessions_dir
 from .task_cli import open_index
 from .task_store import GitFileStore
-from .util import locked_file
+from .util import abbreviate_home, locked_file
 from .worktree import (
     find_all_projects,
     list_worktrees,
@@ -571,14 +571,6 @@ def _unfinished_message(plan: MovePlan, reason: str) -> str:
     )
 
 
-def _short(path: Path, home: Path) -> str:
-    """Render a path with ``$HOME`` abbreviated to ``~`` for readable output."""
-    try:
-        return "~/" + str(path.relative_to(home))
-    except ValueError:
-        return str(path)
-
-
 def render_plan(plan: MovePlan, home: Path, *, git_url: str | None) -> None:
     """Print the full plan without changing anything."""
     click.echo(
@@ -587,11 +579,11 @@ def render_plan(plan: MovePlan, home: Path, *, git_url: str | None) -> None:
     click.echo("")
 
     click.echo(f"Directories ({len(plan.dir_moves)}):")
-    width = max((len(_short(m.src, home)) for m in plan.dir_moves), default=0)
+    width = max((len(abbreviate_home(m.src, home)) for m in plan.dir_moves), default=0)
     for move in plan.dir_moves:
-        src = _short(move.src, home)
+        src = abbreviate_home(move.src, home)
         if move.renamed:
-            click.echo(f"  {src:<{width}}  -> {_short(move.dst, home)}")
+            click.echo(f"  {src:<{width}}  -> {abbreviate_home(move.dst, home)}")
         else:
             click.echo(f"  {src:<{width}}     (name unchanged)")
     click.echo("")

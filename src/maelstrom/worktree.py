@@ -1474,6 +1474,38 @@ def find_all_projects(projects_dir: Path) -> list[Path]:
     return projects
 
 
+@dataclass
+class ProjectInfo:
+    """A maelstrom-aware project and its worktree count."""
+
+    name: str
+    path: Path
+    worktree_count: int
+
+
+def list_projects(projects_dir: Path) -> list[ProjectInfo]:
+    """Every maelstrom-aware project under projects_dir, with its worktree count.
+
+    The count excludes the project root itself (the bare repo), which is how
+    ``mael list-all`` skips that row.
+
+    Args:
+        projects_dir: Path to the projects directory (e.g., ~/Projects).
+
+    Returns:
+        One ProjectInfo per project, in the order find_all_projects gives.
+    """
+    projects = []
+    for project_path in find_all_projects(projects_dir):
+        worktrees = list_worktrees(project_path)
+        count = sum(1 for wt in worktrees if wt.path != project_path)
+        projects.append(
+            ProjectInfo(name=project_path.name, path=project_path, worktree_count=count)
+        )
+
+    return projects
+
+
 def get_next_worktree_name(project_path: Path) -> str:
     """Get the first unused worktree name from the fixed list.
 

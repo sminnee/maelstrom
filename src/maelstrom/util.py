@@ -40,6 +40,21 @@ def read_content_file(content_file: str | None) -> str:
     return path.read_text()
 
 
+def abbreviate_home(path: Path, home: Path | None = None) -> str:
+    """Render a path with the home directory shown as ``~``.
+
+    A path outside the home directory is returned unchanged. ``home`` is an
+    argument rather than a lookup so a caller can test the formatting without
+    patching ``Path.home``; it defaults to the real home directory.
+    """
+    if home is None:
+        home = Path.home()
+    try:
+        return str(Path("~") / path.relative_to(home))
+    except ValueError:
+        return str(path)
+
+
 def now_iso() -> str:
     """Return the current UTC time as an ISO 8601 string.
 

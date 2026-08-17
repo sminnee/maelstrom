@@ -7,11 +7,27 @@ import stat
 
 import pytest
 
-from maelstrom.util import atomic_write_json, harden_path, locked_file, now_iso
+from pathlib import Path
+
+from maelstrom.util import abbreviate_home, atomic_write_json, harden_path, locked_file, now_iso
 
 
 def _mode(path) -> int:
     return stat.S_IMODE(os.stat(path).st_mode)
+
+
+class TestAbbreviateHome:
+    def test_a_path_under_home_starts_with_a_tilde(self):
+        assert abbreviate_home(Path("/Users/x/Projects/alpha"), Path("/Users/x")) == "~/Projects/alpha"
+
+    def test_a_path_outside_home_is_unchanged(self):
+        assert abbreviate_home(Path("/opt/tools"), Path("/Users/x")) == "/opt/tools"
+
+    def test_home_itself_renders_as_a_bare_tilde(self):
+        assert abbreviate_home(Path("/Users/x"), Path("/Users/x")) == "~"
+
+    def test_home_defaults_to_the_real_home_directory(self):
+        assert abbreviate_home(Path.home() / "Projects") == "~/Projects"
 
 
 class TestNowIso:

@@ -10,12 +10,12 @@ Run `mael --help` or `mael <group> --help` to see the same information in the te
 | Option | Description |
 |---|---|
 | `--version` | Print the version and exit. |
-| `--json` | Print machine-readable JSON instead of a table. Honoured by `mael list-all` and `mael git status` only; every other command ignores it. |
+| `--json` | Print machine-readable JSON instead of a table. Honoured by `mael list-all`, `mael project list` and `mael git status` only; every other command ignores it. |
 | `--help` | Print help and exit. |
 
 ```bash
 mael --version
-mael --json list-all         # one of the two commands that honour --json
+mael --json list-all         # one of the three commands that honour --json
 mael task add --help         # per-command flags, straight from the source
 ```
 
@@ -45,6 +45,7 @@ so the target is optional.
 | `mael mv-project OLD NEW` | Rename a project and everything derived from its name. |
 | `mael list [PROJECT]` | List open worktrees with branch, dirty files, local commits, PR, app URL and session. Closed worktrees are named on one line under the table. See [listing.md](../guide/listing.md) for what each column means. |
 | `mael list-all` | List worktrees across every project. Adds a `PROJECT` column, and names worktrees by folder rather than by NATO name. Supports `mael --json list-all`. |
+| `mael project list` | List every project under the projects directory, with its path and worktree count. Reads no git status, no ports and no sessions, so it stays fast where `mael list-all` does not. Supports `mael --json project list`. |
 | `mael close [TARGETS]...` | Sync, check the worktree is clean, then check out main. Keeps the folder, name and ports. |
 | `mael remove TARGETS...` | Delete one or more worktrees. |
 | `mael rm TARGETS...` | Alias for `mael remove`. |
@@ -58,7 +59,8 @@ so the target is optional.
 
 ```bash
 mael add-project https://github.com/org/repo.git  # clone into maelstrom's layout
-mael add feature/avatar-upload                    # worktree for a branch, ports allocated
+mael add feature/avatar-upload                 # worktree for a branch, ports allocated
+mael project list
 mael close                                        # done: reset, keep name and ports
 ```
 
