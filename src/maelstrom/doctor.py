@@ -176,6 +176,58 @@ def _check_origin_main(project_path: Path) -> CheckResult:
     return CheckResult(CheckStatus.ERROR, f"origin/{MAIN_BRANCH} does not exist — try 'git fetch origin'")
 
 
+def _check_main_upstream(project_path: Path) -> CheckResult:
+    """Check that local main tracks origin/main.
+
+    A bare clone writes no ``branch.main.remote`` or ``branch.main.merge``, so
+    main tracks nothing. Maelstrom always names ``origin/main`` explicitly, so
+    the gap only bites a human working in ``_main``: no ahead/behind count, and
+    a bare ``git pull`` or ``git push`` fails. The config is repo-scoped, so it
+    reads the same from the project root as from ``_main``.
+    """
+    def config(key: str) -> str:
+        result = run_cmd(
+            ["git", "config", "--get", key],
+            cwd=project_path,
+            quiet=True,
+            check=False,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    remote = config(f"branch.{MAIN_BRANCH}.remote")
+    merge = config(f"branch.{MAIN_BRANCH}.merge")
+    if remote == "origin" and merge == f"refs/heads/{MAIN_BRANCH}":
+        return CheckResult(
+            CheckStatus.OK, f"{MAIN_BRANCH} upstream is origin/{MAIN_BRANCH}"
+        )
+
+    # An upstream pointing elsewhere is repointed, not left alone: maelstrom
+    # owns the layout and rebases against origin/main throughout. Name what was
+    # there, so a deliberate upstream is not overwritten silently.
+    was = (
+        f"tracked {remote}/{merge.rsplit('/', 1)[-1]}"
+        if remote and merge
+        else "had no upstream"
+    )
+
+    # Auto-fix. _check_origin_main runs first and reports a missing
+    # origin/main, so this check does not repeat that diagnosis.
+    try:
+        run_git(
+            ["branch", f"--set-upstream-to=origin/{MAIN_BRANCH}", MAIN_BRANCH],
+            cwd=project_path,
+        )
+        return CheckResult(
+            CheckStatus.FIXED,
+            f"{MAIN_BRANCH} {was} → set to origin/{MAIN_BRANCH}",
+        )
+    except subprocess.CalledProcessError:
+        return CheckResult(
+            CheckStatus.ERROR,
+            f"{MAIN_BRANCH} {was} and could not be set to origin/{MAIN_BRANCH}",
+        )
+
+
 def _check_main_worktree(project_path: Path) -> CheckResult:
     """Check that main is checked out in ``_main``, not in a NATO worktree.
 
@@ -396,6 +448,7 @@ def run_doctor(project_path: Path) -> DoctorResult:
         _check_notes_rewrite_ref,
         _check_origin_remote,
         _check_origin_main,
+        _check_main_upstream,
         _check_local_main_sync,
         _check_main_worktree,
         _check_stale_worktrees,
