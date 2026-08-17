@@ -12,14 +12,56 @@ mael list-all            # every project, one table
 mael --json list-all     # every project as JSON
 ```
 
-`mael --json list-all` is the only machine-readable form. `mael --json list` is accepted and
-then ignored: it prints the same table, so a script that pipes it into a JSON parser fails at
-the parser rather than at the command.
+`mael --json list-all` is the only machine-readable form of the worktree tables.
+`mael --json list` is accepted and then ignored: it prints the same table, so a script that
+pipes it into a JSON parser fails at the parser rather than at the command.
 
 The JSON is not the table. It also carries every closed worktree, flagged by `is_closed`. A
 closed worktree's counts are placeholders rather than measurements — `dirty_files`,
 `local_commits` and `pr_number` are filled in as `0`, `0` and `null` without anything being
 measured. Skip the `is_closed` entries unless you want them.
+
+## `mael project list` — which projects exist
+
+`mael list` answers "what is every agent doing". `mael project list` answers the plainer
+question in front of it: which projects exist? One row per project, with its path and its
+worktree count.
+
+```bash
+mael project list          # every project, one row each
+mael --json project list   # the same as JSON
+```
+
+The JSON gives one object per project, with `name`, `path` and `worktree_count`:
+
+```json
+{"projects": [{"name": "alidade", "path": "/Users/you/Projects/alidade", "worktree_count": 2}]}
+```
+
+`mael --json list-all` uses the same `projects` envelope but a different element: it carries a
+`worktrees` list instead of a `worktree_count`. Read the field names, not the envelope.
+
+```
+PROJECT    PATH                  WORKTREES
+------------------------------------------
+alidade    ~/Projects/alidade    2
+askastro   ~/Projects/askastro   18
+maelstrom  ~/Projects/maelstrom  8
+```
+
+A project is a directory under the projects directory holding a `.mael` marker file. That
+marker is what makes a directory maelstrom-aware. `mael list-all` scans for the same marker,
+so the two commands always agree on which projects exist.
+
+`WORKTREES` counts open and closed worktrees together, and excludes the project root itself.
+For `maelstrom` above, the 8 are the 4 open rows and the 4 closed names that `mael list`
+prints.
+
+The command runs one `git worktree list` per project and nothing else. It reads no git status,
+no ports, no pull requests and no sessions — the work that makes `mael list-all` slow. Run
+`mael project list` to find a project, then `mael list <project>` for the detail.
+
+A project whose git repository is broken counts `0` worktrees. The table still prints.
 
 ## A worked example
 
