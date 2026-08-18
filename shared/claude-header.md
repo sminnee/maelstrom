@@ -55,6 +55,9 @@ sentence, active voice. A minimal amount of software vocabulary is acceptable (c
 rebase, fixture, type check), and the reader knows this project's architecture — do not explain
 what a worktree, a task, or a port base is.
 
+**This covers chat replies, not only files.** The rule is about the writing, not the file type. A
+long reply is as hard to read as a long paragraph in a doc.
+
 **Load the `writing-for-humans` skill before writing prose a human reads** — `docs/`, README,
 `CONTEXT.md`, ADRs, PR descriptions, docstrings. It carries the full rules: document shape,
 sentence caps, vocabulary, and a re-read pass to run before you finish.

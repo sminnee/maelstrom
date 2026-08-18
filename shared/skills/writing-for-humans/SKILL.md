@@ -75,6 +75,19 @@ prose around what is left.
 - **State preconditions and failure modes explicitly.** "Requires X to be initialised. Raises
   `TimeoutError` after 30s." Prose buries these; a reader debugging at 2am needs them findable.
 
+## Comments describe the code, not the change
+
+**The default is no comment.** Only a non-inferable constraint, a plausible-looking alternative that
+was rejected, or a consequence invisible from the call site earns one.
+
+A comment describes the code as it now stands. A multi-line rationale hung on a small edit describes
+*the diff that produced it* — it reads as PR notes, and it ages into confusion once the change it
+narrates is ancient history. Don't narrate the deliberation either: the reader needs the conclusion
+and the constraint forcing it, not the alternatives you weighed on the way.
+
+The migration story belongs in the commit message, where it stays discoverable without occupying the
+file forever.
+
 ## Before you finish
 
 Re-read the draft against this list, in order. Each pass hunts one thing.
