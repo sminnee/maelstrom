@@ -108,6 +108,19 @@ Good interfaces make testing natural:
 - **"Interface" as the TypeScript `interface` keyword or a class's public methods**: too narrow — interface here includes every fact a caller must know.
 - **"Boundary"**: overloaded with DDD's bounded context. Say **seam** or **interface**.
 
+## Refactor taste
+
+How to shape a change once you know where the seam goes.
+
+- **Swap the existing sink; don't add a parallel one.** Before designing a new seam, find what already does the job. Extract that whole method body behind the new interface, so the old method collapses to one delegating call and today's behaviour becomes the first implementation. Drop the constructor dependencies that only fed the extracted code. Two mechanisms for one concern is an addition wearing an abstraction's clothes.
+- **Clean, not safe.** Delete superseded machinery outright rather than keeping it alive for non-breaking reasons. When the old indirection exists only for a reason the refactor removes, it goes in the same change.
+- **No compatibility shims.** Relocating a symbol means rewriting every call site in the same change — never a re-export left in the old module, which advertises a symbol it no longer owns and never gets cleaned up. Drive it with `find_references` / `rename_symbol`, which handle combined and function-scoped imports that file-by-file edits miss. Stage the migration only for a genuinely external consumer.
+- **A capability, not an opt-in flag.** An extension point gets a default that reproduces today's behaviour, never a `None` sentinel the caller branches on and never a per-class `ClassVar[bool] = False`. If the ability makes sense for most implementers, carry it universally and let the behaviour fall out of what their methods return.
+- **Widen the union before adding a component.** When a type union blocks you, widen it. A new component earns its place only when it changes the value type or takes props the general one cannot express — otherwise it is boilerplate with a second name.
+- **No costume wrappers.** A class implementing a Protocol whose main method never calls the inner object is a callback in costume, not a decorator: two objects satisfy the interface and mean different things, so nobody can reason about which one they hold. A real decorator does its own work *and then* delegates. When tempted to wrap in order to intercept, ask what the interception is for — often the caller already does that bookkeeping itself.
+- **No facade properties.** Don't hang one subsystem's model off another as a `.foo` convenience. It makes the parent own construction it does not conceptually own, and creates a downward import it otherwise would not need. Instantiate at the call site.
+- **No module for a one-liner.** A file whose only job is a string concat earns nothing — extra import graph, extra dead-code surface, no abstraction. Inline it, and point a comment at the source of truth if one exists. Extract for genuine reuse or non-trivial logic.
+
 ## Going deeper
 
 - **Deepening a cluster given its dependencies** — see [DEEPENING.md](DEEPENING.md): dependency categories, seam discipline, and replace-don't-layer testing.
