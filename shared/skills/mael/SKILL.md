@@ -12,8 +12,16 @@ command groups, `mael <group> --help` for a group, and `mael <group> <command> -
 and exit codes. That output is authoritative and lists flags this guide does not. If `--help` is
 unavailable to you, ask the user rather than guessing a flag.
 
-**All `mael` and `git` commands require `dangerouslyDisableSandbox: true`** — they need network
-access and git write access.
+**Commands that reach the network need `dangerouslyDisableSandbox: true`** — `mael sync`,
+`mael git squash`, `mael gh …`, and raw `git push/fetch/pull`.
+
+Read-only git (`status`, `log`, `show`, `diff`) does not. In a project that auto-approves sandboxed
+Bash, adding the flag actively hurts: it lifts the command out of the sandbox onto the prompt path,
+where an auto-deny hook rejects it. Check the project's own settings before reaching for the flag.
+
+If a remote command fails with `agent refused operation` / `Permission denied (publickey)`, the SSH
+agent has been emptied — not a policy denial. Diagnose with `ssh-add -l`; only the user can reload
+the key. Carry on with commits, review and gates in the meantime.
 
 **Prefer `mael` commands over raw `git`/`gh`** — they handle worktree context, Linear integration,
 and status transitions automatically. Use `mael git status` not `git status`, `mael sync` not
@@ -137,13 +145,41 @@ printf 'feat: add new feature [PROJ-XXX]\n\nDetailed description.\n' | git commi
 Prefixes: `feat:` (new behaviour), `fix:` (bug fix), `refactor:` (no behaviour change), `chore:`
 (everything else). Append the Linear issue ID in brackets when applicable.
 
+**`--amend` rewords HEAD, never the commit you had in mind.** Aiming it at a commit further down the
+branch silently moves that message onto HEAD and leaves two commits mislabelled — invisible until you
+read `git log`. To reword a commit deeper in the stack, script `git rebase -i` with
+`GIT_SEQUENCE_EDITOR`/`GIT_EDITOR` so no editor opens.
+
+**Fix an earlier commit with `--fixup=<sha>`, not a `fix:` at the tip.** Find the target with
+`git log -S` or `git blame`, one fixup per root cause, so each change autosquashes back into the
+commit that introduced it. This applies to typecheck, test, lint and formatter failures alike.
+
+**A deep fixup on a long stack often cannot autosquash** — intermediate commits touched the same
+lines, so the rebase halts and the later picks re-conflict after a hand-resolve. Check first with
+`git log --oneline <target>..<fixup>~1 -- <files>`; if anything intervenes, retarget the fixup to the
+last commit its content depends on. Note that a non-interactive `git rebase --autosquash` never
+invokes `GIT_SEQUENCE_EDITOR` — use `rebase -i --autosquash` with a scripted editor.
+
+**In a rebase, the correct conflict side flips between commits.** Where a later commit rewrites a
+file an earlier one created: at the rewriting commit `--theirs` is the final text, but at the earlier
+commit HEAD already holds the rewrite and `--theirs` is the stale original, so `--ours` is right.
+Read each hunk rather than applying one side across the whole rebase, then grep the result for a
+phrase the branch was supposed to delete.
+
 `mael gh show-code --uncommitted` reviews changes before committing; `--committed` shows
 everything since the branch left main.
 
 ## Creating PRs
 
 `mael gh create-pr` creates a PR, or pushes to the existing one. It force-pushes with
-`--force-with-lease`. A new PR takes its title from the first commit.
+`--force-with-lease`. A new PR takes its title from the **HEAD commit** (`git log -1`). On a
+multi-commit branch that is the last commit, which is rarely the one you want — set the real title
+afterwards with `gh pr edit <n> --title`.
+
+That also means a stray `fixup!` commit at the tip becomes the PR title. `--fixup=<sha>` squashes
+only when the target is still in `origin/main..HEAD`; on a recycled branch, a fixup aimed at an
+already-merged commit is replayed as an ordinary commit, still titled `fixup! …`. Confirm the target
+is in range before committing.
 
 Passing `ISSUE_ID` appends `(Fixes ISSUE_ID)` to the title and sets the Linear task to
 "In Review". Use `--progress` instead for multi-session work with remaining tail: it uses
@@ -152,6 +188,24 @@ Passing `ISSUE_ID` appends `(Fixes ISSUE_ID)` to the title and sets the Linear t
 **Run the waits in the background** (`run_in_background: true`) so the session stays responsive:
 `mael gh read-pr --wait` blocks until CI finishes and exits 0 on pass, 1 on fail, 2 on timeout.
 `--wait-for-review` blocks until a reviewer comments.
+
+### `read-pr --wait` exit codes lie — read the body
+
+The documented 0/1/2 codes are real, but four separate things defeat them. Never treat a bare exit 0
+as green:
+
+- **A pipe reports the pipe's status.** `mael gh read-pr --wait | tail` echoes `tail`'s 0 while the
+  body says `Build failed`. Redirect instead: `mael gh read-pr --wait > "$TMPDIR/ci.log" 2>&1; echo "MAEL_EXIT: $?"; tail -24 "$TMPDIR/ci.log"`.
+- **Backgrounding reports the shell's status.** With `run_in_background: true` the completion
+  notification says "exit code 0" whatever `mael` returned. Append `; echo "EXIT_CODE=$?"` so the
+  real value lands in the output.
+- **It can finish before CI starts.** Fast third-party checks alone can look like a complete set, so
+  `--wait` exits 0 while the Actions run is still being created. Confirm the substantive jobs by name.
+- **`No checks found` / `0/0 checks complete` is a token permission problem**, not a CI failure and
+  not "CI hasn't started". `gh pr checks`, `statusCheckRollup` and REST `check-runs` all fail the
+  same way. Fall back to
+  `gh api "repos/<owner>/<repo>/actions/runs?branch=<b>&per_page=5"` and poll until the status leaves
+  `queued`/`in_progress`.
 
 ### Task-completion flow (runs automatically — do not wait for user)
 
