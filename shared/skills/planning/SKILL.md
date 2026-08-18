@@ -70,6 +70,16 @@ again with the transcript complete.
 This holds for planning that started outside a task as well. Such a session has no task to close,
 but it still has no work left once the tasks are created and the first is launched.
 
+## Sizing the chain
+
+**Prefer few, large iterations to many small ones.** Bucket remaining work into roughly three
+thematically coherent chunks — backend write plus read surface, traversal plus metrics, frontend plus
+e2e — rather than one iteration per subsystem touchpoint.
+
+Each session carries fixed overhead: re-planning, a PR, a CI round-trip. Below roughly 750 production
+lines that overhead dominates the work, and a chain of nine one-session slices costs far more than
+the three it should have been.
+
 ## Discipline
 
 This session plans. It writes draft task files and nothing else: no project source edits, no
