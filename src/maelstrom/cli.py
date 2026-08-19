@@ -271,6 +271,7 @@ def cmd_create_project(ctx, name, public, description, projects_dir):
 
 
 @cli.command("add")
+@_harness_flags()
 @click.argument("branch", required=False, default=None)
 @click.option("-p", "--project", default=None, help="Project name (default: detect from cwd)")
 @click.option("--open", is_flag=True, help="Open in configured editor instead of Claude CLI")
@@ -282,7 +283,7 @@ def cmd_create_project(ctx, name, public, description, projects_dir):
     help="Stack the new branch on BASE (default: the project's stack tip). "
     "Use 'main' to start unstacked.",
 )
-def cmd_add(branch, project, open, no_recycle, base):
+def cmd_add(branch, project, open, no_recycle, base, harness, opencode_flag):
     """Add a new worktree for a branch.
 
     If BRANCH is provided:
@@ -295,6 +296,7 @@ def cmd_add(branch, project, open, no_recycle, base):
 
     Use --no-recycle to always create a new worktree even when closed ones exist.
     """
+    resolved_harness = resolve_harness_or_fail(harness, opencode_flag)
     try:
         ctx = resolve_context(
             project,
@@ -331,13 +333,21 @@ def cmd_add(branch, project, open, no_recycle, base):
             click.echo(f"App: {url}")
         run_install_cmd(worktree_path)
         if open:
+            if harness or opencode_flag:
+                # --open starts no session, so the harness flag is inert here.
+                click.echo(
+                    "Warning: --open starts an editor, not a session; "
+                    "the harness flags were ignored.", err=True,
+                )
             global_config = load_global_config()
             try:
                 open_worktree(worktree_path, global_config.open_command)
             except RuntimeError as e:
                 click.echo(f"Warning: Could not open worktree: {e}", err=True)
         else:
-            _launch_claude_or_raise(worktree_path, ctx.project, wt_name)
+            _launch_claude_or_raise(
+                worktree_path, ctx.project, wt_name, harness=resolved_harness
+            )
         return
 
     click.echo(f"Creating worktree for branch '{branch}'...")
@@ -398,6 +408,12 @@ def cmd_add(branch, project, open, no_recycle, base):
     # pane on create, blocking in non-cmux), but the editor path has no launcher,
     # so run it blocking here.
     if open:
+        if harness or opencode_flag:
+            # --open starts no session, so the harness flag is inert here.
+            click.echo(
+                "Warning: --open starts an editor, not a session; "
+                "the harness flags were ignored.", err=True,
+            )
         run_install_cmd(worktree_path)
         global_config = load_global_config()
         try:
@@ -405,7 +421,9 @@ def cmd_add(branch, project, open, no_recycle, base):
         except RuntimeError as e:
             click.echo(f"Warning: Could not open worktree: {e}", err=True)
     else:
-        _launch_claude_or_raise(worktree_path, ctx.project, wt_name)
+        _launch_claude_or_raise(
+            worktree_path, ctx.project, wt_name, harness=resolved_harness
+        )
 
 
 @cli.command("remove")

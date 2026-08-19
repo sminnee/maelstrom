@@ -216,6 +216,7 @@ resolves its own conflicts instead.
 |---|---|
 | `mael open [TARGET]` | Start a Claude Code session in a worktree. `--harness claude\|opencode` / `--opencode` picks the agent CLI. |
 | `mael claude [TARGET]` | Same as `mael open`. |
+| `mael add [BRANCH]` | Add a worktree for a branch and start a session in it. Takes `--harness` / `--opencode` too. |
 | `mael ide [TARGET]` | Open a worktree in the configured editor. |
 | `mael session list` | List active Claude Code sessions. |
 | `mael session info [ID]` | Show the fields of one session. Defaults to the session you run it in. |
@@ -236,7 +237,7 @@ mael --json session info 97894d02  # the same fields as JSON
 mael session end 97894d02          # stop that session
 ```
 
-**Harness choice.** `mael open`, `mael claude`, `mael task run` and `mael task next --run`
+**Harness choice.** `mael add`, `mael open`, `mael claude`, `mael task run` and `mael task next --run`
 take `--harness claude|opencode` (default `claude`) or the `--opencode` shorthand. With
 `opencode` the session runs `opencode2` instead of `claude`. OpenCode assigns its own
 session ids, so maelstrom does not pin, resume, or duplicate-guard those sessions — every
