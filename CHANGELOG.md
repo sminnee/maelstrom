@@ -12,6 +12,13 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **opencode compatibility.** Shared skills now set `opencode/slash: true` in their frontmatter,
+  so they appear in opencode's interactive `/` command catalog (opencode registers skills from
+  `~/.claude/skills` but only lists them when the flag is present). `mael add` and worktree
+  reuse also generate a gitignored `AGENTS.md` per worktree — the same content as `CLAUDE.md`
+  with `@` imports inlined — because opencode reads only `AGENTS.md` and does not resolve
+  `@` imports.
+
 - **Read a task's status.** `mael task get-status [ID]` prints the status word by itself, and
   falls back to `$MAEL_TASK_ID` like the other task commands. `mael task current` prints the
   session's task as `ID:STATUS`, for a shell prompt or status line: it prints an empty line and

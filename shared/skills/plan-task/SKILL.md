@@ -4,6 +4,7 @@ description: Turn a task brief into an agreed chain of draft task files, then pr
 disable-model-invocation: true
 metadata:
   opencode/autoinvoke: false
+  opencode/slash: true
 ---
 
 # Plan Task Command

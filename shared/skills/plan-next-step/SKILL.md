@@ -4,6 +4,7 @@ description: Plan one concrete next step of a multi-session chain, then re-queue
 disable-model-invocation: true
 metadata:
   opencode/autoinvoke: false
+  opencode/slash: true
 ---
 
 # Plan Next Step Command

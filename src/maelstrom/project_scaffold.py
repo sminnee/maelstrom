@@ -8,6 +8,7 @@ GITIGNORE = """\
 # Maelstrom generates these per worktree. Do not commit them.
 .env
 .claude/CLAUDE.local.md
+AGENTS.md
 """
 
 MAELSTROM_YAML = """\

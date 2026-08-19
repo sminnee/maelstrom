@@ -36,6 +36,7 @@ from maelstrom.worktree import (
     squash_worktree,
     sync_worktree,
     update_claude_local_md,
+    _write_agents_md,
     write_env_file,
 )
 from maelstrom.worktree_model import (
@@ -1326,6 +1327,81 @@ class TestSetupWorktreeForBranch:
             )
         assert result.action == "created"
         assert result.path != first.path
+
+
+class TestWriteAgentsMd:
+    """Tests for _write_agents_md and the @import inlining."""
+
+    def _worktree(self, tmp_path):
+        project_path = tmp_path / "myproject"
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir(parents=True)
+        return worktree_path
+
+    def test_no_claude_md_is_noop(self, tmp_path):
+        worktree_path = self._worktree(tmp_path)
+        _write_agents_md(worktree_path)
+        assert not (worktree_path / "AGENTS.md").exists()
+
+    def test_inlines_import(self, tmp_path):
+        worktree_path = self._worktree(tmp_path)
+        (worktree_path / "CLAUDE.md").write_text(
+            "@.claude/CLAUDE.local.md\n\n# Project\n\nBody.\n"
+        )
+        (worktree_path / ".claude").mkdir()
+        (worktree_path / ".claude" / "CLAUDE.local.md").write_text("local context")
+
+        _write_agents_md(worktree_path)
+
+        content = (worktree_path / "AGENTS.md").read_text()
+        assert "<!-- from @.claude/CLAUDE.local.md -->" in content
+        assert "local context" in content
+        assert "@.claude/CLAUDE.local.md\n\n# Project" not in content
+        assert "# Project" in content
+        assert "AGENTS.md" in (worktree_path / ".gitignore").read_text()
+
+    def test_missing_import_noted_in_comment(self, tmp_path):
+        worktree_path = self._worktree(tmp_path)
+        (worktree_path / "CLAUDE.md").write_text("@.claude/CLAUDE.local.md\n\n# Project\n")
+
+        _write_agents_md(worktree_path)
+
+        content = (worktree_path / "AGENTS.md").read_text()
+        assert "<!-- @.claude/CLAUDE.local.md: not found -->" in content
+
+    def test_nested_import_inlined(self, tmp_path):
+        worktree_path = self._worktree(tmp_path)
+        (worktree_path / "CLAUDE.md").write_text("@a.md\n")
+        (worktree_path / "a.md").write_text("outer\n@b.md\n")
+        (worktree_path / "b.md").write_text("inner")
+
+        _write_agents_md(worktree_path)
+
+        content = (worktree_path / "AGENTS.md").read_text()
+        assert "outer" in content
+        assert "<!-- from @b.md -->" in content
+        assert "inner" in content
+
+    def test_circular_import_terminated(self, tmp_path):
+        worktree_path = self._worktree(tmp_path)
+        (worktree_path / "CLAUDE.md").write_text("@a.md\n")
+        (worktree_path / "a.md").write_text("a\n@b.md\n")
+        (worktree_path / "b.md").write_text("b\n@a.md\n")
+
+        _write_agents_md(worktree_path)
+
+        content = (worktree_path / "AGENTS.md").read_text()
+        assert "a" in content
+        assert "b" in content
+        assert "circular" in content
+
+    def test_regenerates_on_reuse(self, tmp_path):
+        worktree_path = self._worktree(tmp_path)
+        (worktree_path / "CLAUDE.md").write_text("# Project\n")
+        _write_agents_md(worktree_path)
+        (worktree_path / "AGENTS.md").write_text("stale")
+        _write_agents_md(worktree_path)
+        assert "stale" not in (worktree_path / "AGENTS.md").read_text()
 
 
 class TestUpdateClaudeLocalMd:

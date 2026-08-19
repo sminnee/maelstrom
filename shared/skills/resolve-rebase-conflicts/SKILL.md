@@ -4,6 +4,7 @@ description: Resolve the conflicts of a rebase that is already in progress, then
 disable-model-invocation: true
 metadata:
   opencode/autoinvoke: false
+  opencode/slash: true
 ---
 
 # Resolve Rebase Conflicts Command

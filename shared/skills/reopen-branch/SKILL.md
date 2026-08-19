@@ -4,6 +4,7 @@ description: Re-orient in a worktree that was just reopened after a force-close,
 disable-model-invocation: true
 metadata:
   opencode/autoinvoke: false
+  opencode/slash: true
 ---
 
 # Reopen Branch Command

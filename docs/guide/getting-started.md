@@ -70,10 +70,10 @@ The first commit holds the files a maelstrom project needs:
 
 | File | Purpose |
 |---|---|
-| `.gitignore` | Ignores `.env` and `.claude/CLAUDE.local.md`, which maelstrom generates per worktree. |
+| `.gitignore` | Ignores `.env`, `.claude/CLAUDE.local.md` and `AGENTS.md`, which maelstrom generates per worktree. |
 | `.maelstrom.yaml` | Commented stub. Fill it in at step 4. |
 | `README.md` | Project title. |
-| `CLAUDE.md` | Imports `.claude/CLAUDE.local.md`, which the first `mael add` writes. |
+| `CLAUDE.md` | Imports `.claude/CLAUDE.local.md`, which the first `mael add` writes. `AGENTS.md` (gitignored, generated per worktree) carries the same content with `@` imports inlined, for opencode, which reads only `AGENTS.md` and does not resolve `@` imports. |
 
 ### An existing repository
 
@@ -100,8 +100,8 @@ Main stays in `_main` so every NATO (North Atlantic Treaty Organization) phoneti
 worktree is free for feature work. See
 [worktrees.md](worktrees.md).
 
-Add `.env` and `.claude/CLAUDE.local.md` to the repository's `.gitignore`. Maelstrom
-generates both per worktree. `mael create-project` does this for you.
+Add `.env`, `.claude/CLAUDE.local.md` and `AGENTS.md` to the repository's `.gitignore`. Maelstrom
+generates all three per worktree. `mael create-project` does this for you.
 
 ## 4. Describe the project's services
 

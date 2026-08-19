@@ -4,6 +4,7 @@ description: Boil a Claude memory store down into repo docs, skills and context.
 disable-model-invocation: true
 metadata:
   opencode/autoinvoke: false
+  opencode/slash: true
 ---
 
 # Memory bolognese
