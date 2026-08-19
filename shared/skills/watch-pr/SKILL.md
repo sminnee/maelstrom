@@ -4,6 +4,7 @@ description: Watch the current branch's PR through CI, fix each failure, resubmi
 disable-model-invocation: true
 metadata:
   opencode/autoinvoke: false
+  opencode/slash: true
 ---
 
 # Watch PR Command

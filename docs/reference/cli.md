@@ -66,6 +66,10 @@ mael close                                        # done: reset, keep name and p
 
 **`mael add`**
 
+On checkout, `mael add` (re)generates the worktree's `.claude/CLAUDE.local.md` and `AGENTS.md`
+(same content, with `@` imports inlined so opencode can read it — opencode reads only `AGENTS.md`
+and does not resolve `@` imports). Both are gitignored per worktree.
+
 | Option | Description |
 |---|---|
 | `-p`, `--project TEXT` | Project name. Default: detect from the current directory. |
@@ -83,7 +87,7 @@ mael close                                        # done: reset, keep name and p
 
 `NAME` is the repository name. Use `owner/name` to create the repository in an
 organization. The seed commit holds `.gitignore` (which ignores the per-worktree `.env` and
-`.claude/CLAUDE.local.md`), a commented `.maelstrom.yaml`, `README.md` and `CLAUDE.md`.
+`.claude/CLAUDE.local.md` and `AGENTS.md`), a commented `.maelstrom.yaml`, `README.md` and `CLAUDE.md`.
 
 The project is cloned over HTTPS, whatever `gh config get git_protocol` reports. Agents push
 with a token over HTTPS, so an SSH remote breaks an unattended session. `mael add-project`

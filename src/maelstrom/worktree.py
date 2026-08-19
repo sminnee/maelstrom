@@ -1,6 +1,7 @@
 """Worktree management for maelstrom projects."""
 
 import dataclasses
+import re
 import shutil
 import subprocess
 import sys
@@ -1386,6 +1387,7 @@ def recycle_worktree(worktree_path: Path, branch: str, *, base: str = MAIN_BRANC
         update_claude_local_md(project_path, worktree_path, wt_name)
 
     _setup_claude_settings_symlink(worktree_path)
+    _write_agents_md(worktree_path)
 
     return worktree_path
 
@@ -2590,6 +2592,53 @@ def _ensure_claude_md_import(worktree_path: Path) -> None:
     claude_md.write_text(CLAUDE_LOCAL_IMPORT + "\n\n" + content)
 
 
+IMPORT_PATTERN = re.compile(r"^@(\S+)\s*$", re.MULTILINE)
+MAX_IMPORT_DEPTH = 3
+
+
+def _inline_imports(text: str, worktree_path: Path, depth: int, seen: set[Path]) -> str:
+    """Replace ``@path`` import lines with the referenced files' contents.
+
+    Missing files are noted in an HTML comment rather than raising, matching
+    Claude Code's tolerance of a dangling import (e.g. before the first
+    ``mael add`` writes ``CLAUDE.local.md``).
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        rel = match.group(1)
+        target = (worktree_path / rel).resolve()
+        if not target.is_file():
+            return f"<!-- @{rel}: not found -->"
+        if target in seen or depth >= MAX_IMPORT_DEPTH:
+            return f"<!-- @{rel}: skipped (nested too deeply or circular) -->"
+        inlined = "<!-- from @{0} -->\n{1}".format(
+            rel, _inline_imports(target.read_text(), worktree_path, depth + 1, seen | {target})
+        )
+        return inlined.rstrip("\n")
+
+    return IMPORT_PATTERN.sub(replace, text)
+
+
+def _write_agents_md(worktree_path: Path) -> None:
+    """Generate ``AGENTS.md`` from ``CLAUDE.md`` with ``@`` imports inlined.
+
+    OpenCode reads only ``AGENTS.md`` and does not resolve Claude Code's
+    ``@file`` imports, so the generated file inlines each import (recursively,
+    depth-limited, cycle-safe). ``AGENTS.md`` is derived output: regenerated
+    whenever the worktree's local context is rewritten, and gitignored.
+    """
+    claude_md = worktree_path / "CLAUDE.md"
+    if not claude_md.exists():
+        return
+
+    agents_md = worktree_path / "AGENTS.md"
+    agents_md.write_text(
+        _inline_imports(claude_md.read_text(), worktree_path, 0, set()).rstrip("\n") + "\n"
+    )
+
+    _ensure_gitignore_entry(worktree_path, "AGENTS.md")
+
+
 def _ensure_gitignore_entry(worktree_path: Path, entry: str) -> None:
     """Ensure .gitignore contains the given entry.
 
@@ -2664,6 +2713,9 @@ def update_claude_local_md(
 
     # Ensure .gitignore excludes the generated file
     _ensure_gitignore_entry(worktree_path, ".claude/CLAUDE.local.md")
+
+    # Regenerate AGENTS.md so it picks up the local context just written
+    _write_agents_md(worktree_path)
 
     return True
 
