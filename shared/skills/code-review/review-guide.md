@@ -7,6 +7,12 @@ project's `docs/review/coding-standards.md` (prescriptive rules) and `docs/revie
 (what to look for in that codebase, in the same shape as this file). When a project rule disagrees
 with this file, the project rule wins.
 
+**Review one layer at a time, top down.** The layers are ordered by altitude: specifications and
+subsystems first, language last. Work them in that order and give the earlier layers the most
+attention — the most likely feedback on a review is not code correctness but an architectural
+decision. We structure code so that the code, and changes to it, are easy for a reviewer (human or
+machine) to understand; layers 1–2 are where that is won or lost.
+
 **No severity tags.** These entries are not ranked, and reviewers do not label findings blocking
 or advisory. Whether a finding must be fixed now depends on the user's context — release
 pressure, scope, what they already intend to change — which the review cannot see. The parent
@@ -17,65 +23,82 @@ weight.
 
 ## Checklist
 
-Scan this first. Read the section below only for the items that hit.
+Scan this first, layer by layer, top down. Read the layer's section below only for the items that
+hit.
 
-**Correctness** — swallowed errors · data loss · unhandled partial failure · boundary cases ·
-silent coercion at boundaries
+**Layer 1 — Specifications & subsystems** — essence captured? · responsibilities in the right
+subsystems? · implementation exposing mistakes in the plan?
 
-**Security** — injection · secrets in code · missing authorisation · overbroad permissions ·
-input trusted by origin
+**Layer 2 — Architecture** — accidental complexity · a supporting tool the code is tolerating
+instead of redesigning · reimplemented helper · wrong layer · leaked abstraction · inconsistent
+with siblings · barrel re-exports · re-exported imported type · speculative abstraction ·
+premature compat shim · unnecessary indirection · dead paths · pointless try/except
 
-**Architecture and reuse** — reimplemented helper · wrong layer · leaked abstraction ·
-inconsistent with siblings · barrel re-exports · re-exported imported type
+**Layer 3 — Test design** — tests focused on the business domain at component/subsystem level? ·
+E2E limited to critical interaction patterns? · unit tests limited to critical or complex
+subsystems? · duplicated fixture boilerplate · verbose body · non-obvious assertions ·
+point-assertions · no converter for complex state · duplicative · wrong layer · not
+cross-referenced to spec · assertion-free · missing negative case · testing configuration · mocked
+integration test
 
-**Simplicity** — speculative abstraction · premature compat shim · unnecessary indirection ·
-dead paths · pointless try/except
+**Layer 4 — Security & correctness** — injection · secrets in code · missing authorisation ·
+overbroad permissions · input trusted by origin · swallowed errors · data loss · unhandled
+partial failure · boundary cases · silent coercion at boundaries
 
-**Naming** — name and behaviour disagree · vague identifiers · inconsistent vocabulary
+**Layer 5 — Coding standards** — project's `docs/review/coding-standards.md` · name and behaviour
+disagree · vague identifiers · inconsistent vocabulary · metadata-only log entries
 
-**Comments** — over-weights the latest change · restates what's inferable · duplicates the
-architecture docs · narrates the deliberation · comment/code drift
-
-**Logging** — metadata-only log entries
-
-**Tests** — duplicative · wrong layer · not cross-referenced to spec · assertion-free ·
-missing negative case · testing configuration · point-assertions · no converter for complex
-state · verbose body · duplicated fixture boilerplate · mocked integration test
-
-**Documentation** — user-visible change with no doc change
+**Layer 6 — Language** — comments restating what's inferable · over-weights the latest change ·
+multi-line comments where one line would do · verbose docs where bullets would do ·
+user-visible change with no doc change
 
 **Broken windows** — before withdrawing any finding because "the surrounding code does this
 too", read that section. Precedent is not a rationale.
 
 ---
 
-## Correctness
+## Layer 1 — Specifications & subsystems
 
-- **Swallowed errors.** `except: pass`, `except Exception: pass`, an empty `.catch()` — a caught
-  exception that is neither handled, re-raised, nor logged hides failures. If an error is
-  genuinely safe to ignore, the exception type must be narrow *and* a comment must explain why.
-- **Data loss.** Destructive operations (delete, overwrite, truncate, force-push) that run
-  without a guard, a confirmation, or a recoverable path.
-- **Unhandled partial failure.** A loop that writes to several places, where a failure halfway
-  leaves the system in a state no code path repairs.
-- **Off-by-one and boundary cases.** Empty collection, single element, exactly-at-limit. Check
-  that new branching logic covers them.
-- **Silent type coercion at boundaries.** Values crossing a parse, deserialize, or API edge
-  without validation.
+Judge the change against what it set out to build, before judging the code.
 
-## Security
+- **Essence captured?** Does the implementation capture the essence of what was being built, or
+  has it drifted into a shape that satisfies the letter of the plan and misses the point? Where
+  the plan is available (task content, spec files, PR description), read it.
+- **Responsibilities in the right subsystems?** Check the assignment of duties across subsystems.
+  A responsibility given to the wrong subsystem shows up as Layer 2 findings — but the fix is
+  often a re-planning decision, not a refactor.
+- **Plan mistakes surfaced by the implementation.** The finished implementation often exposes
+  mistakes in the original plan — a wrong assumption, a missing requirement, a subsystem boundary
+  that does not hold. Report these. The plan is not certified by having been executed; the
+  implementation is the evidence against it.
 
-- **Injection.** Any query, shell command, path, or template built by string concatenation from
-  input that a user controls. Look for parameterised APIs instead.
-- **Secrets in code.** Keys, tokens, passwords, or connection strings as literals — including in
-  tests, fixtures, and comments.
-- **Missing authorisation.** A new endpoint, command, or handler that reaches privileged data or
-  actions without the check its siblings apply.
-- **Overbroad permissions.** New file modes, tokens, or scopes wider than the task requires.
-- **Input trusted by origin.** Data treated as safe because of where it came from rather than
-  because it was validated.
+## Layer 2 — Architecture
 
-## Architecture and reuse
+Is each modified subsystem focused on its own concerns? Are the supporting subsystems doing
+their job?
+
+### Accidental complexity
+
+A subsystem absorbing complexity unrelated to its domain — business logic assembling a form that
+spends most of its lines on statement management, a model that spends its lines on persistence
+mechanics. Sometimes this is inevitable. Often it is the signal that an underlying abstraction is
+not helping, and the fix is to refactor that abstraction, not to keep schlep-ing around it.
+
+When you find it:
+
+- Name the schlep. Say what fraction of the module's effort goes to work outside its domain.
+- Ask what abstraction would absorb it. A helper, a different seam, a redesigned interface.
+- Report it even when the fix is a refactor out of scope for the branch — this is exactly what
+  the "potential refactor" bucket is for.
+
+### Redesign the tool, don't tolerate it
+
+When every consumer of a supporting subsystem works around the same inadequacy, the finding is
+against the subsystem, not the consumers. Favour redesigning our own tools over putting up with
+them — the status quo of an internal tool carries no weight. Report the workaround pattern and
+name the tool that should change.
+
+### Architecture and reuse
 
 - **Reimplemented helper.** New code that duplicates something the repo already has. Search
   before accepting a new utility. This is the single most common finding worth making.
@@ -94,7 +117,7 @@ too", read that section. Precedent is not a rationale.
   is obscured. Distinct from the barrel smell — here one feature module launders another's
   symbol rather than aggregating for ergonomics.
 
-## Simplicity
+### Simplicity
 
 - **Speculative abstraction.** A new helper used in only one place, a class wrapping a single
   function, or parameters and config no current caller uses. Three similar lines beat a premature
@@ -107,45 +130,21 @@ too", read that section. Precedent is not a rationale.
 - **Pointless try/except.** A handler that only re-raises, or only logs without adding context.
   If it does not change control flow or enrich the error, delete it.
 
-## Naming
+## Layer 3 — Test design
 
-- **Name and behaviour disagree.** `get_*` that writes, `is_*` that returns non-boolean,
-  `validate_*` that mutates. Judge the name against what the code does now.
-- **Vague identifiers.** `data`, `info`, `handle`, `process`, `manager` where a specific term
-  exists.
-- **Inconsistent vocabulary.** The same concept under two names in one codebase.
+Are the tests mostly focused on the important aspects of the business domain, with minimal E2E and
+unit tests? Are the test supports keeping the tests descriptive? Are the input fixtures and output
+assertions easily understood by a reviewer?
 
-## Comments
+### Test shape
 
-The default is **no comment**. Most code carries its own meaning, and a comment earns its place
-only by holding something the reader cannot infer locally. When one is warranted it should be
-terse — a sentence or two, not a paragraph arguing its case.
-
-Flag a comment or docstring that:
-
-- **Over-weights the latest change.** It describes *the diff that produced the code* rather than
-  the code as it now stands — "this used to be X, but…", or multi-line rationale bolted onto a
-  small edit. That story belongs in the commit message. Test: would this comment still earn its
-  place if the change had always been there?
-- **Restates what's inferable locally.** Narrating the mechanics on the next line, spelling out a
-  type the annotation already gives, or repeating a rationale a sibling docstring already carries.
-- **Duplicates the architecture docs.** Subsystem READMEs and spec directories are the home for
-  design rationale; a comment may *point* at them, but should not re-argue them in place.
-- **Narrates the deliberation.** The reader needs the conclusion and the constraint forcing it,
-  not the alternatives weighed or why the first attempt was wrong.
-- **Drifts from the code.** A comment describing behaviour the code no longer has is worse than
-  no comment.
-
-A layering constraint, a surprising type, or a deliberate broad `except` is worth a line — none
-needs a paragraph. Prefer trimming to deleting: the fact is usually worth keeping, the essay
-around it is not.
-
-## Logging
-
-- **Metadata-only log entries.** A log that exists only to carry telemetry — no message, only
-  structured fields. Piggyback on an existing log line, or add one with meaningful content.
-
-## Tests
+- **The bulk of tests target the business domain, at component/subsystem level.** These are the
+  tests that describe the behaviour the work exists to deliver.
+- **E2E tests are for the most critical interaction patterns only.** They are the most expensive
+  to run and maintain; spending them on anything less crowds out the domain tests.
+- **Unit tests are limited to very critical or very complex subsystems supporting the business
+  domain.** In most cases the business-domain tests smoke-test the constituents for free. A unit
+  test that re-covers what a domain test already exercises is duplicate coverage.
 
 ### Is the test worth having?
 
@@ -160,8 +159,8 @@ the cost of every future change and still catches the bug only once.
 **Cross-reference to the spec.** Where the project keeps spec files, a test should name the spec
 point it covers, so a reader can trace test to requirement.
 
-**Assertion-free tests.** A test that exercises code but asserts nothing — or only
-that no exception was raised — cannot fail, so it provides no assurance.
+**Assertion-free tests.** A test that exercises code but asserts nothing — or only that no
+exception was raised — cannot fail, so it provides no assurance.
 
 **Negative cases.** New branching logic tested only on its success path leaves the branch that
 actually breaks untested.
@@ -176,6 +175,9 @@ Delete it, or replace it with a test of what *consumes* the config.
 
 ### Readable assertions
 
+A reviewer reading the test should understand the input data, the sequence of events, and the
+output data without detective work.
+
 **Prefer whole-object assertions.** A run of `assert result.a == 1`, `assert result.b == 2`
 hides the shape of the answer. Assert the whole object or a meaningful sub-object in one
 comparison: a reader sees the expected state at a glance, and a failure diff shows everything
@@ -187,13 +189,23 @@ converter that projects the state into a simplified but *complete* structure —
 only — and assert against that in one comparison. Completeness matters: a converter that drops
 fields silently stops testing them.
 
-### Fixtures and doubles
+### Fixtures and test supports
 
 **Test bodies should read as the scenario.** Push complex fixture coordination into helpers so
 the body states intent, not setup mechanics.
 
 **Reuse fixture helpers.** Repeated setup across tests signals a missing shared helper. Reuse
 the project's existing coordination rather than re-establishing it inline.
+
+**A library of domain-specific test-support helpers is worth building.** Where fixtures are hard
+to construct, add factory functions to the test-support module — `make_<thing>()` builders with
+sensible defaults, overridable per test — so each test states only what makes its scenario
+distinct. Inadequate test support is accidental complexity in the tests.
+
+**Prefer seams with easily instantiated domain objects.** When choosing where a test drives the
+system, a seam whose domain objects are cheap to construct keeps the tests on the behaviour and
+out of the mechanics. A seam that forces elaborate orchestration is a Layer 2 finding waiting to
+happen.
 
 **Avoid shared mutable fixtures.** State carried between tests makes them order-dependent.
 
@@ -204,7 +216,89 @@ breaks on a valid refactor.
 test labelled *integration* removes the only thing that test was for. Mocks have masked broken
 migrations before.
 
-## Documentation
+## Layer 4 — Security & correctness
+
+### Security
+
+- **Injection.** Any query, shell command, path, or template built by string concatenation from
+  input that a user controls. Look for parameterised APIs instead.
+- **Secrets in code.** Keys, tokens, passwords, or connection strings as literals — including in
+  tests, fixtures, and comments.
+- **Missing authorisation.** A new endpoint, command, or handler that reaches privileged data or
+  actions without the check its siblings apply.
+- **Overbroad permissions.** New file modes, tokens, or scopes wider than the task requires.
+- **Input trusted by origin.** Data treated as safe because of where it came from rather than
+  because it was validated.
+
+### Correctness
+
+- **Swallowed errors.** `except: pass`, `except Exception: pass`, an empty `.catch()` — a caught
+  exception that is neither handled, re-raised, nor logged hides failures. If an error is
+  genuinely safe to ignore, the exception type must be narrow *and* a comment must explain why.
+- **Data loss.** Destructive operations (delete, overwrite, truncate, force-push) that run
+  without a guard, a confirmation, or a recoverable path.
+- **Unhandled partial failure.** A loop that writes to several places, where a failure halfway
+  leaves the system in a state no code path repairs.
+- **Off-by-one and boundary cases.** Empty collection, single element, exactly-at-limit. Check
+  that new branching logic covers them.
+- **Silent type coercion at boundaries.** Values crossing a parse, deserialize, or API edge
+  without validation.
+
+## Layer 5 — Coding standards
+
+The project's `docs/review/coding-standards.md` is the source of truth for project-specific
+conventions — load it where it exists and scan the diff against it. The universal floor:
+
+- **Name and behaviour disagree.** `get_*` that writes, `is_*` that returns non-boolean,
+  `validate_*` that mutates. Judge the name against what the code does now.
+- **Vague identifiers.** `data`, `info`, `handle`, `process`, `manager` where a specific term
+  exists.
+- **Inconsistent vocabulary.** The same concept under two names in one codebase.
+- **Metadata-only log entries.** A log that exists only to carry telemetry — no message, only
+  structured fields. Piggyback on an existing log line, or add one with meaningful content.
+
+## Layer 6 — Language
+
+Simplified Technical English and the project's domain glossary are the language standard, for
+docs, specs, and comments alike.
+
+### Comments
+
+The default is **no comment**. Most code carries its own meaning, and a comment earns its place
+only by holding something the reader cannot infer locally. When one is warranted it should be
+laconic — Clint Eastwood terse. Almost all comments are one line.
+
+Flag a comment or docstring that:
+
+- **Restates what's inferable locally.** Narrating the mechanics on the next line, spelling out a
+  type the annotation already gives, or repeating a rationale a sibling docstring already carries.
+- **Over-weights the latest change.** It describes *the diff that produced the code* rather than
+  the code as it now stands — "this used to be X, but…", or multi-line rationale bolted onto a
+  small edit. That story belongs in the commit message. Test: would this comment still earn its
+  place if the change had always been there?
+- **Duplicates the architecture docs.** Subsystem READMEs and spec directories are the home for
+  design rationale; a comment may *point* at them, but should not re-argue them in place.
+- **Narrates the deliberation.** The reader needs the conclusion and the constraint forcing it,
+  not the alternatives weighed or why the first attempt was wrong.
+- **Drifts from the code.** A comment describing behaviour the code no longer has is worse than
+  no comment.
+
+A layering constraint, a surprising type, or a deliberate broad `except` is worth a line — none
+needs a paragraph. Prefer trimming to deleting: the fact is usually worth keeping, the essay
+around it is not.
+
+### Documentation terseness
+
+Documentation, specs, and PR descriptions carry the same standard:
+
+- **Terse by default.** Favour bullet points over paragraphs. A reader scans bullets; a paragraph
+  buries its point.
+- **STE + the domain glossary are the language standard.** Short sentences, one instruction per
+  sentence, active voice. Reuse the glossary's terms verbatim; do not coin synonyms.
+- **Cut what the reader can derive.** Anything inferable from the source, the config, or the
+  directory layout does not belong in prose.
+
+### Documentation coverage
 
 - **User-visible change, no doc change.** New or changed flags, commands, config keys, or
   environment variables that the project's reference docs do not mention.
