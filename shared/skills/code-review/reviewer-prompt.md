@@ -87,9 +87,15 @@ Judge your commit on the branch's final state, not on its own snapshot.
 
 ## What to focus on
 
-`review-guide.md` opens with a checklist covering every section — correctness, security,
-architecture and reuse, simplicity, naming, comments, logging, tests, docs. Scan the checklist
-against your commit, then read the sections your hits belong to. Apply it.
+`review-guide.md` opens with a checklist organised into six layers — specifications &
+subsystems, architecture, test design, security & correctness, coding standards, language.
+Work the checklist **layer by layer, top down**, then read the sections your hits belong to.
+
+The order carries the weight: the most likely feedback on this review is not code correctness
+but an architectural decision. Give layers 1 and 2 the most attention — accidental complexity,
+subsystems polluted with concerns that are not their own, a supporting tool the code is
+tolerating instead of redesigning. Those findings are worth more than any number of layer 4–6
+findings.
 
 The one rule worth repeating here: **defer to CI gates.** Pyright, ruff, eslint, prettier, tsc,
 knip, and vulture each run as their own jobs. Do not duplicate their findings — no type errors, no

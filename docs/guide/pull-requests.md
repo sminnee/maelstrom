@@ -93,8 +93,9 @@ in-scope ones; discard the ones that do not apply; raise anything that materiall
 with you. Potential refactors always go in that last bucket — a review is the best place to
 notice them, and dropping them silently is how they get lost.
 
-Every reviewer loads `review-guide.md` from the skill directory — the cross-project baseline for
-correctness, security, architecture, simplicity, naming, tests, and docs. If the project also
+Every reviewer loads `review-guide.md` from the skill directory — the cross-project baseline,
+worked layer by layer: specifications & subsystems, architecture, test design, security &
+correctness, coding standards, language. If the project also
 supplies `docs/review/coding-standards.md` or its own `docs/review/review-guide.md`, those load
 too and take precedence.
 
