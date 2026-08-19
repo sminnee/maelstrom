@@ -19,6 +19,14 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **The five slash commands are now skills.** `/plan-task`, `/plan-next-step`, `/reopen-branch`,
+  `/resolve-rebase-conflicts` and `/watch-pr` moved from `shared/commands/` to `shared/skills/`,
+  and `mael install` now links them into `~/.claude/skills/` instead of `~/.claude/commands/`.
+  You type them exactly as before. This makes them visible to opencode, which reads global skills
+  from `~/.claude/skills/` but reads commands only from its own directory. After upgrading, delete
+  the five stale links left under `~/.claude/commands/` — `mael install` no longer visits that
+  directory, so it cannot clear them for you.
+
 - **`mael list` is roughly twice as fast.** On a project with 6 open and 12 closed worktrees it
   went from 7.5s to about 3s. Two lookups that ran once per worktree now run once per project:
   the pull request lookup is a single GraphQL query for every open pull request, and the

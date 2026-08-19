@@ -1,3 +1,11 @@
+---
+name: plan-task
+description: Turn a task brief into an agreed chain of draft task files, then promote them and launch the head. Runs inside a `mael`-launched planning session. Invoked as the `/plan-task` slash command.
+disable-model-invocation: true
+metadata:
+  opencode/autoinvoke: false
+---
+
 # Plan Task Command
 
 **Load the `planning` skill first** — it carries the draft-file mechanics this command relies

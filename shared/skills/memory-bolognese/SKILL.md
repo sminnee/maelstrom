@@ -2,6 +2,8 @@
 name: memory-bolognese
 description: Boil a Claude memory store down into repo docs, skills and context. Invoked as the `/memory-bolognese` slash command.
 disable-model-invocation: true
+metadata:
+  opencode/autoinvoke: false
 ---
 
 # Memory bolognese
