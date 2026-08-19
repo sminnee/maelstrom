@@ -1689,3 +1689,79 @@ class TestOpenHarness:
         )
         assert result.exit_code != 0
         assert "--opencode" in result.output
+
+
+class TestAddHarness:
+    """`mael add` starts a session too, so it takes the harness flags."""
+
+    def _invoke_add(self, args, tmp_path):
+        projects = tmp_path / "Projects"
+        project_path = projects / "proj"
+        project_path.mkdir(parents=True)
+        ctx = SimpleNamespace(
+            project="proj", project_path=project_path,
+            worktree=None, worktree_path=None,
+        )
+        with ExitStack() as stack:
+            stack.enter_context(patch(
+                "maelstrom.cli.resolve_context", return_value=ctx
+            ))
+            stack.enter_context(patch(
+                "maelstrom.cli.setup_worktree_for_branch",
+                return_value=WorktreeSetup(
+                    path=project_path / "proj-bravo", name="bravo",
+                    action="created",
+                ),
+            ))
+            launch = stack.enter_context(
+                patch("maelstrom.cli.launch_claude_in_worktree")
+            )
+            launch.return_value = True
+            result = CliRunner().invoke(cli, ["add", "feat-x", "-p", "proj", *args])
+        return result, launch
+
+    def test_add_opencode_shorthand(self, tmp_path):
+        result, launch = self._invoke_add(["--opencode"], tmp_path)
+        assert result.exit_code == 0, result.output
+        assert launch.call_args.kwargs["harness"] == "opencode"
+
+    def test_add_default_harness_is_claude(self, tmp_path):
+        result, launch = self._invoke_add([], tmp_path)
+        assert result.exit_code == 0, result.output
+        assert launch.call_args.kwargs["harness"] == "claude"
+
+    def test_add_open_with_harness_flag_warns(self, tmp_path, capsys):
+        # --open opens the editor instead of a session, so the harness flag
+        # is inert there — say so rather than dropping it silently.
+        projects = tmp_path / "Projects"
+        project_path = projects / "proj"
+        project_path.mkdir(parents=True)
+        ctx = SimpleNamespace(
+            project="proj", project_path=project_path,
+            worktree=None, worktree_path=None,
+        )
+        with ExitStack() as stack:
+            stack.enter_context(patch(
+                "maelstrom.cli.resolve_context", return_value=ctx
+            ))
+            stack.enter_context(patch(
+                "maelstrom.cli.create_worktree",
+                return_value=project_path / "proj-bravo",
+            ))
+            stack.enter_context(patch(
+                "maelstrom.cli.extract_worktree_name_from_folder",
+                return_value="bravo",
+            ))
+            stack.enter_context(patch("maelstrom.cli.get_app_url", return_value=None))
+            stack.enter_context(patch("maelstrom.cli.update_claude_local_md"))
+            stack.enter_context(patch("maelstrom.cli.run_install_cmd"))
+            stack.enter_context(patch(
+                "maelstrom.cli.load_global_config",
+                return_value=SimpleNamespace(open_command="code"),
+            ))
+            stack.enter_context(patch("maelstrom.cli.open_worktree"))
+            result = CliRunner().invoke(
+                cli, ["add", "-p", "proj", "--open", "--opencode"]
+            )
+        assert result.exit_code == 0, result.output
+        assert "--open" in result.output and "harness" in result.output
