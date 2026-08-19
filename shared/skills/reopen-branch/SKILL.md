@@ -1,3 +1,11 @@
+---
+name: reopen-branch
+description: Re-orient in a worktree that was just reopened after a force-close, and surface its PR and env so you can decide what is left. Invoked as the `/reopen-branch` slash command.
+disable-model-invocation: true
+metadata:
+  opencode/autoinvoke: false
+---
+
 # Reopen Branch Command
 
 Re-orients you in a worktree that was just **reopened** after a `mael close --force`. The branch

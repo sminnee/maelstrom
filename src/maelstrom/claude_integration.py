@@ -229,7 +229,7 @@ def install_session_channel_deps() -> list[str]:
 
 
 def install_claude_integration(*, monitor: bool = True) -> list[str]:
-    """Install skills, hooks, commands, and (optionally) the session monitor."""
+    """Install skills, hooks, and (optionally) the session monitor."""
     shared = get_shared_dir()
     claude_dir = Path.home() / ".claude"
 
@@ -244,11 +244,6 @@ def install_claude_integration(*, monitor: bool = True) -> list[str]:
     hooks_source = shared / "hooks"
     if hooks_source.exists():
         messages.extend(_symlink_items(hooks_source, claude_dir / "hooks"))
-
-    # Symlink commands
-    commands_source = shared / "commands"
-    if commands_source.exists():
-        messages.extend(_symlink_items(commands_source, claude_dir / "commands"))
 
     if monitor:
         messages.extend(install_session_channel())

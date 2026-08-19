@@ -13,8 +13,10 @@ Imported skills:
 - `codebase-design/` — skills/engineering/codebase-design/
 - `tdd/` — skills/engineering/tdd/
 - `domain-modeling/` — skills/engineering/domain-modeling/
+- `resolve-rebase-conflicts/` — skills/engineering/resolving-merge-conflicts/ (adapted)
 
-Imported verbatim, unmodified, on 2026-08-07.
+Imported verbatim, unmodified, on 2026-08-07, except `resolve-rebase-conflicts/`, which is
+adapted for this project's rebase flow.
 
 ### MIT License text
 

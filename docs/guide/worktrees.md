@@ -189,7 +189,7 @@ another branch has nothing to abort. `mael sync` says which branch you are on, a
 the steps to finish by hand.
 
 The command needs `mael install` to have linked `/resolve-rebase-conflicts` into
-`~/.claude/commands/`.
+`~/.claude/skills/`.
 
 The repair session runs unattended, in the same auto permission mode as a `mode: auto`
 task. The session edits files in the worktree and runs the project's checks without asking.

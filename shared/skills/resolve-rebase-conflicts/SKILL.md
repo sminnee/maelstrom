@@ -1,3 +1,11 @@
+---
+name: resolve-rebase-conflicts
+description: Resolve the conflicts of a rebase that is already in progress, then continue the rebase to its end. Usually started headlessly by `mael sync --autorepair`. Invoked as the `/resolve-rebase-conflicts` slash command.
+disable-model-invocation: true
+metadata:
+  opencode/autoinvoke: false
+---
+
 # Resolve Rebase Conflicts Command
 
 Resolves the conflicts of a rebase that is already in progress, then continues the rebase to its

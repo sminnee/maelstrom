@@ -1,3 +1,11 @@
+---
+name: plan-next-step
+description: Plan one concrete next step of a multi-session chain, then re-queue itself for the remaining work. Runs inside a `mael`-launched planning session. Invoked as the `/plan-next-step` slash command.
+disable-model-invocation: true
+metadata:
+  opencode/autoinvoke: false
+---
+
 # Plan Next Step Command
 
 **Load the `planning` skill first** — it carries the draft-file mechanics this command relies
