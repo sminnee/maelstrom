@@ -5,6 +5,8 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
+from contextlib import ExitStack
 from unittest.mock import ANY, patch, MagicMock
 
 from click.testing import CliRunner
@@ -922,7 +924,7 @@ class TestCmdAddExistingBranch:
             assert result.exit_code == 0, result.output
 
             mocks["launch_claude_in_worktree"].assert_called_once_with(
-                existing_wt, project="proj", worktree="bravo",
+                existing_wt, project="proj", worktree="bravo", harness="claude",
             )
             mocks["create_worktree"].assert_not_called()
             # cmd_add no longer runs install itself; the launcher owns it.
@@ -939,7 +941,7 @@ class TestCmdAddExistingBranch:
             assert result.exit_code == 0, result.output
 
             mocks["launch_claude_in_worktree"].assert_called_once_with(
-                existing_wt, project="proj", worktree="bravo",
+                existing_wt, project="proj", worktree="bravo", harness="claude",
             )
             mocks["create_worktree"].assert_not_called()
 
@@ -1384,7 +1386,7 @@ class TestCreateProjectIntegration:
 
         launched = {}
 
-        def fake_launch(path, project=None, worktree=None):
+        def fake_launch(path, project=None, worktree=None, **kwargs):
             launched.update(path=path, project=project, worktree=worktree)
             return True
 
@@ -1642,3 +1644,48 @@ class TestMvProjectIntegration:
             if c.status.name in ("WARNING", "ERROR")
         ]
         assert not bad, [(c.status, c.message) for c in bad]
+
+
+class TestOpenHarness:
+    """`mael open` / `mael claude` thread the harness flags to the launcher."""
+
+    def _invoke(self, args, tmp_path):
+        worktree = tmp_path / "wt"
+        worktree.mkdir()
+        ctx = SimpleNamespace(
+            project="p", worktree="alpha", worktree_path=worktree,
+        )
+        with ExitStack() as stack:
+            stack.enter_context(patch(
+                "maelstrom.cli.resolve_context", return_value=ctx
+            ))
+            launch = stack.enter_context(
+                patch("maelstrom.cli.launch_claude_in_worktree")
+            )
+            launch.return_value = True
+            result = CliRunner().invoke(cli, args)
+        return result, launch
+
+    def test_open_default_harness_is_claude(self, tmp_path):
+        result, launch = self._invoke(["open", "p/alpha"], tmp_path)
+        assert result.exit_code == 0, result.output
+        assert launch.call_args.kwargs["harness"] == "claude"
+
+    def test_open_opencode_shorthand(self, tmp_path):
+        result, launch = self._invoke(["open", "p/alpha", "--opencode"], tmp_path)
+        assert result.exit_code == 0, result.output
+        assert launch.call_args.kwargs["harness"] == "opencode"
+
+    def test_claude_harness_flag(self, tmp_path):
+        result, launch = self._invoke(
+            ["claude", "p/alpha", "--harness", "opencode"], tmp_path
+        )
+        assert result.exit_code == 0, result.output
+        assert launch.call_args.kwargs["harness"] == "opencode"
+
+    def test_conflicting_flags_error(self, tmp_path):
+        result, _ = self._invoke(
+            ["claude", "p/alpha", "--harness", "claude", "--opencode"], tmp_path
+        )
+        assert result.exit_code != 0
+        assert "--opencode" in result.output

@@ -19,7 +19,8 @@ from .cmux import mael_layout
 from .cmux.client import ensure_cmux_running, resolve_socket_path
 from .session_cli import session as session_cli, session_channel as session_channel_cmd
 from .task_cli import task as task_cli
-from .task_cli import add_task
+from .task_cli import _harness_options as _harness_flags
+from .task_cli import add_task, resolve_harness_or_fail
 from . import task as task_model
 from .task_index import StaleTaskIndexError
 from .task_store import GitFileStore
@@ -72,6 +73,7 @@ from .worktree import (
     update_claude_local_md,
 )
 from .worktree_launcher import (
+    HARNESS_CLAUDE,
     launch_claude_in_worktree,
     open_worktree,
 )
@@ -94,16 +96,21 @@ START_BRANCH = "feat/start-project"
 
 
 def _launch_claude_or_raise(
-    worktree_path: Path, project: str | None, worktree: str | None
+    worktree_path: Path,
+    project: str | None,
+    worktree: str | None,
+    harness: str = HARNESS_CLAUDE,
 ) -> None:
-    """Launch a plain Claude session inside cmux, or raise if placement fails.
+    """Launch a plain harness session inside cmux, or raise if placement fails.
 
-    ``mael`` always places Claude in cmux by driving the socket — starting the
-    app if it's down. There is no local fallback: if cmux can't be reached we
-    error clearly rather than silently dropping a ``claude`` into the current
+    ``mael`` always places the session in cmux by driving the socket — starting
+    the app if it's down. There is no local fallback: if cmux can't be reached
+    we error clearly rather than silently dropping a ``claude`` into the current
     shell. ``mael task run --here`` is the only path that runs Claude locally.
     """
-    if not launch_claude_in_worktree(worktree_path, project=project, worktree=worktree):
+    if not launch_claude_in_worktree(
+        worktree_path, project=project, worktree=worktree, harness=harness
+    ):
         raise click.ClickException(
             "cmux is not running and could not be started; start cmux and retry"
         )
@@ -821,8 +828,9 @@ def cmd_list_all():
 
 
 @cli.command("open")
+@_harness_flags()
 @click.argument("target", required=False, default=None)
-def cmd_open(target):
+def cmd_open(target, harness: str | None, opencode_flag: bool):
     """Start a Claude Code CLI session in a worktree."""
     try:
         ctx = resolve_context(
@@ -838,7 +846,10 @@ def cmd_open(target):
     if worktree_path is None or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
-    _launch_claude_or_raise(worktree_path, ctx.project, ctx.worktree)
+    _launch_claude_or_raise(
+        worktree_path, ctx.project, ctx.worktree,
+        harness=resolve_harness_or_fail(harness, opencode_flag),
+    )
 
 
 @cli.command("ide")
@@ -867,8 +878,9 @@ def cmd_ide(target):
 
 
 @cli.command("claude")
+@_harness_flags()
 @click.argument("target", required=False, default=None)
-def cmd_claude(target):
+def cmd_claude(target, harness: str | None, opencode_flag: bool):
     """Start a Claude Code CLI session in a worktree."""
     try:
         ctx = resolve_context(
@@ -884,7 +896,10 @@ def cmd_claude(target):
     if worktree_path is None or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
-    _launch_claude_or_raise(worktree_path, ctx.project, ctx.worktree)
+    _launch_claude_or_raise(
+        worktree_path, ctx.project, ctx.worktree,
+        harness=resolve_harness_or_fail(harness, opencode_flag),
+    )
 
 
 def _base_store_for(worktree_path: Path) -> GitConfigBaseStore:

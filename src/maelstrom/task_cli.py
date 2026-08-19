@@ -34,10 +34,50 @@ from .worktree import (
     setup_worktree_for_branch,
 )
 from .worktree_launcher import (
+    HARNESS_CLAUDE,
+    HARNESS_OPENCODE,
+    HARNESSES,
     build_task_launch_line,
     launch_claude_in_worktree,
+    resolve_harness,
 )
 from .worktree_model import has_claude_transcript
+
+
+def resolve_harness_or_fail(harness: str | None, opencode: bool) -> str:
+    """The CLI face of :func:`resolve_harness`: errors become ClickExceptions.
+
+    One line per call site instead of the four-line try/except each launch
+    command would otherwise repeat.
+    """
+    try:
+        return resolve_harness(harness, opencode)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+
+def _harness_options():
+    """The ``--harness`` / ``--opencode`` flag pair shared by launch commands.
+
+    Applied as ``@_harness_options()``; the command body calls
+    :func:`resolve_harness` on the two params. Default (no flag) is claude.
+    """
+
+    def decorator(f):
+        f = click.option(
+            "--opencode",
+            "opencode_flag",
+            is_flag=True,
+            help="Shorthand for --harness opencode.",
+        )(f)
+        return click.option(
+            "--harness",
+            type=click.Choice(HARNESSES),
+            default=None,
+            help="Agent harness to launch (default: claude).",
+        )(f)
+
+    return decorator
 
 
 def _current_branch_or_none() -> str | None:
@@ -130,6 +170,7 @@ def _run_task(
     *,
     here: bool = False,
     fresh: bool = False,
+    harness: str = HARNESS_CLAUDE,
 ) -> None:
     """Mark a task in-progress and launch its Claude session.
 
@@ -154,20 +195,25 @@ def _run_task(
     # Deterministic session id (same task → same id), passed to `claude
     # --session-id` so the live process — and the registry — can be mapped back
     # to this task. Computed up-front because the run-guard keys on it.
-    session_id = model.session_id_for(project, task.id)
+    # Claude-only: opencode assigns its own session ids, so there is nothing to
+    # pin, resume, or guard on for that harness.
+    opencode = harness == HARNESS_OPENCODE
+    session_id = None if opencode else model.session_id_for(project, task.id)
     # Refuse a second parallel launch *of this task*: a live `claude` whose
     # `--session-id` is this task's own id (see session_discovery). Keying on the
     # session-id, not on worktree occupancy, means a sibling task sharing the
     # worktree (one PR per parent → one branch) can run concurrently and never
     # trips this guard. A *finished* session leaves nothing running, so a finished
     # task stays re-runnable and is deliberately NOT blocked.
-    existing = session_discovery.LiveSessionSet().for_session_id(session_id)
-    if existing is not None:
-        raise click.ClickException(
-            f"Task {task.id} already has a live Claude session "
-            f"(pid {existing.pid}). Close it before relaunching, or run "
-            f"`mael task reconcile` to inspect."
-        )
+    if not opencode:
+        assert session_id is not None  # set above on the claude path
+        existing = session_discovery.LiveSessionSet().for_session_id(session_id)
+        if existing is not None:
+            raise click.ClickException(
+                f"Task {task.id} already has a live Claude session "
+                f"(pid {existing.pid}). Close it before relaunching, or run "
+                f"`mael task reconcile` to inspect."
+            )
 
     # Skills running inside the session self-reference via these — e.g. to
     # `mael task done $MAEL_TASK_ID` and `--follow-end linear.<parent>`.
@@ -190,8 +236,11 @@ def _run_task(
         # question is whether this task's deterministic session was started before
         # and stopped: an on-disk transcript means `--session-id` would fail with
         # "already exists", so we resume it instead. `--here` runs in the cwd.
-        # fresh ⇒ never resume; see docstring.
-        resume = (not fresh) and has_claude_transcript(Path.cwd(), session_id)
+        # fresh ⇒ never resume; see docstring. opencode has no id to resume.
+        resume = False
+        if not opencode and not fresh:
+            assert session_id is not None  # set above on the claude path
+            resume = has_claude_transcript(Path.cwd(), session_id)
         task_actions.move_with_actions(
             store, project, task.id, model.STATUS_IN_PROGRESS, index=index
         )  # write BEFORE launch; fires pre_action
@@ -202,6 +251,7 @@ def _run_task(
             build_task_launch_line(
                 project, task.id, perm, env=session_env,
                 session_id=session_id, resume=resume, model=task.model or None,
+                harness=harness,
             ),
             cwd=None,
             env=session_env,
@@ -242,8 +292,11 @@ def _run_task(
 
     # Resume a previously-started (now-stopped) session rather than re-creating
     # its id: the worktree the session lives in is the one just set up.
-    # fresh ⇒ never resume; see docstring.
-    resume = (not fresh) and has_claude_transcript(result.path, session_id)
+    # fresh ⇒ never resume; see docstring. opencode has no id to resume.
+    resume = False
+    if not opencode and not fresh:
+        assert session_id is not None  # set above on the claude path
+        resume = has_claude_transcript(result.path, session_id)
     task_actions.move_with_actions(
         store, project, task.id, model.STATUS_IN_PROGRESS, index=index
     )  # write BEFORE launch; fires pre_action
@@ -261,6 +314,7 @@ def _run_task(
         session_id=session_id,
         resume=resume,
         model=task.model or None,
+        harness=harness,
     )
     if not placed:
         # cmux couldn't be reached, so no session opened. Roll the task back to
@@ -1145,6 +1199,7 @@ def _next_fire_display(task: "model.Task") -> str:
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 @click.option("--parent", default=None, help="Restrict to children of this id.")
 @click.option("--run", is_flag=True, help="Launch the next actionable task as a session.")
+@_harness_options()
 @click.option(
     "-b",
     "--branch",
@@ -1160,6 +1215,8 @@ def task_next(
     project: str | None,
     parent: str | None,
     run: bool,
+    harness: str | None,
+    opencode_flag: bool,
     branch: str | None,
     here: bool,
 ) -> None:
@@ -1183,12 +1240,16 @@ def task_next(
     if nxt is None:
         raise click.ClickException("No actionable task.")
     if run:
-        _run_task(store, proj, nxt, here=here)
+        _run_task(
+            store, proj, nxt, here=here,
+            harness=resolve_harness_or_fail(harness, opencode_flag),
+        )
     else:
         click.echo(nxt.id)
 
 
 @task.command("run")
+@_harness_options()
 @click.argument("id")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 @click.option(
@@ -1196,15 +1257,16 @@ def task_next(
     is_flag=True,
     help="Launch in the current shell (no worktree, no new workspace).",
 )
-def task_run(id: str, project: str | None, here: bool) -> None:
+def task_run(id: str, project: str | None, here: bool, harness: str | None, opencode_flag: bool) -> None:
     """Launch a task as a Claude session (ensures its worktree first)."""
+    resolved = resolve_harness_or_fail(harness, opencode_flag)
     proj = _resolve_project(project)
     store = _store()
     try:
         t = model.load(store, proj, id)
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
-    _run_task(store, proj, t, here=here)
+    _run_task(store, proj, t, here=here, harness=resolved)
 
 
 def _live_sessions_by_task(

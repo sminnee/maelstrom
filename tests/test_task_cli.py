@@ -643,6 +643,75 @@ class TestRun:
         assert "Task not found" in result.output
         launch.session.assert_not_called()
 
+
+class TestRunHarness:
+    def test_run_opencode_launches_without_session_machinery(self, runner, store, launch, monkeypatch):
+        # OpenCode cannot take a known session id, so the whole claude session
+        # model is side-stepped: no session id reaches the launcher, and the
+        # transcript resume check must not even run.
+        def _no_transcript(*a, **k):
+            raise AssertionError("has_claude_transcript must not run for opencode")
+        monkeypatch.setattr(task_cli, "has_claude_transcript", _no_transcript)
+        t = model.create(store, project="p", title="Plan it")
+        result = runner.invoke(task_cli.task, ["run", t.id, "--opencode"])
+        assert result.exit_code == 0, result.output
+        kwargs = launch.session.call_args.kwargs
+        assert kwargs["harness"] == "opencode"
+        assert kwargs["session_id"] is None
+        assert kwargs["resume"] is False
+        assert model.load(store, "p", t.id).status == model.STATUS_IN_PROGRESS
+
+    def test_run_opencode_skips_duplicate_launch_guard(self, runner, store, launch, monkeypatch):
+        # The guard keys on a live claude process holding the task's
+        # deterministic --session-id; neither applies to opencode, so even a
+        # live claude session for this task must not block an opencode launch.
+        t = model.create(store, project="p", title="Plan it")
+        from maelstrom import session_discovery
+        live = session_discovery.LiveSession(
+            pid=1, cwd=Path("/x"), session_id=model.session_id_for("p", t.id),
+        )
+        _patch_live_sessions(monkeypatch, [live])
+        result = runner.invoke(task_cli.task, ["run", t.id, "--opencode"])
+        assert result.exit_code == 0, result.output
+        launch.session.assert_called_once()
+
+    def test_run_default_harness_is_claude(self, runner, store, launch):
+        t = model.create(store, project="p", title="Plan it")
+        result = runner.invoke(task_cli.task, ["run", t.id])
+        assert result.exit_code == 0, result.output
+        assert launch.session.call_args.kwargs["harness"] == "claude"
+
+    def test_run_harness_flag_accepts_opencode(self, runner, store, launch):
+        t = model.create(store, project="p", title="Plan it")
+        result = runner.invoke(task_cli.task, ["run", t.id, "--harness", "opencode"])
+        assert result.exit_code == 0, result.output
+        assert launch.session.call_args.kwargs["harness"] == "opencode"
+
+    def test_run_opencode_shorthand_conflicts_with_harness_flag(self, runner, store):
+        t = model.create(store, project="p", title="Plan it")
+        result = runner.invoke(
+            task_cli.task, ["run", t.id, "--harness", "claude", "--opencode"]
+        )
+        assert result.exit_code != 0
+        assert "--opencode" in result.output
+
+    def test_run_here_opencode_execs_the_opencode_line(self, runner, store, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            task_cli, "exec_cmd", lambda cmd, **kw: calls.append(describe(cmd))
+        )
+        t = model.create(store, project="p", title="Plan it")
+        result = runner.invoke(task_cli.task, ["run", t.id, "--here", "--opencode"])
+        assert result.exit_code == 0, result.output
+        assert calls[0].startswith("MAEL_TASK_ID=")
+        assert 'opencode2 --prompt "$(mael task prompt' in calls[0]
+
+    def test_next_run_opencode_threads_the_harness(self, runner, store, launch):
+        model.create(store, project="p", title="First")
+        result = runner.invoke(task_cli.task, ["next", "--run", "--opencode"])
+        assert result.exit_code == 0, result.output
+        assert launch.session.call_args.kwargs["harness"] == "opencode"
+
     def test_run_missing_project_path_errors(self, runner, store, monkeypatch, tmp_path):
         t = model.create(store, project="p", title="t")
         missing = tmp_path / "absent"
