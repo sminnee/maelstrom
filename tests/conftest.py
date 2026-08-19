@@ -25,6 +25,19 @@ def _block_real_cmux():
 
 
 @pytest.fixture(autouse=True)
+def _pin_harness_env(monkeypatch):
+    """Keep the outer shell's harness out of the tests.
+
+    ``resolve_harness`` detects the harness from ``CLAUDECODE`` /
+    ``OPENCODE_TERMINAL``, so running pytest inside a Claude Code or OpenCode
+    session would otherwise flip every default-launch test to that harness.
+    Tests for the detection itself patch the env explicitly.
+    """
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.delenv("OPENCODE_TERMINAL", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _block_real_claude_branch_gen(monkeypatch):
     """Prevent branch-name generation from shelling out to a live ``claude``.
 

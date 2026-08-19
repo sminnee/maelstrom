@@ -60,7 +60,8 @@ def _harness_options():
     """The ``--harness`` / ``--opencode`` flag pair shared by launch commands.
 
     Applied as ``@_harness_options()``; the command body calls
-    :func:`resolve_harness` on the two params. Default (no flag) is claude.
+    :func:`resolve_harness` on the two params. Default (no flag) is the
+    harness the command runs in, claude otherwise.
     """
 
     def decorator(f):
@@ -74,7 +75,8 @@ def _harness_options():
             "--harness",
             type=click.Choice(HARNESSES),
             default=None,
-            help="Agent harness to launch (default: claude).",
+            help="Agent harness to launch (default: the harness mael runs "
+                 "inside, claude otherwise).",
         )(f)
 
     return decorator
