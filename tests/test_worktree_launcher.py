@@ -13,6 +13,7 @@ from unittest.mock import patch
 from maelstrom.shell import Command, Pipeline, describe, exec_cmd
 from maelstrom.worktree_launcher import (
     build_claude_command,
+    build_harness_command,
     build_task_launch_line,
     launch_claude_in_worktree,
     open_claude_workspace,
@@ -133,6 +134,77 @@ class TestBuildClaudeCommand:
             "--session-id",
             "abc-123",
         ]
+
+
+class TestBuildHarnessCommand:
+    """Tests for harness dispatch over the plain-command builder."""
+
+    def test_default_is_claude(self):
+        assert build_harness_command() == ["claude"]
+
+    def test_opencode_plain_command(self):
+        # opencode has no claude-style flags in v1: a bare `opencode2` opens the
+        # worktree (cmux already placed the cwd).
+        assert build_harness_command(harness="opencode") == ["opencode2"]
+
+    def test_opencode_ignores_claude_only_options(self):
+        # permission mode, session id and model are claude-only; none may leak
+        # into an opencode argv.
+        assert build_harness_command(
+            "auto", "abc-123", model="opus", harness="opencode"
+        ) == ["opencode2"]
+
+    def test_unknown_harness_raises(self):
+        with pytest.raises(ValueError, match="harness"):
+            build_harness_command(harness="cursor")
+
+
+class TestBuildTaskLaunchLineOpenCode:
+    """Tests for the opencode task launch line (no pipeline, no session id)."""
+
+    def test_prompt_via_command_substitution(self):
+        # opencode takes the prompt as a --prompt flag; the lazily-produced
+        # `mael task prompt` output reaches it via `"$(...)"` substitution —
+        # quoted so a multi-line prompt stays one argument.
+        assert describe(build_task_launch_line("proj", "t1", harness="opencode")) == (
+            'opencode2 --prompt "$(mael task prompt t1 --project proj)"'
+        )
+
+    def test_env_prefixes_opencode_segment(self):
+        line = describe(build_task_launch_line(
+            "proj", "t1", harness="opencode", env={"MAEL_TASK_ID": "t1"},
+        ))
+        assert line.startswith("MAEL_TASK_ID=t1 opencode2 ")
+        assert line.endswith(' --prompt "$(mael task prompt t1 --project proj)"')
+
+    def test_quotes_ids_and_projects_with_spaces(self):
+        assert describe(build_task_launch_line(
+            "my proj", "task one", harness="opencode"
+        )) == (
+            'opencode2 --prompt "$(mael task prompt \'task one\' --project \'my proj\')"'
+        )
+
+    def test_substitution_reaches_opencode_through_real_shell(self):
+        # Semantic guard, mirroring the claude env test: run the produced line
+        # through ``sh -c`` with a stub ``mael`` (echoes a prompt) and a stub
+        # ``opencode2`` that writes its ``--prompt`` argument to a file.
+        with TemporaryDirectory() as tmpdir:
+            stub_dir = Path(tmpdir)
+            mael = stub_dir / "mael"
+            mael.write_text('#!/bin/sh\necho "the prompt"\n')
+            mael.chmod(0o755)
+            out = stub_dir / "prompt.txt"
+            opencode = stub_dir / "opencode2"
+            opencode.write_text('#!/bin/sh\necho "$2" > "$OUT"\n')
+            opencode.chmod(0o755)
+            line = describe(build_task_launch_line("proj", "t1", harness="opencode"))
+            env = {
+                **os.environ,
+                "PATH": f"{stub_dir}:{os.environ['PATH']}",
+                "OUT": str(out),
+            }
+            subprocess.run(["sh", "-c", line], env=env, check=True, capture_output=True)
+            assert out.read_text().strip() == "the prompt"
 
 
 class TestBuildTaskLaunchLine:

@@ -59,14 +59,39 @@ class Pipeline:
 ShellExpr = list[str] | Command | Pipeline
 
 
+class Subst(str):
+    """A single argv element that is a pre-rendered, quoted command substitution.
+
+    ``str`` subclass so it can sit inside a plain ``argv: list[str]`` while
+    rendering as ``"$(...)"`` instead of a literal word. Built by
+    :func:`command_substitution`; never hand-constructed (the inner argv must
+    be shlex-joined, which is that function's one job).
+    """
+
+
+def command_substitution(argv: list[str]) -> Subst:
+    """Render ``argv`` as a quoted ``"$(...)"`` argv element.
+
+    Double-quoted so a multi-word/multi-line result stays one shell word. The
+    inner ``shlex.join`` output only ever contains single quotes, so it cannot
+    break out of the surrounding double quotes.
+    """
+    return Subst(f'"$({shlex.join(argv)})"')
+
+
+def _join_argv(argv: list[str]) -> str:
+    """Join argv into shell words, leaving :class:`Subst` elements verbatim."""
+    return " ".join(s if isinstance(s, Subst) else shlex.quote(s) for s in argv)
+
+
 def _shell_string(expr: ShellExpr) -> str:
     """Render ``expr`` to a shell string. The ONLY place quoting/escaping happens."""
     match expr:
         case list():  # bare argv — base case
-            return shlex.join(expr)
+            return _join_argv(expr)
         case Command(argv, env):
             prefix = "".join(f"{k}={shlex.quote(v)} " for k, v in env.items())
-            return f"{prefix}{shlex.join(argv)}"
+            return f"{prefix}{_join_argv(argv)}"
         case Pipeline(stages):
             return " | ".join(_shell_string(s) for s in stages)
         case _:

@@ -30,7 +30,23 @@ from pathlib import Path
 from .config import load_config_or_default
 from .cmux import mael_layout
 from .cmux.client import ensure_cmux_running
-from .shell import Command, Pipeline, ShellExpr, describe, run_cmd
+from .shell import (
+    Command,
+    Pipeline,
+    ShellExpr,
+    command_substitution,
+    describe,
+    run_cmd,
+)
+
+# Harnesses mael can launch. ``claude`` is the default and behaves exactly as
+# it always has; ``opencode`` runs ``opencode2`` instead. OpenCode sessions
+# cannot be pinned to a known session id (ids are server-assigned), so the
+# session-id/resume machinery is claude-only.
+HARNESS_CLAUDE = "claude"
+HARNESS_OPENCODE = "opencode"
+
+HARNESSES = (HARNESS_CLAUDE, HARNESS_OPENCODE)
 
 
 def open_worktree(worktree_path: Path, command: str) -> None:
@@ -87,6 +103,51 @@ def build_claude_command(
     return argv
 
 
+def build_harness_command(
+    permission_mode: str | None = None,
+    session_id: str | None = None,
+    *,
+    resume: bool = False,
+    model: str | None = None,
+    harness: str = HARNESS_CLAUDE,
+) -> list[str]:
+    """The trailing harness argv — :func:`build_claude_command` dispatched by harness.
+
+    ``claude`` (default) is byte-identical to the historic argv. ``opencode``
+    is a bare ``opencode2``: v1 passes no permission, model or session flags —
+    opencode has no equivalent of ``--session-id`` (ids are server-assigned),
+    and permission modes were deliberately left unmapped.
+    """
+    if harness == HARNESS_OPENCODE:
+        return ["opencode2"]
+    if harness == HARNESS_CLAUDE:
+        return build_claude_command(
+            permission_mode, session_id, resume=resume, model=model
+        )
+    raise ValueError(f"Unknown harness: {harness!r}")
+
+
+def resolve_harness(harness: str | None, opencode: bool) -> str:
+    """Merge the ``--harness <name>`` flag with the ``--opencode`` shorthand.
+
+    ``--harness`` is ``None`` when the flag was not given, so the default is
+    claude without making "was it explicit?" unknowable. The shorthand wins
+    over the default but loses to a *different* explicit ``--harness`` value,
+    which is a user error (``--harness claude --opencode``).
+    """
+    if opencode:
+        if harness is not None and harness != HARNESS_OPENCODE:
+            raise ValueError(
+                f"--opencode conflicts with --harness {harness}"
+            )
+        return HARNESS_OPENCODE
+    if harness is None:
+        return HARNESS_CLAUDE
+    if harness not in HARNESSES:
+        raise ValueError(f"Unknown harness: {harness!r}")
+    return harness
+
+
 def build_task_launch_line(
     project: str,
     task_id: str,
@@ -96,6 +157,7 @@ def build_task_launch_line(
     *,
     resume: bool = False,
     model: str | None = None,
+    harness: str = HARNESS_CLAUDE,
 ) -> ShellExpr:
     """The pipeline that launches a task: ``mael task prompt ... | <env> claude ...``.
 
@@ -120,8 +182,23 @@ def build_task_launch_line(
     claude_env = dict(env or {})
     if session_id:
         claude_env["MAEL_TASK_SESSION_ID"] = session_id
+    prompt_argv = ["mael", "task", "prompt", task_id, "--project", project]
+    if harness == HARNESS_OPENCODE:
+        # No session id and no claude flags: opencode takes the prompt as a
+        # ``--prompt`` argument, so the lazily-produced `mael task prompt`
+        # output reaches it through a quoted command substitution instead of a
+        # stdin pipe. Everything claude-only (permission mode, model, resume)
+        # is deliberately dropped.
+        return Command(
+            [
+                "opencode2",
+                "--prompt",
+                command_substitution(prompt_argv),
+            ],
+            env=claude_env,
+        )
     return Pipeline([
-        Command(["mael", "task", "prompt", task_id, "--project", project]),
+        Command(prompt_argv),
         Command(
             build_claude_command(
                 permission_mode, session_id, resume=resume, model=model
@@ -174,6 +251,7 @@ def launch_claude_in_worktree(
     *,
     resume: bool = False,
     model: str | None = None,
+    harness: str = HARNESS_CLAUDE,
 ) -> bool:
     """Launch Claude for a worktree inside cmux. True if placed, False otherwise.
 
@@ -194,12 +272,13 @@ def launch_claude_in_worktree(
     if task_id and project:
         command: ShellExpr = build_task_launch_line(
             project, task_id, permission_mode, env=env,
-            session_id=session_id, resume=resume, model=model,
+            session_id=session_id, resume=resume, model=model, harness=harness,
         )
     else:
         command = Command(
-            build_claude_command(
-                permission_mode, session_id, resume=resume, model=model
+            build_harness_command(
+                permission_mode, session_id, resume=resume, model=model,
+                harness=harness,
             ),
             env=dict(env or {}),
         )
