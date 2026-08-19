@@ -24,6 +24,7 @@ Import direction: this module imports ``run_cmd`` from the ``shell`` leaf and
 module (nothing in it calls the launcher).
 """
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -127,12 +128,32 @@ def build_harness_command(
     raise ValueError(f"Unknown harness: {harness!r}")
 
 
+def _detect_harness_from_env() -> str | None:
+    """The harness that launched the current shell, from its environment.
+
+    Claude Code exports ``CLAUDECODE=1`` to its shell processes (its session
+    also exports ``CLAUDE_CODE_SESSION_ID``, which session_cli already reads).
+    OpenCode exports ``OPENCODE_TERMINAL=1``. ``CLAUDECODE`` is the more
+    specific signal — it means "this process is Claude Code", while
+    ``OPENCODE_TERMINAL`` only means an opencode process is somewhere up the
+    tree — so it outranks the other when both are set (claude nested inside an
+    opencode terminal).
+    """
+    if os.environ.get("CLAUDECODE"):
+        return HARNESS_CLAUDE
+    if os.environ.get("OPENCODE_TERMINAL"):
+        return HARNESS_OPENCODE
+    return None
+
+
 def resolve_harness(harness: str | None, opencode: bool) -> str:
     """Merge the ``--harness <name>`` flag with the ``--opencode`` shorthand.
 
-    ``--harness`` is ``None`` when the flag was not given, so the default is
-    claude without making "was it explicit?" unknowable. The shorthand wins
-    over the default but loses to a *different* explicit ``--harness`` value,
+    ``--harness`` is ``None`` when the flag was not given. Precedence, strongest
+    first: an explicit flag (``--harness`` or ``--opencode``), then the
+    environment the command runs in (a ``mael task run`` typed inside an
+    OpenCode session launches OpenCode; ``--harness claude`` overrides), then
+    claude. The shorthand loses to a *different* explicit ``--harness`` value,
     which is a user error (``--harness claude --opencode``).
     """
     if opencode:
@@ -142,7 +163,7 @@ def resolve_harness(harness: str | None, opencode: bool) -> str:
             )
         return HARNESS_OPENCODE
     if harness is None:
-        return HARNESS_CLAUDE
+        return _detect_harness_from_env() or HARNESS_CLAUDE
     if harness not in HARNESSES:
         raise ValueError(f"Unknown harness: {harness!r}")
     return harness

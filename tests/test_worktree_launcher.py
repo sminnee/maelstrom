@@ -18,6 +18,7 @@ from maelstrom.worktree_launcher import (
     launch_claude_in_worktree,
     open_claude_workspace,
     open_worktree,
+    resolve_harness,
 )
 
 
@@ -157,6 +158,42 @@ class TestBuildHarnessCommand:
     def test_unknown_harness_raises(self):
         with pytest.raises(ValueError, match="harness"):
             build_harness_command(harness="cursor")
+
+
+class TestResolveHarness:
+    """Tests for flag + environment precedence in harness resolution.
+
+    Environment detection lets a `mael task run` typed inside an OpenCode
+    session launch OpenCode instead of Claude, without spelling out the flag.
+    """
+
+    def test_no_flag_no_env_is_claude(self):
+        with patch.dict(os.environ, {}, clear=True):
+            assert resolve_harness(None, False) == "claude"
+
+    def test_opencode_flag_wins_over_claude_env(self):
+        with patch.dict(os.environ, {"CLAUDECODE": "1"}, clear=True):
+            assert resolve_harness(None, True) == "opencode"
+
+    def test_harness_flag_wins_over_opencode_env(self):
+        with patch.dict(os.environ, {"OPENCODE_TERMINAL": "1"}, clear=True):
+            assert resolve_harness("claude", False) == "claude"
+
+    def test_claude_env_detects_claude(self):
+        with patch.dict(os.environ, {"CLAUDECODE": "1"}, clear=True):
+            assert resolve_harness(None, False) == "claude"
+
+    def test_opencode_env_detects_opencode(self):
+        with patch.dict(os.environ, {"OPENCODE_TERMINAL": "1"}, clear=True):
+            assert resolve_harness(None, False) == "opencode"
+
+    def test_both_env_vars_claude_wins(self):
+        # CLAUDECODE means "this process is Claude Code"; OPENCODE_TERMINAL
+        # only means an opencode process is somewhere up the tree, so the
+        # more specific signal outranks it.
+        env = {"CLAUDECODE": "1", "OPENCODE_TERMINAL": "1"}
+        with patch.dict(os.environ, env, clear=True):
+            assert resolve_harness(None, False) == "claude"
 
 
 class TestBuildTaskLaunchLineOpenCode:

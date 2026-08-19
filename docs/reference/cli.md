@@ -244,6 +244,12 @@ session ids, so maelstrom does not pin, resume, or duplicate-guard those session
 opencode launch starts a fresh session, and the task prompt reaches it via
 `--prompt`.
 
+When no harness flag is given, maelstrom detects the harness the command runs in: a shell
+inside Claude Code (`CLAUDECODE=1`) defaults to `claude`, a shell inside OpenCode
+(`OPENCODE_TERMINAL=1`) defaults to `opencode`. An explicit flag always wins — pass
+`--harness claude` to launch Claude from inside an OpenCode session. A plain terminal with
+neither variable set defaults to `claude`.
+
 **`mael session info` and `mael session end`**
 
 `ID` is a session id, a unique prefix of one (4 characters or more), or a pid. `mael session list`
@@ -447,7 +453,7 @@ the field.
 | `--run` | Launch the next actionable task as a session. |
 | `-b`, `--branch TEXT` | Restrict strictly to this branch. No fallback to other branches. |
 | `--here` | With `--run`, launch in the current shell. |
-| `--harness NAME` | Agent harness to launch: `claude` (default) or `opencode`. |
+| `--harness NAME` | Agent harness to launch: `claude` (default) or `opencode`. Defaults to the harness the command runs in when neither flag is given. |
 | `--opencode` | Shorthand for `--harness opencode`. |
 
 By default `next` prefers a task on the current git branch, then falls back to the global
@@ -458,7 +464,7 @@ next task.
 | Option | Description |
 |---|---|
 | `--here` | Launch in the current shell. No worktree, no new workspace. |
-| `--harness NAME` | Agent harness to launch: `claude` (default) or `opencode`. |
+| `--harness NAME` | Agent harness to launch: `claude` (default) or `opencode`. Defaults to the harness the command runs in when neither flag is given. |
 | `--opencode` | Shorthand for `--harness opencode`. |
 
 **`mael task load-many`**
