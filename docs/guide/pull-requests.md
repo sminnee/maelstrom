@@ -75,16 +75,31 @@ It runs `mael git squash` first, so the review sees the commits as they will lan
 a history littered with fixups. Rebase conflicts stop the review; a dirty worktree does not,
 because the squash autostashes. This step is skipped when you name an explicit SHA or range.
 
-Then it reviews the branch **one commit at a time**: one **read-only sub-agent** per commit,
-all running concurrently, so the diff never enters the parent's context. Each reviewer may
-read *later* commits in the branch, so work finished by a follow-up commit is not reported as
-a problem. Findings are merged into one report, in commit order:
+Then it spawns **read-only sub-agents**, all running concurrently, so the diff never enters the
+parent's context. Two kinds run:
+
+- **One per commit**, reviewing that commit's code. Each reviewer may read *later* commits in
+  the branch, so work finished by a follow-up commit is not reported as a problem.
+- **One for the whole branch**, reviewing prose: comments, docstrings, and documents.
+
+The prose reviewer exists because the commit reviewers cannot do its job. They weigh
+architecture above language, and each one sees a single commit — so a paragraph copied into
+four files is invisible to all of them. Its own agent gives prose its own budget and the
+whole-branch view. It is skipped on a branch that changes no prose.
+
+Findings are merged into one report:
 
 1. Summary (the branch as a whole)
 2. Per commit: design decisions, then findings
+3. Prose: design decisions, then findings
 
-Reviewing per commit means every finding is already attributed to the commit that introduced
-it, which is what the fixup below targets.
+Reviewing per commit means every code finding is already attributed to the commit that
+introduced it, which is what the fixup below targets. A prose finding often spans commits, so
+it lands as a fixup on `HEAD`, and those commits come back for review next run.
+
+The prose reviewer also sweeps the repo for duplicated explanations, which can name a file the
+branch never touched. Review never edits such a file on its own. It asks you first, with the
+copy it would keep and the words the cut would save.
 
 **Findings are not ranked blocking vs advisory.** A sub-agent reviewing one commit cannot know
 your release pressure, or what you already plan to change. It therefore reports what it found
@@ -93,9 +108,10 @@ in-scope ones; discard the ones that do not apply; raise anything that materiall
 with you. Potential refactors always go in that last bucket — a review is the best place to
 notice them, and dropping them silently is how they get lost.
 
-Every reviewer loads `review-guide.md` from the skill directory — the cross-project baseline,
-worked layer by layer: specifications & subsystems, architecture, test design, security &
-correctness, coding standards, language. If the project also
+Every commit reviewer loads `review-guide.md` from the skill directory — the cross-project
+baseline, worked layer by layer: specifications & subsystems, architecture, test design,
+security & correctness, coding standards. The prose reviewer loads the `writing-for-humans` and
+`writing-for-agents` skills instead, plus `CONTEXT.md` as the glossary. If the project also
 supplies `docs/review/coding-standards.md` or its own `docs/review/review-guide.md`, those load
 too and take precedence.
 

@@ -87,15 +87,20 @@ Judge your commit on the branch's final state, not on its own snapshot.
 
 ## What to focus on
 
-`review-guide.md` opens with a checklist organised into six layers — specifications &
-subsystems, architecture, test design, security & correctness, coding standards, language.
+`review-guide.md` opens with a checklist organised into five layers — specifications &
+subsystems, architecture, test design, security & correctness, coding standards.
 Work the checklist **layer by layer, top down**, then read the sections your hits belong to.
 
 The order carries the weight: the most likely feedback on this review is not code correctness
 but an architectural decision. Give layers 1 and 2 the most attention — accidental complexity,
 subsystems polluted with concerns that are not their own, a supporting tool the code is
-tolerating instead of redesigning. Those findings are worth more than any number of layer 4–6
-findings.
+tolerating instead of redesigning.
+
+**Prose belongs to another agent.** A dedicated reviewer reads the whole branch's comments,
+docstrings and documents, and it is the only reviewer that can catch a phrase copied across
+files. Report the code; leave the wording to it. Report a comment only when it makes the code
+wrong — a docstring contradicting its function, a comment that has drifted from the code beneath
+it. Layer 5's documentation coverage stays yours: it is judged against your own commit's diff.
 
 The one rule worth repeating here: **defer to CI gates.** Pyright, ruff, eslint, prettier, tsc,
 knip, and vulture each run as their own jobs. Do not duplicate their findings — no type errors, no
@@ -108,15 +113,15 @@ raised as false positives before. If your finding is listed there, drop it.
 Also report **design decisions worth calling out**: noteworthy or controversial choices,
 trade-offs, and divergences from convention in your commit.
 
-## Do not rank findings by severity
+## Write findings the parent can triage
 
-Report what you found. **Do not sort findings into blocking/advisory tiers, and do not label them
-with a severity.** You are reviewing one commit in isolation; you don't know the user's release
-pressure, their tolerance for a given class of issue, or what they already plan to change.
+Report what you found, and let the parent rank it. You are reviewing one commit in isolation, so
+you do not know the user's release pressure, their tolerance for a given class of issue, or what
+they already plan to change. A severity label pre-empts that judgement with less information than
+the parent has, so leave findings unranked and untagged.
 
-The parent agent triages your findings into three buckets — apply now, raise with the user, or
-discard — and it decides that from **what the fix would cost**. Write each finding so that
-judgement is possible:
+The parent sorts them into three buckets — apply now, raise with the user, or discard — and it
+decides that from **what the fix would cost**. Write each finding so that judgement is possible:
 
 - **State the consequence of leaving it.** "This drops the error, so a failed write looks like a
   success" tells the parent what a `[BLOCKING]` tag cannot.
@@ -125,8 +130,8 @@ judgement is possible:
   own code, say so plainly.
 - **Order by confidence** — the findings you are most certain are real go first.
 
-**Do not calibrate to the surrounding code.** You have read access to the whole repo, and it is
-easy to absorb a module's habits and start treating them as the standard — at which point a
+**Judge against the standard, not the neighbours.** You have read access to the whole repo, and
+it is easy to absorb a module's habits and start treating them as the standard — at which point a
 swallowed exception looks like house style and you stop reporting it. Existing code shows what
 the project has done, not what it should do. Judge against `review-guide.md` and the project's
 guides. If a problem appears throughout the file, that makes it more worth reporting, not less;

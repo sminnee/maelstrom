@@ -8,8 +8,8 @@ project's `docs/review/coding-standards.md` (prescriptive rules) and `docs/revie
 with this file, the project rule wins.
 
 **Review one layer at a time, top down.** The layers are ordered by altitude: specifications and
-subsystems first, language last. Work them in that order and give the earlier layers the most
-attention — the most likely feedback on a review is not code correctness but an architectural
+subsystems first, coding standards last. Work them in that order and give the earlier layers the
+most attention — the most likely feedback on a review is not code correctness but an architectural
 decision. We structure code so that the code, and changes to it, are easy for a reviewer (human or
 machine) to understand; layers 1–2 are where that is won or lost.
 
@@ -46,10 +46,7 @@ overbroad permissions · input trusted by origin · swallowed errors · data los
 partial failure · boundary cases · silent coercion at boundaries
 
 **Layer 5 — Coding standards** — project's `docs/review/coding-standards.md` · name and behaviour
-disagree · vague identifiers · inconsistent vocabulary · metadata-only log entries
-
-**Layer 6 — Language** — comments restating what's inferable · over-weights the latest change ·
-multi-line comments where one line would do · verbose docs where bullets would do ·
+disagree · vague identifiers · inconsistent vocabulary · metadata-only log entries ·
 user-visible change with no doc change
 
 **Broken windows** — before withdrawing any finding because "the surrounding code does this
@@ -256,52 +253,9 @@ conventions — load it where it exists and scan the diff against it. The univer
 - **Inconsistent vocabulary.** The same concept under two names in one codebase.
 - **Metadata-only log entries.** A log that exists only to carry telemetry — no message, only
   structured fields. Piggyback on an existing log line, or add one with meaningful content.
-
-## Layer 6 — Language
-
-Simplified Technical English and the project's domain glossary are the language standard, for
-docs, specs, and comments alike.
-
-### Comments
-
-The default is **no comment**. Most code carries its own meaning, and a comment earns its place
-only by holding something the reader cannot infer locally. When one is warranted it should be
-laconic — Clint Eastwood terse. Almost all comments are one line.
-
-Flag a comment or docstring that:
-
-- **Restates what's inferable locally.** Narrating the mechanics on the next line, spelling out a
-  type the annotation already gives, or repeating a rationale a sibling docstring already carries.
-- **Over-weights the latest change.** It describes *the diff that produced the code* rather than
-  the code as it now stands — "this used to be X, but…", or multi-line rationale bolted onto a
-  small edit. That story belongs in the commit message. Test: would this comment still earn its
-  place if the change had always been there?
-- **Duplicates the architecture docs.** Subsystem READMEs and spec directories are the home for
-  design rationale; a comment may *point* at them, but should not re-argue them in place.
-- **Narrates the deliberation.** The reader needs the conclusion and the constraint forcing it,
-  not the alternatives weighed or why the first attempt was wrong.
-- **Drifts from the code.** A comment describing behaviour the code no longer has is worse than
-  no comment.
-
-A layering constraint, a surprising type, or a deliberate broad `except` is worth a line — none
-needs a paragraph. Prefer trimming to deleting: the fact is usually worth keeping, the essay
-around it is not.
-
-### Documentation terseness
-
-Documentation, specs, and PR descriptions carry the same standard:
-
-- **Terse by default.** Favour bullet points over paragraphs. A reader scans bullets; a paragraph
-  buries its point.
-- **STE + the domain glossary are the language standard.** Short sentences, one instruction per
-  sentence, active voice. Reuse the glossary's terms verbatim; do not coin synonyms.
-- **Cut what the reader can derive.** Anything inferable from the source, the config, or the
-  directory layout does not belong in prose.
-
-### Documentation coverage
-
 - **User-visible change, no doc change.** New or changed flags, commands, config keys, or
-  environment variables that the project's reference docs do not mention.
+  environment variables that the project's reference docs do not mention. Judge it against your
+  own commit's diff.
 
 ## Broken windows
 
@@ -336,7 +290,7 @@ commit adds to it, follows it, or sits close enough that a reader would take it 
 
 ---
 
-## What NOT to report
+## Out of scope
 
 **Defer to CI gates.** These run as their own jobs. Duplicating them wastes the review:
 
