@@ -103,3 +103,7 @@ Re-read the draft against this list, in order. Each pass hunts one thing.
    vocabulary where no such file exists.
 6. **Stale claims.** Every command, flag, path, and behaviour named — does the code still do that?
    Run the command or read the code. Documentation the reader cannot trust costs more than none.
+7. **Show the result.** Run `richview <file>` on a document worth reading whole — a guide, a
+   README, an ADR. The user reads it formatted, and `richview` live-updates, so every later edit
+   shows up by itself. Content on stdin works too: `mael task read 2026-08-26.1 | richview`.
+   Skip this for a docstring or a comment.
