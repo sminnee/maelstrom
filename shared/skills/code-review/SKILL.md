@@ -1,14 +1,17 @@
 ---
 name: code-review
-description: Review committed changes on the current branch against project standards, security, simplicity, and architectural fit. Invoked as the `/code-review` slash command. Squashes pending fixups onto origin/main first, then reviews up to 8 not-yet-reviewed commits, oldest first, with one read-only sub-agent per commit, skipping commits already tagged as reviewed and deferring the rest to the next run. The parent then proposes fixes interactively.
+description: Review committed changes on the current branch against project standards, security, simplicity, and architectural fit. Invoked as the `/code-review` slash command. Squashes pending fixups onto origin/main first, then reviews up to 8 not-yet-reviewed commits, oldest first, with one read-only sub-agent per commit, skipping commits already tagged as reviewed and deferring the rest to the next run. A further sub-agent reviews the whole branch's prose. The parent then proposes fixes interactively.
 ---
 
 # Code Review
 
 Universal code-review skill for maelstrom projects. Reviews the branch commit by commit for
 project-standards conformance, security, simplicity, and reuse, and reports findings back to the
-user. The parent agent (this skill's top-level section) drives the workflow; one read-only
-sub-agent per commit does the actual review against a structured Markdown contract.
+user. The parent agent (this skill's top-level section) drives the workflow; read-only sub-agents
+do the actual review against a structured Markdown contract.
+
+**Two kinds of reviewer run together.** One per commit reviews the code. One more reviews the
+whole branch's prose — comments, docstrings and documents.
 
 **Reviewed commits are skipped.** A commit that has been through review carries a `reviewed` git
 note, and a later run passes over it. This is the only state the skill keeps: there is no
@@ -105,8 +108,10 @@ Already reviewed: <sha> <subject>
 Always report this. A note outlives a change to the commit it sits on (see step 7b), so a skipped
 commit may have changed since it was reviewed, and this report is the only place that shows.
 
-If every commit is skipped, say so and stop — **do not spawn any sub-agent**. Give the user the
-command that reviews them again: `/code-review origin/main..HEAD`.
+If every commit is skipped, say so and **spawn no commit sub-agent**. Give the user the command
+that reviews them again: `/code-review origin/main..HEAD`. Then go to step 4 for the prose agent
+and carry on: prose carries no `reviewed` note, so a branch whose commits are all tagged has
+still never had its prose swept. Skip to step 5 once it returns.
 
 Skip this whole step when `$ARGUMENTS` names an explicit SHA or range, exactly as step 1 does: a
 user who names a commit is asking for it to be reviewed. This is also the manual override when a
@@ -138,13 +143,14 @@ the cap lands on the next 8.
 bypassed when `$ARGUMENTS` names a SHA or range. This step is not — there is no bypass. A user who
 wants commits 9 and later of a named range runs the command again, or names a narrower range.
 
-### 4. Spawn one review sub-agent per commit
+### 4. Spawn the review sub-agents
 
-Read the reviewer prompt from `reviewer-prompt.md`, alongside this file.
+Read both prompts alongside this file: `reviewer-prompt.md` for the commit reviewers, and
+`prose-reviewer-prompt.md` for the prose reviewer.
 
-Spawn **one sub-agent per commit**, all in a single message so they run concurrently. Use the
-Agent tool with `subagent_type: "Explore"` (read-only — matches the brief: no edits, no tests, no
-builds; it can run `git log` / `git diff` via Bash).
+Spawn **one sub-agent per commit, plus one prose sub-agent**, all in a single message so they run
+concurrently. Use the Agent tool with `subagent_type: "Explore"` for every one (read-only —
+matches the brief: no edits, no tests, no builds; it can run `git log` / `git diff` via Bash).
 
 Each sub-agent's prompt is the contents of `reviewer-prompt.md`, followed by that commit's
 assignment:
@@ -161,8 +167,40 @@ Commits in this branch, oldest first:
 Include the full branch commit list in **every** sub-agent's prompt. A reviewer looking at one
 commit needs to know what comes after it — see the note on later commits in `reviewer-prompt.md`.
 
-Keep the diff out of the parent's context: sub-agents run their own `git show`, and the parent
-never runs `git diff` for the review.
+The prose sub-agent's prompt is the contents of `prose-reviewer-prompt.md`, followed by the same
+branch context with **no commit assignment** — its unit of work is the branch:
+
+```
+Branch range: <range>
+Commits in this branch, oldest first:
+  <sha1> <subject1>
+  <sha2> <subject2>
+  ...
+```
+
+Give it the range from step 2, not the capped list from step 3c. The 8-commit cap exists to bound
+the fan-out and the report; the prose agent is one agent reading one diff, and a range trimmed to
+8 commits would hide prose the branch actually ships.
+
+**Skip the prose agent only when the branch changes no Markdown.** Check first:
+
+```bash
+git diff --name-only <range> -- '*.md'
+```
+
+Spawn the agent when that prints anything. Skip it when the output is empty, and say so in the
+final report — a branch with no prose findings must not read the same as a branch never checked.
+
+Markdown alone decides this, for two reasons. A comment change hides inside a source diff that
+`--name-only` cannot see, and reading the diff to find one would pull it into the parent's
+context. And any list of source extensions would be a guess about which languages a project
+uses, which this skill does not make. A source-only branch therefore still spawns the agent when
+it touches any Markdown, and a branch that only reworded comments costs one agent that finds
+little. Both are cheaper than a guard the parent cannot follow.
+
+Keep the diff out of the parent's context: sub-agents run their own `git show` and `git diff`,
+and the parent never runs the review diff itself. The `--name-only` guard above is the one
+exception, and it prints no content.
 
 ### 5. Merge and display the findings
 
@@ -177,16 +215,32 @@ Each sub-agent returns Markdown for its own commit. Combine them into one report
 
 ### Design decisions worth calling out
 ### Findings
+
+## Prose — whole branch
+
+### Design decisions worth calling out
+### Findings
 ```
 
-Write the top-level `## Summary` yourself from the per-commit summaries — do not paste each
-sub-agent's summary paragraph separately. Preserve every finding verbatim.
+The prose section goes last, after every commit section. Its findings belong to the branch, not
+to any one commit.
+
+Write the top-level `## Summary` yourself from the sub-agents' summaries — do not paste each one
+separately. Preserve every finding verbatim.
 
 Drop a commit's section entirely if it has no findings and nothing to call out; list those
-commits as "Reviewed with no findings: `<sha>`, `<sha>`" at the end.
+commits as "Reviewed with no findings: `<sha>`, `<sha>`" at the end. Drop the prose section the
+same way, and say whether it reviewed clean or was skipped by step 4's guard.
 
 If a sub-agent reports the same issue against more than one commit, keep the earliest commit's
-copy and drop the rest.
+copy and drop the rest. Where a commit reviewer and the prose reviewer report the same line,
+**keep the prose reviewer's copy** — it has the cross-file view, so its version of the finding is
+the one that names every site.
+
+**Documentation coverage is the exception: keep the commit reviewer's copy.** There the
+branch-wide view is the weaker one. A flag added in one commit and documented in another reads
+as covered from the branch, while the commit reviewer correctly reports it against the commit
+that added it. The prose reviewer's coverage findings only ever add to the report.
 
 ### 6. Triage the findings
 
@@ -210,6 +264,12 @@ abstraction, work in code the branch does not touch, or a trade-off with no clea
 Do not start these, and do not raise them here — collect them, finish the fix loop in step 7, then
 put them all to the user together in step 7c. That is one interruption for the run instead of one
 per commit.
+
+**A prose cut in a file the branch never touched belongs in this bucket.** The prose reviewer
+sweeps the whole repo for duplication, so it will name copies in files this branch had no
+business opening. Cutting one is the right call and often the whole point — but it is the user's
+call, not a silent edit made under cover of a review. Carry it to step 7c with the survivor named
+and the word count the cut would save, and let the user take it now or file it.
 
 **Potential refactors belong in this bucket — never in the discard bucket.** A review often
 surfaces that a larger piece of work would pay off: a seam in the wrong place, a pattern several
@@ -245,7 +305,9 @@ before you start the next. Two nested loops:
 For each commit that has fixes, oldest first:
 
 - For each of that commit's findings, one at a time:
-  1. Make the code edits for that finding only.
+  1. Make the code edits for that finding only. Where the finding carries `Replace with:`, apply
+     that text as written — the reviewer wrote it holding context you no longer have. Rewrite it
+     only when applying it verbatim would be wrong, and say so in the report.
   2. Stage them: `git add -- <paths relevant to this finding>`
   3. Commit them: `git commit --fixup=<sha>`
   4. Tag the fixup: `git notes add -f -m "reviewed" <fixup-sha>` (see step 7b for what that note
@@ -262,6 +324,17 @@ fixup stays aimed at the right target.
 If a fix can't be attributed to a single commit in the range (e.g. it spans multiple commits),
 fall back to `git commit --fixup=HEAD` and call that out in the report. Do **not** tag that
 commit — see step 7b.
+
+Prose fixes attribute the same way, by which commits the fix touches:
+
+| The fix touches | How to commit it |
+|---|---|
+| Prose in files one commit touched | `git commit --fixup=<sha>`, as above |
+| One cut spanning several commits | `git commit --fixup=HEAD`, left untagged |
+
+A duplication fix usually lands in the second row: the survivor sits in one file and the cuts in
+others, and no single commit owns the change. A cut in a file the branch never touched reaches
+neither row — step 6 routed it to step 7c, and it stays unfixed until the user says otherwise.
 
 Hard rules:
 
@@ -289,6 +362,11 @@ want.
 Do **not** tag a `--fixup=HEAD` fallback commit (the spanning-multiple-commits case in step 7). It
 is not attributable to one commit, so let the commits it touches be reviewed again.
 
+**The prose review tags nothing, and that is deliberate.** The `reviewed` note marks a commit, and
+prose duplication is a property of the tree — a phrase copied into a file the branch never opened
+belongs to no commit. So the prose agent runs on **every** invocation, over the branch's current
+state, and step 3b never skips it. Do not look for a prose note; none is ever written.
+
 On an explicit-SHA or range run, where step 3b was bypassed and a tagged commit was reviewed
 anyway, remove the note if that commit is found wanting. A stale tag must not linger on a commit
 now known to have findings:
@@ -311,13 +389,19 @@ would cost. The fixes are already committed, so the user answers once, with the 
 Potential refactors belong here. Say plainly that each is out of scope for the current branch, so
 the choice — do it now, file it as a follow-up task, or decline — is clear. **Never drop one.**
 
+Prose cuts in untouched files belong here too. Give each one the survivor, the sites to cut, and
+the words it would save, so the user is choosing between concrete options rather than approving
+an unbounded edit.
+
 ### 8. Done
 
 Report:
 
 - what was fixed;
 - which commits you skipped as already reviewed (step 3b);
-- which commits you deferred to the next run (step 3c).
+- which commits you deferred to the next run (step 3c);
+- whether the prose reviewer ran, and if it was skipped, that the branch changed no prose
+  (step 4).
 
 The user can re-invoke `/code-review` with an explicit SHA or range to force a fresh review of a
 commit. A plain `/code-review` picks up the deferred commits once the fixups are squashed.

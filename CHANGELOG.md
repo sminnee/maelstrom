@@ -12,6 +12,13 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **`/code-review` reviews prose with its own sub-agent.** Alongside the per-commit code
+  reviewers, one further sub-agent reads the whole branch's comments, docstrings and documents.
+  It sweeps the repo for the same explanation written in several places, and names which copy to
+  keep. Prose no longer competes with architecture findings for a commit reviewer's attention,
+  and duplication that spans files is now visible. The agent is skipped on a branch that changes
+  no prose. A cut in a file the branch never touched is raised with you, never applied silently.
+
 - **opencode compatibility.** Shared skills now set `opencode/slash: true` in their frontmatter,
   so they appear in opencode's interactive `/` command catalog (opencode registers skills from
   `~/.claude/skills` but only lists them when the flag is present). `mael add` and worktree
