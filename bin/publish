@@ -168,8 +168,8 @@ def main() -> int:
     new = bump(old, "major" if args.major else "minor" if args.minor else "patch")
     print(f"Version {old} -> {new}")
 
-    # Gates must pass before anything is published. These are the three jobs
-    # .github/workflows/test.yml runs, in the same order.
+    # Gates must pass before anything is published. A release runs all three
+    # whatever changed, in the same order .github/workflows/test.yml uses.
     run("uv", "run", "pytest", "--ignore=tests/e2e")
     run("uv", "run", "pytest", "tests/e2e/", "-v")
     run("bin/lint")
