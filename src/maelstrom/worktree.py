@@ -54,6 +54,7 @@ from .worktree_model import (
     resolve_stack_tip,
     sanitise_path_for_claude,
     validate_base,
+    worktree_num,
 )
 
 
@@ -1705,7 +1706,9 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
     )
 
     # Generate .env for the initial worktree
-    write_env_file(alpha_path, {"WORKTREE": "alpha", "WORKTREE_NUM": "0"})
+    write_env_file(
+        alpha_path, {"WORKTREE": "alpha", "WORKTREE_NUM": str(worktree_num("alpha"))}
+    )
 
     # Unify Claude Code memory across worktrees
     setup_claude_memory_symlink(project_path, alpha_path)
@@ -1786,7 +1789,7 @@ def _build_env_file(
     # Generate environment variables
     generated_vars = {
         "WORKTREE": worktree_name,
-        "WORKTREE_NUM": str(WORKTREE_NAMES.index(worktree_name)),
+        "WORKTREE_NUM": str(worktree_num(worktree_name)),
     }
 
     # Derive the flat port-name lists. Structured `services:` (when present) owns
