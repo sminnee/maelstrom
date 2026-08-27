@@ -13,9 +13,7 @@ from click.testing import CliRunner
 from maelstrom.context import GlobalConfig
 from maelstrom.worktree import add_project
 from maelstrom.worktree_model import get_worktree_folder_name
-
 from tests.git_helpers import create_commit, run_git, setup_git_repo
-
 
 # --- Helpers ---
 
@@ -102,7 +100,9 @@ def isolated_maelstrom(tmp_path, monkeypatch):
     projects_dir.mkdir()
 
     # Patch get_maelstrom_dir in all modules that import it
-    fake_get_dir = lambda: maelstrom_dir
+    def fake_get_dir():
+        return maelstrom_dir
+
     monkeypatch.setattr("maelstrom.context.get_maelstrom_dir", fake_get_dir)
     monkeypatch.setattr("maelstrom.env.get_maelstrom_dir", fake_get_dir)
     monkeypatch.setattr("maelstrom.env_store.get_maelstrom_dir", fake_get_dir)
@@ -125,7 +125,9 @@ def isolated_maelstrom_module(tmp_path_factory):
     projects_dir.mkdir()
 
     mp = pytest.MonkeyPatch()
-    fake_get_dir = lambda: maelstrom_dir
+    def fake_get_dir():
+        return maelstrom_dir
+
     mp.setattr("maelstrom.context.get_maelstrom_dir", fake_get_dir)
     mp.setattr("maelstrom.env.get_maelstrom_dir", fake_get_dir)
     mp.setattr("maelstrom.env_store.get_maelstrom_dir", fake_get_dir)

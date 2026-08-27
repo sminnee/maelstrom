@@ -12,7 +12,6 @@ from typing import Callable, TypeVar
 from .base_store import GitConfigBaseStore
 from .project_scaffold import scaffold_files
 from .shell import run_cmd
-from .worktree_model import MAIN_BRANCH, REPAIRED_MESSAGE, print_flushed
 from .worktree import (
     get_current_branch,
     run_git,
@@ -20,6 +19,7 @@ from .worktree import (
     sync_worktree_with_autorepair,
     update_local_main,
 )
+from .worktree_model import MAIN_BRANCH, REPAIRED_MESSAGE, print_flushed
 
 
 @dataclass
@@ -369,11 +369,11 @@ def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None
         # aborting — one that landed on the wrong branch — still needs them.
         if sync_result.had_conflicts and not sync_result.aborted:
             raise RuntimeError(
-                f"Sync failed due to conflicts. Resolve them first:\n"
-                f"  git status\n"
-                f"  # resolve conflicts\n"
-                f"  git add <files>\n"
-                f"  git rebase --continue"
+                "Sync failed due to conflicts. Resolve them first:\n"
+                "  git status\n"
+                "  # resolve conflicts\n"
+                "  git add <files>\n"
+                "  git rebase --continue"
             )
         raise RuntimeError(f"Sync failed: {sync_result.message}")
 

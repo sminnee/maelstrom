@@ -13,7 +13,6 @@ import yaml
 
 from .util import harden_path
 
-
 GLOBAL_CONFIG_DIR = ".maelstrom"
 GLOBAL_CONFIG_FILENAME = "config.yaml"
 GLOBAL_CONFIG_FILENAME_LEGACY = ".maelstrom.yaml"
@@ -298,7 +297,7 @@ def detect_context_from_cwd(
     folder_name = parts[1]
 
     # Try to extract worktree name from folder (handles "project-alpha" format)
-    from .worktree_model import extract_worktree_name_from_folder, WORKTREE_NAMES
+    from .worktree_model import WORKTREE_NAMES, extract_worktree_name_from_folder
     worktree = extract_worktree_name_from_folder(project, folder_name)
 
     # Fall back to checking if folder_name itself is a valid worktree name

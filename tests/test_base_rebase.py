@@ -33,7 +33,6 @@ from maelstrom.worktree import (
     tidy_branches,
 )
 from maelstrom.worktree_model import BaseRef, StackTip
-
 from tests.git_helpers import create_commit, run_git, setup_git_repo
 
 

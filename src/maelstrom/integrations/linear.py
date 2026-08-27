@@ -10,6 +10,7 @@ import click
 
 from ..config import load_config_or_default
 from ..context import resolve_context
+
 # Imported at module scope (not lazily, like the rest of ``task_cli`` here)
 # because ``block_task_options`` is applied as a decorator at import time.
 # ``task_cli`` does not import this module, so there is no cycle.
@@ -1171,7 +1172,7 @@ def cmd_create_task(title: str, description: str) -> None:
     )
 
     click.echo(f"Created task {new_issue['identifier']}: {new_issue['title']}")
-    click.echo(f"- Status: Backlog")
+    click.echo("- Status: Backlog")
     if product_label and label_ids:
         click.echo(f"- Label: {product_label}")
 

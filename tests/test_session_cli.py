@@ -10,9 +10,9 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from maelstrom.cli import cli
 from maelstrom import session_cli
 from maelstrom import task as model
+from maelstrom.cli import cli
 from maelstrom.task_index import SqliteTaskIndex, TaskMeta
 from maelstrom.task_store import GitFileStore
 

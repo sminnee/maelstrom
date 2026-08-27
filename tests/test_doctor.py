@@ -8,7 +8,6 @@ import pytest
 
 from maelstrom.doctor import CheckStatus, run_doctor
 from maelstrom.worktree import update_local_main
-
 from tests.git_helpers import create_commit, run_git, setup_git_repo
 
 

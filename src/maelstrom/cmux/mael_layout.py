@@ -13,7 +13,6 @@ Every function degrades silently outside cmux (``CmuxLayout.current()`` is
 
 from .model import BrowserTab, CmuxLayout, TerminalTab
 
-
 # The standard 3-pane workspace layout.
 CLAUDE_PANE = 0
 SHELL_PANE = 1

@@ -5,10 +5,9 @@ import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
-
-from unittest.mock import patch
 
 from maelstrom.shell import Command, Pipeline, describe, exec_cmd
 from maelstrom.worktree_launcher import (

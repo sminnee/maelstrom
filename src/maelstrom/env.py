@@ -32,7 +32,6 @@ from maelstrom.session_discovery import LiveSession
 from maelstrom.util import now_iso
 from maelstrom.worktree import read_env_file, regenerate_env_file, run_install_cmd
 
-
 # --- Dataclasses ---
 
 

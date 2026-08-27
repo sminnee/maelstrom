@@ -27,6 +27,7 @@ from maelstrom.ports import (
     get_port_allocation,
     record_port_allocation,
 )
+from maelstrom.rebase_repair import _REPAIR_TIMEOUT, run_resolve_rebase_session
 from maelstrom.worktree import (
     CloseResult,
     SyncResult,
@@ -39,12 +40,9 @@ from maelstrom.worktree import (
     sync_worktree,
     sync_worktree_with_autorepair,
 )
-from maelstrom.worktree_model import BaseRef, StackTip
 from maelstrom.worktree import rebase_in_progress as _rebase_in_progress
-from maelstrom.rebase_repair import _REPAIR_TIMEOUT, run_resolve_rebase_session
-
+from maelstrom.worktree_model import BaseRef, StackTip
 from tests.git_helpers import create_commit, run_git, setup_git_repo
-
 
 # ---------------------------------------------------------------------------
 # Real-git fixtures

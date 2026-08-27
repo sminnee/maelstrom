@@ -8,7 +8,6 @@ from click.testing import CliRunner
 
 from maelstrom.cli import cli
 from maelstrom.worktree import ProjectInfo, list_projects
-
 from tests.git_helpers import create_commit, run_git, setup_git_repo
 
 

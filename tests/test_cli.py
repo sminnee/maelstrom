@@ -4,14 +4,14 @@ import dataclasses
 import json
 import os
 import subprocess
+from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
-from contextlib import ExitStack
-from unittest.mock import ANY, patch, MagicMock
+from unittest.mock import ANY, MagicMock, patch
 
 from click.testing import CliRunner
 
-from maelstrom.cli import cli, _resolve_pr
+from maelstrom.cli import _resolve_pr, cli
 from maelstrom.project_scaffold import scaffold_files
 from maelstrom.worktree import SyncResult, WorktreeInfo, WorktreeSetup
 from maelstrom.worktree_model import CopyBackResult
@@ -320,7 +320,7 @@ class TestRemoveMultiTarget:
 
                         # Mock worktree paths to exist
                         with patch.object(Path, "exists", return_value=True):
-                            result = runner.invoke(cli, ["rm", "alpha", "bravo"])
+                            runner.invoke(cli, ["rm", "alpha", "bravo"])
 
                         assert mock_remove.call_count == 2
 
@@ -396,7 +396,7 @@ class TestRemoveMultiTarget:
                  patch("maelstrom.cli.get_env_status", return_value=None), \
                  patch("maelstrom.cli.stop_env") as mock_stop, \
                  patch.object(Path, "exists", return_value=True):
-                result = runner.invoke(cli, ["rm", "myproject.alpha"])
+                runner.invoke(cli, ["rm", "myproject.alpha"])
 
             mock_stop.assert_not_called()
 
@@ -420,7 +420,7 @@ class TestCloseMultiTarget:
                  patch("maelstrom.cli.close_worktree") as mock_close, \
                  patch("maelstrom.cli.get_env_status", return_value=None):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
-                result = runner.invoke(cli, ["close"])
+                runner.invoke(cli, ["close"])
 
             # Should have called resolve_context with None (cwd detection)
             mock_resolve.assert_called_once_with(
@@ -493,7 +493,7 @@ class TestCloseMultiTarget:
                  patch("maelstrom.cli.get_env_status", return_value=None), \
                  patch("maelstrom.cli.stop_env") as mock_stop:
                 mock_close.return_value = MagicMock(success=True, message="Closed")
-                result = runner.invoke(cli, ["close", "myproject.alpha"])
+                runner.invoke(cli, ["close", "myproject.alpha"])
 
             mock_stop.assert_not_called()
 
@@ -761,7 +761,6 @@ class TestCmdAddRecycle:
 
     def _setup_recycle_mocks(self, stack, tmp_path, helper_return=([], None)):
         """Patch the recycle path of cmd_add. Returns the helper mock."""
-        from contextlib import ExitStack
 
         project_path = tmp_path / "proj"
         project_path.mkdir()

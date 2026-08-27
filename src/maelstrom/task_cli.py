@@ -13,21 +13,20 @@ from pathlib import Path
 
 import click
 
+from . import session_discovery, session_store, task_actions
 from . import task as model  # noqa: F401  (module, used as `model.*`)
+
 # Second binding of the same module, for the few functions that take a `model`
 # *parameter* (the `--model` flag / task field) and would otherwise shadow the
 # alias above. Same module object — not a re-export.
 from . import task as task_model
-from . import task_actions
-from . import session_discovery
-from . import session_store
+from .cmux.client import ensure_cmux_running
 from .context import resolve_context
+from .shell import exec_cmd
 from .table import draw_table
-from .util import read_content_file
 from .task_index import SqliteTaskIndex
 from .task_store import GitFileStore
-from .cmux.client import ensure_cmux_running
-from .shell import exec_cmd
+from .util import read_content_file
 from .worktree import (
     get_current_branch,
     list_worktrees,

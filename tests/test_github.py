@@ -9,7 +9,6 @@ from unittest.mock import patch
 import pytest
 
 from maelstrom.base_store import InMemoryBaseStore
-from maelstrom.worktree_model import BaseRef
 from maelstrom.github import (
     CheckRun,
     PRInfo,
@@ -21,6 +20,7 @@ from maelstrom.github import (
     wait_for_merge,
 )
 from maelstrom.worktree import SyncResult
+from maelstrom.worktree_model import BaseRef
 
 
 def _pr(state="OPEN", merged=False, number=7):

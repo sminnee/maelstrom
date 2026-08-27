@@ -1,12 +1,10 @@
 """Tests for the Slack webhook posting integration."""
 
 import json
-
 from unittest.mock import Mock, patch
 
 import click
 import pytest
-
 from click.testing import CliRunner
 
 from maelstrom.context import GlobalConfig

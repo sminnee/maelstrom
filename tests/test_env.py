@@ -31,6 +31,7 @@ from maelstrom.env import (
     load_shared_state,
     parse_procfile,
     read_service_logs,
+    regenerate_and_restart_if_running,
     remove_env_state,
     remove_shared_state,
     save_env_state,
@@ -41,7 +42,6 @@ from maelstrom.env import (
     stop_sessions,
     tail_log_file,
 )
-from maelstrom.env import regenerate_and_restart_if_running
 from maelstrom.env_store import InMemoryEnvStore, JsonEnvStore
 from maelstrom.session_discovery import LiveSession
 

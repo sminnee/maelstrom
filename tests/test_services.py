@@ -117,12 +117,16 @@ class TestDiscoverContainerIp:
 
     def test_success_strips_cidr(self):
         """The /24 suffix is stripped from the reported address."""
-        runner = lambda argv: self._inspect("192.168.64.3/24")
+        def runner(argv):
+            return self._inspect("192.168.64.3/24")
+
         assert discover_container_ip("proj-db", runner) == "192.168.64.3"
 
     def test_no_cidr(self):
         """An address without a CIDR is returned unchanged."""
-        runner = lambda argv: self._inspect("192.168.64.7")
+        def runner(argv):
+            return self._inspect("192.168.64.7")
+
         assert discover_container_ip("proj-db", runner) == "192.168.64.7"
 
     def test_runner_gets_inspect_argv(self):
@@ -143,7 +147,9 @@ class TestDiscoverContainerIp:
             "[]",
             self._inspect("192.168.64.5/24"),
         ])
-        runner = lambda argv: next(payloads)
+        def runner(argv):
+            return next(payloads)
+
         ip = discover_container_ip(
             "proj-db", runner, timeout=5.0, interval=0.0,
         )
@@ -151,13 +157,17 @@ class TestDiscoverContainerIp:
 
     def test_timeout_raises(self):
         """A perpetually-null address raises TimeoutError past the deadline."""
-        runner = lambda argv: self._inspect(None)
+        def runner(argv):
+            return self._inspect(None)
+
         with pytest.raises(TimeoutError, match="did not report"):
             discover_container_ip("proj-db", runner, timeout=0.0, interval=0.0)
 
     def test_malformed_json_keeps_polling_then_times_out(self):
         """Unparseable inspect output is tolerated (treated as not-yet-ready)."""
-        runner = lambda argv: "not json"
+        def runner(argv):
+            return "not json"
+
         with pytest.raises(TimeoutError):
             discover_container_ip("proj-db", runner, timeout=0.0, interval=0.0)
 
@@ -174,6 +184,8 @@ class TestDiscoverContainerIp:
     ])
     def test_malformed_shapes_treated_as_not_ready(self, payload):
         """Any malformed inspect shape is treated as not-yet-ready, not a crash."""
-        runner = lambda argv: payload
+        def runner(argv):
+            return payload
+
         with pytest.raises(TimeoutError):
             discover_container_ip("proj-db", runner, timeout=0.0, interval=0.0)

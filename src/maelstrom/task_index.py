@@ -33,7 +33,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Protocol
 
-
 _STALE_INDEX_MESSAGE = (
     "Task index is from an older schema; run 'mael task reindex' to rebuild it."
 )

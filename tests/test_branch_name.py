@@ -3,7 +3,6 @@
 from maelstrom import branch_name
 from maelstrom import task as model
 
-
 # --- slugify (deterministic fallback) ---
 
 

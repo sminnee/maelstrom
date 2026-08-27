@@ -6,7 +6,6 @@ from maelstrom import task as model
 from maelstrom.task import Task
 from maelstrom.task_store import InMemoryStore
 
-
 # --- a recording store to assert mutation counts/messages ---
 
 

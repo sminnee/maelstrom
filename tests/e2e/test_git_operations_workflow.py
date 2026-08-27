@@ -109,7 +109,7 @@ class TestGitOperationsWorkflow:
 
         # --- B4: Checked-out branch → skipped ---
         branch = "feature/tidy-checked-out"
-        worktree_path = create_worktree(gp.project_path, branch)
+        create_worktree(gp.project_path, branch)
 
         results = tidy_branches(gp.project_path)
         checked_out_results = [r for r in results if r.branch == branch]
