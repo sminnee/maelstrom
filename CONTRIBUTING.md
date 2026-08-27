@@ -22,9 +22,11 @@ uv run pytest tests/e2e/ -v        # end-to-end tests
 bin/lint                           # pyright type checking
 ```
 
-These are the three jobs `.github/workflows/test.yml` runs, and `bin/publish` runs the same three
-before it uploads anything. During development `uv run pytest -m 'not slow'` skips the slow tests
-for a faster loop, but run the full set before you push.
+These are the three gates `.github/workflows/test.yml` enforces, and `bin/publish` runs the same
+three before it uploads anything. They run when the change touches code. A change that touches
+none skips all three, and a skipped job reports success, so the merge gate is always satisfied.
+During development `uv run pytest -m 'not slow'` skips the slow tests for a faster loop, but run
+the full set before you push.
 
 ## Commits and pull requests
 

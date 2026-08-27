@@ -3,16 +3,47 @@ name: Tests
 on:
   pull_request:
     branches: [main]
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "bin/**"
-      - "pyproject.toml"
-      - "uv.lock"
-      - ".github/workflows/test.yml"
 
 jobs:
+  # A job skipped by a job-level `if:` reports success, so the required contexts
+  # stay satisfied. A workflow skipped by a `paths:` filter does not report them
+  # at all, which is why this is a job and not a filter. It decides whether the
+  # three gates have anything to run.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Detect code changes
+        id: filter
+        run: |
+          # Fail open. Only a detection that runs cleanly may skip e2e. A job
+          # skipped because `needs` failed does not report success, so a broken
+          # detection would leave the same stuck gate this workflow removes.
+          code=true
+          base_ref="refs/remotes/origin/$GITHUB_BASE_REF"
+          if git fetch --no-tags origin "+refs/heads/$GITHUB_BASE_REF:$base_ref" &&
+             base=$(git merge-base "$base_ref" HEAD) &&
+             changed=$(git diff --name-only "$base" HEAD) &&
+             [ -n "$changed" ]; then
+            echo "Changed files:"
+            echo "$changed"
+            if ! echo "$changed" | grep -Eq '^(src/|tests/|bin/|pyproject\.toml$|\.github/workflows/test\.yml$)'; then
+              code=false
+            fi
+          else
+            echo "Could not read the changed files."
+          fi
+          echo "Run the gates: $code"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
   test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.0
@@ -30,6 +61,8 @@ jobs:
         run: uv run pytest --ignore=tests/e2e
 
   lint:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.0
@@ -47,6 +80,8 @@ jobs:
         run: bin/lint
 
   e2e:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.0
