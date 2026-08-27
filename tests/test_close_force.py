@@ -38,7 +38,9 @@ from tests.test_sync_flags import (  # noqa: F401  (project_with_worktree is a f
 
 
 def _branch_exists(repo_path: Path, branch: str) -> bool:
-    return run_git(repo_path, "rev-parse", "--verify", branch, check=False).returncode == 0
+    return (
+        run_git(repo_path, "rev-parse", "--verify", branch, check=False).returncode == 0
+    )
 
 
 def _tip_subject(repo_path: Path) -> str:
@@ -51,7 +53,8 @@ def _make_conflict(project_path: Path, worktree_path: Path, remote_path: Path) -
         clone = Path(tmpdir) / "pusher"
         subprocess.run(
             ["git", "clone", str(remote_path), str(clone)],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
         run_git(clone, "config", "user.email", "test@test.com")
         run_git(clone, "config", "user.name", "Test")
@@ -86,7 +89,9 @@ class TestCloseForce:
         assert result.branch == "feature/work"
         # Worktree detached at origin/main, ports freed.
         assert _is_detached(worktree_path)
-        assert _current_head(worktree_path) == _current_head_of_ref(project_path, "origin/main")
+        assert _current_head(worktree_path) == _current_head_of_ref(
+            project_path, "origin/main"
+        )
         assert get_port_allocation(project_path, "alpha") is None
         # Branch survives — the unmerged work is recoverable.
         assert _branch_exists(project_path, "feature/work")
@@ -102,12 +107,12 @@ class TestCloseForce:
         assert result.branch == "feature/work"
         assert _is_detached(worktree_path)
         # The dirty change was committed onto the branch, not discarded.
-        wip_tip = run_git(project_path, "log", "-1", "--format=%s", "feature/work").stdout.strip()
+        wip_tip = run_git(
+            project_path, "log", "-1", "--format=%s", "feature/work"
+        ).stdout.strip()
         assert wip_tip == "wip: uncommitted changes"
         # File content preserved on the branch tip.
-        blob = run_git(
-            project_path, "show", "feature/work:dirty.txt", check=False
-        )
+        blob = run_git(project_path, "show", "feature/work:dirty.txt", check=False)
         assert blob.returncode == 0
         assert blob.stdout == "uncommitted work\n"
 
@@ -125,7 +130,9 @@ class TestCloseForce:
         assert _is_detached(worktree_path)
         assert _branch_exists(project_path, "feature/work")
 
-    def test_force_on_clean_merged_worktree_no_unmerged_flag(self, project_with_worktree):
+    def test_force_on_clean_merged_worktree_no_unmerged_flag(
+        self, project_with_worktree
+    ):
         project_path, worktree_path, remote_path = project_with_worktree
         # Branch is empty (HEAD == origin/main), clean tree.
         record_port_allocation(project_path, "alpha", 350)
@@ -184,7 +191,10 @@ class TestReopenRoundTrip:
 
         reopened = setup.path
         # Back on the branch at its tip.
-        assert run_git(reopened, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "feature/work"
+        assert (
+            run_git(reopened, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+            == "feature/work"
+        )
         # The committed feature work is present.
         assert (reopened / "feature.txt").exists()
         assert (reopened / "feature.txt").read_text() == "feature work\n"
@@ -213,12 +223,14 @@ class TestCloseForceCli:
     def _run(self, args, close_result):
         runner = CliRunner()
         env_store = MagicMock()
-        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
-             patch("maelstrom.cli.close_worktree", return_value=close_result), \
-             patch("maelstrom.cli.make_store", return_value=env_store), \
-             patch("maelstrom.cli.get_env_status", return_value=[]), \
-             patch("maelstrom.cli.mael_layout") as mock_layout, \
-             patch("maelstrom.cli.add_task") as mock_add_task:
+        with (
+            patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
+            patch("maelstrom.cli.close_worktree", return_value=close_result),
+            patch("maelstrom.cli.make_store", return_value=env_store),
+            patch("maelstrom.cli.get_env_status", return_value=[]),
+            patch("maelstrom.cli.mael_layout") as mock_layout,
+            patch("maelstrom.cli.add_task") as mock_add_task,
+        ):
             mock_layout.close_workspace.return_value = False
             mock_add_task.return_value = MagicMock(id="reopen-1")
             result = runner.invoke(cli, ["close", "myproject.alpha", *args])
@@ -273,12 +285,16 @@ class TestCloseForceCli:
             had_unmerged_work=False,
         )
         runner = CliRunner()
-        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
-             patch("maelstrom.cli.close_worktree", return_value=close_result) as mock_close, \
-             patch("maelstrom.cli.make_store", return_value=MagicMock()), \
-             patch("maelstrom.cli.get_env_status", return_value=[]), \
-             patch("maelstrom.cli.mael_layout") as mock_layout, \
-             patch("maelstrom.cli.add_task"):
+        with (
+            patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
+            patch(
+                "maelstrom.cli.close_worktree", return_value=close_result
+            ) as mock_close,
+            patch("maelstrom.cli.make_store", return_value=MagicMock()),
+            patch("maelstrom.cli.get_env_status", return_value=[]),
+            patch("maelstrom.cli.mael_layout") as mock_layout,
+            patch("maelstrom.cli.add_task"),
+        ):
             mock_layout.close_workspace.return_value = False
             runner.invoke(cli, ["close", "myproject.alpha", "--force"])
         _, kwargs = mock_close.call_args

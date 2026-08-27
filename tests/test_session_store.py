@@ -90,15 +90,11 @@ class TestLivenessCheck:
 class TestSessionMatchesTask:
     def test_matches_by_deterministic_session_id(self):
         sid = model.session_id_for("proj", "t1")
-        assert session_store.session_matches_task(
-            {"session_id": sid}, "proj", "t1"
-        )
+        assert session_store.session_matches_task({"session_id": sid}, "proj", "t1")
 
     def test_matches_by_session_key(self):
         sid = model.session_id_for("proj", "t1")
-        assert session_store.session_matches_task(
-            {"session_key": sid}, "proj", "t1"
-        )
+        assert session_store.session_matches_task({"session_key": sid}, "proj", "t1")
 
     def test_matches_by_recorded_task_id(self):
         assert session_store.session_matches_task(
@@ -128,9 +124,7 @@ class TestFindLiveSessionForTask:
 
     def test_dead_session_not_found(self, tmp_path):
         sid = model.session_id_for("proj", "t1")
-        _write_session(
-            tmp_path / "sessions", "s", session_id=sid, channel_port=1
-        )
+        _write_session(tmp_path / "sessions", "s", session_id=sid, channel_port=1)
         with _patch_dir(tmp_path):
             assert session_store.find_live_session_for_task("proj", "t1") is None
 
@@ -142,8 +136,6 @@ class TestFindLiveSessionForTask:
                 tmp_path / "sessions", "s", session_id=sid, channel_port=port
             )
             with _patch_dir(tmp_path):
-                assert (
-                    session_store.find_live_session_for_task("proj", "t1") is None
-                )
+                assert session_store.find_live_session_for_task("proj", "t1") is None
         finally:
             srv.close()

@@ -29,20 +29,23 @@ def _empty_index():
 
 class TestBuildSessionRow:
     def test_pid_and_cwd_come_from_the_process(self):
-        row = session_view.build_session_row(
-            _sess(), [], _empty_index(), _resolver()
-        )
+        row = session_view.build_session_row(_sess(), [], _empty_index(), _resolver())
         assert row["pid"] == 4242
         assert row["cwd"] == "/w/alpha"
 
     def test_every_key_is_present_even_with_nothing_to_report(self):
         # The JSON form of `mael session info` relies on a stable shape.
-        row = session_view.build_session_row(
-            _sess(), [], _empty_index(), _resolver()
-        )
+        row = session_view.build_session_row(_sess(), [], _empty_index(), _resolver())
         assert set(row) == {
-            "id", "pid", "state", "project", "worktree",
-            "task", "cwd", "age", "model",
+            "id",
+            "pid",
+            "state",
+            "project",
+            "worktree",
+            "task",
+            "cwd",
+            "age",
+            "model",
         }
         assert row["id"] == ""
         assert row["state"] == ""
@@ -56,11 +59,16 @@ class TestBuildSessionRow:
         assert row["worktree"] == "delta"
 
     def test_state_and_model_are_enriched_from_a_matching_registry_entry(self):
-        registry = [{
-            "pid": 4242, "cwd": "/w/alpha", "state": "idle",
-            "model": "claude-opus", "started_at": _ago(minutes=5),
-            "updated_at": _ago(minutes=1),
-        }]
+        registry = [
+            {
+                "pid": 4242,
+                "cwd": "/w/alpha",
+                "state": "idle",
+                "model": "claude-opus",
+                "started_at": _ago(minutes=5),
+                "updated_at": _ago(minutes=1),
+            }
+        ]
         row = session_view.build_session_row(
             _sess(), registry, _empty_index(), _resolver()
         )
@@ -77,10 +85,15 @@ class TestBuildSessionRow:
 
     def test_stale_processing_reads_as_idle(self):
         # Claude fires no hook on ESC, so `processing` would stick forever.
-        registry = [{
-            "pid": 4242, "cwd": "/w/alpha", "state": "processing",
-            "updated_at": _ago(minutes=30), "started_at": _ago(minutes=40),
-        }]
+        registry = [
+            {
+                "pid": 4242,
+                "cwd": "/w/alpha",
+                "state": "processing",
+                "updated_at": _ago(minutes=30),
+                "started_at": _ago(minutes=40),
+            }
+        ]
         row = session_view.build_session_row(
             _sess(), registry, _empty_index(), _resolver()
         )
@@ -90,8 +103,10 @@ class TestBuildSessionRow:
         index = _empty_index()
         index.upsert(
             TaskMeta(
-                project="askastro", id="2026-07-03.7",
-                status="in-progress", session_id="sid-1",
+                project="askastro",
+                id="2026-07-03.7",
+                status="in-progress",
+                session_id="sid-1",
             )
         )
         row = session_view.build_session_row(

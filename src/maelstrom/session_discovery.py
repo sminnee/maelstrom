@@ -301,9 +301,7 @@ class LiveSessionSet:
         ``active_for``/``all_for``/``count_for`` stay for ``mael close``,
         ``mael list``'s SESSION count, and ``reconcile``.
         """
-        return next(
-            (s for s in self.sessions if s.session_id == session_id), None
-        )
+        return next((s for s in self.sessions if s.session_id == session_id), None)
 
     def resolve(self, handle: str) -> LiveSession:
         """The live session a user-typed ``handle`` names.
@@ -334,15 +332,14 @@ class LiveSessionSet:
 
         if len(handle) >= 4:
             matches = [
-                s for s in self.sessions
+                s
+                for s in self.sessions
                 if s.session_id and s.session_id.startswith(handle)
             ]
             if len(matches) == 1:
                 return matches[0]
             if len(matches) > 1:
                 ids = ", ".join(sorted(str(s.session_id) for s in matches))
-                raise ValueError(
-                    f"Session id prefix '{handle}' is ambiguous: {ids}"
-                )
+                raise ValueError(f"Session id prefix '{handle}' is ambiguous: {ids}")
 
         raise KeyError(f"No live session matching '{handle}'")

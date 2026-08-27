@@ -25,11 +25,11 @@ from .task_store import TaskStore
 
 # (min, max) inclusive bounds for each of the five fields.
 _FIELD_BOUNDS = (
-    (0, 59),   # minute
-    (0, 23),   # hour
-    (1, 31),   # day of month
-    (1, 12),   # month
-    (0, 6),    # day of week (0 = Sunday)
+    (0, 59),  # minute
+    (0, 23),  # hour
+    (1, 31),  # day of month
+    (1, 12),  # month
+    (0, 6),  # day of week (0 = Sunday)
 )
 
 
@@ -178,7 +178,9 @@ def due_templates(
     out: list[tuple[Task, str]] = []
     # Scan the store: no HEAD is threaded here, and this drives the scheduled-run
     # mutation loop where the index may be mid-transaction.
-    for tmpl in list_tasks(store, project=project, status=STATUS_TEMPLATE, no_index=True):
+    for tmpl in list_tasks(
+        store, project=project, status=STATUS_TEMPLATE, no_index=True
+    ):
         if not tmpl.schedule:
             continue
         last = _parse_iso(tmpl.last_run) or _parse_iso(tmpl.created)

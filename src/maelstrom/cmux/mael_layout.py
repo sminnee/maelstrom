@@ -61,7 +61,8 @@ def ensure_worktree_workspace(
     if lay.ensure_workspace(claude) is None:
         return False
     lay.ensure_terminal(
-        SHELL_PANE, TerminalTab("Terminal", cwd=path, command=install_cmd),
+        SHELL_PANE,
+        TerminalTab("Terminal", cwd=path, command=install_cmd),
     )
     return True
 
@@ -97,7 +98,8 @@ def show_pr_browser(url: str) -> str | None:
     if lay is None:
         return None
     return lay.ensure_browser(
-        BROWSER_PANE, BrowserTab(url, match=GITHUB_URL_PREFIX),
+        BROWSER_PANE,
+        BrowserTab(url, match=GITHUB_URL_PREFIX),
     )
 
 

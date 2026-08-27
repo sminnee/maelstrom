@@ -58,7 +58,9 @@ def get_worktree_file_status(path: Path) -> dict[str, list[str]]:
     Returns:
         Dict with keys 'staged', 'modified', 'untracked', each a list of file paths.
     """
-    result = run_cmd(["git", "status", "--porcelain"], cwd=path, quiet=True, check=False)
+    result = run_cmd(
+        ["git", "status", "--porcelain"], cwd=path, quiet=True, check=False
+    )
     staged = []
     modified = []
     untracked = []
@@ -93,7 +95,9 @@ def get_diff_stat_summary(path: Path) -> tuple[int, int, int] | None:
         Tuple of (files_changed, insertions, deletions) or None if no changes.
     """
     # Diff of staged + unstaged against HEAD
-    result = run_cmd(["git", "diff", "--stat", "HEAD"], cwd=path, quiet=True, check=False)
+    result = run_cmd(
+        ["git", "diff", "--stat", "HEAD"], cwd=path, quiet=True, check=False
+    )
     if result.returncode != 0 or not result.stdout.strip():
         return None
 
@@ -106,6 +110,7 @@ def get_diff_stat_summary(path: Path) -> tuple[int, int, int] | None:
     deletions = 0
 
     import re
+
     m_files = re.search(r"(\d+) files? changed", summary_line)
     m_ins = re.search(r"(\d+) insertions?\(\+\)", summary_line)
     m_del = re.search(r"(\d+) deletions?\(-\)", summary_line)
@@ -125,7 +130,9 @@ def get_diff_stat_summary(path: Path) -> tuple[int, int, int] | None:
 
 def get_recent_commits(path: Path, count: int = 5) -> list[dict[str, str]]:
     """Get recent commits as list of {hash, message} dicts."""
-    result = run_cmd(["git", "log", "--oneline", f"-{count}"], cwd=path, quiet=True, check=False)
+    result = run_cmd(
+        ["git", "log", "--oneline", f"-{count}"], cwd=path, quiet=True, check=False
+    )
     if result.returncode != 0 or not result.stdout.strip():
         return []
 
@@ -134,7 +141,9 @@ def get_recent_commits(path: Path, count: int = 5) -> list[dict[str, str]]:
         if not line:
             continue
         parts = line.split(" ", 1)
-        commits.append({"hash": parts[0], "message": parts[1] if len(parts) > 1 else ""})
+        commits.append(
+            {"hash": parts[0], "message": parts[1] if len(parts) > 1 else ""}
+        )
     return commits
 
 
@@ -164,9 +173,7 @@ def format_git_status(
 
     # Check if working tree is clean
     has_changes = (
-        file_status["staged"]
-        or file_status["modified"]
-        or file_status["untracked"]
+        file_status["staged"] or file_status["modified"] or file_status["untracked"]
     )
 
     if not has_changes and commits_ahead == 0:
@@ -272,10 +279,14 @@ def git_status(ctx, target):
     recent_commits = get_recent_commits(cwd)
 
     if output_json:
-        data = build_status_dict(branch, commits_ahead, unpushed, file_status, diff_stat, recent_commits)
+        data = build_status_dict(
+            branch, commits_ahead, unpushed, file_status, diff_stat, recent_commits
+        )
         click.echo(json.dumps(data, indent=2))
     else:
-        output = format_git_status(branch, commits_ahead, unpushed, file_status, diff_stat, recent_commits)
+        output = format_git_status(
+            branch, commits_ahead, unpushed, file_status, diff_stat, recent_commits
+        )
         click.echo(output)
 
 
@@ -305,7 +316,9 @@ def git_squash(target, autorepair):
 
     if autorepair:
         result = squash_worktree_with_autorepair(
-            worktree_path, squash=True, announce=click.echo,
+            worktree_path,
+            squash=True,
+            announce=click.echo,
         )
     else:
         result = squash_worktree(worktree_path, squash=True)

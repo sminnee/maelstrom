@@ -76,7 +76,9 @@ class TestJsonEnvStore:
         path = tmp_path / "proj" / "bravo.json"
         assert path.is_file()
         # indent=2, sort_keys=True so files round-trip byte-identically.
-        assert path.read_text() == json.dumps({"b": 2, "a": 1}, indent=2, sort_keys=True)
+        assert path.read_text() == json.dumps(
+            {"b": 2, "a": 1}, indent=2, sort_keys=True
+        )
 
     def test_creates_parent_dirs(self, tmp_path):
         store = JsonEnvStore(root=tmp_path)
@@ -118,9 +120,7 @@ class TestJsonEnvStore:
 
     def test_root_defaults_to_state_dir(self, tmp_path, monkeypatch):
         """A root-less store resolves its root lazily via get_maelstrom_dir."""
-        monkeypatch.setattr(
-            "maelstrom.env_store.get_maelstrom_dir", lambda: tmp_path
-        )
+        monkeypatch.setattr("maelstrom.env_store.get_maelstrom_dir", lambda: tmp_path)
         store = JsonEnvStore()
         assert store.root == tmp_path / "envs"
         store.write("proj/bravo.json", {"v": 1})

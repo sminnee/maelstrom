@@ -86,8 +86,11 @@ class TestBuildContainerRun:
     def test_no_volume(self):
         """A service without a volume emits no -v flag."""
         svc = ServiceDef(
-            name="redis", shared=True, engine="apple-container",
-            image="redis:8.4-alpine", publish=["${REDIS_PORT}:6379"],
+            name="redis",
+            shared=True,
+            engine="apple-container",
+            image="redis:8.4-alpine",
+            publish=["${REDIS_PORT}:6379"],
         )
         cmd = build_container_run(svc, "proj-redis")
         assert " -v " not in cmd
@@ -117,6 +120,7 @@ class TestDiscoverContainerIp:
 
     def test_success_strips_cidr(self):
         """The /24 suffix is stripped from the reported address."""
+
         def runner(argv):
             return self._inspect("192.168.64.3/24")
 
@@ -124,6 +128,7 @@ class TestDiscoverContainerIp:
 
     def test_no_cidr(self):
         """An address without a CIDR is returned unchanged."""
+
         def runner(argv):
             return self._inspect("192.168.64.7")
 
@@ -142,21 +147,28 @@ class TestDiscoverContainerIp:
 
     def test_polls_until_non_null(self):
         """Polls past a null address until one appears."""
-        payloads = iter([
-            self._inspect(None),
-            "[]",
-            self._inspect("192.168.64.5/24"),
-        ])
+        payloads = iter(
+            [
+                self._inspect(None),
+                "[]",
+                self._inspect("192.168.64.5/24"),
+            ]
+        )
+
         def runner(argv):
             return next(payloads)
 
         ip = discover_container_ip(
-            "proj-db", runner, timeout=5.0, interval=0.0,
+            "proj-db",
+            runner,
+            timeout=5.0,
+            interval=0.0,
         )
         assert ip == "192.168.64.5"
 
     def test_timeout_raises(self):
         """A perpetually-null address raises TimeoutError past the deadline."""
+
         def runner(argv):
             return self._inspect(None)
 
@@ -165,25 +177,30 @@ class TestDiscoverContainerIp:
 
     def test_malformed_json_keeps_polling_then_times_out(self):
         """Unparseable inspect output is tolerated (treated as not-yet-ready)."""
+
         def runner(argv):
             return "not json"
 
         with pytest.raises(TimeoutError):
             discover_container_ip("proj-db", runner, timeout=0.0, interval=0.0)
 
-    @pytest.mark.parametrize("payload", [
-        "[]",
-        "[null]",
-        '["not-a-dict"]',
-        '[{"networks": null}]',
-        '[{"networks": []}]',
-        '[{"networks": ["not-a-dict"]}]',
-        '[{"networks": [{"address": null}]}]',
-        '[{"networks": [{"address": 42}]}]',
-        '{"not": "a list"}',
-    ])
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            "[]",
+            "[null]",
+            '["not-a-dict"]',
+            '[{"networks": null}]',
+            '[{"networks": []}]',
+            '[{"networks": ["not-a-dict"]}]',
+            '[{"networks": [{"address": null}]}]',
+            '[{"networks": [{"address": 42}]}]',
+            '{"not": "a list"}',
+        ],
+    )
     def test_malformed_shapes_treated_as_not_ready(self, payload):
         """Any malformed inspect shape is treated as not-yet-ready, not a crash."""
+
         def runner(argv):
             return payload
 

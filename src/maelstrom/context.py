@@ -46,13 +46,19 @@ class GlobalConfig:
         open_command = data.get("open_command", "code")
         # Support nested linear config: linear.api_key
         linear_config = data.get("linear", {})
-        linear_api_key = linear_config.get("api_key") if isinstance(linear_config, dict) else None
+        linear_api_key = (
+            linear_config.get("api_key") if isinstance(linear_config, dict) else None
+        )
         # Support nested sentry config: sentry.api_key
         sentry_config = data.get("sentry", {})
-        sentry_api_key = sentry_config.get("api_key") if isinstance(sentry_config, dict) else None
+        sentry_api_key = (
+            sentry_config.get("api_key") if isinstance(sentry_config, dict) else None
+        )
         # Support nested uptimerobot config: uptimerobot.api_key
         ur_config = data.get("uptimerobot", {})
-        uptimerobot_api_key = ur_config.get("api_key") if isinstance(ur_config, dict) else None
+        uptimerobot_api_key = (
+            ur_config.get("api_key") if isinstance(ur_config, dict) else None
+        )
         # Support nested slack config: slack.webhooks (named map of channel -> URL)
         slack_config = data.get("slack", {})
         slack_webhooks: dict[str, str] = {}
@@ -91,6 +97,7 @@ class ResolvedContext:
         """Full path to worktree directory."""
         if self.project and self.worktree:
             from .worktree_model import get_worktree_folder_name
+
             folder_name = get_worktree_folder_name(self.project, self.worktree)
             return self.projects_dir / self.project / folder_name
         return None
@@ -218,29 +225,24 @@ def parse_target_arg(arg: str | None) -> tuple[str | None, str | None]:
         return (None, None)
 
     if arg.startswith("."):
-        raise ValueError(
-            f"Invalid argument '{arg}': cannot start with a dot"
-        )
+        raise ValueError(f"Invalid argument '{arg}': cannot start with a dot")
 
     if "." in arg:
         # Split on first dot only
         dot_index = arg.index(".")
         project = arg[:dot_index]
-        worktree = arg[dot_index + 1:]
+        worktree = arg[dot_index + 1 :]
 
         if not project:
-            raise ValueError(
-                f"Invalid argument '{arg}': project name cannot be empty"
-            )
+            raise ValueError(f"Invalid argument '{arg}': project name cannot be empty")
         if not worktree:
-            raise ValueError(
-                f"Invalid argument '{arg}': worktree name cannot be empty"
-            )
+            raise ValueError(f"Invalid argument '{arg}': worktree name cannot be empty")
 
         validate_project_name(project)
 
         # Resolve single-letter shortcodes (e.g., "proj.a" -> "proj.alpha")
         from .worktree_model import resolve_worktree_shortcode
+
         worktree = resolve_worktree_shortcode(worktree)
 
         return (project, worktree)
@@ -248,6 +250,7 @@ def parse_target_arg(arg: str | None) -> tuple[str | None, str | None]:
     # No dot - this is just a project or worktree name (determined by context)
     # Resolve single-letter shortcodes (e.g., "a" -> "alpha")
     from .worktree_model import resolve_worktree_shortcode
+
     return (resolve_worktree_shortcode(arg), None)
 
 
@@ -298,6 +301,7 @@ def detect_context_from_cwd(
 
     # Try to extract worktree name from folder (handles "project-alpha" format)
     from .worktree_model import WORKTREE_NAMES, extract_worktree_name_from_folder
+
     worktree = extract_worktree_name_from_folder(project, folder_name)
 
     # Fall back to checking if folder_name itself is a valid worktree name

@@ -21,15 +21,11 @@ NOW = "2026-06-08T12:00:00+00:00"
 class TestResolveRef:
     def test_linear_parent_resolves(self):
         t = Task(id="x", title="t", project="p", parent="linear.NORT-12")
-        assert (
-            task_actions.resolve_ref(t, task_actions._LINEAR_REF) == "NORT-12"
-        )
+        assert task_actions.resolve_ref(t, task_actions._LINEAR_REF) == "NORT-12"
 
     def test_linear_self_id_wins_over_parent(self):
         # A task literally named linear.ABC-1 resolves to itself first.
-        t = Task(
-            id="linear.ABC-1", title="t", project="p", parent="linear.NORT-12"
-        )
+        t = Task(id="linear.ABC-1", title="t", project="p", parent="linear.NORT-12")
         assert task_actions.resolve_ref(t, task_actions._LINEAR_REF) == "ABC-1"
 
     def test_sentry_resolves_opaque_suffix(self):
@@ -37,9 +33,7 @@ class TestResolveRef:
         assert task_actions.resolve_ref(t, task_actions._SENTRY_REF) == "abc123"
 
     def test_non_ref_resolves_to_none(self):
-        t = Task(
-            id="2026-06-16.1", title="t", project="p", parent="2026-06-16.2"
-        )
+        t = Task(id="2026-06-16.1", title="t", project="p", parent="2026-06-16.2")
         assert task_actions.resolve_ref(t, task_actions._LINEAR_REF) is None
 
 
@@ -70,9 +64,7 @@ class TestRunAction:
     def test_empty_code_is_noop(self, monkeypatch, capsys):
         from maelstrom.integrations import linear
 
-        monkeypatch.setattr(
-            linear, "set_issue_status", _fail("should not be called")
-        )
+        monkeypatch.setattr(linear, "set_issue_status", _fail("should not be called"))
         t = Task(id="x", title="t", project="p", parent="linear.NORT-12")
         task_actions.run_action(t, "")
         assert capsys.readouterr().err == ""
@@ -87,9 +79,7 @@ class TestRunAction:
     def test_no_matching_ref_warns(self, monkeypatch, capsys):
         from maelstrom.integrations import linear
 
-        monkeypatch.setattr(
-            linear, "set_issue_status", _fail("should not be called")
-        )
+        monkeypatch.setattr(linear, "set_issue_status", _fail("should not be called"))
         t = Task(id="2026-06-16.1", title="t", project="p", parent="2026-06-16.2")
         task_actions.run_action(t, "linear.done")
         assert "no matching" in capsys.readouterr().err
@@ -125,9 +115,7 @@ class TestMoveWithActions:
         monkeypatch.setattr(
             linear, "set_issue_status", lambda i, s: calls.append((i, s))
         )
-        t = self._seed(
-            store, parent="linear.NORT-12", post_action="linear.done"
-        )
+        t = self._seed(store, parent="linear.NORT-12", post_action="linear.done")
         task_actions.move_with_actions(store, "p", t.id, model.STATUS_DONE)
         assert calls == [("NORT-12", "done")]
 
@@ -138,12 +126,8 @@ class TestMoveWithActions:
         monkeypatch.setattr(
             linear, "set_issue_status", lambda i, s: calls.append((i, s))
         )
-        t = self._seed(
-            store, parent="linear.NORT-12", pre_action="linear.in-progress"
-        )
-        task_actions.move_with_actions(
-            store, "p", t.id, model.STATUS_IN_PROGRESS
-        )
+        t = self._seed(store, parent="linear.NORT-12", pre_action="linear.in-progress")
+        task_actions.move_with_actions(store, "p", t.id, model.STATUS_IN_PROGRESS)
         assert calls == [("NORT-12", "in-progress")]
 
     @pytest.mark.parametrize(
@@ -153,9 +137,7 @@ class TestMoveWithActions:
     def test_other_destinations_fire_nothing(self, monkeypatch, status, store):
         from maelstrom.integrations import linear
 
-        monkeypatch.setattr(
-            linear, "set_issue_status", _fail("should not be called")
-        )
+        monkeypatch.setattr(linear, "set_issue_status", _fail("should not be called"))
         # Start in-progress so a move to todo/cancelled/blocked is a real move.
         t = self._seed(
             store,
@@ -168,9 +150,7 @@ class TestMoveWithActions:
 
     def test_returns_moved_task(self, monkeypatch, store):
         t = self._seed(store)
-        moved = task_actions.move_with_actions(
-            store, "p", t.id, model.STATUS_DONE
-        )
+        moved = task_actions.move_with_actions(store, "p", t.id, model.STATUS_DONE)
         assert moved.status == model.STATUS_DONE
 
 

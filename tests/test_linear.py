@@ -84,7 +84,9 @@ class TestCmdPlan:
         # Planning is pinned to Opus: the plan is the leverage point, so the
         # created plan-task session runs there regardless of the user's default.
         mock_get.return_value = {
-            "identifier": "ME-99", "title": "T", "description": "",
+            "identifier": "ME-99",
+            "title": "T",
+            "description": "",
         }
         result = CliRunner().invoke(linear, ["plan", "ME-99"])
         assert result.exit_code == 0, result.output
@@ -97,7 +99,9 @@ class TestCmdPlan:
         # The planning session writes draft task files in normal permission
         # mode; the skill prompt, not plan mode, forbids code edits.
         mock_get.return_value = {
-            "identifier": "ME-99", "title": "T", "description": "",
+            "identifier": "ME-99",
+            "title": "T",
+            "description": "",
         }
         result = CliRunner().invoke(linear, ["plan", "ME-99"])
         assert result.exit_code == 0, result.output
@@ -108,7 +112,9 @@ class TestCmdPlan:
     @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_explicit_mode_overrides_default(self, mock_get, mock_add):
         mock_get.return_value = {
-            "identifier": "ME-99", "title": "T", "description": "",
+            "identifier": "ME-99",
+            "title": "T",
+            "description": "",
         }
         result = CliRunner().invoke(linear, ["plan", "ME-99", "--mode", "plan"])
         assert result.exit_code == 0, result.output
@@ -121,13 +127,27 @@ class TestCmdPlan:
         # Every hardcoded planning value is now a *default* the matching flag
         # overrides — the point of applying the shared decorator here.
         mock_get.return_value = {
-            "identifier": "ME-99", "title": "T", "description": "",
+            "identifier": "ME-99",
+            "title": "T",
+            "description": "",
         }
-        result = CliRunner().invoke(linear, [
-            "plan", "ME-99",
-            "--model", "sonnet", "--mode", "auto", "--command", "other",
-            "--parent", "custom", "--post-action", "sentry.resolved",
-        ])
+        result = CliRunner().invoke(
+            linear,
+            [
+                "plan",
+                "ME-99",
+                "--model",
+                "sonnet",
+                "--mode",
+                "auto",
+                "--command",
+                "other",
+                "--parent",
+                "custom",
+                "--post-action",
+                "sentry.resolved",
+            ],
+        )
         assert result.exit_code == 0, result.output
         kwargs = mock_add.call_args.kwargs
         assert kwargs["model"] == "sonnet"
@@ -143,7 +163,9 @@ class TestCmdPlan:
         # distinguish_unset: an explicit '' must mean "empty", matching
         # `task add`, not silently fall back to the planning default.
         mock_get.return_value = {
-            "identifier": "ME-99", "title": "T", "description": "",
+            "identifier": "ME-99",
+            "title": "T",
+            "description": "",
         }
         result = CliRunner().invoke(
             linear, ["plan", "ME-99", "--post-action", "", "--command", ""]
@@ -156,11 +178,15 @@ class TestCmdPlan:
     @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
     @patch("maelstrom.task_cli.add_task")
     @patch("maelstrom.integrations.linear.get_issue")
-    def test_plan_explicit_branch_skips_generation(self, mock_get, mock_add, monkeypatch):
+    def test_plan_explicit_branch_skips_generation(
+        self, mock_get, mock_add, monkeypatch
+    ):
         # Branch generation shells out to `claude -p`; an explicit --branch must
         # skip it entirely rather than generate-then-discard.
         mock_get.return_value = {
-            "identifier": "ME-99", "title": "T", "description": "",
+            "identifier": "ME-99",
+            "title": "T",
+            "description": "",
         }
         calls = []
         monkeypatch.setattr(
@@ -228,9 +254,7 @@ class TestLocalizeDescriptionImages:
         monkeypatch.setattr(
             "maelstrom.task_store.tasks_root", lambda: tmp_path / "tasks"
         )
-        monkeypatch.setattr(
-            linear_mod, "get_linear_api_key", lambda: "lin_key"
-        )
+        monkeypatch.setattr(linear_mod, "get_linear_api_key", lambda: "lin_key")
 
     def test_downloads_and_rewrites_ref(self, tmp_path, monkeypatch):
         self._patch_root(monkeypatch, tmp_path)
@@ -556,9 +580,13 @@ class TestCmdEditPlan:
         runner = CliRunner()
         result = runner.invoke(
             linear,
-            ["edit-plan", "PROJ-10", "-s",
-             "## First Iteration: Build the API\n- Create endpoints\n- Add validation",
-             "## Completed Iteration: Build the API\nBuilt endpoints with validation."],
+            [
+                "edit-plan",
+                "PROJ-10",
+                "-s",
+                "## First Iteration: Build the API\n- Create endpoints\n- Add validation",
+                "## Completed Iteration: Build the API\nBuilt endpoints with validation.",
+            ],
         )
 
         assert result.exit_code == 0
@@ -581,7 +609,9 @@ class TestCmdEditPlan:
 
         old_file = tmp_path / "old.md"
         new_file = tmp_path / "new.md"
-        old_file.write_text("## First Iteration: Build the API\n- Create endpoints\n- Add validation")
+        old_file.write_text(
+            "## First Iteration: Build the API\n- Create endpoints\n- Add validation"
+        )
         new_file.write_text("## Completed Iteration: Build the API\nDone.")
 
         runner = CliRunner()
@@ -617,11 +647,7 @@ class TestCmdEditPlan:
     @patch("maelstrom.integrations.linear.get_issue")
     def test_edit_plan_ambiguous_match(self, mock_get):
         """Test error when search string matches multiple times in plan."""
-        desc_with_dups = (
-            "# Implementation Plan\n\n"
-            "- item\n- item\n\n"
-            "(end of plan)"
-        )
+        desc_with_dups = "# Implementation Plan\n\n- item\n- item\n\n(end of plan)"
         mock_get.return_value = {
             "id": "issue-1",
             "identifier": "PROJ-10",
@@ -673,15 +699,21 @@ class TestCmdEditPlan:
         runner = CliRunner()
         result = runner.invoke(
             linear,
-            ["edit-plan", "PROJ-10", "-s",
-             "## First Iteration: Build the API\n- Create endpoints\n- Add validation",
-             "## Completed Iteration: Build the API\nDone."],
+            [
+                "edit-plan",
+                "PROJ-10",
+                "-s",
+                "## First Iteration: Build the API\n- Create endpoints\n- Add validation",
+                "## Completed Iteration: Build the API\nDone.",
+            ],
         )
 
         assert result.exit_code == 0
         new_desc = mock_update.call_args[1]["description"]
         # Footer text should be unchanged
-        assert "Some footer text with ## First Iteration: Build the API in it." in new_desc
+        assert (
+            "Some footer text with ## First Iteration: Build the API in it." in new_desc
+        )
         # Plan section should be updated
         assert "## Completed Iteration: Build the API\nDone." in new_desc
 

@@ -242,7 +242,15 @@ def cmd_status() -> None:
         ratios = parse_uptime_ratios(monitor.get("custom_uptime_ratio"))
         while len(ratios) < len(UPTIME_WINDOW_HEADERS):
             ratios.append("-")
-        rows.append((monitor_id, name, status, last_event, *ratios[: len(UPTIME_WINDOW_HEADERS)]))
+        rows.append(
+            (
+                monitor_id,
+                name,
+                status,
+                last_event,
+                *ratios[: len(UPTIME_WINDOW_HEADERS)],
+            )
+        )
 
     headers = ("ID", "Name", "Status", "Last Event", *UPTIME_WINDOW_HEADERS)
     widths = [len(h) for h in headers]
@@ -250,17 +258,27 @@ def cmd_status() -> None:
         for i, cell in enumerate(row):
             widths[i] = max(widths[i], len(cell))
 
-    header_row = "| " + " | ".join(h.ljust(widths[i]) for i, h in enumerate(headers)) + " |"
+    header_row = (
+        "| " + " | ".join(h.ljust(widths[i]) for i, h in enumerate(headers)) + " |"
+    )
     separator = "|" + "|".join("-" * (w + 2) for w in widths) + "|"
     click.echo(header_row)
     click.echo(separator)
     for row in rows:
-        click.echo("| " + " | ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)) + " |")
+        click.echo(
+            "| "
+            + " | ".join(cell.ljust(widths[i]) for i, cell in enumerate(row))
+            + " |"
+        )
 
 
 @uptimerobot.command("outages")  # type: ignore[attr-defined]
-@click.option("--since", default="24h", help="Time window (e.g. 30m, 24h, 7d). Default: 24h")
-@click.option("--limit", default=20, type=int, help="Max log entries per monitor. Default: 20")
+@click.option(
+    "--since", default="24h", help="Time window (e.g. 30m, 24h, 7d). Default: 24h"
+)
+@click.option(
+    "--limit", default=20, type=int, help="Max log entries per monitor. Default: 20"
+)
 def cmd_outages(since: str, limit: int) -> None:
     """List recent outage log entries across configured monitors."""
     window_seconds = parse_since(since)
@@ -308,20 +326,27 @@ def cmd_outages(since: str, limit: int) -> None:
     click.echo(f"# UptimeRobot Outages (last {since})")
     click.echo("")
 
-    rows = [(name, started, duration, reason) for _, name, started, duration, reason in entries]
+    rows = [
+        (name, started, duration, reason)
+        for _, name, started, duration, reason in entries
+    ]
     headers = ("Monitor", "Started", "Duration", "Reason")
     widths = [len(h) for h in headers]
     for row in rows:
         for i, cell in enumerate(row):
             widths[i] = max(widths[i], len(cell.replace("|", "\\|")))
 
-    header_row = "| " + " | ".join(h.ljust(widths[i]) for i, h in enumerate(headers)) + " |"
+    header_row = (
+        "| " + " | ".join(h.ljust(widths[i]) for i, h in enumerate(headers)) + " |"
+    )
     separator = "|" + "|".join("-" * (w + 2) for w in widths) + "|"
     click.echo(header_row)
     click.echo(separator)
     for row in rows:
         safe = tuple(cell.replace("|", "\\|") for cell in row)
-        click.echo("| " + " | ".join(c.ljust(widths[i]) for i, c in enumerate(safe)) + " |")
+        click.echo(
+            "| " + " | ".join(c.ljust(widths[i]) for i, c in enumerate(safe)) + " |"
+        )
 
 
 @uptimerobot.command("monitors")  # type: ignore[attr-defined]
@@ -350,9 +375,15 @@ def cmd_monitors() -> None:
         for i, cell in enumerate(row):
             widths[i] = max(widths[i], len(cell))
 
-    header_row = "| " + " | ".join(h.ljust(widths[i]) for i, h in enumerate(headers)) + " |"
+    header_row = (
+        "| " + " | ".join(h.ljust(widths[i]) for i, h in enumerate(headers)) + " |"
+    )
     separator = "|" + "|".join("-" * (w + 2) for w in widths) + "|"
     click.echo(header_row)
     click.echo(separator)
     for row in rows:
-        click.echo("| " + " | ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)) + " |")
+        click.echo(
+            "| "
+            + " | ".join(cell.ljust(widths[i]) for i, cell in enumerate(row))
+            + " |"
+        )

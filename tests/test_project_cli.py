@@ -20,7 +20,14 @@ def _make_project(projects_dir: Path, name: str, worktrees: list[str]) -> Path:
     create_commit(project, "README.md", "hello", "initial")
 
     for worktree_name in worktrees:
-        run_git(project, "worktree", "add", "-b", worktree_name, str(project / f"{name}-{worktree_name}"))
+        run_git(
+            project,
+            "worktree",
+            "add",
+            "-b",
+            worktree_name,
+            str(project / f"{name}-{worktree_name}"),
+        )
 
     return project
 
@@ -76,8 +83,16 @@ class TestProjectListCommand:
     def test_the_table_lists_every_project_with_home_abbreviated(self):
         home = Path("/Users/example")
         projects = [
-            ProjectInfo(name="alpha-project", path=home / "Projects/alpha-project", worktree_count=2),
-            ProjectInfo(name="bravo-project", path=home / "Projects/bravo-project", worktree_count=0),
+            ProjectInfo(
+                name="alpha-project",
+                path=home / "Projects/alpha-project",
+                worktree_count=2,
+            ),
+            ProjectInfo(
+                name="bravo-project",
+                path=home / "Projects/bravo-project",
+                worktree_count=0,
+            ),
         ]
 
         result = self._invoke(projects, ["project", "list"], home=home)
@@ -98,7 +113,11 @@ class TestProjectListCommand:
     def test_json_lists_every_project(self):
         home = Path("/Users/example")
         projects = [
-            ProjectInfo(name="alpha-project", path=home / "Projects/alpha-project", worktree_count=2),
+            ProjectInfo(
+                name="alpha-project",
+                path=home / "Projects/alpha-project",
+                worktree_count=2,
+            ),
         ]
 
         result = self._invoke(projects, ["--json", "project", "list"], home=home)

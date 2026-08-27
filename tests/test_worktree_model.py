@@ -54,9 +54,16 @@ class TestWorktreeFolderNaming:
 
     def test_extract_worktree_name_from_folder(self):
         """Test extracting worktree name from folder name."""
-        assert extract_worktree_name_from_folder("askastro", "askastro-alpha") == "alpha"
-        assert extract_worktree_name_from_folder("askastro", "askastro-bravo") == "bravo"
-        assert extract_worktree_name_from_folder("my-project", "my-project-charlie") == "charlie"
+        assert (
+            extract_worktree_name_from_folder("askastro", "askastro-alpha") == "alpha"
+        )
+        assert (
+            extract_worktree_name_from_folder("askastro", "askastro-bravo") == "bravo"
+        )
+        assert (
+            extract_worktree_name_from_folder("my-project", "my-project-charlie")
+            == "charlie"
+        )
 
     def test_extract_worktree_name_from_folder_invalid(self):
         """Test that invalid folder names return None."""
@@ -70,8 +77,12 @@ class TestWorktreeFolderNaming:
     def test_extract_worktree_name_project_with_dashes(self):
         """Test extracting worktree name when project has dashes."""
         # Project name has dashes, folder should still work correctly
-        assert extract_worktree_name_from_folder("ask-astro", "ask-astro-alpha") == "alpha"
-        assert extract_worktree_name_from_folder("ask-astro", "ask-astro-bravo") == "bravo"
+        assert (
+            extract_worktree_name_from_folder("ask-astro", "ask-astro-alpha") == "alpha"
+        )
+        assert (
+            extract_worktree_name_from_folder("ask-astro", "ask-astro-bravo") == "bravo"
+        )
 
 
 class TestWorktreeShortcodes:
@@ -122,7 +133,10 @@ class TestExtractProjectName:
 
     def test_https_url(self):
         """Test extracting name from HTTPS URL."""
-        assert extract_project_name("https://github.com/sminnee/askastro.git") == "askastro"
+        assert (
+            extract_project_name("https://github.com/sminnee/askastro.git")
+            == "askastro"
+        )
         assert extract_project_name("https://github.com/user/repo.git") == "repo"
 
     def test_without_git_suffix(self):
@@ -229,7 +243,9 @@ class TestPlanRebase:
         )
 
     def test_live_base_rebases_onto_the_base_from_its_recorded_tip(self):
-        plan = plan_rebase(BaseRef(branch="feat/parent", tip="abc123"), base_exists=True)
+        plan = plan_rebase(
+            BaseRef(branch="feat/parent", tip="abc123"), base_exists=True
+        )
         assert plan.onto == "origin/feat/parent"
         assert plan.upstream == "abc123"
         assert plan.collapsed is False
@@ -242,7 +258,9 @@ class TestPlanRebase:
         branch's own commits start, so replaying from it onto main drops the
         parent's commits whether or not their patch-ids survived the merge.
         """
-        plan = plan_rebase(BaseRef(branch="feat/parent", tip="abc123"), base_exists=False)
+        plan = plan_rebase(
+            BaseRef(branch="feat/parent", tip="abc123"), base_exists=False
+        )
         assert plan.onto == "origin/main"
         assert plan.upstream == "abc123"
         assert plan.collapsed is True
@@ -354,8 +372,13 @@ class TestResolveStackTip:
         assert tip.healed is False
 
     def test_the_staleness_boundary_is_exclusive(self):
-        assert resolve_stack_tip("feat/a", {"feat/a": 30}, stale_days=30).stale_days is None
-        assert resolve_stack_tip("feat/a", {"feat/a": 31}, stale_days=30).stale_days == 31
+        assert (
+            resolve_stack_tip("feat/a", {"feat/a": 30}, stale_days=30).stale_days
+            is None
+        )
+        assert (
+            resolve_stack_tip("feat/a", {"feat/a": 31}, stale_days=30).stale_days == 31
+        )
 
     def test_an_empty_tip_reads_as_main(self):
         assert resolve_stack_tip("", {}, stale_days=30) == StackTip("main")
@@ -369,7 +392,8 @@ class TestOrderByStack:
 
     def test_a_parent_sorts_before_its_child(self):
         assert order_by_stack(["child", "parent"], {"child": "parent"}) == [
-            "parent", "child",
+            "parent",
+            "child",
         ]
 
     def test_a_deep_chain_sorts_bottom_up(self):

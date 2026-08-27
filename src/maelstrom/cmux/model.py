@@ -255,7 +255,11 @@ class CmuxLayout:
     def set_status(self, text: str) -> bool:
         """Set the cmux task status line."""
         return self._client.run(
-            "set-status", "task", text, "--icon", "hammer",
+            "set-status",
+            "task",
+            text,
+            "--icon",
+            "hammer",
         ).ok
 
     def clear_status(self) -> bool:
@@ -268,13 +272,18 @@ class CmuxLayout:
         if workspace_ref is None:
             return False
         return self._client.run(
-            "close-workspace", "--workspace", workspace_ref,
+            "close-workspace",
+            "--workspace",
+            workspace_ref,
         ).ok
 
     # === private: terminal-tab mechanics ===
 
     def _run_tab(
-        self, surface_ref: str, tab: TerminalTab, workspace_ref: str | None,
+        self,
+        surface_ref: str,
+        tab: TerminalTab,
+        workspace_ref: str | None,
     ) -> None:
         """Send a tab's ``cd`` then command into an existing terminal surface."""
         if tab.cwd is not None:
@@ -287,7 +296,10 @@ class CmuxLayout:
         self._client.run("send", "--workspace", workspace_ref, "--", text)
 
     def _rename_pane_tab(
-        self, workspace_ref: str, pane_index: int, title: str,
+        self,
+        workspace_ref: str,
+        pane_index: int,
+        title: str,
     ) -> None:
         """Rename the (selected) surface of the pane at ``pane_index`` to ``title``."""
         if not title:
@@ -329,7 +341,9 @@ class CmuxLayout:
         return re.findall(r"pane:\d+", output)
 
     def _pane_at_index(
-        self, workspace_ref: str | None, index: int,
+        self,
+        workspace_ref: str | None,
+        index: int,
     ) -> str | None:
         """Pane at ``index`` (left→right; negatives from the right), or None."""
         panes = self._list_panes(workspace_ref)
@@ -338,7 +352,10 @@ class CmuxLayout:
         return None
 
     def _add_terminal_tab(
-        self, workspace_ref: str, pane_ref: str | None, title: str | None,
+        self,
+        workspace_ref: str,
+        pane_ref: str | None,
+        title: str | None,
     ) -> str | None:
         """New terminal surface (tab) in the workspace, optionally in ``pane_ref``.
 
@@ -359,7 +376,10 @@ class CmuxLayout:
         return surface_ref
 
     def _open_browser_surface(
-        self, pane_ref: str, url: str, workspace_ref: str | None = None,
+        self,
+        pane_ref: str,
+        url: str,
+        workspace_ref: str | None = None,
     ) -> str | None:
         """Open a browser tab in ``pane_ref`` and return its surface ref.
 
@@ -372,7 +392,9 @@ class CmuxLayout:
         return self._client.run(*args).ref("surface")
 
     def _pane_surface(
-        self, pane_ref: str, workspace_ref: str | None = None,
+        self,
+        pane_ref: str,
+        workspace_ref: str | None = None,
     ) -> str | None:
         """The (selected) surface ref of a pane, or None.
 
@@ -423,7 +445,9 @@ class CmuxLayout:
         if rightmost_surface is None:
             return None
         return self._split_pane_off(
-            rightmost_surface, direction="right", workspace_ref=workspace_ref,
+            rightmost_surface,
+            direction="right",
+            workspace_ref=workspace_ref,
         )
 
     def _open_browser_in_new_pane(self, url: str) -> str | None:
@@ -451,11 +475,18 @@ class CmuxLayout:
     def _navigate_surface(self, surface_ref: str, url: str) -> bool:
         """Navigate an existing browser surface to url via ``browser goto``."""
         return self._client.run(
-            "browser", "--surface", surface_ref, "goto", url,
+            "browser",
+            "--surface",
+            surface_ref,
+            "goto",
+            url,
         ).ok
 
     def _send(
-        self, surface_ref: str, text: str, workspace_ref: str | None = None,
+        self,
+        surface_ref: str,
+        text: str,
+        workspace_ref: str | None = None,
     ) -> None:
         """Send ``text`` verbatim into a surface.
 
@@ -475,7 +506,9 @@ class CmuxLayout:
         self._client.run(*args)
 
     def _focus_surface(
-        self, surface_ref: str, workspace_ref: str | None = None,
+        self,
+        surface_ref: str,
+        workspace_ref: str | None = None,
     ) -> None:
         """Make a surface the visible tab via focus-panel (surfaces are panels)."""
         args = ["focus-panel", "--panel", surface_ref]
@@ -511,12 +544,14 @@ class CmuxLayout:
                 line,
             )
             if match:
-                surfaces.append(Surface(
-                    ref=match.group(1),
-                    type=match.group(2),  # type: ignore[arg-type]
-                    title=match.group(3),
-                    focused=focused,
-                ))
+                surfaces.append(
+                    Surface(
+                        ref=match.group(1),
+                        type=match.group(2),  # type: ignore[arg-type]
+                        title=match.group(3),
+                        focused=focused,
+                    )
+                )
         return surfaces
 
     def _browser_url(self, surface_ref: str) -> str | None:

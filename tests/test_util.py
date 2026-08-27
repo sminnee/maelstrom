@@ -23,7 +23,10 @@ def _mode(path) -> int:
 
 class TestAbbreviateHome:
     def test_a_path_under_home_starts_with_a_tilde(self):
-        assert abbreviate_home(Path("/Users/x/Projects/alpha"), Path("/Users/x")) == "~/Projects/alpha"
+        assert (
+            abbreviate_home(Path("/Users/x/Projects/alpha"), Path("/Users/x"))
+            == "~/Projects/alpha"
+        )
 
     def test_a_path_outside_home_is_unchanged(self):
         assert abbreviate_home(Path("/opt/tools"), Path("/Users/x")) == "/opt/tools"

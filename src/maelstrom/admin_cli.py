@@ -11,7 +11,11 @@ from .context import harden_global_config
 
 
 @click.command("install")
-@click.option("--no-monitor", is_flag=True, help="Skip installing the session-tracking MCP channel, hooks, and channel dependencies.")
+@click.option(
+    "--no-monitor",
+    is_flag=True,
+    help="Skip installing the session-tracking MCP channel, hooks, and channel dependencies.",
+)
 def cmd_install(no_monitor):
     """Install maelstrom's Claude Code skills and hooks."""
     messages = install_claude_integration(monitor=not no_monitor)
@@ -74,9 +78,13 @@ def cmd_self_update():
         # "Executable already exists: mael".
         sync = subprocess.run(
             [
-                uv, "tool", "install",
-                "--editable", str(repo_root),
-                "--reinstall", "--force",
+                uv,
+                "tool",
+                "install",
+                "--editable",
+                str(repo_root),
+                "--reinstall",
+                "--force",
             ],
             capture_output=True,
             text=True,

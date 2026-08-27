@@ -68,7 +68,9 @@ class WorktreeInfo:
     commits_ahead: int = 0
 
 
-def run_git(args: list[str], cwd: Path | None = None, quiet: bool = False) -> subprocess.CompletedProcess:
+def run_git(
+    args: list[str], cwd: Path | None = None, quiet: bool = False
+) -> subprocess.CompletedProcess:
     """Run a git command and return the result."""
     return run_cmd(["git"] + args, cwd=cwd, quiet=quiet, check=True)
 
@@ -98,7 +100,9 @@ def update_local_main(project_path: Path) -> UpdateMainResult:
     # Check if local main exists
     result = run_cmd(
         ["git", "rev-parse", "--verify", f"refs/heads/{MAIN_BRANCH}"],
-        cwd=project_path, quiet=True, check=False,
+        cwd=project_path,
+        quiet=True,
+        check=False,
     )
     if result.returncode != 0:
         return UpdateMainResult("skipped", f"No local {MAIN_BRANCH} branch")
@@ -108,7 +112,9 @@ def update_local_main(project_path: Path) -> UpdateMainResult:
     # Check if origin/main exists
     result = run_cmd(
         ["git", "rev-parse", "--verify", f"refs/remotes/origin/{MAIN_BRANCH}"],
-        cwd=project_path, quiet=True, check=False,
+        cwd=project_path,
+        quiet=True,
+        check=False,
     )
     if result.returncode != 0:
         return UpdateMainResult("skipped", f"No origin/{MAIN_BRANCH}")
@@ -122,7 +128,9 @@ def update_local_main(project_path: Path) -> UpdateMainResult:
     # Check if local main is ahead of origin/main
     result = run_cmd(
         ["git", "rev-list", "--count", f"origin/{MAIN_BRANCH}..{MAIN_BRANCH}"],
-        cwd=project_path, quiet=True, check=False,
+        cwd=project_path,
+        quiet=True,
+        check=False,
     )
     if result.returncode == 0:
         ahead = int(result.stdout.strip())
@@ -154,7 +162,9 @@ def update_local_main(project_path: Path) -> UpdateMainResult:
             ["update-ref", f"refs/heads/{MAIN_BRANCH}", origin_sha, local_sha],
             cwd=project_path,
         )
-        return UpdateMainResult("updated", f"Fast-forwarded {MAIN_BRANCH} to origin/{MAIN_BRANCH}")
+        return UpdateMainResult(
+            "updated", f"Fast-forwarded {MAIN_BRANCH} to origin/{MAIN_BRANCH}"
+        )
     except subprocess.CalledProcessError:
         return UpdateMainResult("skipped", f"Could not update {MAIN_BRANCH} ref")
 
@@ -171,7 +181,9 @@ def get_worktree_dirty_files(worktree_path: Path) -> list[str]:
     if not worktree_path.is_dir():
         return []
 
-    result = run_cmd(["git", "status", "--porcelain"], cwd=worktree_path, quiet=True, check=False)
+    result = run_cmd(
+        ["git", "status", "--porcelain"], cwd=worktree_path, quiet=True, check=False
+    )
     if result.returncode != 0:
         return []
 
@@ -207,7 +219,9 @@ def get_commits_ahead(worktree_path: Path, base_branch: str = "origin/main") -> 
 
     result = run_cmd(
         ["git", "rev-list", "--count", f"{base_branch}..HEAD"],
-        cwd=worktree_path, quiet=True, check=False,
+        cwd=worktree_path,
+        quiet=True,
+        check=False,
     )
     if result.returncode != 0:
         return 0
@@ -234,14 +248,18 @@ def get_local_only_commits(worktree_path: Path, branch: str | None) -> int:
     remote_branch = f"origin/{branch}"
     result = run_cmd(
         ["git", "rev-parse", "--verify", remote_branch],
-        cwd=worktree_path, quiet=True, check=False,
+        cwd=worktree_path,
+        quiet=True,
+        check=False,
     )
 
     if result.returncode == 0:
         # Remote exists, count commits not on remote
         result = run_cmd(
             ["git", "rev-list", "--count", f"{remote_branch}..HEAD"],
-            cwd=worktree_path, quiet=True, check=False,
+            cwd=worktree_path,
+            quiet=True,
+            check=False,
         )
         if result.returncode == 0:
             try:
@@ -269,7 +287,9 @@ def get_pushed_commit_count(worktree_path: Path, branch: str) -> int | None:
     # Check if remote branch exists
     result = run_cmd(
         ["git", "rev-parse", "--verify", remote_branch],
-        cwd=worktree_path, quiet=True, check=False,
+        cwd=worktree_path,
+        quiet=True,
+        check=False,
     )
 
     if result.returncode != 0:
@@ -278,7 +298,9 @@ def get_pushed_commit_count(worktree_path: Path, branch: str) -> int | None:
     # Count commits on remote branch ahead of main
     result = run_cmd(
         ["git", "rev-list", "--count", f"origin/{MAIN_BRANCH}..{remote_branch}"],
-        cwd=worktree_path, quiet=True, check=False,
+        cwd=worktree_path,
+        quiet=True,
+        check=False,
     )
 
     if result.returncode == 0:
@@ -332,7 +354,9 @@ class SyncResult:
     deleted_remote: bool = False  # remote branch also deleted
     repaired: bool = False  # conflicts were resolved by a headless Claude session
     base: str = MAIN_BRANCH  # the branch this one is stacked on
-    base_collapsed: bool = False  # the base's remote branch was gone; flattened onto main
+    base_collapsed: bool = (
+        False  # the base's remote branch was gone; flattened onto main
+    )
 
 
 @dataclass
@@ -344,7 +368,9 @@ class CloseResult:
     had_dirty_files: bool = False
     had_unpushed_commits: bool = False
     branch: str = ""  # branch checked out before close (for reopen tasks under --force)
-    had_unmerged_work: bool = False  # --force closed over dirty/unmerged/conflicting work
+    had_unmerged_work: bool = (
+        False  # --force closed over dirty/unmerged/conflicting work
+    )
 
 
 @dataclass
@@ -395,7 +421,9 @@ def _has_origin_main(project_path: Path) -> bool:
     """
     result = run_cmd(
         ["git", "rev-parse", "--verify", "--quiet", f"origin/{MAIN_BRANCH}"],
-        cwd=project_path, quiet=True, check=False,
+        cwd=project_path,
+        quiet=True,
+        check=False,
     )
     return result.returncode == 0
 
@@ -426,7 +454,9 @@ def _commits_ahead_batch(project_path: Path, commits: list[str]) -> dict[str, in
         return {}
     result = run_cmd(
         ["git", "rev-list", *unique, "--not", f"origin/{MAIN_BRANCH}"],
-        cwd=project_path, quiet=True, check=False,
+        cwd=project_path,
+        quiet=True,
+        check=False,
     )
     if result.returncode != 0:
         # A project that was never pushed has no origin/main to compare against.
@@ -542,18 +572,28 @@ def _abort_rebase(worktree_path: Path) -> None:
 
 def _ref_exists(worktree_path: Path, ref: str) -> bool:
     """True when ``ref`` resolves in ``worktree_path``."""
-    return run_cmd(
-        ["git", "rev-parse", "--verify", "--quiet", ref],
-        cwd=worktree_path, quiet=True, check=False,
-    ).returncode == 0
+    return (
+        run_cmd(
+            ["git", "rev-parse", "--verify", "--quiet", ref],
+            cwd=worktree_path,
+            quiet=True,
+            check=False,
+        ).returncode
+        == 0
+    )
 
 
 def _is_ancestor(worktree_path: Path, commit: str, of: str = "HEAD") -> bool:
     """True when ``commit`` is an ancestor of ``of`` (or is ``of``)."""
-    return run_cmd(
-        ["git", "merge-base", "--is-ancestor", commit, of],
-        cwd=worktree_path, quiet=True, check=False,
-    ).returncode == 0
+    return (
+        run_cmd(
+            ["git", "merge-base", "--is-ancestor", commit, of],
+            cwd=worktree_path,
+            quiet=True,
+            check=False,
+        ).returncode
+        == 0
+    )
 
 
 def resolve_rebase_plan(
@@ -696,7 +736,14 @@ def squash_worktree(
     if plan.upstream is None:
         rebase_cmd = ["git", "rebase", "--autostash", plan.onto]
     else:
-        rebase_cmd = ["git", "rebase", "--autostash", "--onto", plan.onto, plan.upstream]
+        rebase_cmd = [
+            "git",
+            "rebase",
+            "--autostash",
+            "--onto",
+            plan.onto,
+            plan.upstream,
+        ]
     rebase_env: dict | None = None
     if squash:
         rebase_cmd.insert(2, "--autosquash")
@@ -780,7 +827,9 @@ def _record_base_after_rebase(
 
     tip = run_cmd(
         ["git", "rev-parse", f"origin/{base.branch}"],
-        cwd=worktree_path, quiet=True, check=False,
+        cwd=worktree_path,
+        quiet=True,
+        check=False,
     )
     if tip.returncode != 0:
         # The base ref did not resolve, so this rebase landed on main and the
@@ -845,7 +894,9 @@ def sync_worktree(
         if branch in base_branches(project_path):
             detach_result = _detach_and_free_ports(worktree_path)
             if not detach_result.success:
-                return SyncResult(success=False, branch=branch, message=detach_result.message)
+                return SyncResult(
+                    success=False, branch=branch, message=detach_result.message
+                )
             return SyncResult(
                 success=True,
                 branch=branch,
@@ -858,13 +909,21 @@ def sync_worktree(
                 base_collapsed=result.base_collapsed,
             )
 
-        delete_remote = branch_exists_on_remote(project_path, branch)  # compute before detach
-        detach_result = _detach_and_free_ports(worktree_path)  # frees the branch + ports first
+        delete_remote = branch_exists_on_remote(
+            project_path, branch
+        )  # compute before detach
+        detach_result = _detach_and_free_ports(
+            worktree_path
+        )  # frees the branch + ports first
         if not detach_result.success:
-            return SyncResult(success=False, branch=branch, message=detach_result.message)
+            return SyncResult(
+                success=False, branch=branch, message=detach_result.message
+            )
         # delete_branch uses check=False and never raises; an orphaned branch left
         # behind by a failed delete must be reported, not silently claimed as deleted.
-        local_deleted, remote_deleted = delete_branch(project_path, branch, delete_remote=delete_remote)
+        local_deleted, remote_deleted = delete_branch(
+            project_path, branch, delete_remote=delete_remote
+        )
         if not local_deleted:
             return SyncResult(
                 success=False,
@@ -1120,7 +1179,9 @@ def sync_worktree_with_autorepair(
     return dataclasses.replace(final, repaired=True) if final.success else final
 
 
-def merge_to_main(worktree_path: Path, *, squash: bool = True, close: bool = False) -> SyncResult:
+def merge_to_main(
+    worktree_path: Path, *, squash: bool = True, close: bool = False
+) -> SyncResult:
     """Merge the current feature branch back into ``main`` for local workflows.
 
     Rebases the branch onto an up-to-date ``origin/main`` (autosquashing
@@ -1156,17 +1217,23 @@ def merge_to_main(worktree_path: Path, *, squash: bool = True, close: bool = Fal
     #    tree — update-ref alone would leave that checkout showing the merged
     #    files as pending deletions. Fall back to update-ref when nothing holds
     #    main (same approach as update_local_main).
-    branch_sha = run_git(["rev-parse", "HEAD"], cwd=worktree_path, quiet=True).stdout.strip()
+    branch_sha = run_git(
+        ["rev-parse", "HEAD"], cwd=worktree_path, quiet=True
+    ).stdout.strip()
     main_worktree = find_worktree_by_branch(
         project_path, MAIN_BRANCH, include_main=True
     )
     if main_worktree is not None:
         run_git(["merge", "--ff-only", branch_sha], cwd=main_worktree)
     else:
-        run_git(["update-ref", f"refs/heads/{MAIN_BRANCH}", branch_sha], cwd=project_path)
+        run_git(
+            ["update-ref", f"refs/heads/{MAIN_BRANCH}", branch_sha], cwd=project_path
+        )
 
     # 3. push main (carries any local-only commits)
-    push = run_cmd(["git", "push", "origin", MAIN_BRANCH], cwd=project_path, check=False)
+    push = run_cmd(
+        ["git", "push", "origin", MAIN_BRANCH], cwd=project_path, check=False
+    )
     if push.returncode != 0:
         return SyncResult(
             success=False,
@@ -1191,7 +1258,9 @@ def merge_to_main(worktree_path: Path, *, squash: bool = True, close: bool = Fal
 
         # delete_branch uses check=False and never raises; a failed delete
         # (local or remote) would otherwise leave an orphaned branch unreported.
-        local_deleted, remote_deleted = delete_branch(project_path, branch, delete_remote=True)
+        local_deleted, remote_deleted = delete_branch(
+            project_path, branch, delete_remote=True
+        )
         if not local_deleted:
             return SyncResult(
                 success=False,
@@ -1267,7 +1336,9 @@ def close_worktree(worktree_path: Path, *, force: bool = False) -> CloseResult:
     # Check for dirty files (empty now under force — wip was committed above).
     dirty_files = get_worktree_dirty_files(worktree_path)
     commits_ahead = get_commits_ahead(worktree_path)
-    had_unmerged = force and (committed_wip or commits_ahead > 0 or sync_result.had_conflicts)
+    had_unmerged = force and (
+        committed_wip or commits_ahead > 0 or sync_result.had_conflicts
+    )
 
     if not force:
         if dirty_files:
@@ -1321,7 +1392,9 @@ def _detach_and_free_ports(worktree_path: Path) -> CloseResult:
     )
 
 
-def recycle_worktree(worktree_path: Path, branch: str, *, base: str = MAIN_BRANCH) -> Path:
+def recycle_worktree(
+    worktree_path: Path, branch: str, *, base: str = MAIN_BRANCH
+) -> Path:
     """Recycle a closed worktree for a new branch.
 
     Assumes the worktree is already on main and clean.
@@ -1374,9 +1447,12 @@ def recycle_worktree(worktree_path: Path, branch: str, *, base: str = MAIN_BRANC
         else:
             # Create new branch from its base (HEAD may be behind if recycled), so
             # a stacked child starts with its parent's work already under it.
-            base_ref = _first_existing_ref(
-                worktree_path, [f"origin/{base}", f"origin/{MAIN_BRANCH}"]
-            ) or f"origin/{MAIN_BRANCH}"
+            base_ref = (
+                _first_existing_ref(
+                    worktree_path, [f"origin/{base}", f"origin/{MAIN_BRANCH}"]
+                )
+                or f"origin/{MAIN_BRANCH}"
+            )
             run_git(["checkout", "-b", branch, base_ref], cwd=worktree_path)
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to switch to branch {branch}: {e.stderr}")
@@ -1403,7 +1479,9 @@ def list_worktrees(project_path: Path) -> list[WorktreeInfo]:
         List of WorktreeInfo objects.
     """
     try:
-        result = run_git(["worktree", "list", "--porcelain"], cwd=project_path, quiet=True)
+        result = run_git(
+            ["worktree", "list", "--porcelain"], cwd=project_path, quiet=True
+        )
     except subprocess.CalledProcessError:
         return []
 
@@ -1576,7 +1654,10 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
 
     # Set up fetch refspec to create origin/* remote tracking refs
     # (core.bare stays true from the bare clone — worktrees work fine with it)
-    run_git(["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"], cwd=project_path)
+    run_git(
+        ["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
+        cwd=project_path,
+    )
 
     # Populate origin/* — the bare clone predates the refspec above, so it
     # wrote refs/heads/* only. Every object is local, so this is a ref exchange.
@@ -1594,8 +1675,12 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
     # Detach HEAD so the default branch isn't "checked out" in the project root,
     # which would prevent git worktree add from using it.
     # Use update-ref --no-deref instead of checkout --detach to avoid touching the working tree.
-    head_sha = run_git(["rev-parse", "HEAD"], cwd=project_path, quiet=True).stdout.strip()
-    run_git(["update-ref", "--no-deref", "HEAD", head_sha], cwd=project_path, quiet=True)
+    head_sha = run_git(
+        ["rev-parse", "HEAD"], cwd=project_path, quiet=True
+    ).stdout.strip()
+    run_git(
+        ["update-ref", "--no-deref", "HEAD", head_sha], cwd=project_path, quiet=True
+    )
 
     # Check the default branch out into _main. It is a reference checkout, not a
     # workspace: keeping main there leaves every NATO worktree free for work.
@@ -1676,8 +1761,11 @@ def get_current_worktree_info(cwd: Path | None = None) -> tuple[Path, str]:
 
 
 def _build_env_file(
-    project_path: Path, worktree_path: Path, worktree_name: str,
-    *, reuse_ports: bool = False,
+    project_path: Path,
+    worktree_path: Path,
+    worktree_name: str,
+    *,
+    reuse_ports: bool = False,
 ) -> None:
     """Build and write the .env file for a worktree.
 
@@ -1823,7 +1911,9 @@ def setup_claude_memory_symlink(project_path: Path, worktree_path: Path) -> None
         print(f"Warning: Could not set up unified Claude memory: {e}", file=sys.stderr)
 
 
-def _finalize_worktree(project_path: Path, worktree_path: Path, worktree_name: str) -> Path:
+def _finalize_worktree(
+    project_path: Path, worktree_path: Path, worktree_name: str
+) -> Path:
     """Finalize worktree setup after git worktree add.
 
     Handles .env file creation and install command execution.
@@ -1855,7 +1945,9 @@ def _blank_sentinel_keys(project_path: Path) -> set[str]:
     return {k for k, v in parse_env_text(parent_env.read_text()).items() if v == ""}
 
 
-def regenerate_env_file(project_path: Path, worktree_path: Path, worktree_name: str) -> None:
+def regenerate_env_file(
+    project_path: Path, worktree_path: Path, worktree_name: str
+) -> None:
     """Regenerate the .env file for a worktree, reusing the existing PORT_BASE.
 
     Used when .maelstrom.yaml has been updated (e.g., new port names added)
@@ -1872,9 +1964,7 @@ def regenerate_env_file(project_path: Path, worktree_path: Path, worktree_name: 
     env_file = worktree_path / ".env"
     sentinel_keys = _blank_sentinel_keys(project_path)
     preserved = {
-        k: v
-        for k, v in read_env_file(worktree_path).items()
-        if k in sentinel_keys
+        k: v for k, v in read_env_file(worktree_path).items() if k in sentinel_keys
     }
 
     # Clean recreate: drop the existing .env so _build_env_file rebuilds it
@@ -1922,7 +2012,9 @@ def _restore_blank_sentinel_values(env_file: Path, preserved: dict[str, str]) ->
     env_file.write_text("\n".join(out) + "\n")
 
 
-def reclaim_or_allocate_ports(project_path: Path, worktree_path: Path, worktree_name: str) -> None:
+def reclaim_or_allocate_ports(
+    project_path: Path, worktree_path: Path, worktree_name: str
+) -> None:
     """Reclaim existing port allocation for a recycled worktree, or allocate new ports.
 
     When a closed worktree is recycled, this function tries to reclaim the old
@@ -1998,12 +2090,24 @@ def create_worktree(
 
     # Ensure fetch refspec is configured (for repos created before this was added)
     try:
-        result = run_git(["config", "--get", "remote.origin.fetch"], cwd=project_path, quiet=True)
+        result = run_git(
+            ["config", "--get", "remote.origin.fetch"], cwd=project_path, quiet=True
+        )
         if not result.stdout.strip():
-            run_git(["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"], cwd=project_path)
+            run_git(
+                [
+                    "config",
+                    "remote.origin.fetch",
+                    "+refs/heads/*:refs/remotes/origin/*",
+                ],
+                cwd=project_path,
+            )
     except subprocess.CalledProcessError:
         # Config doesn't exist, add it
-        run_git(["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"], cwd=project_path)
+        run_git(
+            ["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
+            cwd=project_path,
+        )
 
     # Fetch latest from origin
     try:
@@ -2017,7 +2121,13 @@ def create_worktree(
     # Handle detached mode - create worktree at origin/main without checking out a branch
     if detached:
         run_git(
-            ["worktree", "add", "--detach", str(worktree_path), f"origin/{MAIN_BRANCH}"],
+            [
+                "worktree",
+                "add",
+                "--detach",
+                str(worktree_path),
+                f"origin/{MAIN_BRANCH}",
+            ],
             cwd=project_path,
         )
         # Skip to post-creation setup
@@ -2052,10 +2162,16 @@ def create_worktree(
         # Create new branch from its base (or origin's default branch, or HEAD if
         # no remote). Starting from the base is what makes a stacked child begin
         # with its parent's work already under it.
-        base_ref = _first_existing_ref(
-            project_path, [f"origin/{base}", "origin/main", "origin/master"]
-        ) or "HEAD"
-        run_git(["worktree", "add", "-b", branch, str(worktree_path), base_ref], cwd=project_path)
+        base_ref = (
+            _first_existing_ref(
+                project_path, [f"origin/{base}", "origin/main", "origin/master"]
+            )
+            or "HEAD"
+        )
+        run_git(
+            ["worktree", "add", "-b", branch, str(worktree_path), base_ref],
+            cwd=project_path,
+        )
 
     return _finalize_worktree(project_path, worktree_path, worktree_name)
 
@@ -2114,9 +2230,7 @@ def managed_keys_in_env(worktree_path: Path) -> set[str]:
     return keys
 
 
-def copy_back_new_env_vars(
-    project_path: Path, worktree_path: Path
-) -> CopyBackResult:
+def copy_back_new_env_vars(project_path: Path, worktree_path: Path) -> CopyBackResult:
     """Copy genuinely-new worktree ``.env`` vars back to the parent ``.env``.
 
     The parent ``.env`` (``project_path/.env``) is the template every worktree
@@ -2162,9 +2276,7 @@ def copy_back_new_env_vars(
                     # Parent holds the unresolved template that resolves to the
                     # worktree value — equivalent, not a real conflict.
                     continue
-                conflicts.append(
-                    EnvConflict(key, parent_val, value, resolved_parent)
-                )
+                conflicts.append(EnvConflict(key, parent_val, value, resolved_parent))
 
         result.added = added
         result.conflicts = conflicts
@@ -2216,7 +2328,10 @@ def write_env_file(
                     _resolve_template_lines(template_text.rstrip("\n"), generated_vars)
                 )
             new_content = "\n".join(parts) + "\n"
-        elif ENV_SECTION_START in existing_content and ENV_SECTION_END in existing_content:
+        elif (
+            ENV_SECTION_START in existing_content
+            and ENV_SECTION_END in existing_content
+        ):
             # Replace the managed section, preserve everything else
             start_idx = existing_content.index(ENV_SECTION_START)
             end_idx = existing_content.index(ENV_SECTION_END) + len(ENV_SECTION_END)
@@ -2227,9 +2342,7 @@ def write_env_file(
                 existing_content[end_idx:], generated_vars
             )
             new_content = (
-                existing_content[:start_idx]
-                + managed_section + "\n"
-                + user_content
+                existing_content[:start_idx] + managed_section + "\n" + user_content
             )
         else:
             # Upgrade path: no markers found, prepend managed section
@@ -2324,12 +2437,14 @@ def check_base_exists(project_path: Path, base: str) -> None:
     """
     if base == MAIN_BRANCH:
         return
-    if _first_existing_ref(
-        project_path, [f"refs/remotes/origin/{base}", f"refs/heads/{base}"]
-    ) is None:
+    if (
+        _first_existing_ref(
+            project_path, [f"refs/remotes/origin/{base}", f"refs/heads/{base}"]
+        )
+        is None
+    ):
         raise ValueError(
-            f"No such branch to stack on: {base}. "
-            f"It must exist on origin or locally."
+            f"No such branch to stack on: {base}. It must exist on origin or locally."
         )
 
 
@@ -2339,9 +2454,12 @@ def _branch_exists_anywhere(project_path: Path, branch: str) -> bool:
     Such a branch is checked out at its own tip rather than created from a base,
     so it keeps whatever base it already had.
     """
-    return _first_existing_ref(
-        project_path, [f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"]
-    ) is not None
+    return (
+        _first_existing_ref(
+            project_path, [f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"]
+        )
+        is not None
+    )
 
 
 def _resolve_new_branch_base(
@@ -2442,7 +2560,9 @@ def setup_worktree_for_branch(
         closed_wt = find_closed_worktree(project_path)
         if closed_wt is not None:
             try:
-                worktree_path = recycle_worktree(closed_wt.path, branch, base=resolved_base)
+                worktree_path = recycle_worktree(
+                    closed_wt.path, branch, base=resolved_base
+                )
                 action = "recycled"
                 wt_name = extract_worktree_name_from_folder(
                     project_name, closed_wt.path.name
@@ -2613,7 +2733,10 @@ def _inline_imports(text: str, worktree_path: Path, depth: int, seen: set[Path])
         if target in seen or depth >= MAX_IMPORT_DEPTH:
             return f"<!-- @{rel}: skipped (nested too deeply or circular) -->"
         inlined = "<!-- from @{0} -->\n{1}".format(
-            rel, _inline_imports(target.read_text(), worktree_path, depth + 1, seen | {target})
+            rel,
+            _inline_imports(
+                target.read_text(), worktree_path, depth + 1, seen | {target}
+            ),
         )
         return inlined.rstrip("\n")
 
@@ -2634,7 +2757,8 @@ def _write_agents_md(worktree_path: Path) -> None:
 
     agents_md = worktree_path / "AGENTS.md"
     agents_md.write_text(
-        _inline_imports(claude_md.read_text(), worktree_path, 0, set()).rstrip("\n") + "\n"
+        _inline_imports(claude_md.read_text(), worktree_path, 0, set()).rstrip("\n")
+        + "\n"
     )
 
     _ensure_gitignore_entry(worktree_path, "AGENTS.md")
@@ -2760,7 +2884,9 @@ def branch_exists_on_remote(project_path: Path, branch: str) -> bool:
     return result.returncode == 0
 
 
-def is_branch_merged(project_path: Path, branch: str, base: str = f"origin/{MAIN_BRANCH}") -> bool:
+def is_branch_merged(
+    project_path: Path, branch: str, base: str = f"origin/{MAIN_BRANCH}"
+) -> bool:
     """Check if a branch is at the same commit as the base (fully merged).
 
     Args:
@@ -2788,7 +2914,9 @@ def is_branch_merged(project_path: Path, branch: str, base: str = f"origin/{MAIN
     return branch_result.stdout.strip() == base_result.stdout.strip()
 
 
-def delete_branch(project_path: Path, branch: str, delete_remote: bool = False) -> tuple[bool, bool]:
+def delete_branch(
+    project_path: Path, branch: str, delete_remote: bool = False
+) -> tuple[bool, bool]:
     """Delete a local branch and optionally its remote counterpart.
 
     Args:
@@ -2842,11 +2970,14 @@ def remote_branch_ages(project_path: Path) -> dict[str, int]:
     """
     result = run_cmd(
         [
-            "git", "for-each-ref",
+            "git",
+            "for-each-ref",
             "--format=%(refname:short)%09%(committerdate:unix)",
             "refs/remotes/origin",
         ],
-        cwd=project_path, quiet=True, check=False,
+        cwd=project_path,
+        quiet=True,
+        check=False,
     )
     if result.returncode != 0:
         return {}
@@ -2857,7 +2988,7 @@ def remote_branch_ages(project_path: Path) -> dict[str, int]:
         short, _, when = line.partition("\t")
         if not when.strip():
             continue
-        branch = short[len("origin/"):] if short.startswith("origin/") else short
+        branch = short[len("origin/") :] if short.startswith("origin/") else short
         if not branch or branch == "HEAD":
             continue
         try:
@@ -2867,9 +2998,7 @@ def remote_branch_ages(project_path: Path) -> dict[str, int]:
     return ages
 
 
-def current_stack_tip(
-    project_path: Path, store: BaseStore | None = None
-) -> StackTip:
+def current_stack_tip(project_path: Path, store: BaseStore | None = None) -> StackTip:
     """The branch new worktrees stack on, validated against what still exists.
 
     A tip whose branch has been deleted self-heals to ``main`` and the heal is
@@ -2880,7 +3009,9 @@ def current_stack_tip(
     resolved_store: BaseStore = (
         store if store is not None else GitConfigBaseStore(project_path)
     )
-    tip = resolve_stack_tip(resolved_store.read_stack_tip(), remote_branch_ages(project_path))
+    tip = resolve_stack_tip(
+        resolved_store.read_stack_tip(), remote_branch_ages(project_path)
+    )
     if tip.healed:
         resolved_store.write_stack_tip(MAIN_BRANCH)
     return tip
@@ -2894,7 +3025,9 @@ def base_branches(project_path: Path, store: BaseStore | None = None) -> set[str
     — consult it first. One ``BaseStore.all()`` call answers it for the whole
     project.
     """
-    resolved: BaseStore = store if store is not None else GitConfigBaseStore(project_path)
+    resolved: BaseStore = (
+        store if store is not None else GitConfigBaseStore(project_path)
+    )
     return {base for base in resolved.all().values() if base != MAIN_BRANCH}
 
 
@@ -2907,7 +3040,9 @@ def stacked_branches(project_path: Path, store: BaseStore | None = None) -> set[
     exists to prevent, and one no error reports. Its delete is equally wrong for a
     base. One ``BaseStore.all()`` call answers both sides.
     """
-    resolved: BaseStore = store if store is not None else GitConfigBaseStore(project_path)
+    resolved: BaseStore = (
+        store if store is not None else GitConfigBaseStore(project_path)
+    )
     bases = resolved.all()
     stacked = set(bases)
     stacked.update(base for base in bases.values() if base != MAIN_BRANCH)
@@ -2993,7 +3128,12 @@ def tidy_branch(
 
     if rebase_result.returncode != 0:
         # Rebase failed - abort and skip
-        run_cmd(["git", "rebase", "--abort"], cwd=temp_worktree_path, quiet=True, check=False)
+        run_cmd(
+            ["git", "rebase", "--abort"],
+            cwd=temp_worktree_path,
+            quiet=True,
+            check=False,
+        )
         return TidyBranchResult(
             branch=branch,
             action="skipped_conflicts",
@@ -3011,7 +3151,9 @@ def tidy_branch(
             quiet=True,
             check=False,
         )
-        local_deleted, remote_deleted = delete_branch(project_path, branch, delete_remote=has_remote)
+        local_deleted, remote_deleted = delete_branch(
+            project_path, branch, delete_remote=has_remote
+        )
         return TidyBranchResult(
             branch=branch,
             action="deleted",
@@ -3104,14 +3246,24 @@ def tidy_branches(project_path: Path) -> list[TidyBranchResult]:
     try:
         # Create detached worktree at origin/main
         run_git(
-            ["worktree", "add", "--detach", str(temp_worktree_path), f"origin/{MAIN_BRANCH}"],
+            [
+                "worktree",
+                "add",
+                "--detach",
+                str(temp_worktree_path),
+                f"origin/{MAIN_BRANCH}",
+            ],
             cwd=project_path,
         )
 
         # Process each branch
         for branch in feature_branches:
             result = tidy_branch(
-                project_path, branch, temp_worktree_path, checked_out_branches, bases,
+                project_path,
+                branch,
+                temp_worktree_path,
+                checked_out_branches,
+                bases,
             )
             results.append(result)
 

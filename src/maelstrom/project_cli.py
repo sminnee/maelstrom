@@ -24,16 +24,20 @@ def project_list() -> None:
     projects = list_projects(global_config.projects_dir)
 
     if output_json:
-        click.echo(json.dumps({
-            "projects": [
+        click.echo(
+            json.dumps(
                 {
-                    "name": p.name,
-                    "path": str(p.path),
-                    "worktree_count": p.worktree_count,
+                    "projects": [
+                        {
+                            "name": p.name,
+                            "path": str(p.path),
+                            "worktree_count": p.worktree_count,
+                        }
+                        for p in projects
+                    ]
                 }
-                for p in projects
-            ]
-        }))
+            )
+        )
         return
 
     if not projects:

@@ -48,9 +48,32 @@ _CLAUDE_TIMEOUT = 20
 # carry the actual meaning of the work.
 _STOPWORDS = frozenset(
     {
-        "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in",
-        "into", "is", "it", "of", "on", "or", "the", "to", "with", "this",
-        "that", "these", "those", "via", "vs",
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "for",
+        "from",
+        "in",
+        "into",
+        "is",
+        "it",
+        "of",
+        "on",
+        "or",
+        "the",
+        "to",
+        "with",
+        "this",
+        "that",
+        "these",
+        "those",
+        "via",
+        "vs",
     }
 )
 

@@ -111,7 +111,9 @@ def env():
 
 
 def print_service_status(
-    project: str, worktree: str, project_path: Path | None = None,
+    project: str,
+    worktree: str,
+    project_path: Path | None = None,
 ) -> None:
     """Print a SERVICE/PID/STATUS/LOG table for an environment."""
     store = make_store()
@@ -133,23 +135,27 @@ def print_service_status(
 
     rows = []
     for s in statuses or []:
-        rows.append({
-            "SERVICE": s.name,
-            "PID": str(s.pid),
-            "STATUS": "running" if s.alive else "dead",
-            "LOG": s.log_file,
-        })
+        rows.append(
+            {
+                "SERVICE": s.name,
+                "PID": str(s.pid),
+                "STATUS": "running" if s.alive else "dead",
+                "LOG": s.log_file,
+            }
+        )
 
     # Add shared services
     shared_statuses = get_shared_status(store, project)
     if shared_statuses:
         for s in shared_statuses:
-            rows.append({
-                "SERVICE": f"{s.name} (shared)",
-                "PID": str(s.pid),
-                "STATUS": "running" if s.alive else "dead",
-                "LOG": s.log_file,
-            })
+            rows.append(
+                {
+                    "SERVICE": f"{s.name} (shared)",
+                    "PID": str(s.pid),
+                    "STATUS": "running" if s.alive else "dead",
+                    "LOG": s.log_file,
+                }
+            )
 
     draw_table(rows, ["SERVICE", "PID", "STATUS", "LOG"])
 
@@ -182,7 +188,9 @@ def env_open(target):
 
 @env.command("start")
 @click.argument("target", required=False, default=None)
-@click.option("--skip-install", is_flag=True, help="Skip the install step before starting")
+@click.option(
+    "--skip-install", is_flag=True, help="Skip the install step before starting"
+)
 def env_start(target, skip_install):
     """Start services for a worktree environment."""
     try:
@@ -340,7 +348,11 @@ def env_reset(target):
 
     try:
         stop_messages, new_state = regenerate_and_restart_if_running(
-            make_store(), ctx.project, ctx.worktree, ctx.project_path, worktree_path,
+            make_store(),
+            ctx.project,
+            ctx.worktree,
+            ctx.project_path,
+            worktree_path,
         )
     except RuntimeError as e:
         raise click.ClickException(str(e))
@@ -386,14 +398,18 @@ def env_list(project):
         running, stopped = _env_service_columns(state)
         uptime = format_uptime(state.started_at)
         app_display = _get_app_display(ctx.project_path, state.worktree)
-        rows.append({
-            "WORKTREE": state.worktree,
-            "APP": app_display,
-            "RUNNING SERVICES": running,
-            "STOPPED SERVICES": stopped,
-            "UPTIME": uptime,
-        })
-    draw_table(rows, ["WORKTREE", "APP", "RUNNING SERVICES", "STOPPED SERVICES", "UPTIME"])
+        rows.append(
+            {
+                "WORKTREE": state.worktree,
+                "APP": app_display,
+                "RUNNING SERVICES": running,
+                "STOPPED SERVICES": stopped,
+                "UPTIME": uptime,
+            }
+        )
+    draw_table(
+        rows, ["WORKTREE", "APP", "RUNNING SERVICES", "STOPPED SERVICES", "UPTIME"]
+    )
 
 
 @env.command("list-all")
@@ -410,15 +426,27 @@ def env_list_all():
         uptime = format_uptime(state.started_at)
         project_path = Path(state.worktree_path).parent
         app_display = _get_app_display(project_path, state.worktree)
-        rows.append({
-            "PROJECT": state.project,
-            "WORKTREE": state.worktree,
-            "APP": app_display,
-            "RUNNING SERVICES": running,
-            "STOPPED SERVICES": stopped,
-            "UPTIME": uptime,
-        })
-    draw_table(rows, ["PROJECT", "WORKTREE", "APP", "RUNNING SERVICES", "STOPPED SERVICES", "UPTIME"])
+        rows.append(
+            {
+                "PROJECT": state.project,
+                "WORKTREE": state.worktree,
+                "APP": app_display,
+                "RUNNING SERVICES": running,
+                "STOPPED SERVICES": stopped,
+                "UPTIME": uptime,
+            }
+        )
+    draw_table(
+        rows,
+        [
+            "PROJECT",
+            "WORKTREE",
+            "APP",
+            "RUNNING SERVICES",
+            "STOPPED SERVICES",
+            "UPTIME",
+        ],
+    )
 
 
 @env.command("stop-all")

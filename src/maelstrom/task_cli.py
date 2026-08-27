@@ -75,7 +75,7 @@ def _harness_options():
             type=click.Choice(HARNESSES),
             default=None,
             help="Agent harness to launch (default: the harness mael runs "
-                 "inside, claude otherwise).",
+            "inside, claude otherwise).",
         )(f)
 
     return decorator
@@ -250,8 +250,13 @@ def _run_task(
         click.echo(f"Running {task.id} here (current shell){suffix}")
         exec_cmd(
             build_task_launch_line(
-                project, task.id, perm, env=session_env,
-                session_id=session_id, resume=resume, model=task.model or None,
+                project,
+                task.id,
+                perm,
+                env=session_env,
+                session_id=session_id,
+                resume=resume,
+                model=task.model or None,
                 harness=harness,
             ),
             cwd=None,
@@ -262,9 +267,7 @@ def _run_task(
     ctx = resolve_context(project, require_project=True, arg_is_project=True)
     project_path = ctx.project_path
     if project_path is None or not project_path.exists():
-        raise click.ClickException(
-            f"Project '{project}' not found at {project_path}"
-        )
+        raise click.ClickException(f"Project '{project}' not found at {project_path}")
     branch = task.branch or model.default_branch(task.id, task.parent)
     # The launcher owns install (shell pane on create, blocking in non-cmux).
     # ``task.base`` is a declarative input: it seeds the branch's stored base the
@@ -272,8 +275,12 @@ def _run_task(
     # which is what every task did before stacking existed.
     try:
         result = setup_worktree_for_branch(
-            project_path, project, branch, run_install=False,
-            base=task.base or None, announce=click.echo,
+            project_path,
+            project,
+            branch,
+            run_install=False,
+            base=task.base or None,
+            announce=click.echo,
         )
     except ValueError as e:
         raise click.ClickException(str(e))
@@ -347,9 +354,7 @@ def _resolve_task_id(id: str | None) -> str:
     """Return the task id from the arg, falling back to ``MAEL_TASK_ID``."""
     task_id = id or os.environ.get("MAEL_TASK_ID")
     if not task_id:
-        raise click.ClickException(
-            "No task id given and MAEL_TASK_ID is not set."
-        )
+        raise click.ClickException("No task id given and MAEL_TASK_ID is not set.")
     return task_id
 
 
@@ -514,13 +519,17 @@ def _apply_block_options(f, unset: str | None, *, follows: bool = True):
     if follows:
         decorators.append(
             click.option(
-                "--follow", "follows", multiple=True,
+                "--follow",
+                "follows",
+                multiple=True,
                 help="Id this task follows (repeatable).",
             )
         )
         decorators.append(
             click.option(
-                "--follow-end", "follow_ends", multiple=True,
+                "--follow-end",
+                "follow_ends",
+                multiple=True,
                 help="Follow the end leaves of the given id's follows-chain (repeatable).",
             )
         )
@@ -566,9 +575,7 @@ def task() -> None:
 
 @task.command("add")
 @click.argument("title", required=False, default=None)
-@click.option(
-    "-p", "--project", default=None, help="Project name (default: from cwd)."
-)
+@click.option("-p", "--project", default=None, help="Project name (default: from cwd).")
 @block_task_options
 @click.option(
     "--content-file",
@@ -778,9 +785,7 @@ def add_task(
     default=None,
     help="File whose contents become the draft's Content section ('-' reads stdin).",
 )
-@click.option(
-    "--force", is_flag=True, help="Overwrite FILE if it already exists."
-)
+@click.option("--force", is_flag=True, help="Overwrite FILE if it already exists.")
 def task_draft(
     file: str,
     title: str | None,
@@ -806,9 +811,7 @@ def task_draft(
         raise click.ClickException("A title is required.")
     path = Path(file)
     if path.exists() and not force:
-        raise click.ClickException(
-            f"File exists: {file} (pass --force to overwrite)."
-        )
+        raise click.ClickException(f"File exists: {file} (pass --force to overwrite).")
     content = _read_content_file(content_file)
     try:
         text = task_model.draft_markdown(
@@ -832,9 +835,7 @@ def task_draft(
 
 @task.command("promote")
 @click.argument("file")
-@click.option(
-    "-p", "--project", default=None, help="Project name (default: from cwd)."
-)
+@click.option("-p", "--project", default=None, help="Project name (default: from cwd).")
 @block_task_options(distinguish_unset=True)
 def task_promote(
     file: str,
@@ -919,8 +920,11 @@ def task_load_many(file: str, project: str | None, run: bool, here: bool) -> Non
     store = _store()
     index, was_fresh = _mutate_index(store)
     created = model.load_many(
-        store, project=proj, blocks=blocks,
-        default_parent=_default_parent(""), index=index,
+        store,
+        project=proj,
+        blocks=blocks,
+        default_parent=_default_parent(""),
+        index=index,
     )
     _restamp(store, index, was_fresh=was_fresh)
     for t in created:
@@ -948,9 +952,7 @@ def task_load_many(file: str, project: str | None, run: bool, here: bool) -> Non
     # actionable partway through the loop.
     head_sha = store.head()
     launch = [
-        t
-        for t in created
-        if model.is_actionable(t, store, index=index, head=head_sha)
+        t for t in created if model.is_actionable(t, store, index=index, head=head_sha)
     ]
     if not launch:
         return
@@ -980,9 +982,7 @@ def task_load_many(file: str, project: str | None, run: bool, here: bool) -> Non
             failed += 1
             click.echo(f"warning: {t.id} — {e}", err=True)
     if failed:
-        raise click.ClickException(
-            f"{failed} of {len(launch)} tasks failed to launch"
-        )
+        raise click.ClickException(f"{failed} of {len(launch)} tasks failed to launch")
 
 
 def _scheduled_projects(project: str | None, all_projects: bool) -> list[str]:
@@ -1175,7 +1175,15 @@ def task_list(
         return
 
     if show_all_in_folder:
-        columns = ["ID", "STATUS", "PRIORITY", "SCHEDULE", "NEXT-FIRE", "BRANCH", "TITLE"]
+        columns = [
+            "ID",
+            "STATUS",
+            "PRIORITY",
+            "SCHEDULE",
+            "NEXT-FIRE",
+            "BRANCH",
+            "TITLE",
+        ]
     elif all_ or all_todo:
         columns = ["ID", "STATUS", "PRIORITY", "ACTIONABLE", "BRANCH", "TITLE"]
     else:
@@ -1199,7 +1207,9 @@ def _next_fire_display(task: "model.Task") -> str:
 @task.command("next")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 @click.option("--parent", default=None, help="Restrict to children of this id.")
-@click.option("--run", is_flag=True, help="Launch the next actionable task as a session.")
+@click.option(
+    "--run", is_flag=True, help="Launch the next actionable task as a session."
+)
 @_harness_options()
 @click.option(
     "-b",
@@ -1235,14 +1245,22 @@ def task_next(
     else:
         effective_branch, fallback = _current_branch_or_none(), True
     nxt = model.next_task(
-        store, proj, parent=parent, branch=effective_branch, fallback=fallback,
-        index=index, head=head,
+        store,
+        proj,
+        parent=parent,
+        branch=effective_branch,
+        fallback=fallback,
+        index=index,
+        head=head,
     )
     if nxt is None:
         raise click.ClickException("No actionable task.")
     if run:
         _run_task(
-            store, proj, nxt, here=here,
+            store,
+            proj,
+            nxt,
+            here=here,
             harness=resolve_harness_or_fail(harness, opencode_flag),
         )
     else:
@@ -1258,7 +1276,9 @@ def task_next(
     is_flag=True,
     help="Launch in the current shell (no worktree, no new workspace).",
 )
-def task_run(id: str, project: str | None, here: bool, harness: str | None, opencode_flag: bool) -> None:
+def task_run(
+    id: str, project: str | None, here: bool, harness: str | None, opencode_flag: bool
+) -> None:
     """Launch a task as a Claude session (ensures its worktree first)."""
     resolved = resolve_harness_or_fail(harness, opencode_flag)
     proj = _resolve_project(project)
@@ -1298,9 +1318,7 @@ def _live_sessions_by_task(
     return mapping
 
 
-def _ran_task_ids(
-    store: GitFileStore, project: str, project_path: Path
-) -> set[str]:
+def _ran_task_ids(store: GitFileStore, project: str, project_path: Path) -> set[str]:
     """In-progress task ids whose session left an on-disk transcript (it ran).
 
     A stale in-progress task (no live session) is either *finished* or *never
@@ -1366,7 +1384,8 @@ def task_reconcile(project: str | None, fix: bool) -> None:
     if ctx.project_path is not None and ctx.project_path.exists():
         ran_ids = _ran_task_ids(store, proj, ctx.project_path)
     rows = model.reconcile(
-        store, proj,
+        store,
+        proj,
         session_task_ids=session_task_ids,
         ran_ids=ran_ids,
     )
@@ -1390,22 +1409,20 @@ def task_reconcile(project: str | None, fix: bool) -> None:
     table_rows = []
     for r in rows:
         sess = str(r.session.pid) if r.session is not None else ""
-        table_rows.append({
-            "STATE": _STATE_LABEL.get(r.state, r.state),
-            "TASK": f"{r.task_id} ({r.task_status})",
-            "SESSION/PID": sess,
-            "SUGGESTED FIX": _FIX_LABEL.get(r.fix_status or "", ""),
-        })
-    draw_table(
-        table_rows, ["STATE", "TASK", "SESSION/PID", "SUGGESTED FIX"]
-    )
+        table_rows.append(
+            {
+                "STATE": _STATE_LABEL.get(r.state, r.state),
+                "TASK": f"{r.task_id} ({r.task_status})",
+                "SESSION/PID": sess,
+                "SUGGESTED FIX": _FIX_LABEL.get(r.fix_status or "", ""),
+            }
+        )
+    draw_table(table_rows, ["STATE", "TASK", "SESSION/PID", "SUGGESTED FIX"])
 
     fixable = [r for r in rows if r.fix_status is not None]
     if not fix:
         if fixable:
-            click.echo(
-                f"\n{len(fixable)} task(s) need correcting — re-run with --fix."
-            )
+            click.echo(f"\n{len(fixable)} task(s) need correcting — re-run with --fix.")
         return
 
     if not fixable:
@@ -1640,10 +1657,21 @@ def task_update(
 
     try:
         task_model.update(
-            store, proj, target, title=title, branch=branch, content=content,
-            command=command, mode=mode, model=model, base=base, priority=priority,
-            pre_action=pre_action, post_action=post_action,
-            schedule=schedule, index=index,
+            store,
+            proj,
+            target,
+            title=title,
+            branch=branch,
+            content=content,
+            command=command,
+            mode=mode,
+            model=model,
+            base=base,
+            priority=priority,
+            pre_action=pre_action,
+            post_action=post_action,
+            schedule=schedule,
+            index=index,
         )
     except KeyError:
         raise click.ClickException(f"Task not found: {target}")
@@ -1730,7 +1758,9 @@ def _status_command(name: str, status: str, help_text: str):
         click.echo(f"{task_id} -> {status}")
         if status == model.STATUS_DONE:
             head = store.head()
-            running = model.running_follower(store, proj, task_id, index=index, head=head)
+            running = model.running_follower(
+                store, proj, task_id, index=index, head=head
+            )
             if running is not None:
                 title = f" - {running.title}" if running.title else ""
                 click.echo()

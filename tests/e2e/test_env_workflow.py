@@ -38,8 +38,11 @@ class TestSingleEnvWorkflow:
 
         # --- Phase 1: Start and verify ---
         state = start_env(
-            store, proj.project_name, proj.worktree_name,
-            proj.worktree_path, skip_install=True,
+            store,
+            proj.project_name,
+            proj.worktree_name,
+            proj.worktree_path,
+            skip_install=True,
         )
         assert len(state.services) == 1
         assert state.services[0].name == "web"
@@ -53,8 +56,11 @@ class TestSingleEnvWorkflow:
 
         # Log file created with startup marker
         log_path = (
-            proj.maelstrom_dir / "logs"
-            / proj.project_name / proj.worktree_name / "web.log"
+            proj.maelstrom_dir
+            / "logs"
+            / proj.project_name
+            / proj.worktree_name
+            / "web.log"
         )
         assert log_path.exists()
         assert "=== Service started:" in log_path.read_text()
@@ -69,8 +75,11 @@ class TestSingleEnvWorkflow:
         # --- Phase 3: Already-running check ---
         with pytest.raises(RuntimeError, match="already running"):
             start_env(
-                store, proj.project_name, proj.worktree_name,
-                proj.worktree_path, skip_install=True,
+                store,
+                proj.project_name,
+                proj.worktree_name,
+                proj.worktree_path,
+                skip_install=True,
             )
 
         # --- Phase 4: Stop and verify cleanup ---
@@ -85,37 +94,45 @@ class TestSingleEnvWorkflow:
         )
         write_procfile(proj.worktree_path, {"web": "sleep 3600"})
         state = start_env(
-            store, proj.project_name, proj.worktree_name,
-            proj.worktree_path, skip_install=True,
+            store,
+            proj.project_name,
+            proj.worktree_name,
+            proj.worktree_path,
+            skip_install=True,
         )
         assert len(state.services) == 1
         stop_env(store, proj.project_name, proj.worktree_name)
 
         # --- Phase 6: Multi-service with logs ---
         (proj.worktree_path / ".maelstrom.yaml").write_text("port_names: []\n")
-        write_procfile(proj.worktree_path, {
-            "web": "sh -c 'echo web-hello && sleep 3600'",
-            "worker": "sh -c 'echo worker-hello && sleep 3600'",
-        })
+        write_procfile(
+            proj.worktree_path,
+            {
+                "web": "sh -c 'echo web-hello && sleep 3600'",
+                "worker": "sh -c 'echo worker-hello && sleep 3600'",
+            },
+        )
         state = start_env(
-            store, proj.project_name, proj.worktree_name,
-            proj.worktree_path, skip_install=True,
+            store,
+            proj.project_name,
+            proj.worktree_name,
+            proj.worktree_path,
+            skip_install=True,
         )
         assert len(state.services) == 2
         pids = [s.pid for s in state.services]
         assert all(is_service_alive(p) for p in pids)
 
         # Wait for log output
-        log_dir = (
-            proj.maelstrom_dir / "logs"
-            / proj.project_name / proj.worktree_name
+        log_dir = proj.maelstrom_dir / "logs" / proj.project_name / proj.worktree_name
+        wait_for(
+            lambda: (
+                (log_dir / "web.log").exists()
+                and "web-hello" in (log_dir / "web.log").read_text()
+                and (log_dir / "worker.log").exists()
+                and "worker-hello" in (log_dir / "worker.log").read_text()
+            )
         )
-        wait_for(lambda: (
-            (log_dir / "web.log").exists()
-            and "web-hello" in (log_dir / "web.log").read_text()
-            and (log_dir / "worker.log").exists()
-            and "worker-hello" in (log_dir / "worker.log").read_text()
-        ))
 
         # Multi-service logs show prefixes
         result = cli_runner.invoke(env, ["logs", "testproj.alpha"])
@@ -140,12 +157,18 @@ class TestSingleEnvWorkflow:
             assert_process_dead(p)
 
         # --- Phase 7: Logs -n flag ---
-        write_procfile(proj.worktree_path, {
-            "counter": "sh -c 'for i in $(seq 1 20); do echo line$i; done && sleep 3600'",
-        })
+        write_procfile(
+            proj.worktree_path,
+            {
+                "counter": "sh -c 'for i in $(seq 1 20); do echo line$i; done && sleep 3600'",
+            },
+        )
         start_env(
-            store, proj.project_name, proj.worktree_name,
-            proj.worktree_path, skip_install=True,
+            store,
+            proj.project_name,
+            proj.worktree_name,
+            proj.worktree_path,
+            skip_install=True,
         )
         counter_log = log_dir / "counter.log"
         wait_for(lambda: counter_log.exists() and "line20" in counter_log.read_text())
@@ -160,8 +183,11 @@ class TestSingleEnvWorkflow:
         # --- Phase 8: Stop handles already-dead processes ---
         write_procfile(proj.worktree_path, {"web": "sleep 3600"})
         state = start_env(
-            store, proj.project_name, proj.worktree_name,
-            proj.worktree_path, skip_install=True,
+            store,
+            proj.project_name,
+            proj.worktree_name,
+            proj.worktree_path,
+            skip_install=True,
         )
         pid = state.services[0].pid
 
@@ -198,7 +224,9 @@ class TestMultiEnvWorkflow:
     def _cleanup(self, process_cleanup):
         pass
 
-    def test_multi_env_workflow(self, test_project, second_worktree, cli_runner, isolated_maelstrom):
+    def test_multi_env_workflow(
+        self, test_project, second_worktree, cli_runner, isolated_maelstrom
+    ):
         """Exercise multi-env lifecycle with shared services in a single test."""
         proj = test_project
         bravo_path = second_worktree
@@ -211,8 +239,11 @@ class TestMultiEnvWorkflow:
 
         # --- Phase 1: Start alpha, verify shared service ---
         state_alpha = start_env(
-            store, proj.project_name, "alpha",
-            proj.worktree_path, skip_install=True,
+            store,
+            proj.project_name,
+            "alpha",
+            proj.worktree_path,
+            skip_install=True,
         )
         assert len(state_alpha.services) == 1  # Only local "web"
         assert state_alpha.services[0].name == "web"
@@ -227,8 +258,11 @@ class TestMultiEnvWorkflow:
 
         # --- Phase 2: Start bravo, verify shared NOT re-spawned ---
         state_bravo = start_env(
-            store, proj.project_name, "bravo",
-            bravo_path, skip_install=True,
+            store,
+            proj.project_name,
+            "bravo",
+            bravo_path,
+            skip_install=True,
         )
         assert len(state_bravo.services) == 1  # Only local "web"
 
@@ -280,12 +314,18 @@ class TestMultiEnvWorkflow:
         write_procfile(proj.worktree_path, {"web": "sleep 3600"})
         write_procfile(bravo_path, {"web": "sleep 3600"})
         state1 = start_env(
-            store, proj.project_name, "alpha",
-            proj.worktree_path, skip_install=True,
+            store,
+            proj.project_name,
+            "alpha",
+            proj.worktree_path,
+            skip_install=True,
         )
         state2 = start_env(
-            store, proj.project_name, "bravo",
-            bravo_path, skip_install=True,
+            store,
+            proj.project_name,
+            "bravo",
+            bravo_path,
+            skip_install=True,
         )
         pids = [state1.services[0].pid, state2.services[0].pid]
         assert all(is_service_alive(p) for p in pids)

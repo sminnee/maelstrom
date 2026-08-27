@@ -57,7 +57,9 @@ class TestGitOperationsWorkflow:
         # --- B2: Unmerged branch with remote → pushed ---
         # Use alpha worktree for checkout/commit (project root is bare)
         branch = "feature/tidy-push-test"
-        original_branch = run_git(gp.worktree_path, "branch", "--show-current").stdout.strip()
+        original_branch = run_git(
+            gp.worktree_path, "branch", "--show-current"
+        ).stdout.strip()
         run_git(gp.worktree_path, "checkout", "-b", branch)
         create_commit(gp.worktree_path, "tidy-push.txt", "content", "Push test")
         run_git(gp.worktree_path, "push", "origin", branch)
@@ -68,11 +70,14 @@ class TestGitOperationsWorkflow:
         if not source_clone.exists():
             subprocess.run(
                 ["git", "clone", str(gp.remote_path), str(source_clone)],
-                check=True, capture_output=True,
+                check=True,
+                capture_output=True,
             )
             run_git(source_clone, "config", "user.email", "test@test.com")
             run_git(source_clone, "config", "user.name", "Test")
-        create_commit(source_clone, "main-tidy.txt", "main update", "Main update for tidy")
+        create_commit(
+            source_clone, "main-tidy.txt", "main update", "Main update for tidy"
+        )
         run_git(source_clone, "push", "origin", "main")
         run_git(gp.project_path, "fetch", "origin")
 
@@ -85,20 +90,30 @@ class TestGitOperationsWorkflow:
         # --- B3: Conflicting branch → skipped ---
         # Use alpha worktree for checkout/commit (project root is bare)
         branch = "feature/tidy-conflict"
-        original_branch = run_git(gp.worktree_path, "branch", "--show-current").stdout.strip()
+        original_branch = run_git(
+            gp.worktree_path, "branch", "--show-current"
+        ).stdout.strip()
         run_git(gp.worktree_path, "checkout", "-b", branch)
-        create_commit(gp.worktree_path, "README.md", "conflict version", "Conflicting change")
+        create_commit(
+            gp.worktree_path, "README.md", "conflict version", "Conflicting change"
+        )
         _restore_head(gp.worktree_path, original_branch)
 
         # Modify README.md on main via remote
         conflict_clone = base / "conflict-tidy-source"
         subprocess.run(
             ["git", "clone", str(gp.remote_path), str(conflict_clone)],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
         run_git(conflict_clone, "config", "user.email", "test@test.com")
         run_git(conflict_clone, "config", "user.name", "Test")
-        create_commit(conflict_clone, "README.md", "main conflict version", "Conflicting main change")
+        create_commit(
+            conflict_clone,
+            "README.md",
+            "main conflict version",
+            "Conflicting main change",
+        )
         run_git(conflict_clone, "push", "origin", "main")
         run_git(gp.project_path, "fetch", "origin")
 
@@ -129,7 +144,8 @@ class TestGitMergeWorkflow:
         if not clone.exists():
             subprocess.run(
                 ["git", "clone", str(gp.remote_path), str(clone)],
-                check=True, capture_output=True,
+                check=True,
+                capture_output=True,
             )
             run_git(clone, "config", "user.email", "test@test.com")
             run_git(clone, "config", "user.name", "Test")
@@ -151,10 +167,17 @@ class TestGitMergeWorkflow:
         assert get_current_branch(gp.worktree_path) == branch
         create_commit(gp.worktree_path, "feature.txt", "feature work", "Add feature")
         target_sha = run_git(gp.worktree_path, "rev-parse", "HEAD").stdout.strip()
-        create_commit(gp.worktree_path, "feature.txt", "feature work refined", f"fixup! {target_sha}")
+        create_commit(
+            gp.worktree_path,
+            "feature.txt",
+            "feature work refined",
+            f"fixup! {target_sha}",
+        )
 
         # Advance origin/main so the rebase has to move the branch forward.
-        self._advance_remote_main(gp, base, "main-update.txt", "main moved", "Main moves on")
+        self._advance_remote_main(
+            gp, base, "main-update.txt", "main moved", "Main moves on"
+        )
         before_origin = self._origin_main_sha(gp)
 
         result = merge_to_main(gp.worktree_path, squash=True, close=False)
@@ -163,7 +186,9 @@ class TestGitMergeWorkflow:
 
         # Local main points at the rebased branch tip.
         branch_tip = run_git(gp.worktree_path, "rev-parse", "HEAD").stdout.strip()
-        local_main = run_git(gp.project_path, "rev-parse", "refs/heads/main").stdout.strip()
+        local_main = run_git(
+            gp.project_path, "rev-parse", "refs/heads/main"
+        ).stdout.strip()
         assert local_main == branch_tip
 
         # origin/main advanced to the same tip.
@@ -199,7 +224,9 @@ class TestGitMergeWorkflow:
         # Publish the branch so the remote-delete path has something to remove.
         run_git(gp.worktree_path, "push", "origin", branch)
 
-        self._advance_remote_main(gp, base, "main-update.txt", "main moved", "Main moves on")
+        self._advance_remote_main(
+            gp, base, "main-update.txt", "main moved", "Main moves on"
+        )
 
         result = merge_to_main(gp.worktree_path, squash=True, close=True)
         assert result.success, result.message

@@ -52,7 +52,9 @@ class TestParseProcfile:
     def test_standard_format(self, tmp_path):
         """Parse a basic Procfile with multiple services."""
         procfile = tmp_path / "Procfile"
-        procfile.write_text("web: python manage.py runserver\nworker: celery -A app worker\n")
+        procfile.write_text(
+            "web: python manage.py runserver\nworker: celery -A app worker\n"
+        )
         result = parse_procfile(procfile)
         assert result == [
             ProcfileEntry(name="web", command="python manage.py runserver"),
@@ -62,7 +64,9 @@ class TestParseProcfile:
     def test_comments_and_empty_lines(self, tmp_path):
         """Skip comments and blank lines."""
         procfile = tmp_path / "Procfile"
-        procfile.write_text("# This is a comment\n\nweb: python app.py\n\n# Another comment\n")
+        procfile.write_text(
+            "# This is a comment\n\nweb: python app.py\n\n# Another comment\n"
+        )
         result = parse_procfile(procfile)
         assert result == [ProcfileEntry(name="web", command="python app.py")]
 
@@ -72,9 +76,7 @@ class TestParseProcfile:
         procfile.write_text("web: uvicorn app:main --host 0.0.0.0:8000\n")
         result = parse_procfile(procfile)
         assert result == [
-            ProcfileEntry(
-                name="web", command="uvicorn app:main --host 0.0.0.0:8000"
-            )
+            ProcfileEntry(name="web", command="uvicorn app:main --host 0.0.0.0:8000")
         ]
 
     def test_missing_file(self, tmp_path):
@@ -157,13 +159,13 @@ class TestGetServices:
     def test_procfile_shared_suffix_marks_shared(self, mock_config, tmp_path):
         """Procfile services with a -shared suffix resolve as shared."""
         mock_config.return_value = MagicMock(services=[], start_cmd="")
-        (tmp_path / "Procfile").write_text(
-            "web: python app.py\ndb-shared: postgres\n"
-        )
+        (tmp_path / "Procfile").write_text("web: python app.py\ndb-shared: postgres\n")
         result = get_services(tmp_path)
         assert result[0] == ResolvedService(name="web", command="python app.py")
         assert result[1] == ResolvedService(
-            name="db-shared", command="postgres", shared=True,
+            name="db-shared",
+            command="postgres",
+            shared=True,
         )
 
     @patch("maelstrom.env.load_config_or_default")
@@ -420,8 +422,12 @@ class TestStartEnv:
         """RuntimeError if services are already alive."""
         mock_status.return_value = [
             ServiceStatus(
-                name="web", pid=123, alive=True, command="x",
-                log_file="/tmp/x.log", started_at="2025-01-01T00:00:00+00:00",
+                name="web",
+                pid=123,
+                alive=True,
+                command="x",
+                log_file="/tmp/x.log",
+                started_at="2025-01-01T00:00:00+00:00",
             )
         ]
         store = InMemoryEnvStore()
@@ -533,8 +539,11 @@ class TestStopEnv:
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="web", command="python app.py", pid=100,
-                    log_file="/tmp/web.log", started_at="2025-01-01T00:00:00+00:00",
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
                 )
             ],
         )
@@ -551,7 +560,13 @@ class TestStopEnv:
     @patch("time.monotonic")
     @patch("time.sleep")
     def test_sigkill_after_timeout(
-        self, mock_sleep, mock_monotonic, mock_load, mock_killpg, mock_alive, mock_remove
+        self,
+        mock_sleep,
+        mock_monotonic,
+        mock_load,
+        mock_killpg,
+        mock_alive,
+        mock_remove,
     ):
         """SIGKILL is sent after timeout when services don't die."""
         mock_load.return_value = EnvState(
@@ -561,8 +576,11 @@ class TestStopEnv:
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="web", command="python app.py", pid=100,
-                    log_file="/tmp/web.log", started_at="2025-01-01T00:00:00+00:00",
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
                 )
             ],
         )
@@ -599,8 +617,11 @@ class TestStopEnv:
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="web", command="x", pid=100,
-                    log_file="/tmp/web.log", started_at="2025-01-01T00:00:00+00:00",
+                    name="web",
+                    command="x",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
                 )
             ],
         )
@@ -612,7 +633,9 @@ class TestStopEnv:
     @patch("maelstrom.env.is_service_alive", return_value=False)
     @patch("os.killpg")
     @patch("maelstrom.env.load_env_state")
-    def test_handles_dead_processes(self, mock_load, mock_killpg, mock_alive, mock_remove):
+    def test_handles_dead_processes(
+        self, mock_load, mock_killpg, mock_alive, mock_remove
+    ):
         """Dead processes are handled gracefully (ProcessLookupError on SIGTERM)."""
         mock_load.return_value = EnvState(
             project="proj",
@@ -621,8 +644,11 @@ class TestStopEnv:
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="web", command="x", pid=100,
-                    log_file="/tmp/web.log", started_at="2025-01-01T00:00:00+00:00",
+                    name="web",
+                    command="x",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
                 )
             ],
         )
@@ -645,6 +671,7 @@ class TestStopSessions:
         reads the set. Together they let a single test express "signal X kills
         this pid" without hand-scripting per-call return values.
         """
+
         def fake_kill(pid, sig):
             if sig in die_on:
                 alive_pids.discard(pid)
@@ -670,9 +697,11 @@ class TestStopSessions:
         mock_monotonic.side_effect = itertools.count(0.0, 100.0)  # deadline passes fast
         alive = {100}
         fake_kill, fake_alive = self._alive_tracker(alive, die_on={signal.SIGINT})
-        with patch("os.getpid", return_value=1), \
-                patch("os.kill", side_effect=fake_kill) as mock_kill, \
-                patch("maelstrom.env.is_service_alive", side_effect=fake_alive):
+        with (
+            patch("os.getpid", return_value=1),
+            patch("os.kill", side_effect=fake_kill) as mock_kill,
+            patch("maelstrom.env.is_service_alive", side_effect=fake_alive),
+        ):
             messages = stop_sessions([LiveSession(pid=100, cwd=Path("/w/a"))])
         assert call(100, signal.SIGINT) in mock_kill.call_args_list
         assert call(100, signal.SIGTERM) not in mock_kill.call_args_list
@@ -687,9 +716,11 @@ class TestStopSessions:
         mock_monotonic.side_effect = itertools.count(0.0, 100.0)
         alive = {100}
         fake_kill, fake_alive = self._alive_tracker(alive, die_on={signal.SIGTERM})
-        with patch("os.getpid", return_value=1), \
-                patch("os.kill", side_effect=fake_kill) as mock_kill, \
-                patch("maelstrom.env.is_service_alive", side_effect=fake_alive):
+        with (
+            patch("os.getpid", return_value=1),
+            patch("os.kill", side_effect=fake_kill) as mock_kill,
+            patch("maelstrom.env.is_service_alive", side_effect=fake_alive),
+        ):
             messages = stop_sessions([LiveSession(pid=100, cwd=Path("/w/a"))])
         kills = mock_kill.call_args_list
         assert call(100, signal.SIGINT) in kills
@@ -699,13 +730,17 @@ class TestStopSessions:
 
     @patch("time.sleep")
     @patch("time.monotonic")
-    def test_survivor_after_sigterm_reported_never_sigkill(self, mock_monotonic, _sleep):
+    def test_survivor_after_sigterm_reported_never_sigkill(
+        self, mock_monotonic, _sleep
+    ):
         mock_monotonic.side_effect = itertools.count(0.0, 100.0)
         alive = {100}  # never dies
         fake_kill, fake_alive = self._alive_tracker(alive, die_on=set())
-        with patch("os.getpid", return_value=1), \
-                patch("os.kill", side_effect=fake_kill) as mock_kill, \
-                patch("maelstrom.env.is_service_alive", side_effect=fake_alive):
+        with (
+            patch("os.getpid", return_value=1),
+            patch("os.kill", side_effect=fake_kill) as mock_kill,
+            patch("maelstrom.env.is_service_alive", side_effect=fake_alive),
+        ):
             messages = stop_sessions([LiveSession(pid=100, cwd=Path("/w/a"))])
         assert call(100, signal.SIGKILL) not in mock_kill.call_args_list
         assert messages == ["claude session (pid 100): still running after SIGTERM"]
@@ -716,13 +751,17 @@ class TestStopSessions:
         mock_monotonic.side_effect = itertools.count(0.0, 100.0)
         alive = {100, 999}
         fake_kill, fake_alive = self._alive_tracker(alive, die_on={signal.SIGINT})
-        with patch("os.getpid", return_value=999), \
-                patch("os.kill", side_effect=fake_kill) as mock_kill, \
-                patch("maelstrom.env.is_service_alive", side_effect=fake_alive):
-            messages = stop_sessions([
-                LiveSession(pid=100, cwd=Path("/w/a")),
-                LiveSession(pid=999, cwd=Path("/w/a")),
-            ])
+        with (
+            patch("os.getpid", return_value=999),
+            patch("os.kill", side_effect=fake_kill) as mock_kill,
+            patch("maelstrom.env.is_service_alive", side_effect=fake_alive),
+        ):
+            messages = stop_sessions(
+                [
+                    LiveSession(pid=100, cwd=Path("/w/a")),
+                    LiveSession(pid=999, cwd=Path("/w/a")),
+                ]
+            )
         signalled = {c.args[0] for c in mock_kill.call_args_list}
         assert 999 not in signalled
         assert 100 in signalled
@@ -732,9 +771,11 @@ class TestStopSessions:
     @patch("time.monotonic")
     def test_kill_errors_swallowed(self, mock_monotonic, _sleep):
         mock_monotonic.side_effect = itertools.count(0.0, 100.0)
-        with patch("os.getpid", return_value=1), \
-                patch("os.kill", side_effect=ProcessLookupError), \
-                patch("maelstrom.env.is_service_alive", return_value=False):
+        with (
+            patch("os.getpid", return_value=1),
+            patch("os.kill", side_effect=ProcessLookupError),
+            patch("maelstrom.env.is_service_alive", return_value=False),
+        ):
             # is_service_alive False => nothing signalled, all reported stopped;
             # PermissionError/ProcessLookupError from os.kill must not propagate.
             messages = stop_sessions([LiveSession(pid=100, cwd=Path("/w/a"))])
@@ -755,12 +796,18 @@ class TestGetEnvStatus:
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="web", command="python app.py", pid=100,
-                    log_file="/tmp/web.log", started_at="2025-01-01T00:00:00+00:00",
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
                 ),
                 ServiceState(
-                    name="worker", command="celery worker", pid=101,
-                    log_file="/tmp/worker.log", started_at="2025-01-01T00:00:00+00:00",
+                    name="worker",
+                    command="celery worker",
+                    pid=101,
+                    log_file="/tmp/worker.log",
+                    started_at="2025-01-01T00:00:00+00:00",
                 ),
             ],
         )
@@ -791,8 +838,12 @@ class TestCleanupStaleEnv:
         """Removes state when all services are dead."""
         mock_status.return_value = [
             ServiceStatus(
-                name="web", pid=100, alive=False, command="x",
-                log_file="/tmp/x.log", started_at="2025-01-01T00:00:00+00:00",
+                name="web",
+                pid=100,
+                alive=False,
+                command="x",
+                log_file="/tmp/x.log",
+                started_at="2025-01-01T00:00:00+00:00",
             )
         ]
         store = InMemoryEnvStore()
@@ -805,8 +856,12 @@ class TestCleanupStaleEnv:
         """Does not remove state when services are alive."""
         mock_status.return_value = [
             ServiceStatus(
-                name="web", pid=100, alive=True, command="x",
-                log_file="/tmp/x.log", started_at="2025-01-01T00:00:00+00:00",
+                name="web",
+                pid=100,
+                alive=True,
+                command="x",
+                log_file="/tmp/x.log",
+                started_at="2025-01-01T00:00:00+00:00",
             )
         ]
         store = InMemoryEnvStore()
@@ -831,8 +886,11 @@ class TestListProjectEnvs:
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="web", command="python app.py", pid=pid,
-                    log_file="/tmp/web.log", started_at="2025-01-01T00:00:00+00:00",
+                    name="web",
+                    command="python app.py",
+                    pid=pid,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
                 )
             ],
         )
@@ -886,8 +944,11 @@ class TestListAllEnvs:
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="web", command="python app.py", pid=pid,
-                    log_file="/tmp/web.log", started_at="2025-01-01T00:00:00+00:00",
+                    name="web",
+                    command="python app.py",
+                    pid=pid,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
                 )
             ],
         )
@@ -919,13 +980,15 @@ class TestStopAllEnvs:
         """Calls stop_env for each running environment."""
         mock_list.return_value = [
             EnvState(
-                project="projA", worktree="alpha",
+                project="projA",
+                worktree="alpha",
                 worktree_path="/project/alpha",
                 started_at="2025-01-01T00:00:00+00:00",
                 services=[],
             ),
             EnvState(
-                project="projB", worktree="bravo",
+                project="projB",
+                worktree="bravo",
                 worktree_path="/project/bravo",
                 started_at="2025-01-01T00:00:00+00:00",
                 services=[],
@@ -964,6 +1027,7 @@ class TestFormatUptime:
     def test_seconds(self, mock_dt):
         """Shows seconds for very short uptime."""
         from datetime import datetime, timezone
+
         mock_dt.fromisoformat = datetime.fromisoformat
         mock_dt.now.return_value = datetime(2025, 1, 1, 0, 0, 45, tzinfo=timezone.utc)
         assert format_uptime("2025-01-01T00:00:00+00:00") == "45s"
@@ -972,6 +1036,7 @@ class TestFormatUptime:
     def test_minutes(self, mock_dt):
         """Shows minutes for short uptime."""
         from datetime import datetime, timezone
+
         mock_dt.fromisoformat = datetime.fromisoformat
         mock_dt.now.return_value = datetime(2025, 1, 1, 0, 5, 0, tzinfo=timezone.utc)
         assert format_uptime("2025-01-01T00:00:00+00:00") == "5m"
@@ -980,6 +1045,7 @@ class TestFormatUptime:
     def test_hours_and_minutes(self, mock_dt):
         """Shows hours and minutes."""
         from datetime import datetime, timezone
+
         mock_dt.fromisoformat = datetime.fromisoformat
         mock_dt.now.return_value = datetime(2025, 1, 1, 2, 30, 0, tzinfo=timezone.utc)
         assert format_uptime("2025-01-01T00:00:00+00:00") == "2h 30m"
@@ -988,6 +1054,7 @@ class TestFormatUptime:
     def test_days_and_hours(self, mock_dt):
         """Shows days and hours."""
         from datetime import datetime, timezone
+
         mock_dt.fromisoformat = datetime.fromisoformat
         mock_dt.now.return_value = datetime(2025, 1, 4, 5, 0, 0, tzinfo=timezone.utc)
         assert format_uptime("2025-01-01T00:00:00+00:00") == "3d 5h"
@@ -996,6 +1063,7 @@ class TestFormatUptime:
     def test_days_only(self, mock_dt):
         """Shows just days when hours are zero."""
         from datetime import datetime, timezone
+
         mock_dt.fromisoformat = datetime.fromisoformat
         mock_dt.now.return_value = datetime(2025, 1, 4, 0, 0, 0, tzinfo=timezone.utc)
         assert format_uptime("2025-01-01T00:00:00+00:00") == "3d"
@@ -1004,6 +1072,7 @@ class TestFormatUptime:
     def test_hours_only(self, mock_dt):
         """Shows just hours when minutes are zero."""
         from datetime import datetime, timezone
+
         mock_dt.fromisoformat = datetime.fromisoformat
         mock_dt.now.return_value = datetime(2025, 1, 1, 2, 0, 0, tzinfo=timezone.utc)
         assert format_uptime("2025-01-01T00:00:00+00:00") == "2h"
@@ -1012,6 +1081,7 @@ class TestFormatUptime:
     def test_zero_seconds(self, mock_dt):
         """Shows 0s for no elapsed time."""
         from datetime import datetime, timezone
+
         mock_dt.fromisoformat = datetime.fromisoformat
         mock_dt.now.return_value = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         assert format_uptime("2025-01-01T00:00:00+00:00") == "0s"
@@ -1032,8 +1102,11 @@ class TestGetLogFiles:
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="web", command="python app.py", pid=100,
-                    log_file=str(log_file), started_at="2025-01-01T00:00:00+00:00",
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file=str(log_file),
+                    started_at="2025-01-01T00:00:00+00:00",
                 )
             ],
         )
@@ -1077,7 +1150,9 @@ class TestGetLogFiles:
 
     @patch("maelstrom.env._get_log_dir")
     @patch("maelstrom.env.load_env_state")
-    def test_state_with_missing_files_falls_back(self, mock_load, mock_log_dir, tmp_path):
+    def test_state_with_missing_files_falls_back(
+        self, mock_load, mock_log_dir, tmp_path
+    ):
         """Falls back to dir scan when state log files don't exist on disk."""
         mock_load.return_value = EnvState(
             project="proj",
@@ -1086,7 +1161,9 @@ class TestGetLogFiles:
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="web", command="x", pid=100,
+                    name="web",
+                    command="x",
+                    pid=100,
                     log_file="/nonexistent/web.log",
                     started_at="2025-01-01T00:00:00+00:00",
                 )
@@ -1278,8 +1355,11 @@ class TestGetSharedStatus:
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="db-shared", command="postgres", pid=100,
-                    log_file="/tmp/db.log", started_at="2025-01-01T00:00:00+00:00",
+                    name="db-shared",
+                    command="postgres",
+                    pid=100,
+                    log_file="/tmp/db.log",
+                    started_at="2025-01-01T00:00:00+00:00",
                 ),
             ],
             subscribers=["alpha"],
@@ -1314,8 +1394,11 @@ class TestCleanupStaleShared:
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="db-shared", command="postgres", pid=100,
-                    log_file="/tmp/db.log", started_at="2025-01-01T00:00:00+00:00",
+                    name="db-shared",
+                    command="postgres",
+                    pid=100,
+                    log_file="/tmp/db.log",
+                    started_at="2025-01-01T00:00:00+00:00",
                 ),
             ],
             subscribers=["alpha"],
@@ -1335,8 +1418,11 @@ class TestCleanupStaleShared:
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="db-shared", command="postgres", pid=100,
-                    log_file="/tmp/db.log", started_at="2025-01-01T00:00:00+00:00",
+                    name="db-shared",
+                    command="postgres",
+                    pid=100,
+                    log_file="/tmp/db.log",
+                    started_at="2025-01-01T00:00:00+00:00",
                 ),
             ],
             subscribers=["alpha"],
@@ -1447,8 +1533,11 @@ class TestStartEnvShared:
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="db-shared", command="postgres", pid=999,
-                    log_file="/tmp/db.log", started_at="2025-01-01T00:00:00+00:00",
+                    name="db-shared",
+                    command="postgres",
+                    pid=999,
+                    log_file="/tmp/db.log",
+                    started_at="2025-01-01T00:00:00+00:00",
                 ),
             ],
             subscribers=["alpha"],
@@ -1522,15 +1611,16 @@ class TestTwoPhaseStartWithIpInjection:
         ]
         mock_popen.return_value = MagicMock(pid=42)
 
-        runner = MagicMock(return_value='[{"networks": [{"address": "192.168.64.4/24"}]}]')
+        runner = MagicMock(
+            return_value='[{"networks": [{"address": "192.168.64.4/24"}]}]'
+        )
 
         store = InMemoryEnvStore()
         start_env(store, "proj", "bravo", Path("/project/bravo"), runner=runner)
 
         # The command service was spawned with DB_HOST in its env.
         app_call = next(
-            c for c in mock_popen.call_args_list
-            if c[0][0] == ["sh", "-c", "serve"]
+            c for c in mock_popen.call_args_list if c[0][0] == ["sh", "-c", "serve"]
         )
         assert app_call[1]["env"]["DB_HOST"] == "192.168.64.4"
         # The service's own env: ${DB_HOST} is expanded to the injected IP.
@@ -1578,7 +1668,9 @@ class TestTwoPhaseStartWithIpInjection:
                 host_var="DB_HOST",
             ),
             ResolvedService(
-                name="app", command="serve", env={"PGHOST": "${DB_HOST}"},
+                name="app",
+                command="serve",
+                env={"PGHOST": "${DB_HOST}"},
             ),
         ]
         mock_shared_load.return_value = SharedEnvState(
@@ -1587,9 +1679,13 @@ class TestTwoPhaseStartWithIpInjection:
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="db", command="container run ...", pid=999,
-                    log_file="/tmp/db.log", started_at="2025-01-01T00:00:00+00:00",
-                    engine="apple-container", container_name="proj-db",
+                    name="db",
+                    command="container run ...",
+                    pid=999,
+                    log_file="/tmp/db.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                    engine="apple-container",
+                    container_name="proj-db",
                 ),
             ],
             subscribers=["alpha"],
@@ -1658,7 +1754,8 @@ class TestTwoPhaseStartWithIpInjection:
         with patch("maelstrom.services.time") as mock_time:
             # First call sets deadline; subsequent calls are past it.
             mock_time.monotonic.side_effect = itertools.chain(
-                [0.0], itertools.repeat(999.0),
+                [0.0],
+                itertools.repeat(999.0),
             )
             store = InMemoryEnvStore()
             with pytest.raises(TimeoutError):
@@ -1672,15 +1769,23 @@ class TestContainerCleanupOnStop:
     @patch("maelstrom.env.is_service_alive", return_value=False)
     @patch("os.killpg")
     def test_docker_service_force_removed(
-        self, mock_killpg, mock_alive, mock_run, tmp_path,
+        self,
+        mock_killpg,
+        mock_alive,
+        mock_run,
+        tmp_path,
     ):
         """A docker container service is force-removed after its shell stops."""
         from maelstrom.env import _stop_services
 
         svc = ServiceState(
-            name="db", command="docker run ...", pid=123,
-            log_file=str(tmp_path / "db.log"), started_at="2025-01-01T00:00:00+00:00",
-            engine="docker", container_name="proj-db",
+            name="db",
+            command="docker run ...",
+            pid=123,
+            log_file=str(tmp_path / "db.log"),
+            started_at="2025-01-01T00:00:00+00:00",
+            engine="docker",
+            container_name="proj-db",
         )
         _stop_services([svc])
         argv = mock_run.call_args[0][0]
@@ -1690,15 +1795,23 @@ class TestContainerCleanupOnStop:
     @patch("maelstrom.env.is_service_alive", return_value=False)
     @patch("os.killpg")
     def test_apple_container_deleted(
-        self, mock_killpg, mock_alive, mock_run, tmp_path,
+        self,
+        mock_killpg,
+        mock_alive,
+        mock_run,
+        tmp_path,
     ):
         """An apple-container service uses `container delete --force`."""
         from maelstrom.env import _stop_services
 
         svc = ServiceState(
-            name="db", command="container run ...", pid=123,
-            log_file=str(tmp_path / "db.log"), started_at="2025-01-01T00:00:00+00:00",
-            engine="apple-container", container_name="proj-db",
+            name="db",
+            command="container run ...",
+            pid=123,
+            log_file=str(tmp_path / "db.log"),
+            started_at="2025-01-01T00:00:00+00:00",
+            engine="apple-container",
+            container_name="proj-db",
         )
         _stop_services([svc])
         argv = mock_run.call_args[0][0]
@@ -1708,14 +1821,21 @@ class TestContainerCleanupOnStop:
     @patch("maelstrom.env.is_service_alive", return_value=False)
     @patch("os.killpg")
     def test_command_service_not_cleaned(
-        self, mock_killpg, mock_alive, mock_run, tmp_path,
+        self,
+        mock_killpg,
+        mock_alive,
+        mock_run,
+        tmp_path,
     ):
         """A command service (no engine) triggers no container cleanup."""
         from maelstrom.env import _stop_services
 
         svc = ServiceState(
-            name="app", command="serve", pid=123,
-            log_file=str(tmp_path / "app.log"), started_at="2025-01-01T00:00:00+00:00",
+            name="app",
+            command="serve",
+            pid=123,
+            log_file=str(tmp_path / "app.log"),
+            started_at="2025-01-01T00:00:00+00:00",
         )
         _stop_services([svc])
         mock_run.assert_not_called()
@@ -1731,18 +1851,27 @@ class TestStopEnvShared:
     @patch("maelstrom.env.load_shared_state")
     @patch("maelstrom.env.load_env_state")
     def test_unsubscribes_keeps_shared(
-        self, mock_load, mock_shared_load, mock_killpg, mock_alive,
-        mock_remove, mock_shared_remove,
+        self,
+        mock_load,
+        mock_shared_load,
+        mock_killpg,
+        mock_alive,
+        mock_remove,
+        mock_shared_remove,
     ):
         """Shared services stay running when other subscribers remain."""
         mock_load.return_value = EnvState(
-            project="proj", worktree="bravo",
+            project="proj",
+            worktree="bravo",
             worktree_path="/project/bravo",
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="web", command="python app.py", pid=100,
-                    log_file="/tmp/web.log", started_at="2025-01-01T00:00:00+00:00",
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
                 )
             ],
         )
@@ -1752,8 +1881,11 @@ class TestStopEnvShared:
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="db-shared", command="postgres", pid=200,
-                    log_file="/tmp/db.log", started_at="2025-01-01T00:00:00+00:00",
+                    name="db-shared",
+                    command="postgres",
+                    pid=200,
+                    log_file="/tmp/db.log",
+                    started_at="2025-01-01T00:00:00+00:00",
                 ),
             ],
             subscribers=["alpha", "bravo"],
@@ -1773,18 +1905,27 @@ class TestStopEnvShared:
     @patch("maelstrom.env.load_shared_state")
     @patch("maelstrom.env.load_env_state")
     def test_last_subscriber_stops_shared(
-        self, mock_load, mock_shared_load, mock_killpg, mock_alive,
-        mock_remove, mock_shared_remove,
+        self,
+        mock_load,
+        mock_shared_load,
+        mock_killpg,
+        mock_alive,
+        mock_remove,
+        mock_shared_remove,
     ):
         """Shared services are stopped when last subscriber disconnects."""
         mock_load.return_value = EnvState(
-            project="proj", worktree="bravo",
+            project="proj",
+            worktree="bravo",
             worktree_path="/project/bravo",
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="web", command="python app.py", pid=100,
-                    log_file="/tmp/web.log", started_at="2025-01-01T00:00:00+00:00",
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
                 )
             ],
         )
@@ -1794,8 +1935,11 @@ class TestStopEnvShared:
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="db-shared", command="postgres", pid=200,
-                    log_file="/tmp/db.log", started_at="2025-01-01T00:00:00+00:00",
+                    name="db-shared",
+                    command="postgres",
+                    pid=200,
+                    log_file="/tmp/db.log",
+                    started_at="2025-01-01T00:00:00+00:00",
                 ),
             ],
             subscribers=["bravo"],
@@ -1814,17 +1958,26 @@ class TestStopEnvShared:
     @patch("os.killpg")
     @patch("maelstrom.env.load_env_state")
     def test_no_shared_services(
-        self, mock_load, mock_killpg, mock_alive, mock_remove, mock_shared_load,
+        self,
+        mock_load,
+        mock_killpg,
+        mock_alive,
+        mock_remove,
+        mock_shared_load,
     ):
         """Works normally when no shared services exist."""
         mock_load.return_value = EnvState(
-            project="proj", worktree="bravo",
+            project="proj",
+            worktree="bravo",
             worktree_path="/project/bravo",
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="web", command="python app.py", pid=100,
-                    log_file="/tmp/web.log", started_at="2025-01-01T00:00:00+00:00",
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
                 )
             ],
         )
@@ -1844,31 +1997,44 @@ class TestListProjectEnvsShared:
         store = InMemoryEnvStore()
 
         # Save a regular env
-        save_env_state(store, EnvState(
-            project="proj", worktree="alpha",
-            worktree_path="/project/alpha",
-            started_at="2025-01-01T00:00:00+00:00",
-            services=[
-                ServiceState(
-                    name="web", command="x", pid=100,
-                    log_file="/tmp/web.log", started_at="2025-01-01T00:00:00+00:00",
-                )
-            ],
-        ))
+        save_env_state(
+            store,
+            EnvState(
+                project="proj",
+                worktree="alpha",
+                worktree_path="/project/alpha",
+                started_at="2025-01-01T00:00:00+00:00",
+                services=[
+                    ServiceState(
+                        name="web",
+                        command="x",
+                        pid=100,
+                        log_file="/tmp/web.log",
+                        started_at="2025-01-01T00:00:00+00:00",
+                    )
+                ],
+            ),
+        )
 
         # Save shared state
-        save_shared_state(store, SharedEnvState(
-            project="proj",
-            worktree_path="/project/alpha",
-            started_at="2025-01-01T00:00:00+00:00",
-            services=[
-                ServiceState(
-                    name="db-shared", command="postgres", pid=200,
-                    log_file="/tmp/db.log", started_at="2025-01-01T00:00:00+00:00",
-                ),
-            ],
-            subscribers=["alpha"],
-        ))
+        save_shared_state(
+            store,
+            SharedEnvState(
+                project="proj",
+                worktree_path="/project/alpha",
+                started_at="2025-01-01T00:00:00+00:00",
+                services=[
+                    ServiceState(
+                        name="db-shared",
+                        command="postgres",
+                        pid=200,
+                        log_file="/tmp/db.log",
+                        started_at="2025-01-01T00:00:00+00:00",
+                    ),
+                ],
+                subscribers=["alpha"],
+            ),
+        )
 
         result = list_project_envs(store, "proj")
         assert len(result) == 1
@@ -1886,7 +2052,11 @@ class TestRegenerateAndRestartIfRunning:
         """When env not running: regenerate .env, no stop/start, returns ([], None)."""
         store = InMemoryEnvStore()
         result = regenerate_and_restart_if_running(
-            store, "proj", "bravo", tmp_path / "proj", tmp_path / "wt",
+            store,
+            "proj",
+            "bravo",
+            tmp_path / "proj",
+            tmp_path / "wt",
         )
         assert result == ([], None)
         mock_regen.assert_called_once_with(tmp_path / "proj", tmp_path / "wt", "bravo")
@@ -1899,7 +2069,13 @@ class TestRegenerateAndRestartIfRunning:
     @patch("maelstrom.env.regenerate_env_file")
     @patch("maelstrom.env.load_env_state")
     def test_when_running(
-        self, mock_load, mock_regen, mock_stop, mock_start, mock_alive, tmp_path,
+        self,
+        mock_load,
+        mock_regen,
+        mock_stop,
+        mock_start,
+        mock_alive,
+        tmp_path,
     ):
         """When env running: stop, regenerate, start with skip_install=True."""
         state = EnvState(
@@ -1929,7 +2105,11 @@ class TestRegenerateAndRestartIfRunning:
 
         store = InMemoryEnvStore()
         stop_messages, returned_state = regenerate_and_restart_if_running(
-            store, "proj", "bravo", tmp_path / "proj", tmp_path / "wt",
+            store,
+            "proj",
+            "bravo",
+            tmp_path / "proj",
+            tmp_path / "wt",
         )
 
         assert stop_messages == ["web (pid 100): stopped"]
@@ -1937,7 +2117,11 @@ class TestRegenerateAndRestartIfRunning:
         mock_stop.assert_called_once_with(store, "proj", "bravo")
         mock_regen.assert_called_once_with(tmp_path / "proj", tmp_path / "wt", "bravo")
         mock_start.assert_called_once_with(
-            store, "proj", "bravo", tmp_path / "wt", skip_install=True,
+            store,
+            "proj",
+            "bravo",
+            tmp_path / "wt",
+            skip_install=True,
         )
 
     @patch("maelstrom.env.is_service_alive", return_value=False)
@@ -1946,7 +2130,13 @@ class TestRegenerateAndRestartIfRunning:
     @patch("maelstrom.env.regenerate_env_file")
     @patch("maelstrom.env.load_env_state")
     def test_state_exists_but_dead(
-        self, mock_load, mock_regen, mock_stop, mock_start, mock_alive, tmp_path,
+        self,
+        mock_load,
+        mock_regen,
+        mock_stop,
+        mock_start,
+        mock_alive,
+        tmp_path,
     ):
         """State file exists but no services alive: treat as stopped."""
         state = EnvState(
@@ -1956,7 +2146,9 @@ class TestRegenerateAndRestartIfRunning:
             started_at="2025-01-01T00:00:00+00:00",
             services=[
                 ServiceState(
-                    name="web", command="python app.py", pid=100,
+                    name="web",
+                    command="python app.py",
+                    pid=100,
                     log_file="/tmp/web.log",
                     started_at="2025-01-01T00:00:00+00:00",
                 ),
@@ -1966,7 +2158,11 @@ class TestRegenerateAndRestartIfRunning:
 
         store = InMemoryEnvStore()
         stop_messages, returned_state = regenerate_and_restart_if_running(
-            store, "proj", "bravo", tmp_path / "proj", tmp_path / "wt",
+            store,
+            "proj",
+            "bravo",
+            tmp_path / "proj",
+            tmp_path / "wt",
         )
 
         assert stop_messages == []

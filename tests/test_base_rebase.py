@@ -69,7 +69,8 @@ def project_with_stack():
         remote_path = tmp / "remote.git"
         subprocess.run(
             ["git", "clone", "--bare", str(source_path), str(remote_path)],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
 
         project_path = tmp / "test-repo"
@@ -77,10 +78,16 @@ def project_with_stack():
         git_dir = project_path / ".git"
         subprocess.run(
             ["git", "clone", "--bare", str(remote_path), str(git_dir)],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
         run_git(project_path, "config", "core.bare", "true")
-        run_git(project_path, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+        run_git(
+            project_path,
+            "config",
+            "remote.origin.fetch",
+            "+refs/heads/*:refs/remotes/origin/*",
+        )
         run_git(project_path, "config", "user.email", "test@test.com")
         run_git(project_path, "config", "user.name", "Test")
         run_git(project_path, "fetch", "origin")
@@ -93,7 +100,9 @@ def project_with_stack():
             path = project_path / f"test-repo-{nato}"
             subprocess.run(
                 ["git", "worktree", "add", "-b", branch, str(path), "origin/main"],
-                cwd=project_path, check=True, capture_output=True,
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
             run_git(path, "config", "user.email", "test@test.com")
             run_git(path, "config", "user.name", "Test")
@@ -113,13 +122,16 @@ def _push(path: Path, branch: str, *, force: bool = False) -> None:
     run_git(path, "fetch", "origin")
 
 
-def _advance_origin_main(project_path: Path, remote_path: Path, name: str = "upstream.txt") -> None:
+def _advance_origin_main(
+    project_path: Path, remote_path: Path, name: str = "upstream.txt"
+) -> None:
     """Add an unrelated commit to origin/main and fetch it."""
     with TemporaryDirectory() as tmpdir:
         clone = Path(tmpdir) / "pusher"
         subprocess.run(
             ["git", "clone", str(remote_path), str(clone)],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
         run_git(clone, "config", "user.email", "test@test.com")
         run_git(clone, "config", "user.name", "Test")
@@ -138,7 +150,8 @@ def _squash_merge_to_main(project_path: Path, remote_path: Path, branch: str) ->
         clone = Path(tmpdir) / "merger"
         subprocess.run(
             ["git", "clone", str(remote_path), str(clone)],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
         run_git(clone, "config", "user.email", "test@test.com")
         run_git(clone, "config", "user.name", "Test")
@@ -251,7 +264,9 @@ class TestStackedRebase:
 
         squash_worktree(child, skip_fetch=True, squash=False)
 
-        parent_tip = run_git(project_path, "rev-parse", "origin/feat/parent").stdout.strip()
+        parent_tip = run_git(
+            project_path, "rev-parse", "origin/feat/parent"
+        ).stdout.strip()
         assert store.read("feat/child") == BaseRef(branch="feat/parent", tip=parent_tip)
 
     def test_the_parents_new_work_cascades_into_the_child(self, project_with_stack):
@@ -273,7 +288,9 @@ class TestStackedRebase:
         assert _log(child)[0] == "Child commit"
         assert _commits_ahead_of_main(child) == 3
 
-    def test_unrelated_drift_on_main_does_not_disturb_the_child(self, project_with_stack):
+    def test_unrelated_drift_on_main_does_not_disturb_the_child(
+        self, project_with_stack
+    ):
         project_path, parent, child, remote_path = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
         _push(parent, "feat/parent")
@@ -329,7 +346,9 @@ class TestStackedRebase:
         project_path, parent, child, _ = project_with_stack
         create_commit(parent, "shared.txt", "v1\n", "Parent commit")
         _push(parent, "feat/parent")
-        first_tip = run_git(project_path, "rev-parse", "origin/feat/parent").stdout.strip()
+        first_tip = run_git(
+            project_path, "rev-parse", "origin/feat/parent"
+        ).stdout.strip()
         create_commit(child, "child.txt", "child\n", "Child commit")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent"))
@@ -347,7 +366,9 @@ class TestStackedRebase:
         run_git(parent, "commit", "--amend", "-m", "Parent second (reviewed)")
         _push(parent, "feat/parent", force=True)
 
-        result = squash_worktree(child, skip_fetch=True, squash=False, abort_on_conflict=True)
+        result = squash_worktree(
+            child, skip_fetch=True, squash=False, abort_on_conflict=True
+        )
 
         assert result.success is False
         assert result.had_conflicts is True
@@ -356,7 +377,9 @@ class TestStackedRebase:
 class TestBaseTipSafetyGuard:
     """``--onto`` with a tip that is not an ancestor of HEAD would drop commits."""
 
-    def test_a_tip_not_in_history_falls_back_to_a_plain_rebase(self, project_with_stack):
+    def test_a_tip_not_in_history_falls_back_to_a_plain_rebase(
+        self, project_with_stack
+    ):
         """A wrong tip must degrade safely, never silently discard work.
 
         ``git rebase --onto X <upstream>`` replays only ``<upstream>..HEAD``. If
@@ -436,7 +459,9 @@ class TestCollapse:
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
         _push(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
-        GitConfigBaseStore(project_path).write("feat/child", BaseRef(branch="feat/parent"))
+        GitConfigBaseStore(project_path).write(
+            "feat/child", BaseRef(branch="feat/parent")
+        )
         squash_worktree(child, skip_fetch=True, squash=False)
 
         seen: list[list[str]] = []
@@ -485,7 +510,9 @@ class TestCollapse:
 class TestSyncWithBase:
     """``sync_worktree`` carries the base through to close_if_empty."""
 
-    def test_close_if_empty_measures_against_the_base_not_main(self, project_with_stack):
+    def test_close_if_empty_measures_against_the_base_not_main(
+        self, project_with_stack
+    ):
         """A child identical to its parent is empty, even though main has moved on.
 
         Measuring against ``origin/main`` would call it non-empty and leave a
@@ -508,7 +535,9 @@ class TestSyncWithBase:
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
         _push(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
-        GitConfigBaseStore(project_path).write("feat/child", BaseRef(branch="feat/parent"))
+        GitConfigBaseStore(project_path).write(
+            "feat/child", BaseRef(branch="feat/parent")
+        )
 
         result = sync_worktree(child, skip_fetch=True, close_if_empty=True)
 
@@ -533,7 +562,9 @@ class TestTidyBranchesRespectsStacks:
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
         _push(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
-        GitConfigBaseStore(project_path).write("feat/child", BaseRef(branch="feat/parent"))
+        GitConfigBaseStore(project_path).write(
+            "feat/child", BaseRef(branch="feat/parent")
+        )
         squash_worktree(child, skip_fetch=True, squash=False)
 
         results = tidy_branches(project_path)
@@ -550,7 +581,9 @@ class TestTidyBranchesRespectsStacks:
         project_path, parent, child, remote_path = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
         _push(parent, "feat/parent")
-        GitConfigBaseStore(project_path).write("feat/child", BaseRef(branch="feat/parent"))
+        GitConfigBaseStore(project_path).write(
+            "feat/child", BaseRef(branch="feat/parent")
+        )
         _advance_origin_main(project_path, remote_path)
 
         # Free the parent's worktree so tidy would otherwise process the branch.
@@ -570,7 +603,6 @@ class TestTidyBranchesRespectsStacks:
 
         parent_result = next(r for r in results if r.branch == "feat/parent")
         assert parent_result.action != "skipped_base"
-
 
     def test_a_stacked_child_branch_is_not_flattened(self, project_with_stack):
         """Tidy guards the base side of a link; the child side needs it too.
@@ -604,7 +636,9 @@ class TestCloseIfEmptyProtectsABase:
 
     def test_an_empty_base_branch_is_closed_but_kept(self, project_with_stack):
         project_path, parent, child, _ = project_with_stack
-        GitConfigBaseStore(project_path).write("feat/child", BaseRef(branch="feat/parent"))
+        GitConfigBaseStore(project_path).write(
+            "feat/child", BaseRef(branch="feat/parent")
+        )
 
         result = sync_worktree(parent, skip_fetch=True, close_if_empty=True)
 
@@ -728,7 +762,9 @@ class TestStackByDefault:
 
         assert store.read_stack_tip() == "feat/new"
 
-    def test_an_explicit_base_overrides_the_tip_for_one_worktree(self, project_with_stack):
+    def test_an_explicit_base_overrides_the_tip_for_one_worktree(
+        self, project_with_stack
+    ):
         project_path, parent, _, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
         _push(parent, "feat/parent")
@@ -750,7 +786,9 @@ class TestStackByDefault:
 
         assert store.read("feat/new") == BaseRef()
 
-    def test_reusing_an_existing_worktree_does_not_move_the_tip(self, project_with_stack):
+    def test_reusing_an_existing_worktree_does_not_move_the_tip(
+        self, project_with_stack
+    ):
         """Reuse is a no-op path; it must not silently re-point where new work lands."""
         project_path, _, _, _ = project_with_stack
         store = GitConfigBaseStore(project_path)
@@ -829,8 +867,11 @@ class TestExistingBranchKeepsItsBase:
 
         run_git(child, "checkout", "--detach", "origin/main")
         setup_worktree_for_branch(
-            project_path, project_path.name, "feat/child",
-            run_install=False, base="main",
+            project_path,
+            project_path.name,
+            "feat/child",
+            run_install=False,
+            base="main",
         )
 
         assert store.read("feat/child") == BaseRef()
@@ -850,8 +891,11 @@ class TestBaseMustExist:
 
         with pytest.raises(ValueError, match="feat/typo"):
             setup_worktree_for_branch(
-                project_path, project_path.name, "feat/new",
-                run_install=False, base="feat/typo",
+                project_path,
+                project_path.name,
+                "feat/new",
+                run_install=False,
+                base="feat/typo",
             )
         assert store.all() == {}
 
@@ -859,8 +903,11 @@ class TestBaseMustExist:
         project_path, _, _, _ = project_with_stack
 
         setup_worktree_for_branch(
-            project_path, project_path.name, "feat/new",
-            run_install=False, base="feat/parent",
+            project_path,
+            project_path.name,
+            "feat/new",
+            run_install=False,
+            base="feat/parent",
         )
 
         assert GitConfigBaseStore(project_path).read("feat/new").branch == "feat/parent"
@@ -870,8 +917,11 @@ class TestBaseMustExist:
         project_path, _, _, _ = project_with_stack
 
         setup_worktree_for_branch(
-            project_path, project_path.name, "feat/new",
-            run_install=False, base="main",
+            project_path,
+            project_path.name,
+            "feat/new",
+            run_install=False,
+            base="main",
         )
 
         assert GitConfigBaseStore(project_path).read("feat/new") == BaseRef()

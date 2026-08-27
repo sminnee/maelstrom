@@ -145,10 +145,13 @@ def _strip_mael_hooks(blocks: list) -> tuple[list, bool]:
             cleaned.append(block)
             continue
         non_mael = [
-            h for h in block_hooks
-            if not (isinstance(h, dict)
-                    and isinstance(h.get("command"), str)
-                    and h["command"].startswith("mael session record"))
+            h
+            for h in block_hooks
+            if not (
+                isinstance(h, dict)
+                and isinstance(h.get("command"), str)
+                and h["command"].startswith("mael session record")
+            )
         ]
         if len(non_mael) == len(block_hooks):
             cleaned.append(block)

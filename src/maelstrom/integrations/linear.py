@@ -84,7 +84,7 @@ def get_team_id() -> str:
     raise click.ClickException(
         f"linear.team_id not configured. Add to .maelstrom.yaml:\n"
         f"  linear:\n"
-        f"    team_id: \"<team-uuid>\"\n\n"
+        f'    team_id: "<team-uuid>"\n\n'
         f"Available teams:\n{teams_info}"
     )
 
@@ -411,9 +411,7 @@ def create_issue(
     return result["issueCreate"]["issue"]
 
 
-def create_attachment(
-    issue_id: str, url: str, title: str, subtitle: str = ""
-) -> dict:
+def create_attachment(issue_id: str, url: str, title: str, subtitle: str = "") -> dict:
     """Create an attachment on an issue.
 
     Args:
@@ -518,7 +516,9 @@ def get_product_label() -> str | None:
     return config.linear_product_label
 
 
-def ensure_product_label(issue_id: str, labels_map: dict[str, str], current_label_names: list[str]) -> list[str] | None:
+def ensure_product_label(
+    issue_id: str, labels_map: dict[str, str], current_label_names: list[str]
+) -> list[str] | None:
     """Add product label to an issue's label list if configured and not already present.
 
     Args:
@@ -557,11 +557,32 @@ def get_workspace_labels() -> list[str]:
 
     # Default to NATO phonetic alphabet names used by maelstrom
     return [
-        "alpha", "bravo", "charlie", "delta", "echo", "foxtrot",
-        "golf", "hotel", "india", "juliet", "kilo", "lima",
-        "mike", "november", "oscar", "papa", "quebec", "romeo",
-        "sierra", "tango", "uniform", "victor", "whiskey", "xray",
-        "yankee", "zulu",
+        "alpha",
+        "bravo",
+        "charlie",
+        "delta",
+        "echo",
+        "foxtrot",
+        "golf",
+        "hotel",
+        "india",
+        "juliet",
+        "kilo",
+        "lima",
+        "mike",
+        "november",
+        "oscar",
+        "papa",
+        "quebec",
+        "romeo",
+        "sierra",
+        "tango",
+        "uniform",
+        "victor",
+        "whiskey",
+        "xray",
+        "yankee",
+        "zulu",
     ]
 
 
@@ -710,9 +731,7 @@ def _image_extension(alt: str, data: bytes) -> str:
     return ".bin"
 
 
-def localize_description_images(
-    identifier: str, project: str, description: str
-) -> str:
+def localize_description_images(identifier: str, project: str, description: str) -> str:
     """Download ``uploads.linear.app`` images and rewrite refs to a portable token.
 
     Scans ``description`` for ``![alt](https://uploads.linear.app/...)`` refs.
@@ -748,9 +767,7 @@ def localize_description_images(
             continue
         alt = match.group(1)
         try:
-            data = request_bytes(
-                url, headers={"Authorization": get_linear_api_key()}
-            )
+            data = request_bytes(url, headers={"Authorization": get_linear_api_key()})
         except click.ClickException as e:
             click.echo(
                 f"warning: could not download image {url}: {e.message}; "
@@ -845,9 +862,7 @@ def cmd_plan(
     # (add_task re-resolves internally; passing the resolved name is idempotent
     # — the pre-resolution exists only so the image dir and the task agree.)
     resolved_project = task_cli._resolve_project(project)
-    description = localize_description_images(
-        identifier, resolved_project, description
-    )
+    description = localize_description_images(identifier, resolved_project, description)
     brief = f"# {identifier}: {title}\n\n{description}"
 
     # The meaningful title/description live on the *issue*, not on the "Plan
@@ -923,7 +938,9 @@ def cmd_read_task(issue_id):
         click.echo("## Subtasks\n")
         for child in children:
             child_status = child["state"]["name"]
-            checkbox = "x" if child["state"]["type"] in ["completed", "canceled"] else " "
+            checkbox = (
+                "x" if child["state"]["type"] in ["completed", "canceled"] else " "
+            )
             click.echo(
                 f"- [{checkbox}] **{child['identifier']}**: {child['title']} "
                 f"[{child_status}]"
@@ -1010,9 +1027,7 @@ def cmd_start_task(issue_id):
 
     # Convert to IDs
     label_ids = [
-        labels_map[label_name]
-        for label_name in new_labels
-        if label_name in labels_map
+        labels_map[label_name] for label_name in new_labels if label_name in labels_map
     ]
 
     # Update the issue
@@ -1196,7 +1211,9 @@ def cmd_write_plan(issue_id, plan_file):
     description = issue.get("description") or ""
 
     # Build the plan section with markers and surrounding HRs for visual separation
-    plan_section = f"---\n\n# Implementation Plan\n\n{plan_content}\n\n(end of plan)\n\n---"
+    plan_section = (
+        f"---\n\n# Implementation Plan\n\n{plan_content}\n\n(end of plan)\n\n---"
+    )
 
     # Replace existing plan or append
     start_marker = "# Implementation Plan"
@@ -1248,7 +1265,9 @@ def cmd_write_plan(issue_id, plan_file):
             parent_labels = [
                 label["name"] for label in parent.get("labels", {}).get("nodes", [])
             ]
-            parent_label_ids = ensure_product_label(parent["id"], labels_map, parent_labels)
+            parent_label_ids = ensure_product_label(
+                parent["id"], labels_map, parent_labels
+            )
             if parent_label_ids:
                 update_issue(parent["id"], labelIds=parent_label_ids)
 
@@ -1301,7 +1320,12 @@ def cmd_read_plan(issue_id):
 @click.argument("issue_id")
 @click.argument("old_arg")
 @click.argument("new_arg")
-@click.option("-s", "--string", is_flag=True, help="Treat arguments as literal strings instead of file paths.")
+@click.option(
+    "-s",
+    "--string",
+    is_flag=True,
+    help="Treat arguments as literal strings instead of file paths.",
+)
 def cmd_edit_plan(issue_id, old_arg, new_arg, string):
     """Search/replace within the plan section of a Linear issue description.
 
@@ -1340,7 +1364,7 @@ def cmd_edit_plan(issue_id, old_arg, new_arg, string):
 
     # Extract plan section
     if end_idx != -1:
-        plan_section = description[start_idx:end_idx + len(end_marker)]
+        plan_section = description[start_idx : end_idx + len(end_marker)]
     else:
         plan_section = description[start_idx:]
 
@@ -1355,7 +1379,11 @@ def cmd_edit_plan(issue_id, old_arg, new_arg, string):
 
     # Replace within plan section and reconstruct
     new_plan_section = plan_section.replace(old_string, new_string, 1)
-    new_description = description[:start_idx] + new_plan_section + description[start_idx + len(plan_section):]
+    new_description = (
+        description[:start_idx]
+        + new_plan_section
+        + description[start_idx + len(plan_section) :]
+    )
 
     update_issue(issue["id"], description=new_description)
     click.echo(f"Updated plan on {issue['identifier']}: {issue['title']}")

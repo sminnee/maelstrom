@@ -95,7 +95,9 @@ def validate_priority(priority: str) -> None:
     typo is rejected at write time rather than silently coerced.
     """
     if priority not in PRIORITIES:
-        raise ValueError(f"Invalid priority: {priority!r} (expected one of {PRIORITIES}).")
+        raise ValueError(
+            f"Invalid priority: {priority!r} (expected one of {PRIORITIES})."
+        )
 
 
 @dataclass(frozen=True)
@@ -321,7 +323,8 @@ class Task:
             updated=str(frontmatter.get("updated", "")),
             schedule=str(frontmatter.get("schedule", "")),
             last_run=str(frontmatter.get("last-run", "")),
-            priority=str(frontmatter.get("priority", DEFAULT_PRIORITY)) or DEFAULT_PRIORITY,
+            priority=str(frontmatter.get("priority", DEFAULT_PRIORITY))
+            or DEFAULT_PRIORITY,
             model=str(frontmatter.get("model", "")),
             base=str(frontmatter.get("base", "")),
             content=sections.get("content", ""),
@@ -413,7 +416,7 @@ def _split_frontmatter(text: str, *, strict: bool = False) -> tuple[dict, str]:
     for i in range(1, len(lines)):
         if lines[i].strip() == "---":
             fm_text = "\n".join(lines[1:i])
-            body = "\n".join(lines[i + 1:])
+            body = "\n".join(lines[i + 1 :])
             try:
                 data = yaml.safe_load(fm_text) or {}
             except yaml.YAMLError:
@@ -597,7 +600,9 @@ def _index_fresh(index: TaskIndex | None, head: str | None) -> bool:
 # --- id allocation ---
 
 
-def allocate_orphan_id(store: TaskStore, project: str, *, today: str | None = None) -> str:
+def allocate_orphan_id(
+    store: TaskStore, project: str, *, today: str | None = None
+) -> str:
     """Allocate a top-level (orphan) id of the form ``YYYY-MM-DD.<n>``.
 
     ``<n>`` is one more than the highest existing counter for ``today`` across
@@ -640,7 +645,7 @@ def _next_counter(store: TaskStore, project: str, pattern: re.Pattern) -> int:
     for key in store.list_dir(f"{project}/"):
         if not key.endswith(".md"):
             continue
-        id = key.split("/")[-1][:-len(".md")]
+        id = key.split("/")[-1][: -len(".md")]
         m = pattern.match(id)
         if m:
             highest = max(highest, int(m.group(1)))
@@ -999,7 +1004,9 @@ def parse_draft(text: str) -> Task:
 # ``follow*`` keys: those are creation *arguments* that resolve into the
 # ``follows`` field rather than fields in their own right, so they stay an
 # explicit addendum.
-_BLOCK_KEYS = frozenset({f.key for f in TASK_FIELDS if f.block} | {"follow", "follow-end"})
+_BLOCK_KEYS = frozenset(
+    {f.key for f in TASK_FIELDS if f.block} | {"follow", "follow-end"}
+)
 
 _BAD_WILDCARD_ESCAPE = re.compile(r'"\\(\*)"')  # the "\*" double-quoted-escape case
 
@@ -1069,9 +1076,7 @@ def parse_task_blocks(text: str) -> tuple[list[dict], list[str]]:
         try:
             frontmatter, body = _split_frontmatter("---\n" + cleaned, strict=True)
         except yaml.YAMLError as e:
-            raise ValueError(
-                f"Block {current_name!r} has invalid frontmatter: {e}"
-            )
+            raise ValueError(f"Block {current_name!r} has invalid frontmatter: {e}")
         unknown = set(frontmatter) - _BLOCK_KEYS
         if unknown:
             raise ValueError(
@@ -1247,9 +1252,7 @@ def move(
     # only the status column here — the id is unchanged — so a single upsert of
     # the new row replaces the old (no remove/re-add churn), buffered inside the
     # store txn so a rollback discards it too.
-    with _store_and_index_txn(
-        store, index, message=f"task: move {id} -> {new_status}"
-    ):
+    with _store_and_index_txn(store, index, message=f"task: move {id} -> {new_status}"):
         store.write(new_key, task.to_markdown())
         store.delete(old_key)
         index.upsert(_meta_from_task(task))
@@ -1696,9 +1699,7 @@ def default_branch(
         if m:
             number = m.group(1).split("-")[-1]  # "NORT-123" -> "123"
             if generate and title:
-                return branch_name.generate_branch_name(
-                    title, content, prefix=number
-                )
+                return branch_name.generate_branch_name(title, content, prefix=number)
             return f"feat/{number}"
         # Child of a non-Linear parent: keep sharing the parent's branch.
         return f"task/{parent}"
@@ -1849,24 +1850,28 @@ def reconcile(
     for task in in_progress:
         session = session_task_ids.get(task.id)
         if session is not None:
-            rows.append(ReconcileRow(
-                state=RECONCILE_OK,
-                task_id=task.id,
-                task_status=task.status,
-                session=session,
-                fix_status=None,
-            ))
+            rows.append(
+                ReconcileRow(
+                    state=RECONCILE_OK,
+                    task_id=task.id,
+                    task_status=task.status,
+                    session=session,
+                    fix_status=None,
+                )
+            )
         else:
             # A stopped session just means finished; a task with no transcript
             # never ran. Close the former, send the latter back to todo.
             ran = task.id in ran_ids
-            rows.append(ReconcileRow(
-                state=RECONCILE_FINISHED if ran else RECONCILE_NEVER_RAN,
-                task_id=task.id,
-                task_status=task.status,
-                session=None,
-                fix_status=STATUS_DONE if ran else STATUS_TODO,
-            ))
+            rows.append(
+                ReconcileRow(
+                    state=RECONCILE_FINISHED if ran else RECONCILE_NEVER_RAN,
+                    task_id=task.id,
+                    task_status=task.status,
+                    session=None,
+                    fix_status=STATUS_DONE if ran else STATUS_TODO,
+                )
+            )
 
     for task_id, session in session_task_ids.items():
         if task_id in in_progress_ids:
@@ -1881,13 +1886,15 @@ def reconcile(
         # never arises there — the ``(missing)`` branch stays for the model's
         # own generality and its unit test.
         fixable = status is not None and status not in (STATUS_DONE, STATUS_CANCELLED)
-        rows.append(ReconcileRow(
-            state=RECONCILE_ORPHAN,
-            task_id=task_id,
-            task_status=status or "(missing)",
-            session=session,
-            fix_status=STATUS_IN_PROGRESS if fixable else None,
-        ))
+        rows.append(
+            ReconcileRow(
+                state=RECONCILE_ORPHAN,
+                task_id=task_id,
+                task_status=status or "(missing)",
+                session=session,
+                fix_status=STATUS_IN_PROGRESS if fixable else None,
+            )
+        )
 
     rows.sort(key=lambda r: r.task_id)
     return rows
@@ -1915,11 +1922,17 @@ def next_task(
     check from the cache; otherwise the store is scanned.
     """
     candidates = list_tasks(
-        store, project=project, status=STATUS_TODO, parent=parent,
-        index=index, head=head,
+        store,
+        project=project,
+        status=STATUS_TODO,
+        parent=parent,
+        index=index,
+        head=head,
     )
     candidates.sort(key=lambda t: (priority_rank(t.priority), t.id))
-    actionable = [t for t in candidates if is_actionable(t, store, index=index, head=head)]
+    actionable = [
+        t for t in candidates if is_actionable(t, store, index=index, head=head)
+    ]
     if branch is not None:
         on_branch = next((t for t in actionable if t.branch == branch), None)
         if on_branch is not None:

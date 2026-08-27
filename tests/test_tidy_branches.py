@@ -61,14 +61,16 @@ class TestBranchExistsOnRemote:
             # Clone as bare
             subprocess.run(
                 ["git", "clone", "--bare", str(source_path), str(remote_path)],
-                check=True, capture_output=True
+                check=True,
+                capture_output=True,
             )
 
             # Clone to project
             project_path = Path(tmpdir) / "project"
             subprocess.run(
                 ["git", "clone", str(remote_path), str(project_path)],
-                check=True, capture_output=True
+                check=True,
+                capture_output=True,
             )
             run_git(project_path, "config", "user.email", "test@test.com")
             run_git(project_path, "config", "user.name", "Test")
@@ -162,7 +164,8 @@ class TestTidyBranchesIntegration:
             # Clone as bare to create the remote
             subprocess.run(
                 ["git", "clone", "--bare", str(source_path), str(remote_path)],
-                check=True, capture_output=True
+                check=True,
+                capture_output=True,
             )
 
             # Create project directory with bare clone structure (like maelstrom does)
@@ -173,12 +176,18 @@ class TestTidyBranchesIntegration:
             git_dir = project_path / ".git"
             subprocess.run(
                 ["git", "clone", "--bare", str(remote_path), str(git_dir)],
-                check=True, capture_output=True
+                check=True,
+                capture_output=True,
             )
 
             # Configure the bare repo to work with worktrees
             run_git(project_path, "config", "core.bare", "true")
-            run_git(project_path, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+            run_git(
+                project_path,
+                "config",
+                "remote.origin.fetch",
+                "+refs/heads/*:refs/remotes/origin/*",
+            )
             run_git(project_path, "config", "user.email", "test@test.com")
             run_git(project_path, "config", "user.name", "Test")
 
@@ -188,26 +197,37 @@ class TestTidyBranchesIntegration:
             # Detach HEAD so main isn't "checked out" in project root (like add_project does)
             head_sha = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
-                cwd=project_path, check=True, capture_output=True, text=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
+                text=True,
             ).stdout.strip()
             subprocess.run(
                 ["git", "update-ref", "--no-deref", "HEAD", head_sha],
-                cwd=project_path, check=True, capture_output=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
 
             # Create a helper worktree for tests that need checkout/commit
             helper_wt = project_path / "_test_helper"
             subprocess.run(
                 ["git", "worktree", "add", "--detach", str(helper_wt), "origin/main"],
-                cwd=project_path, check=True, capture_output=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
             subprocess.run(
                 ["git", "config", "user.email", "test@test.com"],
-                cwd=helper_wt, check=True, capture_output=True
+                cwd=helper_wt,
+                check=True,
+                capture_output=True,
             )
             subprocess.run(
                 ["git", "config", "user.name", "Test"],
-                cwd=helper_wt, check=True, capture_output=True
+                cwd=helper_wt,
+                check=True,
+                capture_output=True,
             )
 
             yield project_path, helper_wt
@@ -215,7 +235,9 @@ class TestTidyBranchesIntegration:
             # Cleanup helper worktree
             subprocess.run(
                 ["git", "worktree", "remove", "--force", str(helper_wt)],
-                cwd=project_path, check=False, capture_output=True
+                cwd=project_path,
+                check=False,
+                capture_output=True,
             )
 
     def test_tidy_deletes_merged_branch(self, git_repo_with_remote):
@@ -257,7 +279,9 @@ class TestTidyBranchesIntegration:
         assert "feature/checked-out" in branches
 
         # Verify result
-        skipped_result = next((r for r in results if r.branch == "feature/checked-out"), None)
+        skipped_result = next(
+            (r for r in results if r.branch == "feature/checked-out"), None
+        )
         assert skipped_result is not None
         assert skipped_result.action == "skipped_checked_out"
 
@@ -282,7 +306,9 @@ class TestTidyBranchesIntegration:
         assert "feature/local-only" in branches
 
         # Verify result
-        rebased_result = next((r for r in results if r.branch == "feature/local-only"), None)
+        rebased_result = next(
+            (r for r in results if r.branch == "feature/local-only"), None
+        )
         assert rebased_result is not None
         assert rebased_result.action == "rebased"
         assert rebased_result.success is True
@@ -306,7 +332,9 @@ class TestTidyBranchesIntegration:
         assert "feature/with-remote" in branches
 
         # Verify result
-        pushed_result = next((r for r in results if r.branch == "feature/with-remote"), None)
+        pushed_result = next(
+            (r for r in results if r.branch == "feature/with-remote"), None
+        )
         assert pushed_result is not None
         assert pushed_result.action == "pushed"
         assert pushed_result.success is True
@@ -334,7 +362,9 @@ class TestTidyBranchesIntegration:
         assert "feature/conflict" in branches
 
         # Verify result
-        conflict_result = next((r for r in results if r.branch == "feature/conflict"), None)
+        conflict_result = next(
+            (r for r in results if r.branch == "feature/conflict"), None
+        )
         assert conflict_result is not None
         assert conflict_result.action == "skipped_conflicts"
         assert conflict_result.success is True  # Not a failure, just conflicts
@@ -362,7 +392,9 @@ class TestTidyBranchesIntegration:
         assert branch_exists_on_remote(project_path, "feature/merged-remote") is False
 
         # Verify result
-        merged_result = next((r for r in results if r.branch == "feature/merged-remote"), None)
+        merged_result = next(
+            (r for r in results if r.branch == "feature/merged-remote"), None
+        )
         assert merged_result is not None
         assert merged_result.action == "deleted"
         assert merged_result.deleted_local is True

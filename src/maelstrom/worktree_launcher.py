@@ -158,9 +158,7 @@ def resolve_harness(harness: str | None, opencode: bool) -> str:
     """
     if opencode:
         if harness is not None and harness != HARNESS_OPENCODE:
-            raise ValueError(
-                f"--opencode conflicts with --harness {harness}"
-            )
+            raise ValueError(f"--opencode conflicts with --harness {harness}")
         return HARNESS_OPENCODE
     if harness is None:
         return _detect_harness_from_env() or HARNESS_CLAUDE
@@ -218,15 +216,17 @@ def build_task_launch_line(
             ],
             env=claude_env,
         )
-    return Pipeline([
-        Command(prompt_argv),
-        Command(
-            build_claude_command(
-                permission_mode, session_id, resume=resume, model=model
+    return Pipeline(
+        [
+            Command(prompt_argv),
+            Command(
+                build_claude_command(
+                    permission_mode, session_id, resume=resume, model=model
+                ),
+                env=claude_env,
             ),
-            env=claude_env,
-        ),
-    ])
+        ]
+    )
 
 
 def open_claude_workspace(
@@ -255,7 +255,9 @@ def open_claude_workspace(
 
     install_cmd = load_config_or_default(worktree_path).install_cmd
     return mael_layout.ensure_worktree_workspace(
-        project, worktree, str(worktree_path),
+        project,
+        worktree,
+        str(worktree_path),
         command=describe(command),
         install_cmd=install_cmd or None,
     )
@@ -292,13 +294,22 @@ def launch_claude_in_worktree(
     """
     if task_id and project:
         command: ShellExpr = build_task_launch_line(
-            project, task_id, permission_mode, env=env,
-            session_id=session_id, resume=resume, model=model, harness=harness,
+            project,
+            task_id,
+            permission_mode,
+            env=env,
+            session_id=session_id,
+            resume=resume,
+            model=model,
+            harness=harness,
         )
     else:
         command = Command(
             build_harness_command(
-                permission_mode, session_id, resume=resume, model=model,
+                permission_mode,
+                session_id,
+                resume=resume,
+                model=model,
                 harness=harness,
             ),
             env=dict(env or {}),

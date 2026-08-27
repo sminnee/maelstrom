@@ -28,7 +28,9 @@ from .util import atomic_write_json, now_iso
 
 
 def _find_session_file(
-    session_id: str | None, cwd: str | None, pid: int | None,
+    session_id: str | None,
+    cwd: str | None,
+    pid: int | None,
 ) -> Path | None:
     """Find the session file matching session_id, falling back to cwd+pid."""
     sdir = _sessions_dir()
@@ -165,8 +167,7 @@ def _close_task_for_session(cwd: str | None) -> None:
             return  # already terminal or back in todo — don't clobber
         task_actions.move_with_actions(store, project, task_id, model.STATUS_DONE)
         click.echo(
-            f"Session ended: closed task {project}/{task_id} -> "
-            f"{model.STATUS_DONE}",
+            f"Session ended: closed task {project}/{task_id} -> {model.STATUS_DONE}",
             err=True,
         )
     except Exception:
@@ -319,24 +320,24 @@ def session_list() -> None:
             if row["project"] and row["worktree"]
             else row["project"]
         )
-        rows.append({
-            "STATE": row["state"],
-            "ID": row["id"][:ID_PREFIX_LEN],
-            "PROJECT/WORKTREE": pw,
-            "TASK": row["task"],
-            "CWD": row["cwd"],
-            "AGE": row["age"],
-            "PID": str(row["pid"]),
-        })
+        rows.append(
+            {
+                "STATE": row["state"],
+                "ID": row["id"][:ID_PREFIX_LEN],
+                "PROJECT/WORKTREE": pw,
+                "TASK": row["task"],
+                "CWD": row["cwd"],
+                "AGE": row["age"],
+                "PID": str(row["pid"]),
+            }
+        )
 
     if not rows:
         click.echo("No active Claude Code sessions.")
         return
 
     rows.sort(key=lambda r: (r["PROJECT/WORKTREE"], r["PID"]))
-    draw_table(
-        rows, ["STATE", "ID", "PROJECT/WORKTREE", "TASK", "CWD", "AGE", "PID"]
-    )
+    draw_table(rows, ["STATE", "ID", "PROJECT/WORKTREE", "TASK", "CWD", "AGE", "PID"])
 
 
 def _session_handles(id: str | None) -> list[str]:

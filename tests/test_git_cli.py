@@ -32,9 +32,7 @@ class TestGetWorktreeFileStatus:
 
     def test_modified_files(self):
         with patch("maelstrom.git_cli.run_cmd") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout=" M src/routes.py\n"
-            )
+            mock_run.return_value = MagicMock(returncode=0, stdout=" M src/routes.py\n")
             result = get_worktree_file_status(Path("/tmp/claude/repo"))
 
         assert result["staged"] == []
@@ -385,7 +383,9 @@ class TestGitSquashCommand:
 
         mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
         mock_repair.return_value = SyncResult(
-            success=True, branch="feat/test", message="Rebased feat/test onto origin/main",
+            success=True,
+            branch="feat/test",
+            message="Rebased feat/test onto origin/main",
         )
 
         runner = CliRunner()
@@ -455,7 +455,9 @@ class TestGitSquashCommand:
 
         mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
         mock_squash.return_value = SyncResult(
-            success=True, branch="feat/test", message="Rebased feat/test onto origin/main",
+            success=True,
+            branch="feat/test",
+            message="Rebased feat/test onto origin/main",
         )
 
         runner = CliRunner()
@@ -516,7 +518,9 @@ class TestGitMergeCommand:
     @patch("maelstrom.git_cli.merge_to_main")
     @patch("maelstrom.git_cli.get_current_branch")
     @patch("maelstrom.git_cli.resolve_context")
-    def test_success_echoes_merge_and_push_messages(self, mock_ctx, mock_branch, mock_merge):
+    def test_success_echoes_merge_and_push_messages(
+        self, mock_ctx, mock_branch, mock_merge
+    ):
         from maelstrom.worktree import SyncResult
 
         mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
@@ -562,7 +566,9 @@ class TestGitMergeCommand:
     @patch("maelstrom.git_cli.merge_to_main")
     @patch("maelstrom.git_cli.get_current_branch")
     @patch("maelstrom.git_cli.resolve_context")
-    def test_no_squash_flag_passes_squash_false(self, mock_ctx, mock_branch, mock_merge):
+    def test_no_squash_flag_passes_squash_false(
+        self, mock_ctx, mock_branch, mock_merge
+    ):
         from maelstrom.worktree import SyncResult
 
         mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
@@ -582,7 +588,9 @@ class TestGitMergeCommand:
     @patch("maelstrom.git_cli.merge_to_main")
     @patch("maelstrom.git_cli.get_current_branch")
     @patch("maelstrom.git_cli.resolve_context")
-    def test_conflicts_print_guidance_and_exit_1(self, mock_ctx, mock_branch, mock_merge):
+    def test_conflicts_print_guidance_and_exit_1(
+        self, mock_ctx, mock_branch, mock_merge
+    ):
         from maelstrom.worktree import SyncResult
 
         mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())

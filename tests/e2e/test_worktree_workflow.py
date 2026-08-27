@@ -96,7 +96,8 @@ class TestWorktreeFullLifecycle:
         source_clone = gp.projects_dir.parent / "sync-source"
         subprocess.run(
             ["git", "clone", str(gp.remote_path), str(source_clone)],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
         run_git(source_clone, "config", "user.email", "test@test.com")
         run_git(source_clone, "config", "user.name", "Test")
@@ -154,7 +155,9 @@ class TestWorktreeFullLifecycle:
         create_commit(wt_path, "recycled.txt", "recycled", "Recycled commit")
         run_git(wt_path, "push", "origin", "feature/recycled")
         head_result = run_git(wt_path, "rev-parse", "HEAD")
-        run_git(gp.remote_path, "update-ref", "refs/heads/main", head_result.stdout.strip())
+        run_git(
+            gp.remote_path, "update-ref", "refs/heads/main", head_result.stdout.strip()
+        )
         run_git(gp.project_path, "fetch", "origin")
         close_worktree(wt_path)
 
@@ -199,7 +202,8 @@ class TestWorktreeSyncConflicts:
         source_clone = gp.projects_dir.parent / "conflict-source"
         subprocess.run(
             ["git", "clone", str(gp.remote_path), str(source_clone)],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
         run_git(source_clone, "config", "user.email", "test@test.com")
         run_git(source_clone, "config", "user.name", "Test")

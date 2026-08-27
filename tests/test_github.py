@@ -41,49 +41,67 @@ def _check(name, state):
 class TestWaitForMerge:
     def test_returns_when_already_merged(self):
         pr = _pr(state="MERGED", merged=True)
-        with patch("maelstrom.github.get_pr_info", return_value=pr), \
-             patch("maelstrom.github.get_pr_checks", return_value=[]):
+        with (
+            patch("maelstrom.github.get_pr_info", return_value=pr),
+            patch("maelstrom.github.get_pr_checks", return_value=[]),
+        ):
             result = wait_for_merge(Path("."), timeout=10, poll_interval=0)
 
         assert result is pr
 
     def test_merges_after_polling(self):
         infos = [_pr(state="OPEN"), _pr(state="OPEN"), _pr(state="MERGED", merged=True)]
-        with patch("maelstrom.github.get_pr_info", side_effect=infos), \
-             patch("maelstrom.github.get_pr_checks", return_value=[_check("ci", "PENDING")]), \
-             patch("maelstrom.github.time.sleep"):
+        with (
+            patch("maelstrom.github.get_pr_info", side_effect=infos),
+            patch(
+                "maelstrom.github.get_pr_checks", return_value=[_check("ci", "PENDING")]
+            ),
+            patch("maelstrom.github.time.sleep"),
+        ):
             result = wait_for_merge(Path("."), timeout=10, poll_interval=0)
 
         assert result.merged is True
 
     def test_closed_unmerged_raises(self):
-        with patch("maelstrom.github.get_pr_info", return_value=_pr(state="CLOSED")), \
-             patch("maelstrom.github.get_pr_checks", return_value=[]):
+        with (
+            patch("maelstrom.github.get_pr_info", return_value=_pr(state="CLOSED")),
+            patch("maelstrom.github.get_pr_checks", return_value=[]),
+        ):
             with pytest.raises(RuntimeError, match="closed without merging"):
                 wait_for_merge(Path("."), timeout=10, poll_interval=0)
 
     def test_terminal_failed_check_raises(self):
-        with patch("maelstrom.github.get_pr_info", return_value=_pr(state="OPEN")), \
-             patch("maelstrom.github.get_pr_checks",
-                   return_value=[_check("lint", "SUCCESS"), _check("test", "FAILURE")]):
+        with (
+            patch("maelstrom.github.get_pr_info", return_value=_pr(state="OPEN")),
+            patch(
+                "maelstrom.github.get_pr_checks",
+                return_value=[_check("lint", "SUCCESS"), _check("test", "FAILURE")],
+            ),
+        ):
             with pytest.raises(RuntimeError, match="failing checks: test"):
                 wait_for_merge(Path("."), timeout=10, poll_interval=0)
 
     def test_pending_checks_do_not_raise(self):
         """A pending (non-terminal) check keeps waiting rather than failing."""
         infos = [_pr(state="OPEN"), _pr(state="MERGED", merged=True)]
-        with patch("maelstrom.github.get_pr_info", side_effect=infos), \
-             patch("maelstrom.github.get_pr_checks",
-                   return_value=[_check("test", "PENDING")]), \
-             patch("maelstrom.github.time.sleep"):
+        with (
+            patch("maelstrom.github.get_pr_info", side_effect=infos),
+            patch(
+                "maelstrom.github.get_pr_checks",
+                return_value=[_check("test", "PENDING")],
+            ),
+            patch("maelstrom.github.time.sleep"),
+        ):
             result = wait_for_merge(Path("."), timeout=10, poll_interval=0)
 
         assert result.merged is True
 
     def test_timeout_raises(self):
-        with patch("maelstrom.github.get_pr_info", return_value=_pr(state="OPEN")), \
-             patch("maelstrom.github.get_pr_checks", return_value=[]), \
-             patch("maelstrom.github.time.sleep"):
+        with (
+            patch("maelstrom.github.get_pr_info", return_value=_pr(state="OPEN")),
+            patch("maelstrom.github.get_pr_checks", return_value=[]),
+            patch("maelstrom.github.time.sleep"),
+        ):
             with pytest.raises(TimeoutError, match="to merge"):
                 wait_for_merge(Path("."), timeout=0, poll_interval=0)
 
@@ -94,16 +112,20 @@ class TestCreateProjectRepo:
     @staticmethod
     def _fake_run_cmd(url="https://github.com/me/proj", seen=None):
         """Stand in for run_cmd: record every call, answer `gh repo view`."""
+
         def _run(cmd, cwd=None, quiet=False, check=True, **kwargs):
             if seen is not None:
                 seen.append((cmd, cwd))
             return subprocess.CompletedProcess(cmd, 0, stdout=f"{url}\n", stderr="")
+
         return _run
 
     def _run_create(self, *args, url="https://github.com/me/proj", **kwargs):
         """Call create_project_repo with run_cmd mocked; return (result, calls)."""
         seen = []
-        with patch("maelstrom.github.run_cmd", side_effect=self._fake_run_cmd(url, seen)):
+        with patch(
+            "maelstrom.github.run_cmd", side_effect=self._fake_run_cmd(url, seen)
+        ):
             result = create_project_repo(*args, **kwargs)
         return result, seen
 
@@ -131,7 +153,12 @@ class TestCreateProjectRepo:
         with patch("maelstrom.github.run_cmd", side_effect=_run):
             create_project_repo("proj")
 
-        assert set(written) == {".gitignore", ".maelstrom.yaml", "README.md", "CLAUDE.md"}
+        assert set(written) == {
+            ".gitignore",
+            ".maelstrom.yaml",
+            "README.md",
+            "CLAUDE.md",
+        }
         assert "# proj" in written["README.md"]
 
     def test_private_by_default(self):
@@ -174,6 +201,7 @@ class TestCreateProjectRepo:
         them. ``gh repo view --json url`` reports the HTTPS form whatever
         ``git_protocol`` is set to.
         """
+
         def _run(cmd, cwd=None, quiet=False, check=True, **kwargs):
             if cmd[:3] == ["gh", "repo", "view"]:
                 out = "https://github.com/me/proj\n"
@@ -192,7 +220,9 @@ class TestCreateProjectRepo:
     def test_called_process_error_becomes_runtime_error(self):
         err = subprocess.CalledProcessError(1, ["gh"], stderr="name already exists")
         with patch("maelstrom.github.run_cmd", side_effect=err):
-            with pytest.raises(RuntimeError, match="Failed to create GitHub repository"):
+            with pytest.raises(
+                RuntimeError, match="Failed to create GitHub repository"
+            ):
                 create_project_repo("proj")
 
     def test_missing_gh_becomes_runtime_error(self):
@@ -207,19 +237,28 @@ class TestCreatePrAutorepair:
     def _run(self, tmp_path, **kwargs):
         """Call create_pr with both syncs stubbed; return (plain, repair)."""
         sync_result = SyncResult(success=True, branch="feature/work", message="ok")
-        with patch("maelstrom.github.sync_worktree", return_value=sync_result) as plain, \
-             patch(
-                 "maelstrom.github.sync_worktree_with_autorepair", return_value=sync_result,
-             ) as repair, \
-             patch("maelstrom.github.run_cmd") as run, \
-             patch("maelstrom.github.run_git") as git, \
-             patch("maelstrom.github.get_current_branch", return_value="feature/work"), \
-             patch("maelstrom.github.update_local_main"):
+        with (
+            patch("maelstrom.github.sync_worktree", return_value=sync_result) as plain,
+            patch(
+                "maelstrom.github.sync_worktree_with_autorepair",
+                return_value=sync_result,
+            ) as repair,
+            patch("maelstrom.github.run_cmd") as run,
+            patch("maelstrom.github.run_git") as git,
+            patch("maelstrom.github.get_current_branch", return_value="feature/work"),
+            patch("maelstrom.github.update_local_main"),
+        ):
             run.return_value = subprocess.CompletedProcess(
-                args=["gh"], returncode=0, stdout="https://example/pr OPEN", stderr="",
+                args=["gh"],
+                returncode=0,
+                stdout="https://example/pr OPEN",
+                stderr="",
             )
             git.return_value = subprocess.CompletedProcess(
-                args=["git"], returncode=0, stdout="feature/work", stderr="",
+                args=["git"],
+                returncode=0,
+                stdout="feature/work",
+                stderr="",
             )
             create_pr(cwd=tmp_path, **kwargs)
         return plain, repair
@@ -249,18 +288,31 @@ class TestCreatePrAutorepair:
         told before it lands in review.
         """
         repaired = SyncResult(
-            success=True, branch="feature/work", message="ok", repaired=True,
+            success=True,
+            branch="feature/work",
+            message="ok",
+            repaired=True,
         )
-        with patch("maelstrom.github.sync_worktree_with_autorepair", return_value=repaired), \
-             patch("maelstrom.github.run_cmd") as run, \
-             patch("maelstrom.github.run_git") as git, \
-             patch("maelstrom.github.get_current_branch", return_value="feature/work"), \
-             patch("maelstrom.github.update_local_main"):
+        with (
+            patch(
+                "maelstrom.github.sync_worktree_with_autorepair", return_value=repaired
+            ),
+            patch("maelstrom.github.run_cmd") as run,
+            patch("maelstrom.github.run_git") as git,
+            patch("maelstrom.github.get_current_branch", return_value="feature/work"),
+            patch("maelstrom.github.update_local_main"),
+        ):
             run.return_value = subprocess.CompletedProcess(
-                args=["gh"], returncode=0, stdout="https://example/pr OPEN", stderr="",
+                args=["gh"],
+                returncode=0,
+                stdout="https://example/pr OPEN",
+                stderr="",
             )
             git.return_value = subprocess.CompletedProcess(
-                args=["git"], returncode=0, stdout="feature/work", stderr="",
+                args=["git"],
+                returncode=0,
+                stdout="feature/work",
+                stderr="",
             )
             create_pr(cwd=tmp_path, autorepair=True)
 
@@ -279,23 +331,27 @@ class TestCreatePrAutorepair:
             had_conflicts=True,
             aborted=False,
         )
-        with patch("maelstrom.github.sync_worktree_with_autorepair", return_value=stranded):
+        with patch(
+            "maelstrom.github.sync_worktree_with_autorepair", return_value=stranded
+        ):
             with pytest.raises(RuntimeError, match="git rebase --continue"):
                 create_pr(cwd=tmp_path, autorepair=True)
 
 
 def _graphql_page(nodes, has_next=False, cursor=None):
     """Build one ``gh api graphql`` response page."""
-    return json.dumps({
-        "data": {
-            "repository": {
-                "pullRequests": {
-                    "nodes": nodes,
-                    "pageInfo": {"hasNextPage": has_next, "endCursor": cursor},
+    return json.dumps(
+        {
+            "data": {
+                "repository": {
+                    "pullRequests": {
+                        "nodes": nodes,
+                        "pageInfo": {"hasNextPage": has_next, "endCursor": cursor},
+                    }
                 }
             }
         }
-    })
+    )
 
 
 def _node(number, branch, commits):
@@ -315,10 +371,12 @@ class TestGetOpenPrs:
     """
 
     def test_maps_every_open_pr_by_branch(self):
-        page = _graphql_page([
-            _node(1837, "refactor/document-derivatives", 10),
-            _node(1543, "feat/pgsql-users", 2),
-        ])
+        page = _graphql_page(
+            [
+                _node(1837, "refactor/document-derivatives", 10),
+                _node(1543, "feat/pgsql-users", 2),
+            ]
+        )
         with patch("maelstrom.github.run_cmd", return_value=_ok(page)):
             assert get_open_prs(Path(".")) == {
                 "refactor/document-derivatives": (1837, 10),
@@ -349,7 +407,10 @@ class TestGetOpenPrs:
     def test_a_failed_call_is_distinct_from_an_empty_repo(self):
         """A batch failure must not blank the whole column silently. ``None``
         lets the caller fall back per branch; ``{}`` would claim no PRs exist."""
-        with patch("maelstrom.github.run_cmd", return_value=SimpleNamespace(returncode=1, stdout="", stderr="boom")):
+        with patch(
+            "maelstrom.github.run_cmd",
+            return_value=SimpleNamespace(returncode=1, stdout="", stderr="boom"),
+        ):
             assert get_open_prs(Path(".")) is None
 
     def test_missing_gh_is_a_failure_not_an_empty_repo(self):
@@ -375,7 +436,9 @@ class TestCreatePrRegistersTheStack:
     test here is the guard that keeps it that way.
     """
 
-    def _run(self, tmp_path, bases, branch="feat/child", *, link_fails=False, pr_open=True):
+    def _run(
+        self, tmp_path, bases, branch="feat/child", *, link_fails=False, pr_open=True
+    ):
         """Call create_pr with a fake store and captured gh/git argv."""
         store = InMemoryBaseStore()
         for child, parent in bases.items():
@@ -388,29 +451,48 @@ class TestCreatePrRegistersTheStack:
             calls.append(list(cmd))
             if cmd[:3] == ["gh", "stack", "link"] and link_fails:
                 return subprocess.CompletedProcess(
-                    args=cmd, returncode=1, stdout="", stderr="link exploded",
+                    args=cmd,
+                    returncode=1,
+                    stdout="",
+                    stderr="link exploded",
                 )
             if cmd[:3] == ["gh", "pr", "view"]:
-                out = "https://example/pr OPEN" if pr_open else "https://example/pr MERGED"
-                return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=out, stderr="")
+                out = (
+                    "https://example/pr OPEN"
+                    if pr_open
+                    else "https://example/pr MERGED"
+                )
+                return subprocess.CompletedProcess(
+                    args=cmd, returncode=0, stdout=out, stderr=""
+                )
             if cmd[:3] == ["gh", "pr", "create"]:
                 return subprocess.CompletedProcess(
-                    args=cmd, returncode=0, stdout="https://example/new-pr", stderr="",
+                    args=cmd,
+                    returncode=0,
+                    stdout="https://example/new-pr",
+                    stderr="",
                 )
-            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="", stderr=""
+            )
 
         def fake_run_git(cmd, *args, **kwargs):
             calls.append(["git", *cmd])
             return subprocess.CompletedProcess(
-                args=cmd, returncode=0, stdout=branch, stderr="",
+                args=cmd,
+                returncode=0,
+                stdout=branch,
+                stderr="",
             )
 
-        with patch("maelstrom.github.sync_worktree", return_value=sync_result), \
-             patch("maelstrom.github.GitConfigBaseStore", return_value=store), \
-             patch("maelstrom.github.get_current_branch", return_value=branch), \
-             patch("maelstrom.github.run_cmd", side_effect=fake_run_cmd), \
-             patch("maelstrom.github.run_git", side_effect=fake_run_git), \
-             patch("maelstrom.github.update_local_main"):
+        with (
+            patch("maelstrom.github.sync_worktree", return_value=sync_result),
+            patch("maelstrom.github.GitConfigBaseStore", return_value=store),
+            patch("maelstrom.github.get_current_branch", return_value=branch),
+            patch("maelstrom.github.run_cmd", side_effect=fake_run_cmd),
+            patch("maelstrom.github.run_git", side_effect=fake_run_git),
+            patch("maelstrom.github.update_local_main"),
+        ):
             url, created = create_pr(cwd=tmp_path)
         return url, created, calls
 
@@ -429,7 +511,9 @@ class TestCreatePrRegistersTheStack:
     def test_a_two_branch_stack_links_both(self, tmp_path):
         _, _, calls = self._run(tmp_path, {"feat/child": "feat/parent"})
 
-        assert self._links(calls) == [["gh", "stack", "link", "feat/parent", "feat/child"]]
+        assert self._links(calls) == [
+            ["gh", "stack", "link", "feat/parent", "feat/child"]
+        ]
 
     def test_an_unstacked_branch_never_calls_gh_stack(self, tmp_path):
         """No base, no stack — and no dependency on a public-preview extension."""
@@ -443,9 +527,7 @@ class TestCreatePrRegistersTheStack:
         Everything still merges into main — the chained bases are review-time
         scaffolding that GitHub collapses as each PR lands.
         """
-        _, _, calls = self._run(
-            tmp_path, {"feat/child": "feat/parent"}, pr_open=False
-        )
+        _, _, calls = self._run(tmp_path, {"feat/child": "feat/parent"}, pr_open=False)
 
         creates = [c for c in calls if c[:3] == ["gh", "pr", "create"]]
         assert creates, "expected a PR to be created"
@@ -473,17 +555,28 @@ class TestCreatePrRegistersTheStack:
                 raise FileNotFoundError("gh stack")
             if cmd[:3] == ["gh", "pr", "view"]:
                 return subprocess.CompletedProcess(
-                    args=cmd, returncode=0, stdout="https://example/pr OPEN", stderr="",
+                    args=cmd,
+                    returncode=0,
+                    stdout="https://example/pr OPEN",
+                    stderr="",
                 )
-            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="", stderr=""
+            )
 
-        with patch("maelstrom.github.sync_worktree",
-                   return_value=SyncResult(success=True, branch="feat/child", message="ok")), \
-             patch("maelstrom.github.GitConfigBaseStore", return_value=store), \
-             patch("maelstrom.github.get_current_branch", return_value="feat/child"), \
-             patch("maelstrom.github.run_cmd", side_effect=fake_run_cmd), \
-             patch("maelstrom.github.run_git"), \
-             patch("maelstrom.github.update_local_main"):
+        with (
+            patch(
+                "maelstrom.github.sync_worktree",
+                return_value=SyncResult(
+                    success=True, branch="feat/child", message="ok"
+                ),
+            ),
+            patch("maelstrom.github.GitConfigBaseStore", return_value=store),
+            patch("maelstrom.github.get_current_branch", return_value="feat/child"),
+            patch("maelstrom.github.run_cmd", side_effect=fake_run_cmd),
+            patch("maelstrom.github.run_git"),
+            patch("maelstrom.github.update_local_main"),
+        ):
             url, _ = create_pr(cwd=tmp_path)
 
         assert url == "https://example/pr"
@@ -493,7 +586,17 @@ class TestCreatePrRegistersTheStack:
         """The guard that keeps us clear of the worktree state bug (issue #35)."""
         _, _, calls = self._run(tmp_path, {"feat/child": "feat/parent"})
 
-        local = {"rebase", "sync", "push", "submit", "modify", "init", "add", "checkout", "unstack"}
+        local = {
+            "rebase",
+            "sync",
+            "push",
+            "submit",
+            "modify",
+            "init",
+            "add",
+            "checkout",
+            "unstack",
+        }
         for call in calls:
             if call[:2] == ["gh", "stack"]:
                 assert call[2] not in local, f"local gh stack command invoked: {call}"
@@ -511,12 +614,17 @@ class TestGetWorktreeCodeUsesTheBase:
         def fake_run_git(cmd, *args, **kwargs):
             calls.append(list(cmd))
             return subprocess.CompletedProcess(
-                args=cmd, returncode=0, stdout="deadbeef", stderr="",
+                args=cmd,
+                returncode=0,
+                stdout="deadbeef",
+                stderr="",
             )
 
-        with patch("maelstrom.github.GitConfigBaseStore", return_value=store), \
-             patch("maelstrom.github.get_current_branch", return_value=branch), \
-             patch("maelstrom.github.run_git", side_effect=fake_run_git):
+        with (
+            patch("maelstrom.github.GitConfigBaseStore", return_value=store),
+            patch("maelstrom.github.get_current_branch", return_value=branch),
+            patch("maelstrom.github.run_git", side_effect=fake_run_git),
+        ):
             get_worktree_code(tmp_path)
         return calls
 
@@ -543,12 +651,17 @@ class TestGetWorktreeCodeUsesTheBase:
             if cmd[:1] == ["merge-base"] and "origin/feat/gone" in cmd:
                 raise subprocess.CalledProcessError(128, cmd)
             return subprocess.CompletedProcess(
-                args=cmd, returncode=0, stdout="deadbeef", stderr="",
+                args=cmd,
+                returncode=0,
+                stdout="deadbeef",
+                stderr="",
             )
 
-        with patch("maelstrom.github.GitConfigBaseStore", return_value=store), \
-             patch("maelstrom.github.get_current_branch", return_value="feat/child"), \
-             patch("maelstrom.github.run_git", side_effect=fake_run_git):
+        with (
+            patch("maelstrom.github.GitConfigBaseStore", return_value=store),
+            patch("maelstrom.github.get_current_branch", return_value="feat/child"),
+            patch("maelstrom.github.run_git", side_effect=fake_run_git),
+        ):
             get_worktree_code(tmp_path)
 
         merge_bases = [c for c in calls if c[0] == "merge-base"]
@@ -576,7 +689,8 @@ class TestStackChain:
 
     def test_the_walk_stops_at_main(self):
         assert stack_chain("feat/b", {"feat/b": "feat/a", "feat/a": "main"}) == [
-            "feat/a", "feat/b",
+            "feat/a",
+            "feat/b",
         ]
 
     def test_unrelated_bases_do_not_join_the_chain(self):
@@ -586,5 +700,6 @@ class TestStackChain:
     def test_a_cycle_terminates_rather_than_hanging(self):
         """Cycles are rejected at set time; this is the belt-and-braces stop."""
         assert stack_chain("feat/a", {"feat/a": "feat/b", "feat/b": "feat/a"}) == [
-            "feat/b", "feat/a",
+            "feat/b",
+            "feat/a",
         ]

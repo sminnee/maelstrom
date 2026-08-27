@@ -23,7 +23,9 @@ class TestParseSince:
 
 
 class TestListIssuesCommand:
-    @patch("maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj"))
+    @patch(
+        "maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj")
+    )
     @patch("maelstrom.integrations.sentry.api_request", return_value=[])
     def test_no_since_query_unchanged(self, mock_api, _mock_config):
         runner = CliRunner()
@@ -34,7 +36,9 @@ class TestListIssuesCommand:
         assert params["query"] == "is:unresolved environment:prod"
         assert "lastSeen" not in params["query"]
 
-    @patch("maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj"))
+    @patch(
+        "maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj")
+    )
     @patch("maelstrom.integrations.sentry.api_request", return_value=[])
     def test_since_adds_lastseen_token(self, mock_api, _mock_config):
         runner = CliRunner()
@@ -46,7 +50,9 @@ class TestListIssuesCommand:
         assert "is:unresolved" in query
         assert "environment:prod" in query
 
-    @patch("maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj"))
+    @patch(
+        "maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj")
+    )
     @patch("maelstrom.integrations.sentry.api_request", return_value=[])
     def test_since_whitespace_normalized_in_query(self, mock_api, _mock_config):
         runner = CliRunner()
@@ -58,7 +64,9 @@ class TestListIssuesCommand:
         assert "lastSeen:-7d" in query
         assert "lastSeen:- 7d" not in query
 
-    @patch("maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj"))
+    @patch(
+        "maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj")
+    )
     @patch("maelstrom.integrations.sentry.api_request", return_value=[])
     def test_since_rejects_bad_value(self, _mock_api, _mock_config):
         runner = CliRunner()
@@ -67,7 +75,9 @@ class TestListIssuesCommand:
         assert result.exit_code != 0
         assert "Invalid --since" in result.output
 
-    @patch("maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj"))
+    @patch(
+        "maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj")
+    )
     @patch("maelstrom.integrations.sentry.api_request")
     def test_renders_table_with_window_heading(self, mock_api, _mock_config):
         mock_api.return_value = [
@@ -88,7 +98,9 @@ class TestListIssuesCommand:
         assert "Boom happened" in result.output
         assert "last 7d" in result.output
 
-    @patch("maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj"))
+    @patch(
+        "maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj")
+    )
     @patch("maelstrom.integrations.sentry.api_request", return_value=[])
     def test_empty_result_reflects_window(self, _mock_api, _mock_config):
         runner = CliRunner()

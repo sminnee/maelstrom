@@ -87,9 +87,7 @@ def run_action(task, code: str) -> None:
         runner(ref)
         click.echo(f"action {code} -> {ref} (task {task.id})", err=True)
     except Exception as e:
-        click.echo(
-            f"warning: action {code!r} on {task.id} failed: {e}", err=True
-        )
+        click.echo(f"warning: action {code!r} on {task.id} failed: {e}", err=True)
 
 
 # Destination status -> which task field selects the action to fire. Firing keys

@@ -136,7 +136,13 @@ def _echo(cmd: ShellExpr) -> None:
     print(f"$ {describe(cmd)}", flush=True)
 
 
-def exec_cmd(cmd: ShellExpr, *, cwd: Path | None = None, quiet: bool = False, env: dict | None = None) -> NoReturn:
+def exec_cmd(
+    cmd: ShellExpr,
+    *,
+    cwd: Path | None = None,
+    quiet: bool = False,
+    env: dict | None = None,
+) -> NoReturn:
     """Replace this process with a ``ShellExpr`` — the exec half of the chokepoint.
 
     Never returns. ``to_argv`` prefixes ``exec`` so a wrapping ``sh`` replaces
@@ -159,7 +165,16 @@ def exec_cmd(cmd: ShellExpr, *, cwd: Path | None = None, quiet: bool = False, en
     os.execvp(argv[0], argv)  # NoReturn
 
 
-def run_cmd(cmd: ShellExpr, *, cwd: Path | None = None, quiet: bool = False, check: bool = True, stream: bool = False, env: dict | None = None, timeout: float | None = None) -> subprocess.CompletedProcess:
+def run_cmd(
+    cmd: ShellExpr,
+    *,
+    cwd: Path | None = None,
+    quiet: bool = False,
+    check: bool = True,
+    stream: bool = False,
+    env: dict | None = None,
+    timeout: float | None = None,
+) -> subprocess.CompletedProcess:
     """Run a ``ShellExpr`` and wait for it — the fork-and-wait half of the chokepoint.
 
     The shell-vs-no-shell decision lives in :func:`to_argv`: a bare argv runs
