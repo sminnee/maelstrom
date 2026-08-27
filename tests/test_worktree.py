@@ -72,6 +72,7 @@ class TestWriteEnvFile:
             # Created at 0o600 — the .env can carry the same secrets as config.
             import os
             import stat
+
             assert stat.S_IMODE(os.stat(env_file).st_mode) == 0o600
 
             content = env_file.read_text()
@@ -125,7 +126,9 @@ class TestWriteEnvFile:
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
             generated = {"PORT_BASE": "100", "DB_PORT": "1002"}
-            template = "DATABASE_URL=postgres://localhost:$DB_PORT/mydb\nAPI_KEY=secret\n"
+            template = (
+                "DATABASE_URL=postgres://localhost:$DB_PORT/mydb\nAPI_KEY=secret\n"
+            )
 
             write_env_file(worktree_path, generated, template)
 
@@ -136,7 +139,10 @@ class TestWriteEnvFile:
             assert "PORT_BASE=100" in content
             assert "DB_PORT=1002" in content
             # Template text below with resolved value + source comment
-            assert "DATABASE_URL=postgres://localhost:1002/mydb  # source: [DATABASE_URL=postgres://localhost:$DB_PORT/mydb]" in content
+            assert (
+                "DATABASE_URL=postgres://localhost:1002/mydb  # source: [DATABASE_URL=postgres://localhost:$DB_PORT/mydb]"
+                in content
+            )
             assert "API_KEY=secret" in content
             # Section ends before template
             section_end_pos = content.index(ENV_SECTION_END)
@@ -147,9 +153,7 @@ class TestWriteEnvFile:
         """A bare ``KEY=`` marker in the parent template is dropped, valued entries survive."""
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
-            write_env_file(
-                worktree_path, {"PORT_BASE": "100"}, "MARKER=\nREAL=value\n"
-            )
+            write_env_file(worktree_path, {"PORT_BASE": "100"}, "MARKER=\nREAL=value\n")
 
             content = (worktree_path / ".env").read_text()
             assert "REAL=value" in content
@@ -229,7 +233,10 @@ class TestWriteEnvFile:
             env_file = worktree_path / ".env"
             content = env_file.read_text()
             # $WORKTREE reference resolved with source comment
-            assert "DATABASE_NAME=myapp_alpha  # source: [DATABASE_NAME=myapp_$WORKTREE]" in content
+            assert (
+                "DATABASE_NAME=myapp_alpha  # source: [DATABASE_NAME=myapp_$WORKTREE]"
+                in content
+            )
             assert "WORKTREE=alpha" in content
             assert "WORKTREE_NUM=0" in content
 
@@ -243,7 +250,10 @@ class TestWriteEnvFile:
             write_env_file(worktree_path, generated, template)
 
             content = (worktree_path / ".env").read_text()
-            assert "APP_URL=http://localhost:1000  # source: [APP_URL=http://localhost:${FRONTEND_PORT}]" in content
+            assert (
+                "APP_URL=http://localhost:1000  # source: [APP_URL=http://localhost:${FRONTEND_PORT}]"
+                in content
+            )
 
     def test_rewrite_resolves_from_source_comment(self):
         """Test that updating managed section re-resolves user lines from source."""
@@ -266,7 +276,10 @@ class TestWriteEnvFile:
 
             content = env_file.read_text()
             assert "FRONTEND_PORT=2000" in content
-            assert "APP_URL=http://localhost:2000  # source: [APP_URL=http://localhost:${FRONTEND_PORT}]" in content
+            assert (
+                "APP_URL=http://localhost:2000  # source: [APP_URL=http://localhost:${FRONTEND_PORT}]"
+                in content
+            )
 
     def test_lines_without_var_refs_unchanged(self):
         """Test that lines without variable references get no source comment."""
@@ -292,7 +305,10 @@ class TestWriteEnvFile:
 
             content = (worktree_path / ".env").read_text()
             # FRONTEND_PORT resolved, UNKNOWN_VAR left as-is
-            assert "CONN=http://localhost:1000/${UNKNOWN_VAR}  # source: [CONN=http://localhost:${FRONTEND_PORT}/${UNKNOWN_VAR}]" in content
+            assert (
+                "CONN=http://localhost:1000/${UNKNOWN_VAR}  # source: [CONN=http://localhost:${FRONTEND_PORT}/${UNKNOWN_VAR}]"
+                in content
+            )
 
 
 class TestBuildEnvFileServices:
@@ -414,7 +430,9 @@ class TestWorktreeIntegration:
             repo_path.mkdir()
 
             # Initialize git repo
-            subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "init"], cwd=repo_path, check=True, capture_output=True
+            )
             subprocess.run(
                 ["git", "config", "user.email", "test@test.com"],
                 cwd=repo_path,
@@ -430,7 +448,9 @@ class TestWorktreeIntegration:
 
             # Create initial commit
             (repo_path / "README.md").write_text("# Test")
-            subprocess.run(["git", "add", "."], cwd=repo_path, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "add", "."], cwd=repo_path, check=True, capture_output=True
+            )
             subprocess.run(
                 ["git", "commit", "-m", "Initial commit"],
                 cwd=repo_path,
@@ -467,7 +487,9 @@ class TestWorktreeIntegration:
 
         # Verify it's in the list with correct branch
         worktrees = list_worktrees(git_repo)
-        assert any(wt.path == worktree_path and wt.branch == "feature/test" for wt in worktrees)
+        assert any(
+            wt.path == worktree_path and wt.branch == "feature/test" for wt in worktrees
+        )
 
         # Remove worktree by branch name
         remove_worktree(git_repo, "feature/test")
@@ -539,7 +561,9 @@ class TestWorktreeIntegration:
         config_file.write_text("install_cmd: touch .installed\n")
 
         # Commit the config file so it's in the worktree
-        subprocess.run(["git", "add", "."], cwd=git_repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "add", "."], cwd=git_repo, check=True, capture_output=True
+        )
         subprocess.run(
             ["git", "commit", "-m", "Add config"],
             cwd=git_repo,
@@ -555,7 +579,9 @@ class TestWorktreeIntegration:
 
         # Verify install_cmd was run
         installed_marker = worktree_path / ".installed"
-        assert installed_marker.exists(), "install_cmd should have created .installed file"
+        assert installed_marker.exists(), (
+            "install_cmd should have created .installed file"
+        )
 
         # Cleanup - remove untracked file first so git worktree remove works without --force
         installed_marker.unlink()
@@ -590,7 +616,9 @@ class TestIsWorktreeClosed:
     def test_returns_false_for_dirty_worktree(self):
         """Test returns False for worktree with uncommitted changes."""
         wt = WorktreeInfo(path=Path("/fake"), branch="feature/test", commit="abc123")
-        with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=["file.txt"]):
+        with patch(
+            "maelstrom.worktree.get_worktree_dirty_files", return_value=["file.txt"]
+        ):
             assert is_worktree_closed(wt) is False
 
     def test_returns_false_for_worktree_with_unpushed_commits(self):
@@ -620,20 +648,28 @@ class TestClosedWorktrees:
 
     def test_detached_clean_and_contained_is_closed(self):
         wts = [WorktreeInfo(path=Path("/a"), branch="", commit="aaa")]
-        with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]), \
-             patch("maelstrom.worktree._commits_ahead_batch", return_value={"aaa": 0}):
+        with (
+            patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]),
+            patch("maelstrom.worktree._commits_ahead_batch", return_value={"aaa": 0}),
+        ):
             assert closed_worktrees(Path("/p"), wts) == {Path("/a")}
 
     def test_a_dirty_worktree_is_not_closed(self):
         wts = [WorktreeInfo(path=Path("/a"), branch="", commit="aaa")]
-        with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=["f.txt"]), \
-             patch("maelstrom.worktree._commits_ahead_batch", return_value={"aaa": 0}):
+        with (
+            patch(
+                "maelstrom.worktree.get_worktree_dirty_files", return_value=["f.txt"]
+            ),
+            patch("maelstrom.worktree._commits_ahead_batch", return_value={"aaa": 0}),
+        ):
             assert closed_worktrees(Path("/p"), wts) == set()
 
     def test_a_worktree_ahead_of_main_is_not_closed(self):
         wts = [WorktreeInfo(path=Path("/a"), branch="", commit="aaa")]
-        with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]), \
-             patch("maelstrom.worktree._commits_ahead_batch", return_value={"aaa": 3}):
+        with (
+            patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]),
+            patch("maelstrom.worktree._commits_ahead_batch", return_value={"aaa": 3}),
+        ):
             assert closed_worktrees(Path("/p"), wts) == set()
 
     def test_a_worktree_ahead_of_main_costs_no_git_status(self):
@@ -644,15 +680,19 @@ class TestClosedWorktrees:
         cannot be closed whatever its working tree looks like.
         """
         wts = [WorktreeInfo(path=Path("/a"), branch="", commit="aaa")]
-        with patch("maelstrom.worktree.get_worktree_dirty_files") as dirty, \
-             patch("maelstrom.worktree._commits_ahead_batch", return_value={"aaa": 3}):
+        with (
+            patch("maelstrom.worktree.get_worktree_dirty_files") as dirty,
+            patch("maelstrom.worktree._commits_ahead_batch", return_value={"aaa": 3}),
+        ):
             assert closed_worktrees(Path("/p"), wts) == set()
         dirty.assert_not_called()
 
     def test_an_unclassified_worktree_costs_no_git_status(self):
         wts = [WorktreeInfo(path=Path("/a"), branch="", commit="aaa")]
-        with patch("maelstrom.worktree.get_worktree_dirty_files") as dirty, \
-             patch("maelstrom.worktree._commits_ahead_batch", return_value={}):
+        with (
+            patch("maelstrom.worktree.get_worktree_dirty_files") as dirty,
+            patch("maelstrom.worktree._commits_ahead_batch", return_value={}),
+        ):
             assert closed_worktrees(Path("/p"), wts) == set()
         dirty.assert_not_called()
 
@@ -664,8 +704,10 @@ class TestClosedWorktrees:
         offer the slot up for recycling.
         """
         wts = [WorktreeInfo(path=Path("/a"), branch="", commit="aaa")]
-        with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]), \
-             patch("maelstrom.worktree._commits_ahead_batch", return_value={}):
+        with (
+            patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]),
+            patch("maelstrom.worktree._commits_ahead_batch", return_value={}),
+        ):
             assert closed_worktrees(Path("/p"), wts) == set()
 
     def test_it_agrees_with_the_per_worktree_function(self):
@@ -677,13 +719,18 @@ class TestClosedWorktrees:
         ]
         ahead = {"aaa": 0, "bbb": 2, "ccc": 0}
 
-        with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]), \
-             patch("maelstrom.worktree._commits_ahead_batch", return_value=ahead):
+        with (
+            patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]),
+            patch("maelstrom.worktree._commits_ahead_batch", return_value=ahead),
+        ):
             batch = closed_worktrees(Path("/p"), wts)
 
         with patch("maelstrom.worktree.get_worktree_dirty_files", return_value=[]):
             for wt in wts:
-                with patch("maelstrom.worktree.get_commits_ahead", return_value=ahead[wt.commit]):
+                with patch(
+                    "maelstrom.worktree.get_commits_ahead",
+                    return_value=ahead[wt.commit],
+                ):
                     assert (wt.path in batch) is is_worktree_closed(wt)
 
 
@@ -703,7 +750,10 @@ class TestCommitsAheadBatch:
     def test_it_classifies_a_mixed_set_in_one_call(self):
         out = SimpleNamespace(returncode=0, stdout="bbb\n", stderr="")
         with patch("maelstrom.worktree.run_cmd", return_value=out) as run:
-            assert _commits_ahead_batch(Path("/p"), ["aaa", "bbb"]) == {"aaa": 0, "bbb": 1}
+            assert _commits_ahead_batch(Path("/p"), ["aaa", "bbb"]) == {
+                "aaa": 0,
+                "bbb": 1,
+            }
         assert run.call_count == 1
 
     def test_no_commits_makes_no_call(self):
@@ -720,15 +770,19 @@ class TestCommitsAheadBatch:
         never-pushed project as open.
         """
         out = SimpleNamespace(returncode=1, stdout="", stderr="unknown revision")
-        with patch("maelstrom.worktree.run_cmd", return_value=out), \
-             patch("maelstrom.worktree._has_origin_main", return_value=False):
+        with (
+            patch("maelstrom.worktree.run_cmd", return_value=out),
+            patch("maelstrom.worktree._has_origin_main", return_value=False),
+        ):
             assert _commits_ahead_batch(Path("/p"), ["aaa"]) == {"aaa": 0}
 
     def test_a_failed_call_with_origin_main_present_classifies_nothing(self):
         """A real failure stays unknown, which callers read as "not closed"."""
         out = SimpleNamespace(returncode=1, stdout="", stderr="boom")
-        with patch("maelstrom.worktree.run_cmd", return_value=out), \
-             patch("maelstrom.worktree._has_origin_main", return_value=True):
+        with (
+            patch("maelstrom.worktree.run_cmd", return_value=out),
+            patch("maelstrom.worktree._has_origin_main", return_value=True),
+        ):
             assert _commits_ahead_batch(Path("/p"), ["aaa"]) == {}
 
     def test_an_empty_sha_does_not_poison_the_whole_batch(self):
@@ -760,7 +814,9 @@ class TestFindClosedWorktree:
 
     def test_returns_none_when_no_closed_worktrees(self):
         """Test returns None when no worktrees are closed."""
-        wt = WorktreeInfo(path=Path("/fake/project/alpha"), branch="feature/test", commit="abc")
+        wt = WorktreeInfo(
+            path=Path("/fake/project/alpha"), branch="feature/test", commit="abc"
+        )
         with patch("maelstrom.worktree.list_worktrees", return_value=[wt]):
             with patch("maelstrom.worktree.is_worktree_closed", return_value=False):
                 result = find_closed_worktree(Path("/fake/project"))
@@ -768,7 +824,9 @@ class TestFindClosedWorktree:
 
     def test_returns_closed_worktree(self):
         """Test returns a closed worktree when one exists."""
-        wt = WorktreeInfo(path=Path("/fake/project/alpha"), branch=MAIN_BRANCH, commit="abc")
+        wt = WorktreeInfo(
+            path=Path("/fake/project/alpha"), branch=MAIN_BRANCH, commit="abc"
+        )
         with patch("maelstrom.worktree.list_worktrees", return_value=[wt]):
             with patch("maelstrom.worktree.is_worktree_closed", return_value=True):
                 result = find_closed_worktree(Path("/fake/project"))
@@ -778,8 +836,12 @@ class TestFindClosedWorktree:
         """Test that the project root is skipped."""
         project_path = Path("/fake/project")
         wt_root = WorktreeInfo(path=project_path, branch=MAIN_BRANCH, commit="abc")
-        wt_alpha = WorktreeInfo(path=project_path / "alpha", branch=MAIN_BRANCH, commit="abc")
-        with patch("maelstrom.worktree.list_worktrees", return_value=[wt_root, wt_alpha]):
+        wt_alpha = WorktreeInfo(
+            path=project_path / "alpha", branch=MAIN_BRANCH, commit="abc"
+        )
+        with patch(
+            "maelstrom.worktree.list_worktrees", return_value=[wt_root, wt_alpha]
+        ):
             with patch("maelstrom.worktree.is_worktree_closed", return_value=True):
                 result = find_closed_worktree(project_path)
                 assert result == wt_alpha
@@ -865,31 +927,44 @@ class TestCloseWorktreeIntegration:
             source_path.mkdir()
 
             # Initialize source repo with a commit
-            subprocess.run(["git", "init"], cwd=source_path, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "init"], cwd=source_path, check=True, capture_output=True
+            )
             subprocess.run(
                 ["git", "config", "user.email", "test@test.com"],
-                cwd=source_path, check=True, capture_output=True
+                cwd=source_path,
+                check=True,
+                capture_output=True,
             )
             subprocess.run(
                 ["git", "config", "user.name", "Test"],
-                cwd=source_path, check=True, capture_output=True
+                cwd=source_path,
+                check=True,
+                capture_output=True,
             )
             (source_path / "README.md").write_text("# Test")
-            subprocess.run(["git", "add", "."], cwd=source_path, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "add", "."], cwd=source_path, check=True, capture_output=True
+            )
             subprocess.run(
                 ["git", "commit", "-m", "Initial commit"],
-                cwd=source_path, check=True, capture_output=True
+                cwd=source_path,
+                check=True,
+                capture_output=True,
             )
             # Ensure branch is named 'main' regardless of git's default
             subprocess.run(
                 ["git", "branch", "-M", "main"],
-                cwd=source_path, check=True, capture_output=True
+                cwd=source_path,
+                check=True,
+                capture_output=True,
             )
 
             # Clone as bare to create the remote
             subprocess.run(
                 ["git", "clone", "--bare", str(source_path), str(remote_path)],
-                check=True, capture_output=True
+                check=True,
+                capture_output=True,
             )
 
             # Create project directory with bare clone structure (like maelstrom does)
@@ -900,42 +975,63 @@ class TestCloseWorktreeIntegration:
             git_dir = project_path / ".git"
             subprocess.run(
                 ["git", "clone", "--bare", str(remote_path), str(git_dir)],
-                check=True, capture_output=True
+                check=True,
+                capture_output=True,
             )
 
             # Configure the bare repo to work with worktrees
             subprocess.run(
                 ["git", "config", "core.bare", "true"],
-                cwd=project_path, check=True, capture_output=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
             subprocess.run(
-                ["git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
-                cwd=project_path, check=True, capture_output=True
+                [
+                    "git",
+                    "config",
+                    "remote.origin.fetch",
+                    "+refs/heads/*:refs/remotes/origin/*",
+                ],
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
             # Configure user settings for commits in worktrees
             subprocess.run(
                 ["git", "config", "user.email", "test@test.com"],
-                cwd=project_path, check=True, capture_output=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
             subprocess.run(
                 ["git", "config", "user.name", "Test"],
-                cwd=project_path, check=True, capture_output=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
 
             # Fetch to get remote tracking refs
             subprocess.run(
                 ["git", "fetch", "origin"],
-                cwd=project_path, check=True, capture_output=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
 
             # Detach HEAD so main isn't "checked out" in project root (like add_project does)
             head_sha = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
-                cwd=project_path, check=True, capture_output=True, text=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
+                text=True,
             ).stdout.strip()
             subprocess.run(
                 ["git", "update-ref", "--no-deref", "HEAD", head_sha],
-                cwd=project_path, check=True, capture_output=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
 
             yield project_path
@@ -964,10 +1060,14 @@ class TestCloseWorktreeIntegration:
 
         # Make a commit that's ahead of origin/main
         (worktree_path / "new_file.txt").write_text("new content")
-        subprocess.run(["git", "add", "."], cwd=worktree_path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "add", "."], cwd=worktree_path, check=True, capture_output=True
+        )
         subprocess.run(
             ["git", "commit", "-m", "Unpushed commit"],
-            cwd=worktree_path, check=True, capture_output=True
+            cwd=worktree_path,
+            check=True,
+            capture_output=True,
         )
 
         result = close_worktree(worktree_path)
@@ -994,18 +1094,26 @@ class TestCloseWorktreeIntegration:
         # Verify HEAD matches origin/main
         head_result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            cwd=worktree_path, check=True, capture_output=True, text=True
+            cwd=worktree_path,
+            check=True,
+            capture_output=True,
+            text=True,
         )
         main_result = subprocess.run(
             ["git", "rev-parse", "origin/main"],
-            cwd=worktree_path, check=True, capture_output=True, text=True
+            cwd=worktree_path,
+            check=True,
+            capture_output=True,
+            text=True,
         )
         assert head_result.stdout.strip() == main_result.stdout.strip()
 
         # Verify HEAD is detached (not on a branch)
         branch_result = subprocess.run(
             ["git", "symbolic-ref", "-q", "HEAD"],
-            cwd=worktree_path, capture_output=True, text=True
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
         )
         assert branch_result.returncode != 0, "HEAD should be detached after close"
 
@@ -1032,31 +1140,44 @@ class TestRecycleWorktreeIntegration:
             source_path.mkdir()
 
             # Initialize source repo with a commit
-            subprocess.run(["git", "init"], cwd=source_path, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "init"], cwd=source_path, check=True, capture_output=True
+            )
             subprocess.run(
                 ["git", "config", "user.email", "test@test.com"],
-                cwd=source_path, check=True, capture_output=True
+                cwd=source_path,
+                check=True,
+                capture_output=True,
             )
             subprocess.run(
                 ["git", "config", "user.name", "Test"],
-                cwd=source_path, check=True, capture_output=True
+                cwd=source_path,
+                check=True,
+                capture_output=True,
             )
             (source_path / "README.md").write_text("# Test")
-            subprocess.run(["git", "add", "."], cwd=source_path, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "add", "."], cwd=source_path, check=True, capture_output=True
+            )
             subprocess.run(
                 ["git", "commit", "-m", "Initial commit"],
-                cwd=source_path, check=True, capture_output=True
+                cwd=source_path,
+                check=True,
+                capture_output=True,
             )
             # Ensure branch is named 'main' regardless of git's default
             subprocess.run(
                 ["git", "branch", "-M", "main"],
-                cwd=source_path, check=True, capture_output=True
+                cwd=source_path,
+                check=True,
+                capture_output=True,
             )
 
             # Clone as bare to create the remote
             subprocess.run(
                 ["git", "clone", "--bare", str(source_path), str(remote_path)],
-                check=True, capture_output=True
+                check=True,
+                capture_output=True,
             )
 
             # Create project directory with bare clone structure (like maelstrom does)
@@ -1067,42 +1188,63 @@ class TestRecycleWorktreeIntegration:
             git_dir = project_path / ".git"
             subprocess.run(
                 ["git", "clone", "--bare", str(remote_path), str(git_dir)],
-                check=True, capture_output=True
+                check=True,
+                capture_output=True,
             )
 
             # Configure the bare repo to work with worktrees
             subprocess.run(
                 ["git", "config", "core.bare", "true"],
-                cwd=project_path, check=True, capture_output=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
             subprocess.run(
-                ["git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
-                cwd=project_path, check=True, capture_output=True
+                [
+                    "git",
+                    "config",
+                    "remote.origin.fetch",
+                    "+refs/heads/*:refs/remotes/origin/*",
+                ],
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
             # Configure user settings for commits in worktrees
             subprocess.run(
                 ["git", "config", "user.email", "test@test.com"],
-                cwd=project_path, check=True, capture_output=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
             subprocess.run(
                 ["git", "config", "user.name", "Test"],
-                cwd=project_path, check=True, capture_output=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
 
             # Fetch to get remote tracking refs
             subprocess.run(
                 ["git", "fetch", "origin"],
-                cwd=project_path, check=True, capture_output=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
 
             # Detach HEAD so main isn't "checked out" in project root (like add_project does)
             head_sha = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
-                cwd=project_path, check=True, capture_output=True, text=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
+                text=True,
             ).stdout.strip()
             subprocess.run(
                 ["git", "update-ref", "--no-deref", "HEAD", head_sha],
-                cwd=project_path, check=True, capture_output=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
 
             yield project_path
@@ -1124,7 +1266,10 @@ class TestRecycleWorktreeIntegration:
         # Verify the branch was switched
         result = subprocess.run(
             ["git", "branch", "--show-current"],
-            cwd=worktree_path, check=True, capture_output=True, text=True
+            cwd=worktree_path,
+            check=True,
+            capture_output=True,
+            text=True,
         )
         assert result.stdout.strip() == "feature/recycled"
 
@@ -1155,7 +1300,10 @@ class TestRecycleWorktreeIntegration:
         # Verify the branch was switched
         result = subprocess.run(
             ["git", "branch", "--show-current"],
-            cwd=worktree_beta, check=True, capture_output=True, text=True
+            cwd=worktree_beta,
+            check=True,
+            capture_output=True,
+            text=True,
         )
         assert result.stdout.strip() == "feature/existing"
 
@@ -1175,29 +1323,42 @@ class TestSetupWorktreeForBranch:
             source_path = Path(tmpdir) / "source"
             source_path.mkdir()
 
-            subprocess.run(["git", "init"], cwd=source_path, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "init"], cwd=source_path, check=True, capture_output=True
+            )
             subprocess.run(
                 ["git", "config", "user.email", "test@test.com"],
-                cwd=source_path, check=True, capture_output=True
+                cwd=source_path,
+                check=True,
+                capture_output=True,
             )
             subprocess.run(
                 ["git", "config", "user.name", "Test"],
-                cwd=source_path, check=True, capture_output=True
+                cwd=source_path,
+                check=True,
+                capture_output=True,
             )
             (source_path / "README.md").write_text("# Test")
-            subprocess.run(["git", "add", "."], cwd=source_path, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "add", "."], cwd=source_path, check=True, capture_output=True
+            )
             subprocess.run(
                 ["git", "commit", "-m", "Initial commit"],
-                cwd=source_path, check=True, capture_output=True
+                cwd=source_path,
+                check=True,
+                capture_output=True,
             )
             subprocess.run(
                 ["git", "branch", "-M", "main"],
-                cwd=source_path, check=True, capture_output=True
+                cwd=source_path,
+                check=True,
+                capture_output=True,
             )
 
             subprocess.run(
                 ["git", "clone", "--bare", str(source_path), str(remote_path)],
-                check=True, capture_output=True
+                check=True,
+                capture_output=True,
             )
 
             project_path = Path(tmpdir) / "test-repo"
@@ -1206,38 +1367,59 @@ class TestSetupWorktreeForBranch:
             git_dir = project_path / ".git"
             subprocess.run(
                 ["git", "clone", "--bare", str(remote_path), str(git_dir)],
-                check=True, capture_output=True
+                check=True,
+                capture_output=True,
             )
 
             subprocess.run(
                 ["git", "config", "core.bare", "true"],
-                cwd=project_path, check=True, capture_output=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
             subprocess.run(
-                ["git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
-                cwd=project_path, check=True, capture_output=True
+                [
+                    "git",
+                    "config",
+                    "remote.origin.fetch",
+                    "+refs/heads/*:refs/remotes/origin/*",
+                ],
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
             subprocess.run(
                 ["git", "config", "user.email", "test@test.com"],
-                cwd=project_path, check=True, capture_output=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
             subprocess.run(
                 ["git", "config", "user.name", "Test"],
-                cwd=project_path, check=True, capture_output=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
 
             subprocess.run(
                 ["git", "fetch", "origin"],
-                cwd=project_path, check=True, capture_output=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
 
             head_sha = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
-                cwd=project_path, check=True, capture_output=True, text=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
+                text=True,
             ).stdout.strip()
             subprocess.run(
                 ["git", "update-ref", "--no-deref", "HEAD", head_sha],
-                cwd=project_path, check=True, capture_output=True
+                cwd=project_path,
+                check=True,
+                capture_output=True,
             )
 
             yield project_path
@@ -1256,7 +1438,9 @@ class TestSetupWorktreeForBranch:
         """run_install=False creates the worktree but defers the install command."""
         with patch("maelstrom.worktree.run_install_cmd") as install:
             result = setup_worktree_for_branch(
-                git_repo_with_remote, "test-repo", "feature/no-install",
+                git_repo_with_remote,
+                "test-repo",
+                "feature/no-install",
                 run_install=False,
             )
         assert result.action == "created"
@@ -1272,8 +1456,10 @@ class TestSetupWorktreeForBranch:
         before = len(list_worktrees(git_repo_with_remote))
 
         # The second call must NOT re-run install / claude-local-md.
-        with patch("maelstrom.worktree.run_install_cmd") as install, \
-                patch("maelstrom.worktree.update_claude_local_md") as local_md:
+        with (
+            patch("maelstrom.worktree.run_install_cmd") as install,
+            patch("maelstrom.worktree.update_claude_local_md") as local_md,
+        ):
             second = setup_worktree_for_branch(
                 git_repo_with_remote, "test-repo", "feature/reuse"
             )
@@ -1288,9 +1474,11 @@ class TestSetupWorktreeForBranch:
         """A closed worktree is recycled for a new branch → action 'recycled'."""
         # Stub the finalize side-effects so the worktree stays clean for close
         # (writing CLAUDE.local.md/.gitignore would dirty it).
-        with patch("maelstrom.worktree.update_claude_local_md", return_value=False), \
-                patch("maelstrom.worktree.run_install_cmd"), \
-                patch("maelstrom.worktree.setup_claude_memory_symlink"):
+        with (
+            patch("maelstrom.worktree.update_claude_local_md", return_value=False),
+            patch("maelstrom.worktree.run_install_cmd"),
+            patch("maelstrom.worktree.setup_claude_memory_symlink"),
+        ):
             first = setup_worktree_for_branch(
                 git_repo_with_remote, "test-repo", "feature/original"
             )
@@ -1305,15 +1493,20 @@ class TestSetupWorktreeForBranch:
 
         branch = subprocess.run(
             ["git", "branch", "--show-current"],
-            cwd=result.path, check=True, capture_output=True, text=True
+            cwd=result.path,
+            check=True,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
         assert branch == "feature/recycled"
 
     def test_no_recycle_creates_instead(self, git_repo_with_remote):
         """no_recycle=True ignores a closed worktree and creates a new one."""
-        with patch("maelstrom.worktree.update_claude_local_md", return_value=False), \
-                patch("maelstrom.worktree.run_install_cmd"), \
-                patch("maelstrom.worktree.setup_claude_memory_symlink"):
+        with (
+            patch("maelstrom.worktree.update_claude_local_md", return_value=False),
+            patch("maelstrom.worktree.run_install_cmd"),
+            patch("maelstrom.worktree.setup_claude_memory_symlink"),
+        ):
             first = setup_worktree_for_branch(
                 git_repo_with_remote, "test-repo", "feature/original"
             )
@@ -1360,7 +1553,9 @@ class TestWriteAgentsMd:
 
     def test_missing_import_noted_in_comment(self, tmp_path):
         worktree_path = self._worktree(tmp_path)
-        (worktree_path / "CLAUDE.md").write_text("@.claude/CLAUDE.local.md\n\n# Project\n")
+        (worktree_path / "CLAUDE.md").write_text(
+            "@.claude/CLAUDE.local.md\n\n# Project\n"
+        )
 
         _write_agents_md(worktree_path)
 
@@ -1570,7 +1765,9 @@ class TestReclaimOrAllocatePorts:
 
         # Create an existing .env with an old PORT_BASE
         env_file = worktree_path / ".env"
-        env_file.write_text("PORT_BASE=350\nWEB_PORT=3500\nAPI_PORT=3501\nWORKTREE=alpha\n")
+        env_file.write_text(
+            "PORT_BASE=350\nWEB_PORT=3500\nAPI_PORT=3501\nWORKTREE=alpha\n"
+        )
 
         # Reclaim ports - should succeed since 350 is not allocated
         reclaim_or_allocate_ports(project_path, worktree_path, "alpha")
@@ -1592,7 +1789,9 @@ class TestReclaimOrAllocatePorts:
 
         # Create an existing .env with PORT_BASE=350
         env_file = worktree_path / ".env"
-        env_file.write_text("PORT_BASE=350\nWEB_PORT=3500\nAPI_PORT=3501\nWORKTREE=alpha\n")
+        env_file.write_text(
+            "PORT_BASE=350\nWEB_PORT=3500\nAPI_PORT=3501\nWORKTREE=alpha\n"
+        )
 
         # Allocate 350 to bravo (making it unavailable for alpha)
         record_port_allocation(project_path, "bravo", 350)
@@ -1667,35 +1866,46 @@ class TestPortAllocationLifecycle:
         source_path.mkdir()
 
         # Initialize source repo with a commit
-        subprocess.run(["git", "init"], cwd=source_path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "init"], cwd=source_path, check=True, capture_output=True
+        )
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
-            cwd=source_path, check=True, capture_output=True
+            cwd=source_path,
+            check=True,
+            capture_output=True,
         )
         subprocess.run(
             ["git", "config", "user.name", "Test"],
-            cwd=source_path, check=True, capture_output=True
+            cwd=source_path,
+            check=True,
+            capture_output=True,
         )
 
         # Create .maelstrom.yaml with port_names
-        (source_path / ".maelstrom.yaml").write_text(
-            "port_names:\n  - WEB\n  - API\n"
-        )
+        (source_path / ".maelstrom.yaml").write_text("port_names:\n  - WEB\n  - API\n")
         (source_path / "README.md").write_text("# Test")
-        subprocess.run(["git", "add", "."], cwd=source_path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "add", "."], cwd=source_path, check=True, capture_output=True
+        )
         subprocess.run(
             ["git", "commit", "-m", "Initial commit"],
-            cwd=source_path, check=True, capture_output=True
+            cwd=source_path,
+            check=True,
+            capture_output=True,
         )
         subprocess.run(
             ["git", "branch", "-M", "main"],
-            cwd=source_path, check=True, capture_output=True
+            cwd=source_path,
+            check=True,
+            capture_output=True,
         )
 
         # Clone as bare to create the remote
         subprocess.run(
             ["git", "clone", "--bare", str(source_path), str(remote_path)],
-            check=True, capture_output=True
+            check=True,
+            capture_output=True,
         )
 
         # Create project directory with bare clone structure
@@ -1705,38 +1915,59 @@ class TestPortAllocationLifecycle:
         git_dir = project_path / ".git"
         subprocess.run(
             ["git", "clone", "--bare", str(remote_path), str(git_dir)],
-            check=True, capture_output=True
+            check=True,
+            capture_output=True,
         )
 
         subprocess.run(
             ["git", "config", "core.bare", "true"],
-            cwd=project_path, check=True, capture_output=True
+            cwd=project_path,
+            check=True,
+            capture_output=True,
         )
         subprocess.run(
-            ["git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
-            cwd=project_path, check=True, capture_output=True
+            [
+                "git",
+                "config",
+                "remote.origin.fetch",
+                "+refs/heads/*:refs/remotes/origin/*",
+            ],
+            cwd=project_path,
+            check=True,
+            capture_output=True,
         )
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
-            cwd=project_path, check=True, capture_output=True
+            cwd=project_path,
+            check=True,
+            capture_output=True,
         )
         subprocess.run(
             ["git", "config", "user.name", "Test"],
-            cwd=project_path, check=True, capture_output=True
+            cwd=project_path,
+            check=True,
+            capture_output=True,
         )
         subprocess.run(
             ["git", "fetch", "origin"],
-            cwd=project_path, check=True, capture_output=True
+            cwd=project_path,
+            check=True,
+            capture_output=True,
         )
 
         # Detach HEAD so main isn't "checked out" in project root (like add_project does)
         head_sha = subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            cwd=project_path, check=True, capture_output=True, text=True
+            cwd=project_path,
+            check=True,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
         subprocess.run(
             ["git", "update-ref", "--no-deref", "HEAD", head_sha],
-            cwd=project_path, check=True, capture_output=True
+            cwd=project_path,
+            check=True,
+            capture_output=True,
         )
 
         return project_path
@@ -1813,15 +2044,25 @@ class TestRegenerateEnvFile:
     """Tests for regenerate_env_file function."""
 
     @patch("maelstrom.worktree.write_env_file")
-    @patch("maelstrom.worktree.generate_port_env_vars", return_value={"PORT_BASE": "300", "APP_PORT": "3000"})
+    @patch(
+        "maelstrom.worktree.generate_port_env_vars",
+        return_value={"PORT_BASE": "300", "APP_PORT": "3000"},
+    )
     @patch("maelstrom.worktree.allocate_port_base")
     @patch("maelstrom.worktree.get_port_allocation", return_value=300)
     @patch("maelstrom.worktree.load_config_or_default")
     def test_reuses_existing_port_base(
-        self, mock_config, mock_get_alloc, mock_alloc, mock_gen, mock_write, tmp_path,
+        self,
+        mock_config,
+        mock_get_alloc,
+        mock_alloc,
+        mock_gen,
+        mock_write,
+        tmp_path,
     ):
         """Uses get_port_allocation and does NOT call allocate_port_base."""
         from maelstrom.config import MaelstromConfig
+
         mock_config.return_value = MaelstromConfig(port_names=["APP"])
 
         project_path = tmp_path / "project"
@@ -1830,6 +2071,7 @@ class TestRegenerateEnvFile:
         worktree_path.mkdir()
 
         from maelstrom.worktree import regenerate_env_file
+
         regenerate_env_file(project_path, worktree_path, "bravo")
 
         mock_get_alloc.assert_called_once_with(project_path, "bravo")
@@ -1839,16 +2081,26 @@ class TestRegenerateEnvFile:
 
     @patch("maelstrom.worktree.write_env_file")
     @patch("maelstrom.worktree.record_port_allocation")
-    @patch("maelstrom.worktree.generate_port_env_vars", return_value={"PORT_BASE": "300", "APP_PORT": "3000"})
+    @patch(
+        "maelstrom.worktree.generate_port_env_vars",
+        return_value={"PORT_BASE": "300", "APP_PORT": "3000"},
+    )
     @patch("maelstrom.worktree.allocate_port_base", return_value=300)
     @patch("maelstrom.worktree.get_port_allocation", return_value=None)
     @patch("maelstrom.worktree.load_config_or_default")
     def test_allocates_if_no_existing_ports(
-        self, mock_config, mock_get_alloc, mock_alloc, mock_gen,
-        mock_record, mock_write, tmp_path,
+        self,
+        mock_config,
+        mock_get_alloc,
+        mock_alloc,
+        mock_gen,
+        mock_record,
+        mock_write,
+        tmp_path,
     ):
         """Falls back to allocate_port_base when no existing allocation."""
         from maelstrom.config import MaelstromConfig
+
         mock_config.return_value = MaelstromConfig(port_names=["APP"])
 
         project_path = tmp_path / "project"
@@ -1857,6 +2109,7 @@ class TestRegenerateEnvFile:
         worktree_path.mkdir()
 
         from maelstrom.worktree import regenerate_env_file
+
         regenerate_env_file(project_path, worktree_path, "bravo")
 
         mock_get_alloc.assert_called_once_with(project_path, "bravo")
@@ -2188,7 +2441,9 @@ class TestSquashWorktree:
         assert result.push_message is None
 
 
-def _write_worktree_env(worktree_path: Path, managed: dict, user_lines: str = "") -> None:
+def _write_worktree_env(
+    worktree_path: Path, managed: dict, user_lines: str = ""
+) -> None:
     """Write a worktree .env with a managed section and optional user content."""
     lines = [ENV_SECTION_START]
     for key, value in managed.items():
@@ -2232,7 +2487,8 @@ class TestCopyBackNewEnvVars:
         project, worktree = self._setup(tmp_path)
         (project / ".env").write_text("EXISTING=1\n")
         _write_worktree_env(
-            worktree, {"WORKTREE": "charlie", "PORT_BASE": "120"},
+            worktree,
+            {"WORKTREE": "charlie", "PORT_BASE": "120"},
             user_lines="EXISTING=1\nSTRIPE_KEY=sk_test",
         )
 
@@ -2266,7 +2522,9 @@ class TestCopyBackNewEnvVars:
         (project / ".env").write_text("FOO=bar\n")
         before = (project / ".env").read_text()
         _write_worktree_env(
-            worktree, {"WORKTREE": "charlie"}, user_lines="FOO=bar",
+            worktree,
+            {"WORKTREE": "charlie"},
+            user_lines="FOO=bar",
         )
 
         result = copy_back_new_env_vars(project, worktree)
@@ -2280,7 +2538,9 @@ class TestCopyBackNewEnvVars:
         (project / ".env").write_text("FOO=parentval\n")
         before = (project / ".env").read_text()
         _write_worktree_env(
-            worktree, {"WORKTREE": "charlie"}, user_lines="FOO=wtval",
+            worktree,
+            {"WORKTREE": "charlie"},
+            user_lines="FOO=wtval",
         )
 
         result = copy_back_new_env_vars(project, worktree)
@@ -2298,7 +2558,9 @@ class TestCopyBackNewEnvVars:
         project, worktree = self._setup(tmp_path)
         assert not (project / ".env").exists()
         _write_worktree_env(
-            worktree, {"WORKTREE": "charlie"}, user_lines="NEW=val",
+            worktree,
+            {"WORKTREE": "charlie"},
+            user_lines="NEW=val",
         )
 
         result = copy_back_new_env_vars(project, worktree)
@@ -2312,7 +2574,8 @@ class TestCopyBackNewEnvVars:
         original = "# header comment\nA=1\n\nB=2\n"
         (project / ".env").write_text(original)
         _write_worktree_env(
-            worktree, {"WORKTREE": "charlie"},
+            worktree,
+            {"WORKTREE": "charlie"},
             user_lines="A=1\nB=2\nC=3",
         )
 
@@ -2331,7 +2594,8 @@ class TestCopyBackNewEnvVars:
         (project / ".env").write_text("INSTALL_SECRET=\n")
         before = (project / ".env").read_text()
         _write_worktree_env(
-            worktree, {"WORKTREE": "charlie"},
+            worktree,
+            {"WORKTREE": "charlie"},
             user_lines="INSTALL_SECRET=generated_secret",
         )
 
@@ -2348,14 +2612,18 @@ class TestCopyBackNewEnvVars:
         project, worktree = self._setup(tmp_path)
         (project / ".env").write_text("SECRET=\n")
         _write_worktree_env(
-            worktree, {"WORKTREE": "charlie"}, user_lines="SECRET=xyz",
+            worktree,
+            {"WORKTREE": "charlie"},
+            user_lines="SECRET=xyz",
         )
 
         result = copy_back_new_env_vars(project, worktree)
 
         assert "SECRET" not in result.added
 
-    def test_parent_template_resolving_to_worktree_value_is_not_conflict(self, tmp_path):
+    def test_parent_template_resolving_to_worktree_value_is_not_conflict(
+        self, tmp_path
+    ):
         # Parent holds the unresolved template; worktree holds the resolved value
         # (plus a source comment). They are equivalent — no spurious conflict.
         project, worktree = self._setup(tmp_path)
@@ -2404,25 +2672,39 @@ class TestAddProjectLayout:
         """Build a bare remote with one commit on main."""
         source = tmp_path / "source"
         source.mkdir()
-        subprocess.run(["git", "init", "-b", "main", str(source)],
-                       check=True, capture_output=True)
+        subprocess.run(
+            ["git", "init", "-b", "main", str(source)], check=True, capture_output=True
+        )
         (source / "README.md").write_text("# demo\n")
         for cmd in (
             ["git", "add", "-A"],
-            ["git", "-c", "user.email=t@t", "-c", "user.name=T",
-             "commit", "-m", "initial"],
+            [
+                "git",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=T",
+                "commit",
+                "-m",
+                "initial",
+            ],
         ):
             subprocess.run(cmd, cwd=source, check=True, capture_output=True)
 
         remote = tmp_path / "demo.git"
-        subprocess.run(["git", "clone", "--bare", str(source), str(remote)],
-                       check=True, capture_output=True)
+        subprocess.run(
+            ["git", "clone", "--bare", str(source), str(remote)],
+            check=True,
+            capture_output=True,
+        )
         return remote
 
     def _branch_of(self, path):
         return subprocess.run(
             ["git", "branch", "--show-current"],
-            cwd=path, capture_output=True, text=True,
+            cwd=path,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
 
     @pytest.fixture
@@ -2452,12 +2734,16 @@ class TestAddProjectLayout:
         main_path = project / "_main"
         subprocess.run(
             ["git", "checkout", "--detach", "HEAD"],
-            cwd=main_path, check=True, capture_output=True,
+            cwd=main_path,
+            check=True,
+            capture_output=True,
         )
         # Take alpha out of the running so _main is the only closed candidate.
         subprocess.run(
             ["git", "worktree", "remove", "--force", str(project / "demo-alpha")],
-            cwd=project, check=True, capture_output=True,
+            cwd=project,
+            check=True,
+            capture_output=True,
         )
 
         assert find_closed_worktree(project) is None
@@ -2467,10 +2753,13 @@ class TestAddProjectLayout:
 
     def test_main_tracks_its_remote_branch(self, project):
         """A bare clone writes no branch.main.*, so add_project must set it."""
+
         def config(key):
             return subprocess.run(
                 ["git", "config", "--get", key],
-                cwd=project, capture_output=True, text=True,
+                cwd=project,
+                capture_output=True,
+                text=True,
             ).stdout.strip()
 
         assert config("branch.main.remote") == "origin"
@@ -2480,6 +2769,9 @@ class TestAddProjectLayout:
         """A human in _main gets ahead/behind, `git pull` and `git push`."""
         result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
-            cwd=project / "_main", capture_output=True, text=True, check=True,
+            cwd=project / "_main",
+            capture_output=True,
+            text=True,
+            check=True,
         )
         assert result.stdout.strip() == "origin/main"

@@ -47,10 +47,12 @@ class TestGlobalConfig:
 
     def test_from_dict_with_all_fields(self):
         """Test creating from dict with all fields."""
-        config = GlobalConfig.from_dict({
-            "projects_dir": "/custom/path",
-            "open_command": "vim",
-        })
+        config = GlobalConfig.from_dict(
+            {
+                "projects_dir": "/custom/path",
+                "open_command": "vim",
+            }
+        )
         assert config.projects_dir == Path("/custom/path")
         assert config.open_command == "vim"
 
@@ -444,7 +446,9 @@ class TestResolveContext:
         assert ctx.worktree == "alpha"
         assert ctx.project_path == tmp_path / "Projects" / "myproject"
         # Folder name is now <project>-<worktree>
-        assert ctx.worktree_path == tmp_path / "Projects" / "myproject" / "myproject-alpha"
+        assert (
+            ctx.worktree_path == tmp_path / "Projects" / "myproject" / "myproject-alpha"
+        )
 
     def test_explicit_project_only(self, tmp_path, monkeypatch):
         """Test project-only argument when not in project dir."""

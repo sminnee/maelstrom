@@ -204,7 +204,9 @@ def sentry():
 
 
 @sentry.command("list-issues")  # type: ignore[attr-defined]
-@click.option("--env", "environment", default="prod", help="Environment filter (default: prod)")
+@click.option(
+    "--env", "environment", default="prod", help="Environment filter (default: prod)"
+)
 @click.option(
     "--since",
     default=None,
@@ -233,7 +235,9 @@ def cmd_list_issues(environment, since):
 
     window = f" in the last {since}" if since is not None else ""
     if not issues:
-        click.echo(f"No unresolved issues found in environment '{environment}'{window}.")
+        click.echo(
+            f"No unresolved issues found in environment '{environment}'{window}."
+        )
         return
 
     heading_window = f", last {since}" if since is not None else ""
@@ -265,13 +269,19 @@ def cmd_list_issues(environment, since):
             widths[i] = max(widths[i], len(cell))
 
     # Print markdown table with aligned columns
-    header_row = "| " + " | ".join(h.ljust(widths[i]) for i, h in enumerate(headers)) + " |"
+    header_row = (
+        "| " + " | ".join(h.ljust(widths[i]) for i, h in enumerate(headers)) + " |"
+    )
     separator = "|" + "|".join("-" * (w + 2) for w in widths) + "|"
     click.echo(header_row)
     click.echo(separator)
 
     for row in rows:
-        data_row = "| " + " | ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)) + " |"
+        data_row = (
+            "| "
+            + " | ".join(cell.ljust(widths[i]) for i, cell in enumerate(row))
+            + " |"
+        )
         click.echo(data_row)
 
 

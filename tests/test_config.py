@@ -190,7 +190,12 @@ class TestServicesConfig:
             "services": {
                 "frontend": {"command": "x", "ports": ["FRONTEND", "FRONTEND_HMR"]},
                 "server": {"command": "y", "ports": ["SERVER"]},
-                "db": {"shared": True, "engine": "docker", "image": "z", "ports": ["DB"]},
+                "db": {
+                    "shared": True,
+                    "engine": "docker",
+                    "image": "z",
+                    "ports": ["DB"],
+                },
             }
         }
         config = MaelstromConfig.from_dict(data)
@@ -201,8 +206,18 @@ class TestServicesConfig:
         data = {
             "services": {
                 "frontend": {"command": "x", "ports": ["FRONTEND"]},
-                "db": {"shared": True, "engine": "docker", "image": "z", "ports": ["DB"]},
-                "redis": {"shared": True, "engine": "docker", "image": "r", "ports": ["REDIS"]},
+                "db": {
+                    "shared": True,
+                    "engine": "docker",
+                    "image": "z",
+                    "ports": ["DB"],
+                },
+                "redis": {
+                    "shared": True,
+                    "engine": "docker",
+                    "image": "r",
+                    "ports": ["REDIS"],
+                },
             }
         }
         config = MaelstromConfig.from_dict(data)

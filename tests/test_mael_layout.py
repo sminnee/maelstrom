@@ -34,9 +34,16 @@ class TestEnsureWorktreeWorkspace:
 
     def test_returns_false_outside_cmux(self):
         with patch.object(CmuxLayout, "current", staticmethod(lambda n: None)):
-            assert mael_layout.ensure_worktree_workspace(
-                "proj", "alpha", "/wt", command="claude", install_cmd="npm i",
-            ) is False
+            assert (
+                mael_layout.ensure_worktree_workspace(
+                    "proj",
+                    "alpha",
+                    "/wt",
+                    command="claude",
+                    install_cmd="npm i",
+                )
+                is False
+            )
 
     def test_create_path_builds_claude_and_shell(self):
         """No existing workspace → create with Claude (pane 0) + shell (pane 1)."""
@@ -67,7 +74,11 @@ class TestEnsureWorktreeWorkspace:
         client, patcher = _patch_current(fn)
         with patcher, patch("maelstrom.cmux.model.time.sleep"):
             placed = mael_layout.ensure_worktree_workspace(
-                "myproject", "alpha", "/wt", command="claude", install_cmd="npm i",
+                "myproject",
+                "alpha",
+                "/wt",
+                command="claude",
+                install_cmd="npm i",
             )
         assert placed is True
         # Workspace created running the worktree cd.
@@ -77,12 +88,18 @@ class TestEnsureWorktreeWorkspace:
         # Shell pane (pane 1) split off and install run there.
         assert any(c[0] == "new-split" for c in client.calls)
         assert (
-            "send", "--surface", "surface:91", "--workspace", "workspace:1",
-            "--", "npm i\n",
+            "send",
+            "--surface",
+            "surface:91",
+            "--workspace",
+            "workspace:1",
+            "--",
+            "npm i\n",
         ) in client.calls
 
     def test_reuse_path_adds_claude_tab_only(self):
         """Existing workspace → add a Claude tab to pane 0, no shell/install."""
+
         def fn(*args):
             if args[0] == "list-workspaces":
                 return "  workspace:13  myproject-alpha"
@@ -95,24 +112,32 @@ class TestEnsureWorktreeWorkspace:
         client, patcher = _patch_current(fn)
         with patcher:
             placed = mael_layout.ensure_worktree_workspace(
-                "myproject", "alpha", "/wt", command="claude", install_cmd="npm i",
+                "myproject",
+                "alpha",
+                "/wt",
+                command="claude",
+                install_cmd="npm i",
             )
         assert placed is True
         # Added a fresh Claude tab to pane 0 (add_terminal → new-surface).
         assert (
-            "new-surface", "--type", "terminal",
-            "--pane", "pane:0", "--workspace", "workspace:13",
+            "new-surface",
+            "--type",
+            "terminal",
+            "--pane",
+            "pane:0",
+            "--workspace",
+            "workspace:13",
         ) in client.calls
         # The reused workspace is brought to the foreground.
         assert ("select-workspace", "--workspace", "workspace:13") in client.calls
         # Did NOT create the workspace or run install again.
         assert not any(c[0] == "new-workspace" for c in client.calls)
-        assert not any(
-            c[0] == "send" and "npm i\n" in c for c in client.calls
-        )
+        assert not any(c[0] == "send" and "npm i\n" in c for c in client.calls)
 
     def test_create_path_returns_false_when_new_workspace_fails(self):
         """new-workspace non-OK (dead socket) → placement failed, return False."""
+
         def fn(*args):
             if args[0] == "list-workspaces":
                 return ""  # no existing workspace → create path
@@ -123,12 +148,17 @@ class TestEnsureWorktreeWorkspace:
         _, patcher = _patch_current(fn)
         with patcher, patch("maelstrom.cmux.model.time.sleep"):
             placed = mael_layout.ensure_worktree_workspace(
-                "myproject", "alpha", "/wt", command="claude", install_cmd="npm i",
+                "myproject",
+                "alpha",
+                "/wt",
+                command="claude",
+                install_cmd="npm i",
             )
         assert placed is False
 
     def test_reuse_path_returns_false_when_new_surface_fails(self):
         """Existing workspace but add_terminal (new-surface) non-OK → False."""
+
         def fn(*args):
             if args[0] == "list-workspaces":
                 return "  workspace:13  myproject-alpha"
@@ -141,7 +171,11 @@ class TestEnsureWorktreeWorkspace:
         _, patcher = _patch_current(fn)
         with patcher:
             placed = mael_layout.ensure_worktree_workspace(
-                "myproject", "alpha", "/wt", command="claude", install_cmd="npm i",
+                "myproject",
+                "alpha",
+                "/wt",
+                command="claude",
+                install_cmd="npm i",
             )
         assert placed is False
 
@@ -160,20 +194,32 @@ class TestShowAppBrowser:
         client, patcher = _patch_current(fn)
         with patcher:
             ref = mael_layout.show_app_browser(
-                "myproject", "alpha", "http://localhost:3000",
+                "myproject",
+                "alpha",
+                "http://localhost:3000",
             )
         assert ref == "surface:200"
         # Opened in pane 2 (BROWSER_PANE).
         assert (
-            "new-surface", "--type", "browser",
-            "--pane", "pane:2", "--url", "http://localhost:3000",
+            "new-surface",
+            "--type",
+            "browser",
+            "--pane",
+            "pane:2",
+            "--url",
+            "http://localhost:3000",
         ) in client.calls
 
     def test_none_outside_cmux(self):
         with patch.object(CmuxLayout, "current", staticmethod(lambda n: None)):
-            assert mael_layout.show_app_browser(
-                "p", "a", "http://localhost:3000",
-            ) is None
+            assert (
+                mael_layout.show_app_browser(
+                    "p",
+                    "a",
+                    "http://localhost:3000",
+                )
+                is None
+            )
 
 
 class TestHideAppBrowser:
@@ -189,9 +235,14 @@ class TestHideAppBrowser:
 
         client, patcher = _patch_current(fn)
         with patcher:
-            assert mael_layout.hide_app_browser(
-                "p", "a", "http://localhost:3000",
-            ) is True
+            assert (
+                mael_layout.hide_app_browser(
+                    "p",
+                    "a",
+                    "http://localhost:3000",
+                )
+                is True
+            )
         assert ("close-surface", "--surface", "surface:183") in client.calls
 
 
@@ -214,7 +265,10 @@ class TestShowPrBrowser:
         assert ref == "surface:183"
         # Navigated the github tab in place (matched by github.com prefix).
         assert (
-            "browser", "--surface", "surface:183", "goto",
+            "browser",
+            "--surface",
+            "surface:183",
+            "goto",
             "https://github.com/owner/repo/pull/9",
         ) in client.calls
 

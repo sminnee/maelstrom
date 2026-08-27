@@ -220,13 +220,11 @@ class SqliteTaskIndex:
             "PRIMARY KEY (project, id))"
         )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS tasks_project_status "
-            "ON tasks (project, status)"
+            "CREATE INDEX IF NOT EXISTS tasks_project_status ON tasks (project, status)"
         )
         try:
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS tasks_session_id "
-                "ON tasks (session_id)"
+                "CREATE INDEX IF NOT EXISTS tasks_session_id ON tasks (session_id)"
             )
         except sqlite3.OperationalError:
             # Legacy table without session_id; reindex will recreate it.
@@ -382,9 +380,7 @@ class SqliteTaskIndex:
 
     def head(self) -> str | None:
         conn = self._connect()
-        row = conn.execute(
-            "SELECT value FROM meta WHERE key = 'head'"
-        ).fetchone()
+        row = conn.execute("SELECT value FROM meta WHERE key = 'head'").fetchone()
         return row["value"] if row is not None else None
 
     def set_head(self, sha: str | None) -> None:

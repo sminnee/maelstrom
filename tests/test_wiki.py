@@ -45,7 +45,9 @@ def test_normalise_page_rejects_unsafe_paths(given):
 
 
 def test_page_key_is_under_the_wiki_prefix():
-    assert wiki.page_key("dev-patterns/python/pypi") == "_wiki/dev-patterns/python/pypi.md"
+    assert (
+        wiki.page_key("dev-patterns/python/pypi") == "_wiki/dev-patterns/python/pypi.md"
+    )
 
 
 def test_the_wiki_prefix_is_a_reserved_project_name():
@@ -158,7 +160,10 @@ def test_list_pages_returns_paths_and_descriptions(store: InMemoryStore):
     wiki.write_page(store, "dev-patterns/python/pypi", PAGE)
     wiki.write_page(store, "linting", "# Linting\n")
     assert wiki.list_pages(store) == [
-        wiki.WikiPage(path="dev-patterns/python/pypi", description="How to publish a package to PyPI"),
+        wiki.WikiPage(
+            path="dev-patterns/python/pypi",
+            description="How to publish a package to PyPI",
+        ),
         wiki.WikiPage(path="linting", description=""),
     ]
 

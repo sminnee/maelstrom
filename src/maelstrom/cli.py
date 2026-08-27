@@ -168,7 +168,10 @@ def cli(ctx, output_json):
 
 @cli.command("add-project")
 @click.argument("git_url")
-@click.option("--projects-dir", help="Base directory for projects (default from ~/.maelstrom/config.yaml or ~/Projects)")
+@click.option(
+    "--projects-dir",
+    help="Base directory for projects (default from ~/.maelstrom/config.yaml or ~/Projects)",
+)
 def cmd_add_project(git_url, projects_dir):
     """Clone a git repository for use with maelstrom."""
     # Use explicit --projects-dir or fall back to global config
@@ -191,9 +194,14 @@ def cmd_add_project(git_url, projects_dir):
 
 @cli.command("create-project")
 @click.argument("name")
-@click.option("--public", is_flag=True, help="Create a public repository (default: private)")
+@click.option(
+    "--public", is_flag=True, help="Create a public repository (default: private)"
+)
 @click.option("--description", default=None, help="Repository description")
-@click.option("--projects-dir", help="Base directory for projects (default from ~/.maelstrom/config.yaml or ~/Projects)")
+@click.option(
+    "--projects-dir",
+    help="Base directory for projects (default from ~/.maelstrom/config.yaml or ~/Projects)",
+)
 @click.pass_context
 def cmd_create_project(ctx, name, public, description, projects_dir):
     """Create a GitHub repository and check it out for use with maelstrom.
@@ -279,9 +287,17 @@ def cmd_create_project(ctx, name, public, description, projects_dir):
 @cli.command("add")
 @_harness_flags()
 @click.argument("branch", required=False, default=None)
-@click.option("-p", "--project", default=None, help="Project name (default: detect from cwd)")
-@click.option("--open", is_flag=True, help="Open in configured editor instead of Claude CLI")
-@click.option("--no-recycle", is_flag=True, help="Don't recycle closed worktrees, always create new")
+@click.option(
+    "-p", "--project", default=None, help="Project name (default: detect from cwd)"
+)
+@click.option(
+    "--open", is_flag=True, help="Open in configured editor instead of Claude CLI"
+)
+@click.option(
+    "--no-recycle",
+    is_flag=True,
+    help="Don't recycle closed worktrees, always create new",
+)
 @click.option(
     "--base",
     "base",
@@ -316,7 +332,9 @@ def cmd_add(branch, project, open, no_recycle, base, harness, opencode_flag):
     project_path = ctx.project_path
 
     if project_path is None or not project_path.exists():
-        raise click.ClickException(f"Project '{ctx.project}' not found at {project_path}")
+        raise click.ClickException(
+            f"Project '{ctx.project}' not found at {project_path}"
+        )
     assert ctx.project is not None
 
     # No branch specified: create a fresh detached worktree at origin/main.
@@ -343,7 +361,8 @@ def cmd_add(branch, project, open, no_recycle, base, harness, opencode_flag):
                 # --open starts no session, so the harness flag is inert here.
                 click.echo(
                     "Warning: --open starts an editor, not a session; "
-                    "the harness flags were ignored.", err=True,
+                    "the harness flags were ignored.",
+                    err=True,
                 )
             global_config = load_global_config()
             try:
@@ -364,8 +383,12 @@ def cmd_add(branch, project, open, no_recycle, base, harness, opencode_flag):
     # skip install here and let the launcher place the session.
     try:
         result = setup_worktree_for_branch(
-            project_path, ctx.project, branch,
-            no_recycle=no_recycle, run_install=False, base=base,
+            project_path,
+            ctx.project,
+            branch,
+            no_recycle=no_recycle,
+            run_install=False,
+            base=base,
             announce=click.echo,
         )
     except (RuntimeError, ValueError) as e:
@@ -379,7 +402,11 @@ def cmd_add(branch, project, open, no_recycle, base, harness, opencode_flag):
         print_copy_back_result(copy_back, project_path)
         try:
             stop_messages, new_state = regenerate_and_restart_if_running(
-                make_store(), ctx.project, wt_name, project_path, worktree_path,
+                make_store(),
+                ctx.project,
+                wt_name,
+                project_path,
+                worktree_path,
             )
         except RuntimeError as e:
             raise click.ClickException(str(e))
@@ -418,7 +445,8 @@ def cmd_add(branch, project, open, no_recycle, base, harness, opencode_flag):
             # --open starts no session, so the harness flag is inert here.
             click.echo(
                 "Warning: --open starts an editor, not a session; "
-                "the harness flags were ignored.", err=True,
+                "the harness flags were ignored.",
+                err=True,
             )
         run_install_cmd(worktree_path)
         global_config = load_global_config()
@@ -434,7 +462,12 @@ def cmd_add(branch, project, open, no_recycle, base, harness, opencode_flag):
 
 @cli.command("remove")
 @click.argument("targets", nargs=-1, required=True)
-@click.option("-f", "--force", is_flag=True, help="Skip confirmation prompt for modified/untracked files")
+@click.option(
+    "-f",
+    "--force",
+    is_flag=True,
+    help="Skip confirmation prompt for modified/untracked files",
+)
 def cmd_remove(targets, force):
     """Remove one or more worktrees."""
     errors = []
@@ -454,7 +487,9 @@ def cmd_remove(targets, force):
         worktree_name = ctx.worktree  # The NATO name (e.g., "alpha")
 
         if project_path is None or not project_path.exists():
-            click.echo(f"Error: Project '{ctx.project}' not found at {project_path}", err=True)
+            click.echo(
+                f"Error: Project '{ctx.project}' not found at {project_path}", err=True
+            )
             errors.append(target)
             continue
         assert ctx.project is not None
@@ -463,14 +498,19 @@ def cmd_remove(targets, force):
         folder_name = get_worktree_folder_name(ctx.project, worktree_name)
         worktree_path = project_path / folder_name
         if not worktree_path.exists():
-            click.echo(f"Error: Worktree '{worktree_name}' not found in project '{ctx.project}'", err=True)
+            click.echo(
+                f"Error: Worktree '{worktree_name}' not found in project '{ctx.project}'",
+                err=True,
+            )
             errors.append(target)
             continue
 
         # Check for modified/untracked files (excluding maelstrom-managed files)
         dirty_files = get_worktree_dirty_files(worktree_path)
         if dirty_files and not force:
-            click.echo(f"The following modified/untracked files in '{worktree_name}' will be lost:")
+            click.echo(
+                f"The following modified/untracked files in '{worktree_name}' will be lost:"
+            )
             for f in dirty_files:
                 click.echo(f"  {f}")
             if not click.confirm("Continue?"):
@@ -580,7 +620,9 @@ def cmd_list(project):
     project_path = ctx.project_path
 
     if project_path is None or not project_path.exists():
-        raise click.ClickException(f"Project '{ctx.project}' not found at {project_path}")
+        raise click.ClickException(
+            f"Project '{ctx.project}' not found at {project_path}"
+        )
     project_name = ctx.project
     assert project_name is not None
 
@@ -599,7 +641,10 @@ def cmd_list(project):
     closed_names = []
     open_worktrees = []
     for wt in worktrees:
-        display_name = extract_worktree_name_from_folder(project_name, wt.path.name) or wt.path.name
+        display_name = (
+            extract_worktree_name_from_folder(project_name, wt.path.name)
+            or wt.path.name
+        )
         if wt.path in closed_paths:
             closed_names.append(display_name)
         else:
@@ -662,17 +707,30 @@ def cmd_list(project):
             port = url.split(":")[-1]
             app_display = url if is_running else f"*{port}"
 
-        rows.append({
-            "WORKTREE": display_name,
-            "BRANCH": branch_display,
-            "DIRTY FILES": dirty_display,
-            "LOCAL COMMITS": local_display,
-            "PR (COMMITS)": pr_display,
-            "APP": app_display,
-            "SESSION": session_display,
-        })
+        rows.append(
+            {
+                "WORKTREE": display_name,
+                "BRANCH": branch_display,
+                "DIRTY FILES": dirty_display,
+                "LOCAL COMMITS": local_display,
+                "PR (COMMITS)": pr_display,
+                "APP": app_display,
+                "SESSION": session_display,
+            }
+        )
 
-    draw_table(rows, ["WORKTREE", "BRANCH", "DIRTY FILES", "LOCAL COMMITS", "PR (COMMITS)", "APP", "SESSION"])
+    draw_table(
+        rows,
+        [
+            "WORKTREE",
+            "BRANCH",
+            "DIRTY FILES",
+            "LOCAL COMMITS",
+            "PR (COMMITS)",
+            "APP",
+            "SESSION",
+        ],
+    )
 
     if closed_names:
         click.echo(f"\nClosed environments: {', '.join(closed_names)}")
@@ -711,7 +769,9 @@ def cmd_list_all():
         # so it belongs inside this loop. A project whose worktrees are all
         # detached has no branch to ask about, and `list-all` visits every
         # project — so skip the round trip rather than spend one per project.
-        open_prs = get_open_prs(project_path) if any(wt.branch for wt in worktrees) else {}
+        open_prs = (
+            get_open_prs(project_path) if any(wt.branch for wt in worktrees) else {}
+        )
         # Likewise the closed check: one batch per project, not two subprocesses
         # per worktree.
         closed_paths = closed_worktrees(project_path, worktrees)
@@ -723,7 +783,10 @@ def cmd_list_all():
             if wt.path == project_path:
                 continue
 
-            display_name = extract_worktree_name_from_folder(project_name, wt.path.name) or wt.path.name
+            display_name = (
+                extract_worktree_name_from_folder(project_name, wt.path.name)
+                or wt.path.name
+            )
 
             # Check if worktree is closed (detached at origin/main)
             closed = wt.path in closed_paths
@@ -731,22 +794,24 @@ def cmd_list_all():
             if closed:
                 closed_by_project.setdefault(project_name, []).append(display_name)
                 # Still include in JSON data but skip table row
-                worktree_data.append({
-                    "name": display_name,
-                    "folder": wt.path.name,
-                    "path": str(wt.path),
-                    "branch": wt.branch or None,
-                    "base": None,
-                    "is_closed": True,
-                    "dirty_files": 0,
-                    "local_commits": 0,
-                    "pr_number": None,
-                    "pr_commits": None,
-                    "pushed_commits": None,
-                    "app_url": None,
-                    "app_running": False,
-                    "session_count": 0,
-                })
+                worktree_data.append(
+                    {
+                        "name": display_name,
+                        "folder": wt.path.name,
+                        "path": str(wt.path),
+                        "branch": wt.branch or None,
+                        "base": None,
+                        "is_closed": True,
+                        "dirty_files": 0,
+                        "local_commits": 0,
+                        "pr_number": None,
+                        "pr_commits": None,
+                        "pushed_commits": None,
+                        "app_url": None,
+                        "app_running": False,
+                        "session_count": 0,
+                    }
+                )
                 continue
 
             # A stacked branch reads "child ← parent", so the whole stack is
@@ -795,42 +860,49 @@ def cmd_list_all():
                 port = url.split(":")[-1]
                 app_display = url if is_running else f"*{port}"
 
-            worktree_data.append({
-                "name": display_name,
-                "folder": wt.path.name,
-                "path": str(wt.path),
-                "branch": wt.branch or None,
-                "base": base,
-                "is_closed": False,
-                "dirty_files": dirty_count,
-                "local_commits": local_commits,
-                "pr_number": pr_num,
-                "pr_commits": pr_commits,
-                "pushed_commits": pushed_commits,
-                "app_url": app_url,
-                "app_running": app_running,
-                "session_count": session_count,
-            })
+            worktree_data.append(
+                {
+                    "name": display_name,
+                    "folder": wt.path.name,
+                    "path": str(wt.path),
+                    "branch": wt.branch or None,
+                    "base": base,
+                    "is_closed": False,
+                    "dirty_files": dirty_count,
+                    "local_commits": local_commits,
+                    "pr_number": pr_num,
+                    "pr_commits": pr_commits,
+                    "pushed_commits": pushed_commits,
+                    "app_url": app_url,
+                    "app_running": app_running,
+                    "session_count": session_count,
+                }
+            )
 
-            rows.append({
-                "PROJECT": project_name,
-                "WORKTREE": wt.path.name,
-                "BRANCH": branch_display,
-                "DIRTY FILES": dirty_display,
-                "LOCAL COMMITS": local_display,
-                "PR (COMMITS)": pr_display,
-                "APP": app_display,
-                "SESSION": session_display,
-            })
+            rows.append(
+                {
+                    "PROJECT": project_name,
+                    "WORKTREE": wt.path.name,
+                    "BRANCH": branch_display,
+                    "DIRTY FILES": dirty_display,
+                    "LOCAL COMMITS": local_display,
+                    "PR (COMMITS)": pr_display,
+                    "APP": app_display,
+                    "SESSION": session_display,
+                }
+            )
 
-        projects_data.append({
-            "name": project_name,
-            "path": str(project_path),
-            "worktrees": worktree_data,
-        })
+        projects_data.append(
+            {
+                "name": project_name,
+                "path": str(project_path),
+                "worktrees": worktree_data,
+            }
+        )
 
     if output_json:
         import json as json_mod
+
         click.echo(json_mod.dumps({"projects": projects_data}))
         return
 
@@ -843,7 +915,19 @@ def cmd_list_all():
             click.echo("No worktrees found.")
         return
 
-    draw_table(rows, ["PROJECT", "WORKTREE", "BRANCH", "DIRTY FILES", "LOCAL COMMITS", "PR (COMMITS)", "APP", "SESSION"])
+    draw_table(
+        rows,
+        [
+            "PROJECT",
+            "WORKTREE",
+            "BRANCH",
+            "DIRTY FILES",
+            "LOCAL COMMITS",
+            "PR (COMMITS)",
+            "APP",
+            "SESSION",
+        ],
+    )
 
     if closed_by_project:
         click.echo("\nClosed environments:")
@@ -871,7 +955,9 @@ def cmd_open(target, harness: str | None, opencode_flag: bool):
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
     _launch_claude_or_raise(
-        worktree_path, ctx.project, ctx.worktree,
+        worktree_path,
+        ctx.project,
+        ctx.worktree,
         harness=resolve_harness_or_fail(harness, opencode_flag),
     )
 
@@ -921,7 +1007,9 @@ def cmd_claude(target, harness: str | None, opencode_flag: bool):
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
     _launch_claude_or_raise(
-        worktree_path, ctx.project, ctx.worktree,
+        worktree_path,
+        ctx.project,
+        ctx.worktree,
         harness=resolve_harness_or_fail(harness, opencode_flag),
     )
 
@@ -1005,7 +1093,9 @@ def cmd_base(target):
 
 @cli.command("stack-tip")
 @click.argument("branch", required=False, default=None)
-@click.option("-p", "--project", default=None, help="Project name (default: detect from cwd)")
+@click.option(
+    "-p", "--project", default=None, help="Project name (default: detect from cwd)"
+)
 def cmd_stack_tip(branch, project):
     """Show or move the branch new worktrees stack on.
 
@@ -1018,14 +1108,19 @@ def cmd_stack_tip(branch, project):
     """
     try:
         ctx = resolve_context(
-            project, require_project=True, require_worktree=False, arg_is_project=True,
+            project,
+            require_project=True,
+            require_worktree=False,
+            arg_is_project=True,
         )
     except ValueError as e:
         raise click.ClickException(str(e))
 
     project_path = ctx.project_path
     if project_path is None or not project_path.exists():
-        raise click.ClickException(f"Project '{ctx.project}' not found at {project_path}")
+        raise click.ClickException(
+            f"Project '{ctx.project}' not found at {project_path}"
+        )
 
     store = GitConfigBaseStore(project_path)
 
@@ -1058,7 +1153,9 @@ def cmd_stack_tip(branch, project):
 
     store.write_stack_tip(branch)
     if branch == MAIN_BRANCH:
-        click.echo(f"Stack tip reset to {MAIN_BRANCH}; new worktrees will not be stacked.")
+        click.echo(
+            f"Stack tip reset to {MAIN_BRANCH}; new worktrees will not be stacked."
+        )
         return
     click.echo(f"Stack tip moved to {branch}; new worktrees will stack on it.")
 
@@ -1075,7 +1172,9 @@ def _restack_onto(store: GitConfigBaseStore, branch: str, new_base: str) -> None
     store.write(branch, BaseRef(branch=new_base))
 
 
-def _unstack(branch: str, store: GitConfigBaseStore, *, repoint_children: bool) -> str | None:
+def _unstack(
+    branch: str, store: GitConfigBaseStore, *, repoint_children: bool
+) -> str | None:
     """Pull ``branch`` out of its stack onto ``main``. Returns its old base.
 
     ``repoint_children`` decides which of the two escape hatches this is:
@@ -1159,7 +1258,11 @@ def cmd_eject(target):
 
 @cli.command("sync")
 @click.argument("target", required=False, default=None)
-@click.option("--squash", is_flag=True, help="Autosquash fixup! commits while rebasing onto the base")
+@click.option(
+    "--squash",
+    is_flag=True,
+    help="Autosquash fixup! commits while rebasing onto the base",
+)
 @click.option(
     "--base",
     "base",
@@ -1210,16 +1313,24 @@ def cmd_sync(target, squash, base, abort, close, autorepair):
 
     target_label = _sync_target_label(worktree_path)
     if squash:
-        click.echo(f"Syncing {ctx.worktree} with {target_label} (autosquashing fixup! commits)...")
+        click.echo(
+            f"Syncing {ctx.worktree} with {target_label} (autosquashing fixup! commits)..."
+        )
     else:
         click.echo(f"Syncing {ctx.worktree} with {target_label}...")
     if autorepair:
         result = sync_worktree_with_autorepair(
-            worktree_path, squash=squash, close_if_empty=close, announce=click.echo,
+            worktree_path,
+            squash=squash,
+            close_if_empty=close,
+            announce=click.echo,
         )
     else:
         result = sync_worktree(
-            worktree_path, squash=squash, abort_on_conflict=abort, close_if_empty=close,
+            worktree_path,
+            squash=squash,
+            abort_on_conflict=abort,
+            close_if_empty=close,
         )
 
     if result.success:
@@ -1250,7 +1361,9 @@ def cmd_sync(target, squash, base, abort, close, autorepair):
 @cli.command("close")
 @click.argument("targets", nargs=-1)
 @click.option("--wait", is_flag=True, help="Wait for the PR to merge before closing")
-@click.option("--timeout", default=3600, help="Max seconds to wait for merge (default: 3600)")
+@click.option(
+    "--timeout", default=3600, help="Max seconds to wait for merge (default: 3600)"
+)
 @click.option("--interval", default=30, help="Poll interval in seconds (default: 30)")
 @click.option(
     "--force",
@@ -1311,7 +1424,9 @@ def cmd_close(targets, wait, timeout, interval, force):
         if wait:
             click.echo(f"Waiting for PR to merge before closing '{ctx.worktree}'...")
             try:
-                pr = wait_for_merge(worktree_path, timeout=timeout, poll_interval=interval)
+                pr = wait_for_merge(
+                    worktree_path, timeout=timeout, poll_interval=interval
+                )
                 click.echo(f"PR #{pr.number} merged.")
             except TimeoutError as e:
                 click.echo(str(e), err=True)
@@ -1335,7 +1450,9 @@ def cmd_close(targets, wait, timeout, interval, force):
         # in-flight turn), then SIGTERM survivors, then proceed regardless.
         worktree_sessions = session_discovery.LiveSessionSet().all_for(worktree_path)
         if worktree_sessions:
-            click.echo(f"Stopping {len(worktree_sessions)} Claude session(s) in '{ctx.worktree}'...")
+            click.echo(
+                f"Stopping {len(worktree_sessions)} Claude session(s) in '{ctx.worktree}'..."
+            )
             for msg in stop_sessions(worktree_sessions):
                 click.echo(f"  {msg}")
 
@@ -1353,7 +1470,12 @@ def cmd_close(targets, wait, timeout, interval, force):
             # On a forced close that preserved unmerged work, create a "reopen the
             # branch" task so the branch + PR aren't forgotten. Done before closing
             # the cmux workspace. A real branch only (already-detached → "HEAD").
-            if force and result.had_unmerged_work and result.branch and result.branch != "HEAD":
+            if (
+                force
+                and result.had_unmerged_work
+                and result.branch
+                and result.branch != "HEAD"
+            ):
                 try:
                     add_task(
                         project=ctx.project,
@@ -1383,7 +1505,9 @@ def cmd_close(targets, wait, timeout, interval, force):
 
         # Handle specific failure cases
         if result.had_dirty_files:
-            click.echo(f"Error: Worktree '{ctx.worktree}' has uncommitted changes.", err=True)
+            click.echo(
+                f"Error: Worktree '{ctx.worktree}' has uncommitted changes.", err=True
+            )
             click.echo()
             click.echo("Please commit or stash your changes before closing:")
             click.echo("  git status          # See uncommitted changes")
@@ -1394,7 +1518,10 @@ def cmd_close(targets, wait, timeout, interval, force):
             continue
 
         if result.had_unpushed_commits:
-            click.echo(f"Error: Worktree '{ctx.worktree}' has commits not merged to main.", err=True)
+            click.echo(
+                f"Error: Worktree '{ctx.worktree}' has commits not merged to main.",
+                err=True,
+            )
             click.echo()
             click.echo("Please push your changes and merge the PR before closing:")
             click.echo("  git push origin <branch>")
@@ -1437,7 +1564,9 @@ def cmd_sync_all(project, autorepair):
     project_path = ctx.project_path
 
     if project_path is None or not project_path.exists():
-        raise click.ClickException(f"Project '{ctx.project}' not found at {project_path}")
+        raise click.ClickException(
+            f"Project '{ctx.project}' not found at {project_path}"
+        )
     project_name = ctx.project
     assert project_name is not None
 
@@ -1467,6 +1596,7 @@ def cmd_sync_all(project, autorepair):
 
     # Fast-forward local main to match origin/main
     from .worktree import update_local_main
+
     main_result = update_local_main(project_path)
     if main_result.status == "updated":
         click.echo(f"  {main_result.message}")
@@ -1478,11 +1608,16 @@ def cmd_sync_all(project, autorepair):
 
     for wt in worktrees:
         # Extract worktree name from folder for display (e.g., "myproject-alpha" -> "alpha")
-        display_name = extract_worktree_name_from_folder(project_name, wt.path.name) or wt.path.name
+        display_name = (
+            extract_worktree_name_from_folder(project_name, wt.path.name)
+            or wt.path.name
+        )
         click.echo(f"Syncing {display_name} ({wt.branch})...")
         if autorepair:
             result = sync_worktree_with_autorepair(
-                wt.path, skip_fetch=True, announce=click.echo,
+                wt.path,
+                skip_fetch=True,
+                announce=click.echo,
             )
         else:
             result = sync_worktree(wt.path, skip_fetch=True)
@@ -1510,7 +1645,9 @@ def cmd_sync_all(project, autorepair):
             if result.merge_base and result.upstream_head:
                 click.echo("To see what changed upstream:")
                 click.echo(f"  cd {wt.path}")
-                click.echo(f"  git log {result.merge_base}..{result.upstream_head} --oneline")
+                click.echo(
+                    f"  git log {result.merge_base}..{result.upstream_head} --oneline"
+                )
             click.echo()
             click.echo("To resolve conflicts:")
             click.echo(f"  cd {wt.path}")
@@ -1671,6 +1808,7 @@ def cmd_doctor(project):
 
 # --- Subcommand groups ---
 
+
 @cli.group("cmux")
 def cmux_cli() -> None:
     """Inspect the cmux integration."""
@@ -1691,8 +1829,7 @@ def cmd_cmux_status() -> None:
         click.echo(f"cmux OK (socket: {socket_path})")
         return
     raise click.ClickException(
-        "cmux is not reachable and could not be started "
-        f"(socket: {socket_path})"
+        f"cmux is not reachable and could not be started (socket: {socket_path})"
     )
 
 

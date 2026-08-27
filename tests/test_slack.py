@@ -33,7 +33,10 @@ class TestGlobalConfigParsing:
         assert GlobalConfig.from_dict({"slack": "nope"}).slack_webhooks == {}
 
     def test_non_dict_webhooks(self):
-        assert GlobalConfig.from_dict({"slack": {"webhooks": ["a", "b"]}}).slack_webhooks == {}
+        assert (
+            GlobalConfig.from_dict({"slack": {"webhooks": ["a", "b"]}}).slack_webhooks
+            == {}
+        )
 
     def test_coerces_values_to_str(self):
         cfg = GlobalConfig.from_dict({"slack": {"webhooks": {"a": 123}}})
@@ -213,7 +216,9 @@ class TestPostMessageHttp:
             }
         ]
         # The unconverted Markdown is preserved as the notification fallback.
-        assert payload["text"] == "**bold**, *italic*, and a [link](https://example.com)"
+        assert (
+            payload["text"] == "**bold**, *italic*, and a [link](https://example.com)"
+        )
 
     @patch("maelstrom.integrations._http.urllib.request.urlopen")
     def test_post_message_splits_long_text_into_multiple_blocks(self, mock_urlopen):

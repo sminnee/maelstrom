@@ -82,7 +82,8 @@ def project_with_worktree():
         remote_path = tmp / "remote.git"
         subprocess.run(
             ["git", "clone", "--bare", str(source_path), str(remote_path)],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
 
         # Project root: bare clone in .git (maelstrom layout).
@@ -91,10 +92,16 @@ def project_with_worktree():
         git_dir = project_path / ".git"
         subprocess.run(
             ["git", "clone", "--bare", str(remote_path), str(git_dir)],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
         run_git(project_path, "config", "core.bare", "true")
-        run_git(project_path, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+        run_git(
+            project_path,
+            "config",
+            "remote.origin.fetch",
+            "+refs/heads/*:refs/remotes/origin/*",
+        )
         run_git(project_path, "config", "user.email", "test@test.com")
         run_git(project_path, "config", "user.name", "Test")
         run_git(project_path, "fetch", "origin")
@@ -106,8 +113,18 @@ def project_with_worktree():
         # Worktree on a feature branch, folder named <project>-alpha.
         worktree_path = project_path / "test-repo-alpha"
         subprocess.run(
-            ["git", "worktree", "add", "-b", "feature/work", str(worktree_path), "origin/main"],
-            cwd=project_path, check=True, capture_output=True,
+            [
+                "git",
+                "worktree",
+                "add",
+                "-b",
+                "feature/work",
+                str(worktree_path),
+                "origin/main",
+            ],
+            cwd=project_path,
+            check=True,
+            capture_output=True,
         )
         run_git(worktree_path, "config", "user.email", "test@test.com")
         run_git(worktree_path, "config", "user.name", "Test")
@@ -130,7 +147,8 @@ def _advance_origin_main(project_path: Path, remote_path: Path) -> None:
         clone = Path(tmpdir) / "pusher"
         subprocess.run(
             ["git", "clone", str(remote_path), str(clone)],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
         run_git(clone, "config", "user.email", "test@test.com")
         run_git(clone, "config", "user.name", "Test")
@@ -146,7 +164,8 @@ def _make_conflict(project_path: Path, worktree_path: Path, remote_path: Path) -
         clone = Path(tmpdir) / "pusher"
         subprocess.run(
             ["git", "clone", str(remote_path), str(clone)],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
         run_git(clone, "config", "user.email", "test@test.com")
         run_git(clone, "config", "user.name", "Test")
@@ -223,7 +242,9 @@ class TestSquashAbort:
 class TestSyncClose:
     """`sync_worktree(close_if_empty=…)` against a real remote."""
 
-    def test_empty_branch_with_remote_is_deleted_and_closed(self, project_with_worktree):
+    def test_empty_branch_with_remote_is_deleted_and_closed(
+        self, project_with_worktree
+    ):
         project_path, worktree_path, remote_path = project_with_worktree
         # Branch is empty (HEAD == origin/main) and exists on the remote.
         _push_branch(worktree_path, "feature/work")
@@ -235,13 +256,19 @@ class TestSyncClose:
         assert result.closed is True
         assert result.deleted_remote is True
         # Local + remote branch gone.
-        local = run_git(project_path, "rev-parse", "--verify", "feature/work", check=False)
+        local = run_git(
+            project_path, "rev-parse", "--verify", "feature/work", check=False
+        )
         assert local.returncode != 0
-        remote = run_git(project_path, "rev-parse", "--verify", "origin/feature/work", check=False)
+        remote = run_git(
+            project_path, "rev-parse", "--verify", "origin/feature/work", check=False
+        )
         assert remote.returncode != 0
         # HEAD detached at origin/main, ports freed.
         assert _is_detached(worktree_path)
-        assert _current_head(worktree_path) == _current_head_of_ref(project_path, "origin/main")
+        assert _current_head(worktree_path) == _current_head_of_ref(
+            project_path, "origin/main"
+        )
         assert get_port_allocation(project_path, "alpha") is None
 
     def test_empty_local_only_branch_is_never_pushed(self, project_with_worktree):
@@ -255,9 +282,13 @@ class TestSyncClose:
         assert result.closed is True
         assert result.deleted_remote is False
         # Local branch deleted; remote only ever had main.
-        local = run_git(project_path, "rev-parse", "--verify", "feature/work", check=False)
+        local = run_git(
+            project_path, "rev-parse", "--verify", "feature/work", check=False
+        )
         assert local.returncode != 0
-        remote = run_git(project_path, "rev-parse", "--verify", "origin/feature/work", check=False)
+        remote = run_git(
+            project_path, "rev-parse", "--verify", "origin/feature/work", check=False
+        )
         assert remote.returncode != 0
         assert get_port_allocation(project_path, "alpha") is None
 
@@ -274,10 +305,15 @@ class TestSyncClose:
         assert result.pushed is True
         # Branch + HEAD intact (still on feature/work, not detached).
         assert not _is_detached(worktree_path)
-        assert run_git(worktree_path, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "feature/work"
+        assert (
+            run_git(worktree_path, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+            == "feature/work"
+        )
         # The commit reached the remote.
         run_git(project_path, "fetch", "origin")
-        remote = run_git(project_path, "rev-parse", "--verify", "origin/feature/work", check=False)
+        remote = run_git(
+            project_path, "rev-parse", "--verify", "origin/feature/work", check=False
+        )
         assert remote.returncode == 0
 
     def test_failed_local_delete_is_reported(self, project_with_worktree):
@@ -317,7 +353,9 @@ class TestSyncClose:
         assert result.closed is False
         # Branch still present, not detached.
         assert not _is_detached(worktree_path)
-        local = run_git(project_path, "rev-parse", "--verify", "feature/work", check=False)
+        local = run_git(
+            project_path, "rev-parse", "--verify", "feature/work", check=False
+        )
         assert local.returncode == 0
 
 
@@ -336,15 +374,21 @@ def _repairing_runner(worktree_path: Path):
     run_git(worktree_path, "add", "README.md")
     subprocess.run(
         ["git", "rebase", "--continue"],
-        cwd=worktree_path, check=True, capture_output=True,
+        cwd=worktree_path,
+        check=True,
+        capture_output=True,
         env={**os.environ, "GIT_EDITOR": "true"},
     )
-    return subprocess.CompletedProcess(args=["claude"], returncode=0, stdout="", stderr="")
+    return subprocess.CompletedProcess(
+        args=["claude"], returncode=0, stdout="", stderr=""
+    )
 
 
 def _idle_runner(worktree_path: Path):
     """A stub repair session that exits cleanly without touching the rebase."""
-    return subprocess.CompletedProcess(args=["claude"], returncode=0, stdout="", stderr="")
+    return subprocess.CompletedProcess(
+        args=["claude"], returncode=0, stdout="", stderr=""
+    )
 
 
 class TestRunResolveRebaseSession:
@@ -383,13 +427,17 @@ class TestRunResolveRebaseSession:
 class TestSyncAutorepair:
     """`sync_worktree_with_autorepair` against real git, repair session stubbed."""
 
-    def test_successful_repair_completes_the_rebase_and_pushes(self, project_with_worktree):
+    def test_successful_repair_completes_the_rebase_and_pushes(
+        self, project_with_worktree
+    ):
         project_path, worktree_path, remote_path = project_with_worktree
         _push_branch(worktree_path, "feature/work")
         _make_conflict(project_path, worktree_path, remote_path)
 
         result = sync_worktree_with_autorepair(
-            worktree_path, skip_fetch=True, repair_runner=_repairing_runner,
+            worktree_path,
+            skip_fetch=True,
+            repair_runner=_repairing_runner,
         )
 
         assert result.success is True, result.message
@@ -399,9 +447,9 @@ class TestSyncAutorepair:
         # The branch was pushed: origin now matches the rebased local tip.
         assert result.pushed is True
         run_git(worktree_path, "fetch", "origin")
-        assert _current_head_of_ref(worktree_path, "origin/feature/work") == _current_head(
-            worktree_path
-        )
+        assert _current_head_of_ref(
+            worktree_path, "origin/feature/work"
+        ) == _current_head(worktree_path)
 
     def test_announces_the_repair_before_the_session_starts(
         self, project_with_worktree, capsys
@@ -423,7 +471,9 @@ class TestSyncAutorepair:
             return _repairing_runner(path)
 
         result = sync_worktree_with_autorepair(
-            worktree_path, skip_fetch=True, repair_runner=announcing_runner,
+            worktree_path,
+            skip_fetch=True,
+            repair_runner=announcing_runner,
         )
 
         assert result.success is True, result.message
@@ -455,7 +505,9 @@ class TestSyncAutorepair:
         head_before = _current_head(worktree_path)
 
         result = sync_worktree_with_autorepair(
-            worktree_path, skip_fetch=True, repair_runner=_idle_runner,
+            worktree_path,
+            skip_fetch=True,
+            repair_runner=_idle_runner,
         )
 
         assert result.success is False
@@ -470,10 +522,14 @@ class TestSyncAutorepair:
         head_before = _current_head(worktree_path)
 
         def failing(path):
-            return subprocess.CompletedProcess(args=["claude"], returncode=1, stdout="", stderr="boom")
+            return subprocess.CompletedProcess(
+                args=["claude"], returncode=1, stdout="", stderr="boom"
+            )
 
         result = sync_worktree_with_autorepair(
-            worktree_path, skip_fetch=True, repair_runner=failing,
+            worktree_path,
+            skip_fetch=True,
+            repair_runner=failing,
         )
 
         assert result.success is False
@@ -490,7 +546,9 @@ class TestSyncAutorepair:
             raise OSError("claude: not found")
 
         result = sync_worktree_with_autorepair(
-            worktree_path, skip_fetch=True, repair_runner=exploding,
+            worktree_path,
+            skip_fetch=True,
+            repair_runner=exploding,
         )
 
         assert result.success is False
@@ -508,10 +566,14 @@ class TestSyncAutorepair:
         def wanders(path):
             _repairing_runner(path)
             run_git(path, "checkout", "-b", "some/other-branch")
-            return subprocess.CompletedProcess(args=["claude"], returncode=0, stdout="", stderr="")
+            return subprocess.CompletedProcess(
+                args=["claude"], returncode=0, stdout="", stderr=""
+            )
 
         result = sync_worktree_with_autorepair(
-            worktree_path, skip_fetch=True, repair_runner=wanders,
+            worktree_path,
+            skip_fetch=True,
+            repair_runner=wanders,
         )
 
         assert result.success is False
@@ -527,7 +589,9 @@ class TestSyncAutorepair:
         runner = MagicMock()
 
         result = sync_worktree_with_autorepair(
-            worktree_path, skip_fetch=True, repair_runner=runner,
+            worktree_path,
+            skip_fetch=True,
+            repair_runner=runner,
         )
 
         assert result.success is True
@@ -551,14 +615,18 @@ class TestSyncAutorepair:
         # A stale index.lock makes git refuse to rebase at all: the rebase exits
         # non-zero, and no rebase is left in progress.
         lock = Path(
-            run_git(worktree_path, "rev-parse", "--git-path", "index.lock").stdout.strip()
+            run_git(
+                worktree_path, "rev-parse", "--git-path", "index.lock"
+            ).stdout.strip()
         )
         if not lock.is_absolute():
             lock = worktree_path / lock
         lock.write_text("")
         try:
             result = sync_worktree_with_autorepair(
-                worktree_path, skip_fetch=True, repair_runner=runner,
+                worktree_path,
+                skip_fetch=True,
+                repair_runner=runner,
             )
         finally:
             lock.unlink(missing_ok=True)
@@ -569,7 +637,13 @@ class TestSyncAutorepair:
 
     def test_fetch_failure_blocks_before_any_repair(self, project_with_worktree):
         project_path, worktree_path, remote_path = project_with_worktree
-        run_git(worktree_path, "remote", "set-url", "origin", str(project_path / "nonexistent.git"))
+        run_git(
+            worktree_path,
+            "remote",
+            "set-url",
+            "origin",
+            str(project_path / "nonexistent.git"),
+        )
         runner = MagicMock()
 
         result = sync_worktree_with_autorepair(worktree_path, repair_runner=runner)
@@ -597,7 +671,9 @@ class TestSquashAutorepair:
         _make_conflict(project_path, worktree_path, remote_path)
 
         result = squash_worktree_with_autorepair(
-            worktree_path, skip_fetch=True, repair_runner=_repairing_runner,
+            worktree_path,
+            skip_fetch=True,
+            repair_runner=_repairing_runner,
         )
 
         assert result.success is True, result.message
@@ -607,7 +683,9 @@ class TestSquashAutorepair:
         # Nothing was published: origin still points where it did.
         assert result.pushed is False
         run_git(worktree_path, "fetch", "origin")
-        assert _current_head_of_ref(worktree_path, "origin/feature/work") == origin_before
+        assert (
+            _current_head_of_ref(worktree_path, "origin/feature/work") == origin_before
+        )
         # A successful result never reports conflicts: the repair resolved them,
         # and a caller reading the flag would see a conflict that is gone.
         assert result.had_conflicts is False
@@ -618,7 +696,9 @@ class TestSquashAutorepair:
         head_before = _current_head(worktree_path)
 
         result = squash_worktree_with_autorepair(
-            worktree_path, skip_fetch=True, repair_runner=_idle_runner,
+            worktree_path,
+            skip_fetch=True,
+            repair_runner=_idle_runner,
         )
 
         assert result.success is False
@@ -634,7 +714,9 @@ class TestSquashAutorepair:
         runner = MagicMock()
 
         result = squash_worktree_with_autorepair(
-            worktree_path, skip_fetch=True, repair_runner=runner,
+            worktree_path,
+            skip_fetch=True,
+            repair_runner=runner,
         )
 
         assert result.success is True
@@ -650,16 +732,20 @@ class TestSquashAutorepair:
 @pytest.fixture
 def quiet_finalize():
     """Stub the finalize side-effects so worktrees stay clean for real-git assertions."""
-    with patch("maelstrom.worktree.update_claude_local_md", return_value=False), \
-            patch("maelstrom.worktree.run_install_cmd"), \
-            patch("maelstrom.worktree.setup_claude_memory_symlink"):
+    with (
+        patch("maelstrom.worktree.update_claude_local_md", return_value=False),
+        patch("maelstrom.worktree.run_install_cmd"),
+        patch("maelstrom.worktree.setup_claude_memory_symlink"),
+    ):
         yield
 
 
 class TestSetupWorktreeSyncOnOpen:
     """`setup_worktree_for_branch` syncs when it opens a worktree, not when it reuses one."""
 
-    def _stale_branch(self, project_path, worktree_path, remote_path, branch="feature/stale"):
+    def _stale_branch(
+        self, project_path, worktree_path, remote_path, branch="feature/stale"
+    ):
         """Push ``branch`` from the alpha worktree, then advance origin/main past it.
 
         Leaves the branch checked out nowhere: the alpha worktree goes back to a
@@ -681,7 +767,11 @@ class TestSetupWorktreeSyncOnOpen:
         branch = self._stale_branch(project_path, worktree_path, remote_path)
 
         result = setup_worktree_for_branch(
-            project_path, "test-repo", branch, no_recycle=True, run_install=False,
+            project_path,
+            "test-repo",
+            branch,
+            no_recycle=True,
+            run_install=False,
         )
 
         assert result.action == "created"
@@ -689,7 +779,12 @@ class TestSetupWorktreeSyncOnOpen:
         assert result.sync.success is True, result.sync.message
         # origin/main is now an ancestor of the branch tip: it was rebased.
         merged = run_git(
-            result.path, "merge-base", "--is-ancestor", "origin/main", "HEAD", check=False,
+            result.path,
+            "merge-base",
+            "--is-ancestor",
+            "origin/main",
+            "HEAD",
+            check=False,
         )
         assert merged.returncode == 0
         assert result.sync.pushed is True
@@ -700,23 +795,36 @@ class TestSetupWorktreeSyncOnOpen:
         # The alpha worktree is detached, clean and at origin/main → recyclable.
 
         result = setup_worktree_for_branch(
-            project_path, "test-repo", branch, run_install=False,
+            project_path,
+            "test-repo",
+            branch,
+            run_install=False,
         )
 
         assert result.action == "recycled"
         assert result.sync is not None
         assert result.sync.success is True, result.sync.message
         merged = run_git(
-            result.path, "merge-base", "--is-ancestor", "origin/main", "HEAD", check=False,
+            result.path,
+            "merge-base",
+            "--is-ancestor",
+            "origin/main",
+            "HEAD",
+            check=False,
         )
         assert merged.returncode == 0
 
-    def test_reused_worktree_is_never_synced(self, project_with_worktree, quiet_finalize):
+    def test_reused_worktree_is_never_synced(
+        self, project_with_worktree, quiet_finalize
+    ):
         project_path, worktree_path, remote_path = project_with_worktree
         # The fixture's alpha worktree already has feature/work checked out.
         with patch("maelstrom.worktree.sync_worktree_with_autorepair") as sync:
             result = setup_worktree_for_branch(
-                project_path, "test-repo", "feature/work", run_install=False,
+                project_path,
+                "test-repo",
+                "feature/work",
+                run_install=False,
             )
 
         assert result.action == "reused"
@@ -730,8 +838,11 @@ class TestSetupWorktreeSyncOnOpen:
         project_path, worktree_path, remote_path = project_with_worktree
 
         result = setup_worktree_for_branch(
-            project_path, "test-repo", "feature/brand-new",
-            no_recycle=True, run_install=False,
+            project_path,
+            "test-repo",
+            "feature/brand-new",
+            no_recycle=True,
+            run_install=False,
         )
 
         assert result.sync is not None
@@ -747,10 +858,15 @@ class TestSetupWorktreeSyncOnOpen:
         branch = self._conflicting_branch(project_path, worktree_path, remote_path)
 
         with patch(
-            "maelstrom.worktree.run_resolve_rebase_session", side_effect=_idle_runner,
+            "maelstrom.worktree.run_resolve_rebase_session",
+            side_effect=_idle_runner,
         ):
             result = setup_worktree_for_branch(
-                project_path, "test-repo", branch, no_recycle=True, run_install=False,
+                project_path,
+                "test-repo",
+                branch,
+                no_recycle=True,
+                run_install=False,
             )
 
         assert result.sync is not None
@@ -772,17 +888,24 @@ class TestSetupWorktreeSyncOnOpen:
         project_path, worktree_path, remote_path = project_with_worktree
         branch = self._conflicting_branch(project_path, worktree_path, remote_path)
 
-        with patch("maelstrom.worktree.setup_claude_memory_symlink"), \
-                patch("maelstrom.worktree.run_install_cmd"), \
-                patch(
-                    "maelstrom.worktree.update_claude_local_md", return_value=False,
-                ) as local_md, \
-                patch(
-                    "maelstrom.worktree.run_resolve_rebase_session",
-                    side_effect=_idle_runner,
-                ):
+        with (
+            patch("maelstrom.worktree.setup_claude_memory_symlink"),
+            patch("maelstrom.worktree.run_install_cmd"),
+            patch(
+                "maelstrom.worktree.update_claude_local_md",
+                return_value=False,
+            ) as local_md,
+            patch(
+                "maelstrom.worktree.run_resolve_rebase_session",
+                side_effect=_idle_runner,
+            ),
+        ):
             result = setup_worktree_for_branch(
-                project_path, "test-repo", branch, no_recycle=True, run_install=False,
+                project_path,
+                "test-repo",
+                branch,
+                no_recycle=True,
+                run_install=False,
             )
 
         assert result.sync is not None and result.sync.success is False
@@ -795,10 +918,15 @@ class TestSetupWorktreeSyncOnOpen:
         branch = self._conflicting_branch(project_path, worktree_path, remote_path)
 
         with patch(
-            "maelstrom.worktree.run_resolve_rebase_session", side_effect=_repairing_runner,
+            "maelstrom.worktree.run_resolve_rebase_session",
+            side_effect=_repairing_runner,
         ):
             result = setup_worktree_for_branch(
-                project_path, "test-repo", branch, no_recycle=True, run_install=False,
+                project_path,
+                "test-repo",
+                branch,
+                no_recycle=True,
+                run_install=False,
             )
 
         assert result.sync is not None
@@ -821,7 +949,8 @@ class TestSetupWorktreeSyncOnOpen:
             clone = Path(tmpdir) / "pusher"
             subprocess.run(
                 ["git", "clone", str(remote_path), str(clone)],
-                check=True, capture_output=True,
+                check=True,
+                capture_output=True,
             )
             run_git(clone, "config", "user.email", "test@test.com")
             run_git(clone, "config", "user.name", "Test")
@@ -851,7 +980,9 @@ class TestDetachAndFreePorts:
         assert isinstance(result, CloseResult)
         assert result.success is True
         assert _is_detached(worktree_path)
-        assert _current_head(worktree_path) == _current_head_of_ref(project_path, "origin/main")
+        assert _current_head(worktree_path) == _current_head_of_ref(
+            project_path, "origin/main"
+        )
         assert get_port_allocation(project_path, "alpha") is None
 
     def test_close_worktree_happy_path(self, project_with_worktree):
@@ -903,8 +1034,10 @@ class TestSyncCli:
 
     def _run(self, args, sync_result):
         runner = CliRunner()
-        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
-             patch("maelstrom.cli.sync_worktree", return_value=sync_result) as mock_sync:
+        with (
+            patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
+            patch("maelstrom.cli.sync_worktree", return_value=sync_result) as mock_sync,
+        ):
             result = runner.invoke(cli, ["sync", "myproject.alpha", *args])
         return result, mock_sync
 
@@ -913,7 +1046,7 @@ class TestSyncCli:
             success=False,
             branch="feature/work",
             message="Rebase of feature/work onto origin/main hit conflicts; "
-                    "aborted and restored worktree to its previous state.",
+            "aborted and restored worktree to its previous state.",
             had_conflicts=True,
             aborted=True,
         )
@@ -946,7 +1079,7 @@ class TestSyncCli:
             success=True,
             branch="feature/work",
             message="feature/work is empty (merged into origin/main); "
-                    "deleted branch (local + remote) and closed worktree.",
+            "deleted branch (local + remote) and closed worktree.",
             closed=True,
             deleted_remote=True,
         )
@@ -978,7 +1111,7 @@ class TestSyncCli:
             success=False,
             branch="feature/work",
             message="Rebase of feature/work onto origin/main hit conflicts; "
-                    "aborted and restored worktree to its previous state.",
+            "aborted and restored worktree to its previous state.",
             had_conflicts=True,
             aborted=True,
         )
@@ -1015,11 +1148,13 @@ class TestSyncBaseCli:
             message=f"Successfully rebased {branch} onto origin/main",
         )
         runner = CliRunner()
-        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
-             patch("maelstrom.cli.GitConfigBaseStore", return_value=store), \
-             patch("maelstrom.cli.get_current_branch", return_value=branch), \
-             patch("maelstrom.cli.check_base_exists"), \
-             patch("maelstrom.cli.sync_worktree", return_value=sync_result):
+        with (
+            patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
+            patch("maelstrom.cli.GitConfigBaseStore", return_value=store),
+            patch("maelstrom.cli.get_current_branch", return_value=branch),
+            patch("maelstrom.cli.check_base_exists"),
+            patch("maelstrom.cli.sync_worktree", return_value=sync_result),
+        ):
             result = runner.invoke(cli, ["sync", "myproject.alpha", *args])
         return result, store
 
@@ -1035,18 +1170,22 @@ class TestSyncBaseCli:
         store.write("feature/work", BaseRef(branch="feat/one", tip="abc123"))
         sync_result = SyncResult(success=True, branch="feature/work", message="ok")
         runner = CliRunner()
-        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
-             patch("maelstrom.cli.GitConfigBaseStore", return_value=store), \
-             patch("maelstrom.cli.get_current_branch", return_value="feature/work"), \
-             patch("maelstrom.cli.check_base_exists"), \
-             patch("maelstrom.cli.sync_worktree", return_value=sync_result):
+        with (
+            patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
+            patch("maelstrom.cli.GitConfigBaseStore", return_value=store),
+            patch("maelstrom.cli.get_current_branch", return_value="feature/work"),
+            patch("maelstrom.cli.check_base_exists"),
+            patch("maelstrom.cli.sync_worktree", return_value=sync_result),
+        ):
             result = runner.invoke(cli, ["sync", "--base", "feat/two"])
 
         assert result.exit_code == 0
         assert store.read("feature/work") == BaseRef(branch="feat/two", tip=None)
 
     def test_base_main_clears_the_base(self):
-        result, store = self._run(["--base", "main"], bases={"feature/work": "feat/parent"})
+        result, store = self._run(
+            ["--base", "main"], bases={"feature/work": "feat/parent"}
+        )
 
         assert result.exit_code == 0
         assert store.read("feature/work") == BaseRef()
@@ -1060,7 +1199,9 @@ class TestSyncBaseCli:
         assert store.all() == {}
 
     def test_a_cyclic_base_exits_one(self):
-        result, store = self._run(["--base", "feat/a"], bases={"feat/a": "feature/work"})
+        result, store = self._run(
+            ["--base", "feat/a"], bases={"feat/a": "feature/work"}
+        )
 
         assert result.exit_code == 1
         assert "Cycle" in result.output
@@ -1072,12 +1213,16 @@ class TestSyncBaseCli:
         store = InMemoryBaseStore()
         sync_result = SyncResult(success=True, branch="feature/work", message="ok")
         runner = CliRunner()
-        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
-             patch("maelstrom.cli.GitConfigBaseStore", return_value=store), \
-             patch("maelstrom.cli.get_current_branch", return_value="feature/work"), \
-             patch("maelstrom.cli.check_base_exists",
-                   side_effect=ValueError("No such branch to stack on: feat/typo.")), \
-             patch("maelstrom.cli.sync_worktree", return_value=sync_result):
+        with (
+            patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
+            patch("maelstrom.cli.GitConfigBaseStore", return_value=store),
+            patch("maelstrom.cli.get_current_branch", return_value="feature/work"),
+            patch(
+                "maelstrom.cli.check_base_exists",
+                side_effect=ValueError("No such branch to stack on: feat/typo."),
+            ),
+            patch("maelstrom.cli.sync_worktree", return_value=sync_result),
+        ):
             result = runner.invoke(cli, ["sync", "--base", "feat/typo"])
 
         assert result.exit_code == 1
@@ -1108,9 +1253,11 @@ class TestBaseCli:
         for child, parent in bases.items():
             store.write(child, BaseRef(branch=parent))
         runner = CliRunner()
-        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
-             patch("maelstrom.cli.GitConfigBaseStore", return_value=store), \
-             patch("maelstrom.cli.get_current_branch", return_value=branch):
+        with (
+            patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
+            patch("maelstrom.cli.GitConfigBaseStore", return_value=store),
+            patch("maelstrom.cli.get_current_branch", return_value=branch),
+        ):
             return runner.invoke(cli, ["base"]), store
 
     def test_shows_the_stacked_base(self):
@@ -1142,10 +1289,12 @@ class TestStackTipCli:
         for child, parent in (bases or {}).items():
             store.write(child, BaseRef(branch=parent))
         runner = CliRunner()
-        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
-             patch("maelstrom.cli.GitConfigBaseStore", return_value=store), \
-             patch("maelstrom.cli.check_base_exists"), \
-             patch("maelstrom.cli.current_stack_tip", return_value=StackTip(tip)):
+        with (
+            patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
+            patch("maelstrom.cli.GitConfigBaseStore", return_value=store),
+            patch("maelstrom.cli.check_base_exists"),
+            patch("maelstrom.cli.current_stack_tip", return_value=StackTip(tip)),
+        ):
             result = runner.invoke(cli, ["stack-tip", *args])
         return result, store
 
@@ -1167,10 +1316,14 @@ class TestStackTipCli:
         store = InMemoryBaseStore()
         store.write_stack_tip("main")
         runner = CliRunner()
-        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
-             patch("maelstrom.cli.GitConfigBaseStore", return_value=store), \
-             patch("maelstrom.cli.check_base_exists",
-                   side_effect=ValueError("No such branch to stack on: feat/typo.")):
+        with (
+            patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
+            patch("maelstrom.cli.GitConfigBaseStore", return_value=store),
+            patch(
+                "maelstrom.cli.check_base_exists",
+                side_effect=ValueError("No such branch to stack on: feat/typo."),
+            ),
+        ):
             result = runner.invoke(cli, ["stack-tip", "feat/typo"])
 
         assert result.exit_code == 1
@@ -1202,9 +1355,11 @@ class TestPromoteAndEjectCli:
         for child, parent in bases.items():
             store.write(child, BaseRef(branch=parent))
         runner = CliRunner()
-        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
-             patch("maelstrom.cli.GitConfigBaseStore", return_value=store), \
-             patch("maelstrom.cli.get_current_branch", return_value=branch):
+        with (
+            patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
+            patch("maelstrom.cli.GitConfigBaseStore", return_value=store),
+            patch("maelstrom.cli.get_current_branch", return_value=branch),
+        ):
             result = runner.invoke(cli, [command, *args])
         return result, store
 
@@ -1233,9 +1388,11 @@ class TestPromoteAndEjectCli:
         store.write("feat/urgent", BaseRef(branch="feat/parent"))
         store.write("feat/child", BaseRef(branch="feat/urgent", tip="abc123"))
         runner = CliRunner()
-        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
-             patch("maelstrom.cli.GitConfigBaseStore", return_value=store), \
-             patch("maelstrom.cli.get_current_branch", return_value="feat/urgent"):
+        with (
+            patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
+            patch("maelstrom.cli.GitConfigBaseStore", return_value=store),
+            patch("maelstrom.cli.get_current_branch", return_value="feat/urgent"),
+        ):
             result = runner.invoke(cli, ["promote"])
 
         assert result.exit_code == 0

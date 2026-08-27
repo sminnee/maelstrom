@@ -68,6 +68,7 @@ class IsolatedMaelstrom:
 @dataclass
 class TestProject:
     """A test project without git (for env tests)."""
+
     project_name: str
     project_path: Path
     worktree_name: str
@@ -79,6 +80,7 @@ class TestProject:
 @dataclass
 class GitProject:
     """A test project with real git repo (for worktree tests)."""
+
     project_name: str
     project_path: Path
     remote_path: Path
@@ -125,6 +127,7 @@ def isolated_maelstrom_module(tmp_path_factory):
     projects_dir.mkdir()
 
     mp = pytest.MonkeyPatch()
+
     def fake_get_dir():
         return maelstrom_dir
 
@@ -214,9 +217,7 @@ def _create_git_project(isolated):
     remote_path = base / "testproj-origin"
     remote_path.mkdir()
     setup_git_repo(remote_path)
-    (remote_path / ".maelstrom.yaml").write_text(
-        "port_names:\n  - FRONTEND\n"
-    )
+    (remote_path / ".maelstrom.yaml").write_text("port_names:\n  - FRONTEND\n")
     run_git(remote_path, "add", ".")
     create_commit(remote_path, "README.md", "# Test Project\n", "Initial commit")
     run_git(remote_path, "branch", "-M", "main")

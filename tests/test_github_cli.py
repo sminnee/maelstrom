@@ -47,9 +47,16 @@ class TestRenderPRComments:
 
     def test_new_comment_shown(self, capsys):
         comments = [
-            PRComment(author="alice", body="looks good", created_at="2026-06-24T00:00:00Z", kind="issue"),
+            PRComment(
+                author="alice",
+                body="looks good",
+                created_at="2026-06-24T00:00:00Z",
+                kind="issue",
+            ),
         ]
-        _render_pr_comments(self._pr(comments, last_push_at="2026-06-23T00:00:00Z"), all_comments=False)
+        _render_pr_comments(
+            self._pr(comments, last_push_at="2026-06-23T00:00:00Z"), all_comments=False
+        )
         out = capsys.readouterr().out
         assert "Top-level (1 new):" in out
         assert "@alice" in out
@@ -57,18 +64,32 @@ class TestRenderPRComments:
 
     def test_old_comment_hidden_without_all(self, capsys):
         comments = [
-            PRComment(author="bob", body="old note", created_at="2026-06-20T00:00:00Z", kind="issue"),
+            PRComment(
+                author="bob",
+                body="old note",
+                created_at="2026-06-20T00:00:00Z",
+                kind="issue",
+            ),
         ]
-        _render_pr_comments(self._pr(comments, last_push_at="2026-06-23T00:00:00Z"), all_comments=False)
+        _render_pr_comments(
+            self._pr(comments, last_push_at="2026-06-23T00:00:00Z"), all_comments=False
+        )
         out = capsys.readouterr().out
         assert "old note" not in out
         assert "1 older comment hidden" in out
 
     def test_old_comment_shown_with_all(self, capsys):
         comments = [
-            PRComment(author="bob", body="old note", created_at="2026-06-20T00:00:00Z", kind="issue"),
+            PRComment(
+                author="bob",
+                body="old note",
+                created_at="2026-06-20T00:00:00Z",
+                kind="issue",
+            ),
         ]
-        _render_pr_comments(self._pr(comments, last_push_at="2026-06-23T00:00:00Z"), all_comments=True)
+        _render_pr_comments(
+            self._pr(comments, last_push_at="2026-06-23T00:00:00Z"), all_comments=True
+        )
         out = capsys.readouterr().out
         assert "old note" in out
 
@@ -91,9 +112,14 @@ class TestGhCliRegistration:
 
     def _run_create_pr(self, args):
         """Invoke `gh create-pr` with create_pr mocked; return its kwargs."""
-        with patch("maelstrom.github_cli.resolve_context") as mock_ctx, patch(
-            "maelstrom.github_cli.create_pr", return_value=("https://example/pr", True)
-        ) as mock_create, patch("maelstrom.github_cli._open_pr_in_cmux"):
+        with (
+            patch("maelstrom.github_cli.resolve_context") as mock_ctx,
+            patch(
+                "maelstrom.github_cli.create_pr",
+                return_value=("https://example/pr", True),
+            ) as mock_create,
+            patch("maelstrom.github_cli._open_pr_in_cmux"),
+        ):
             mock_ctx.return_value.worktree_path = None
             result = CliRunner().invoke(cli, ["gh", "create-pr", *args])
         assert result.exit_code == 0, result.output
@@ -107,9 +133,10 @@ class TestGhCliRegistration:
         assert self._run_create_pr([])["autorepair"] is False
 
     def test_show_code_smoke(self):
-        with patch("maelstrom.github_cli.resolve_context") as mock_ctx, patch(
-            "maelstrom.github_cli.get_worktree_code"
-        ) as mock_code:
+        with (
+            patch("maelstrom.github_cli.resolve_context") as mock_ctx,
+            patch("maelstrom.github_cli.get_worktree_code") as mock_code,
+        ):
             mock_ctx.return_value.worktree_path = None
             mock_code.return_value = ("abc123 commit", "")
             result = CliRunner().invoke(cli, ["gh", "show-code", "--committed"])

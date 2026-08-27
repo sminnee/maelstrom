@@ -66,7 +66,9 @@ class PRInfo:
     comments: list[PRComment] = field(default_factory=list)
     last_push_at: str | None = None
     checks: list[CheckRun] = field(default_factory=list)
-    artifacts: dict[str, list[Artifact]] = field(default_factory=dict)  # run_id -> artifacts
+    artifacts: dict[str, list[Artifact]] = field(
+        default_factory=dict
+    )  # run_id -> artifacts
 
 
 def get_repo_info(cwd: Path) -> tuple[str, str]:
@@ -83,7 +85,15 @@ def get_repo_info(cwd: Path) -> tuple[str, str]:
     """
     try:
         result = run_cmd(
-            ["gh", "repo", "view", "--json", "owner,name", "-q", ".owner.login + \"/\" + .name"],
+            [
+                "gh",
+                "repo",
+                "view",
+                "--json",
+                "owner,name",
+                "-q",
+                '.owner.login + "/" + .name',
+            ],
             cwd=cwd,
             quiet=True,
             check=True,
@@ -136,8 +146,12 @@ def create_project_repo(
             )
 
             create_cmd = [
-                "gh", "repo", "create", name,
-                "--source", str(repo_dir),
+                "gh",
+                "repo",
+                "create",
+                name,
+                "--source",
+                str(repo_dir),
                 "--push",
                 "--private" if private else "--public",
             ]
@@ -171,7 +185,17 @@ def get_pr_number_for_branch(cwd: Path, branch: str) -> int | None:
     """
     try:
         result = run_cmd(
-            ["gh", "pr", "list", "--head", branch, "--json", "number", "-q", ".[0].number"],
+            [
+                "gh",
+                "pr",
+                "list",
+                "--head",
+                branch,
+                "--json",
+                "number",
+                "-q",
+                ".[0].number",
+            ],
             cwd=cwd,
             quiet=True,
             check=False,
@@ -196,9 +220,15 @@ def get_pr_number_and_commits(cwd: Path, branch: str) -> tuple[int | None, int |
     try:
         result = run_cmd(
             [
-                "gh", "pr", "list", "--head", branch,
-                "--json", "number,commits",
-                "-q", ".[0] | [.number, (.commits | length)]"
+                "gh",
+                "pr",
+                "list",
+                "--head",
+                branch,
+                "--json",
+                "number,commits",
+                "-q",
+                ".[0] | [.number, (.commits | length)]",
             ],
             cwd=cwd,
             quiet=True,
@@ -260,10 +290,15 @@ def get_open_prs(cwd: Path) -> dict[str, tuple[int, int]] | None:
     try:
         for _ in range(_OPEN_PRS_MAX_PAGES):
             cmd = [
-                "gh", "api", "graphql",
-                "-f", f"query={_OPEN_PRS_QUERY}",
-                "-F", "owner=:owner",
-                "-F", "repo=:repo",
+                "gh",
+                "api",
+                "graphql",
+                "-f",
+                f"query={_OPEN_PRS_QUERY}",
+                "-F",
+                "owner=:owner",
+                "-F",
+                "repo=:repo",
             ]
             if cursor:
                 # -f, not -F: the cursor is a declared String. -F coerces a
@@ -330,7 +365,15 @@ def get_pr_url(cwd: Path) -> str:
         raise RuntimeError("GitHub CLI (gh) is not installed")
 
 
-def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None = None, progress: bool = False, squash: bool = False, autorepair: bool = False, announce: Callable[[str], None] = print_flushed) -> tuple[str, bool]:
+def create_pr(
+    cwd: Path | None = None,
+    draft: bool = False,
+    issue_id: str | None = None,
+    progress: bool = False,
+    squash: bool = False,
+    autorepair: bool = False,
+    announce: Callable[[str], None] = print_flushed,
+) -> tuple[str, bool]:
     """Create a pull request for the current worktree branch, or push if PR exists.
 
     Syncs (rebases onto this branch's base) before pushing. A stacked chain is
@@ -360,7 +403,9 @@ def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None
 
     # Sync first (rebase onto origin/main)
     if autorepair:
-        sync_result = sync_worktree_with_autorepair(cwd, squash=squash, announce=announce)
+        sync_result = sync_worktree_with_autorepair(
+            cwd, squash=squash, announce=announce
+        )
     else:
         sync_result = sync_worktree(cwd, squash=squash)
     if not sync_result.success:
@@ -387,7 +432,7 @@ def create_pr(cwd: Path | None = None, draft: bool = False, issue_id: str | None
     existing_url = ""
     try:
         result = run_cmd(
-            ["gh", "pr", "view", "--json", "url,state", "-q", ".url + \" \" + .state"],
+            ["gh", "pr", "view", "--json", "url,state", "-q", '.url + " " + .state'],
             cwd=cwd,
             quiet=True,
             check=False,
@@ -554,7 +599,13 @@ def get_pr_info(cwd: Path) -> PRInfo:
     """
     try:
         result = run_cmd(
-            ["gh", "pr", "view", "--json", "number,title,url,state,mergedAt,headRefName"],
+            [
+                "gh",
+                "pr",
+                "view",
+                "--json",
+                "number,title,url,state,mergedAt,headRefName",
+            ],
             cwd=cwd,
             quiet=True,
             check=True,
@@ -576,7 +627,9 @@ def get_pr_info(cwd: Path) -> PRInfo:
         raise RuntimeError("GitHub CLI (gh) is not installed")
 
 
-def get_pr_comments(cwd: Path, owner: str, repo: str, pr_number: int) -> tuple[list[PRComment], str | None]:
+def get_pr_comments(
+    cwd: Path, owner: str, repo: str, pr_number: int
+) -> tuple[list[PRComment], str | None]:
     """Get all comments from a PR using GraphQL, plus the timestamp of the last push.
 
     Fetches three sources in a single round-trip:
@@ -644,11 +697,17 @@ def get_pr_comments(cwd: Path, owner: str, repo: str, pr_number: int) -> tuple[l
     try:
         result = run_cmd(
             [
-                "gh", "api", "graphql",
-                "-f", f"query={query}",
-                "-f", f"owner={owner}",
-                "-f", f"repo={repo}",
-                "-F", f"pr={pr_number}",
+                "gh",
+                "api",
+                "graphql",
+                "-f",
+                f"query={query}",
+                "-f",
+                f"owner={owner}",
+                "-f",
+                f"repo={repo}",
+                "-F",
+                f"pr={pr_number}",
             ],
             cwd=cwd,
             quiet=True,
@@ -667,42 +726,50 @@ def get_pr_comments(cwd: Path, owner: str, repo: str, pr_number: int) -> tuple[l
             line = node.get("line")
             for c in node.get("comments", {}).get("nodes", []) or []:
                 author = c.get("author") or {}
-                comments.append(PRComment(
-                    author=author.get("login", "unknown") if author else "unknown",
-                    body=c.get("body", ""),
-                    created_at=c.get("createdAt", ""),
-                    kind="thread",
-                    path=path,
-                    line=line,
-                    thread_id=thread_id,
-                ))
+                comments.append(
+                    PRComment(
+                        author=author.get("login", "unknown") if author else "unknown",
+                        body=c.get("body", ""),
+                        created_at=c.get("createdAt", ""),
+                        kind="thread",
+                        path=path,
+                        line=line,
+                        thread_id=thread_id,
+                    )
+                )
 
         for c in pr.get("comments", {}).get("nodes", []) or []:
             author = c.get("author") or {}
-            comments.append(PRComment(
-                author=author.get("login", "unknown") if author else "unknown",
-                body=c.get("body", ""),
-                created_at=c.get("createdAt", ""),
-                kind="issue",
-            ))
+            comments.append(
+                PRComment(
+                    author=author.get("login", "unknown") if author else "unknown",
+                    body=c.get("body", ""),
+                    created_at=c.get("createdAt", ""),
+                    kind="issue",
+                )
+            )
 
         for r in pr.get("reviews", {}).get("nodes", []) or []:
             body = r.get("body", "") or ""
             if not body.strip():
                 continue
             author = r.get("author") or {}
-            comments.append(PRComment(
-                author=author.get("login", "unknown") if author else "unknown",
-                body=body,
-                created_at=r.get("submittedAt", "") or "",
-                kind="review",
-            ))
+            comments.append(
+                PRComment(
+                    author=author.get("login", "unknown") if author else "unknown",
+                    body=body,
+                    created_at=r.get("submittedAt", "") or "",
+                    kind="review",
+                )
+            )
 
         last_push_at: str | None = None
         commit_nodes = pr.get("commits", {}).get("nodes", []) or []
         if commit_nodes:
             commit = commit_nodes[0].get("commit") or {}
-            last_push_at = commit.get("pushedDate") or commit.get("committedDate") or None
+            last_push_at = (
+                commit.get("pushedDate") or commit.get("committedDate") or None
+            )
 
         return comments, last_push_at
     except subprocess.CalledProcessError:
@@ -741,12 +808,14 @@ def get_pr_checks(cwd: Path) -> list[CheckRun]:
                 if len(parts) > 1:
                     run_id = parts[1].split("/")[0]
 
-            checks.append(CheckRun(
-                name=check.get("name", ""),
-                state=check.get("state", ""),
-                run_id=run_id,
-                link=link,
-            ))
+            checks.append(
+                CheckRun(
+                    name=check.get("name", ""),
+                    state=check.get("state", ""),
+                    run_id=run_id,
+                    link=link,
+                )
+            )
         return checks
     except (subprocess.CalledProcessError, json.JSONDecodeError):
         return []
@@ -765,7 +834,13 @@ def get_run_artifacts(cwd: Path, run_id: str) -> list[Artifact]:
     try:
         # Get artifacts via the API
         result = run_cmd(
-            ["gh", "api", f"repos/{{owner}}/{{repo}}/actions/runs/{run_id}/artifacts", "-q", ".artifacts"],
+            [
+                "gh",
+                "api",
+                f"repos/{{owner}}/{{repo}}/actions/runs/{run_id}/artifacts",
+                "-q",
+                ".artifacts",
+            ],
             cwd=cwd,
             quiet=True,
             check=False,
@@ -776,10 +851,12 @@ def get_run_artifacts(cwd: Path, run_id: str) -> list[Artifact]:
         data = json.loads(result.stdout)
         artifacts = []
         for artifact in data:
-            artifacts.append(Artifact(
-                name=artifact.get("name", ""),
-                size=artifact.get("size_in_bytes", 0),
-            ))
+            artifacts.append(
+                Artifact(
+                    name=artifact.get("name", ""),
+                    size=artifact.get("size_in_bytes", 0),
+                )
+            )
         return artifacts
     except (subprocess.CalledProcessError, json.JSONDecodeError):
         return []
@@ -843,7 +920,9 @@ def get_full_check_log(cwd: Path, run_id: str, failed_only: bool = False) -> str
         raise RuntimeError("GitHub CLI (gh) is not installed")
 
 
-def download_artifact(cwd: Path, run_id: str, artifact_name: str) -> tuple[Path, list[str]]:
+def download_artifact(
+    cwd: Path, run_id: str, artifact_name: str
+) -> tuple[Path, list[str]]:
     """Download an artifact from a workflow run into $TMPDIR.
 
     Args:
@@ -867,7 +946,16 @@ def download_artifact(cwd: Path, run_id: str, artifact_name: str) -> tuple[Path,
 
     try:
         run_cmd(
-            ["gh", "run", "download", run_id, "-n", artifact_name, "-D", str(output_dir)],
+            [
+                "gh",
+                "run",
+                "download",
+                run_id,
+                "-n",
+                artifact_name,
+                "-D",
+                str(output_dir),
+            ],
             cwd=cwd,
             quiet=False,
             check=True,
@@ -917,7 +1005,9 @@ def read_pr(cwd: Path | None = None) -> PRInfo:
 
     # Get PR comments (inline threads + top-level + review summaries) and last push time
     if owner and repo:
-        pr_info.comments, pr_info.last_push_at = get_pr_comments(cwd, owner, repo, pr_info.number)
+        pr_info.comments, pr_info.last_push_at = get_pr_comments(
+            cwd, owner, repo, pr_info.number
+        )
 
     # Get check status
     pr_info.checks = get_pr_checks(cwd)
@@ -937,8 +1027,15 @@ def read_pr(cwd: Path | None = None) -> PRInfo:
 
 
 TERMINAL_STATES = {
-    "SUCCESS", "FAILURE", "STARTUP_FAILURE", "CANCELLED", "SKIPPED",
-    "NEUTRAL", "TIMED_OUT", "STALE", "ACTION_REQUIRED",
+    "SUCCESS",
+    "FAILURE",
+    "STARTUP_FAILURE",
+    "CANCELLED",
+    "SKIPPED",
+    "NEUTRAL",
+    "TIMED_OUT",
+    "STALE",
+    "ACTION_REQUIRED",
 }
 PASSING_STATES = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 
@@ -1030,7 +1127,9 @@ def wait_for_checks(
         check,
         timeout=timeout,
         poll_interval=poll_interval,
-        progress=lambda: f"Waiting... {progress['complete']}/{progress['total']} checks complete",
+        progress=lambda: (
+            f"Waiting... {progress['complete']}/{progress['total']} checks complete"
+        ),
         timeout_message=lambda: (
             f"Timed out after {timeout}s waiting for checks "
             f"({progress['complete']}/{progress['total']} complete)"
@@ -1071,7 +1170,8 @@ def wait_for_merge(
             raise RuntimeError(f"PR #{pr.number} was closed without merging")
 
         failed = [
-            c.name for c in get_pr_checks(cwd)
+            c.name
+            for c in get_pr_checks(cwd)
             if c.state in TERMINAL_STATES and c.state not in PASSING_STATES
         ]
         if failed:
@@ -1121,7 +1221,8 @@ def wait_for_review(
         comments, last_push_at = get_pr_comments(cwd, owner, repo, pr_number)
 
         candidates = [
-            c for c in comments
+            c
+            for c in comments
             if c.kind in ("review", "thread")
             and c.created_at
             and (last_push_at is None or c.created_at > last_push_at)
@@ -1170,7 +1271,9 @@ def get_worktree_code(cwd: Path) -> tuple[str, str]:
         for base_ref in _base_refs_for_diff(cwd):
             try:
                 merge_base = run_git(
-                    ["merge-base", "HEAD", base_ref], cwd=cwd, quiet=True,
+                    ["merge-base", "HEAD", base_ref],
+                    cwd=cwd,
+                    quiet=True,
                 ).stdout.strip()
                 break
             except subprocess.CalledProcessError:

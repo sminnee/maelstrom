@@ -218,7 +218,9 @@ def get_services(worktree_path: Path, project: str = "") -> list[ResolvedService
     if procfile.exists():
         return [
             ResolvedService(
-                name=e.name, command=e.command, shared=is_shared_service(e.name),
+                name=e.name,
+                command=e.command,
+                shared=is_shared_service(e.name),
             )
             for e in parse_procfile(procfile)
         ]
@@ -374,9 +376,7 @@ def _spawn_services(
     for svc in services:
         svc_env = env
         if svc.env:
-            expanded = {
-                k: Template(v).safe_substitute(env) for k, v in svc.env.items()
-            }
+            expanded = {k: Template(v).safe_substitute(env) for k, v in svc.env.items()}
             svc_env = {**env, **expanded}
         log_file = log_dir / f"{svc.name}.log"
         log_fh = open(log_file, "w")  # noqa: SIM115
@@ -413,7 +413,10 @@ ContainerRunner = Callable[[list[str]], str]
 def _default_container_runner(argv: list[str]) -> str:
     """Run a container CLI command and return its stdout (for IP discovery)."""
     result = subprocess.run(
-        argv, capture_output=True, text=True, check=True,
+        argv,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return result.stdout
 
@@ -504,7 +507,12 @@ def _start_or_subscribe_shared(
     # Start shared services (container-first, injecting host vars).
     log_dir = _get_shared_log_dir(project)
     service_states, host_vars = _spawn_phased(
-        shared_services, worktree_path, env, log_dir, now, runner,
+        shared_services,
+        worktree_path,
+        env,
+        log_dir,
+        now,
+        runner,
     )
 
     shared_state = SharedEnvState(
@@ -568,13 +576,25 @@ def start_env(
 
     # Handle shared services (populates env with any shared host vars)
     _start_or_subscribe_shared(
-        store, project, worktree, worktree_path, shared_services, env, now, runner,
+        store,
+        project,
+        worktree,
+        worktree_path,
+        shared_services,
+        env,
+        now,
+        runner,
     )
 
     # Start local services (container-first, injecting any local host vars)
     log_dir = _get_log_dir(project, worktree)
     service_states, _ = _spawn_phased(
-        local_services, worktree_path, env, log_dir, now, runner,
+        local_services,
+        worktree_path,
+        env,
+        log_dir,
+        now,
+        runner,
     )
 
     state = EnvState(
@@ -605,14 +625,21 @@ def _cleanup_container(svc: ServiceState) -> None:
     argv = [engine.binary, *engine.rm_force, svc.container_name]
     try:
         subprocess.run(
-            argv, stdout=DEVNULL, stderr=DEVNULL, check=False, timeout=10,
+            argv,
+            stdout=DEVNULL,
+            stderr=DEVNULL,
+            check=False,
+            timeout=10,
         )
     except (OSError, subprocess.SubprocessError):
         pass
 
 
 def _stop_services(
-    services: list[ServiceState], *, timeout: float = 10.0, label: str = "",
+    services: list[ServiceState],
+    *,
+    timeout: float = 10.0,
+    label: str = "",
 ) -> list[str]:
     """Send SIGTERM, wait, then SIGKILL to a list of services.
 
@@ -667,7 +694,9 @@ def _stop_services(
 
 
 def _signal_and_wait(
-    sessions: list[LiveSession], sig: signal.Signals, timeout: float,
+    sessions: list[LiveSession],
+    sig: signal.Signals,
+    timeout: float,
 ) -> None:
     """Send ``sig`` to every still-live session, then poll up to ``timeout``.
 
@@ -691,7 +720,10 @@ def _signal_and_wait(
 
 
 def stop_sessions(
-    sessions: list[LiveSession], *, interrupt_grace: float = 5.0, timeout: float = 10.0,
+    sessions: list[LiveSession],
+    *,
+    interrupt_grace: float = 5.0,
+    timeout: float = 10.0,
 ) -> list[str]:
     """Gracefully stop live Claude CLI sessions before a worktree is closed.
 
@@ -717,14 +749,20 @@ def stop_sessions(
     messages = []
     for s in targets:
         if is_service_alive(s.pid):
-            messages.append(f"claude session (pid {s.pid}): still running after SIGTERM")
+            messages.append(
+                f"claude session (pid {s.pid}): still running after SIGTERM"
+            )
         else:
             messages.append(f"claude session (pid {s.pid}): stopped")
     return messages
 
 
 def _unsubscribe_shared(
-    store: EnvStore, project: str, worktree: str, *, timeout: float = 10.0,
+    store: EnvStore,
+    project: str,
+    worktree: str,
+    *,
+    timeout: float = 10.0,
 ) -> list[str]:
     """Unsubscribe a worktree from shared services.
 
@@ -748,7 +786,9 @@ def _unsubscribe_shared(
 
     # Last subscriber — stop shared services
     messages = _stop_services(
-        shared_state.services, timeout=timeout, label="shared",
+        shared_state.services,
+        timeout=timeout,
+        label="shared",
     )
     remove_shared_state(store, project)
     return messages
@@ -936,9 +976,7 @@ def list_project_envs(store: EnvStore, project: str) -> list[EnvState]:
 
 def list_all_envs(store: EnvStore) -> list[EnvState]:
     """List all running environments across all projects."""
-    projects = sorted({
-        key.split("/")[0] for key in store.list_dir("") if "/" in key
-    })
+    projects = sorted({key.split("/")[0] for key in store.list_dir("") if "/" in key})
     results = []
     for project in projects:
         results.extend(list_project_envs(store, project))
@@ -1018,9 +1056,7 @@ def read_service_logs(
     if service is not None:
         if service not in log_files:
             available = ", ".join(sorted(log_files.keys()))
-            raise ValueError(
-                f"Service '{service}' not found. Available: {available}"
-            )
+            raise ValueError(f"Service '{service}' not found. Available: {available}")
         lines = tail_log_file(log_files[service], n)
         return [(service, line) for line in lines]
 

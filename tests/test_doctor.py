@@ -27,7 +27,8 @@ def _create_project_repo(default_branch="main"):
     remote_path = tmp / "remote.git"
     subprocess.run(
         ["git", "clone", "--bare", str(source_path), str(remote_path)],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
 
     # Create project directory with bare clone structure
@@ -36,11 +37,17 @@ def _create_project_repo(default_branch="main"):
     git_dir = project_path / ".git"
     subprocess.run(
         ["git", "clone", "--bare", str(remote_path), str(git_dir)],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
 
     # Configure like add_project does (core.bare stays true from bare clone)
-    run_git(project_path, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+    run_git(
+        project_path,
+        "config",
+        "remote.origin.fetch",
+        "+refs/heads/*:refs/remotes/origin/*",
+    )
     run_git(project_path, "config", "notes.rewriteRef", "refs/notes/*")
     run_git(project_path, "config", "user.email", "test@test.com")
     run_git(project_path, "config", "user.name", "Test")
@@ -51,10 +58,15 @@ def _create_project_repo(default_branch="main"):
     run_git(project_path, "update-ref", "--no-deref", "HEAD", head_sha)
 
     # The default branch lives in _main, like add_project does
-    run_git(project_path, "worktree", "add", str(project_path / "_main"), default_branch)
     run_git(
-        project_path, "branch", "--set-upstream-to",
-        f"origin/{default_branch}", default_branch,
+        project_path, "worktree", "add", str(project_path / "_main"), default_branch
+    )
+    run_git(
+        project_path,
+        "branch",
+        "--set-upstream-to",
+        f"origin/{default_branch}",
+        default_branch,
     )
 
     # Create .mael marker
@@ -85,7 +97,9 @@ class TestUpdateLocalMain:
 
             # Verify local main is behind
             local_sha = run_git(project_path, "rev-parse", "main").stdout.strip()
-            origin_sha = run_git(project_path, "rev-parse", "origin/main").stdout.strip()
+            origin_sha = run_git(
+                project_path, "rev-parse", "origin/main"
+            ).stdout.strip()
             assert local_sha == old_sha
             assert origin_sha != old_sha
 
@@ -261,9 +275,13 @@ class TestDoctor:
 
             result = run_doctor(project_path)
 
-            notes_check = [c for c in result.checks if "notes.rewriteRef" in c.message][0]
+            notes_check = [c for c in result.checks if "notes.rewriteRef" in c.message][
+                0
+            ]
             assert notes_check.status == CheckStatus.FIXED
-            value = run_git(project_path, "config", "--get", "notes.rewriteRef").stdout.strip()
+            value = run_git(
+                project_path, "config", "--get", "notes.rewriteRef"
+            ).stdout.strip()
             assert value == "refs/notes/*"
 
     @staticmethod
@@ -276,8 +294,12 @@ class TestDoctor:
     @staticmethod
     def _upstream_config(project_path):
         return (
-            run_git(project_path, "config", "--get", "branch.main.remote").stdout.strip(),
-            run_git(project_path, "config", "--get", "branch.main.merge").stdout.strip(),
+            run_git(
+                project_path, "config", "--get", "branch.main.remote"
+            ).stdout.strip(),
+            run_git(
+                project_path, "config", "--get", "branch.main.merge"
+            ).stdout.strip(),
         )
 
     def test_sets_the_main_upstream_when_unset(self):
@@ -346,8 +368,7 @@ class TestDoctor:
             result = run_doctor(project_path)
 
             assert result.issues_found == 0, [
-                (c.name, c.message) for c in result.checks
-                if c.status != CheckStatus.OK
+                (c.name, c.message) for c in result.checks if c.status != CheckStatus.OK
             ]
 
     def test_leaves_a_configured_main_upstream_alone(self):

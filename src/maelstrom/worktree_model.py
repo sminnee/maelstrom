@@ -14,10 +14,32 @@ from pathlib import Path
 
 # Fixed worktree names (NATO phonetic alphabet)
 WORKTREE_NAMES = [
-    "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel",
-    "india", "juliet", "kilo", "lima", "mike", "november", "oscar", "papa",
-    "quebec", "romeo", "sierra", "tango", "uniform", "victor", "whiskey",
-    "xray", "yankee", "zulu",
+    "alpha",
+    "bravo",
+    "charlie",
+    "delta",
+    "echo",
+    "foxtrot",
+    "golf",
+    "hotel",
+    "india",
+    "juliet",
+    "kilo",
+    "lima",
+    "mike",
+    "november",
+    "oscar",
+    "papa",
+    "quebec",
+    "romeo",
+    "sierra",
+    "tango",
+    "uniform",
+    "victor",
+    "whiskey",
+    "xray",
+    "yankee",
+    "zulu",
 ]
 
 # Single-letter shortcodes for worktree names (all 26 first letters are unique)
@@ -276,6 +298,7 @@ def print_flushed(line: str) -> None:
     """
     print(line, flush=True)
 
+
 # Folder holding the main branch, beside the NATO worktrees. The leading
 # underscore keeps it out of the `<project>-<nato>` pattern, so it is a
 # reference checkout rather than a workspace: no ports, no .env, and never
@@ -302,7 +325,9 @@ def get_worktree_folder_name(project_name: str, worktree_name: str) -> str:
     return f"{project_name}-{worktree_name}"
 
 
-def extract_worktree_name_from_folder(project_name: str, folder_name: str) -> str | None:
+def extract_worktree_name_from_folder(
+    project_name: str, folder_name: str
+) -> str | None:
     """Extract the worktree name from a folder name.
 
     Args:
@@ -314,7 +339,7 @@ def extract_worktree_name_from_folder(project_name: str, folder_name: str) -> st
     """
     prefix = f"{project_name}-"
     if folder_name.startswith(prefix):
-        potential_name = folder_name[len(prefix):]
+        potential_name = folder_name[len(prefix) :]
         if potential_name in WORKTREE_NAMES:
             return potential_name
     return None

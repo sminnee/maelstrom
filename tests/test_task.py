@@ -86,7 +86,7 @@ class TestRoundTrip:
         # means "inherit the user's Claude Code default" (no --model emitted).
         text = (
             "---\n"
-            "id: x\ntitle: t\nproject: p\ncommand: \"\"\nmode: normal\n"
+            'id: x\ntitle: t\nproject: p\ncommand: ""\nmode: normal\n'
             "created: c\nupdated: u\n"
             "---\n\n## Content\n\n\n## Steps\n\n\n## Log\n\n"
         )
@@ -106,7 +106,7 @@ class TestRoundTrip:
         # project's stack tip", which is what every task did before stacking.
         text = (
             "---\n"
-            "id: x\ntitle: t\nproject: p\ncommand: \"\"\nmode: normal\n"
+            'id: x\ntitle: t\nproject: p\ncommand: ""\nmode: normal\n'
             "created: c\nupdated: u\n"
             "---\n\n## Content\n\n\n## Steps\n\n\n## Log\n\n"
         )
@@ -127,7 +127,7 @@ class TestRoundTrip:
         # old/hand-edited files must still load and report medium.
         text = (
             "---\n"
-            "id: x\ntitle: t\nproject: p\ncommand: \"\"\nmode: normal\n"
+            'id: x\ntitle: t\nproject: p\ncommand: ""\nmode: normal\n'
             "created: c\nupdated: u\n"
             "---\n\n## Content\n\n\n## Steps\n\n\n## Log\n\n"
         )
@@ -137,7 +137,7 @@ class TestRoundTrip:
     def test_blank_priority_defaults_to_medium(self):
         text = (
             "---\n"
-            "id: x\ntitle: t\nproject: p\npriority: \"\"\n"
+            'id: x\ntitle: t\nproject: p\npriority: ""\n'
             "created: c\nupdated: u\n"
             "---\n\n## Content\n\n\n## Steps\n\n\n## Log\n\n"
         )
@@ -165,8 +165,8 @@ class TestRoundTrip:
     def test_follows_scalar_coerced_to_list(self):
         text = (
             "---\n"
-            "id: x\ntitle: t\nproject: p\ncommand: \"\"\nmode: normal\n"
-            "parent: \"\"\nfollows: only-one\ncreated: c\nupdated: u\n"
+            'id: x\ntitle: t\nproject: p\ncommand: ""\nmode: normal\n'
+            'parent: ""\nfollows: only-one\ncreated: c\nupdated: u\n'
             "---\n\n## Content\n\n\n## Steps\n\n\n## Log\n\n"
         )
         back = Task.from_markdown(text)
@@ -300,9 +300,7 @@ class TestIdAllocation:
 
     def test_child_id(self, store):
         parent = model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        child = model.create(
-            store, project="p", title="b", parent=parent.id, now=NOW
-        )
+        child = model.create(store, project="p", title="b", parent=parent.id, now=NOW)
         assert child.id == f"{parent.id}.1"
 
     def test_nested_child_counters_independent(self, store):
@@ -353,20 +351,32 @@ class TestFollowEndLeaves:
 
     def test_linear_chain(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
-        c = model.create(store, project="p", title="c", follows=[b.id], now=NOW, today=TODAY)
+        b = model.create(
+            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
+        )
+        c = model.create(
+            store, project="p", title="c", follows=[b.id], now=NOW, today=TODAY
+        )
         assert model.follow_end_leaves(store, "p", a.id) == [c.id]
 
     def test_branched_chain(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
-        c = model.create(store, project="p", title="c", follows=[a.id], now=NOW, today=TODAY)
+        b = model.create(
+            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
+        )
+        c = model.create(
+            store, project="p", title="c", follows=[a.id], now=NOW, today=TODAY
+        )
         assert model.follow_end_leaves(store, "p", a.id) == sorted([b.id, c.id])
 
     def test_cycle_safe(self, store):
         # Construct a cycle manually: a follows b, b follows a.
-        a = Task(id="a", title="a", project="p", follows=["b"], created=NOW, updated=NOW)
-        b = Task(id="b", title="b", project="p", follows=["a"], created=NOW, updated=NOW)
+        a = Task(
+            id="a", title="a", project="p", follows=["b"], created=NOW, updated=NOW
+        )
+        b = Task(
+            id="b", title="b", project="p", follows=["a"], created=NOW, updated=NOW
+        )
         store.write("p/todo/a.md", a.to_markdown(), message="m")
         store.write("p/todo/b.md", b.to_markdown(), message="m")
         # Should terminate; both nodes are part of the cycle so no leaves emerge.
@@ -416,7 +426,9 @@ class TestChildChainLeaves:
 class TestNextFollower:
     def test_linear_chain_returns_follower(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
+        b = model.create(
+            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
+        )
         model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         nxt = model.next_follower(store, "p", a.id)
         assert nxt is not None and nxt.id == b.id
@@ -425,7 +437,9 @@ class TestNextFollower:
         # b follows a and a second dep that is still todo -> not actionable.
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         dep2 = model.create(store, project="p", title="dep2", now=NOW, today=TODAY)
-        model.create(store, project="p", title="b", follows=[a.id, dep2.id], now=NOW, today=TODAY)
+        model.create(
+            store, project="p", title="b", follows=[a.id, dep2.id], now=NOW, today=TODAY
+        )
         model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         assert model.next_follower(store, "p", a.id) is None
 
@@ -437,8 +451,12 @@ class TestNextFollower:
 
     def test_branching_returns_id_sorted_first(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
-        c = model.create(store, project="p", title="c", follows=[a.id], now=NOW, today=TODAY)
+        b = model.create(
+            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
+        )
+        c = model.create(
+            store, project="p", title="c", follows=[a.id], now=NOW, today=TODAY
+        )
         model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         nxt = model.next_follower(store, "p", a.id)
         assert nxt is not None and nxt.id == sorted([b.id, c.id])[0]
@@ -446,7 +464,9 @@ class TestNextFollower:
     def test_non_todo_follower_excluded(self, store):
         # A follower already in-progress is not a todo, so next_follower skips it.
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
+        b = model.create(
+            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
+        )
         model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         model.move(store, "p", b.id, model.STATUS_IN_PROGRESS, now=NOW2)
         assert model.next_follower(store, "p", a.id) is None
@@ -455,7 +475,9 @@ class TestNextFollower:
 class TestRunningFollower:
     def test_returns_in_progress_follower(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
+        b = model.create(
+            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
+        )
         model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         model.move(store, "p", b.id, model.STATUS_IN_PROGRESS, now=NOW2)
         running = model.running_follower(store, "p", a.id)
@@ -463,7 +485,9 @@ class TestRunningFollower:
 
     def test_todo_follower_not_returned(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
+        model.create(
+            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
+        )
         model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         assert model.running_follower(store, "p", a.id) is None
 
@@ -476,8 +500,12 @@ class TestRunningFollower:
 
     def test_branching_returns_id_sorted_first(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
-        c = model.create(store, project="p", title="c", follows=[a.id], now=NOW, today=TODAY)
+        b = model.create(
+            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
+        )
+        c = model.create(
+            store, project="p", title="c", follows=[a.id], now=NOW, today=TODAY
+        )
         model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         model.move(store, "p", b.id, model.STATUS_IN_PROGRESS, now=NOW2)
         model.move(store, "p", c.id, model.STATUS_IN_PROGRESS, now=NOW2)
@@ -495,12 +523,16 @@ class TestActionable:
 
     def test_blocked_by_undone_dep(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
+        b = model.create(
+            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
+        )
         assert not model.is_actionable(model.load(store, "p", b.id), store)
 
     def test_unblocked_when_dep_done(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
+        b = model.create(
+            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
+        )
         model.move(store, "p", a.id, "done", now=NOW)
         assert model.is_actionable(model.load(store, "p", b.id), store)
 
@@ -531,7 +563,9 @@ class TestMove:
 
     def test_move_bumps_updated(self, store):
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        moved = model.move(store, "p", a.id, "in-progress", now="2026-06-09T00:00:00+00:00")
+        moved = model.move(
+            store, "p", a.id, "in-progress", now="2026-06-09T00:00:00+00:00"
+        )
         assert moved.updated == "2026-06-09T00:00:00+00:00"
         assert moved.created == NOW
 
@@ -549,7 +583,9 @@ class TestMove:
 
 
 class TestSafeId:
-    @pytest.mark.parametrize("good", ["a", "2026-06-08.1", "linear.NORT-123.1", "a_b.c-d"])
+    @pytest.mark.parametrize(
+        "good", ["a", "2026-06-08.1", "linear.NORT-123.1", "a_b.c-d"]
+    )
     def test_accepts_safe(self, good):
         assert model.is_safe_id(good)
 
@@ -690,8 +726,12 @@ class TestDelete:
         # One delete for the task, plus one write per non-terminal dependent.
         store = RecordingStore()
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
-        model.create(store, project="p", title="c", follows=[a.id], now=NOW, today=TODAY)
+        model.create(
+            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
+        )
+        model.create(
+            store, project="p", title="c", follows=[a.id], now=NOW, today=TODAY
+        )
         store.writes.clear()
         store.deletes.clear()
         model.delete(store, "p", a.id)
@@ -811,7 +851,9 @@ class TestRename:
         # One write (new key) + one delete (old key) + one write per changed dependent.
         store = RecordingStore()
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        model.create(store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY)
+        model.create(
+            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
+        )
         child = model.create(
             store, project="p", title="c", parent=a.id, now=NOW, today=TODAY
         )
@@ -898,39 +940,64 @@ class TestBranchDefault:
         # Generic title + failing model call → the new deterministic Linear
         # fallback splices the bare number into the desc (no NORT- prefix).
         t = model.create(
-            store, project="p", title="a", parent="linear.NORT-123",
-            now=NOW, today=TODAY,
+            store,
+            project="p",
+            title="a",
+            parent="linear.NORT-123",
+            now=NOW,
+            today=TODAY,
         )
         assert t.branch == "feat/123-a"
         assert model.load(store, "p", t.id).branch == "feat/123-a"
 
     def test_siblings_under_linear_parent_share_branch(self, store):
         a = model.create(
-            store, project="p", title="a", parent="linear.NORT-123",
-            now=NOW, today=TODAY,
+            store,
+            project="p",
+            title="a",
+            parent="linear.NORT-123",
+            now=NOW,
+            today=TODAY,
         )
         b = model.create(
-            store, project="p", title="b", parent="linear.NORT-123",
-            now=NOW, today=TODAY,
+            store,
+            project="p",
+            title="b",
+            parent="linear.NORT-123",
+            now=NOW,
+            today=TODAY,
         )
         # Both fall back to the same number-led branch (one PR per parent).
         assert a.branch == b.branch == "feat/123-a"
 
     def test_non_linear_parent_siblings_share_task_branch(self, store):
         a = model.create(
-            store, project="p", title="a", parent="2026-06-09.3",
-            now=NOW, today=TODAY,
+            store,
+            project="p",
+            title="a",
+            parent="2026-06-09.3",
+            now=NOW,
+            today=TODAY,
         )
         b = model.create(
-            store, project="p", title="b", parent="2026-06-09.3",
-            now=NOW, today=TODAY,
+            store,
+            project="p",
+            title="b",
+            parent="2026-06-09.3",
+            now=NOW,
+            today=TODAY,
         )
         assert a.branch == b.branch == "task/2026-06-09.3"
 
     def test_branch_override_beats_parent_derivation(self, store):
         t = model.create(
-            store, project="p", title="a", parent="linear.NORT-123",
-            branch="fix/login", now=NOW, today=TODAY,
+            store,
+            project="p",
+            title="a",
+            parent="linear.NORT-123",
+            branch="fix/login",
+            now=NOW,
+            today=TODAY,
         )
         assert t.branch == "fix/login"
 
@@ -939,13 +1006,21 @@ class TestBranchDefault:
         # must inherit that branch, not regenerate a divergent task/<parent>.
         store = InMemoryStore()
         parent = model.create(
-            store, project="p", title="daily maintenance",
-            id="daily.maintenance.2026-07-03", branch="chore/daily-maintenance",
-            now=NOW, today=TODAY,
+            store,
+            project="p",
+            title="daily maintenance",
+            id="daily.maintenance.2026-07-03",
+            branch="chore/daily-maintenance",
+            now=NOW,
+            today=TODAY,
         )
         child = model.create(
-            store, project="p", title="warehouse writes",
-            parent=parent.id, now=NOW, today=TODAY,
+            store,
+            project="p",
+            title="warehouse writes",
+            parent=parent.id,
+            now=NOW,
+            today=TODAY,
         )
         assert child.branch == "chore/daily-maintenance"
         assert model.load(store, "p", child.id).branch == "chore/daily-maintenance"
@@ -955,13 +1030,20 @@ class TestBranchDefault:
         # the same branch.
         store = InMemoryStore()
         parent = model.create(
-            store, project="p", title="run", id="run.2026-07-03",
-            branch="chore/run", now=NOW, today=TODAY,
+            store,
+            project="p",
+            title="run",
+            id="run.2026-07-03",
+            branch="chore/run",
+            now=NOW,
+            today=TODAY,
         )
-        a = model.create(store, project="p", title="a", parent=parent.id,
-                         now=NOW, today=TODAY)
-        b = model.create(store, project="p", title="b", parent=parent.id,
-                         now=NOW, today=TODAY)
+        a = model.create(
+            store, project="p", title="a", parent=parent.id, now=NOW, today=TODAY
+        )
+        b = model.create(
+            store, project="p", title="b", parent=parent.id, now=NOW, today=TODAY
+        )
         assert a.branch == b.branch == "chore/run"
 
     def test_linear_virtual_parent_with_no_task_file_still_derives_feat(self):
@@ -969,20 +1051,34 @@ class TestBranchDefault:
         # the deterministic Linear derivation.
         store = InMemoryStore()
         t = model.create(
-            store, project="p", title="a", parent="linear.NORT-123",
-            now=NOW, today=TODAY,
+            store,
+            project="p",
+            title="a",
+            parent="linear.NORT-123",
+            now=NOW,
+            today=TODAY,
         )
         assert t.branch == "feat/123-a"
 
     def test_explicit_branch_still_wins_over_parent_branch(self):
         store = InMemoryStore()
         model.create(
-            store, project="p", title="p0", id="grp.2",
-            branch="chore/grp", now=NOW, today=TODAY,
+            store,
+            project="p",
+            title="p0",
+            id="grp.2",
+            branch="chore/grp",
+            now=NOW,
+            today=TODAY,
         )
         child = model.create(
-            store, project="p", title="c", parent="grp.2",
-            branch="fix/override", now=NOW, today=TODAY,
+            store,
+            project="p",
+            title="c",
+            parent="grp.2",
+            branch="fix/override",
+            now=NOW,
+            today=TODAY,
         )
         assert child.branch == "fix/override"
 
@@ -999,8 +1095,13 @@ class TestBranchDefault:
 
 class TestBuildPrompt:
     def test_command_title_and_content(self):
-        t = Task(id="x", title="Do thing", project="p", command="plan-task",
-                 content="Details here.")
+        t = Task(
+            id="x",
+            title="Do thing",
+            project="p",
+            command="plan-task",
+            content="Details here.",
+        )
         assert model.build_prompt(t) == "/plan-task Do thing\n\nDetails here."
 
     def test_no_command_omits_leading_space(self):
@@ -1017,8 +1118,12 @@ class TestBuildPrompt:
 
     def test_expands_task_dir_token(self, tmp_path, monkeypatch):
         monkeypatch.setattr(model, "tasks_root", lambda: tmp_path / "tasks")
-        t = Task(id="x", title="Do thing", project="proj",
-                 content="See ![img]({{MAEL_TASK_DIR}}/images/NORT-1/a.png)")
+        t = Task(
+            id="x",
+            title="Do thing",
+            project="proj",
+            content="See ![img]({{MAEL_TASK_DIR}}/images/NORT-1/a.png)",
+        )
         expected_dir = tmp_path / "tasks" / "proj"
         assert model.build_prompt(t) == (
             f"Do thing\n\nSee ![img]({expected_dir}/images/NORT-1/a.png)"
@@ -1094,7 +1199,9 @@ class TestNextTask:
 
     def test_branch_match_beats_lower_id_on_other_branch(self, store):
         # a has the lower id but is on another branch; b is on the wanted one.
-        model.create(store, project="p", title="a", branch="other", now=NOW, today=TODAY)
+        model.create(
+            store, project="p", title="a", branch="other", now=NOW, today=TODAY
+        )
         b = model.create(
             store, project="p", title="b", branch="feat/x", now=NOW, today=TODAY
         )
@@ -1108,14 +1215,18 @@ class TestNextTask:
         assert model.next_task(store, "p", branch="feat/x", fallback=True).id == a.id
 
     def test_branch_no_match_no_fallback_returns_none(self, store):
-        model.create(store, project="p", title="a", branch="other", now=NOW, today=TODAY)
+        model.create(
+            store, project="p", title="a", branch="other", now=NOW, today=TODAY
+        )
         assert model.next_task(store, "p", branch="feat/x", fallback=False) is None
 
     def test_branch_none_unchanged(self, store):
         a = model.create(
             store, project="p", title="a", branch="other", now=NOW, today=TODAY
         )
-        model.create(store, project="p", title="b", branch="feat/x", now=NOW, today=TODAY)
+        model.create(
+            store, project="p", title="b", branch="feat/x", now=NOW, today=TODAY
+        )
         # No branch preference -> first actionable, id-sorted.
         assert model.next_task(store, "p", branch=None).id == a.id
 
@@ -1126,7 +1237,9 @@ class TestNextTask:
 class TestPriorityOrdering:
     def test_next_task_prefers_higher_priority(self, store):
         # low is created first (lower id), but critical outranks it.
-        model.create(store, project="p", title="low", priority="low", now=NOW, today=TODAY)
+        model.create(
+            store, project="p", title="low", priority="low", now=NOW, today=TODAY
+        )
         crit = model.create(
             store, project="p", title="crit", priority="critical", now=NOW, today=TODAY
         )
@@ -1134,12 +1247,18 @@ class TestPriorityOrdering:
 
     def test_next_task_ties_broken_by_id(self, store):
         # Two same-priority tasks: the lower id wins (chronological tie-break).
-        a = model.create(store, project="p", title="a", priority="high", now=NOW, today=TODAY)
-        model.create(store, project="p", title="b", priority="high", now=NOW, today=TODAY)
+        a = model.create(
+            store, project="p", title="a", priority="high", now=NOW, today=TODAY
+        )
+        model.create(
+            store, project="p", title="b", priority="high", now=NOW, today=TODAY
+        )
         assert model.next_task(store, "p").id == a.id
 
     def test_default_medium_outranks_low(self, store):
-        model.create(store, project="p", title="low", priority="low", now=NOW, today=TODAY)
+        model.create(
+            store, project="p", title="low", priority="low", now=NOW, today=TODAY
+        )
         med = model.create(store, project="p", title="med", now=NOW, today=TODAY)
         assert model.next_task(store, "p").id == med.id
 
@@ -1147,10 +1266,22 @@ class TestPriorityOrdering:
         a = model.create(store, project="p", title="a", now=NOW, today=TODAY)
         # Two followers of a, differing priority; the higher one is chosen.
         model.create(
-            store, project="p", title="lo", priority="low", follows=[a.id], now=NOW, today=TODAY
+            store,
+            project="p",
+            title="lo",
+            priority="low",
+            follows=[a.id],
+            now=NOW,
+            today=TODAY,
         )
         hi = model.create(
-            store, project="p", title="hi", priority="high", follows=[a.id], now=NOW, today=TODAY
+            store,
+            project="p",
+            title="hi",
+            priority="high",
+            follows=[a.id],
+            now=NOW,
+            today=TODAY,
         )
         model.move(store, "p", a.id, "done", now=NOW)
         assert model.next_follower(store, "p", a.id).id == hi.id
@@ -1304,13 +1435,7 @@ class TestParseTaskBlocks:
     def test_escaped_wildcard_follow_end_tolerated(self):
         # `follow-end: "\*"` is invalid YAML (bad escape) but the canonical form
         # is `"*"`; we salvage it and warn rather than hard-fail.
-        text = (
-            "---CREATE TASK a---\n"
-            'title: A\n'
-            'follow-end: "\\*"\n'
-            "---\n"
-            "body\n"
-        )
+        text = '---CREATE TASK a---\ntitle: A\nfollow-end: "\\*"\n---\nbody\n'
         blocks, warnings = model.parse_task_blocks(text)
         assert blocks[0]["args"]["follow-end"] == "*"
         assert warnings
@@ -1335,7 +1460,9 @@ class TestParseTaskBlocks:
             "do the work\n"
         )
         blocks, warnings = model.parse_task_blocks(text)
-        assert blocks[0]["args"]["title"] == "Execute: ... (view + unlink + attach file)"
+        assert (
+            blocks[0]["args"]["title"] == "Execute: ... (view + unlink + attach file)"
+        )
         assert blocks[0]["args"]["follow-end"] == "*"
         assert warnings
 
@@ -1349,7 +1476,9 @@ class TestLoadMany:
             {"name": "a", "args": {"title": "A"}, "content": "ca"},
             {"name": "b", "args": {"title": "B", "follow": "a"}, "content": "cb"},
         ]
-        created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
+        created = model.load_many(
+            store, project="p", blocks=blocks, now=NOW, today=TODAY
+        )
         assert len(created) == 2
         a, b = created
         # B's follows points at A's allocated id, not the block name "a".
@@ -1361,9 +1490,15 @@ class TestLoadMany:
         # `iter-1` maps to the allocated id of the block named "iter-1".
         blocks = [
             {"name": "iter-1", "args": {"title": "One"}, "content": "c1"},
-            {"name": "iter-2", "args": {"title": "Two", "follow": "iter-1"}, "content": "c2"},
+            {
+                "name": "iter-2",
+                "args": {"title": "Two", "follow": "iter-1"},
+                "content": "c2",
+            },
         ]
-        created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
+        created = model.load_many(
+            store, project="p", blocks=blocks, now=NOW, today=TODAY
+        )
         one, two = created
         assert two.follows == [one.id]
         assert "iter-1" not in two.follows
@@ -1373,7 +1508,9 @@ class TestLoadMany:
         blocks = [
             {"name": "x", "args": {"title": "X", "follow-end": seed.id}, "content": ""},
         ]
-        created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
+        created = model.load_many(
+            store, project="p", blocks=blocks, now=NOW, today=TODAY
+        )
         assert created[0].follows == [seed.id]
 
     def test_block_model_reaches_the_created_task(self, store):
@@ -1381,7 +1518,9 @@ class TestLoadMany:
             {"name": "a", "args": {"title": "A", "model": "opus"}, "content": ""},
             {"name": "b", "args": {"title": "B"}, "content": ""},
         ]
-        created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
+        created = model.load_many(
+            store, project="p", blocks=blocks, now=NOW, today=TODAY
+        )
         a, b = created
         assert a.model == "opus"
         # An omitted key leaves the task inheriting the user's default.
@@ -1438,9 +1577,7 @@ class TestLoadMany:
         sibling = model.create(
             store, project="p", title="sib", parent="par", now=NOW, today=TODAY
         )
-        blocks = [
-            {"name": "a", "args": {"title": "A", "parent": "par"}, "content": ""}
-        ]
+        blocks = [{"name": "a", "args": {"title": "A", "parent": "par"}, "content": ""}]
         created = model.load_many(
             store, project="p", blocks=blocks, now=NOW, today=TODAY
         )
@@ -1459,9 +1596,11 @@ class TestLoadMany:
             {"name": "exec", "args": {"title": "E", "mode": "normal"}, "content": ""},
             {"name": "plan", "args": {"title": "P"}, "content": ""},
         ]
-        created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
+        created = model.load_many(
+            store, project="p", blocks=blocks, now=NOW, today=TODAY
+        )
         by_title = {t.title: t for t in created}
-        assert by_title["E"].mode == "normal"          # explicit wins
+        assert by_title["E"].mode == "normal"  # explicit wins
         assert by_title["P"].mode == model.DEFAULT_MODE  # omitted falls through to plan
 
     def test_passthrough_real_id_follow(self, store):
@@ -1469,7 +1608,9 @@ class TestLoadMany:
         blocks = [
             {"name": "x", "args": {"title": "X", "follow": seed.id}, "content": ""},
         ]
-        created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
+        created = model.load_many(
+            store, project="p", blocks=blocks, now=NOW, today=TODAY
+        )
         assert created[0].follows == [seed.id]
 
     def test_child_id_allocation_increments_across_batch(self, store):
@@ -1477,7 +1618,9 @@ class TestLoadMany:
             {"name": "a", "args": {"title": "A", "parent": "linear.X"}, "content": ""},
             {"name": "b", "args": {"title": "B", "parent": "linear.X"}, "content": ""},
         ]
-        created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
+        created = model.load_many(
+            store, project="p", blocks=blocks, now=NOW, today=TODAY
+        )
         ids = [t.id for t in created]
         assert ids == ["linear.X.1", "linear.X.2"]
 
@@ -1486,9 +1629,15 @@ class TestLoadMany:
         seed = model.create(store, project="p", title="seed", now=NOW, today=TODAY)
         blocks = [
             {"name": "a", "args": {"title": "A"}, "content": ""},
-            {"name": "b", "args": {"title": "B", "follow": ["a", seed.id]}, "content": ""},
+            {
+                "name": "b",
+                "args": {"title": "B", "follow": ["a", seed.id]},
+                "content": "",
+            },
         ]
-        created = model.load_many(store, project="p", blocks=blocks, now=NOW, today=TODAY)
+        created = model.load_many(
+            store, project="p", blocks=blocks, now=NOW, today=TODAY
+        )
         a, b = created
         assert b.follows == [a.id, seed.id]
 
@@ -1516,7 +1665,11 @@ class TestLoadMany:
             store, project="p", title="existing", parent="linear.X", now=NOW
         )
         blocks = [
-            {"name": "step", "args": {"title": "Step", "follow-end": "*"}, "content": ""},
+            {
+                "name": "step",
+                "args": {"title": "Step", "follow-end": "*"},
+                "content": "",
+            },
         ]
         created = model.load_many(
             store, project="p", blocks=blocks, default_parent="linear.X", now=NOW
@@ -1525,7 +1678,11 @@ class TestLoadMany:
 
     def test_follow_end_wildcard_empty_when_first_child(self, store):
         blocks = [
-            {"name": "step", "args": {"title": "Step", "follow-end": "*"}, "content": ""},
+            {
+                "name": "step",
+                "args": {"title": "Step", "follow-end": "*"},
+                "content": "",
+            },
         ]
         created = model.load_many(
             store, project="p", blocks=blocks, default_parent="linear.X", now=NOW
@@ -1539,8 +1696,16 @@ class TestLoadMany:
             store, project="p", title="existing", parent="linear.X", now=NOW
         )
         blocks = [
-            {"name": "step", "args": {"title": "Step", "follow-end": "*"}, "content": ""},
-            {"name": "tail", "args": {"title": "Tail", "follow": "step"}, "content": ""},
+            {
+                "name": "step",
+                "args": {"title": "Step", "follow-end": "*"},
+                "content": "",
+            },
+            {
+                "name": "tail",
+                "args": {"title": "Tail", "follow": "step"},
+                "content": "",
+            },
         ]
         created = model.load_many(
             store, project="p", blocks=blocks, default_parent="linear.X", now=NOW
@@ -1750,9 +1915,16 @@ class TestEditInEditor:
 class TestDuplicate:
     def test_copies_recipe_into_todo(self, store):
         src = model.create(
-            store, project="p", title="Src", command="plan-task",
-            mode="auto", content="body", pre_action="a", post_action="b",
-            status=model.STATUS_TEMPLATE, id="tmpl",
+            store,
+            project="p",
+            title="Src",
+            command="plan-task",
+            mode="auto",
+            content="body",
+            pre_action="a",
+            post_action="b",
+            status=model.STATUS_TEMPLATE,
+            id="tmpl",
         )
         dup = model.duplicate(store, "p", src.id)
         assert dup.id != src.id
@@ -1766,9 +1938,13 @@ class TestDuplicate:
 
     def test_does_not_copy_schedule(self, store):
         model.create(
-            store, project="p", title="T", schedule="0 9 * * *",
+            store,
+            project="p",
+            title="T",
+            schedule="0 9 * * *",
             last_run="2026-01-01T00:00:00+00:00",
-            status=model.STATUS_TEMPLATE, id="tmpl",
+            status=model.STATUS_TEMPLATE,
+            id="tmpl",
         )
         dup = model.duplicate(store, "p", "tmpl")
         assert dup.schedule == ""
@@ -1800,14 +1976,15 @@ class TestDuplicate:
         # the dot-id names/dedups it under the template, while the empty parent
         # lets it root its own chain (see docs/dev/tasks.md).
         model.create(
-            store, project="p", title="Maint", status=model.STATUS_TEMPLATE,
+            store,
+            project="p",
+            title="Maint",
+            status=model.STATUS_TEMPLATE,
             id="maintenance",
         )
         run_id = model.allocate_run_id("maintenance", "2026-06-18")
         assert run_id == "maintenance.2026-06-18"
-        dup = model.duplicate(
-            store, "p", "maintenance", parent="", id=run_id
-        )
+        dup = model.duplicate(store, "p", "maintenance", parent="", id=run_id)
         assert dup.id == "maintenance.2026-06-18"
         assert dup.parent == ""
         # With no branch override and no parent, create() generates a descriptive
@@ -1819,13 +1996,20 @@ class TestDuplicate:
 
     def test_branch_override_is_honored(self, store):
         model.create(
-            store, project="p", title="Maint", status=model.STATUS_TEMPLATE,
+            store,
+            project="p",
+            title="Maint",
+            status=model.STATUS_TEMPLATE,
             id="maintenance",
         )
         run_id = model.allocate_run_id("maintenance", "2026-06-18")
         dup = model.duplicate(
-            store, "p", "maintenance", parent="",
-            branch="chore/maint", id=run_id,
+            store,
+            "p",
+            "maintenance",
+            parent="",
+            branch="chore/maint",
+            id=run_id,
         )
         assert dup.branch == "chore/maint"
 
@@ -1850,8 +2034,12 @@ class TestTemplateStatus:
 
     def test_schedule_round_trips(self, store):
         model.create(
-            store, project="p", title="T", schedule="0 9 * * *",
-            last_run="2026-06-18T09:00:00+00:00", id="t",
+            store,
+            project="p",
+            title="T",
+            schedule="0 9 * * *",
+            last_run="2026-06-18T09:00:00+00:00",
+            id="t",
         )
         reloaded = model.load(store, "p", "t")
         assert reloaded.schedule == "0 9 * * *"
@@ -1897,9 +2085,7 @@ class TestReconcile:
 
     def test_ok_row_for_in_progress_with_session(self, store):
         t = self._in_progress(store, "p", "a", id="t1")
-        rows = model.reconcile(
-            store, "p", session_task_ids={t.id: {"pid": 1}}
-        )
+        rows = model.reconcile(store, "p", session_task_ids={t.id: {"pid": 1}})
         assert len(rows) == 1
         assert rows[0].state == model.RECONCILE_OK
         assert rows[0].fix_status is None
@@ -1926,7 +2112,8 @@ class TestReconcile:
         # An OK row (live session) is unaffected even if its id is in ran_ids.
         t = self._in_progress(store, "p", "a", id="t1")
         rows = model.reconcile(
-            store, "p",
+            store,
+            "p",
             session_task_ids={t.id: {"pid": 1}},
             ran_ids={t.id},
         )
@@ -1935,9 +2122,7 @@ class TestReconcile:
 
     def test_orphan_session_on_todo_task(self, store):
         t = model.create(store, project="p", title="a", id="t1")  # stays todo
-        rows = model.reconcile(
-            store, "p", session_task_ids={t.id: {"pid": 9}}
-        )
+        rows = model.reconcile(store, "p", session_task_ids={t.id: {"pid": 9}})
         assert len(rows) == 1
         assert rows[0].state == model.RECONCILE_ORPHAN
         assert rows[0].fix_status == model.STATUS_IN_PROGRESS
@@ -1945,17 +2130,13 @@ class TestReconcile:
     def test_done_task_with_session_listed_but_not_flipped(self, store):
         t = model.create(store, project="p", title="a", id="t1")
         model.move(store, "p", t.id, model.STATUS_DONE)
-        rows = model.reconcile(
-            store, "p", session_task_ids={t.id: {"pid": 9}}
-        )
+        rows = model.reconcile(store, "p", session_task_ids={t.id: {"pid": 9}})
         assert len(rows) == 1
         assert rows[0].state == model.RECONCILE_ORPHAN
         assert rows[0].fix_status is None  # finished window — not a corruption
 
     def test_missing_task_with_session_not_flipped(self, store):
-        rows = model.reconcile(
-            store, "p", session_task_ids={"ghost": {"pid": 9}}
-        )
+        rows = model.reconcile(store, "p", session_task_ids={"ghost": {"pid": 9}})
         assert len(rows) == 1
         assert rows[0].state == model.RECONCILE_ORPHAN
         assert rows[0].task_status == "(missing)"
@@ -1964,9 +2145,7 @@ class TestReconcile:
     def test_mixed_rows_sorted_by_task_id(self, store):
         self._in_progress(store, "p", "a", id="t1")  # stale (no session)
         t2 = self._in_progress(store, "p", "b", id="t2")  # ok
-        rows = model.reconcile(
-            store, "p", session_task_ids={t2.id: {"pid": 2}}
-        )
+        rows = model.reconcile(store, "p", session_task_ids={t2.id: {"pid": 2}})
         assert [r.task_id for r in rows] == ["t1", "t2"]
         assert rows[0].state == model.RECONCILE_NEVER_RAN
         assert rows[1].state == model.RECONCILE_OK

@@ -88,9 +88,7 @@ class TestGenerateBranchName:
         def _boom(_prompt: str) -> str:
             raise FileNotFoundError("claude")
 
-        result = branch_name.generate_branch_name(
-            "Fix flaky port test", runner=_boom
-        )
+        result = branch_name.generate_branch_name("Fix flaky port test", runner=_boom)
         assert result == "feat/fix-flaky-port-test"
 
     def test_fallback_preserves_prefix(self):
@@ -124,9 +122,7 @@ class TestGenerateBranchName:
         assert result == "feat/123-task"
 
     def test_empty_title_no_prefix_uses_task_slug(self):
-        result = branch_name.generate_branch_name(
-            "", runner=lambda _prompt: "feat/x"
-        )
+        result = branch_name.generate_branch_name("", runner=lambda _prompt: "feat/x")
         assert result == "feat/task"
 
     def test_unrelated_slug_is_rejected_and_falls_back(self):
@@ -189,9 +185,10 @@ class TestDefaultBranchGeneration:
         monkeypatch.setattr(
             branch_name, "_run_claude", self._runner("fix/flaky-port-test")
         )
-        assert model.default_branch(
-            "x", title="Fix flaky port test", generate=True
-        ) == "fix/flaky-port-test"
+        assert (
+            model.default_branch("x", title="Fix flaky port test", generate=True)
+            == "fix/flaky-port-test"
+        )
 
     def test_orphan_without_generate_is_task_id(self):
         assert model.default_branch("x", title="Fix flaky port test") == "task/x"
@@ -200,23 +197,25 @@ class TestDefaultBranchGeneration:
         monkeypatch.setattr(
             branch_name, "_run_claude", self._runner("fix/flaky-port-test")
         )
-        assert model.default_branch(
-            "x", "linear.NORT-123", title="Fix flaky port test", generate=True
-        ) == "fix/123-flaky-port-test"
+        assert (
+            model.default_branch(
+                "x", "linear.NORT-123", title="Fix flaky port test", generate=True
+            )
+            == "fix/123-flaky-port-test"
+        )
 
     def test_linear_parent_without_title_is_feat_number(self):
         # New deterministic fallback drops the NORT- team prefix.
         assert model.default_branch("x", "linear.NORT-123") == "feat/123"
 
     def test_linear_parent_generate_without_title_is_feat_number(self):
-        assert model.default_branch(
-            "x", "linear.NORT-123", generate=True
-        ) == "feat/123"
+        assert model.default_branch("x", "linear.NORT-123", generate=True) == "feat/123"
 
     def test_non_linear_parent_unchanged(self):
-        assert model.default_branch(
-            "x", "2026-06-09.3", title="whatever", generate=True
-        ) == "task/2026-06-09.3"
+        assert (
+            model.default_branch("x", "2026-06-09.3", title="whatever", generate=True)
+            == "task/2026-06-09.3"
+        )
 
     def test_non_linear_dotted_parent_unchanged(self):
         assert model.default_branch("x", "linear.foo") == "task/linear.foo"

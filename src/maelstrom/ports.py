@@ -92,7 +92,9 @@ def get_allocated_port_bases(allocations: dict[str, dict[str, int]]) -> set[int]
     return bases
 
 
-def record_port_allocation(project_path: Path, worktree_name: str, port_base: int) -> None:
+def record_port_allocation(
+    project_path: Path, worktree_name: str, port_base: int
+) -> None:
     """Record a port allocation for a worktree.
 
     The load-modify-save runs as a single locked transaction so concurrent

@@ -52,7 +52,11 @@ class DoctorResult:
 
     @property
     def issues_found(self) -> int:
-        return sum(1 for c in self.checks if c.status in (CheckStatus.FIXED, CheckStatus.WARNING, CheckStatus.ERROR))
+        return sum(
+            1
+            for c in self.checks
+            if c.status in (CheckStatus.FIXED, CheckStatus.WARNING, CheckStatus.ERROR)
+        )
 
     @property
     def fixed_count(self) -> int:
@@ -60,7 +64,11 @@ class DoctorResult:
 
     @property
     def attention_count(self) -> int:
-        return sum(1 for c in self.checks if c.status in (CheckStatus.WARNING, CheckStatus.ERROR))
+        return sum(
+            1
+            for c in self.checks
+            if c.status in (CheckStatus.WARNING, CheckStatus.ERROR)
+        )
 
 
 def _git_config(project_path: Path, key: str) -> str:
@@ -112,7 +120,9 @@ def _check_mael_marker(project_path: Path) -> CheckResult:
     """Check that the .mael marker file exists."""
     if (project_path / ".mael").exists():
         return CheckResult(CheckStatus.OK, ".mael marker exists")
-    return CheckResult(CheckStatus.ERROR, ".mael marker missing — not a maelstrom project")
+    return CheckResult(
+        CheckStatus.ERROR, ".mael marker missing — not a maelstrom project"
+    )
 
 
 def _check_core_bare(project_path: Path) -> CheckResult:
@@ -124,9 +134,14 @@ def _check_core_bare(project_path: Path) -> CheckResult:
     # Auto-fix
     try:
         run_git(["config", "core.bare", "true"], cwd=project_path)
-        return CheckResult(CheckStatus.FIXED, f"core.bare was '{value or 'unset'}' → fixed to true")
+        return CheckResult(
+            CheckStatus.FIXED, f"core.bare was '{value or 'unset'}' → fixed to true"
+        )
     except subprocess.CalledProcessError:
-        return CheckResult(CheckStatus.ERROR, f"core.bare is '{value or 'unset'}' and could not be fixed")
+        return CheckResult(
+            CheckStatus.ERROR,
+            f"core.bare is '{value or 'unset'}' and could not be fixed",
+        )
 
 
 def _check_standard_fetch_refspec(project_path: Path) -> CheckResult:
@@ -142,10 +157,16 @@ def _check_standard_fetch_refspec(project_path: Path) -> CheckResult:
         if not refspecs:
             run_git(["config", "remote.origin.fetch", expected], cwd=project_path)
         else:
-            run_git(["config", "--add", "remote.origin.fetch", expected], cwd=project_path)
-        return CheckResult(CheckStatus.FIXED, "Standard fetch refspec was missing → added")
+            run_git(
+                ["config", "--add", "remote.origin.fetch", expected], cwd=project_path
+            )
+        return CheckResult(
+            CheckStatus.FIXED, "Standard fetch refspec was missing → added"
+        )
     except subprocess.CalledProcessError:
-        return CheckResult(CheckStatus.ERROR, "Standard fetch refspec missing and could not be added")
+        return CheckResult(
+            CheckStatus.ERROR, "Standard fetch refspec missing and could not be added"
+        )
 
 
 def _check_notes_rewrite_ref(project_path: Path) -> CheckResult:
@@ -169,7 +190,9 @@ def _check_notes_rewrite_ref(project_path: Path) -> CheckResult:
             run_git(["config", "--add", "notes.rewriteRef", expected], cwd=project_path)
         return CheckResult(CheckStatus.FIXED, "notes.rewriteRef was missing → added")
     except subprocess.CalledProcessError:
-        return CheckResult(CheckStatus.ERROR, "notes.rewriteRef missing and could not be added")
+        return CheckResult(
+            CheckStatus.ERROR, "notes.rewriteRef missing and could not be added"
+        )
 
 
 def _check_local_main_sync(project_path: Path) -> CheckResult:
@@ -206,7 +229,9 @@ def _check_origin_main(project_path: Path) -> CheckResult:
     )
     if result.returncode == 0:
         return CheckResult(CheckStatus.OK, f"origin/{branch} exists")
-    return CheckResult(CheckStatus.ERROR, f"origin/{branch} does not exist — try 'git fetch origin'")
+    return CheckResult(
+        CheckStatus.ERROR, f"origin/{branch} does not exist — try 'git fetch origin'"
+    )
 
 
 def _check_main_upstream(project_path: Path) -> CheckResult:
@@ -262,9 +287,7 @@ def _check_main_worktree(project_path: Path) -> CheckResult:
     branch = _default_branch(project_path)
     # git reports resolved paths, so resolve before comparing.
     main_path = (project_path / MAIN_WORKTREE_FOLDER).resolve()
-    add_cmd = (
-        f"git -C {project_path} worktree add {MAIN_WORKTREE_FOLDER} {branch}"
-    )
+    add_cmd = f"git -C {project_path} worktree add {MAIN_WORKTREE_FOLDER} {branch}"
 
     for wt in list_worktrees(project_path):
         if wt.branch != branch:
@@ -314,7 +337,7 @@ def _check_stale_worktrees(project_path: Path) -> CheckResult:
     stale_paths = []
     for line in result.stdout.splitlines():
         if line.startswith("worktree "):
-            wt_path = Path(line[len("worktree "):])
+            wt_path = Path(line[len("worktree ") :])
             if not wt_path.exists() and wt_path != project_path:
                 stale_paths.append(wt_path)
 
@@ -357,7 +380,8 @@ def _check_port_allocations(project_path: Path) -> CheckResult:
 
     # Find orphaned allocations (allocated but no worktree, excluding _shared)
     orphans = [
-        name for name in project_allocs
+        name
+        for name in project_allocs
         if name != "_shared" and name not in actual_names
     ]
 
@@ -397,7 +421,9 @@ def _check_env_markers(project_path: Path) -> CheckResult:
             issues.append(f"{name}: missing start marker")
 
     if not issues:
-        return CheckResult(CheckStatus.OK, ".env section markers valid in all worktrees")
+        return CheckResult(
+            CheckStatus.OK, ".env section markers valid in all worktrees"
+        )
 
     return CheckResult(
         CheckStatus.WARNING,

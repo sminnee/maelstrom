@@ -40,7 +40,11 @@ def _handle_wait_for_review(cwd: Path) -> None:
 
     location = ""
     if comment.kind == "thread" and comment.path:
-        loc = f"{comment.path}:{comment.line}" if comment.line is not None else comment.path
+        loc = (
+            f"{comment.path}:{comment.line}"
+            if comment.line is not None
+            else comment.path
+        )
         location = f" on {loc}"
     snippet = comment.body.strip().splitlines()[0] if comment.body.strip() else ""
     if len(snippet) > 200:
@@ -58,13 +62,32 @@ def _open_pr_in_cmux(url: str) -> None:
 @gh.command("create-pr")
 @click.argument("issue_id", required=False, default=None)
 @click.option("--draft", is_flag=True, help="Create as draft PR")
-@click.option("--progress", is_flag=True, help="Mark as progress (not final). Uses 'Progresses' instead of 'Fixes' and skips setting status to 'In Review'")
-@click.option("--wait", is_flag=True, help="Wait for CI checks to complete after creating PR")
-@click.option("--wait-for-review", "wait_for_review_flag", is_flag=True, help="Wait until a reviewer leaves feedback (review or inline thread). Exits 0 on first review, 2 on timeout.")
+@click.option(
+    "--progress",
+    is_flag=True,
+    help="Mark as progress (not final). Uses 'Progresses' instead of 'Fixes' and skips setting status to 'In Review'",
+)
+@click.option(
+    "--wait", is_flag=True, help="Wait for CI checks to complete after creating PR"
+)
+@click.option(
+    "--wait-for-review",
+    "wait_for_review_flag",
+    is_flag=True,
+    help="Wait until a reviewer leaves feedback (review or inline thread). Exits 0 on first review, 2 on timeout.",
+)
 @click.option("--squash", is_flag=True, help="Autosquash fixup! commits before pushing")
-@click.option("--autorepair", is_flag=True, help="On a conflict in the pre-push sync, run a headless Claude session (/resolve-rebase-conflicts) to resolve it and continue")
-@click.option("--target", default=None, help="Project/worktree target for directory resolution")
-def gh_create_pr(issue_id, draft, progress, wait, wait_for_review_flag, squash, autorepair, target):
+@click.option(
+    "--autorepair",
+    is_flag=True,
+    help="On a conflict in the pre-push sync, run a headless Claude session (/resolve-rebase-conflicts) to resolve it and continue",
+)
+@click.option(
+    "--target", default=None, help="Project/worktree target for directory resolution"
+)
+def gh_create_pr(
+    issue_id, draft, progress, wait, wait_for_review_flag, squash, autorepair, target
+):
     """Create a PR for the current worktree (or push if PR exists).
 
     If ISSUE_ID is provided (e.g., ME-41), appends (Fixes ISSUE_ID) to the PR title
@@ -88,7 +111,15 @@ def gh_create_pr(issue_id, draft, progress, wait, wait_for_review_flag, squash, 
         cwd = Path.cwd()
 
     try:
-        url, created = create_pr(cwd=cwd, draft=draft, issue_id=issue_id, progress=progress, squash=squash, autorepair=autorepair, announce=click.echo)
+        url, created = create_pr(
+            cwd=cwd,
+            draft=draft,
+            issue_id=issue_id,
+            progress=progress,
+            squash=squash,
+            autorepair=autorepair,
+            announce=click.echo,
+        )
         if created:
             click.echo(f"PR created: {url}")
         else:
@@ -114,19 +145,28 @@ def gh_create_pr(issue_id, draft, progress, wait, wait_for_review_flag, squash, 
             if not progress:
                 # Final PR: set status to "In Review"
                 if "In Review" not in states:
-                    click.echo("Warning: 'In Review' state not found in workflow", err=True)
+                    click.echo(
+                        "Warning: 'In Review' state not found in workflow", err=True
+                    )
                 else:
                     # Build label list with product label
                     labels_map = get_labels()
                     current_labels = [
-                        label["name"] for label in issue.get("labels", {}).get("nodes", [])
+                        label["name"]
+                        for label in issue.get("labels", {}).get("nodes", [])
                     ]
                     product_label = get_product_label()
                     new_labels = list(current_labels)
-                    if product_label and product_label not in new_labels and product_label in labels_map:
+                    if (
+                        product_label
+                        and product_label not in new_labels
+                        and product_label in labels_map
+                    ):
                         new_labels.append(product_label)
 
-                    label_ids = [labels_map[name] for name in new_labels if name in labels_map]
+                    label_ids = [
+                        labels_map[name] for name in new_labels if name in labels_map
+                    ]
 
                     update_issue(
                         issue["id"],
@@ -142,7 +182,9 @@ def gh_create_pr(issue_id, draft, progress, wait, wait_for_review_flag, squash, 
                 if parent["state"]["name"] in early_states:
                     if "In Progress" in states:
                         update_issue(parent["id"], stateId=states["In Progress"])
-                        click.echo(f"Updated parent {parent['identifier']} status to: In Progress")
+                        click.echo(
+                            f"Updated parent {parent['identifier']} status to: In Progress"
+                        )
         except Exception as e:
             click.echo(f"Warning: Could not update Linear task: {e}", err=True)
 
@@ -227,6 +269,7 @@ def _render_pr_comments(pr_info, all_comments: bool) -> None:
         return
 
     last_push = pr_info.last_push_at
+
     # ISO 8601 Z-form sorts lexicographically — no parsing needed.
     def is_new(c) -> bool:
         if last_push is None:
@@ -275,7 +318,12 @@ def _render_pr_comments(pr_info, all_comments: bool) -> None:
         show_review = new_review
         show_threads = threads_with_new
 
-    if not show_issue and not show_review and not show_threads and total_old_hidden == 0:
+    if (
+        not show_issue
+        and not show_review
+        and not show_threads
+        and total_old_hidden == 0
+    ):
         return
 
     click.echo()
@@ -328,14 +376,29 @@ def _render_pr_comments(pr_info, all_comments: bool) -> None:
     if not all_comments and total_old_hidden > 0:
         noun = "comment" if total_old_hidden == 1 else "comments"
         click.echo()
-        click.echo(f"{total_old_hidden} older {noun} hidden (use --all-comments to show)")
+        click.echo(
+            f"{total_old_hidden} older {noun} hidden (use --all-comments to show)"
+        )
 
 
 @gh.command("read-pr")
 @click.argument("target", required=False, default=None)
-@click.option("--wait", is_flag=True, help="Wait for CI checks to complete (exit 0=pass, 1=fail, 2=timeout)")
-@click.option("--wait-for-review", "wait_for_review_flag", is_flag=True, help="Wait until a reviewer leaves feedback (review or inline thread). Exits 0 on first review, 2 on timeout.")
-@click.option("--all-comments", is_flag=True, help="Include comments made before the last pushed commit")
+@click.option(
+    "--wait",
+    is_flag=True,
+    help="Wait for CI checks to complete (exit 0=pass, 1=fail, 2=timeout)",
+)
+@click.option(
+    "--wait-for-review",
+    "wait_for_review_flag",
+    is_flag=True,
+    help="Wait until a reviewer leaves feedback (review or inline thread). Exits 0 on first review, 2 on timeout.",
+)
+@click.option(
+    "--all-comments",
+    is_flag=True,
+    help="Include comments made before the last pushed commit",
+)
 def gh_read_pr(target, wait, wait_for_review_flag, all_comments):
     """Read PR status, comments, and check results."""
     if wait and wait_for_review_flag:
@@ -376,7 +439,9 @@ def gh_read_pr(target, wait, wait_for_review_flag, all_comments):
     # Checks
     failed_checks = [c for c in pr_info.checks if c.state == "FAILURE"]
     passing_checks = [c for c in pr_info.checks if c.state == "SUCCESS"]
-    pending_checks = [c for c in pr_info.checks if c.state not in ("FAILURE", "SUCCESS")]
+    pending_checks = [
+        c for c in pr_info.checks if c.state not in ("FAILURE", "SUCCESS")
+    ]
 
     if failed_checks:
         click.echo()
@@ -393,7 +458,9 @@ def gh_read_pr(target, wait, wait_for_review_flag, all_comments):
                     for line in logs.split("\n"):
                         click.echo(f"    {line}")
                     click.echo()
-                click.echo(f"    -> Full log: mael gh check-log [--failed-only] {check.run_id}")
+                click.echo(
+                    f"    -> Full log: mael gh check-log [--failed-only] {check.run_id}"
+                )
 
                 # Show artifacts for this run
                 if check.run_id in pr_info.artifacts:
@@ -402,7 +469,9 @@ def gh_read_pr(target, wait, wait_for_review_flag, all_comments):
                     for artifact in pr_info.artifacts[check.run_id]:
                         size_str = _format_size(artifact.size)
                         click.echo(f"      - {artifact.name} ({size_str})")
-                        click.echo(f"        -> Download: mael gh download-artifact {check.run_id} {artifact.name}")
+                        click.echo(
+                            f"        -> Download: mael gh download-artifact {check.run_id} {artifact.name}"
+                        )
 
     if pending_checks:
         click.echo()

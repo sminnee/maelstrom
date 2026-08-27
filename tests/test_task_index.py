@@ -161,9 +161,7 @@ class TestSqlitePersistence:
             "last_run TEXT, created TEXT, updated TEXT, "
             "PRIMARY KEY (project, id))"
         )
-        conn.execute(
-            "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)"
-        )
+        conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
         conn.commit()
         conn.close()
 
@@ -257,9 +255,17 @@ class TestIndexTracksModelWrites:
 
     def test_create_move_update_rename_delete(self, index):
         store = InMemoryStore()
-        a = model.create(store, project="p", title="a", now=NOW, today=TODAY, index=index)
+        a = model.create(
+            store, project="p", title="a", now=NOW, today=TODAY, index=index
+        )
         b = model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY, index=index
+            store,
+            project="p",
+            title="b",
+            follows=[a.id],
+            now=NOW,
+            today=TODAY,
+            index=index,
         )
         idx, scan = _index_snapshot(index, store, "p")
         assert idx == scan == {a.id: "todo", b.id: "todo"}
@@ -361,7 +367,9 @@ class TestReadsComeFromIndex:
         # store head is None, index head is None) must answer from the index.
         store = InMemoryStore()
         index = SqliteTaskIndex(":memory:")
-        index.upsert(TaskMeta(project="p", id="ghost", status="todo", title="only in index"))
+        index.upsert(
+            TaskMeta(project="p", id="ghost", status="todo", title="only in index")
+        )
         tasks = model.list_tasks(store, project="p", index=index, head=None)
         assert [t.id for t in tasks] == ["ghost"]
         # And the store genuinely has nothing (forced scan proves the index answered).
@@ -371,7 +379,9 @@ class TestReadsComeFromIndex:
         # Index HEAD disagrees with the passed store head -> stale -> scan the store.
         store = InMemoryStore()
         index = SqliteTaskIndex(":memory:")
-        model.create(store, project="p", title="real", now=NOW, today=TODAY, index=index)
+        model.create(
+            store, project="p", title="real", now=NOW, today=TODAY, index=index
+        )
         index.upsert(TaskMeta(project="p", id="ghost", status="todo"))
         index.set_head("some-old-sha")
         tasks = model.list_tasks(store, project="p", index=index, head="current-sha")
@@ -394,7 +404,9 @@ class TestReadsComeFromIndex:
         index = SqliteTaskIndex(":memory:")
         model.create(store, project="p", title="a", now=NOW, today=TODAY, index=index)
         model.create(store, project="p", title="b", now=NOW, today=TODAY, index=index)
-        index.upsert(TaskMeta(project="p", id="stale", status="todo"))  # bogus pre-state
+        index.upsert(
+            TaskMeta(project="p", id="stale", status="todo")
+        )  # bogus pre-state
         n = model.reindex(store, index, projects=["p"], head=None)
         assert n == 2
         assert index.find("p", "stale") is None  # cleared

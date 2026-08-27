@@ -207,17 +207,22 @@ class TestBuildTaskLaunchLineOpenCode:
         )
 
     def test_env_prefixes_opencode_segment(self):
-        line = describe(build_task_launch_line(
-            "proj", "t1", harness="opencode", env={"MAEL_TASK_ID": "t1"},
-        ))
+        line = describe(
+            build_task_launch_line(
+                "proj",
+                "t1",
+                harness="opencode",
+                env={"MAEL_TASK_ID": "t1"},
+            )
+        )
         assert line.startswith("MAEL_TASK_ID=t1 opencode2 ")
         assert line.endswith(' --prompt "$(mael task prompt t1 --project proj)"')
 
     def test_quotes_ids_and_projects_with_spaces(self):
-        assert describe(build_task_launch_line(
-            "my proj", "task one", harness="opencode"
-        )) == (
-            'opencode2 --prompt "$(mael task prompt \'task one\' --project \'my proj\')"'
+        assert describe(
+            build_task_launch_line("my proj", "task one", harness="opencode")
+        ) == (
+            "opencode2 --prompt \"$(mael task prompt 'task one' --project 'my proj')\""
         )
 
     def test_substitution_reaches_opencode_through_real_shell(self):
@@ -289,9 +294,9 @@ class TestBuildTaskLaunchLine:
         # The env must land on the ``claude`` segment (right of the pipe) so the
         # interactive session inherits it. A front-of-line prefix would only
         # reach ``mael task prompt`` (POSIX scopes it to the first command).
-        line = describe(build_task_launch_line(
-            "proj", "t1", "plan", env={"MAEL_TASK_ID": "t1"}
-        ))
+        line = describe(
+            build_task_launch_line("proj", "t1", "plan", env={"MAEL_TASK_ID": "t1"})
+        )
         left, right = line.split(" | ", 1)
         assert left == "mael task prompt t1 --project proj"
         assert right == "MAEL_TASK_ID=t1 claude --permission-mode plan"
@@ -315,9 +320,9 @@ class TestBuildTaskLaunchLine:
                 stub = stub_dir / name
                 stub.write_text('#!/bin/sh\necho "$MAEL_TASK_ID"\n')
                 stub.chmod(0o755)
-            line = describe(build_task_launch_line(
-                "proj", "t1", env={"MAEL_TASK_ID": "t1"}
-            ))
+            line = describe(
+                build_task_launch_line("proj", "t1", env={"MAEL_TASK_ID": "t1"})
+            )
             env = {**os.environ, "PATH": f"{stub_dir}:{os.environ['PATH']}"}
             result = subprocess.run(
                 ["sh", "-c", line],
@@ -344,9 +349,10 @@ class TestExecCmd:
 
     def test_argv_execs_directly_no_chdir(self):
         # A plain argv execs directly (no sh hop); cwd=None means no chdir.
-        with patch("maelstrom.shell.os.chdir") as mock_chdir, \
-             patch("maelstrom.shell.os.execvp",
-                   side_effect=self._STOP) as mock_execvp:
+        with (
+            patch("maelstrom.shell.os.chdir") as mock_chdir,
+            patch("maelstrom.shell.os.execvp", side_effect=self._STOP) as mock_execvp,
+        ):
             with pytest.raises(SystemExit):
                 exec_cmd(["claude"], cwd=None)
             mock_chdir.assert_not_called()
@@ -355,18 +361,23 @@ class TestExecCmd:
     def test_cwd_chdirs(self):
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
-            with patch("maelstrom.shell.os.chdir") as mock_chdir, \
-                 patch("maelstrom.shell.os.execvp",
-                       side_effect=self._STOP) as mock_execvp:
+            with (
+                patch("maelstrom.shell.os.chdir") as mock_chdir,
+                patch(
+                    "maelstrom.shell.os.execvp", side_effect=self._STOP
+                ) as mock_execvp,
+            ):
                 with pytest.raises(SystemExit):
                     exec_cmd(["claude"], cwd=worktree_path)
                 mock_chdir.assert_called_once_with(worktree_path)
                 mock_execvp.assert_called_once_with("claude", ["claude"])
 
     def test_env_updates_environ(self):
-        with patch("maelstrom.shell.os.chdir"), \
-             patch("maelstrom.shell.os.execvp", side_effect=self._STOP), \
-             patch.dict("maelstrom.shell.os.environ", {}, clear=True):
+        with (
+            patch("maelstrom.shell.os.chdir"),
+            patch("maelstrom.shell.os.execvp", side_effect=self._STOP),
+            patch.dict("maelstrom.shell.os.environ", {}, clear=True),
+        ):
             with pytest.raises(SystemExit):
                 exec_cmd(["claude"], cwd=None, env={"MAEL_TASK_ID": "x"})
             assert os.environ["MAEL_TASK_ID"] == "x"
@@ -374,31 +385,32 @@ class TestExecCmd:
     def test_plain_command_execs_via_sh(self):
         # A Command (not a bare argv) goes through ``sh -c "exec ..."`` so the
         # shell replaces itself and nothing lingers.
-        with patch("maelstrom.shell.os.chdir"), \
-             patch("maelstrom.shell.os.execvp",
-                   side_effect=self._STOP) as mock_execvp:
+        with (
+            patch("maelstrom.shell.os.chdir"),
+            patch("maelstrom.shell.os.execvp", side_effect=self._STOP) as mock_execvp,
+        ):
             with pytest.raises(SystemExit):
                 exec_cmd(Command(["claude"]), cwd=None)
-            mock_execvp.assert_called_once_with(
-                "sh", ["sh", "-c", "exec claude"]
-            )
+            mock_execvp.assert_called_once_with("sh", ["sh", "-c", "exec claude"])
 
     def test_pipeline_execs_via_sh(self):
         # A pipeline runs through ``sh -c "exec ..."`` so the process is
         # replaced while stdin/stdout stay inherited (stdout = TTY → interactive).
-        expr = build_task_launch_line(
-            "p", "t1", "plan", env={"MAEL_TASK_ID": "t1"}
-        )
-        with patch("maelstrom.shell.os.chdir"), \
-             patch("maelstrom.shell.os.execvp",
-                   side_effect=self._STOP) as mock_execvp:
+        expr = build_task_launch_line("p", "t1", "plan", env={"MAEL_TASK_ID": "t1"})
+        with (
+            patch("maelstrom.shell.os.chdir"),
+            patch("maelstrom.shell.os.execvp", side_effect=self._STOP) as mock_execvp,
+        ):
             with pytest.raises(SystemExit):
                 exec_cmd(expr, cwd=None)
             mock_execvp.assert_called_once_with(
                 "sh",
-                ["sh", "-c",
-                 "exec mael task prompt t1 --project p "
-                 "| MAEL_TASK_ID=t1 claude --permission-mode plan"],
+                [
+                    "sh",
+                    "-c",
+                    "exec mael task prompt t1 --project p "
+                    "| MAEL_TASK_ID=t1 claude --permission-mode plan",
+                ],
             )
 
 
@@ -417,20 +429,21 @@ class TestOpenClaudeWorkspace:
         with patch(
             "maelstrom.cmux.mael_layout.ensure_worktree_workspace"
         ) as mock_ensure:
-            placed = open_claude_workspace(
-                None, "alpha", Path("/wt"), ["claude", "hi"]
-            )
+            placed = open_claude_workspace(None, "alpha", Path("/wt"), ["claude", "hi"])
             assert placed is False
             mock_ensure.assert_not_called()
 
     def test_returns_seam_result(self):
         # Outside cmux the seam returns False; open_claude_workspace passes it on.
-        with patch(
-            "maelstrom.cmux.mael_layout.ensure_worktree_workspace",
-            return_value=False,
-        ), patch(
-            "maelstrom.worktree_launcher.load_config_or_default",
-            return_value=SimpleNamespace(install_cmd=""),
+        with (
+            patch(
+                "maelstrom.cmux.mael_layout.ensure_worktree_workspace",
+                return_value=False,
+            ),
+            patch(
+                "maelstrom.worktree_launcher.load_config_or_default",
+                return_value=SimpleNamespace(install_cmd=""),
+            ),
         ):
             placed = open_claude_workspace(
                 "proj", "alpha", Path("/wt"), ["claude", "hi"]
@@ -438,12 +451,15 @@ class TestOpenClaudeWorkspace:
             assert placed is False
 
     def test_passes_shell_line_and_install_to_seam(self):
-        with patch(
-            "maelstrom.cmux.mael_layout.ensure_worktree_workspace",
-            return_value=True,
-        ) as mock_ensure, patch(
-            "maelstrom.worktree_launcher.load_config_or_default",
-            return_value=SimpleNamespace(install_cmd="npm install"),
+        with (
+            patch(
+                "maelstrom.cmux.mael_layout.ensure_worktree_workspace",
+                return_value=True,
+            ) as mock_ensure,
+            patch(
+                "maelstrom.worktree_launcher.load_config_or_default",
+                return_value=SimpleNamespace(install_cmd="npm install"),
+            ),
         ):
             placed = open_claude_workspace(
                 "proj",
@@ -467,19 +483,24 @@ class TestOpenClaudeWorkspace:
         # A Pipeline carries the env on its ``claude`` Command (the right of the
         # pipe); ``open_claude_workspace`` renders it — env stays on the correct
         # segment structurally, so there's nothing to re-prefix at the front.
-        expr = Pipeline([
-            Command(["mael", "task", "prompt", "t1", "--project", "proj"]),
-            Command(
-                ["claude", "--permission-mode", "plan"],
-                env={"MAEL_TASK_ID": "t1"},
+        expr = Pipeline(
+            [
+                Command(["mael", "task", "prompt", "t1", "--project", "proj"]),
+                Command(
+                    ["claude", "--permission-mode", "plan"],
+                    env={"MAEL_TASK_ID": "t1"},
+                ),
+            ]
+        )
+        with (
+            patch(
+                "maelstrom.cmux.mael_layout.ensure_worktree_workspace",
+                return_value=True,
+            ) as mock_ensure,
+            patch(
+                "maelstrom.worktree_launcher.load_config_or_default",
+                return_value=SimpleNamespace(install_cmd=""),
             ),
-        ])
-        with patch(
-            "maelstrom.cmux.mael_layout.ensure_worktree_workspace",
-            return_value=True,
-        ) as mock_ensure, patch(
-            "maelstrom.worktree_launcher.load_config_or_default",
-            return_value=SimpleNamespace(install_cmd=""),
         ):
             placed = open_claude_workspace("proj", "alpha", Path("/wt"), expr)
             assert placed is True
@@ -489,12 +510,15 @@ class TestOpenClaudeWorkspace:
             )
 
     def test_empty_install_cmd_passed_as_none(self):
-        with patch(
-            "maelstrom.cmux.mael_layout.ensure_worktree_workspace",
-            return_value=True,
-        ) as mock_ensure, patch(
-            "maelstrom.worktree_launcher.load_config_or_default",
-            return_value=SimpleNamespace(install_cmd=""),
+        with (
+            patch(
+                "maelstrom.cmux.mael_layout.ensure_worktree_workspace",
+                return_value=True,
+            ) as mock_ensure,
+            patch(
+                "maelstrom.worktree_launcher.load_config_or_default",
+                return_value=SimpleNamespace(install_cmd=""),
+            ),
         ):
             open_claude_workspace("proj", "alpha", Path("/wt"), ["claude", "hi"])
             assert mock_ensure.call_args.kwargs["install_cmd"] is None
@@ -513,12 +537,16 @@ class TestLaunchClaudeInWorktree:
     def test_returns_true_when_cmux_up_and_placed(self):
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
-            with patch(
-                "maelstrom.worktree_launcher.ensure_cmux_running", return_value=True
-            ), patch(
-                "maelstrom.worktree_launcher.open_claude_workspace", return_value=True
-            ) as mock_open, \
-                 patch("maelstrom.worktree_launcher.run_cmd") as mock_run:
+            with (
+                patch(
+                    "maelstrom.worktree_launcher.ensure_cmux_running", return_value=True
+                ),
+                patch(
+                    "maelstrom.worktree_launcher.open_claude_workspace",
+                    return_value=True,
+                ) as mock_open,
+                patch("maelstrom.worktree_launcher.run_cmd") as mock_run,
+            ):
                 placed = launch_claude_in_worktree(
                     worktree_path, project="proj", worktree="alpha"
                 )
@@ -530,12 +558,16 @@ class TestLaunchClaudeInWorktree:
         # cmux is up but placement itself fails → propagate False, still no exec.
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
-            with patch(
-                "maelstrom.worktree_launcher.ensure_cmux_running", return_value=True
-            ), patch(
-                "maelstrom.worktree_launcher.open_claude_workspace", return_value=False
-            ) as mock_open, \
-                 patch("maelstrom.worktree_launcher.run_cmd") as mock_run:
+            with (
+                patch(
+                    "maelstrom.worktree_launcher.ensure_cmux_running", return_value=True
+                ),
+                patch(
+                    "maelstrom.worktree_launcher.open_claude_workspace",
+                    return_value=False,
+                ) as mock_open,
+                patch("maelstrom.worktree_launcher.run_cmd") as mock_run,
+            ):
                 placed = launch_claude_in_worktree(
                     worktree_path, project="proj", worktree="alpha"
                 )
@@ -548,12 +580,14 @@ class TestLaunchClaudeInWorktree:
         # never reached (no local fallback).
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
-            with patch(
-                "maelstrom.worktree_launcher.ensure_cmux_running", return_value=False
-            ), patch(
-                "maelstrom.worktree_launcher.open_claude_workspace"
-            ) as mock_open, \
-                 patch("maelstrom.worktree_launcher.run_cmd") as mock_run:
+            with (
+                patch(
+                    "maelstrom.worktree_launcher.ensure_cmux_running",
+                    return_value=False,
+                ),
+                patch("maelstrom.worktree_launcher.open_claude_workspace") as mock_open,
+                patch("maelstrom.worktree_launcher.run_cmd") as mock_run,
+            ):
                 placed = launch_claude_in_worktree(
                     worktree_path,
                     project="proj",

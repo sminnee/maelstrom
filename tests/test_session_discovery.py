@@ -27,6 +27,7 @@ def _fake_run_cmd(pgrep_out: str, lsof_out: str, ps_out: str = ""):
     ``all_live_sessions`` makes. ``ps_out`` defaults to empty (no session-ids),
     which keeps the pre-session-id tests unchanged.
     """
+
     def run(cmd, *args, **kwargs):
         if cmd[0] == "pgrep":
             return _completed(pgrep_out)
@@ -35,6 +36,7 @@ def _fake_run_cmd(pgrep_out: str, lsof_out: str, ps_out: str = ""):
         if cmd[0] == "ps":
             return _completed(ps_out)
         raise AssertionError(f"unexpected command: {cmd}")
+
     return run
 
 
@@ -55,16 +57,16 @@ def _lsof_records(pairs: list[tuple[int, str]]) -> str:
 class TestAllLiveSessions:
     def test_empty_when_no_claude(self, monkeypatch):
         # pgrep exits 1 / prints nothing when nothing matches.
-        monkeypatch.setattr(
-            session_discovery, "run_cmd", _fake_run_cmd("", "")
-        )
+        monkeypatch.setattr(session_discovery, "run_cmd", _fake_run_cmd("", ""))
         assert session_discovery.all_live_sessions() == []
 
     def test_parses_pid_and_cwd(self, monkeypatch):
         monkeypatch.setattr(
             session_discovery,
             "run_cmd",
-            _fake_run_cmd("42\n99\n", _lsof_records([(42, "/w/alpha"), (99, "/w/echo")])),
+            _fake_run_cmd(
+                "42\n99\n", _lsof_records([(42, "/w/alpha"), (99, "/w/echo")])
+            ),
         )
         sessions = session_discovery.all_live_sessions()
         assert sessions == [
@@ -80,13 +82,12 @@ class TestAllLiveSessions:
             _fake_run_cmd("42\n99\n", _lsof_records([(42, "/w/alpha")])),
         )
         sessions = session_discovery.all_live_sessions()
-        assert sessions == [
-            session_discovery.LiveSession(pid=42, cwd=Path("/w/alpha"))
-        ]
+        assert sessions == [session_discovery.LiveSession(pid=42, cwd=Path("/w/alpha"))]
 
     def test_pgrep_missing_binary_is_empty(self, monkeypatch):
         def raise_oserror(cmd, *a, **k):
             raise OSError("pgrep not found")
+
         monkeypatch.setattr(session_discovery, "run_cmd", raise_oserror)
         assert session_discovery.all_live_sessions() == []
 
@@ -95,6 +96,7 @@ class TestAllLiveSessions:
             if cmd[0] == "pgrep":
                 return _completed("42\n")
             raise OSError("lsof not found")
+
         monkeypatch.setattr(session_discovery, "run_cmd", run)
         assert session_discovery.all_live_sessions() == []
 
@@ -105,9 +107,7 @@ class TestAllLiveSessions:
             _fake_run_cmd("garbage\n42\n", _lsof_records([(42, "/w/alpha")])),
         )
         sessions = session_discovery.all_live_sessions()
-        assert sessions == [
-            session_discovery.LiveSession(pid=42, cwd=Path("/w/alpha"))
-        ]
+        assert sessions == [session_discovery.LiveSession(pid=42, cwd=Path("/w/alpha"))]
 
     def test_captures_session_id_from_ps(self, monkeypatch):
         sid = "97894d02-f335-5ea3-9d9f-050330a4902b"
@@ -149,11 +149,10 @@ class TestAllLiveSessions:
             if cmd[0] == "lsof":
                 return _completed(_lsof_records([(42, "/w/alpha")]))
             raise OSError("ps not found")
+
         monkeypatch.setattr(session_discovery, "run_cmd", run)
         sessions = session_discovery.all_live_sessions()
-        assert sessions == [
-            session_discovery.LiveSession(pid=42, cwd=Path("/w/alpha"))
-        ]
+        assert sessions == [session_discovery.LiveSession(pid=42, cwd=Path("/w/alpha"))]
 
     def test_session_id_matched_per_pid(self, monkeypatch):
         # Two live sessions, each with its own --session-id; ps lines may arrive
@@ -166,10 +165,12 @@ class TestAllLiveSessions:
             _fake_run_cmd(
                 "42\n99\n",
                 _lsof_records([(42, "/w/alpha"), (99, "/w/echo")]),
-                _ps_records([
-                    (99, f"claude --session-id {b}"),
-                    (42, f"claude --session-id {a}"),
-                ]),
+                _ps_records(
+                    [
+                        (99, f"claude --session-id {b}"),
+                        (42, f"claude --session-id {a}"),
+                    ]
+                ),
             ),
         )
         sessions = session_discovery.all_live_sessions()
@@ -284,7 +285,8 @@ class TestLiveSessionSet:
     def test_for_session_id_none_when_no_match(self):
         sessions = [
             session_discovery.LiveSession(
-                pid=1, cwd=Path("/w/a"),
+                pid=1,
+                cwd=Path("/w/a"),
                 session_id="97894d02-f335-5ea3-9d9f-050330a4902b",
             ),
         ]
@@ -304,8 +306,9 @@ class TestLiveSessionSet:
         monkeypatch.setattr(
             session_discovery,
             "all_live_sessions",
-            lambda: calls.append(1)
-            or [session_discovery.LiveSession(pid=1, cwd=alpha)],
+            lambda: (
+                calls.append(1) or [session_discovery.LiveSession(pid=1, cwd=alpha)]
+            ),
         )
         live = session_discovery.LiveSessionSet()
         assert live.count_for(alpha) == 1
@@ -326,11 +329,17 @@ class TestResolve:
     _B = "94063899-7207-57ac-9629-4cc8d130667f"
 
     def _set(self):
-        return session_discovery.LiveSessionSet([
-            session_discovery.LiveSession(pid=101, cwd=Path("/w/a"), session_id=self._A),
-            session_discovery.LiveSession(pid=202, cwd=Path("/w/b"), session_id=self._B),
-            session_discovery.LiveSession(pid=303, cwd=Path("/w/c")),
-        ])
+        return session_discovery.LiveSessionSet(
+            [
+                session_discovery.LiveSession(
+                    pid=101, cwd=Path("/w/a"), session_id=self._A
+                ),
+                session_discovery.LiveSession(
+                    pid=202, cwd=Path("/w/b"), session_id=self._B
+                ),
+                session_discovery.LiveSession(pid=303, cwd=Path("/w/c")),
+            ]
+        )
 
     def test_resolves_a_pid(self):
         assert self._set().resolve("202").pid == 202
@@ -347,21 +356,30 @@ class TestResolve:
     def test_rejects_a_prefix_shorter_than_four_characters(self):
         # "b9c" prefixes exactly one session id, but three characters is below
         # the floor, so it is a miss rather than a match.
-        live = session_discovery.LiveSessionSet([
-            session_discovery.LiveSession(
-                pid=1, cwd=Path("/w/a"),
-                session_id="b9c4d02f-f335-5ea3-9d9f-050330a4902b",
-            ),
-        ])
+        live = session_discovery.LiveSessionSet(
+            [
+                session_discovery.LiveSession(
+                    pid=1,
+                    cwd=Path("/w/a"),
+                    session_id="b9c4d02f-f335-5ea3-9d9f-050330a4902b",
+                ),
+            ]
+        )
         with pytest.raises(KeyError):
             live.resolve("b9c")
         assert live.resolve("b9c4").pid == 1
 
     def test_ambiguous_prefix_raises_value_error_naming_candidates(self):
-        live = session_discovery.LiveSessionSet([
-            session_discovery.LiveSession(pid=1, cwd=Path("/w/a"), session_id="abcd1111"),
-            session_discovery.LiveSession(pid=2, cwd=Path("/w/b"), session_id="abcd2222"),
-        ])
+        live = session_discovery.LiveSessionSet(
+            [
+                session_discovery.LiveSession(
+                    pid=1, cwd=Path("/w/a"), session_id="abcd1111"
+                ),
+                session_discovery.LiveSession(
+                    pid=2, cwd=Path("/w/b"), session_id="abcd2222"
+                ),
+            ]
+        )
         with pytest.raises(ValueError) as exc:
             live.resolve("abcd")
         assert "abcd1111" in str(exc.value)
@@ -378,9 +396,15 @@ class TestResolve:
     def test_a_full_uuid_wins_over_a_pid_shaped_lookup(self):
         # An all-digit handle is a pid, never a uuid prefix: uuids are hex with
         # dashes, and a pid is what a user reads off `session list`.
-        live = session_discovery.LiveSessionSet([
-            session_discovery.LiveSession(pid=1234, cwd=Path("/w/a"), session_id="1234abcd-0000-0000-0000-000000000000"),
-        ])
+        live = session_discovery.LiveSessionSet(
+            [
+                session_discovery.LiveSession(
+                    pid=1234,
+                    cwd=Path("/w/a"),
+                    session_id="1234abcd-0000-0000-0000-000000000000",
+                ),
+            ]
+        )
         assert live.resolve("1234").pid == 1234
 
 
@@ -393,14 +417,17 @@ class TestSessionForPid:
     a session this can describe.
     """
 
-    _CLAUDE = "/opt/homebrew/bin/claude --session-id 1111abcd-0000-0000-0000-000000000000"
+    _CLAUDE = (
+        "/opt/homebrew/bin/claude --session-id 1111abcd-0000-0000-0000-000000000000"
+    )
 
     def test_reads_cwd_and_session_id_from_the_process(self, monkeypatch):
         monkeypatch.setattr(
             session_discovery,
             "run_cmd",
-            _fake_run_cmd("", _lsof_records([(42, "/w/alpha")]),
-                          _ps_records([(42, self._CLAUDE)])),
+            _fake_run_cmd(
+                "", _lsof_records([(42, "/w/alpha")]), _ps_records([(42, self._CLAUDE)])
+            ),
         )
         sess = session_discovery.session_for_pid(42)
         assert sess is not None
@@ -413,8 +440,11 @@ class TestSessionForPid:
         monkeypatch.setattr(
             session_discovery,
             "run_cmd",
-            _fake_run_cmd("", _lsof_records([(42, "/w/alpha")]),
-                          _ps_records([(42, "/opt/homebrew/bin/claude")])),
+            _fake_run_cmd(
+                "",
+                _lsof_records([(42, "/w/alpha")]),
+                _ps_records([(42, "/opt/homebrew/bin/claude")]),
+            ),
         )
         sess = session_discovery.session_for_pid(42)
         assert sess is not None
@@ -426,15 +456,20 @@ class TestSessionForPid:
         monkeypatch.setattr(
             session_discovery,
             "run_cmd",
-            _fake_run_cmd("", _lsof_records([(42, "/w/alpha")]),
-                          _ps_records([(42, "/usr/local/bin/postgres -D /data")])),
+            _fake_run_cmd(
+                "",
+                _lsof_records([(42, "/w/alpha")]),
+                _ps_records([(42, "/usr/local/bin/postgres -D /data")]),
+            ),
         )
         assert session_discovery.session_for_pid(42) is None
 
     def test_none_when_the_process_is_gone(self, monkeypatch):
         # `ps` reports nothing for a pid that has already exited.
         monkeypatch.setattr(
-            session_discovery, "run_cmd", _fake_run_cmd("", "", ""),
+            session_discovery,
+            "run_cmd",
+            _fake_run_cmd("", "", ""),
         )
         assert session_discovery.session_for_pid(42) is None
 
@@ -453,8 +488,11 @@ class TestSessionForPid:
         monkeypatch.setattr(
             session_discovery,
             "run_cmd",
-            _fake_run_cmd("", _lsof_records([(42, "/w/alpha")]),
-                          _ps_records([(42, "/Users/me/.local/bin/claude --resume x")])),
+            _fake_run_cmd(
+                "",
+                _lsof_records([(42, "/w/alpha")]),
+                _ps_records([(42, "/Users/me/.local/bin/claude --resume x")]),
+            ),
         )
         assert session_discovery.session_for_pid(42) is not None
 
@@ -463,7 +501,10 @@ class TestSessionForPid:
         monkeypatch.setattr(
             session_discovery,
             "run_cmd",
-            _fake_run_cmd("", _lsof_records([(42, "/w/alpha")]),
-                          _ps_records([(42, "python -m maelstrom session end claude")])),
+            _fake_run_cmd(
+                "",
+                _lsof_records([(42, "/w/alpha")]),
+                _ps_records([(42, "python -m maelstrom session end claude")]),
+            ),
         )
         assert session_discovery.session_for_pid(42) is None

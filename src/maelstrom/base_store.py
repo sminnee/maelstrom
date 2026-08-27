@@ -126,7 +126,9 @@ class GitConfigBaseStore:
         try:
             return run_cmd(
                 ["git", "config", *args],
-                cwd=self.repo_path, quiet=True, check=False,
+                cwd=self.repo_path,
+                quiet=True,
+                check=False,
             )
         except (OSError, subprocess.SubprocessError):
             return None
@@ -149,7 +151,9 @@ class GitConfigBaseStore:
         try:
             result = run_cmd(
                 ["git", "config", *args],
-                cwd=self.repo_path, quiet=True, check=False,
+                cwd=self.repo_path,
+                quiet=True,
+                check=False,
             )
         except (OSError, subprocess.SubprocessError) as e:
             raise RuntimeError(f"Could not write git config in {self.repo_path}: {e}")
@@ -222,7 +226,7 @@ class GitConfigBaseStore:
             head, _, suffix = key.rpartition(".")
             if suffix.lower() != BASE_KEY.lower() or not head.startswith("branch."):
                 continue
-            branch = head[len("branch."):]
+            branch = head[len("branch.") :]
             if branch:
                 bases[branch] = value.strip()
         return bases

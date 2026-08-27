@@ -135,30 +135,37 @@ class TestBuildMovePlan:
     def test_only_symlinks_pointing_into_the_project_are_repointed(self):
         plan = self._plan(
             global_symlinks=[
-                (Path("/home/u/.claude/skills/mael"),
-                 Path("/Projects/old/_main/shared/skills/mael")),
-                (Path("/home/u/.claude/skills/other"),
-                 Path("/elsewhere/skills/other")),
+                (
+                    Path("/home/u/.claude/skills/mael"),
+                    Path("/Projects/old/_main/shared/skills/mael"),
+                ),
+                (Path("/home/u/.claude/skills/other"), Path("/elsewhere/skills/other")),
             ],
         )
 
         assert plan.symlink_repoints == [
-            (Path("/home/u/.claude/skills/mael"),
-             Path("/Projects/new/_main/shared/skills/mael")),
+            (
+                Path("/home/u/.claude/skills/mael"),
+                Path("/Projects/new/_main/shared/skills/mael"),
+            ),
         ]
 
     def test_a_symlink_through_a_renamed_worktree_folder_follows_it(self):
         """The worktree folder is renamed too, so the target must map both."""
         plan = self._plan(
             global_symlinks=[
-                (Path("/home/u/.claude/skills/mael"),
-                 Path("/Projects/old/old-alpha/shared/skills/mael")),
+                (
+                    Path("/home/u/.claude/skills/mael"),
+                    Path("/Projects/old/old-alpha/shared/skills/mael"),
+                ),
             ],
         )
 
         assert plan.symlink_repoints == [
-            (Path("/home/u/.claude/skills/mael"),
-             Path("/Projects/new/new-alpha/shared/skills/mael")),
+            (
+                Path("/home/u/.claude/skills/mael"),
+                Path("/Projects/new/new-alpha/shared/skills/mael"),
+            ),
         ]
 
     def test_only_claude_json_keys_under_the_project_are_rekeyed(self):
@@ -202,7 +209,8 @@ class TestRekeyPortAllocations:
     def test_preserves_unrelated_projects(self):
         result = rekey_port_allocations(
             {"/p/old": {"alpha": 310}, "/p/other": {"alpha": 320}},
-            "/p/old", "/p/new",
+            "/p/old",
+            "/p/new",
         )
 
         assert result["/p/other"] == {"alpha": 320}
@@ -217,7 +225,8 @@ class TestRekeyPortAllocations:
         with pytest.raises(ValueError, match="already exist"):
             rekey_port_allocations(
                 {"/p/old": {"alpha": 310}, "/p/new": {"alpha": 320}},
-                "/p/old", "/p/new",
+                "/p/old",
+                "/p/new",
             )
 
     def test_a_missing_project_is_a_no_op(self):
@@ -269,9 +278,9 @@ class TestRepointPath:
     """The shared under-the-old-root test-and-transform."""
 
     def test_rewrites_a_path_under_the_root(self):
-        assert repoint_path(
-            Path("/p/old/sub"), Path("/p/old"), Path("/p/new")
-        ) == Path("/p/new/sub")
+        assert repoint_path(Path("/p/old/sub"), Path("/p/old"), Path("/p/new")) == Path(
+            "/p/new/sub"
+        )
 
     def test_returns_none_for_an_unrelated_path(self):
         assert repoint_path(Path("/other"), Path("/p/old"), Path("/p/new")) is None

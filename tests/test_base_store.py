@@ -21,12 +21,16 @@ def git_repo(tmp_path):
     """A repo with one commit, plus a linked worktree that shares its config."""
     root = tmp_path / "repo"
     root.mkdir()
-    subprocess.run(["git", "init", "-b", "main", str(root)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "-b", "main", str(root)], check=True, capture_output=True
+    )
     subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=root, check=True)
     subprocess.run(["git", "config", "user.name", "T"], cwd=root, check=True)
     (root / "f.txt").write_text("x\n")
     subprocess.run(["git", "add", "-A"], cwd=root, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "init"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"], cwd=root, check=True, capture_output=True
+    )
     return root
 
 
@@ -113,7 +117,9 @@ class TestGitConfigBaseStore:
         linked = tmp_path / "linked"
         subprocess.run(
             ["git", "worktree", "add", "-b", "feat/child", str(linked), "main"],
-            cwd=git_repo, check=True, capture_output=True,
+            cwd=git_repo,
+            check=True,
+            capture_output=True,
         )
         assert GitConfigBaseStore(linked).read("feat/child") == BaseRef(
             branch="feat/parent", tip="abc123"

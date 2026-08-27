@@ -252,7 +252,9 @@ def _writer_worker(root_str: str, prefix: str, count: int) -> None:
 
     store = GitFileStore(root=Path(root_str))
     for i in range(count):
-        store.write(f"p/todo/{prefix}-{i}.md", f"{prefix}-{i}", message=f"add {prefix}-{i}")
+        store.write(
+            f"p/todo/{prefix}-{i}.md", f"{prefix}-{i}", message=f"add {prefix}-{i}"
+        )
 
 
 class TestLocking:

@@ -78,8 +78,11 @@ def launch(monkeypatch, tmp_path):
     # `for_session_id` finds nothing.
     _patch_live_sessions(monkeypatch, [])
     return SimpleNamespace(
-        setup=setup, session=session, exec=exec_cmd,
-        ensure_cmux=ensure_cmux, wt_path=wt_path,
+        setup=setup,
+        session=session,
+        exec=exec_cmd,
+        ensure_cmux=ensure_cmux,
+        wt_path=wt_path,
     )
 
 
@@ -139,9 +142,7 @@ class TestAddBranch:
         assert t.mode == "plan"
 
     def test_explicit_normal_mode_overrides_default(self, runner, store):
-        result = runner.invoke(
-            task_cli.task, ["add", "Just do it", "--mode", "normal"]
-        )
+        result = runner.invoke(task_cli.task, ["add", "Just do it", "--mode", "normal"])
         assert result.exit_code == 0, result.output
         t = model.load(store, "p", result.output.strip())
         assert t.mode == "normal"
@@ -180,9 +181,7 @@ class TestActionFlags:
         new_id = runner.invoke(
             task_cli.task, ["add", "E", "--post-action", "linear.done"]
         ).output.strip()
-        result = runner.invoke(
-            task_cli.task, ["update", new_id, "--post-action", ""]
-        )
+        result = runner.invoke(task_cli.task, ["update", new_id, "--post-action", ""])
         assert result.exit_code == 0, result.output
         assert model.load(store, "p", new_id).post_action == ""
 
@@ -226,9 +225,7 @@ class TestUpdateRename:
 
     def test_update_id_rewrites_dependent_follows(self, runner, store):
         a = runner.invoke(task_cli.task, ["add", "A"]).output.strip()
-        b = runner.invoke(
-            task_cli.task, ["add", "B", "--follow", a]
-        ).output.strip()
+        b = runner.invoke(task_cli.task, ["add", "B", "--follow", a]).output.strip()
         result = runner.invoke(task_cli.task, ["update", a, "--id", "new-a"])
         assert result.exit_code == 0, result.output
         assert model.load(store, "p", b).follows == ["new-a"]
@@ -533,9 +530,7 @@ class TestRun:
         assert f"Running {t.id} on {t.branch}" in result.output
         assert "→ p/bravo (created)" in result.output
 
-    def test_run_passes_the_tasks_model_to_the_launcher(
-        self, runner, store, launch
-    ):
+    def test_run_passes_the_tasks_model_to_the_launcher(self, runner, store, launch):
         t = model.create(store, project="p", title="Plan it", model="opus")
         result = runner.invoke(task_cli.task, ["run", t.id])
         assert result.exit_code == 0, result.output
@@ -548,9 +543,7 @@ class TestRun:
         assert result.exit_code == 0, result.output
         assert launch.session.call_args.kwargs["model"] is None
 
-    def test_run_here_passes_the_model_too(
-        self, runner, store, launch, monkeypatch
-    ):
+    def test_run_here_passes_the_model_too(self, runner, store, launch, monkeypatch):
         # The --here placement builds its own launch line, so it needs its own
         # coverage: a model set on the task must reach that argv as well.
         calls = []
@@ -562,9 +555,7 @@ class TestRun:
         assert result.exit_code == 0, result.output
         assert "--model opus" in calls[0]
 
-    def test_run_rolls_back_to_todo_when_placement_fails(
-        self, runner, store, launch
-    ):
+    def test_run_rolls_back_to_todo_when_placement_fails(self, runner, store, launch):
         # cmux couldn't be reached, so no session opened. A task that never
         # launched must not be left in-progress: roll it back to TODO so the
         # next run retries, and log the reason.
@@ -583,7 +574,9 @@ class TestRun:
         # session must not start on stale code. The failure is known before the
         # in-progress write, so the task simply never leaves TODO.
         launch.setup.return_value = WorktreeSetup(
-            path=launch.wt_path, name="bravo", action="created",
+            path=launch.wt_path,
+            name="bravo",
+            action="created",
             sync=SyncResult(
                 success=False,
                 branch="feat/x",
@@ -607,7 +600,9 @@ class TestRun:
         # push_message. The rebase landed, so the session may start — but an
         # unattended run must still say the branch and its remote have diverged.
         launch.setup.return_value = WorktreeSetup(
-            path=launch.wt_path, name="bravo", action="created",
+            path=launch.wt_path,
+            name="bravo",
+            action="created",
             sync=SyncResult(
                 success=True,
                 branch="feat/x",
@@ -645,12 +640,15 @@ class TestRun:
 
 
 class TestRunHarness:
-    def test_run_opencode_launches_without_session_machinery(self, runner, store, launch, monkeypatch):
+    def test_run_opencode_launches_without_session_machinery(
+        self, runner, store, launch, monkeypatch
+    ):
         # OpenCode cannot take a known session id, so the whole claude session
         # model is side-stepped: no session id reaches the launcher, and the
         # transcript resume check must not even run.
         def _no_transcript(*a, **k):
             raise AssertionError("has_claude_transcript must not run for opencode")
+
         monkeypatch.setattr(task_cli, "has_claude_transcript", _no_transcript)
         t = model.create(store, project="p", title="Plan it")
         result = runner.invoke(task_cli.task, ["run", t.id, "--opencode"])
@@ -661,14 +659,19 @@ class TestRunHarness:
         assert kwargs["resume"] is False
         assert model.load(store, "p", t.id).status == model.STATUS_IN_PROGRESS
 
-    def test_run_opencode_skips_duplicate_launch_guard(self, runner, store, launch, monkeypatch):
+    def test_run_opencode_skips_duplicate_launch_guard(
+        self, runner, store, launch, monkeypatch
+    ):
         # The guard keys on a live claude process holding the task's
         # deterministic --session-id; neither applies to opencode, so even a
         # live claude session for this task must not block an opencode launch.
         t = model.create(store, project="p", title="Plan it")
         from maelstrom import session_discovery
+
         live = session_discovery.LiveSession(
-            pid=1, cwd=Path("/x"), session_id=model.session_id_for("p", t.id),
+            pid=1,
+            cwd=Path("/x"),
+            session_id=model.session_id_for("p", t.id),
         )
         _patch_live_sessions(monkeypatch, [live])
         result = runner.invoke(task_cli.task, ["run", t.id, "--opencode"])
@@ -695,7 +698,9 @@ class TestRunHarness:
         assert result.exit_code != 0
         assert "--opencode" in result.output
 
-    def test_run_here_opencode_execs_the_opencode_line(self, runner, store, monkeypatch):
+    def test_run_here_opencode_execs_the_opencode_line(
+        self, runner, store, monkeypatch
+    ):
         calls = []
         monkeypatch.setattr(
             task_cli, "exec_cmd", lambda cmd, **kw: calls.append(describe(cmd))
@@ -712,7 +717,9 @@ class TestRunHarness:
         assert result.exit_code == 0, result.output
         assert launch.session.call_args.kwargs["harness"] == "opencode"
 
-    def test_run_missing_project_path_errors(self, runner, store, monkeypatch, tmp_path):
+    def test_run_missing_project_path_errors(
+        self, runner, store, monkeypatch, tmp_path
+    ):
         t = model.create(store, project="p", title="t")
         missing = tmp_path / "absent"
         monkeypatch.setattr(
@@ -805,9 +812,7 @@ class TestDuplicateLaunchPrecheck:
 
 class TestReconcile:
     def _live(self, monkeypatch, store, mapping):
-        monkeypatch.setattr(
-            task_cli, "_live_sessions_by_task", lambda s, p: mapping
-        )
+        monkeypatch.setattr(task_cli, "_live_sessions_by_task", lambda s, p: mapping)
 
     def _ran(self, monkeypatch, tmp_path, ran_ids):
         # Stub transcript detection: `ran_ids` are the stale tasks that ran (a
@@ -816,12 +821,11 @@ class TestReconcile:
         # reconcile CLI resolves it to locate worktrees before calling
         # `_ran_task_ids` — the test store has no real project of its own.
         monkeypatch.setattr(
-            task_cli, "resolve_context",
+            task_cli,
+            "resolve_context",
             lambda *a, **k: SimpleNamespace(project="p", project_path=tmp_path),
         )
-        monkeypatch.setattr(
-            task_cli, "_ran_task_ids", lambda s, p, pp: set(ran_ids)
-        )
+        monkeypatch.setattr(task_cli, "_ran_task_ids", lambda s, p, pp: set(ran_ids))
 
     def test_empty(self, runner, store, monkeypatch, tmp_path):
         self._live(monkeypatch, store, {})
@@ -840,7 +844,8 @@ class TestReconcile:
         model.move(store, "p", never.id, model.STATUS_IN_PROGRESS)
         orphan = model.create(store, project="p", title="orphan", id="t4")  # todo
         self._live(
-            monkeypatch, store,
+            monkeypatch,
+            store,
             {
                 ok.id: _live_session(pid=1),
                 orphan.id: _live_session(pid=4),
@@ -913,9 +918,7 @@ class TestLiveSessionsByTask:
     def test_session_without_id_matches_nothing(self, store, monkeypatch):
         # A bare claude (no --session-id) never correlates to a task.
         model.create(store, project="p", title="t")
-        _patch_live_sessions(
-            monkeypatch, [_live_session(pid=5, cwd=Path("/work/x"))]
-        )
+        _patch_live_sessions(monkeypatch, [_live_session(pid=5, cwd=Path("/work/x"))])
         assert task_cli._live_sessions_by_task(store, "p") == {}
 
 
@@ -1299,8 +1302,13 @@ class TestDraft:
         result = runner.invoke(
             task_cli.task,
             [
-                "draft", str(f), "Execute: demo",
-                "--mode", "auto", "--pre-action", "linear.in-progress",
+                "draft",
+                str(f),
+                "Execute: demo",
+                "--mode",
+                "auto",
+                "--pre-action",
+                "linear.in-progress",
             ],
         )
         assert result.exit_code == 0, result.output
@@ -1366,13 +1374,20 @@ class TestPromote:
         assert result.exit_code == 0, result.output
         return f
 
-    def test_promote_creates_todo_task_and_consumes_file(
-        self, runner, store, tmp_path
-    ):
+    def test_promote_creates_todo_task_and_consumes_file(self, runner, store, tmp_path):
         f = self._draft(
-            runner, tmp_path, "d.md", "Execute: demo",
-            "--mode", "auto", "--command", "plan-next-step",
-            "--pre-action", "linear.in-progress", "--model", "opus",
+            runner,
+            tmp_path,
+            "d.md",
+            "Execute: demo",
+            "--mode",
+            "auto",
+            "--command",
+            "plan-next-step",
+            "--pre-action",
+            "linear.in-progress",
+            "--model",
+            "opus",
         )
         result = runner.invoke(task_cli.task, ["promote", str(f)])
         assert result.exit_code == 0, result.output
@@ -1387,9 +1402,7 @@ class TestPromote:
         # Promotion consumes the draft — it has moved into the notebook.
         assert not f.exists()
 
-    def test_promote_body_content_becomes_task_content(
-        self, runner, store, tmp_path
-    ):
+    def test_promote_body_content_becomes_task_content(self, runner, store, tmp_path):
         f = self._draft(runner, tmp_path)
         text = f.read_text().replace(
             "## Content\n\n", "## Content\n\nThe sculpted plan.\n"
@@ -1402,18 +1415,14 @@ class TestPromote:
 
     def test_promote_flag_overrides_file_field(self, runner, store, tmp_path):
         f = self._draft(runner, tmp_path, "d.md", "T", "--mode", "auto")
-        result = runner.invoke(
-            task_cli.task, ["promote", str(f), "--mode", "normal"]
-        )
+        result = runner.invoke(task_cli.task, ["promote", str(f), "--mode", "normal"])
         assert result.exit_code == 0, result.output
         assert model.load(store, "p", result.output.strip()).mode == "normal"
 
     def test_promote_wires_follow(self, runner, store, tmp_path):
         first = model.create(store, project="p", title="first")
         f = self._draft(runner, tmp_path)
-        result = runner.invoke(
-            task_cli.task, ["promote", str(f), "--follow", first.id]
-        )
+        result = runner.invoke(task_cli.task, ["promote", str(f), "--follow", first.id])
         assert result.exit_code == 0, result.output
         assert model.load(store, "p", result.output.strip()).follows == [first.id]
 
@@ -1425,18 +1434,14 @@ class TestPromote:
             store, project="p", title="prev", parent="linear.NORT-9"
         )
         f = self._draft(runner, tmp_path)
-        result = runner.invoke(
-            task_cli.task, ["promote", str(f), "--follow-end", "*"]
-        )
+        result = runner.invoke(task_cli.task, ["promote", str(f), "--follow-end", "*"])
         assert result.exit_code == 0, result.output
         t = model.load(store, "p", result.output.strip())
         assert t.parent == "linear.NORT-9"
         assert t.follows == [existing.id]
 
     def test_promote_missing_file_errors(self, runner, store, tmp_path):
-        result = runner.invoke(
-            task_cli.task, ["promote", str(tmp_path / "absent.md")]
-        )
+        result = runner.invoke(task_cli.task, ["promote", str(tmp_path / "absent.md")])
         assert result.exit_code != 0
         assert "not found" in result.output.lower()
 
@@ -1509,10 +1514,12 @@ class TestLoadMany:
         # With MAEL_TASK_PARENT set and no `parent:` in the block, the created
         # task nests under that parent, and follow-end:* appends to its siblings.
         monkeypatch.setenv("MAEL_TASK_PARENT", "linear.NORT-9")
-        existing = model.create(store, project="p", title="prev", parent="linear.NORT-9")
+        existing = model.create(
+            store, project="p", title="prev", parent="linear.NORT-9"
+        )
         f = tmp_path / "plan.md"
         f.write_text(
-            "---CREATE TASK step---\ntitle: Step\nfollow-end: \"*\"\n---\nbody\n"
+            '---CREATE TASK step---\ntitle: Step\nfollow-end: "*"\n---\nbody\n'
         )
         result = runner.invoke(task_cli.task, ["load-many", str(f)])
         assert result.exit_code == 0, result.output
@@ -1747,9 +1754,7 @@ class TestAddParentDefault:
     def test_add_follow_end_wildcard(self, runner, store, monkeypatch):
         monkeypatch.setenv("MAEL_TASK_PARENT", "linear.NORT-9")
         prev = model.create(store, project="p", title="prev", parent="linear.NORT-9")
-        result = runner.invoke(
-            task_cli.task, ["add", "Next", "--follow-end", "*"]
-        )
+        result = runner.invoke(task_cli.task, ["add", "Next", "--follow-end", "*"])
         assert result.exit_code == 0, result.output
         t = model.load(store, "p", result.output.strip())
         assert t.follows == [prev.id]
@@ -1890,9 +1895,7 @@ class TestEnvThreading:
     def test_run_threads_task_id_and_parent_env(self, runner, store, launch):
         # A child task carries a parent; both ids should reach the session env.
         model.create(store, project="p", title="Parent task", parent="linear.ME-1")
-        t = model.create(
-            store, project="p", title="Child", parent="linear.ME-1"
-        )
+        t = model.create(store, project="p", title="Child", parent="linear.ME-1")
         result = runner.invoke(task_cli.task, ["run", t.id])
         assert result.exit_code == 0, result.output
         env = launch.session.call_args.kwargs["env"]
@@ -1942,9 +1945,7 @@ class TestListBranch:
 class TestUpdate:
     def test_update_branch(self, runner, store):
         t = model.create(store, project="p", title="alpha")
-        result = runner.invoke(
-            task_cli.task, ["update", t.id, "--branch", "feat/foo"]
-        )
+        result = runner.invoke(task_cli.task, ["update", t.id, "--branch", "feat/foo"])
         assert result.exit_code == 0, result.output
         assert f"Updated {t.id}" in result.output
         assert model.load(store, "p", t.id).branch == "feat/foo"
@@ -1987,9 +1988,7 @@ class TestUpdate:
         assert model.load(store, "p", t.id).updated != "2020-01-01T00:00:00"
 
     def test_update_omitted_fields_untouched(self, runner, store):
-        t = model.create(
-            store, project="p", title="keep", branch="b", content="body"
-        )
+        t = model.create(store, project="p", title="keep", branch="b", content="body")
         runner.invoke(task_cli.task, ["update", t.id, "--branch", "b2"])
         reloaded = model.load(store, "p", t.id)
         assert reloaded.title == "keep"
@@ -2003,8 +2002,12 @@ class TestUpdate:
 class TestDuplicate:
     def test_from_copies_recipe(self, runner, store):
         src = model.create(
-            store, project="p", title="Orig", command="plan-task",
-            mode="auto", content="the body",
+            store,
+            project="p",
+            title="Orig",
+            command="plan-task",
+            mode="auto",
+            content="the body",
         )
         result = runner.invoke(task_cli.task, ["add", "--from", src.id])
         assert result.exit_code == 0, result.output
@@ -2035,7 +2038,10 @@ class TestDuplicate:
 
     def test_from_works_from_template_status(self, runner, store):
         src = model.create(
-            store, project="p", title="Tmpl", status=model.STATUS_TEMPLATE,
+            store,
+            project="p",
+            title="Tmpl",
+            status=model.STATUS_TEMPLATE,
             id="tmpl",
         )
         result = runner.invoke(task_cli.task, ["add", "--from", src.id])
@@ -2168,26 +2174,18 @@ class TestTemplates:
         assert result.exit_code != 0  # no actionable task
 
     def test_template_invisible_to_default_list(self, runner, store):
-        tid = runner.invoke(
-            task_cli.task, ["add", "Tmpl", "--template"]
-        ).output.strip()
+        tid = runner.invoke(task_cli.task, ["add", "Tmpl", "--template"]).output.strip()
         result = runner.invoke(task_cli.task, ["list"])
         assert tid not in result.output
 
     def test_template_listed_with_status_filter(self, runner, store):
-        tid = runner.invoke(
-            task_cli.task, ["add", "Tmpl", "--template"]
-        ).output.strip()
+        tid = runner.invoke(task_cli.task, ["add", "Tmpl", "--template"]).output.strip()
         result = runner.invoke(task_cli.task, ["list", "--status", "template"])
         assert tid in result.output
 
     def test_update_schedule_round_trips(self, runner, store):
-        tid = runner.invoke(
-            task_cli.task, ["add", "Tmpl", "--template"]
-        ).output.strip()
-        runner.invoke(
-            task_cli.task, ["update", tid, "--schedule", "0 9 * * 1-5"]
-        )
+        tid = runner.invoke(task_cli.task, ["add", "Tmpl", "--template"]).output.strip()
+        runner.invoke(task_cli.task, ["update", tid, "--schedule", "0 9 * * 1-5"])
         assert model.load(store, "p", tid).schedule == "0 9 * * 1-5"
 
     def test_status_template_parks_existing_task(self, runner, store):
@@ -2198,9 +2196,7 @@ class TestTemplates:
 
     def test_template_from_duplicate(self, runner, store):
         src = model.create(store, project="p", title="Base", command="plan-task")
-        result = runner.invoke(
-            task_cli.task, ["add", "--from", src.id, "--template"]
-        )
+        result = runner.invoke(task_cli.task, ["add", "--from", src.id, "--template"])
         new = model.load(store, "p", result.output.strip())
         assert new.status == model.STATUS_TEMPLATE
         assert new.command == "plan-task"
@@ -2211,9 +2207,15 @@ class TestTemplates:
 
 def _make_template(store, *, schedule, last_run="", created):
     return model.create(
-        store, project="p", title="Maintenance", command="",
-        schedule=schedule, last_run=last_run,
-        status=model.STATUS_TEMPLATE, id="maintenance", now=created,
+        store,
+        project="p",
+        title="Maintenance",
+        command="",
+        schedule=schedule,
+        last_run=last_run,
+        status=model.STATUS_TEMPLATE,
+        id="maintenance",
+        now=created,
     )
 
 
@@ -2247,7 +2249,8 @@ class TestAddScheduled:
         assert run.id == "maintenance.2026-06-18"
         # Exactly one run (catch-up is a single boundary, not 7).
         runs = [
-            t for t in model.list_tasks(store, project="p")
+            t
+            for t in model.list_tasks(store, project="p")
             if t.id.startswith("maintenance.")
         ]
         assert len(runs) == 1
@@ -2277,7 +2280,8 @@ class TestAddScheduled:
         result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
         assert "No scheduled tasks due." in result.output
         runs = [
-            t for t in model.list_tasks(store, project="p")
+            t
+            for t in model.list_tasks(store, project="p")
             if t.id.startswith("maintenance.")
         ]
         assert len(runs) == 1
@@ -2332,10 +2336,16 @@ class TestAddScheduled:
         from datetime import datetime, timezone
 
         model.create(
-            store, project="p", title="Maintenance", command="",
-            schedule="0 9 * * *", last_run="2026-06-17T09:00:00+00:00",
-            branch="chore/maint", status=model.STATUS_TEMPLATE,
-            id="maintenance", now="2026-06-01T00:00:00+00:00",
+            store,
+            project="p",
+            title="Maintenance",
+            command="",
+            schedule="0 9 * * *",
+            last_run="2026-06-17T09:00:00+00:00",
+            branch="chore/maint",
+            status=model.STATUS_TEMPLATE,
+            id="maintenance",
+            now="2026-06-01T00:00:00+00:00",
         )
         real_dt = datetime
 
@@ -2414,9 +2424,14 @@ class TestAddScheduled:
 
         for tmpl_id in ("maint-a", "maint-b"):
             model.create(
-                store, project="p", title="Maintenance", command="",
-                schedule="0 9 * * *", last_run="2026-06-17T09:00:00+00:00",
-                status=model.STATUS_TEMPLATE, id=tmpl_id,
+                store,
+                project="p",
+                title="Maintenance",
+                command="",
+                schedule="0 9 * * *",
+                last_run="2026-06-17T09:00:00+00:00",
+                status=model.STATUS_TEMPLATE,
+                id=tmpl_id,
                 now="2026-06-01T00:00:00+00:00",
             )
         real_dt = datetime
@@ -2433,9 +2448,7 @@ class TestAddScheduled:
         launch.ensure_cmux.assert_called_once()
         # Both due runs launched — the loop completed.
         assert launch.session.call_count == 2
-        launched_ids = {
-            c.kwargs["task_id"] for c in launch.session.call_args_list
-        }
+        launched_ids = {c.kwargs["task_id"] for c in launch.session.call_args_list}
         assert launched_ids == {"maint-a.2026-06-18", "maint-b.2026-06-18"}
 
     def test_here_run_still_execs_and_skips_ensure_cmux(

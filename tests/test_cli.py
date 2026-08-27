@@ -43,7 +43,9 @@ class TestResolvePr:
         per_branch.assert_not_called()
 
     def test_a_failed_batch_falls_back_to_the_per_branch_call(self):
-        with patch("maelstrom.cli.get_pr_number_and_commits", return_value=(7, 3)) as per_branch:
+        with patch(
+            "maelstrom.cli.get_pr_number_and_commits", return_value=(7, 3)
+        ) as per_branch:
             assert _resolve_pr(None, Path("/p"), "feat/x") == (7, 3)
         per_branch.assert_called_once_with(Path("/p"), "feat/x")
 
@@ -74,15 +76,24 @@ class TestResolvePr:
             raise AssertionError("per-branch lookup used despite a good batch")
 
         with patch("maelstrom.cli.load_global_config") as mock_config:
-            mock_config.return_value = MagicMock(projects_dir=Path("/tmp/claude/projects"))
-            with patch("maelstrom.cli.find_all_projects", return_value=[project_path]), \
-                 patch("maelstrom.cli.list_worktrees", return_value=[mock_wt]), \
-                 patch("maelstrom.cli.closed_worktrees", return_value=set()), \
-                 patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]), \
-                 patch("maelstrom.cli.get_local_only_commits", return_value=0), \
-                 patch("maelstrom.cli.get_open_prs", return_value={"feat/test": (99, 7)}), \
-                 patch("maelstrom.cli.get_pr_number_and_commits", side_effect=boom), \
-                 patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0):
+            mock_config.return_value = MagicMock(
+                projects_dir=Path("/tmp/claude/projects")
+            )
+            with (
+                patch("maelstrom.cli.find_all_projects", return_value=[project_path]),
+                patch("maelstrom.cli.list_worktrees", return_value=[mock_wt]),
+                patch("maelstrom.cli.closed_worktrees", return_value=set()),
+                patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]),
+                patch("maelstrom.cli.get_local_only_commits", return_value=0),
+                patch(
+                    "maelstrom.cli.get_open_prs", return_value={"feat/test": (99, 7)}
+                ),
+                patch("maelstrom.cli.get_pr_number_and_commits", side_effect=boom),
+                patch(
+                    "maelstrom.session_discovery.LiveSessionSet.count_for",
+                    return_value=0,
+                ),
+            ):
                 result = CliRunner().invoke(cli, ["--json", "list-all"])
 
         assert result.exit_code == 0
@@ -106,14 +117,21 @@ class TestResolvePr:
         )
 
         with patch("maelstrom.cli.load_global_config") as mock_config:
-            mock_config.return_value = MagicMock(projects_dir=Path("/tmp/claude/projects"))
-            with patch("maelstrom.cli.find_all_projects", return_value=[project_path]), \
-                 patch("maelstrom.cli.list_worktrees", return_value=[detached]), \
-                 patch("maelstrom.cli.closed_worktrees", return_value=set()), \
-                 patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]), \
-                 patch("maelstrom.cli.get_local_only_commits", return_value=0), \
-                 patch("maelstrom.cli.get_open_prs") as batch, \
-                 patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0):
+            mock_config.return_value = MagicMock(
+                projects_dir=Path("/tmp/claude/projects")
+            )
+            with (
+                patch("maelstrom.cli.find_all_projects", return_value=[project_path]),
+                patch("maelstrom.cli.list_worktrees", return_value=[detached]),
+                patch("maelstrom.cli.closed_worktrees", return_value=set()),
+                patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]),
+                patch("maelstrom.cli.get_local_only_commits", return_value=0),
+                patch("maelstrom.cli.get_open_prs") as batch,
+                patch(
+                    "maelstrom.session_discovery.LiveSessionSet.count_for",
+                    return_value=0,
+                ),
+            ):
                 result = CliRunner().invoke(cli, ["--json", "list-all"])
 
         assert result.exit_code == 0
@@ -134,15 +152,22 @@ class TestResolvePr:
         ]
 
         with patch("maelstrom.cli.load_global_config") as mock_config:
-            mock_config.return_value = MagicMock(projects_dir=Path("/tmp/claude/projects"))
-            with patch("maelstrom.cli.find_all_projects", return_value=[project_path]), \
-                 patch("maelstrom.cli.list_worktrees", return_value=worktrees), \
-                 patch("maelstrom.cli.closed_worktrees", return_value=set()), \
-                 patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]), \
-                 patch("maelstrom.cli.get_local_only_commits", return_value=0), \
-                 patch("maelstrom.cli.get_open_prs", return_value={}) as batch, \
-                 patch("maelstrom.cli.get_pushed_commit_count", return_value=0), \
-                 patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0):
+            mock_config.return_value = MagicMock(
+                projects_dir=Path("/tmp/claude/projects")
+            )
+            with (
+                patch("maelstrom.cli.find_all_projects", return_value=[project_path]),
+                patch("maelstrom.cli.list_worktrees", return_value=worktrees),
+                patch("maelstrom.cli.closed_worktrees", return_value=set()),
+                patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]),
+                patch("maelstrom.cli.get_local_only_commits", return_value=0),
+                patch("maelstrom.cli.get_open_prs", return_value={}) as batch,
+                patch("maelstrom.cli.get_pushed_commit_count", return_value=0),
+                patch(
+                    "maelstrom.session_discovery.LiveSessionSet.count_for",
+                    return_value=0,
+                ),
+            ):
                 result = CliRunner().invoke(cli, ["--json", "list-all"])
 
         assert result.exit_code == 0
@@ -171,7 +196,9 @@ class TestListAllJson:
         """Test JSON output when no projects found."""
         runner = CliRunner()
         with patch("maelstrom.cli.load_global_config") as mock_config:
-            mock_config.return_value = MagicMock(projects_dir=Path("/tmp/claude/projects"))
+            mock_config.return_value = MagicMock(
+                projects_dir=Path("/tmp/claude/projects")
+            )
             with patch("maelstrom.cli.find_all_projects", return_value=[]):
                 result = runner.invoke(cli, ["--json", "list-all"])
                 assert result.exit_code == 0
@@ -193,15 +220,30 @@ class TestListAllJson:
         )
 
         with patch("maelstrom.cli.load_global_config") as mock_config:
-            mock_config.return_value = MagicMock(projects_dir=Path("/tmp/claude/projects"))
+            mock_config.return_value = MagicMock(
+                projects_dir=Path("/tmp/claude/projects")
+            )
             with patch("maelstrom.cli.find_all_projects", return_value=[project_path]):
                 with patch("maelstrom.cli.list_worktrees", return_value=[mock_wt]):
                     with patch("maelstrom.cli.closed_worktrees", return_value=set()):
-                        with patch("maelstrom.cli.get_worktree_dirty_files", return_value=["file.txt"]):
-                            with patch("maelstrom.cli.get_local_only_commits", return_value=2):
-                                with patch("maelstrom.cli.get_pr_number_and_commits", return_value=(42, 5)):
-                                    with patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=1):
-                                        result = runner.invoke(cli, ["--json", "list-all"])
+                        with patch(
+                            "maelstrom.cli.get_worktree_dirty_files",
+                            return_value=["file.txt"],
+                        ):
+                            with patch(
+                                "maelstrom.cli.get_local_only_commits", return_value=2
+                            ):
+                                with patch(
+                                    "maelstrom.cli.get_pr_number_and_commits",
+                                    return_value=(42, 5),
+                                ):
+                                    with patch(
+                                        "maelstrom.session_discovery.LiveSessionSet.count_for",
+                                        return_value=1,
+                                    ):
+                                        result = runner.invoke(
+                                            cli, ["--json", "list-all"]
+                                        )
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -238,16 +280,33 @@ class TestListAllJson:
         )
 
         with patch("maelstrom.cli.load_global_config") as mock_config:
-            mock_config.return_value = MagicMock(projects_dir=Path("/tmp/claude/projects"))
+            mock_config.return_value = MagicMock(
+                projects_dir=Path("/tmp/claude/projects")
+            )
             with patch("maelstrom.cli.find_all_projects", return_value=[project_path]):
                 with patch("maelstrom.cli.list_worktrees", return_value=[mock_wt]):
                     with patch("maelstrom.cli.closed_worktrees", return_value=set()):
-                        with patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]):
-                            with patch("maelstrom.cli.get_local_only_commits", return_value=0):
-                                with patch("maelstrom.cli.get_pr_number_and_commits", return_value=(None, None)):
-                                    with patch("maelstrom.cli.get_pushed_commit_count", return_value=0):
-                                        with patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=3):
-                                            result = runner.invoke(cli, ["--json", "list-all"])
+                        with patch(
+                            "maelstrom.cli.get_worktree_dirty_files", return_value=[]
+                        ):
+                            with patch(
+                                "maelstrom.cli.get_local_only_commits", return_value=0
+                            ):
+                                with patch(
+                                    "maelstrom.cli.get_pr_number_and_commits",
+                                    return_value=(None, None),
+                                ):
+                                    with patch(
+                                        "maelstrom.cli.get_pushed_commit_count",
+                                        return_value=0,
+                                    ):
+                                        with patch(
+                                            "maelstrom.session_discovery.LiveSessionSet.count_for",
+                                            return_value=3,
+                                        ):
+                                            result = runner.invoke(
+                                                cli, ["--json", "list-all"]
+                                            )
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -267,12 +326,21 @@ class TestListAllJson:
         )
 
         with patch("maelstrom.cli.load_global_config") as mock_config:
-            mock_config.return_value = MagicMock(projects_dir=Path("/tmp/claude/projects"))
+            mock_config.return_value = MagicMock(
+                projects_dir=Path("/tmp/claude/projects")
+            )
             with patch("maelstrom.cli.find_all_projects", return_value=[project_path]):
                 with patch("maelstrom.cli.list_worktrees", return_value=[mock_wt]):
-                    with patch("maelstrom.cli.closed_worktrees", return_value={wt_path}):
-                        with patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]):
-                            with patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0):
+                    with patch(
+                        "maelstrom.cli.closed_worktrees", return_value={wt_path}
+                    ):
+                        with patch(
+                            "maelstrom.cli.get_worktree_dirty_files", return_value=[]
+                        ):
+                            with patch(
+                                "maelstrom.session_discovery.LiveSessionSet.count_for",
+                                return_value=0,
+                            ):
                                 result = runner.invoke(cli, ["--json", "list-all"])
 
         assert result.exit_code == 0
@@ -288,7 +356,9 @@ class TestListAllJson:
         """Test that table output (without --json) still works."""
         runner = CliRunner()
         with patch("maelstrom.cli.load_global_config") as mock_config:
-            mock_config.return_value = MagicMock(projects_dir=Path("/tmp/claude/projects"))
+            mock_config.return_value = MagicMock(
+                projects_dir=Path("/tmp/claude/projects")
+            )
             with patch("maelstrom.cli.find_all_projects", return_value=[]):
                 result = runner.invoke(cli, ["list-all"])
                 assert result.exit_code == 0
@@ -313,10 +383,15 @@ class TestRemoveMultiTarget:
                             ctx.project = "myproject"
                             ctx.project_path = project_path
                             ctx.worktree = worktree_name
-                            ctx.worktree_path = project_path / f"myproject-{worktree_name}"
+                            ctx.worktree_path = (
+                                project_path / f"myproject-{worktree_name}"
+                            )
                             return ctx
 
-                        mock_resolve.side_effect = [make_ctx("alpha"), make_ctx("bravo")]
+                        mock_resolve.side_effect = [
+                            make_ctx("alpha"),
+                            make_ctx("bravo"),
+                        ]
 
                         # Mock worktree paths to exist
                         with patch.object(Path, "exists", return_value=True):
@@ -368,11 +443,15 @@ class TestRemoveMultiTarget:
             mock_resolve.return_value = ctx
 
             alive_service = MagicMock(alive=True)
-            with patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]), \
-                 patch("maelstrom.cli.remove_worktree_by_path"), \
-                 patch("maelstrom.cli.get_env_status", return_value=[alive_service]), \
-                 patch("maelstrom.cli.stop_env", return_value=["web: stopped"]) as mock_stop, \
-                 patch.object(Path, "exists", return_value=True):
+            with (
+                patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]),
+                patch("maelstrom.cli.remove_worktree_by_path"),
+                patch("maelstrom.cli.get_env_status", return_value=[alive_service]),
+                patch(
+                    "maelstrom.cli.stop_env", return_value=["web: stopped"]
+                ) as mock_stop,
+                patch.object(Path, "exists", return_value=True),
+            ):
                 result = runner.invoke(cli, ["rm", "myproject.alpha"])
 
             mock_stop.assert_called_once_with(ANY, "myproject", "alpha")
@@ -391,11 +470,13 @@ class TestRemoveMultiTarget:
             ctx.worktree_path = project_path / "myproject-alpha"
             mock_resolve.return_value = ctx
 
-            with patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]), \
-                 patch("maelstrom.cli.remove_worktree_by_path"), \
-                 patch("maelstrom.cli.get_env_status", return_value=None), \
-                 patch("maelstrom.cli.stop_env") as mock_stop, \
-                 patch.object(Path, "exists", return_value=True):
+            with (
+                patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]),
+                patch("maelstrom.cli.remove_worktree_by_path"),
+                patch("maelstrom.cli.get_env_status", return_value=None),
+                patch("maelstrom.cli.stop_env") as mock_stop,
+                patch.object(Path, "exists", return_value=True),
+            ):
                 runner.invoke(cli, ["rm", "myproject.alpha"])
 
             mock_stop.assert_not_called()
@@ -416,9 +497,14 @@ class TestCloseMultiTarget:
             mock_ctx.worktree_path.exists.return_value = True
             mock_resolve.return_value = mock_ctx
 
-            with patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
-                 patch("maelstrom.cli.close_worktree") as mock_close, \
-                 patch("maelstrom.cli.get_env_status", return_value=None):
+            with (
+                patch(
+                    "maelstrom.cli.copy_back_new_env_vars",
+                    return_value=CopyBackResult(),
+                ),
+                patch("maelstrom.cli.close_worktree") as mock_close,
+                patch("maelstrom.cli.get_env_status", return_value=None),
+            ):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 runner.invoke(cli, ["close"])
 
@@ -434,6 +520,7 @@ class TestCloseMultiTarget:
         runner = CliRunner()
 
         with patch("maelstrom.cli.resolve_context") as mock_resolve:
+
             def make_ctx(*args, **kwargs):
                 ctx = MagicMock()
                 ctx.worktree = args[0]
@@ -444,9 +531,14 @@ class TestCloseMultiTarget:
 
             mock_resolve.side_effect = [make_ctx("alpha"), make_ctx("bravo")]
 
-            with patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
-                 patch("maelstrom.cli.close_worktree") as mock_close, \
-                 patch("maelstrom.cli.get_env_status", return_value=None):
+            with (
+                patch(
+                    "maelstrom.cli.copy_back_new_env_vars",
+                    return_value=CopyBackResult(),
+                ),
+                patch("maelstrom.cli.close_worktree") as mock_close,
+                patch("maelstrom.cli.get_env_status", return_value=None),
+            ):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 result = runner.invoke(cli, ["close", "alpha", "bravo"])
 
@@ -466,10 +558,17 @@ class TestCloseMultiTarget:
             mock_resolve.return_value = mock_ctx
 
             alive_service = MagicMock(alive=True)
-            with patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
-                 patch("maelstrom.cli.close_worktree") as mock_close, \
-                 patch("maelstrom.cli.get_env_status", return_value=[alive_service]), \
-                 patch("maelstrom.cli.stop_env", return_value=["web: stopped"]) as mock_stop:
+            with (
+                patch(
+                    "maelstrom.cli.copy_back_new_env_vars",
+                    return_value=CopyBackResult(),
+                ),
+                patch("maelstrom.cli.close_worktree") as mock_close,
+                patch("maelstrom.cli.get_env_status", return_value=[alive_service]),
+                patch(
+                    "maelstrom.cli.stop_env", return_value=["web: stopped"]
+                ) as mock_stop,
+            ):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 result = runner.invoke(cli, ["close", "myproject.alpha"])
 
@@ -488,10 +587,15 @@ class TestCloseMultiTarget:
             mock_ctx.worktree_path.exists.return_value = True
             mock_resolve.return_value = mock_ctx
 
-            with patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
-                 patch("maelstrom.cli.close_worktree") as mock_close, \
-                 patch("maelstrom.cli.get_env_status", return_value=None), \
-                 patch("maelstrom.cli.stop_env") as mock_stop:
+            with (
+                patch(
+                    "maelstrom.cli.copy_back_new_env_vars",
+                    return_value=CopyBackResult(),
+                ),
+                patch("maelstrom.cli.close_worktree") as mock_close,
+                patch("maelstrom.cli.get_env_status", return_value=None),
+                patch("maelstrom.cli.stop_env") as mock_stop,
+            ):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 runner.invoke(cli, ["close", "myproject.alpha"])
 
@@ -509,11 +613,18 @@ class TestCloseMultiTarget:
             mock_ctx.worktree_path.exists.return_value = True
             mock_resolve.return_value = mock_ctx
 
-            with patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
-                 patch("maelstrom.cli.close_worktree") as mock_close, \
-                 patch("maelstrom.cli.get_env_status", return_value=None), \
-                 patch("maelstrom.cli.stop_env"), \
-                 patch("maelstrom.cli.mael_layout.close_workspace", return_value=True) as mock_close_ws:
+            with (
+                patch(
+                    "maelstrom.cli.copy_back_new_env_vars",
+                    return_value=CopyBackResult(),
+                ),
+                patch("maelstrom.cli.close_worktree") as mock_close,
+                patch("maelstrom.cli.get_env_status", return_value=None),
+                patch("maelstrom.cli.stop_env"),
+                patch(
+                    "maelstrom.cli.mael_layout.close_workspace", return_value=True
+                ) as mock_close_ws,
+            ):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 result = runner.invoke(cli, ["close", "myproject.alpha"])
 
@@ -543,8 +654,10 @@ class TestCloseMultiTarget:
             mock_ctx.worktree_path = worktree_path
             mock_resolve.return_value = mock_ctx
 
-            with patch("maelstrom.cli.close_worktree") as mock_close, \
-                 patch("maelstrom.cli.get_env_status", return_value=None):
+            with (
+                patch("maelstrom.cli.close_worktree") as mock_close,
+                patch("maelstrom.cli.get_env_status", return_value=None),
+            ):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 result = runner.invoke(cli, ["close", "myproject.alpha"])
 
@@ -577,8 +690,10 @@ class TestCloseMultiTarget:
             mock_ctx.worktree_path = worktree_path
             mock_resolve.return_value = mock_ctx
 
-            with patch("maelstrom.cli.close_worktree") as mock_close, \
-                 patch("maelstrom.cli.get_env_status", return_value=None):
+            with (
+                patch("maelstrom.cli.close_worktree") as mock_close,
+                patch("maelstrom.cli.get_env_status", return_value=None),
+            ):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 result = runner.invoke(cli, ["close", "myproject.alpha"])
 
@@ -610,11 +725,15 @@ class TestCloseWait:
         """--wait calls wait_for_merge and, once merged, runs close_worktree."""
         runner = CliRunner()
 
-        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
-             patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
-             patch("maelstrom.cli.get_env_status", return_value=None), \
-             patch("maelstrom.cli.wait_for_merge") as mock_wait, \
-             patch("maelstrom.cli.close_worktree") as mock_close:
+        with (
+            patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
+            patch(
+                "maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()
+            ),
+            patch("maelstrom.cli.get_env_status", return_value=None),
+            patch("maelstrom.cli.wait_for_merge") as mock_wait,
+            patch("maelstrom.cli.close_worktree") as mock_close,
+        ):
             mock_wait.return_value = MagicMock(number=42)
             mock_close.return_value = MagicMock(success=True, message="Closed")
             result = runner.invoke(cli, ["close", "myproject.alpha", "--wait"])
@@ -628,16 +747,28 @@ class TestCloseWait:
         """--timeout/--interval are forwarded to wait_for_merge."""
         runner = CliRunner()
 
-        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
-             patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
-             patch("maelstrom.cli.get_env_status", return_value=None), \
-             patch("maelstrom.cli.wait_for_merge") as mock_wait, \
-             patch("maelstrom.cli.close_worktree") as mock_close:
+        with (
+            patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
+            patch(
+                "maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()
+            ),
+            patch("maelstrom.cli.get_env_status", return_value=None),
+            patch("maelstrom.cli.wait_for_merge") as mock_wait,
+            patch("maelstrom.cli.close_worktree") as mock_close,
+        ):
             mock_wait.return_value = MagicMock(number=1)
             mock_close.return_value = MagicMock(success=True, message="Closed")
             runner.invoke(
                 cli,
-                ["close", "myproject.alpha", "--wait", "--timeout", "120", "--interval", "5"],
+                [
+                    "close",
+                    "myproject.alpha",
+                    "--wait",
+                    "--timeout",
+                    "120",
+                    "--interval",
+                    "5",
+                ],
             )
 
         _, kwargs = mock_wait.call_args
@@ -648,12 +779,18 @@ class TestCloseWait:
         """A RuntimeError (closed-unmerged / red CI) skips close and exits 1."""
         runner = CliRunner()
 
-        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
-             patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
-             patch("maelstrom.cli.get_env_status", return_value=None), \
-             patch("maelstrom.cli.wait_for_merge",
-                   side_effect=RuntimeError("PR #7 was closed without merging")), \
-             patch("maelstrom.cli.close_worktree") as mock_close:
+        with (
+            patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
+            patch(
+                "maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()
+            ),
+            patch("maelstrom.cli.get_env_status", return_value=None),
+            patch(
+                "maelstrom.cli.wait_for_merge",
+                side_effect=RuntimeError("PR #7 was closed without merging"),
+            ),
+            patch("maelstrom.cli.close_worktree") as mock_close,
+        ):
             result = runner.invoke(cli, ["close", "myproject.alpha", "--wait"])
 
         mock_close.assert_not_called()
@@ -664,12 +801,18 @@ class TestCloseWait:
         """A TimeoutError skips close and exits 1."""
         runner = CliRunner()
 
-        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
-             patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
-             patch("maelstrom.cli.get_env_status", return_value=None), \
-             patch("maelstrom.cli.wait_for_merge",
-                   side_effect=TimeoutError("Timed out after 3600s")), \
-             patch("maelstrom.cli.close_worktree") as mock_close:
+        with (
+            patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
+            patch(
+                "maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()
+            ),
+            patch("maelstrom.cli.get_env_status", return_value=None),
+            patch(
+                "maelstrom.cli.wait_for_merge",
+                side_effect=TimeoutError("Timed out after 3600s"),
+            ),
+            patch("maelstrom.cli.close_worktree") as mock_close,
+        ):
             result = runner.invoke(cli, ["close", "myproject.alpha", "--wait"])
 
         mock_close.assert_not_called()
@@ -680,11 +823,15 @@ class TestCloseWait:
         """Without --wait, wait_for_merge is never called."""
         runner = CliRunner()
 
-        with patch("maelstrom.cli.resolve_context", return_value=self._ctx()), \
-             patch("maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()), \
-             patch("maelstrom.cli.get_env_status", return_value=None), \
-             patch("maelstrom.cli.wait_for_merge") as mock_wait, \
-             patch("maelstrom.cli.close_worktree") as mock_close:
+        with (
+            patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
+            patch(
+                "maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()
+            ),
+            patch("maelstrom.cli.get_env_status", return_value=None),
+            patch("maelstrom.cli.wait_for_merge") as mock_wait,
+            patch("maelstrom.cli.close_worktree") as mock_close,
+        ):
             mock_close.return_value = MagicMock(success=True, message="Closed")
             result = runner.invoke(cli, ["close", "myproject.alpha"])
 
@@ -778,33 +925,52 @@ class TestCmdAddRecycle:
 
         stack.enter_context(patch("maelstrom.cli.resolve_context", return_value=ctx))
         # The recycle collaborators now run inside worktree.setup_worktree_for_branch.
-        stack.enter_context(patch(
-            "maelstrom.worktree.find_worktree_by_branch", return_value=None,
-        ))
-        stack.enter_context(patch("maelstrom.worktree.find_closed_worktree", return_value=closed_wt))
-        stack.enter_context(patch("maelstrom.worktree.recycle_worktree", return_value=worktree_path))
-        stack.enter_context(patch(
-            "maelstrom.worktree.extract_worktree_name_from_folder", return_value="bravo",
-        ))
+        stack.enter_context(
+            patch(
+                "maelstrom.worktree.find_worktree_by_branch",
+                return_value=None,
+            )
+        )
+        stack.enter_context(
+            patch("maelstrom.worktree.find_closed_worktree", return_value=closed_wt)
+        )
+        stack.enter_context(
+            patch("maelstrom.worktree.recycle_worktree", return_value=worktree_path)
+        )
+        stack.enter_context(
+            patch(
+                "maelstrom.worktree.extract_worktree_name_from_folder",
+                return_value="bravo",
+            )
+        )
         stack.enter_context(patch("maelstrom.worktree.reclaim_or_allocate_ports"))
         stack.enter_context(patch("maelstrom.worktree.setup_claude_memory_symlink"))
-        stack.enter_context(patch("maelstrom.worktree.update_claude_local_md", return_value=False))
+        stack.enter_context(
+            patch("maelstrom.worktree.update_claude_local_md", return_value=False)
+        )
         stack.enter_context(patch("maelstrom.worktree.run_install_cmd"))
         # An opened worktree is synced before finalize; these mocks have no real git.
-        stack.enter_context(patch(
-            "maelstrom.worktree.sync_worktree_with_autorepair",
-            return_value=_sync_result(),
-        ))
+        stack.enter_context(
+            patch(
+                "maelstrom.worktree.sync_worktree_with_autorepair",
+                return_value=_sync_result(),
+            )
+        )
         # The recycle env block stays CLI-side and derives the NATO name there too.
-        stack.enter_context(patch(
-            "maelstrom.cli.extract_worktree_name_from_folder", return_value="bravo",
-        ))
+        stack.enter_context(
+            patch(
+                "maelstrom.cli.extract_worktree_name_from_folder",
+                return_value="bravo",
+            )
+        )
         stack.enter_context(patch("maelstrom.cli.launch_claude_in_worktree"))
 
-        helper = stack.enter_context(patch(
-            "maelstrom.cli.regenerate_and_restart_if_running",
-            return_value=helper_return,
-        ))
+        helper = stack.enter_context(
+            patch(
+                "maelstrom.cli.regenerate_and_restart_if_running",
+                return_value=helper_return,
+            )
+        )
         return helper, project_path, worktree_path
 
     def test_recycle_invokes_helper(self, tmp_path):
@@ -813,14 +979,19 @@ class TestCmdAddRecycle:
 
         with ExitStack() as stack:
             helper, project_path, worktree_path = self._setup_recycle_mocks(
-                stack, tmp_path,
+                stack,
+                tmp_path,
             )
 
             runner = CliRunner()
             result = runner.invoke(cli, ["add", "feat-x"])
             assert result.exit_code == 0, result.output
             helper.assert_called_once_with(
-                ANY, "proj", "bravo", project_path, worktree_path,
+                ANY,
+                "proj",
+                "bravo",
+                project_path,
+                worktree_path,
             )
             assert "Regenerated .env for proj/bravo." in result.output
 
@@ -831,15 +1002,20 @@ class TestCmdAddRecycle:
         new_state = MagicMock()
         with ExitStack() as stack:
             helper, project_path, worktree_path = self._setup_recycle_mocks(
-                stack, tmp_path,
+                stack,
+                tmp_path,
                 helper_return=(["web (pid 100): stopped"], new_state),
             )
-            ensure_browser = stack.enter_context(patch(
-                "maelstrom.cli.ensure_cmux_browser",
-            ))
-            print_status = stack.enter_context(patch(
-                "maelstrom.cli.print_service_status",
-            ))
+            ensure_browser = stack.enter_context(
+                patch(
+                    "maelstrom.cli.ensure_cmux_browser",
+                )
+            )
+            print_status = stack.enter_context(
+                patch(
+                    "maelstrom.cli.print_service_status",
+                )
+            )
 
             runner = CliRunner()
             result = runner.invoke(cli, ["add", "feat-x"])
@@ -877,24 +1053,33 @@ class TestCmdAddExistingBranch:
         # calls setup_worktree_for_branch (the core fn) then launch_claude_in_worktree.
         # The core fn reads find_worktree_by_branch / extract_worktree_name_from_folder
         # from the worktree namespace.
-        stack.enter_context(patch(
-            "maelstrom.worktree.find_worktree_by_branch",
-            return_value=worktree_path if existing else None,
-        ))
-        stack.enter_context(patch(
-            "maelstrom.worktree.extract_worktree_name_from_folder", return_value="bravo",
-        ))
+        stack.enter_context(
+            patch(
+                "maelstrom.worktree.find_worktree_by_branch",
+                return_value=worktree_path if existing else None,
+            )
+        )
+        stack.enter_context(
+            patch(
+                "maelstrom.worktree.extract_worktree_name_from_folder",
+                return_value="bravo",
+            )
+        )
         # An opened worktree is synced before finalize; these mocks have no real git.
-        stack.enter_context(patch(
-            "maelstrom.worktree.sync_worktree_with_autorepair",
-            return_value=_sync_result(),
-        ))
+        stack.enter_context(
+            patch(
+                "maelstrom.worktree.sync_worktree_with_autorepair",
+                return_value=_sync_result(),
+            )
+        )
 
         mocks = {
             "create_worktree": stack.enter_context(
                 patch("maelstrom.worktree.create_worktree", return_value=worktree_path)
             ),
-            "run_install_cmd": stack.enter_context(patch("maelstrom.worktree.run_install_cmd")),
+            "run_install_cmd": stack.enter_context(
+                patch("maelstrom.worktree.run_install_cmd")
+            ),
             "launch_claude_in_worktree": stack.enter_context(
                 patch("maelstrom.cli.launch_claude_in_worktree")
             ),
@@ -923,7 +1108,10 @@ class TestCmdAddExistingBranch:
             assert result.exit_code == 0, result.output
 
             mocks["launch_claude_in_worktree"].assert_called_once_with(
-                existing_wt, project="proj", worktree="bravo", harness="claude",
+                existing_wt,
+                project="proj",
+                worktree="bravo",
+                harness="claude",
             )
             mocks["create_worktree"].assert_not_called()
             # cmd_add no longer runs install itself; the launcher owns it.
@@ -940,7 +1128,10 @@ class TestCmdAddExistingBranch:
             assert result.exit_code == 0, result.output
 
             mocks["launch_claude_in_worktree"].assert_called_once_with(
-                existing_wt, project="proj", worktree="bravo", harness="claude",
+                existing_wt,
+                project="proj",
+                worktree="bravo",
+                harness="claude",
             )
             mocks["create_worktree"].assert_not_called()
 
@@ -973,20 +1164,31 @@ class TestCmdAddSync:
         worktree_path = tmp_path / "proj-bravo"
         worktree_path.mkdir()
         ctx = MagicMock(
-            project="proj", project_path=project_path,
-            worktree=None, worktree_path=None,
+            project="proj",
+            project_path=project_path,
+            worktree=None,
+            worktree_path=None,
         )
 
         with ExitStack() as stack:
-            stack.enter_context(patch("maelstrom.cli.resolve_context", return_value=ctx))
-            stack.enter_context(patch(
-                "maelstrom.cli.setup_worktree_for_branch",
-                return_value=WorktreeSetup(
-                    path=worktree_path, name="bravo", action="created", sync=sync,
-                ),
-            ))
+            stack.enter_context(
+                patch("maelstrom.cli.resolve_context", return_value=ctx)
+            )
+            stack.enter_context(
+                patch(
+                    "maelstrom.cli.setup_worktree_for_branch",
+                    return_value=WorktreeSetup(
+                        path=worktree_path,
+                        name="bravo",
+                        action="created",
+                        sync=sync,
+                    ),
+                )
+            )
             stack.enter_context(patch("maelstrom.cli.get_app_url", return_value=None))
-            launch = stack.enter_context(patch("maelstrom.cli.launch_claude_in_worktree"))
+            launch = stack.enter_context(
+                patch("maelstrom.cli.launch_claude_in_worktree")
+            )
             result = CliRunner().invoke(cli, ["add", "feat-x"])
         return result, launch
 
@@ -1012,7 +1214,9 @@ class TestCmdAddSync:
         launch.assert_not_called()
 
     def test_successful_sync_is_reported_and_the_launch_proceeds(self, tmp_path):
-        sync = _sync_result(repaired=True, pushed=True, push_message="Pushed feat-x to origin")
+        sync = _sync_result(
+            repaired=True, pushed=True, push_message="Pushed feat-x to origin"
+        )
         result, launch = self._run(tmp_path, sync)
 
         assert result.exit_code == 0, result.output
@@ -1041,11 +1245,16 @@ class TestCmdSyncAutorepair:
         ctx = MagicMock(project="proj", worktree="bravo", worktree_path=worktree_path)
 
         with ExitStack() as stack:
-            stack.enter_context(patch("maelstrom.cli.resolve_context", return_value=ctx))
+            stack.enter_context(
+                patch("maelstrom.cli.resolve_context", return_value=ctx)
+            )
             plain = stack.enter_context(patch("maelstrom.cli.sync_worktree"))
-            repair = stack.enter_context(patch(
-                "maelstrom.cli.sync_worktree_with_autorepair", return_value=sync_result,
-            ))
+            repair = stack.enter_context(
+                patch(
+                    "maelstrom.cli.sync_worktree_with_autorepair",
+                    return_value=sync_result,
+                )
+            )
             plain.return_value = sync_result
             result = CliRunner().invoke(cli, ["sync", *args])
         return result, plain, repair
@@ -1065,7 +1274,9 @@ class TestCmdSyncAutorepair:
         repair.assert_not_called()
 
     def test_repaired_success_says_so(self, tmp_path):
-        result, _, _ = self._run(["--autorepair"], _sync_result(repaired=True), tmp_path)
+        result, _, _ = self._run(
+            ["--autorepair"], _sync_result(repaired=True), tmp_path
+        )
 
         assert result.exit_code == 0, result.output
         assert "resolved by a headless Claude session" in result.output
@@ -1109,18 +1320,24 @@ class TestCmdSyncAutorepair:
         ctx = MagicMock(project="proj", project_path=project_path)
 
         with ExitStack() as stack:
-            stack.enter_context(patch("maelstrom.cli.resolve_context", return_value=ctx))
-            stack.enter_context(patch(
-                "maelstrom.cli.list_worktrees",
-                return_value=[MagicMock(path=wt_path, branch="feature/work")],
-            ))
+            stack.enter_context(
+                patch("maelstrom.cli.resolve_context", return_value=ctx)
+            )
+            stack.enter_context(
+                patch(
+                    "maelstrom.cli.list_worktrees",
+                    return_value=[MagicMock(path=wt_path, branch="feature/work")],
+                )
+            )
             stack.enter_context(patch("maelstrom.cli.run_git"))
             stack.enter_context(patch("maelstrom.worktree.update_local_main"))
             plain = stack.enter_context(patch("maelstrom.cli.sync_worktree"))
-            repair = stack.enter_context(patch(
-                "maelstrom.cli.sync_worktree_with_autorepair",
-                return_value=_sync_result(repaired=True),
-            ))
+            repair = stack.enter_context(
+                patch(
+                    "maelstrom.cli.sync_worktree_with_autorepair",
+                    return_value=_sync_result(repaired=True),
+                )
+            )
             result = CliRunner().invoke(cli, ["sync-all", "--autorepair"])
 
         assert result.exit_code == 0, result.output
@@ -1137,17 +1354,26 @@ class TestCmdSyncAutorepair:
         ctx = MagicMock(project="proj", project_path=project_path)
 
         with ExitStack() as stack:
-            stack.enter_context(patch("maelstrom.cli.resolve_context", return_value=ctx))
-            stack.enter_context(patch(
-                "maelstrom.cli.list_worktrees",
-                return_value=[MagicMock(path=wt_path, branch="feature/work")],
-            ))
+            stack.enter_context(
+                patch("maelstrom.cli.resolve_context", return_value=ctx)
+            )
+            stack.enter_context(
+                patch(
+                    "maelstrom.cli.list_worktrees",
+                    return_value=[MagicMock(path=wt_path, branch="feature/work")],
+                )
+            )
             stack.enter_context(patch("maelstrom.cli.run_git"))
             stack.enter_context(patch("maelstrom.worktree.update_local_main"))
-            plain = stack.enter_context(patch(
-                "maelstrom.cli.sync_worktree", return_value=_sync_result(),
-            ))
-            repair = stack.enter_context(patch("maelstrom.cli.sync_worktree_with_autorepair"))
+            plain = stack.enter_context(
+                patch(
+                    "maelstrom.cli.sync_worktree",
+                    return_value=_sync_result(),
+                )
+            )
+            repair = stack.enter_context(
+                patch("maelstrom.cli.sync_worktree_with_autorepair")
+            )
             result = CliRunner().invoke(cli, ["sync-all"])
 
         assert result.exit_code == 0, result.output
@@ -1168,20 +1394,31 @@ class TestCmdSyncAutorepair:
         ctx = MagicMock(project="proj", worktree="bravo", worktree_path=worktree_path)
 
         with ExitStack() as stack:
-            stack.enter_context(patch("maelstrom.cli.resolve_context", return_value=ctx))
+            stack.enter_context(
+                patch("maelstrom.cli.resolve_context", return_value=ctx)
+            )
             # Stop after the announcement: a conflicted rebase is set up in
             # test_sync_flags, and this asserts only that the line gets out.
-            stack.enter_context(patch(
-                "maelstrom.worktree.sync_worktree",
-                return_value=_failed_sync("Rebase hit conflicts", had_conflicts=True),
-            ))
-            stack.enter_context(patch(
-                "maelstrom.worktree.rebase_in_progress", return_value=True,
-            ))
-            stack.enter_context(patch(
-                "maelstrom.worktree.run_resolve_rebase_session",
-                side_effect=OSError("claude: not found"),
-            ))
+            stack.enter_context(
+                patch(
+                    "maelstrom.worktree.sync_worktree",
+                    return_value=_failed_sync(
+                        "Rebase hit conflicts", had_conflicts=True
+                    ),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "maelstrom.worktree.rebase_in_progress",
+                    return_value=True,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "maelstrom.worktree.run_resolve_rebase_session",
+                    side_effect=OSError("claude: not found"),
+                )
+            )
             stack.enter_context(patch("maelstrom.worktree._abort_rebase"))
             result = CliRunner().invoke(cli, ["sync", "--autorepair"])
 
@@ -1211,9 +1448,12 @@ class TestClaudePlacementFailure:
             stack.enter_context(
                 patch("maelstrom.cli.resolve_context", return_value=self._ctx(tmp_path))
             )
-            stack.enter_context(patch(
-                "maelstrom.cli.launch_claude_in_worktree", return_value=False,
-            ))
+            stack.enter_context(
+                patch(
+                    "maelstrom.cli.launch_claude_in_worktree",
+                    return_value=False,
+                )
+            )
             result = CliRunner().invoke(cli, ["claude", "proj.bravo"])
             assert result.exit_code != 0
             assert "cmux is not running" in result.output
@@ -1225,9 +1465,12 @@ class TestClaudePlacementFailure:
             stack.enter_context(
                 patch("maelstrom.cli.resolve_context", return_value=self._ctx(tmp_path))
             )
-            launch = stack.enter_context(patch(
-                "maelstrom.cli.launch_claude_in_worktree", return_value=True,
-            ))
+            launch = stack.enter_context(
+                patch(
+                    "maelstrom.cli.launch_claude_in_worktree",
+                    return_value=True,
+                )
+            )
             result = CliRunner().invoke(cli, ["claude", "proj.bravo"])
             assert result.exit_code == 0, result.output
             launch.assert_called_once()
@@ -1237,18 +1480,17 @@ class TestCmuxStatus:
     """`mael cmux status` reports whether ensure_cmux_running succeeds."""
 
     def test_ok_when_cmux_reachable(self):
-        with patch(
-            "maelstrom.cli.ensure_cmux_running", return_value=True
-        ), patch.dict(os.environ, {"CMUX_SOCKET_PATH": "/tmp/c.sock"}):
+        with (
+            patch("maelstrom.cli.ensure_cmux_running", return_value=True),
+            patch.dict(os.environ, {"CMUX_SOCKET_PATH": "/tmp/c.sock"}),
+        ):
             result = CliRunner().invoke(cli, ["cmux", "status"])
             assert result.exit_code == 0, result.output
             assert "cmux OK" in result.output
             assert "/tmp/c.sock" in result.output
 
     def test_errors_when_cmux_unreachable(self):
-        with patch(
-            "maelstrom.cli.ensure_cmux_running", return_value=False
-        ):
+        with patch("maelstrom.cli.ensure_cmux_running", return_value=False):
             result = CliRunner().invoke(cli, ["cmux", "status"])
             assert result.exit_code != 0
             assert "not reachable" in result.output
@@ -1257,13 +1499,21 @@ class TestCmuxStatus:
 class TestCreateProject:
     """Tests for `mael create-project`."""
 
-    def _invoke(self, args, tmp_path, *, url="git@github.com:me/proj.git",
-                add_project_error=None):
+    def _invoke(
+        self,
+        args,
+        tmp_path,
+        *,
+        url="git@github.com:me/proj.git",
+        add_project_error=None,
+    ):
         """Run create-project with the remote and checkout halves mocked."""
-        with patch("maelstrom.cli.load_global_config") as mock_config, \
-             patch("maelstrom.cli.create_project_repo", return_value=url) as mock_create, \
-             patch("maelstrom.cli.add_project") as mock_add_project, \
-             patch("maelstrom.cli.cmd_add") as mock_add:
+        with (
+            patch("maelstrom.cli.load_global_config") as mock_config,
+            patch("maelstrom.cli.create_project_repo", return_value=url) as mock_create,
+            patch("maelstrom.cli.add_project") as mock_add_project,
+            patch("maelstrom.cli.cmd_add") as mock_add,
+        ):
             mock_config.return_value = MagicMock(projects_dir=tmp_path)
             mock_add_project.return_value = tmp_path / "proj"
             if add_project_error is not None:
@@ -1367,7 +1617,8 @@ class TestCreateProjectIntegration:
         upstream = tmp_path / f"{url_name}.git"
         subprocess.run(
             ["git", "init", "--bare", "-b", "main", str(upstream)],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
         seed = tmp_path / "seed"
         seed.mkdir()
@@ -1376,8 +1627,16 @@ class TestCreateProjectIntegration:
         for cmd in (
             ["git", "init", "-b", "main"],
             ["git", "add", "-A"],
-            ["git", "-c", "user.email=t@t", "-c", "user.name=T",
-             "commit", "-m", "seed"],
+            [
+                "git",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=T",
+                "commit",
+                "-m",
+                "seed",
+            ],
             ["git", "remote", "add", "origin", str(upstream)],
             ["git", "push", "-u", "origin", "main"],
         ):
@@ -1390,11 +1649,13 @@ class TestCreateProjectIntegration:
             return True
 
         config = MagicMock(projects_dir=projects, open_command="code")
-        with patch("maelstrom.cli.load_global_config", return_value=config), \
-             patch("maelstrom.context.load_global_config", return_value=config), \
-             patch("maelstrom.cli.create_project_repo", return_value=str(upstream)), \
-             patch("maelstrom.cli.launch_claude_in_worktree", side_effect=fake_launch), \
-             patch("maelstrom.cli.run_install_cmd"):
+        with (
+            patch("maelstrom.cli.load_global_config", return_value=config),
+            patch("maelstrom.context.load_global_config", return_value=config),
+            patch("maelstrom.cli.create_project_repo", return_value=str(upstream)),
+            patch("maelstrom.cli.launch_claude_in_worktree", side_effect=fake_launch),
+            patch("maelstrom.cli.run_install_cmd"),
+        ):
             result = CliRunner().invoke(cli, ["create-project", repo_name])
         return result, projects, launched
 
@@ -1411,7 +1672,9 @@ class TestCreateProjectIntegration:
         assert alpha.exists()
         branch = subprocess.run(
             ["git", "branch", "--show-current"],
-            cwd=alpha, capture_output=True, text=True,
+            cwd=alpha,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
         assert branch == "feat/start-project"
         assert launched["project"] == "demo"
@@ -1435,7 +1698,9 @@ class TestCreateProjectIntegration:
         main_dir = projects / "demo" / "_main"
         branch = subprocess.run(
             ["git", "branch", "--show-current"],
-            cwd=main_dir, capture_output=True, text=True,
+            cwd=main_dir,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
         assert branch == "main"
         # A reference checkout, not a workspace: no ports, no .env.
@@ -1471,7 +1736,8 @@ class TestMvProjectIntegration:
         upstream = tmp_path / "up.git"
         subprocess.run(
             ["git", "init", "--bare", "-b", "main", str(upstream)],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
         seed = tmp_path / "seed"
         seed.mkdir()
@@ -1479,7 +1745,16 @@ class TestMvProjectIntegration:
         for cmd in (
             ["git", "init", "-b", "main"],
             ["git", "add", "-A"],
-            ["git", "-c", "user.email=t@t", "-c", "user.name=T", "commit", "-m", "seed"],
+            [
+                "git",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=T",
+                "commit",
+                "-m",
+                "seed",
+            ],
             ["git", "remote", "add", "origin", str(upstream)],
             ["git", "push", "-u", "origin", "main"],
         ):
@@ -1487,18 +1762,26 @@ class TestMvProjectIntegration:
 
         subprocess.run(
             ["git", "clone", "--bare", str(upstream), str(project / ".git")],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
         git_env = {**os.environ, "GIT_DIR": str(project / ".git")}
         subprocess.run(
             ["git", "config", "core.bare", "false"],
-            cwd=project, env=git_env, check=True, capture_output=True,
+            cwd=project,
+            env=git_env,
+            check=True,
+            capture_output=True,
         )
         # A bare clone has no remote-tracking refs; fetch them so the project
         # looks like one `mael add-project` made (and `mael doctor` accepts).
         for cmd in (
-            ["git", "config", "remote.origin.fetch",
-             "+refs/heads/*:refs/remotes/origin/*"],
+            [
+                "git",
+                "config",
+                "remote.origin.fetch",
+                "+refs/heads/*:refs/remotes/origin/*",
+            ],
             ["git", "fetch", "origin"],
         ):
             subprocess.run(cmd, cwd=project, check=True, capture_output=True)
@@ -1506,16 +1789,29 @@ class TestMvProjectIntegration:
         # layout `mael add-project` produces and `mael doctor` checks for.
         subprocess.run(
             ["git", "checkout", "--detach", "main"],
-            cwd=project, check=True, capture_output=True,
+            cwd=project,
+            check=True,
+            capture_output=True,
         )
         subprocess.run(
             ["git", "worktree", "add", str(project / "_main"), "main"],
-            cwd=project, check=True, capture_output=True,
+            cwd=project,
+            check=True,
+            capture_output=True,
         )
         subprocess.run(
-            ["git", "worktree", "add", "-B", "feat/x",
-             str(project / f"{project_name}-alpha"), "main"],
-            cwd=project, check=True, capture_output=True,
+            [
+                "git",
+                "worktree",
+                "add",
+                "-B",
+                "feat/x",
+                str(project / f"{project_name}-alpha"),
+                "main",
+            ],
+            cwd=project,
+            check=True,
+            capture_output=True,
         )
         (project / ".mael").touch()
         return projects, project
@@ -1528,15 +1824,17 @@ class TestMvProjectIntegration:
         mael_dir.mkdir(exist_ok=True)
         config = MagicMock(projects_dir=projects, open_command="code")
 
-        with patch("maelstrom.mv_project_cli.load_global_config", return_value=config), \
-             patch("maelstrom.context.load_global_config", return_value=config), \
-             patch("maelstrom.cli.load_global_config", return_value=config), \
-             patch("maelstrom.context.get_maelstrom_dir", return_value=mael_dir), \
-             patch("maelstrom.mv_project_cli.get_maelstrom_dir", return_value=mael_dir), \
-             patch("maelstrom.task_store.get_maelstrom_dir", return_value=mael_dir), \
-             patch("pathlib.Path.home", return_value=home), \
-             patch("maelstrom.mv_project_cli.all_live_sessions", return_value=[]), \
-             patch("maelstrom.mv_project_cli.update_claude_local_md"):
+        with (
+            patch("maelstrom.mv_project_cli.load_global_config", return_value=config),
+            patch("maelstrom.context.load_global_config", return_value=config),
+            patch("maelstrom.cli.load_global_config", return_value=config),
+            patch("maelstrom.context.get_maelstrom_dir", return_value=mael_dir),
+            patch("maelstrom.mv_project_cli.get_maelstrom_dir", return_value=mael_dir),
+            patch("maelstrom.task_store.get_maelstrom_dir", return_value=mael_dir),
+            patch("pathlib.Path.home", return_value=home),
+            patch("maelstrom.mv_project_cli.all_live_sessions", return_value=[]),
+            patch("maelstrom.mv_project_cli.update_claude_local_md"),
+        ):
             return CliRunner().invoke(cli, ["mv-project"] + args)
 
     def test_git_works_inside_the_moved_worktree(self, tmp_path):
@@ -1546,8 +1844,10 @@ class TestMvProjectIntegration:
         assert result.exit_code == 0, result.output
 
         status = subprocess.run(
-            ["git", "status"], cwd=projects / "new" / "new-alpha",
-            capture_output=True, text=True,
+            ["git", "status"],
+            cwd=projects / "new" / "new-alpha",
+            capture_output=True,
+            text=True,
         )
         assert status.returncode == 0, status.stderr
 
@@ -1557,8 +1857,11 @@ class TestMvProjectIntegration:
         self._run(tmp_path, projects, ["old", "new"])
 
         listing = subprocess.run(
-            ["git", "worktree", "list"], cwd=projects / "new",
-            capture_output=True, text=True, check=True,
+            ["git", "worktree", "list"],
+            cwd=projects / "new",
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout
         assert str(projects / "new" / "new-alpha") in listing
         assert "old-alpha" not in listing
@@ -1580,7 +1883,10 @@ class TestMvProjectIntegration:
         main = projects / "new" / "_main"
         assert main.is_dir()
         status = subprocess.run(
-            ["git", "status"], cwd=main, capture_output=True, text=True,
+            ["git", "status"],
+            cwd=main,
+            capture_output=True,
+            text=True,
         )
         assert status.returncode == 0, status.stderr
 
@@ -1629,19 +1935,19 @@ class TestMvProjectIntegration:
         self._run(tmp_path, projects, ["old", "new"], home=home)
 
         config = MagicMock(projects_dir=projects, open_command="code")
-        with patch("maelstrom.context.get_maelstrom_dir",
-                   return_value=home / ".maelstrom"), \
-             patch("maelstrom.context.load_global_config", return_value=config), \
-             patch("pathlib.Path.home", return_value=home):
+        with (
+            patch(
+                "maelstrom.context.get_maelstrom_dir", return_value=home / ".maelstrom"
+            ),
+            patch("maelstrom.context.load_global_config", return_value=config),
+            patch("pathlib.Path.home", return_value=home),
+        ):
             doctor_result = run_doctor(projects / "new")
 
         assert json.loads(allocations.read_text()) == {
             str(projects / "new"): {"alpha": 310}
         }
-        bad = [
-            c for c in doctor_result.checks
-            if c.status.name in ("WARNING", "ERROR")
-        ]
+        bad = [c for c in doctor_result.checks if c.status.name in ("WARNING", "ERROR")]
         assert not bad, [(c.status, c.message) for c in bad]
 
 
@@ -1652,12 +1958,14 @@ class TestOpenHarness:
         worktree = tmp_path / "wt"
         worktree.mkdir()
         ctx = SimpleNamespace(
-            project="p", worktree="alpha", worktree_path=worktree,
+            project="p",
+            worktree="alpha",
+            worktree_path=worktree,
         )
         with ExitStack() as stack:
-            stack.enter_context(patch(
-                "maelstrom.cli.resolve_context", return_value=ctx
-            ))
+            stack.enter_context(
+                patch("maelstrom.cli.resolve_context", return_value=ctx)
+            )
             launch = stack.enter_context(
                 patch("maelstrom.cli.launch_claude_in_worktree")
             )
@@ -1698,20 +2006,25 @@ class TestAddHarness:
         project_path = projects / "proj"
         project_path.mkdir(parents=True)
         ctx = SimpleNamespace(
-            project="proj", project_path=project_path,
-            worktree=None, worktree_path=None,
+            project="proj",
+            project_path=project_path,
+            worktree=None,
+            worktree_path=None,
         )
         with ExitStack() as stack:
-            stack.enter_context(patch(
-                "maelstrom.cli.resolve_context", return_value=ctx
-            ))
-            stack.enter_context(patch(
-                "maelstrom.cli.setup_worktree_for_branch",
-                return_value=WorktreeSetup(
-                    path=project_path / "proj-bravo", name="bravo",
-                    action="created",
-                ),
-            ))
+            stack.enter_context(
+                patch("maelstrom.cli.resolve_context", return_value=ctx)
+            )
+            stack.enter_context(
+                patch(
+                    "maelstrom.cli.setup_worktree_for_branch",
+                    return_value=WorktreeSetup(
+                        path=project_path / "proj-bravo",
+                        name="bravo",
+                        action="created",
+                    ),
+                )
+            )
             launch = stack.enter_context(
                 patch("maelstrom.cli.launch_claude_in_worktree")
             )
@@ -1736,28 +2049,36 @@ class TestAddHarness:
         project_path = projects / "proj"
         project_path.mkdir(parents=True)
         ctx = SimpleNamespace(
-            project="proj", project_path=project_path,
-            worktree=None, worktree_path=None,
+            project="proj",
+            project_path=project_path,
+            worktree=None,
+            worktree_path=None,
         )
         with ExitStack() as stack:
-            stack.enter_context(patch(
-                "maelstrom.cli.resolve_context", return_value=ctx
-            ))
-            stack.enter_context(patch(
-                "maelstrom.cli.create_worktree",
-                return_value=project_path / "proj-bravo",
-            ))
-            stack.enter_context(patch(
-                "maelstrom.cli.extract_worktree_name_from_folder",
-                return_value="bravo",
-            ))
+            stack.enter_context(
+                patch("maelstrom.cli.resolve_context", return_value=ctx)
+            )
+            stack.enter_context(
+                patch(
+                    "maelstrom.cli.create_worktree",
+                    return_value=project_path / "proj-bravo",
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "maelstrom.cli.extract_worktree_name_from_folder",
+                    return_value="bravo",
+                )
+            )
             stack.enter_context(patch("maelstrom.cli.get_app_url", return_value=None))
             stack.enter_context(patch("maelstrom.cli.update_claude_local_md"))
             stack.enter_context(patch("maelstrom.cli.run_install_cmd"))
-            stack.enter_context(patch(
-                "maelstrom.cli.load_global_config",
-                return_value=SimpleNamespace(open_command="code"),
-            ))
+            stack.enter_context(
+                patch(
+                    "maelstrom.cli.load_global_config",
+                    return_value=SimpleNamespace(open_command="code"),
+                )
+            )
             stack.enter_context(patch("maelstrom.cli.open_worktree"))
             result = CliRunner().invoke(
                 cli, ["add", "-p", "proj", "--open", "--opencode"]

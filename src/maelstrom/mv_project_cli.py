@@ -103,9 +103,7 @@ def check_preconditions(
             f"{project_path} is not a maelstrom project (no .mael marker)"
         )
     if new_project_path.exists():
-        raise click.ClickException(
-            f"Target already exists: {new_project_path}"
-        )
+        raise click.ClickException(f"Target already exists: {new_project_path}")
 
     project = project_path.name
     env_store = make_env_store()
@@ -117,11 +115,7 @@ def check_preconditions(
     ]
     shared_running = load_shared_state(env_store, project) is not None
 
-    live = [
-        s
-        for s in all_live_sessions()
-        if _is_under(s.cwd, project_path)
-    ]
+    live = [s for s in all_live_sessions() if _is_under(s.cwd, project_path)]
 
     if not force:
         blockers: list[str] = []
@@ -198,9 +192,7 @@ def _worktree_folders(project_path: Path) -> list[str]:
     non-conventional worktrees are moved and repaired like any other.
     """
     return [
-        wt.path.name
-        for wt in list_worktrees(project_path)
-        if wt.path != project_path
+        wt.path.name for wt in list_worktrees(project_path) if wt.path != project_path
     ]
 
 
@@ -293,10 +285,7 @@ def repair_git_worktrees(plan: MovePlan) -> None:
     reflogs and stashes. Admin directories keep their old names; they are opaque
     handles.
     """
-    paths = [
-        str(plan.new_project_path / move.dst.name)
-        for move in plan.worktree_moves
-    ]
+    paths = [str(plan.new_project_path / move.dst.name) for move in plan.worktree_moves]
     try:
         if paths:
             run_git(["worktree", "repair", *paths], cwd=plan.new_project_path)
@@ -360,8 +349,7 @@ def _rewrite_env_paths(data: dict, plan: MovePlan) -> dict:
     services = result.get("services")
     if isinstance(services, list):
         result["services"] = [
-            _rewrite_env_paths(s, plan) if isinstance(s, dict) else s
-            for s in services
+            _rewrite_env_paths(s, plan) if isinstance(s, dict) else s for s in services
         ]
     return result
 
@@ -370,7 +358,7 @@ def _rewrite_path_string(value: str, plan: MovePlan) -> str:
     """Rewrite a path string that lies under the old project or log directory."""
     old_project = str(plan.old_project_path)
     if value == old_project or value.startswith(old_project + "/"):
-        remainder = value[len(old_project):]
+        remainder = value[len(old_project) :]
         # The worktree folder itself is renamed, so map that component too.
         for move in plan.worktree_moves:
             prefix = f"/{move.src.name}"
@@ -378,14 +366,14 @@ def _rewrite_path_string(value: str, plan: MovePlan) -> str:
                 return (
                     str(plan.new_project_path)
                     + f"/{move.dst.name}"
-                    + remainder[len(prefix):]
+                    + remainder[len(prefix) :]
                 )
         return str(plan.new_project_path) + remainder
 
     old_logs = str(get_maelstrom_dir() / "logs" / plan.old_name)
     if value == old_logs or value.startswith(old_logs + "/"):
         new_logs = str(get_maelstrom_dir() / "logs" / plan.new_name)
-        return new_logs + value[len(old_logs):]
+        return new_logs + value[len(old_logs) :]
     return value
 
 
@@ -426,9 +414,7 @@ def migrate_tasks(plan: MovePlan) -> int:
     # that has never written a task, and SQLite will not create the directory.
     store.root.mkdir(parents=True, exist_ok=True)
     index = open_index(store)
-    projects = [
-        p.name for p in find_all_projects(load_global_config().projects_dir)
-    ]
+    projects = [p.name for p in find_all_projects(load_global_config().projects_dir)]
     task_model.reindex(store, index, projects=projects, head=store.head())
     return len(tasks)
 
@@ -555,9 +541,7 @@ def refresh_worktree_files(plan: MovePlan) -> None:
 def set_git_remote(plan: MovePlan, git_url: str) -> None:
     """Point ``origin`` at ``git_url``."""
     try:
-        run_git(
-            ["remote", "set-url", "origin", git_url], cwd=plan.new_project_path
-        )
+        run_git(["remote", "set-url", "origin", git_url], cwd=plan.new_project_path)
     except subprocess.CalledProcessError as e:
         raise click.ClickException(f"Could not set origin URL: {e}")
 
@@ -573,9 +557,7 @@ def _unfinished_message(plan: MovePlan, reason: str) -> str:
 
 def render_plan(plan: MovePlan, home: Path, *, git_url: str | None) -> None:
     """Print the full plan without changing anything."""
-    click.echo(
-        f"Plan: rename project '{plan.old_name}' -> '{plan.new_name}'"
-    )
+    click.echo(f"Plan: rename project '{plan.old_name}' -> '{plan.new_name}'")
     click.echo("")
 
     click.echo(f"Directories ({len(plan.dir_moves)}):")
@@ -590,12 +572,8 @@ def render_plan(plan: MovePlan, home: Path, *, git_url: str | None) -> None:
 
     worktree_count = len(plan.worktree_moves)
     click.echo(f"Git:              worktree repair, {worktree_count} worktrees")
-    click.echo(
-        f"Port allocations: re-key 1 project entry ({worktree_count} worktrees)"
-    )
-    click.echo(
-        f"Env state:        envs/{plan.old_name} -> envs/{plan.new_name}"
-    )
+    click.echo(f"Port allocations: re-key 1 project entry ({worktree_count} worktrees)")
+    click.echo(f"Env state:        envs/{plan.old_name} -> envs/{plan.new_name}")
     click.echo(f"Tasks:            re-key {len(plan.task_rekeys)} tasks; rebuild index")
     click.echo(
         f"Claude projects:  {len(plan.claude_dir_moves)} dirs; "
@@ -626,7 +604,9 @@ def render_plan(plan: MovePlan, home: Path, *, git_url: str | None) -> None:
 @click.argument("new")
 @click.option("--dry-run", is_flag=True, help="Show the plan without changing anything")
 @click.option(
-    "-f", "--force", is_flag=True,
+    "-f",
+    "--force",
+    is_flag=True,
     help="Stop running envs and sessions instead of refusing",
 )
 @click.option("--git-url", default=None, help="Also point origin at this URL")
@@ -709,8 +689,7 @@ def cmd_mv_project(
     if not git_url:
         click.echo("")
         click.echo(
-            "remote.origin.url is unchanged. Pass --git-url to point it "
-            "somewhere else."
+            "remote.origin.url is unchanged. Pass --git-url to point it somewhere else."
         )
     click.echo("")
     click.echo(f"Next: mael doctor {plan.new_name}")

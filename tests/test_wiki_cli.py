@@ -76,7 +76,8 @@ def test_update_writes_a_page_from_a_file(runner, store, tmp_path):
     src = tmp_path / "page.md"
     src.write_text(PAGE)
     result = runner.invoke(
-        wiki_cli.wiki, ["update", "dev-patterns/python/pypi", "--content-file", str(src)]
+        wiki_cli.wiki,
+        ["update", "dev-patterns/python/pypi", "--content-file", str(src)],
     )
     assert result.exit_code == 0
     assert "Wrote wiki page dev-patterns/python/pypi." in result.output
@@ -102,7 +103,8 @@ def test_update_replaces_the_whole_page(runner, store):
 
 def test_update_fails_cleanly_when_the_content_file_is_missing(runner, store, tmp_path):
     result = runner.invoke(
-        wiki_cli.wiki, ["update", "linting", "--content-file", str(tmp_path / "nope.md")]
+        wiki_cli.wiki,
+        ["update", "linting", "--content-file", str(tmp_path / "nope.md")],
     )
     assert result.exit_code != 0
     assert "Content file not found" in result.output

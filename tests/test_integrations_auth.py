@@ -30,7 +30,9 @@ class TestResolveSecret:
         monkeypatch.chdir(tmp_path)  # no .env here
         cfg = _config(linear_api_key="from-config")
         with patch("maelstrom.integrations._auth.load_global_config", return_value=cfg):
-            assert resolve_secret("MY_KEY", config_attr="linear_api_key") == "from-config"
+            assert (
+                resolve_secret("MY_KEY", config_attr="linear_api_key") == "from-config"
+            )
 
     def test_none_when_absent(self, monkeypatch, tmp_path):
         monkeypatch.delenv("MY_KEY", raising=False)
@@ -43,7 +45,7 @@ class TestResolveSecret:
         # The old regex truncated at the inner quote; parse_env_text keeps it.
         monkeypatch.delenv("MY_KEY", raising=False)
         monkeypatch.chdir(tmp_path)
-        (tmp_path / ".env").write_text("MY_KEY=\"ab'cd\"\n")
+        (tmp_path / ".env").write_text('MY_KEY="ab\'cd"\n')
         assert resolve_secret("MY_KEY", config_attr="linear_api_key") == "ab'cd"
 
     def test_unquoted_value_with_literal_quote(self, monkeypatch, tmp_path):
@@ -57,7 +59,9 @@ class TestResolveSecret:
         monkeypatch.delenv("MY_KEY", raising=False)
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".env").write_text("MY_KEY=abc#notacomment\n")
-        assert resolve_secret("MY_KEY", config_attr="linear_api_key") == "abc#notacomment"
+        assert (
+            resolve_secret("MY_KEY", config_attr="linear_api_key") == "abc#notacomment"
+        )
 
     def test_double_space_hash_is_stripped(self, monkeypatch, tmp_path):
         # A double-space + '#' trailing comment is stripped by parse_env_text.

@@ -145,8 +145,7 @@ class MaelstromConfig:
 
         services_data = data.get("services", {}) or {}
         services = [
-            _parse_service(name, svc_data)
-            for name, svc_data in services_data.items()
+            _parse_service(name, svc_data) for name, svc_data in services_data.items()
         ]
 
         return cls(

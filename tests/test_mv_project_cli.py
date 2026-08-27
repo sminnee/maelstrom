@@ -30,8 +30,15 @@ def _make_project(tmp_path: Path, name: str = "old") -> Path:
 class MvProjectHarness:
     """Runs `mv-project` with every external dependency mocked out."""
 
-    def __init__(self, tmp_path: Path, *, live_sessions=None, env_state=None,
-                 shared_state=None, tasks=None):
+    def __init__(
+        self,
+        tmp_path: Path,
+        *,
+        live_sessions=None,
+        env_state=None,
+        shared_state=None,
+        tasks=None,
+    ):
         self.tmp_path = tmp_path
         self.live_sessions = live_sessions or []
         self.env_state = env_state
@@ -51,6 +58,7 @@ class MvProjectHarness:
         ]
 
         with ExitStack() as stack:
+
             def mock(target, **kwargs):
                 m = stack.enter_context(patch(target, **kwargs))
                 self.mocks[target.rsplit(".", 1)[-1]] = m
@@ -62,17 +70,25 @@ class MvProjectHarness:
             )
             stack.enter_context(patch("pathlib.Path.home", return_value=home))
             mock("maelstrom.mv_project_cli.list_worktrees", return_value=worktrees)
-            mock("maelstrom.mv_project_cli.all_live_sessions",
-                 return_value=self.live_sessions)
+            mock(
+                "maelstrom.mv_project_cli.all_live_sessions",
+                return_value=self.live_sessions,
+            )
             mock("maelstrom.mv_project_cli.load_env_state", return_value=self.env_state)
-            mock("maelstrom.mv_project_cli.load_shared_state",
-                 return_value=self.shared_state)
+            mock(
+                "maelstrom.mv_project_cli.load_shared_state",
+                return_value=self.shared_state,
+            )
             mock("maelstrom.mv_project_cli.make_env_store")
             mock("maelstrom.mv_project_cli.stop_env", return_value=["stopped env"])
-            mock("maelstrom.mv_project_cli.stop_sessions",
-                 return_value=["stopped session"])
-            mock("maelstrom.mv_project_cli.stop_shared_services",
-                 return_value=["stopped shared"])
+            mock(
+                "maelstrom.mv_project_cli.stop_sessions",
+                return_value=["stopped session"],
+            )
+            mock(
+                "maelstrom.mv_project_cli.stop_shared_services",
+                return_value=["stopped shared"],
+            )
             mock("maelstrom.mv_project_cli.run_git")
             mock(
                 "maelstrom.mv_project_cli.rename_project_allocations",
@@ -80,8 +96,10 @@ class MvProjectHarness:
             )
             mock("maelstrom.mv_project_cli.GitFileStore")
             mock("maelstrom.mv_project_cli.open_index")
-            mock("maelstrom.mv_project_cli.task_model.list_tasks",
-                 return_value=self.tasks)
+            mock(
+                "maelstrom.mv_project_cli.task_model.list_tasks",
+                return_value=self.tasks,
+            )
             mock("maelstrom.mv_project_cli.task_model.reindex", return_value=0)
             mock("maelstrom.mv_project_cli.setup_claude_memory_symlink")
             mock("maelstrom.mv_project_cli.update_claude_local_md")
@@ -114,7 +132,9 @@ class TestDryRun:
         _make_project(tmp_path)
         session = MagicMock(pid=4242, cwd=tmp_path / "old" / "old-alpha")
         harness = MvProjectHarness(
-            tmp_path, env_state=MagicMock(), shared_state=MagicMock(),
+            tmp_path,
+            env_state=MagicMock(),
+            shared_state=MagicMock(),
             live_sessions=[session],
         )
 
@@ -430,9 +450,7 @@ class TestRewritePathString:
         plan = self._plan(tmp_path)
         mael_dir = tmp_path / "mael"
 
-        with patch(
-            "maelstrom.mv_project_cli.get_maelstrom_dir", return_value=mael_dir
-        ):
+        with patch("maelstrom.mv_project_cli.get_maelstrom_dir", return_value=mael_dir):
             result = _rewrite_path_string(
                 str(mael_dir / "logs" / "old" / "alpha" / "web.log"), plan
             )

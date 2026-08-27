@@ -91,7 +91,7 @@ def worktree_nato_name(project: str, folder: str) -> str | None:
     prefix = f"{project}-"
     if not folder.startswith(prefix):
         return None
-    suffix = folder[len(prefix):]
+    suffix = folder[len(prefix) :]
     return suffix if suffix in WORKTREE_NAMES else None
 
 
@@ -219,9 +219,7 @@ def build_move_plan(
     if not new_name:
         raise ValueError("Project name cannot be empty")
     if old_name == new_name:
-        raise ValueError(
-            f"Old and new project names are the same: '{old_name}'"
-        )
+        raise ValueError(f"Old and new project names are the same: '{old_name}'")
     for name in (old_name, new_name):
         if "/" in name or name in (".", ".."):
             raise ValueError(f"Invalid project name '{name}'")

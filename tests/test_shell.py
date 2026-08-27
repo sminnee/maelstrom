@@ -38,13 +38,15 @@ class TestDescribe:
 
     def test_task_pipeline_full(self):
         # The task launch pipeline: env on the RIGHT stage (the claude segment).
-        expr = Pipeline([
-            Command(["mael", "task", "prompt", "t1", "--project", "proj"]),
-            Command(
-                ["claude", "--permission-mode", "plan"],
-                env={"MAEL_TASK_ID": "t1"},
-            ),
-        ])
+        expr = Pipeline(
+            [
+                Command(["mael", "task", "prompt", "t1", "--project", "proj"]),
+                Command(
+                    ["claude", "--permission-mode", "plan"],
+                    env={"MAEL_TASK_ID": "t1"},
+                ),
+            ]
+        )
         assert describe(expr) == (
             "mael task prompt t1 --project proj "
             "| MAEL_TASK_ID=t1 claude --permission-mode plan"
@@ -54,10 +56,12 @@ class TestDescribe:
         # Structural guard: env attaches to the claude Command, so MAEL_TASK_ID=
         # is absent from the left (prompt) stage. A front-of-pipeline prefix is
         # unrepresentable in the algebra.
-        expr = Pipeline([
-            Command(["mael", "task", "prompt", "t1", "--project", "proj"]),
-            Command(["claude"], env={"MAEL_TASK_ID": "t1"}),
-        ])
+        expr = Pipeline(
+            [
+                Command(["mael", "task", "prompt", "t1", "--project", "proj"]),
+                Command(["claude"], env={"MAEL_TASK_ID": "t1"}),
+            ]
+        )
         left, right = describe(expr).split(" | ", 1)
         assert "MAEL_TASK_ID=" not in left
         assert right == "MAEL_TASK_ID=t1 claude"
@@ -82,23 +86,31 @@ class TestToArgv:
     def test_command_wraps_in_sh_c(self):
         # A Command carries shell syntax (the env prefix), so it goes through sh.
         assert to_argv(Command(["claude"], env={"X": "1"})) == [
-            "sh", "-c", "X=1 claude",
+            "sh",
+            "-c",
+            "X=1 claude",
         ]
 
     def test_command_replace_prefixes_exec(self):
         # replace_process prefixes ``exec`` so the wrapping sh replaces itself.
         assert to_argv(Command(["claude"]), replace_process=True) == [
-            "sh", "-c", "exec claude",
+            "sh",
+            "-c",
+            "exec claude",
         ]
 
     def test_pipeline_replace_prefixes_exec(self):
-        expr = Pipeline([
-            Command(["mael", "task", "prompt", "t1", "--project", "p"]),
-            Command(["claude", "--permission-mode", "plan"],
-                    env={"MAEL_TASK_ID": "t1"}),
-        ])
+        expr = Pipeline(
+            [
+                Command(["mael", "task", "prompt", "t1", "--project", "p"]),
+                Command(
+                    ["claude", "--permission-mode", "plan"], env={"MAEL_TASK_ID": "t1"}
+                ),
+            ]
+        )
         assert to_argv(expr, replace_process=True) == [
-            "sh", "-c",
+            "sh",
+            "-c",
             "exec mael task prompt t1 --project p "
             "| MAEL_TASK_ID=t1 claude --permission-mode plan",
         ]

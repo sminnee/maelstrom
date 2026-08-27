@@ -270,7 +270,9 @@ def clear_leftover_wake() -> list[str]:
             "Schedule wake: found a repeating pmset wake but could not clear it. "
             "Run `sudo pmset repeat cancel` yourself."
         ]
-    return ["Schedule wake: cleared the repeating pmset wake (set by an old --wake-at)."]
+    return [
+        "Schedule wake: cleared the repeating pmset wake (set by an old --wake-at)."
+    ]
 
 
 # --- status reporting (read-only; the missing diagnostic that hid this bug) ---

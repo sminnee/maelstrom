@@ -108,9 +108,17 @@ class TestSubprocessCmuxClient:
         assert result.raw == "OK ws-123"
         assert result.text == "ws-123"
         mock_run.assert_called_once_with(
-            ["/usr/bin/cmux", "--socket", "/tmp/cmux.sock",
-             "new-workspace", "--command", "claude"],
-            capture_output=True, text=True, check=True,
+            [
+                "/usr/bin/cmux",
+                "--socket",
+                "/tmp/cmux.sock",
+                "new-workspace",
+                "--command",
+                "claude",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
         )
 
     def test_strips_stdout(self):
@@ -180,10 +188,12 @@ def _ping_reply(raw):
     ``raw=None`` models a dead socket: raise so ``SubprocessCmuxClient.run``
     degrades to ``CmuxResult(None)``. Any string models a live daemon's reply.
     """
+
     def fake_run(cmd, *args, **kwargs):
         if raw is None:
             raise subprocess.CalledProcessError(1, cmd)
         return subprocess.CompletedProcess(cmd, 0, stdout=raw, stderr="")
+
     return fake_run
 
 
@@ -362,9 +372,11 @@ class TestHasWorkspace:
     """CmuxLayout.has_workspace."""
 
     def test_true_when_present(self):
-        lay, _ = _layout({
-            ("list-workspaces",): "  workspace:13  myproject-alpha",
-        })
+        lay, _ = _layout(
+            {
+                ("list-workspaces",): "  workspace:13  myproject-alpha",
+            }
+        )
         assert lay.has_workspace() is True
 
     def test_false_when_absent(self):
@@ -376,13 +388,15 @@ class TestHasWorkspace:
         assert lay.has_workspace() is False
 
     def test_matches_first(self):
-        lay, _ = _layout({
-            ("list-workspaces",): (
-                "  workspace:14  other\n"
-                "  workspace:15  myproject-alpha\n"
-                "  workspace:16  myproject-alpha"
-            ),
-        })
+        lay, _ = _layout(
+            {
+                ("list-workspaces",): (
+                    "  workspace:14  other\n"
+                    "  workspace:15  myproject-alpha\n"
+                    "  workspace:16  myproject-alpha"
+                ),
+            }
+        )
         # has_workspace is boolean, but the underlying find returns the first.
         assert lay.has_workspace() is True
 
@@ -391,9 +405,11 @@ class TestEnsureWorkspace:
     """CmuxLayout.ensure_workspace — create if absent, no-op if present."""
 
     def test_no_op_when_present(self):
-        lay, client = _layout({
-            ("list-workspaces",): "  workspace:13  myproject-alpha",
-        })
+        lay, client = _layout(
+            {
+                ("list-workspaces",): "  workspace:13  myproject-alpha",
+            }
+        )
         ref = lay.ensure_workspace(TerminalTab("Claude", cwd="/wt", command="claude"))
         assert ref == "workspace:13"
         # No creation commands issued.
@@ -420,20 +436,29 @@ class TestEnsureWorkspace:
         assert ("new-workspace", "--command", "cd /wt") in client.calls
         # Renamed to the canonical name.
         assert (
-            "rename-workspace", "--workspace", "workspace:1", "myproject-alpha",
+            "rename-workspace",
+            "--workspace",
+            "workspace:1",
+            "myproject-alpha",
         ) in client.calls
         # The command is sent into the workspace's initial surface.
         assert (
-            "send", "--workspace", "workspace:1", "--", "claude\n",
+            "send",
+            "--workspace",
+            "workspace:1",
+            "--",
+            "claude\n",
         ) in client.calls
         # The initial tab is renamed to the tab title.
         assert ("rename-tab", "--surface", "surface:5", "Claude") in client.calls
 
     def test_returns_none_on_creation_failure(self):
-        lay, _ = _layout({
-            ("list-workspaces",): "",
-            ("new-workspace", "--command", "cd /wt"): None,
-        })
+        lay, _ = _layout(
+            {
+                ("list-workspaces",): "",
+                ("new-workspace", "--command", "cd /wt"): None,
+            }
+        )
         ref = lay.ensure_workspace(TerminalTab("Claude", cwd="/wt"))
         assert ref is None
 
@@ -443,6 +468,7 @@ class TestEnsureTerminal:
 
     def test_no_op_when_pane_present(self):
         """Pane exists → a terminal already exists there; no split."""
+
         def fn(*args):
             if args[0] == "list-workspaces":
                 return "  workspace:13  myproject-alpha"
@@ -481,7 +507,9 @@ class TestEnsureTerminal:
 
         lay, client = _layout(fn)
         with patch("maelstrom.cmux.model.time.sleep") as mock_sleep:
-            ref = lay.ensure_terminal(1, TerminalTab("Terminal", cwd="/wt", command="npm i"))
+            ref = lay.ensure_terminal(
+                1, TerminalTab("Terminal", cwd="/wt", command="npm i")
+            )
         assert ref == "surface:91"
         # Split off the rightmost surface (focus-safe), not new-pane.
         assert any(c[0] == "new-split" for c in client.calls)
@@ -490,12 +518,22 @@ class TestEnsureTerminal:
         mock_sleep.assert_called_once()
         # cwd + command sent into the new pane's initial surface.
         assert (
-            "send", "--surface", "surface:91", "--workspace", "workspace:13",
-            "--", "cd /wt\n",
+            "send",
+            "--surface",
+            "surface:91",
+            "--workspace",
+            "workspace:13",
+            "--",
+            "cd /wt\n",
         ) in client.calls
         assert (
-            "send", "--surface", "surface:91", "--workspace", "workspace:13",
-            "--", "npm i\n",
+            "send",
+            "--surface",
+            "surface:91",
+            "--workspace",
+            "workspace:13",
+            "--",
+            "npm i\n",
         ) in client.calls
 
     def test_returns_none_when_no_workspace(self):
@@ -521,25 +559,45 @@ class TestAddTerminal:
         assert ref == "surface:99"
         # A new terminal surface tab was created in pane:0.
         assert (
-            "new-surface", "--type", "terminal",
-            "--pane", "pane:0", "--workspace", "workspace:13",
+            "new-surface",
+            "--type",
+            "terminal",
+            "--pane",
+            "pane:0",
+            "--workspace",
+            "workspace:13",
         ) in client.calls
         assert ("rename-tab", "--surface", "surface:99", "Claude") in client.calls
         # Command sent into the new surface, scoped to the workspace.
         assert (
-            "send", "--surface", "surface:99", "--workspace", "workspace:13",
-            "--", "claude\n",
+            "send",
+            "--surface",
+            "surface:99",
+            "--workspace",
+            "workspace:13",
+            "--",
+            "claude\n",
         ) in client.calls
         # The workspace is brought to the foreground (it may be a background one),
         # the pane focused, and the new tab brought to front.
         assert (
-            "select-workspace", "--workspace", "workspace:13",
+            "select-workspace",
+            "--workspace",
+            "workspace:13",
         ) in client.calls
         assert (
-            "focus-pane", "--pane", "pane:0", "--workspace", "workspace:13",
+            "focus-pane",
+            "--pane",
+            "pane:0",
+            "--workspace",
+            "workspace:13",
         ) in client.calls
         assert (
-            "focus-panel", "--panel", "surface:99", "--workspace", "workspace:13",
+            "focus-panel",
+            "--panel",
+            "surface:99",
+            "--workspace",
+            "workspace:13",
         ) in client.calls
 
     def test_returns_none_when_pane_absent(self):
@@ -571,8 +629,13 @@ class TestAddTerminal:
         cmd = "claude --permission-mode plan 'do the thing'"
         lay.add_terminal(0, TerminalTab("Claude", cwd="/wt", command=cmd))
         assert (
-            "send", "--surface", "surface:99", "--workspace", "workspace:13",
-            "--", f"{cmd}\n",
+            "send",
+            "--surface",
+            "surface:99",
+            "--workspace",
+            "workspace:13",
+            "--",
+            f"{cmd}\n",
         ) in client.calls
 
 
@@ -594,7 +657,11 @@ class TestEnsureBrowser:
         assert ref == "surface:183"
         # Navigated in place — no close, no new surface.
         assert (
-            "browser", "--surface", "surface:183", "goto", "http://localhost:3000",
+            "browser",
+            "--surface",
+            "surface:183",
+            "goto",
+            "http://localhost:3000",
         ) in client.calls
         assert not any(c[0] == "close-surface" for c in client.calls)
         assert not any(c[0] == "new-surface" for c in client.calls)
@@ -614,12 +681,18 @@ class TestEnsureBrowser:
         assert ref == "surface:200"
         # Opened a browser tab in pane:2 (the browser pane).
         assert (
-            "new-surface", "--type", "browser",
-            "--pane", "pane:2", "--url", "http://localhost:3000",
+            "new-surface",
+            "--type",
+            "browser",
+            "--pane",
+            "pane:2",
+            "--url",
+            "http://localhost:3000",
         ) in client.calls
 
     def test_match_prefix_overrides_url(self):
         """match= recycles a different github page in place (PR navigation)."""
+
         def fn(*args):
             if args[0] == "list-panels":
                 return '  surface:183  browser  "GitHub"'
@@ -639,7 +712,10 @@ class TestEnsureBrowser:
         )
         assert ref == "surface:183"
         assert (
-            "browser", "--surface", "surface:183", "goto",
+            "browser",
+            "--surface",
+            "surface:183",
+            "goto",
             "https://github.com/owner/repo/pull/9",
         ) in client.calls
 
@@ -678,9 +754,7 @@ class TestEnsureBrowser:
         ref = lay.ensure_browser(2, BrowserTab("http://localhost:3000"))
         assert ref == "surface:200"
         # Split via new-split --surface (no focus, no new-pane).
-        assert any(
-            c[0] == "new-split" and "--surface" in c for c in client.calls
-        )
+        assert any(c[0] == "new-split" and "--surface" in c for c in client.calls)
         assert not any(c[0] == "new-pane" for c in client.calls)
         # Placeholder terminal surface discarded.
         assert ("close-surface", "--surface", "surface:100") in client.calls
@@ -704,7 +778,10 @@ class TestEnsureBrowser:
 
         lay, _ = _layout(fn)
         ref = lay.ensure_browser(
-            2, BrowserTab("https://github.com/owner/repo/pull/9", match="https://github.com"),
+            2,
+            BrowserTab(
+                "https://github.com/owner/repo/pull/9", match="https://github.com"
+            ),
         )
         assert ref == "surface:300"
 
@@ -764,12 +841,18 @@ class TestStatusAndClose:
     """CmuxLayout.set_status / clear_status / close."""
 
     def test_set_status(self):
-        lay, client = _layout({
-            ("set-status", "task", "Working", "--icon", "hammer"): "OK",
-        })
+        lay, client = _layout(
+            {
+                ("set-status", "task", "Working", "--icon", "hammer"): "OK",
+            }
+        )
         assert lay.set_status("Working") is True
         assert (
-            "set-status", "task", "Working", "--icon", "hammer",
+            "set-status",
+            "task",
+            "Working",
+            "--icon",
+            "hammer",
         ) in client.calls
 
     def test_set_status_false_on_failure(self):
@@ -803,13 +886,14 @@ class TestListSurfaces:
 
     def test_parses_terminal_and_browser(self):
         output = (
-            '  surface:103  terminal  "Terminal"\n'
-            '  surface:183  browser  "My App"\n'
+            '  surface:103  terminal  "Terminal"\n  surface:183  browser  "My App"\n'
         )
         lay, _ = _layout({("list-panels",): output})
         surfaces = lay._list_surfaces()
         assert surfaces == [
-            Surface(ref="surface:103", type="terminal", title="Terminal", focused=False),
+            Surface(
+                ref="surface:103", type="terminal", title="Terminal", focused=False
+            ),
             Surface(ref="surface:183", type="browser", title="My App", focused=False),
         ]
 

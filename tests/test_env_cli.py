@@ -60,7 +60,9 @@ class TestEnvStart:
     @patch("maelstrom.env_cli.get_env_status")
     @patch("maelstrom.env_cli.start_env")
     @patch("maelstrom.env_cli.resolve_context")
-    def test_success(self, mock_ctx, mock_start, mock_status, mock_load, mock_app, tmp_path):
+    def test_success(
+        self, mock_ctx, mock_start, mock_status, mock_load, mock_app, tmp_path
+    ):
         """Starts env and prints status table with uptime."""
         ctx = _mock_ctx_with_path(tmp_path)
         mock_ctx.return_value = ctx
@@ -76,7 +78,11 @@ class TestEnvStart:
         assert "running" in result.output
         assert "UPTIME:" in result.output
         mock_start.assert_called_once_with(
-            ANY, "proj", "bravo", ctx.worktree_path, skip_install=False,
+            ANY,
+            "proj",
+            "bravo",
+            ctx.worktree_path,
+            skip_install=False,
         )
 
     @patch("maelstrom.env_cli.get_app_url", return_value=None)
@@ -84,7 +90,9 @@ class TestEnvStart:
     @patch("maelstrom.env_cli.get_env_status")
     @patch("maelstrom.env_cli.start_env")
     @patch("maelstrom.env_cli.resolve_context")
-    def test_skip_install_flag(self, mock_ctx, mock_start, mock_status, mock_load, mock_app, tmp_path):
+    def test_skip_install_flag(
+        self, mock_ctx, mock_start, mock_status, mock_load, mock_app, tmp_path
+    ):
         """Passes skip_install flag through."""
         ctx = _mock_ctx_with_path(tmp_path)
         mock_ctx.return_value = ctx
@@ -97,15 +105,23 @@ class TestEnvStart:
         result = runner.invoke(cli, ["env", "start", "--skip-install"])
         assert result.exit_code == 0
         mock_start.assert_called_once_with(
-            ANY, "proj", "bravo", ctx.worktree_path, skip_install=True,
+            ANY,
+            "proj",
+            "bravo",
+            ctx.worktree_path,
+            skip_install=True,
         )
 
-    @patch("maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True))
+    @patch(
+        "maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True)
+    )
     @patch("maelstrom.env_cli.load_env_state")
     @patch("maelstrom.env_cli.get_env_status")
     @patch("maelstrom.env_cli.start_env")
     @patch("maelstrom.env_cli.resolve_context")
-    def test_shows_app_url(self, mock_ctx, mock_start, mock_status, mock_load, mock_app, tmp_path):
+    def test_shows_app_url(
+        self, mock_ctx, mock_start, mock_status, mock_load, mock_app, tmp_path
+    ):
         """Shows App URL when port is allocated."""
         ctx = _mock_ctx_with_path(tmp_path)
         mock_ctx.return_value = ctx
@@ -124,7 +140,9 @@ class TestEnvStart:
     def test_already_running(self, mock_ctx, mock_start, tmp_path):
         """Shows error when services are already running."""
         mock_ctx.return_value = _mock_ctx_with_path(tmp_path)
-        mock_start.side_effect = RuntimeError("Services already running for proj/bravo: web")
+        mock_start.side_effect = RuntimeError(
+            "Services already running for proj/bravo: web"
+        )
 
         runner = CliRunner()
         result = runner.invoke(cli, ["env", "start"])
@@ -168,14 +186,23 @@ class TestEnvStartBrowserDedup:
 
     @patch("maelstrom.env_cli.save_env_state")
     @patch("maelstrom.env_cli.mael_layout.show_app_browser", return_value="surface:183")
-    @patch("maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True))
+    @patch(
+        "maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True)
+    )
     @patch("maelstrom.env_cli.load_env_state")
     @patch("maelstrom.env_cli.get_env_status")
     @patch("maelstrom.env_cli.start_env")
     @patch("maelstrom.env_cli.resolve_context")
     def test_shows_app_browser(
-        self, mock_ctx, mock_start, mock_status, mock_load, mock_app,
-        mock_show, mock_save, tmp_path,
+        self,
+        mock_ctx,
+        mock_start,
+        mock_status,
+        mock_load,
+        mock_app,
+        mock_show,
+        mock_save,
+        tmp_path,
     ):
         """Delegates to show_app_browser with the env's project/worktree/url."""
         ctx = _mock_ctx_with_path(tmp_path)
@@ -193,14 +220,23 @@ class TestEnvStartBrowserDedup:
 
     @patch("maelstrom.env_cli.save_env_state")
     @patch("maelstrom.env_cli.mael_layout.show_app_browser", return_value=None)
-    @patch("maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True))
+    @patch(
+        "maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True)
+    )
     @patch("maelstrom.env_cli.load_env_state", return_value=None)
     @patch("maelstrom.env_cli.get_env_status")
     @patch("maelstrom.env_cli.start_env")
     @patch("maelstrom.env_cli.resolve_context")
     def test_no_cmux_skips_browser(
-        self, mock_ctx, mock_start, mock_status, mock_load, mock_app,
-        mock_show, mock_save, tmp_path,
+        self,
+        mock_ctx,
+        mock_start,
+        mock_status,
+        mock_load,
+        mock_app,
+        mock_show,
+        mock_save,
+        tmp_path,
     ):
         """When show_app_browser returns None (outside cmux), no surface stored."""
         ctx = _mock_ctx_with_path(tmp_path)
@@ -217,14 +253,22 @@ class TestEnvStopBrowser:
     """Tests for browser close on env stop."""
 
     @patch("maelstrom.env_cli.mael_layout.hide_app_browser", return_value=True)
-    @patch("maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True))
+    @patch(
+        "maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True)
+    )
     @patch("maelstrom.env_cli.stop_env")
     @patch("maelstrom.env_cli.resolve_context")
     def test_closes_browser_on_stop(
-        self, mock_ctx, mock_stop, mock_app, mock_hide,
+        self,
+        mock_ctx,
+        mock_stop,
+        mock_app,
+        mock_hide,
     ):
         """Delegates to hide_app_browser with the env's project/worktree/url."""
-        mock_ctx.return_value = MagicMock(project="proj", worktree="bravo", project_path=Path("/proj"))
+        mock_ctx.return_value = MagicMock(
+            project="proj", worktree="bravo", project_path=Path("/proj")
+        )
         mock_stop.return_value = ["web (pid 100): stopped"]
 
         runner = CliRunner()
@@ -258,7 +302,9 @@ class TestEnvStatus:
         assert "dead" in result.output
         assert "UPTIME:" in result.output
 
-    @patch("maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", False))
+    @patch(
+        "maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", False)
+    )
     @patch("maelstrom.env_cli.load_env_state")
     @patch("maelstrom.env_cli.get_env_status")
     @patch("maelstrom.env_cli.resolve_context")
@@ -337,12 +383,16 @@ class TestEnvStop:
 class TestEnvList:
     """Tests for mael env list command."""
 
-    @patch("maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True))
+    @patch(
+        "maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True)
+    )
     @patch("maelstrom.env_cli.get_env_status")
     @patch("maelstrom.env_cli.format_uptime", return_value="5m")
     @patch("maelstrom.env_cli.list_project_envs")
     @patch("maelstrom.env_cli.resolve_context")
-    def test_with_running_envs(self, mock_ctx, mock_list, mock_uptime, mock_status, mock_app):
+    def test_with_running_envs(
+        self, mock_ctx, mock_list, mock_uptime, mock_status, mock_app
+    ):
         """Prints table with running environments and APP column."""
         mock_ctx.return_value = MagicMock(project="proj")
         mock_list.return_value = [_make_state()]
@@ -384,7 +434,9 @@ class TestEnvList:
 class TestEnvListAll:
     """Tests for mael env list-all command."""
 
-    @patch("maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True))
+    @patch(
+        "maelstrom.env_cli.get_app_url", return_value=("http://localhost:3000", True)
+    )
     @patch("maelstrom.env_cli.get_env_status")
     @patch("maelstrom.env_cli.format_uptime", return_value="2h")
     @patch("maelstrom.env_cli.list_all_envs")
@@ -556,15 +608,20 @@ class TestEnvStatusShared:
     @patch("maelstrom.env_cli.load_env_state")
     @patch("maelstrom.env_cli.get_env_status")
     @patch("maelstrom.env_cli.resolve_context")
-    def test_shows_shared_services(self, mock_ctx, mock_status, mock_load, mock_app, mock_shared):
+    def test_shows_shared_services(
+        self, mock_ctx, mock_status, mock_load, mock_app, mock_shared
+    ):
         """Shared services appear in status output with (shared) tag."""
         mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
         mock_load.return_value = _make_state()
         mock_status.return_value = [_make_status("web", pid=100, alive=True)]
         mock_shared.return_value = [
             ServiceStatus(
-                name="db-shared", pid=200, alive=True,
-                command="postgres", log_file="/tmp/db.log",
+                name="db-shared",
+                pid=200,
+                alive=True,
+                command="postgres",
+                log_file="/tmp/db.log",
                 started_at="2025-01-01T00:00:00+00:00",
             ),
         ]
@@ -580,7 +637,9 @@ class TestEnvStatusShared:
     @patch("maelstrom.env_cli.load_env_state")
     @patch("maelstrom.env_cli.get_env_status")
     @patch("maelstrom.env_cli.resolve_context")
-    def test_no_shared_services(self, mock_ctx, mock_status, mock_load, mock_app, mock_shared):
+    def test_no_shared_services(
+        self, mock_ctx, mock_status, mock_load, mock_app, mock_shared
+    ):
         """Works normally when no shared services exist."""
         mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
         mock_load.return_value = _make_state()
@@ -636,8 +695,14 @@ class TestEnvRestart:
     @patch("maelstrom.env_cli.load_env_state")
     @patch("maelstrom.env_cli.resolve_context")
     def test_restart_stops_and_starts(
-        self, mock_ctx, mock_load, mock_stop, mock_start,
-        mock_status, mock_app, tmp_path,
+        self,
+        mock_ctx,
+        mock_load,
+        mock_stop,
+        mock_start,
+        mock_status,
+        mock_app,
+        tmp_path,
     ):
         """Stops running env and starts it again with skip_install=True."""
         ctx = _mock_ctx_with_path(tmp_path)
@@ -653,7 +718,11 @@ class TestEnvRestart:
         assert "Environment stopped" in result.output
         mock_stop.assert_called_once_with(ANY, "proj", "bravo")
         mock_start.assert_called_once_with(
-            ANY, "proj", "bravo", ctx.worktree_path, skip_install=True,
+            ANY,
+            "proj",
+            "bravo",
+            ctx.worktree_path,
+            skip_install=True,
         )
 
     @patch("maelstrom.env_cli.get_app_url", return_value=None)
@@ -663,8 +732,14 @@ class TestEnvRestart:
     @patch("maelstrom.env_cli.load_env_state")
     @patch("maelstrom.env_cli.resolve_context")
     def test_restart_with_install(
-        self, mock_ctx, mock_load, mock_stop, mock_start,
-        mock_status, mock_app, tmp_path,
+        self,
+        mock_ctx,
+        mock_load,
+        mock_stop,
+        mock_start,
+        mock_status,
+        mock_app,
+        tmp_path,
     ):
         """Passes --install flag to start with skip_install=False."""
         ctx = _mock_ctx_with_path(tmp_path)
@@ -678,7 +753,11 @@ class TestEnvRestart:
         result = runner.invoke(cli, ["env", "restart", "--install"])
         assert result.exit_code == 0
         mock_start.assert_called_once_with(
-            ANY, "proj", "bravo", ctx.worktree_path, skip_install=False,
+            ANY,
+            "proj",
+            "bravo",
+            ctx.worktree_path,
+            skip_install=False,
         )
 
     @patch("maelstrom.env_cli.env_status")
@@ -686,7 +765,9 @@ class TestEnvRestart:
     @patch("maelstrom.env_cli.stop_env")
     @patch("maelstrom.env_cli.load_env_state", return_value=None)
     @patch("maelstrom.env_cli.resolve_context")
-    def test_restart_not_running(self, mock_ctx, mock_load, mock_stop, mock_start, mock_status, tmp_path):
+    def test_restart_not_running(
+        self, mock_ctx, mock_load, mock_stop, mock_start, mock_status, tmp_path
+    ):
         """When no env state exists, restart skips stop and just starts."""
         ctx = _mock_ctx_with_path(tmp_path)
         mock_ctx.return_value = ctx
@@ -719,7 +800,9 @@ class TestEnvRestart:
 class TestEnvReset:
     """Tests for mael env reset command."""
 
-    @patch("maelstrom.env_cli.regenerate_and_restart_if_running", return_value=([], None))
+    @patch(
+        "maelstrom.env_cli.regenerate_and_restart_if_running", return_value=([], None)
+    )
     @patch("maelstrom.env_cli.resolve_context")
     def test_reset_not_running(self, mock_ctx, mock_helper, tmp_path):
         """Regenerates .env without stop/start when env is not running."""
@@ -731,7 +814,11 @@ class TestEnvReset:
         assert result.exit_code == 0
         assert "Regenerated .env" in result.output
         mock_helper.assert_called_once_with(
-            ANY, "proj", "bravo", ctx.project_path, ctx.worktree_path,
+            ANY,
+            "proj",
+            "bravo",
+            ctx.project_path,
+            ctx.worktree_path,
         )
 
     @patch("maelstrom.env_cli.get_app_url", return_value=None)
@@ -740,7 +827,13 @@ class TestEnvReset:
     @patch("maelstrom.env_cli.regenerate_and_restart_if_running")
     @patch("maelstrom.env_cli.resolve_context")
     def test_reset_running_stops_and_restarts(
-        self, mock_ctx, mock_helper, mock_load, mock_status, mock_app, tmp_path,
+        self,
+        mock_ctx,
+        mock_helper,
+        mock_load,
+        mock_status,
+        mock_app,
+        tmp_path,
     ):
         """Stops env, regenerates .env, and restarts when env is running."""
         ctx = _mock_ctx_with_path(tmp_path)
@@ -756,10 +849,16 @@ class TestEnvReset:
         assert "Environment stopped" in result.output
         assert "Regenerated .env" in result.output
         mock_helper.assert_called_once_with(
-            ANY, "proj", "bravo", ctx.project_path, ctx.worktree_path,
+            ANY,
+            "proj",
+            "bravo",
+            ctx.project_path,
+            ctx.worktree_path,
         )
 
-    @patch("maelstrom.env_cli.regenerate_and_restart_if_running", return_value=([], None))
+    @patch(
+        "maelstrom.env_cli.regenerate_and_restart_if_running", return_value=([], None)
+    )
     @patch("maelstrom.env_cli.resolve_context")
     def test_reset_copies_back_new_worktree_var(self, mock_ctx, mock_helper, tmp_path):
         """Copies a new worktree var back to the parent before regenerating."""

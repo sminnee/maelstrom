@@ -164,7 +164,9 @@ class TestSessionRecord:
     def test_heartbeat_bumps_updated_at_without_changing_state(self, tmp_path):
         sessions = tmp_path / "sessions"
         path = _write_session(
-            sessions, "s1", session_id="abc",
+            sessions,
+            "s1",
+            session_id="abc",
             state="processing",
             updated_at="2020-01-01T00:00:00+00:00",
         )
@@ -201,7 +203,11 @@ class TestSessionRecord:
     def test_fallback_to_cwd_pid(self, tmp_path):
         sessions = tmp_path / "sessions"
         path = _write_session(
-            sessions, "s1", session_id="abc", cwd="/x/y", pid=999,
+            sessions,
+            "s1",
+            session_id="abc",
+            cwd="/x/y",
+            pid=999,
         )
 
         with _patch_maelstrom_dir(tmp_path):
@@ -267,9 +273,7 @@ class TestSessionEndAutoClose:
             "resolve_context",
             lambda *a, **k: SimpleNamespace(project="proj", worktree=None),
         )
-        monkeypatch.setattr(
-            "maelstrom.task_store.get_maelstrom_dir", lambda: tmp_path
-        )
+        monkeypatch.setattr("maelstrom.task_store.get_maelstrom_dir", lambda: tmp_path)
         return store, task.id
 
     def test_in_progress_task_moves_to_done(self, tmp_path, monkeypatch):
@@ -311,9 +315,7 @@ class TestSessionEndAutoClose:
             "resolve_context",
             lambda *a, **k: SimpleNamespace(project="proj", worktree=None),
         )
-        monkeypatch.setattr(
-            "maelstrom.task_store.get_maelstrom_dir", lambda: tmp_path
-        )
+        monkeypatch.setattr("maelstrom.task_store.get_maelstrom_dir", lambda: tmp_path)
 
         calls = []
         from maelstrom.integrations import linear
@@ -361,9 +363,7 @@ class TestSessionEndAutoClose:
         assert model.status_from_key(key) == model.STATUS_IN_PROGRESS
 
     def test_already_terminal_task_left_untouched(self, tmp_path, monkeypatch):
-        store, task_id = self._setup(
-            tmp_path, monkeypatch, status=model.STATUS_DONE
-        )
+        store, task_id = self._setup(tmp_path, monkeypatch, status=model.STATUS_DONE)
         sessions = tmp_path / "sessions"
         path = _write_session(sessions, "s1", session_id="abc")
 
@@ -408,9 +408,7 @@ class TestSessionEndAutoClose:
             "resolve_context",
             lambda *a, **k: SimpleNamespace(project="proj", worktree=None),
         )
-        monkeypatch.setattr(
-            "maelstrom.task_store.get_maelstrom_dir", lambda: tmp_path
-        )
+        monkeypatch.setattr("maelstrom.task_store.get_maelstrom_dir", lambda: tmp_path)
         sessions = tmp_path / "sessions"
         path = _write_session(sessions, "s1", session_id="abc")
 
@@ -490,9 +488,13 @@ class TestSessionList:
             sessions = tmp_path / "sessions"
             now = datetime.now(timezone.utc).isoformat()
             _write_session(
-                sessions, "live",
-                cwd="/w/alpha", pid=4242,
-                channel_port=port, state="processing", updated_at=now,
+                sessions,
+                "live",
+                cwd="/w/alpha",
+                pid=4242,
+                channel_port=port,
+                state="processing",
+                updated_at=now,
             )
             with _patch_maelstrom_dir(tmp_path), _patch_live([_live(4242, "/w/alpha")]):
                 runner = CliRunner()
@@ -510,9 +512,12 @@ class TestSessionList:
         try:
             sessions = tmp_path / "sessions"
             _write_session(
-                sessions, "stale",
-                cwd="/w/alpha", pid=4242,
-                channel_port=port, state="processing",
+                sessions,
+                "stale",
+                cwd="/w/alpha",
+                pid=4242,
+                channel_port=port,
+                state="processing",
                 updated_at="2020-01-01T00:00:00+00:00",
             )
             with _patch_maelstrom_dir(tmp_path), _patch_live([_live(4242, "/w/alpha")]):
@@ -587,9 +592,14 @@ class TestSessionList:
             sessions = tmp_path / "sessions"
             now = datetime.now(timezone.utc).isoformat()
             _write_session(
-                sessions, "live",
-                cwd="/w/alpha", pid=4242, session_id=sid,
-                channel_port=port, state="idle", updated_at=now,
+                sessions,
+                "live",
+                cwd="/w/alpha",
+                pid=4242,
+                session_id=sid,
+                channel_port=port,
+                state="idle",
+                updated_at=now,
                 mael_task_id="2026-07-03.7",
             )
             # Cold index: nothing to resolve the session-id.
@@ -614,9 +624,13 @@ class TestSessionList:
             sessions = tmp_path / "sessions"
             now = datetime.now(timezone.utc).isoformat()
             _write_session(
-                sessions, "live",
-                cwd="/w/alpha", pid=4242,
-                channel_port=port, state="idle", updated_at=now,
+                sessions,
+                "live",
+                cwd="/w/alpha",
+                pid=4242,
+                channel_port=port,
+                state="idle",
+                updated_at=now,
                 mael_task_id="2026-07-03.7",
             )
             with _patch_maelstrom_dir(tmp_path), _patch_live([_live(4242, "/w/alpha")]):
@@ -656,7 +670,7 @@ class TestSessionList:
         row = next(line for line in result.output.splitlines() if "4242" in line)
         header = result.output.splitlines()[0]
         start = header.index("ID")
-        assert row[start:start + len("ID")].strip() == ""
+        assert row[start : start + len("ID")].strip() == ""
 
 
 class TestLivenessCheck:
@@ -704,8 +718,9 @@ class TestSessionInfo:
         return s
 
     def test_explicit_id_shows_the_session(self, tmp_path):
-        with _patch_maelstrom_dir(tmp_path), _patch_live(
-            [self._sess(session_id=self._SID)]
+        with (
+            _patch_maelstrom_dir(tmp_path),
+            _patch_live([self._sess(session_id=self._SID)]),
         ):
             result = CliRunner().invoke(cli, ["session", "info", self._SID])
         assert result.exit_code == 0, result.output
@@ -714,8 +729,9 @@ class TestSessionInfo:
         assert "/w/alpha" in result.output
 
     def test_resolves_an_id_prefix(self, tmp_path):
-        with _patch_maelstrom_dir(tmp_path), _patch_live(
-            [self._sess(session_id=self._SID)]
+        with (
+            _patch_maelstrom_dir(tmp_path),
+            _patch_live([self._sess(session_id=self._SID)]),
         ):
             result = CliRunner().invoke(cli, ["session", "info", "97894d02"])
         assert result.exit_code == 0, result.output
@@ -731,8 +747,9 @@ class TestSessionInfo:
         self, tmp_path, monkeypatch
     ):
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", self._SID)
-        with _patch_maelstrom_dir(tmp_path), _patch_live(
-            [self._sess(session_id=self._SID)]
+        with (
+            _patch_maelstrom_dir(tmp_path),
+            _patch_live([self._sess(session_id=self._SID)]),
         ):
             result = CliRunner().invoke(cli, ["session", "info"])
         assert result.exit_code == 0, result.output
@@ -745,8 +762,9 @@ class TestSessionInfo:
         # only handle that still resolves. Both are tried, in that order.
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "cleared-and-unknown-id")
         monkeypatch.setenv("CLAUDE_PID", "4242")
-        with _patch_maelstrom_dir(tmp_path), _patch_live(
-            [self._sess(session_id=self._SID)]
+        with (
+            _patch_maelstrom_dir(tmp_path),
+            _patch_live([self._sess(session_id=self._SID)]),
         ):
             result = CliRunner().invoke(cli, ["session", "info"])
         assert result.exit_code == 0, result.output
@@ -794,8 +812,12 @@ class TestSessionInfo:
 
     def test_errors_on_an_ambiguous_prefix(self, tmp_path):
         sessions = [
-            self._sess(pid=1, cwd="/w/a", session_id="abcd1111-0000-0000-0000-000000000000"),
-            self._sess(pid=2, cwd="/w/b", session_id="abcd2222-0000-0000-0000-000000000000"),
+            self._sess(
+                pid=1, cwd="/w/a", session_id="abcd1111-0000-0000-0000-000000000000"
+            ),
+            self._sess(
+                pid=2, cwd="/w/b", session_id="abcd2222-0000-0000-0000-000000000000"
+            ),
         ]
         with _patch_maelstrom_dir(tmp_path), _patch_live(sessions):
             result = CliRunner().invoke(cli, ["session", "info", "abcd"])
@@ -803,12 +825,11 @@ class TestSessionInfo:
         assert "ambiguous" in result.output
 
     def test_json_output_via_the_global_flag(self, tmp_path):
-        with _patch_maelstrom_dir(tmp_path), _patch_live(
-            [self._sess(session_id=self._SID)]
+        with (
+            _patch_maelstrom_dir(tmp_path),
+            _patch_live([self._sess(session_id=self._SID)]),
         ):
-            result = CliRunner().invoke(
-                cli, ["--json", "session", "info", self._SID]
-            )
+            result = CliRunner().invoke(cli, ["--json", "session", "info", self._SID])
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert data["id"] == self._SID
@@ -820,8 +841,10 @@ class TestSessionInfo:
         index = SqliteTaskIndex(":memory:")
         index.upsert(
             TaskMeta(
-                project="askastro", id="2026-07-03.7",
-                status="in-progress", session_id=sid,
+                project="askastro",
+                id="2026-07-03.7",
+                status="in-progress",
+                session_id=sid,
             )
         )
         monkeypatch.setattr(session_cli, "_task_index", lambda: index)
@@ -890,7 +913,8 @@ class TestSessionEnd:
         # from the process resolves even with an empty sweep.
         stopped = []
         monkeypatch.setattr(
-            session_cli, "stop_sessions",
+            session_cli,
+            "stop_sessions",
             lambda s, **kw: stopped.extend(s) or ["stopped"],
         )
         with _patch_maelstrom_dir(tmp_path), _patch_live([]), _patch_pid_lookup(4242):
@@ -905,7 +929,8 @@ class TestSessionEnd:
         # unrelated process.
         stopped = []
         monkeypatch.setattr(
-            session_cli, "stop_sessions",
+            session_cli,
+            "stop_sessions",
             lambda s, **kw: stopped.extend(s) or ["stopped"],
         )
         with _patch_maelstrom_dir(tmp_path), _patch_live([]), _patch_pid_lookup(None):

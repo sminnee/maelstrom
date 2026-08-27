@@ -66,12 +66,12 @@ class TestCronParseErrors:
     @pytest.mark.parametrize(
         "expr",
         [
-            "0 9 * *",          # too few fields
-            "0 9 * * * *",      # too many fields
-            "60 * * * *",       # minute out of range
-            "* 24 * * *",       # hour out of range
-            "* * * * 7",        # dow out of range
-            "abc * * * *",      # non-numeric
+            "0 9 * *",  # too few fields
+            "0 9 * * * *",  # too many fields
+            "60 * * * *",  # minute out of range
+            "* 24 * * *",  # hour out of range
+            "* * * * 7",  # dow out of range
+            "abc * * * *",  # non-numeric
         ],
     )
     def test_invalid_raises(self, expr):
