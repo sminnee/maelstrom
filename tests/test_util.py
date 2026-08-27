@@ -4,12 +4,17 @@ import json
 import os
 import re
 import stat
+from pathlib import Path
 
 import pytest
 
-from pathlib import Path
-
-from maelstrom.util import abbreviate_home, atomic_write_json, harden_path, locked_file, now_iso
+from maelstrom.util import (
+    abbreviate_home,
+    atomic_write_json,
+    harden_path,
+    locked_file,
+    now_iso,
+)
 
 
 def _mode(path) -> int:

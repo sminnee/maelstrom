@@ -12,7 +12,6 @@ from maelstrom import task as model
 from maelstrom import task_actions
 from maelstrom.task import Task
 
-
 NOW = "2026-06-08T12:00:00+00:00"
 
 

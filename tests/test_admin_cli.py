@@ -1,7 +1,6 @@
 """Tests for self-management CLI commands (focus: self-update dep sync)."""
 
 import subprocess
-
 from unittest.mock import patch
 
 from click.testing import CliRunner

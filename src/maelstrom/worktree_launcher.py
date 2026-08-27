@@ -28,9 +28,9 @@ import os
 import subprocess
 from pathlib import Path
 
-from .config import load_config_or_default
 from .cmux import mael_layout
 from .cmux.client import ensure_cmux_running
+from .config import load_config_or_default
 from .shell import (
     Command,
     Pipeline,

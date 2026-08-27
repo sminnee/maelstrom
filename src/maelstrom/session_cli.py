@@ -7,22 +7,24 @@ from pathlib import Path
 
 import click
 
-from .task_cli import open_index
-from .task_index import SqliteTaskIndex
-from .task_store import GitFileStore
-
-from . import session_discovery
-from . import session_view
+from . import session_discovery, session_view
 from .context import resolve_context
 from .env import stop_sessions
 from .session_store import (
     liveness_check as _liveness_check,
+)
+from .session_store import (
     read_session_file as _read_session_file,
+)
+from .session_store import (
     sessions_dir as _sessions_dir,
 )
-from .table import draw_table
-from .util import atomic_write_json, now_iso
 from .shell import exec_cmd
+from .table import draw_table
+from .task_cli import open_index
+from .task_index import SqliteTaskIndex
+from .task_store import GitFileStore
+from .util import atomic_write_json, now_iso
 
 
 def _find_session_file(

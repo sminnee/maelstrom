@@ -4,20 +4,22 @@ import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
-from unittest.mock import patch
-
+from maelstrom.ports import (
+    get_port_allocation,
+    record_port_allocation,
+)
 from maelstrom.worktree import (
     WorktreeInfo,
-    setup_claude_memory_symlink,
+    _commits_ahead_batch,
+    _write_agents_md,
     add_project,
     close_worktree,
     closed_worktrees,
-    _commits_ahead_batch,
     copy_back_new_env_vars,
-    managed_keys_in_env,
     create_worktree,
     find_closed_worktree,
     find_worktree_by_branch,
@@ -26,17 +28,18 @@ from maelstrom.worktree import (
     has_root_worktree,
     is_worktree_closed,
     list_worktrees,
+    managed_keys_in_env,
     read_env_file,
     reclaim_or_allocate_ports,
     recycle_worktree,
     remove_worktree,
     remove_worktree_by_path,
     run_install_cmd,
+    setup_claude_memory_symlink,
     setup_worktree_for_branch,
     squash_worktree,
     sync_worktree,
     update_claude_local_md,
-    _write_agents_md,
     write_env_file,
 )
 from maelstrom.worktree_model import (
@@ -46,11 +49,6 @@ from maelstrom.worktree_model import (
     MAIN_WORKTREE_FOLDER,
     WORKTREE_NAMES,
     parse_env_text,
-)
-from maelstrom.ports import (
-    get_port_allocation,
-    load_port_allocations,
-    record_port_allocation,
 )
 
 
@@ -1795,8 +1793,8 @@ class TestPortAllocationLifecycle:
     def test_create_avoids_allocated_ports(self, git_repo_with_remote):
         """Test that creating worktrees avoids already-allocated port bases."""
         with patch("maelstrom.ports.check_ports_free", return_value=True):
-            path1 = create_worktree(git_repo_with_remote, "feature/one")
-            path2 = create_worktree(git_repo_with_remote, "feature/two")
+            create_worktree(git_repo_with_remote, "feature/one")
+            create_worktree(git_repo_with_remote, "feature/two")
 
         alloc1 = get_port_allocation(git_repo_with_remote, "alpha")
         alloc2 = get_port_allocation(git_repo_with_remote, "bravo")

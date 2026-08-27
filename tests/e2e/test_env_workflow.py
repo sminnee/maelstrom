@@ -152,7 +152,7 @@ class TestSingleEnvWorkflow:
 
         result = cli_runner.invoke(env, ["logs", "testproj.alpha", "-n", "5"])
         assert result.exit_code == 0
-        lines = [l for l in result.output.strip().splitlines() if l.strip()]
+        lines = [line for line in result.output.strip().splitlines() if line.strip()]
         assert len(lines) <= 5
 
         stop_env(store, proj.project_name, proj.worktree_name)

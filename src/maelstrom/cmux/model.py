@@ -23,7 +23,6 @@ from typing import Literal
 
 from .client import CmuxClient, current_client
 
-
 # cmux splits inherit the source pane's *current* cwd; give the workspace's
 # initial `cd {path}` time to land so a freshly-split pane starts in that cwd
 # rather than wherever the command was invoked from. 0.25s is long enough for a

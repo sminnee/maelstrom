@@ -25,7 +25,6 @@ from maelstrom.worktree import (
     close_worktree,
     setup_worktree_for_branch,
 )
-
 from tests.git_helpers import create_commit, run_git
 
 # Reuse the real-git fixture + helpers from the sync-flags suite.

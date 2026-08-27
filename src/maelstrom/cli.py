@@ -6,48 +6,55 @@ from pathlib import Path
 
 import click
 
-from . import __version__
+from . import __version__, session_discovery
+from . import task as task_model
+from .admin_cli import cmd_install, cmd_self_update
+from .base_store import GitConfigBaseStore
+from .cmux import mael_layout
+from .cmux.client import ensure_cmux_running, resolve_socket_path
 from .context import load_global_config, resolve_context, validate_project_name
-from .ports import get_app_url
+from .env import (
+    get_env_status,
+    regenerate_and_restart_if_running,
+    stop_env,
+    stop_sessions,
+)
+from .env_cli import (
+    ensure_cmux_browser,
+    make_store,
+    print_copy_back_result,
+    print_service_status,
+)
+from .env_cli import (
+    env as env_cli,
+)
+from .git_cli import git as git_cli
+from .git_cli import print_rebase_conflict_help
 from .github import (
     create_project_repo,
     get_open_prs,
     get_pr_number_and_commits,
     wait_for_merge,
 )
-from .cmux import mael_layout
-from .cmux.client import ensure_cmux_running, resolve_socket_path
-from .session_cli import session as session_cli, session_channel as session_channel_cmd
-from .task_cli import task as task_cli
-from .task_cli import _harness_options as _harness_flags
-from .task_cli import add_task, resolve_harness_or_fail
-from . import task as task_model
-from .task_index import StaleTaskIndexError
-from .task_store import GitFileStore
-from .wiki_cli import wiki as wiki_cli
-from .schedule_launchd import schedule_group
-from .env import get_env_status, regenerate_and_restart_if_running, stop_env, stop_sessions
-from .env_cli import (
-    ensure_cmux_browser,
-    env as env_cli,
-    make_store,
-    print_copy_back_result,
-    print_service_status,
-)
-from .git_cli import git as git_cli
-from .git_cli import print_rebase_conflict_help
 from .github_cli import gh as gh_cli
 from .integrations.linear import linear
 from .integrations.sentry import sentry
 from .integrations.slack import slack
 from .integrations.uptimerobot import uptimerobot
 from .mv_project_cli import cmd_mv_project
+from .ports import get_app_url
 from .project_cli import project as project_cli
+from .schedule_launchd import schedule_group
+from .session_cli import session as session_cli
+from .session_cli import session_channel as session_channel_cmd
 from .status_cli import status as status_cli
-from .admin_cli import cmd_install, cmd_self_update
-from . import session_discovery
 from .table import draw_table
-from .base_store import GitConfigBaseStore
+from .task_cli import _harness_options as _harness_flags
+from .task_cli import add_task, resolve_harness_or_fail
+from .task_cli import task as task_cli
+from .task_index import StaleTaskIndexError
+from .task_store import GitFileStore
+from .wiki_cli import wiki as wiki_cli
 from .worktree import (
     SyncResult,
     add_project,
@@ -88,7 +95,6 @@ from .worktree_model import (
     order_by_stack,
     validate_base,
 )
-
 
 # The branch `mael create-project` opens its first worktree on, so a new project
 # starts on a feature branch rather than on main.

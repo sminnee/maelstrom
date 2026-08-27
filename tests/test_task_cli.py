@@ -1924,7 +1924,7 @@ class TestListBranch:
         assert f"task/{t.id}" in result.output
 
     def test_branch_column_shows_explicit_branch(self, runner, store):
-        t = model.create(store, project="p", title="alpha", branch="feat/foo")
+        model.create(store, project="p", title="alpha", branch="feat/foo")
         result = runner.invoke(task_cli.task, ["list"])
         assert result.exit_code == 0, result.output
         assert "feat/foo" in result.output

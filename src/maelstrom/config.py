@@ -5,7 +5,6 @@ from pathlib import Path
 
 import yaml
 
-
 CONFIG_FILENAME = ".maelstrom.yaml"
 
 # Container engines maelstrom knows how to drive. Presence of an ``engine:`` key

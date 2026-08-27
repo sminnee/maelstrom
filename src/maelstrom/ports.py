@@ -8,7 +8,6 @@ from pathlib import Path
 from .mv_project import rekey_port_allocations
 from .util import locked_file
 
-
 ALLOCATIONS_FILENAME = "port_allocations.json"
 
 

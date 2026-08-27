@@ -2,17 +2,17 @@
 
 import json
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
 from maelstrom.cli import cli
 from maelstrom.git_cli import (
-    get_worktree_file_status,
+    build_status_dict,
+    format_git_status,
     get_diff_stat_summary,
     get_recent_commits,
-    format_git_status,
-    build_status_dict,
+    get_worktree_file_status,
 )
 
 

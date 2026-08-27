@@ -12,14 +12,11 @@ from pathlib import Path
 
 from .base_store import BaseStore, GitConfigBaseStore
 from .claude_integration import get_shared_dir
-from .rebase_repair import run_resolve_rebase_session
 from .config import (
     load_config_or_default,
     service_port_names,
     shared_service_port_names,
 )
-from .shell import run_cmd
-from .util import locked_file
 from .ports import (
     allocate_port_base,
     generate_port_env_vars,
@@ -29,6 +26,9 @@ from .ports import (
     record_port_allocation,
     remove_port_allocation,
 )
+from .rebase_repair import run_resolve_rebase_session
+from .shell import run_cmd
+from .util import locked_file
 from .worktree_model import (
     ENV_SECTION_END,
     ENV_SECTION_START,
@@ -38,13 +38,9 @@ from .worktree_model import (
     WORKTREE_NAMES,
     BaseRef,
     CopyBackResult,
+    EnvConflict,
     RebasePlan,
     StackTip,
-    plan_rebase,
-    resolve_stack_tip,
-    validate_base,
-    print_flushed,
-    EnvConflict,
     _build_managed_section,
     _format_copy_back_block,
     _resolve_template_lines,
@@ -53,8 +49,13 @@ from .worktree_model import (
     extract_worktree_name_from_folder,
     get_worktree_folder_name,
     parse_env_text,
+    plan_rebase,
+    print_flushed,
+    resolve_stack_tip,
     sanitise_path_for_claude,
+    validate_base,
 )
+
 
 @dataclass
 class WorktreeInfo:

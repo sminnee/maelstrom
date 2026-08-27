@@ -20,7 +20,6 @@ from datetime import datetime, timedelta
 from .task import STATUS_TEMPLATE, Task, list_tasks
 from .task_store import TaskStore
 
-
 # --- cron field parsing ---
 
 

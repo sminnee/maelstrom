@@ -15,7 +15,6 @@ from maelstrom.worktree import (
     remove_worktree,
     tidy_branches,
 )
-
 from tests.git_helpers import create_commit, run_git, setup_git_repo
 
 

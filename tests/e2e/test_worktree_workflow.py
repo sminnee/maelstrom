@@ -13,10 +13,10 @@ from maelstrom.worktree import (
     close_worktree,
     create_worktree,
     list_worktrees,
+    read_env_file,
     recycle_worktree,
     remove_worktree_by_path,
     sync_worktree,
-    read_env_file,
 )
 from maelstrom.worktree_model import get_worktree_folder_name
 
