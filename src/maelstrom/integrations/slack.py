@@ -1,5 +1,7 @@
 """Slack incoming-webhook posting integration for maelstrom."""
 
+import sys
+
 import click
 from markdown_to_mrkdwn import SlackMarkdownConverter
 
@@ -149,8 +151,7 @@ def cmd_post(message: str | None, channel: str | None) -> None:
     # pending input, so an unconditional read() blocks forever waiting for the
     # user (e.g. `mael slack post "hi"` from a shell). A TTY can never be the
     # "piped" side of the ambiguity, so skipping its read is always safe.
-    stdin = click.get_text_stream("stdin")
-    stdin_text = "" if stdin.isatty() else stdin.read().rstrip("\n")
+    stdin_text = "" if sys.stdin.isatty() else sys.stdin.read().rstrip("\n")
     if message is not None and stdin_text:
         raise click.ClickException(
             "Provide the message as an argument OR via stdin, not both."
