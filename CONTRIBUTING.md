@@ -9,7 +9,11 @@ git clone https://github.com/sminnee/maelstrom.git
 cd maelstrom
 uv sync --all-extras
 uv tool install --editable .
+git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
+
+`.git-blame-ignore-revs` lists the commits that only reformat. The last line tells `git blame` to
+skip them, so each line keeps its real author. GitHub does this for you.
 
 Python 3.11 or newer, and [uv](https://docs.astral.sh/uv/). `mael install` puts the Claude Code
 skills and hooks in place if you want to use maelstrom on itself.
@@ -19,7 +23,7 @@ skills and hooks in place if you want to use maelstrom on itself.
 ```bash
 uv run pytest --ignore=tests/e2e   # unit tests
 uv run pytest tests/e2e/ -v        # end-to-end tests
-bin/lint                           # pyright type checking
+bin/lint                           # ruff lint, ruff format check, pyright
 ```
 
 These are the three gates `.github/workflows/test.yml` enforces, and `bin/publish` runs the same
@@ -27,6 +31,9 @@ three before it uploads anything. They run when the change touches code. A chang
 none skips all three, and a skipped job reports success, so the merge gate is always satisfied.
 During development `uv run pytest -m 'not slow'` skips the slow tests for a faster loop, but run
 the full set before you push.
+
+`ruff format` decides the layout, so let it. `bin/lint` only checks; run
+`uv run ruff format src/ tests/` to apply it.
 
 ## Commits and pull requests
 
