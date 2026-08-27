@@ -19,7 +19,7 @@ dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "pytest-xdist>=3.0",
-    "ruff>=0.4",
+    "ruff>=0.15,<0.17",
     "pyright>=1.1",
 ]
 
@@ -61,3 +61,11 @@ reportUnusedImport = true
 reportUnusedVariable = true
 reportDuplicateImport = true
 reportMissingTypeStubs = false
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# `project_with_worktree` is a pytest fixture imported for its side effect, then
+# shadowed by the test parameter of the same name. Not a real redefinition.
+"tests/test_close_force.py" = ["F811"]

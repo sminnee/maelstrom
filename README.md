@@ -133,7 +133,7 @@ uv sync --all-extras           # install dev dependencies
 uv run pytest -m 'not slow'    # tests, skipping slow e2e
 uv run pytest                  # everything
 uv run pytest --cov=maelstrom  # with coverage
-bin/lint                       # pyright type checking
+bin/lint                       # ruff lint, ruff format check, pyright
 ```
 
 ## Contributing
