@@ -15,12 +15,18 @@ generated variables below.
 | Variable | Example | Meaning |
 |---|---|---|
 | `WORKTREE` | `bravo` | The worktree's NATO name. |
-| `WORKTREE_NUM` | `1` | The name's index: alpha = 0, bravo = 1, charlie = 2, … |
+| `WORKTREE_NUM` | `1` | The name's index modulo 16: alpha = 0, papa = 15, quebec = 0. See the caveat below. |
 | `PORT_BASE` | `300` | A 3-digit port base (300-999). Written whenever the project configures any port. See the caveat below. |
 | `<NAME>_PORT` | `FRONTEND_PORT=3010` | One per named port. A local port is `<local base> * 10 + index`; a shared port is `SHARED_PORT_BASE * 10 + index`. |
 | `SHARED_PORT_BASE` | `300` | The project's shared port base. Written only when shared ports are configured. |
 
 A project with no ports at all gets neither base.
+
+> **`WORKTREE_NUM` repeats after the 16th worktree.** The number is the NATO name's index
+> modulo 16, because it names a Redis database and Redis numbers its databases 0-15. The
+> wrap makes the number valid, but it is unique only for alpha to papa. quebec gets 0, the
+> same number as alpha, so two live worktrees can share whatever you key on it. Use
+> `WORKTREE` for a value that is unique across all 26 worktrees.
 
 > **`PORT_BASE` is unreliable when a project has both local and shared ports.** Maelstrom
 > writes the local ports first and the shared ports second, and each pass writes `PORT_BASE`.

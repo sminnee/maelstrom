@@ -22,6 +22,7 @@ from maelstrom.worktree_model import (
     sanitise_path_for_claude,
     sanitize_branch_name,
     validate_base,
+    worktree_num,
 )
 
 
@@ -121,6 +122,33 @@ class TestWorktreeShortcodes:
         assert resolve_worktree_shortcode("feature-branch") == "feature-branch"
         assert resolve_worktree_shortcode("main") == "main"
         assert resolve_worktree_shortcode("") == ""
+
+
+class TestWorktreeNum:
+    """Tests for worktree_num."""
+
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("alpha", 0),
+            ("bravo", 1),
+            ("papa", 15),
+            ("quebec", 0),
+            ("zulu", 9),
+        ],
+    )
+    def test_index_wraps_at_sixteen(self, name, expected):
+        """Test that the number is the name's index, wrapped at 16."""
+        assert worktree_num(name) == expected
+
+    def test_every_name_is_a_valid_redis_database(self):
+        """Test that no NATO name gives a number Redis rejects."""
+        assert all(0 <= worktree_num(name) <= 15 for name in WORKTREE_NAMES)
+
+    def test_unknown_name_rejected(self):
+        """Test that a name outside the NATO list raises."""
+        with pytest.raises(ValueError):
+            worktree_num("feature-branch")
 
 
 class TestExtractProjectName:
