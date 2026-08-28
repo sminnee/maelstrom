@@ -18,6 +18,7 @@ from maelstrom.env import (
 )
 from maelstrom.env_cli import env
 from maelstrom.env_store import JsonEnvStore
+from maelstrom.worktree import read_env_file, regenerate_env_file
 
 from .conftest import assert_process_dead, wait_for, write_procfile
 
@@ -341,3 +342,90 @@ class TestMultiEnvWorkflow:
         result = cli_runner.invoke(env, ["list", "testproj"])
         assert result.exit_code == 0
         assert "No running environments" in result.output
+
+
+@pytest.mark.e2e
+@pytest.mark.slow
+class TestOptionalServiceWorkflow:
+    """Full optional-service lifecycle: default start → start by name → stop by name."""
+
+    @pytest.fixture(autouse=True)
+    def _cleanup(self, process_cleanup):
+        pass
+
+    def test_optional_service_workflow(self, test_project):
+        """An optional service stays out of a default start but keeps its port."""
+        proj = test_project
+        store = JsonEnvStore()
+
+        # A structured project: `web` always runs, `ladle` only on request.
+        (proj.worktree_path / "Procfile").unlink()
+        (proj.worktree_path / ".maelstrom.yaml").write_text(
+            "services:\n"
+            "  web:\n"
+            "    command: sleep 3600\n"
+            "    ports: [FRONTEND]\n"
+            "  ladle:\n"
+            "    command: sleep 3600\n"
+            "    optional: true\n"
+            "    ports: [LADLE_APP]\n"
+        )
+        regenerate_env_file(proj.project_path, proj.worktree_path, proj.worktree_name)
+
+        # --- Phase 1: A default start runs only the non-optional service ---
+        state = start_env(
+            store,
+            proj.project_name,
+            proj.worktree_name,
+            proj.worktree_path,
+            skip_install=True,
+        )
+        assert [s.name for s in state.services] == ["web"]
+        web_pid = state.services[0].pid
+        assert is_service_alive(web_pid)
+
+        # Ports are allocated at worktree creation, so the optional service's
+        # port is in .env whether or not it ever runs. This is the assertion
+        # that catches a port renumbering.
+        env_vars = read_env_file(proj.worktree_path)
+        port_base = int(env_vars["PORT_BASE"])
+        assert env_vars["FRONTEND_PORT"] == str(port_base * 10)
+        assert env_vars["LADLE_APP_PORT"] == str(port_base * 10 + 1)
+
+        # --- Phase 2: Start the optional service by name ---
+        state = start_env(
+            store,
+            proj.project_name,
+            proj.worktree_name,
+            proj.worktree_path,
+            skip_install=True,
+            services=["ladle"],
+        )
+        assert [s.name for s in state.services] == ["web", "ladle"]
+        ladle_pid = next(s.pid for s in state.services if s.name == "ladle")
+        assert is_service_alive(web_pid)
+        assert is_service_alive(ladle_pid)
+
+        # One state record holds both services.
+        loaded = load_env_state(store, proj.project_name, proj.worktree_name)
+        assert loaded is not None
+        assert [s.name for s in loaded.services] == ["web", "ladle"]
+
+        # --- Phase 3: Stop the optional service by name; web survives ---
+        stop_env(
+            store,
+            proj.project_name,
+            proj.worktree_name,
+            services=["ladle"],
+        )
+        assert_process_dead(ladle_pid)
+        assert is_service_alive(web_pid)
+
+        loaded = load_env_state(store, proj.project_name, proj.worktree_name)
+        assert loaded is not None
+        assert [s.name for s in loaded.services] == ["web"]
+
+        # --- Phase 4: Stop the environment ---
+        stop_env(store, proj.project_name, proj.worktree_name)
+        assert_process_dead(web_pid)
+        assert load_env_state(store, proj.project_name, proj.worktree_name) is None
