@@ -1,6 +1,7 @@
 """Port allocation and availability checking for maelstrom worktrees."""
 
 import json
+import re
 import socket
 import time
 from pathlib import Path
@@ -187,17 +188,36 @@ def allocate_port_base(project_path: Path, num_ports: int = 10) -> int:
 
 WEB_PORT_NAMES = {"APP", "FRONTEND"}
 
+# Matches a whole `_`-separated segment, so LADLE_APP counts and APPLE does not.
+_WEB_PORT_NAME_RE = re.compile(
+    r"(^|_)(" + "|".join(re.escape(n) for n in sorted(WEB_PORT_NAMES)) + r")($|_)"
+)
 
-def get_app_url(project_path: Path, worktree_name: str) -> tuple[str, bool] | None:
+
+def is_web_port_name(name: str) -> bool:
+    """Whether a port name denotes a web-facing port."""
+    return _WEB_PORT_NAME_RE.search(name) is not None
+
+
+def get_app_url(
+    project_path: Path,
+    worktree_name: str,
+    service: str | None = None,
+) -> tuple[str, bool] | None:
     """Get the app URL and running status for a worktree.
 
-    Only returns a URL if the project config has a port name matching a web
-    convention (APP or FRONTEND). Returns None if the project has no web-facing
-    port or no port allocation exists.
+    Only returns a URL if the port list holds a web-facing name
+    (:func:`is_web_port_name`). Returns None if there is no web-facing port, or
+    no port allocation exists.
+
+    ``service`` narrows the search to one declared service's own ports, so a
+    named start opens a browser on that service's port rather than the main
+    app's.
 
     Args:
         project_path: Path to the project.
         worktree_name: Name of the worktree (e.g., "alpha").
+        service: Restrict the search to this declared service's ports.
 
     Returns:
         Tuple of (url, is_running) e.g. ("http://localhost:3010", True),
@@ -218,10 +238,19 @@ def get_app_url(project_path: Path, worktree_name: str) -> tuple[str, bool] | No
     # the legacy flat `port_names` so both config styles keep working.
     port_names = service_port_names(config) if config.services else config.port_names
 
+    eligible: set[str] | None = None
+    if service is not None:
+        svc = next((s for s in config.services if s.name == service), None)
+        if svc is None:
+            return None
+        eligible = {spec.name for spec in svc.ports}
+
     # Find the first web-facing port name
     web_index = None
     for idx, name in enumerate(port_names):
-        if name in WEB_PORT_NAMES:
+        if eligible is not None and name not in eligible:
+            continue
+        if is_web_port_name(name):
             web_index = idx
             break
 

@@ -15,6 +15,7 @@ from maelstrom.ports import (
     get_app_url,
     get_port_allocation,
     is_port_free,
+    is_web_port_name,
     load_port_allocations,
     record_port_allocation,
     remove_port_allocation,
@@ -470,3 +471,98 @@ class TestGetAppUrl:
         url, _ = result
         # FRONTEND is index 1 in the derived non-shared list -> 300 * 10 + 1.
         assert url == "http://localhost:3001"
+
+
+class TestWebPortNameRule:
+    """A port name is web-facing when an _-separated segment is APP or FRONTEND."""
+
+    def test_bare_names_match(self):
+        assert is_web_port_name("APP")
+        assert is_web_port_name("FRONTEND")
+
+    def test_prefixed_and_suffixed_segments_match(self):
+        assert is_web_port_name("LADLE_APP")
+        assert is_web_port_name("FRONTEND_HMR")
+        assert is_web_port_name("ADMIN_APP_TLS")
+
+    def test_partial_words_do_not_match(self):
+        assert not is_web_port_name("APPLE")
+        assert not is_web_port_name("MYAPP")
+        assert not is_web_port_name("FRONTENDS")
+
+    def test_unrelated_names_do_not_match(self):
+        assert not is_web_port_name("WORKER")
+        assert not is_web_port_name("DB")
+
+
+class TestGetAppUrlForService:
+    """Tests for restricting get_app_url to one service's ports."""
+
+    def _project(self, tmp_path, monkeypatch, yaml_text):
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir()
+        (worktree_path / ".maelstrom.yaml").write_text(yaml_text)
+        record_port_allocation(project_path, "alpha", 300)
+        return project_path
+
+    def test_service_uses_its_own_port(self, tmp_path, monkeypatch):
+        """A named service's own web port wins over the project's first one."""
+        project_path = self._project(
+            tmp_path,
+            monkeypatch,
+            "services:\n"
+            "  web:\n"
+            "    command: node server.ts\n"
+            "    ports: [FRONTEND, HMR]\n"
+            "  ladle:\n"
+            "    command: ladle serve\n"
+            "    optional: true\n"
+            "    ports: [LADLE_APP]\n",
+        )
+        with patch("maelstrom.ports.is_port_free", return_value=False):
+            result = get_app_url(project_path, "alpha", service="ladle")
+        assert result == ("http://localhost:3002", True)
+
+    def test_service_without_web_port_returns_none(self, tmp_path, monkeypatch):
+        """A service with no web-facing port opens no browser."""
+        project_path = self._project(
+            tmp_path,
+            monkeypatch,
+            "services:\n"
+            "  web:\n"
+            "    command: node server.ts\n"
+            "    ports: [FRONTEND]\n"
+            "  worker:\n"
+            "    command: run worker\n"
+            "    ports: [WORKER]\n",
+        )
+        assert get_app_url(project_path, "alpha", service="worker") is None
+
+    def test_default_search_unchanged(self, tmp_path, monkeypatch):
+        """Without a service, the project's first web port is still used."""
+        project_path = self._project(
+            tmp_path,
+            monkeypatch,
+            "services:\n"
+            "  web:\n"
+            "    command: node server.ts\n"
+            "    ports: [FRONTEND]\n"
+            "  ladle:\n"
+            "    command: ladle serve\n"
+            "    ports: [LADLE_APP]\n",
+        )
+        with patch("maelstrom.ports.is_port_free", return_value=False):
+            result = get_app_url(project_path, "alpha")
+        assert result == ("http://localhost:3000", True)
+
+    def test_unknown_service_returns_none(self, tmp_path, monkeypatch):
+        """A service the project does not declare opens no browser."""
+        project_path = self._project(
+            tmp_path,
+            monkeypatch,
+            "services:\n  web:\n    command: node server.ts\n    ports: [FRONTEND]\n",
+        )
+        assert get_app_url(project_path, "alpha", service="nope") is None
