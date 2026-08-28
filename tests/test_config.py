@@ -144,6 +144,45 @@ class TestServicesConfig:
         config = MaelstromConfig.from_dict(data)
         assert config.services[0].shared is False
 
+    def test_parse_optional_service(self):
+        """optional: true parses onto the service."""
+        data = {"services": {"ladle": {"command": "ladle serve", "optional": True}}}
+        config = MaelstromConfig.from_dict(data)
+        assert config.services[0].optional is True
+
+    def test_optional_defaults_false(self):
+        """optional defaults to False when omitted."""
+        data = {"services": {"worker": {"command": "serve"}}}
+        config = MaelstromConfig.from_dict(data)
+        assert config.services[0].optional is False
+
+    def test_optional_with_shared_rejected(self):
+        """optional cannot combine with shared."""
+        data = {
+            "services": {
+                "db": {
+                    "shared": True,
+                    "optional": True,
+                    "engine": "docker",
+                    "image": "postgres:16",
+                }
+            }
+        }
+        with pytest.raises(ValueError, match="cannot be both 'shared' and 'optional'"):
+            MaelstromConfig.from_dict(data)
+
+    def test_optional_service_ports_still_allocated(self):
+        """An optional service keeps its ports, in declaration order."""
+        data = {
+            "services": {
+                "frontend": {"command": "x", "ports": ["FRONTEND"]},
+                "ladle": {"command": "y", "ports": ["LADLE"], "optional": True},
+                "server": {"command": "z", "ports": ["SERVER"]},
+            }
+        }
+        config = MaelstromConfig.from_dict(data)
+        assert service_port_names(config) == ["FRONTEND", "LADLE", "SERVER"]
+
     def test_no_services_key(self):
         """Absent services key yields an empty list, legacy fields intact."""
         config = MaelstromConfig.from_dict({"port_names": ["APP"]})
@@ -362,3 +401,64 @@ class TestLoadConfigOrDefault:
             assert config.port_names == []
             assert config.start_cmd == ""
             assert config.install_cmd == ""
+
+
+class TestOptionalPortAllocation:
+    """An optional service must not renumber the services declared after it.
+
+    The end-to-end workflow asserts this against a real `.env`, but that test is
+    marked slow and the documented dev run skips it. This is the fast tripwire.
+    """
+
+    def test_optional_service_keeps_its_slot(self):
+        """Every declared service holds its slot, optional or not."""
+        data = {
+            "services": {
+                "frontend": {"command": "x", "ports": ["FRONTEND", "HMR"]},
+                "ladle": {"command": "y", "ports": ["LADLE_APP"], "optional": True},
+                "server": {"command": "z", "ports": ["SERVER"]},
+            }
+        }
+        config = MaelstromConfig.from_dict(data)
+        names = service_port_names(config)
+        assert names == ["FRONTEND", "HMR", "LADLE_APP", "SERVER"]
+        assert names.index("SERVER") == 3
+
+    def test_removing_optional_would_renumber(self):
+        """Without the optional service, SERVER moves — which is what we prevent."""
+        data = {
+            "services": {
+                "frontend": {"command": "x", "ports": ["FRONTEND", "HMR"]},
+                "server": {"command": "z", "ports": ["SERVER"]},
+            }
+        }
+        config = MaelstromConfig.from_dict(data)
+        assert service_port_names(config).index("SERVER") == 2
+
+
+class TestBoolKeyParsing:
+    """Bool service keys reject non-bool YAML rather than coercing it."""
+
+    def test_string_optional_rejected(self):
+        """`optional: "no"` is rejected, not silently read as True."""
+        data = {"services": {"ladle": {"command": "x", "optional": "no"}}}
+        with pytest.raises(ValueError, match="'optional' must be true or false"):
+            MaelstromConfig.from_dict(data)
+
+    def test_string_shared_rejected(self):
+        """The same rule covers `shared`."""
+        data = {"services": {"db": {"command": "x", "shared": "yes"}}}
+        with pytest.raises(ValueError, match="'shared' must be true or false"):
+            MaelstromConfig.from_dict(data)
+
+    def test_real_bools_still_parse(self):
+        """Genuine YAML booleans are unaffected."""
+        data = {"services": {"ladle": {"command": "x", "optional": True}}}
+        assert MaelstromConfig.from_dict(data).services[0].optional is True
+
+    def test_absent_key_defaults_false(self):
+        """An omitted key still defaults to False."""
+        data = {"services": {"web": {"command": "x"}}}
+        svc = MaelstromConfig.from_dict(data).services[0]
+        assert svc.optional is False
+        assert svc.shared is False

@@ -35,6 +35,7 @@ class ServiceDef:
 
     name: str
     shared: bool = False
+    optional: bool = False  # skipped by a default `env start`; started by name
     engine: str | None = None  # None=command, "docker", "apple-container"
     ports: list[PortSpec] = field(default_factory=list)
     publish: list[str] = field(default_factory=list)  # ["${DB_PORT}:5432"]
@@ -49,6 +50,23 @@ class ServiceDef:
     def is_container(self) -> bool:
         """Whether this is a container service (has an engine)."""
         return self.engine is not None
+
+
+def _parse_bool(name: str, data: dict, key: str) -> bool:
+    """Read a bool service key, rejecting anything that is not a YAML boolean.
+
+    Plain ``bool()`` would read ``optional: "no"`` as True, and the service would
+    then vanish from ``mael env start`` with no error to explain it.
+
+    Raises:
+        ValueError: If the key holds a non-boolean value.
+    """
+    value = data.get(key, False)
+    if not isinstance(value, bool):
+        raise ValueError(
+            f"Service {name!r}: {key!r} must be true or false, got {value!r}"
+        )
+    return value
 
 
 def _parse_service(name: str, data: dict) -> ServiceDef:
@@ -76,7 +94,8 @@ def _parse_service(name: str, data: dict) -> ServiceDef:
 
     svc = ServiceDef(
         name=name,
-        shared=bool(data.get("shared", False)),
+        shared=_parse_bool(name, data, "shared"),
+        optional=_parse_bool(name, data, "optional"),
         engine=engine,
         ports=ports,
         publish=list(data.get("publish", [])),
@@ -87,6 +106,13 @@ def _parse_service(name: str, data: dict) -> ServiceDef:
         volume=data.get("volume"),
         host_var=data.get("host_var"),
     )
+
+    if svc.shared and svc.optional:
+        raise ValueError(
+            f"Service {name!r}: cannot be both 'shared' and 'optional' — a shared "
+            "service is reference-counted across worktrees, so it has no "
+            "subscriber lifecycle when no default start ever starts it"
+        )
 
     if svc.is_container:
         if not svc.image:
@@ -169,6 +195,9 @@ def service_port_names(config: MaelstromConfig) -> list[str]:
     Reuses the existing port allocator unchanged: the returned list is the
     ordering the allocator maps onto ``${NAME_PORT}`` slots. Duplicates across
     services are dropped, keeping first-seen order.
+
+    Optional services are *not* filtered out — skipping one here would renumber
+    every port declared after it.
     """
     names: list[str] = []
     seen: set[str] = set()
