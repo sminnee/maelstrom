@@ -58,6 +58,7 @@ class ResolvedService:
     name: str
     command: str
     shared: bool = False
+    optional: bool = False
     engine: str | None = None
     container_name: str | None = None
     host_var: str | None = None
@@ -186,6 +187,7 @@ def _resolve_service_def(svc: ServiceDef, project: str) -> ResolvedService:
             name=svc.name,
             command=build_container_run(svc, cname),
             shared=svc.shared,
+            optional=svc.optional,
             engine=svc.engine,
             container_name=cname,
             host_var=svc.host_var,
@@ -195,11 +197,17 @@ def _resolve_service_def(svc: ServiceDef, project: str) -> ResolvedService:
         name=svc.name,
         command=build_command_service(svc),
         shared=svc.shared,
+        optional=svc.optional,
         env=dict(svc.env),
     )
 
 
-def get_services(worktree_path: Path, project: str = "") -> list[ResolvedService]:
+def get_services(
+    worktree_path: Path,
+    project: str = "",
+    *,
+    names: list[str] | None = None,
+) -> list[ResolvedService]:
     """Get resolved service definitions for a worktree.
 
     Precedence: structured ``services:`` in ``.maelstrom.yaml`` → Procfile →
@@ -209,10 +217,44 @@ def get_services(worktree_path: Path, project: str = "") -> list[ResolvedService
 
     ``project`` names the container-name prefix for structured container
     services; it is unused on the fallback paths.
+
+    With ``names`` omitted, optional services are left out on the structured
+    path. With ``names`` given, exactly those services come back, in declaration
+    order, optional or not.
+
+    Raises:
+        ValueError: If ``names`` holds an undeclared service, or the project has
+            no ``services:`` block to select from.
+        RuntimeError: If the project declares no services at all.
     """
     config = load_config_or_default(worktree_path)
     if config.services:
-        return [_resolve_service_def(svc, project) for svc in config.services]
+        if names is None:
+            return [
+                _resolve_service_def(svc, project)
+                for svc in config.services
+                if not svc.optional
+            ]
+        declared = {svc.name for svc in config.services}
+        unknown = [n for n in names if n not in declared]
+        if unknown:
+            raise ValueError(
+                f"Unknown service(s): {', '.join(unknown)}. "
+                f"Declared services: {', '.join(svc.name for svc in config.services)}"
+            )
+        wanted = set(names)
+        return [
+            _resolve_service_def(svc, project)
+            for svc in config.services
+            if svc.name in wanted
+        ]
+
+    if names is not None:
+        raise ValueError(
+            f"Cannot start or stop a service by name in {worktree_path}: the "
+            "project uses a Procfile. Named services need a 'services:' block "
+            "in .maelstrom.yaml."
+        )
 
     procfile = worktree_path / "Procfile"
     if procfile.exists():
@@ -526,6 +568,21 @@ def _start_or_subscribe_shared(
     save_shared_state(store, shared_state)
 
 
+def _merge_service_states(
+    existing: list[ServiceState],
+    new: list[ServiceState],
+) -> list[ServiceState]:
+    """Merge freshly started services into an existing service list.
+
+    A same-named entry is replaced in place, so a restarted service keeps its
+    position; the rest are appended.
+    """
+    by_name = {s.name: s for s in new}
+    merged = [by_name.pop(s.name, s) for s in existing]
+    merged.extend(s for s in new if s.name in by_name)
+    return merged
+
+
 def start_env(
     store: EnvStore,
     project: str,
@@ -533,12 +590,13 @@ def start_env(
     worktree_path: Path,
     *,
     skip_install: bool = False,
+    services: list[str] | None = None,
     runner: ContainerRunner = _default_container_runner,
 ) -> EnvState:
-    """Start all services for a worktree environment.
+    """Start services for a worktree environment.
 
     1. Cleans up stale state
-    2. Refuses to start if services are already running
+    2. Refuses to start a service that is already running
     3. Runs install_cmd (unless skip_install)
     4. Splits services into local and shared (by ``ResolvedService.shared``)
     5. Starts or subscribes to shared services (container-first, injecting IPs)
@@ -546,18 +604,34 @@ def start_env(
        command services so ``${host_var}`` resolves to the live address
     7. Saves and returns state (local services only)
 
+    ``services`` names a subset to start; omit it to start every non-optional
+    service. A named start subscribes to the project's shared services, and
+    merges into any existing state rather than replacing it.
+
     ``runner`` is the container-CLI invoker used for ``container inspect`` VM-IP
     discovery; tests inject a fake.
 
     Raises:
-        RuntimeError: If services are already running, or no services defined.
+        RuntimeError: If a requested service is already running, or none defined.
+        ValueError: If a named service is not declared.
         TimeoutError: If an apple-container host var never resolves (start aborts).
     """
     cleanup_stale_env(store, project, worktree)
 
+    all_services = get_services(worktree_path, project, names=services)
+    local_services = [s for s in all_services if not s.shared]
+    shared_services = [s for s in all_services if s.shared]
+
+    if services is not None and not shared_services:
+        # A named request holding no shared service still needs the project's
+        # shared services up, so the named service can reach the database.
+        declared = get_services(worktree_path, project)
+        shared_services = [s for s in declared if s.shared]
+
     status = get_env_status(store, project, worktree)
     if status is not None:
-        alive = [s for s in status if s.alive]
+        requested = {s.name for s in all_services}
+        alive = [s for s in status if s.alive and s.name in requested]
         if alive:
             names = ", ".join(s.name for s in alive)
             raise RuntimeError(
@@ -566,10 +640,6 @@ def start_env(
 
     if not skip_install:
         run_install_cmd(worktree_path)
-
-    all_services = get_services(worktree_path, project)
-    local_services = [s for s in all_services if not s.shared]
-    shared_services = [s for s in all_services if s.shared]
 
     env = build_service_env(worktree_path)
     now = now_iso()
@@ -597,13 +667,35 @@ def start_env(
         runner,
     )
 
-    state = EnvState(
-        project=project,
-        worktree=worktree,
-        worktree_path=str(worktree_path),
-        started_at=now,
-        services=service_states,
-    )
+    existing = load_env_state(store, project, worktree)
+    if existing is None and not service_states:
+        # Only shared services were named, so this worktree has no local state to
+        # write. An empty state file would read as a running environment.
+        return EnvState(
+            project=project,
+            worktree=worktree,
+            worktree_path=str(worktree_path),
+            started_at=now,
+            services=[],
+        )
+    if existing is not None:
+        # Carry the browser surface forward, or the next stop leaks a cmux pane.
+        state = EnvState(
+            project=project,
+            worktree=worktree,
+            worktree_path=str(worktree_path),
+            started_at=existing.started_at,
+            services=_merge_service_states(existing.services, service_states),
+            cmux_browser_surface=existing.cmux_browser_surface,
+        )
+    else:
+        state = EnvState(
+            project=project,
+            worktree=worktree,
+            worktree_path=str(worktree_path),
+            started_at=now,
+            services=service_states,
+        )
     save_env_state(store, state)
     return state
 
@@ -814,13 +906,23 @@ def stop_shared_services(
 
 
 def stop_env(
-    store: EnvStore, project: str, worktree: str, *, timeout: float = 10.0
+    store: EnvStore,
+    project: str,
+    worktree: str,
+    *,
+    timeout: float = 10.0,
+    services: list[str] | None = None,
 ) -> list[str]:
-    """Stop all services for a worktree environment.
+    """Stop services for a worktree environment.
 
     Sends SIGTERM to each process group, waits up to `timeout` seconds,
     then sends SIGKILL to survivors. Removes the state file afterwards.
     Also unsubscribes from shared services (stopping them if last subscriber).
+
+    ``services`` names a subset to stop; omit it to stop the whole environment.
+    A partial stop saves the shortened state and keeps the shared subscription,
+    because the remaining services still need the database. Stopping the last
+    running service by name lands on the full-stop path.
 
     Returns a list of status messages per service.
     """
@@ -831,6 +933,48 @@ def stop_env(
         if not shared_msgs:
             return [f"No running environment for {project}/{worktree}"]
         return shared_msgs
+
+    if services is not None:
+        wanted = set(services)
+        targets = [s for s in state.services if s.name in wanted]
+        remainder = [s for s in state.services if s.name not in wanted]
+
+        # A named shared service is not in the local state — it lives in the
+        # project's shared state, and leaving it means unsubscribing.
+        shared_state = load_shared_state(store, project)
+        shared_names = (
+            {s.name for s in shared_state.services} if shared_state else set()
+        )
+        named_shared = wanted & shared_names
+
+        known = {s.name for s in state.services} | shared_names
+        missing = [n for n in services if n not in known]
+
+        messages: list[str] = []
+        if targets:
+            messages.extend(_stop_services(targets, timeout=timeout))
+        messages.extend(
+            f"No running service {n!r} for {project}/{worktree}" for n in missing
+        )
+
+        if not targets and not named_shared:
+            return messages
+
+        if remainder:
+            # Local services survive, so the worktree keeps its own state and its
+            # shared subscription; only a named shared service unsubscribes.
+            state.services = remainder
+            save_env_state(store, state)
+            if named_shared:
+                messages.extend(
+                    _unsubscribe_shared(store, project, worktree, timeout=timeout)
+                )
+            return messages
+
+        # No local service is left, so this is a full stop after all.
+        remove_env_state(store, project, worktree)
+        messages.extend(_unsubscribe_shared(store, project, worktree, timeout=timeout))
+        return messages
 
     messages = _stop_services(state.services, timeout=timeout)
     remove_env_state(store, project, worktree)
