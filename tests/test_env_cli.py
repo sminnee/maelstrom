@@ -3,10 +3,17 @@
 from pathlib import Path
 from unittest.mock import ANY, MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from maelstrom.cli import cli
+from maelstrom.config import MaelstromConfig
 from maelstrom.env import EnvState, ServiceState, ServiceStatus
+from maelstrom.env_cli import (
+    ensure_cmux_browser,
+    print_service_status,
+    resolve_service_target,
+)
 
 
 def _make_state(project="proj", worktree="bravo", pid=100):
@@ -83,6 +90,7 @@ class TestEnvStart:
             "bravo",
             ctx.worktree_path,
             skip_install=False,
+            services=None,
         )
 
     @patch("maelstrom.env_cli.get_app_url", return_value=None)
@@ -110,6 +118,7 @@ class TestEnvStart:
             "bravo",
             ctx.worktree_path,
             skip_install=True,
+            services=None,
         )
 
     @patch(
@@ -716,13 +725,14 @@ class TestEnvRestart:
         result = runner.invoke(cli, ["env", "restart"])
         assert result.exit_code == 0
         assert "Environment stopped" in result.output
-        mock_stop.assert_called_once_with(ANY, "proj", "bravo")
+        mock_stop.assert_called_once_with(ANY, "proj", "bravo", services=None)
         mock_start.assert_called_once_with(
             ANY,
             "proj",
             "bravo",
             ctx.worktree_path,
             skip_install=True,
+            services=None,
         )
 
     @patch("maelstrom.env_cli.get_app_url", return_value=None)
@@ -758,6 +768,7 @@ class TestEnvRestart:
             "bravo",
             ctx.worktree_path,
             skip_install=False,
+            services=None,
         )
 
     @patch("maelstrom.env_cli.env_status")
@@ -896,3 +907,421 @@ class TestEnvReset:
         result = runner.invoke(cli, ["env", "reset"])
         assert result.exit_code != 0
         assert "Worktree not found" in result.output
+
+
+class TestResolveServiceTarget:
+    """Tests for resolve_service_target — service name versus worktree target."""
+
+    def _ctx(self, worktree="bravo"):
+        return MagicMock(
+            project="proj",
+            worktree=worktree,
+            worktree_path=Path(f"/proj/{worktree}"),
+            project_path=Path("/proj"),
+        )
+
+    @patch("maelstrom.env_cli.load_config_or_default")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_declared_service_name_is_a_service(self, mock_ctx, mock_config):
+        """A positional matching a declared service selects that service."""
+        mock_ctx.return_value = self._ctx()
+        mock_config.return_value = MaelstromConfig.from_dict(
+            {"services": {"ladle": {"command": "ladle serve", "optional": True}}}
+        )
+        ctx, name = resolve_service_target("ladle", None, None)
+        assert name == "ladle"
+        assert ctx.worktree == "bravo"
+
+    @patch("maelstrom.env_cli.load_config_or_default")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_undeclared_name_is_a_target(self, mock_ctx, mock_config):
+        """A positional that is not a declared service stays a worktree target."""
+        mock_ctx.side_effect = [self._ctx("bravo"), self._ctx("charlie")]
+        mock_config.return_value = MaelstromConfig.from_dict(
+            {"services": {"web": {"command": "node server.ts"}}}
+        )
+        ctx, name = resolve_service_target("c", None, None)
+        assert name is None
+        assert ctx.worktree == "charlie"
+
+    @patch("maelstrom.env_cli.load_config_or_default")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_dotted_positional_is_always_a_target(self, mock_ctx, mock_config):
+        """A dotted positional is a target; the config is never consulted."""
+        mock_ctx.return_value = self._ctx("bravo")
+        ctx, name = resolve_service_target("proj.b", None, None)
+        assert name is None
+        mock_config.assert_not_called()
+
+    @patch("maelstrom.env_cli.load_config_or_default")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_service_option_makes_positional_a_target(self, mock_ctx, mock_config):
+        """--service names the service; the positional stays a target."""
+        mock_ctx.return_value = self._ctx("bravo")
+        mock_config.return_value = MaelstromConfig.from_dict(
+            {"services": {"ladle": {"command": "ladle serve"}}}
+        )
+        ctx, name = resolve_service_target("proj.b", "ladle", None)
+        assert name == "ladle"
+        assert ctx.worktree == "bravo"
+
+    @patch("maelstrom.env_cli.load_config_or_default")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_worktree_option_selects_the_worktree(self, mock_ctx, mock_config):
+        """-w takes a project.worktree string alongside a service positional."""
+        mock_ctx.return_value = self._ctx("bravo")
+        mock_config.return_value = MaelstromConfig.from_dict(
+            {"services": {"ladle": {"command": "ladle serve"}}}
+        )
+        ctx, name = resolve_service_target("ladle", None, "askastro.b")
+        assert name == "ladle"
+        assert mock_ctx.call_args_list[0][0][0] == "askastro.b"
+
+    @patch("maelstrom.env_cli.load_config_or_default")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_ambiguous_name_errors(self, mock_ctx, mock_config):
+        """A name that is both a service and a worktree name is rejected."""
+        mock_ctx.return_value = self._ctx("bravo")
+        mock_config.return_value = MaelstromConfig.from_dict(
+            {"services": {"bravo": {"command": "serve"}}}
+        )
+        with pytest.raises(ValueError, match="--service"):
+            resolve_service_target("bravo", None, None)
+
+
+class TestEnvStartNamedService:
+    """Tests for `mael env start <service>`."""
+
+    @patch("maelstrom.env_cli.get_app_url", return_value=None)
+    @patch("maelstrom.env_cli.load_env_state")
+    @patch("maelstrom.env_cli.get_env_status")
+    @patch("maelstrom.env_cli.start_env")
+    @patch("maelstrom.env_cli.load_config_or_default")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_named_start_passes_selection(
+        self,
+        mock_ctx,
+        mock_config,
+        mock_start,
+        mock_status,
+        mock_load,
+        mock_app,
+        tmp_path,
+    ):
+        """The service name reaches start_env, with install skipped."""
+        ctx = _mock_ctx_with_path(tmp_path)
+        mock_ctx.return_value = ctx
+        mock_config.return_value = MaelstromConfig.from_dict(
+            {"services": {"ladle": {"command": "ladle serve", "optional": True}}}
+        )
+        state = _make_state()
+        mock_start.return_value = state
+        mock_load.return_value = state
+        mock_status.return_value = [_make_status()]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "start", "ladle"])
+        assert result.exit_code == 0
+        mock_start.assert_called_once_with(
+            ANY,
+            "proj",
+            "bravo",
+            ctx.worktree_path,
+            skip_install=True,
+            services=["ladle"],
+        )
+
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_unknown_service_lists_declared(self, mock_ctx, tmp_path):
+        """An unknown --service name lists what the project declares."""
+        ctx = _mock_ctx_with_path(tmp_path)
+        (ctx.worktree_path / ".maelstrom.yaml").write_text(
+            "services:\n  web:\n    command: node server.ts\n"
+        )
+        mock_ctx.return_value = ctx
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "start", "-s", "nope"])
+        assert result.exit_code != 0
+        assert "Declared services: web" in result.output
+
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_procfile_project_rejects_named_service(self, mock_ctx, tmp_path):
+        """A Procfile project reports why a named service cannot work."""
+        ctx = _mock_ctx_with_path(tmp_path)
+        (ctx.worktree_path / "Procfile").write_text("web: node server.ts\n")
+        mock_ctx.return_value = ctx
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "start", "-s", "ladle"])
+        assert result.exit_code != 0
+        assert "Procfile" in result.output
+
+
+class TestEnvStopNamedService:
+    """Tests for `mael env stop <service>`."""
+
+    @patch("maelstrom.env_cli.mael_layout.hide_app_browser")
+    @patch("maelstrom.env_cli.get_app_url", return_value=None)
+    @patch("maelstrom.env_cli.stop_env")
+    @patch("maelstrom.env_cli.load_config_or_default")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_partial_stop_leaves_browser_alone(
+        self, mock_ctx, mock_config, mock_stop, mock_app, mock_hide
+    ):
+        """A named stop does not close the main app's browser pane."""
+        mock_ctx.return_value = MagicMock(
+            project="proj",
+            worktree="bravo",
+            project_path=Path("/proj"),
+            worktree_path=Path("/proj/bravo"),
+        )
+        mock_config.return_value = MaelstromConfig.from_dict(
+            {"services": {"ladle": {"command": "ladle serve", "optional": True}}}
+        )
+        mock_stop.return_value = ["ladle (pid 200): stopped"]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "stop", "ladle"])
+        assert result.exit_code == 0
+        mock_hide.assert_not_called()
+        assert "Service stopped for proj/bravo: ladle." in result.output
+        mock_stop.assert_called_once_with(ANY, "proj", "bravo", services=["ladle"])
+
+
+class TestEnsureCmuxBrowserPort:
+    """The browser pane waits on the port it is about to open."""
+
+    @patch("maelstrom.env_cli.save_env_state")
+    @patch("maelstrom.env_cli.mael_layout.show_app_browser", return_value=None)
+    @patch("maelstrom.env_cli.wait_for_port")
+    @patch("maelstrom.env_cli.get_app_url")
+    def test_waits_on_the_app_url_port(self, mock_app, mock_wait, mock_show, mock_save):
+        """It waits on the URL's own port, not the worktree's first port."""
+        mock_app.return_value = ("http://localhost:3002", True)
+        ensure_cmux_browser(_make_state(), Path("/proj"), "bravo")
+        mock_wait.assert_called_once_with(3002)
+
+    @patch("maelstrom.env_cli.save_env_state")
+    @patch("maelstrom.env_cli.mael_layout.show_app_browser", return_value=None)
+    @patch("maelstrom.env_cli.wait_for_port")
+    @patch("maelstrom.env_cli.get_app_url")
+    def test_passes_service_through(self, mock_app, mock_wait, mock_show, mock_save):
+        """A named service restricts the URL search to that service."""
+        mock_app.return_value = ("http://localhost:3005", True)
+        ensure_cmux_browser(_make_state(), Path("/proj"), "bravo", service="ladle")
+        mock_app.assert_called_once_with(Path("/proj"), "bravo", service="ladle")
+        mock_wait.assert_called_once_with(3005)
+
+    @patch("maelstrom.env_cli.wait_for_port")
+    @patch("maelstrom.env_cli.get_app_url", return_value=None)
+    def test_no_web_port_opens_nothing(self, mock_app, mock_wait):
+        """A service with no web port neither waits nor opens a pane."""
+        ensure_cmux_browser(_make_state(), Path("/proj"), "bravo", service="worker")
+        mock_wait.assert_not_called()
+
+
+class TestEnvStatusDeclaredServices:
+    """Declared services absent from the state show as stopped."""
+
+    def _project(self, tmp_path, yaml_text):
+        project_path = tmp_path / "proj"
+        (project_path / "proj-bravo").mkdir(parents=True)
+        (project_path / "proj-bravo" / ".maelstrom.yaml").write_text(yaml_text)
+        return project_path
+
+    @patch("maelstrom.env_cli.get_app_url", return_value=None)
+    @patch("maelstrom.env_cli.load_env_state")
+    @patch("maelstrom.env_cli.get_env_status")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_lists_unstarted_optional_service(
+        self, mock_ctx, mock_status, mock_load, mock_app, tmp_path
+    ):
+        """An optional service that was never started shows as stopped."""
+        project_path = self._project(
+            tmp_path,
+            "services:\n"
+            "  web:\n"
+            "    command: node server.ts\n"
+            "  ladle:\n"
+            "    command: ladle serve\n"
+            "    optional: true\n",
+        )
+        mock_ctx.return_value = MagicMock(
+            project="proj", worktree="bravo", project_path=project_path
+        )
+        mock_load.return_value = _make_state()
+        mock_status.return_value = [_make_status("web")]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "status"])
+        assert result.exit_code == 0
+        assert "ladle" in result.output
+        assert "stopped" in result.output
+        assert "(optional)" in result.output
+
+    @patch("maelstrom.env_cli.get_app_url", return_value=None)
+    @patch("maelstrom.env_cli.load_env_state")
+    @patch("maelstrom.env_cli.get_env_status")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_running_service_is_not_listed_twice(
+        self, mock_ctx, mock_status, mock_load, mock_app, tmp_path
+    ):
+        """A declared service already in the state is not repeated."""
+        project_path = self._project(
+            tmp_path, "services:\n  web:\n    command: node server.ts\n"
+        )
+        mock_ctx.return_value = MagicMock(
+            project="proj", worktree="bravo", project_path=project_path
+        )
+        mock_load.return_value = _make_state()
+        mock_status.return_value = [_make_status("web")]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "status"])
+        assert result.exit_code == 0
+        rows = [ln for ln in result.output.splitlines() if ln.startswith("web")]
+        assert len(rows) == 1
+        assert "stopped" not in result.output
+
+    @patch("maelstrom.env_cli.get_app_url", return_value=None)
+    @patch("maelstrom.env_cli.load_env_state")
+    @patch("maelstrom.env_cli.get_env_status")
+    def test_no_project_path_skips_the_block(self, mock_status, mock_load, mock_app):
+        """With no project path there is no config to read, so nothing is added."""
+        mock_load.return_value = _make_state()
+        mock_status.return_value = [_make_status("web")]
+
+        runner = CliRunner()
+        with runner.isolation() as (out, _err, _):
+            print_service_status("proj", "bravo", None)
+            captured = out.getvalue().decode()
+        assert "stopped" not in captured
+
+
+class TestEnvRestartNamedService:
+    """Tests for `mael env restart <service>`."""
+
+    @patch("maelstrom.env_cli.get_app_url", return_value=None)
+    @patch("maelstrom.env_cli.get_env_status")
+    @patch("maelstrom.env_cli.start_env")
+    @patch("maelstrom.env_cli.stop_env")
+    @patch("maelstrom.env_cli.load_env_state")
+    @patch("maelstrom.env_cli.load_config_or_default")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_restart_cycles_only_that_service(
+        self,
+        mock_ctx,
+        mock_config,
+        mock_load,
+        mock_stop,
+        mock_start,
+        mock_status,
+        mock_app,
+        tmp_path,
+    ):
+        """The service name reaches both stop_env and start_env."""
+        ctx = _mock_ctx_with_path(tmp_path)
+        mock_ctx.return_value = ctx
+        mock_config.return_value = MaelstromConfig.from_dict(
+            {"services": {"ladle": {"command": "ladle serve", "optional": True}}}
+        )
+        state = _make_state()
+        mock_load.return_value = state
+        mock_start.return_value = state
+        mock_stop.return_value = ["ladle (pid 200): stopped"]
+        mock_status.return_value = [_make_status()]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "restart", "ladle"])
+        assert result.exit_code == 0
+        mock_stop.assert_called_once_with(ANY, "proj", "bravo", services=["ladle"])
+        assert mock_start.call_args[1]["services"] == ["ladle"]
+
+
+class TestResolveServiceTargetOutsideAProject:
+    """The resolver must not need a cwd context when the target supplies one."""
+
+    def _outside_cwd(self, arg, **_kwargs):
+        """Stand-in for resolve_context: only an explicit target resolves."""
+        if arg is None:
+            raise ValueError("Could not determine project.")
+        project, _, worktree = arg.partition(".")
+        return MagicMock(
+            project=project,
+            worktree=worktree or "alpha",
+            worktree_path=Path(f"/{project}/{worktree}"),
+            project_path=Path(f"/{project}"),
+        )
+
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_dotted_target_resolves_outside_a_project(self, mock_ctx):
+        """`env start demo.alpha` works from a directory that is not a project."""
+        mock_ctx.side_effect = self._outside_cwd
+        ctx, name = resolve_service_target("demo.alpha", None, None)
+        assert name is None
+        assert ctx.project == "demo"
+
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_service_option_with_dotted_target_outside_a_project(self, mock_ctx):
+        """`env start -s ladle demo.alpha` works from outside a project too."""
+        mock_ctx.side_effect = self._outside_cwd
+        ctx, name = resolve_service_target("demo.alpha", "ladle", None)
+        assert name == "ladle"
+        assert ctx.project == "demo"
+
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_no_positional_still_needs_a_context(self, mock_ctx):
+        """A bare `env start` outside a project still reports the missing context."""
+        mock_ctx.side_effect = self._outside_cwd
+        with pytest.raises(ValueError, match="Could not determine project"):
+            resolve_service_target(None, None, None)
+
+    @patch("maelstrom.env_cli.load_config_or_default")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_worktree_option_makes_the_positional_a_service(
+        self, mock_ctx, mock_config
+    ):
+        """With --worktree given, a bare positional can only be a service name."""
+        mock_ctx.side_effect = self._outside_cwd
+        mock_config.return_value = MaelstromConfig.from_dict(
+            {"services": {"web": {"command": "node server.ts"}}}
+        )
+        with pytest.raises(ValueError, match="Declared services: web"):
+            resolve_service_target("nope", None, "demo.alpha")
+
+
+class TestEnvStopValidatesServiceNames:
+    """A mistyped --service name is rejected, not reported as 'not running'."""
+
+    @patch("maelstrom.env_cli.stop_env")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_unknown_service_rejected(self, mock_ctx, mock_stop, tmp_path):
+        """`env stop --service <typo>` lists the declared services and exits non-zero."""
+        ctx = _mock_ctx_with_path(tmp_path)
+        (ctx.worktree_path / ".maelstrom.yaml").write_text(
+            "services:\n  web:\n    command: node server.ts\n"
+        )
+        mock_ctx.return_value = ctx
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "stop", "-s", "ladel"])
+        assert result.exit_code != 0
+        assert "Declared services: web" in result.output
+        mock_stop.assert_not_called()
+
+    @patch("maelstrom.env_cli.stop_env")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_declared_service_reaches_the_model(self, mock_ctx, mock_stop, tmp_path):
+        """A declared name is passed through to stop_env unchanged."""
+        ctx = _mock_ctx_with_path(tmp_path)
+        (ctx.worktree_path / ".maelstrom.yaml").write_text(
+            "services:\n  ladle:\n    command: ladle serve\n    optional: true\n"
+        )
+        mock_ctx.return_value = ctx
+        mock_stop.return_value = ["ladle (pid 1): stopped"]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "stop", "-s", "ladle"])
+        assert result.exit_code == 0
+        mock_stop.assert_called_once_with(ANY, "proj", "bravo", services=["ladle"])
