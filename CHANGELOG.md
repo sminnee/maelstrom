@@ -15,13 +15,10 @@ release while that section is empty, and retitles it to the version it is releas
 - **Optional services.** A service in `.maelstrom.yaml` can set `optional: true`.
   - `mael env start` skips it; `mael env start ladle` starts that one service alone.
   - `mael env stop ladle` and `mael env restart ladle` take a service name too.
-  - `env start`, `env stop` and `env restart` gain `-s`/`--service` and `-w`/`--worktree`.
   - Optional services still own their declared ports, so marking one optional never
     renumbers the services after it.
   - A service cannot be both `optional` and `shared`. Named services need a `services:`
     block; a Procfile project reports an error.
-  - Worktree targets are unchanged: a bare name is read as a service only when the
-    worktree declares one by that name.
 
 - **`/code-review` reviews prose with its own sub-agent.** Alongside the per-commit code
   reviewers, one further sub-agent reads the whole branch's comments, docstrings and documents.
@@ -43,6 +40,15 @@ release while that section is empty, and retitles it to the version it is releas
   exits 0 when there is no task, so a prompt keeps rendering wherever it runs.
 
 ### Changed
+
+- **`mael env start`, `stop`, `restart` and `logs` take a service, not a worktree.** Their
+  argument named a worktree before. It now names a service, and the worktree moves to
+  `-w`/`--worktree`, defaulting to the current directory as it always did. One argument cannot
+  mean both: maelstrom would have had to read `.maelstrom.yaml` to tell `ladle` the service from
+  `ladle` the worktree, and reject any name that was both.
+  - `mael env start myproject.b` becomes `mael env start -w myproject.b`.
+  - `mael env logs myproject.b web` becomes `mael env logs web -w myproject.b`.
+  - `mael env status`, `reset`, `open` and `list` still take a worktree target.
 
 - **The five slash commands are now skills.** `/plan-task`, `/plan-next-step`, `/reopen-branch`,
   `/resolve-rebase-conflicts` and `/watch-pr` moved from `shared/commands/` to `shared/skills/`,

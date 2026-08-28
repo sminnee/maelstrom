@@ -32,8 +32,6 @@ from .worktree import (
     update_claude_local_md,
 )
 from .worktree_model import (
-    WORKTREE_NAMES,
-    WORKTREE_SHORTCODES,
     CopyBackResult,
     get_worktree_folder_name,
 )
@@ -52,85 +50,51 @@ def _declared_service_names(ctx: ResolvedContext) -> list[str]:
     return [svc.name for svc in load_config_or_default(worktree_path).services]
 
 
-def resolve_service_target(
-    positional: str | None,
-    service_opt: str | None,
+def _reject_worktree_target(service: str) -> None:
+    """Reject a dotted name, which can only be the worktree target.
+
+    Raises:
+        ValueError: If the name holds a dot.
+    """
+    if "." in service:
+        raise ValueError(
+            f"{service!r} looks like a worktree target, not a service. "
+            f"Use --worktree {service} instead."
+        )
+
+
+def resolve_service(
+    service: str | None,
     worktree_opt: str | None,
 ) -> tuple[ResolvedContext, str | None]:
-    """Split `env start/stop/restart`'s positional into a target and a service.
+    """Resolve `env start/stop/restart/logs`'s positional service and --worktree.
 
-    The positional means a worktree target. A bare name is read as a service
-    only when the resolved worktree declares a service by that name:
+    The positional names a service. The worktree comes from ``--worktree``, or
+    from the current directory. A dotted name is rejected, because it can only
+    be a worktree target and ``--worktree`` is where one goes.
 
-    1. ``--service NAME`` given → the positional is a target, ``NAME`` the service.
-    2. The positional holds a dot → a target.
-    3. No positional → the whole environment, worktree from cwd.
-    4. The positional matches a declared service → a service.
-    5. ``--worktree`` already gave the target → an unknown service, so an error.
-    6. Anything else → a target.
-
-    Returns (context, service name) — the service name is ``None`` for a whole
+    Returns (context, service name) — the service name is ``None`` for the whole
     environment.
 
     Raises:
-        ValueError: If the name is both a declared service and a worktree name,
-            or if the context cannot be resolved.
+        ValueError: If the worktree declares services and this is not one of
+            them, or the context cannot be resolved.
     """
+    if service is not None:
+        _reject_worktree_target(service)
 
-    def resolve(target: str | None) -> ResolvedContext:
-        return resolve_context(target, require_project=True, require_worktree=True)
+    ctx = resolve_context(worktree_opt, require_project=True, require_worktree=True)
+    if service is None:
+        return ctx, None
 
-    if service_opt is not None:
-        # --service names the service, so the positional is a target. --worktree
-        # gives the same thing, and giving both leaves no way to choose.
-        if positional is not None and worktree_opt is not None:
-            raise ValueError(
-                "Give the worktree as the positional argument or as --worktree, "
-                "not both."
-            )
-        ctx = resolve(worktree_opt if worktree_opt is not None else positional)
-        # A project with no `services:` block declares nothing, so the model
-        # raises the more specific Procfile error instead.
-        declared = _declared_service_names(ctx)
-        if declared and service_opt not in declared:
-            raise ValueError(
-                f"Unknown service: {service_opt}. "
-                f"Declared services: {', '.join(declared)}"
-            )
-        return ctx, service_opt
-
-    if positional is None:
-        return resolve(worktree_opt), None
-
-    if "." in positional:
-        if worktree_opt is not None:
-            raise ValueError(
-                f"{positional!r} and --worktree {worktree_opt!r} are both "
-                "worktree targets. Give one."
-            )
-        return resolve(positional), None
-
-    # A bare name is a service when the worktree declares one by that name, so
-    # the worktree must be resolved first — from --worktree, or from cwd.
-    base_ctx = resolve(worktree_opt)
-    if positional in _declared_service_names(base_ctx):
-        if positional in WORKTREE_NAMES or positional in WORKTREE_SHORTCODES:
-            raise ValueError(
-                f"{positional!r} is both a declared service and a worktree name. "
-                f"Use --service {positional} for the service, or "
-                f"'<project>.{positional}' for the worktree."
-            )
-        return base_ctx, positional
-
-    if worktree_opt is not None:
-        # --worktree already named the worktree, so the positional can only be a
-        # service — falling back to reading it as a target would hide the typo.
-        declared = ", ".join(_declared_service_names(base_ctx))
+    # A project that declares nothing has no list to check against, so
+    # get_services raises the Procfile diagnosis instead.
+    declared = _declared_service_names(ctx)
+    if declared and service not in declared:
         raise ValueError(
-            f"Unknown service: {positional}. Declared services: {declared}"
+            f"Unknown service: {service}. Declared services: {', '.join(declared)}"
         )
-
-    return resolve(positional), None
+    return ctx, service
 
 
 def _report_stop(
@@ -330,25 +294,25 @@ def env_open(target):
 
 
 @env.command("start")
-@click.argument("target", required=False, default=None)
+@click.argument("service", required=False, default=None)
 @click.option(
     "--skip-install", is_flag=True, help="Skip the install step before starting"
 )
-@click.option("-s", "--service", default=None, help="Start only this service")
 @click.option(
     "-w",
     "--worktree",
     "worktree_opt",
     default=None,
-    help="Worktree target (project.worktree), for when TARGET names a service",
+    help="Worktree target (project.worktree). Default: the current directory",
 )
-def env_start(target, skip_install, service, worktree_opt):
+def env_start(service, skip_install, worktree_opt):
     """Start services for a worktree environment.
 
-    TARGET names a worktree, or a service the project declares.
+    SERVICE names one declared service. Without it, every non-optional service
+    starts.
     """
     try:
-        ctx, service_name = resolve_service_target(target, service, worktree_opt)
+        ctx, service_name = resolve_service(service, worktree_opt)
     except ValueError as e:
         raise click.ClickException(str(e))
 
@@ -398,22 +362,21 @@ def env_status(target):
 
 
 @env.command("stop")
-@click.argument("target", required=False, default=None)
-@click.option("-s", "--service", default=None, help="Stop only this service")
+@click.argument("service", required=False, default=None)
 @click.option(
     "-w",
     "--worktree",
     "worktree_opt",
     default=None,
-    help="Worktree target (project.worktree), for when TARGET names a service",
+    help="Worktree target (project.worktree). Default: the current directory",
 )
-def env_stop(target, service, worktree_opt):
+def env_stop(service, worktree_opt):
     """Stop services for a worktree environment.
 
-    TARGET names a worktree, or a service the project declares.
+    SERVICE names one declared service. Without it, the whole environment stops.
     """
     try:
-        ctx, service_name = resolve_service_target(target, service, worktree_opt)
+        ctx, service_name = resolve_service(service, worktree_opt)
     except ValueError as e:
         raise click.ClickException(str(e))
 
@@ -442,23 +405,23 @@ def env_stop(target, service, worktree_opt):
 
 
 @env.command("restart")
-@click.argument("target", required=False, default=None)
+@click.argument("service", required=False, default=None)
 @click.option("--install", is_flag=True, help="Run the install step before starting")
-@click.option("-s", "--service", default=None, help="Restart only this service")
 @click.option(
     "-w",
     "--worktree",
     "worktree_opt",
     default=None,
-    help="Worktree target (project.worktree), for when TARGET names a service",
+    help="Worktree target (project.worktree). Default: the current directory",
 )
-def env_restart(target, install, service, worktree_opt):
+def env_restart(service, install, worktree_opt):
     """Restart services for a worktree environment.
 
-    TARGET names a worktree, or a service the project declares.
+    SERVICE names one declared service. Without it, the whole environment
+    restarts.
     """
     try:
-        ctx, service_name = resolve_service_target(target, service, worktree_opt)
+        ctx, service_name = resolve_service(service, worktree_opt)
     except ValueError as e:
         raise click.ClickException(str(e))
 
@@ -697,15 +660,28 @@ def _follow_logs(
 
 
 @env.command("logs")
-@click.argument("target", required=False, default=None)
 @click.argument("service", required=False, default=None)
+@click.option(
+    "-w",
+    "--worktree",
+    "worktree_opt",
+    default=None,
+    help="Worktree target (project.worktree). Default: the current directory",
+)
 @click.option("-n", "num_lines", default=100, type=int, help="Number of lines to show")
 @click.option("-f", "--follow", is_flag=True, help="Follow log output")
-def env_logs(target, service, num_lines, follow):
-    """Show logs for an environment's services."""
+def env_logs(service, worktree_opt, num_lines, follow):
+    """Show logs for an environment's services.
+
+    SERVICE names one service. Without it, every service's log shows.
+    """
+    # No resolve_service call: logs come from files, so a Procfile project's
+    # logs read too.
     try:
+        if service is not None:
+            _reject_worktree_target(service)
         ctx = resolve_context(
-            target,
+            worktree_opt,
             require_project=True,
             require_worktree=True,
         )

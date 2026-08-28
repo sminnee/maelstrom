@@ -157,20 +157,20 @@ A named stop leaves the other services running, and leaves the main app's browse
 
 A service cannot be both `optional` and `shared`.
 
-Named services need a `services:` block. A Procfile project reports an error instead.
+Named services need a `services:` block. `mael env start ladle` in a Procfile project reports an
+error instead. `mael env logs <name>` is the exception: logs come from files on disk, so it works
+whichever way the project declares its services.
 
-The target position still means a worktree. Maelstrom reads a bare name as a service only when
-the worktree declares a service by that name, so `mael env start b` and
-`mael env start myproject.b` still select a worktree. Use `--service` and `--worktree` when you
-want both, or when a name would be ambiguous:
+The argument to `env start`, `env stop`, `env restart` and `env logs` names a **service**. The
+worktree comes from `--worktree`, or from the current directory:
 
 ```bash
 mael env start ladle -w askastro.b     # the service 'ladle', in askastro bravo
-mael env start -s ladle myproject.b    # explicit, never ambiguous
+mael env start -w askastro.b           # the whole environment, in askastro bravo
 ```
 
-A name that is both a declared service and a worktree name is rejected. Use `--service <name>`
-for the service, or `<project>.<name>` for the worktree.
+The other `env` commands — `status`, `reset`, `open`, `list` — take a worktree in that
+position instead.
 
 `mael env status` tags a stopped optional service `(optional)`.
 
@@ -182,7 +182,7 @@ mael env start --skip-install  # skip the install step
 mael env status                # PIDs, status, log paths
 mael env logs                  # recent logs
 mael env logs -f               # follow
-mael env logs myproject.bravo web -n 50   # one service, 50 lines
+mael env logs web -n 50        # one service, 50 lines
 mael env restart               # stop then start
 mael env restart --install     # ...running install_cmd first
 mael env stop                  # SIGTERM, then SIGKILL after 10s
