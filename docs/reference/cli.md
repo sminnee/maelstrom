@@ -33,6 +33,11 @@ A single letter is a shortcode for the NATO name: `a` → alpha, `b` → bravo, 
 Inside a worktree, maelstrom detects the project and worktree from the current directory,
 so the target is optional.
 
+`mael env start`, `mael env stop` and `mael env restart` also take a service name in the target
+position. A bare name is a service when the worktree declares a service by that name, and a
+worktree otherwise. A name that is both is rejected: use `--service <name>` for the service, or
+`<project>.<name>` for the worktree.
+
 ---
 
 ## Worktrees
@@ -585,10 +590,10 @@ See [dev-environments.md](../guide/dev-environments.md).
 
 | Command | Description |
 |---|---|
-| `mael env start [TARGET]` | Run the install command, then start every service. |
-| `mael env stop [TARGET]` | Stop every service. SIGTERM, then SIGKILL after 10s. |
-| `mael env restart [TARGET]` | Restart services. |
-| `mael env status [TARGET]` | Show service PIDs, status and log paths. |
+| `mael env start [TARGET]` | Run the install command, then start every non-optional service. TARGET may name one service instead. |
+| `mael env stop [TARGET]` | Stop the environment's services, or one named service. SIGTERM, then SIGKILL after 10s. |
+| `mael env restart [TARGET]` | Restart services. TARGET may name one service instead. |
+| `mael env status [TARGET]` | Show service PIDs, status and log paths. A declared service that is not running shows as `stopped`. |
 | `mael env logs [TARGET] [SERVICE]` | Show service logs. |
 | `mael env list [PROJECT]` | List running environments for a project. |
 | `mael env list-all` | List running environments across every project. |
@@ -597,7 +602,10 @@ See [dev-environments.md](../guide/dev-environments.md).
 | `mael env open [TARGET]` | Open the browser pane for a running environment. |
 
 ```bash
-mael env start                     # install, then start every service
+mael env start                     # install, then start every non-optional service
+mael env start ladle               # start the service 'ladle', alone
+mael env stop ladle                # stop it again; the rest keep running
+mael env start ladle -w askastro.b # ...in askastro bravo
 mael env logs -f                   # follow every service's log
 mael env logs myproject.b frontend -f   # ...or one named service
 mael env stop                      # before heavy multi-file editing
@@ -608,6 +616,8 @@ mael env reset                     # regenerate .env after changing ports
 |---|---|---|
 | `env start` | `--skip-install` | Skip the install step before starting. |
 | `env restart` | `--install` | Run the install step before starting. |
+| `env start`, `env stop`, `env restart` | `-s`, `--service NAME` | Act on this service alone. The target stays a worktree. |
+| `env start`, `env stop`, `env restart` | `-w`, `--worktree TARGET` | The worktree, as `project.worktree` — e.g. `-w askastro.b`. Use it when the positional names a service. |
 | `env logs` | `-n INTEGER` | Number of lines to show. Default: 100. |
 | `env logs` | `-f`, `--follow` | Follow log output. |
 

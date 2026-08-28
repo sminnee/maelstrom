@@ -61,6 +61,7 @@ Each entry is a named service. Maelstrom infers the type: an `engine` makes it a
 | `ports` | list of string | both | Named ports this service owns. Each becomes `${<NAME>_PORT}`. |
 | `env` | map | both | Extra environment variables for the service. |
 | `shared` | bool | both | Default `false`. When true, the service is shared across worktrees in the project. |
+| `optional` | bool | both | Default `false`. When true, `mael env start` skips the service. Start it with `mael env start <name>`. |
 
 Maelstrom rejects the config when any of these is true:
 
@@ -68,6 +69,7 @@ Maelstrom rejects the config when any of these is true:
 - `engine` is not a known engine.
 - `ports` is not a list of names.
 - `host_var` is set on a service that is not `apple-container`.
+- A service is both `shared` and `optional`.
 
 ```yaml
 services:
@@ -82,6 +84,11 @@ services:
 
   worker:
     command: uv run serve-dev worker       # no ports, no dir
+
+  ladle:
+    optional: true                         # skipped by `mael env start`
+    ports: [LADLE_APP]
+    command: env PORT=${LADLE_APP_PORT} npx ladle serve
 
   db-shared:
     shared: true

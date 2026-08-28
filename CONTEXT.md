@@ -179,6 +179,12 @@ A service marked `shared: true`, started once for the whole project rather than 
 worktree. A database is the usual case. The project owns shared services; worktrees subscribe
 to them, and they stop when the last subscriber leaves.
 
+**Optional service**:
+A service marked `optional: true`. `mael env start` skips an optional service; `mael env start
+<name>` starts that one service and leaves the rest of the environment alone. An optional
+service still owns its declared ports, so marking a service optional never renumbers the
+services after it. A service cannot be both optional and shared.
+
 **Subscriber**:
 A worktree currently using a project's shared services. Shared services stop when the
 subscriber list empties.
