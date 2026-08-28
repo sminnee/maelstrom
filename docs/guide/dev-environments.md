@@ -31,8 +31,9 @@ allocation in `~/.maelstrom/port_allocations.json`. The allocation survives `mae
 a recycled worktree keeps its ports.
 
 The first **web-facing** port becomes the app URL that `mael list` and `mael env start` show.
-Maelstrom treats a port named `APP` or `FRONTEND` as web-facing; with neither, a worktree has
-no app URL.
+A port name is web-facing when one of its `_`-separated segments is `APP` or `FRONTEND`, so
+`LADLE_APP` and `FRONTEND_HMR` count while `APPLE` does not. With no web-facing port, a
+worktree has no app URL.
 
 Shared ports are allocated off a separate per-project base, exposed as `SHARED_PORT_BASE`, so
 they do not consume slots from the worktree's own base.
@@ -123,10 +124,60 @@ copy. Late subscribers reuse the already-discovered `host_var` IP rather than in
 again. Stopping one worktree's environment leaves a shared service running while another
 worktree still uses it.
 
+## Optional services
+
+Some services do not belong in every environment — a component catalogue is the usual case.
+Mark them `optional: true`:
+
+```yaml
+  ladle:
+    optional: true
+    ports: [LADLE_APP]
+    command: env PORT=${LADLE_APP_PORT} npx ladle serve
+```
+
+`mael env start` skips an optional service. Start it by name, and stop it by name again:
+
+```bash
+mael env start ladle           # start 'ladle' alone; the rest keep running
+mael env stop ladle            # stop it again; the rest keep running
+mael env restart ladle         # cycle it alone
+```
+
+An optional service still owns its declared ports — see [CONTEXT.md](../../CONTEXT.md).
+
+A named start:
+
+- starts only that service, not its siblings;
+- skips `install_cmd` — use `mael env restart <name> --install` to reinstall;
+- subscribes to the project's shared services, so the named service reaches the database
+  whether or not the rest of the environment is up.
+
+A named stop leaves the other services running, and leaves the main app's browser pane open.
+
+A service cannot be both `optional` and `shared`.
+
+Named services need a `services:` block. A Procfile project reports an error instead.
+
+The target position still means a worktree. Maelstrom reads a bare name as a service only when
+the worktree declares a service by that name, so `mael env start b` and
+`mael env start myproject.b` still select a worktree. Use `--service` and `--worktree` when you
+want both, or when a name would be ambiguous:
+
+```bash
+mael env start ladle -w askastro.b     # the service 'ladle', in askastro bravo
+mael env start -s ladle myproject.b    # explicit, never ambiguous
+```
+
+A name that is both a declared service and a worktree name is rejected. Use `--service <name>`
+for the service, or `<project>.<name>` for the worktree.
+
+`mael env status` tags a stopped optional service `(optional)`.
+
 ## Running
 
 ```bash
-mael env start                 # install_cmd, then start every service
+mael env start                 # install_cmd, then start every non-optional service
 mael env start --skip-install  # skip the install step
 mael env status                # PIDs, status, log paths
 mael env logs                  # recent logs

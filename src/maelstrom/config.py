@@ -55,8 +55,7 @@ class ServiceDef:
 def _parse_bool(name: str, data: dict, key: str) -> bool:
     """Read a bool service key, rejecting anything that is not a YAML boolean.
 
-    Plain ``bool()`` would read ``optional: "no"`` as True, and the service would
-    then vanish from ``mael env start`` with no error to explain it.
+    ``optional: "no"`` is a string, and ``bool()`` would read it as True.
 
     Raises:
         ValueError: If the key holds a non-boolean value.
@@ -196,8 +195,7 @@ def service_port_names(config: MaelstromConfig) -> list[str]:
     ordering the allocator maps onto ``${NAME_PORT}`` slots. Duplicates across
     services are dropped, keeping first-seen order.
 
-    Optional services are *not* filtered out — skipping one here would renumber
-    every port declared after it.
+    Optional services are *not* filtered out — see CONTEXT.md, "Optional service".
     """
     names: list[str] = []
     seen: set[str] = set()
