@@ -25,7 +25,7 @@ Most commands take an optional target in the form `project.worktree`:
 
 ```bash
 mael list myproject           # every worktree in myproject
-mael env start myproject.b    # bravo (shortcode)
+mael list myproject.b         # bravo (shortcode)
 mael close                    # the worktree you are in
 ```
 
@@ -33,10 +33,9 @@ A single letter is a shortcode for the NATO name: `a` → alpha, `b` → bravo, 
 Inside a worktree, maelstrom detects the project and worktree from the current directory,
 so the target is optional.
 
-`mael env start`, `mael env stop` and `mael env restart` also take a service name in the target
-position. A bare name is a service when the worktree declares a service by that name, and a
-worktree otherwise. A name that is both is rejected: use `--service <name>` for the service, or
-`<project>.<name>` for the worktree.
+`mael env start`, `mael env stop`, `mael env restart` and `mael env logs` are the exception:
+their argument names a **service**, and the worktree comes from `--worktree` or the current
+directory.
 
 ---
 
@@ -590,11 +589,11 @@ See [dev-environments.md](../guide/dev-environments.md).
 
 | Command | Description |
 |---|---|
-| `mael env start [TARGET]` | Run the install command, then start every non-optional service. TARGET may name one service instead. |
-| `mael env stop [TARGET]` | Stop the environment's services, or one named service. SIGTERM, then SIGKILL after 10s. |
-| `mael env restart [TARGET]` | Restart services. TARGET may name one service instead. |
-| `mael env status [TARGET]` | Show service PIDs, status and log paths. A declared service that is not running shows as `stopped`. |
-| `mael env logs [TARGET] [SERVICE]` | Show service logs. |
+| `mael env start [SERVICE]` | Run the install command, then start every non-optional service, or one named service. |
+| `mael env stop [SERVICE]` | Stop the environment's services, or one named service. SIGTERM, then SIGKILL after 10s. |
+| `mael env restart [SERVICE]` | Restart services, or one named service. |
+| `mael env status [TARGET]` | Show service PIDs, status and log paths. A declared service that never started shows as `stopped`; `dead` means it started and then died. |
+| `mael env logs [SERVICE]` | Show service logs, or one service's log. |
 | `mael env list [PROJECT]` | List running environments for a project. |
 | `mael env list-all` | List running environments across every project. |
 | `mael env stop-all` | Stop every running environment. |
@@ -607,7 +606,7 @@ mael env start ladle               # start the service 'ladle', alone
 mael env stop ladle                # stop it again; the rest keep running
 mael env start ladle -w askastro.b # ...in askastro bravo
 mael env logs -f                   # follow every service's log
-mael env logs myproject.b frontend -f   # ...or one named service
+mael env logs frontend -f          # ...or one named service
 mael env stop                      # before heavy multi-file editing
 mael env reset                     # regenerate .env after changing ports
 ```
@@ -616,8 +615,7 @@ mael env reset                     # regenerate .env after changing ports
 |---|---|---|
 | `env start` | `--skip-install` | Skip the install step before starting. |
 | `env restart` | `--install` | Run the install step before starting. |
-| `env start`, `env stop`, `env restart` | `-s`, `--service NAME` | Act on this service alone. The target stays a worktree. |
-| `env start`, `env stop`, `env restart` | `-w`, `--worktree TARGET` | The worktree, as `project.worktree` — e.g. `-w askastro.b`. Use it when the positional names a service. |
+| `env start`, `env stop`, `env restart`, `env logs` | `-w`, `--worktree TARGET` | The worktree, as `project.worktree` — e.g. `-w askastro.b`. Default: the current directory. |
 | `env logs` | `-n INTEGER` | Number of lines to show. Default: 100. |
 | `env logs` | `-f`, `--follow` | Follow log output. |
 

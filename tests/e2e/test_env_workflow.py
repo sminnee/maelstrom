@@ -136,19 +136,19 @@ class TestSingleEnvWorkflow:
         )
 
         # Multi-service logs show prefixes
-        result = cli_runner.invoke(env, ["logs", "testproj.alpha"])
+        result = cli_runner.invoke(env, ["logs", "-w", "testproj.alpha"])
         assert result.exit_code == 0
         assert "[web]" in result.output
         assert "[worker]" in result.output
 
         # Single-service log filter
-        result = cli_runner.invoke(env, ["logs", "testproj.alpha", "web"])
+        result = cli_runner.invoke(env, ["logs", "web", "-w", "testproj.alpha"])
         assert result.exit_code == 0
         assert "web-hello" in result.output
         assert "[web]" not in result.output
 
         # Unknown service error
-        result = cli_runner.invoke(env, ["logs", "testproj.alpha", "nonexistent"])
+        result = cli_runner.invoke(env, ["logs", "nonexistent", "-w", "testproj.alpha"])
         assert result.exit_code != 0
         assert "not found" in result.output.lower() or "Not found" in result.output
 
@@ -174,7 +174,7 @@ class TestSingleEnvWorkflow:
         counter_log = log_dir / "counter.log"
         wait_for(lambda: counter_log.exists() and "line20" in counter_log.read_text())
 
-        result = cli_runner.invoke(env, ["logs", "testproj.alpha", "-n", "5"])
+        result = cli_runner.invoke(env, ["logs", "-w", "testproj.alpha", "-n", "5"])
         assert result.exit_code == 0
         lines = [line for line in result.output.strip().splitlines() if line.strip()]
         assert len(lines) <= 5
@@ -205,12 +205,14 @@ class TestSingleEnvWorkflow:
 
         # --- Phase 9: Start/stop via CLI ---
         write_procfile(proj.worktree_path, {"web": "sleep 3600"})
-        result = cli_runner.invoke(env, ["start", "--skip-install", "testproj.alpha"])
+        result = cli_runner.invoke(
+            env, ["start", "--skip-install", "-w", "testproj.alpha"]
+        )
         assert result.exit_code == 0
         assert "web" in result.output
         assert "running" in result.output
 
-        result = cli_runner.invoke(env, ["stop", "testproj.alpha"])
+        result = cli_runner.invoke(env, ["stop", "-w", "testproj.alpha"])
         assert result.exit_code == 0
         output = result.output.lower()
         assert "stopped" in output or "killed" in output

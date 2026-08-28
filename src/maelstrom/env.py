@@ -252,8 +252,7 @@ def get_services(
     if names is not None:
         raise ValueError(
             f"Cannot start or stop a service by name in {worktree_path}: the "
-            "project uses a Procfile. Named services need a 'services:' block "
-            "in .maelstrom.yaml."
+            "project uses a Procfile. Add a `services:` block to .maelstrom.yaml."
         )
 
     procfile = worktree_path / "Procfile"

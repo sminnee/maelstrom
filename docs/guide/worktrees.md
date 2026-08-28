@@ -48,9 +48,9 @@ the ports of `myproject-bravo` stay put while branches come and go through it.
 Target one by name or shortcode:
 
 ```bash
-mael env start myproject.bravo
-mael env start myproject.b        # shortcode
-mael env start                    # detected from the current directory
+mael env status myproject.bravo
+mael env status myproject.b        # shortcode
+mael env status                    # detected from the current directory
 ```
 
 ## Creating
