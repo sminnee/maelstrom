@@ -12,6 +12,10 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **`args:` on a container service.** A container service in `.maelstrom.yaml` can pass
+  arguments to its image, e.g. `args: ["-c", "max_locks_per_transaction=1024"]` to raise a
+  Postgres lock limit.
+
 - **Optional services.** A service in `.maelstrom.yaml` can set `optional: true`.
   - `mael env start` skips it; `mael env start ladle` starts that one service alone.
   - `mael env stop ladle` and `mael env restart ladle` take a service name too.

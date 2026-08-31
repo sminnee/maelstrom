@@ -213,6 +213,43 @@ class TestServicesConfig:
         with pytest.raises(ValueError, match="'ports' must be a list"):
             MaelstromConfig.from_dict(data)
 
+    def test_args_parsed_on_container_service(self):
+        """`args` on a container service parses into ServiceDef.args."""
+        data = {
+            "services": {
+                "db": {
+                    "engine": "docker",
+                    "image": "postgres:16",
+                    "args": ["-c", "max_locks_per_transaction=1024"],
+                }
+            }
+        }
+        cfg = MaelstromConfig.from_dict(data)
+        assert cfg.services[0].args == ["-c", "max_locks_per_transaction=1024"]
+
+    def test_args_defaults_to_empty(self):
+        """A container service with no `args` gets an empty list."""
+        data = {"services": {"db": {"engine": "docker", "image": "postgres:16"}}}
+        cfg = MaelstromConfig.from_dict(data)
+        assert cfg.services[0].args == []
+
+    @pytest.mark.parametrize("value", ["-c max_locks=1024", ["-c", 1024]])
+    def test_args_must_be_list_of_strings(self, value):
+        """A non-list (or non-string-element) `args` is rejected clearly."""
+        data = {
+            "services": {
+                "db": {"engine": "docker", "image": "postgres:16", "args": value}
+            }
+        }
+        with pytest.raises(ValueError, match="'args' must be a list of strings"):
+            MaelstromConfig.from_dict(data)
+
+    def test_args_only_on_container_service(self):
+        """`args` on a command service is rejected — it has no image."""
+        data = {"services": {"a": {"command": "x", "args": ["-c", "y"]}}}
+        with pytest.raises(ValueError, match="only meaningful for a container service"):
+            MaelstromConfig.from_dict(data)
+
     def test_host_var_only_on_apple_container(self):
         """host_var on a docker service is rejected (apple-container only)."""
         data = {

@@ -86,6 +86,7 @@ services:
     publish: ["${DB_PORT}:5432"]           # host:container
     volume: /var/lib/postgresql/data       # named volume from the container name
     host_var: DB_HOST                      # apple-container: receives the VM's IP address
+    args: ["-c", "max_locks_per_transaction=1024"]   # appended after the image
     env:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
 ```

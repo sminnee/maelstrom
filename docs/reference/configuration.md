@@ -55,6 +55,7 @@ Each entry is a named service. Maelstrom infers the type: an `engine` makes it a
 | `dir` | string | command | Working directory, relative to the worktree root. |
 | `engine` | string | container | `docker` or `apple-container`. Its presence makes the service a container. |
 | `image` | string | container | Container image. **Required** for a container service. |
+| `args` | list of string | container | Arguments appended after the image, e.g. `["-c", "max_locks_per_transaction=1024"]`. Each element becomes one shell word, so it must not contain a space or a shell metacharacter. |
 | `publish` | list of string | container | Host-to-container port mappings, e.g. `["${DB_PORT}:5432"]`. |
 | `volume` | string | container | Mount path. The named volume derives from the container name. |
 | `host_var` | string | container | Variable that receives the polled VM IP. Only valid for `apple-container`, and only meaningful when `shared: true`. |
@@ -68,6 +69,8 @@ Maelstrom rejects the config when any of these is true:
 - A container service has no `image`, or a command service has no `command`.
 - `engine` is not a known engine.
 - `ports` is not a list of names.
+- `args` is not a list of strings.
+- `args` is set on a command service.
 - `host_var` is set on a service that is not `apple-container`.
 - A service is both `shared` and `optional`.
 
@@ -98,6 +101,7 @@ services:
     publish: ["${DB_PORT}:5432"]
     volume: /var/lib/postgresql/data
     host_var: DB_HOST
+    args: ["-c", "max_locks_per_transaction=1024"]
     env:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
 ```
