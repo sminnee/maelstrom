@@ -73,11 +73,12 @@ def build_container_run(svc: ServiceDef, cname: str) -> str:
 
     ``cname`` is the container name (see :func:`container_name`); the caller
     passes it in so the naming rule lives in exactly one place. Produces
-    ``<bin> rm-force <cname> ...; <bin> run --rm --name <cname> ...``: a
-    best-effort force-remove of any stale container, then a **foreground**
-    ``--rm`` run so the existing ``killpg`` stop path cleans up (matching today's
-    foreground ``docker run --rm``). ``${VAR}`` references in ``publish`` / ``env``
-    survive verbatim for the existing ``.env`` substitution to resolve.
+    ``<bin> rm-force <cname> ...; <bin> run --rm --name <cname> ... <image>
+    <args...>``: a best-effort force-remove of any stale container, then a
+    **foreground** ``--rm`` run so the existing ``killpg`` stop path cleans up
+    (matching today's foreground ``docker run --rm``). ``${VAR}`` references in
+    ``publish`` / ``env`` survive verbatim for the existing ``.env``
+    substitution to resolve.
 
     Raises:
         ValueError: If the service has no engine or an unknown one.
@@ -102,6 +103,7 @@ def build_container_run(svc: ServiceDef, cname: str) -> str:
         run_parts += ["-e", f"{key}={value}"]
     run_parts += list(engine.run_extra)
     run_parts.append(svc.image)
+    run_parts += list(svc.args)
     run = " ".join(run_parts)
 
     return f"{rm}; {run}"

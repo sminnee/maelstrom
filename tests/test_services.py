@@ -36,7 +36,7 @@ class TestBuildCommandService:
 class TestBuildContainerRun:
     """Tests for build_container_run."""
 
-    def _db(self, engine: str) -> ServiceDef:
+    def _db(self, engine: str, args: list[str] | None = None) -> ServiceDef:
         return ServiceDef(
             name="db",
             shared=True,
@@ -47,6 +47,7 @@ class TestBuildContainerRun:
             volume="/var/lib/postgresql/data",
             host_var="DB_HOST" if engine == "apple-container" else None,
             env={"POSTGRES_PASSWORD": "${POSTGRES_PASSWORD}"},
+            args=list(args or []),
         )
 
     def test_docker_run_boilerplate(self):
@@ -59,6 +60,14 @@ class TestBuildContainerRun:
         assert "-v proj-db-data:/var/lib/postgresql/data" in run
         assert "-e POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" in run
         assert run.rstrip().endswith("pgvector/pgvector:pg16")
+
+    def test_args_follow_the_image(self):
+        """`args` are appended after the image, in order."""
+        svc = self._db("docker", ["-c", "max_locks_per_transaction=1024"])
+        run = build_container_run(svc, "proj-db").split(";", 1)[1]
+        assert run.rstrip().endswith(
+            "pgvector/pgvector:pg16 -c max_locks_per_transaction=1024"
+        )
 
     def test_docker_has_stop_timeout(self):
         """Docker adds --stop-timeout 2; apple-container omits it."""

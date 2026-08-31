@@ -43,6 +43,7 @@ class ServiceDef:
     dir: str | None = None  # command service
     command: str | None = None  # command service
     image: str | None = None  # container service
+    args: list[str] = field(default_factory=list)  # image arguments
     volume: str | None = None  # container mount path
     host_var: str | None = None  # apple-container VM-IP target var
 
@@ -91,6 +92,10 @@ def _parse_service(name: str, data: dict) -> ServiceDef:
         raise ValueError(f"Service {name!r}: 'ports' must be a list of names")
     ports = [PortSpec(name=p) for p in raw_ports]
 
+    raw_args = data.get("args", [])
+    if not isinstance(raw_args, list) or not all(isinstance(a, str) for a in raw_args):
+        raise ValueError(f"Service {name!r}: 'args' must be a list of strings")
+
     svc = ServiceDef(
         name=name,
         shared=_parse_bool(name, data, "shared"),
@@ -102,6 +107,7 @@ def _parse_service(name: str, data: dict) -> ServiceDef:
         dir=data.get("dir"),
         command=data.get("command"),
         image=data.get("image"),
+        args=list(raw_args),
         volume=data.get("volume"),
         host_var=data.get("host_var"),
     )
@@ -124,6 +130,10 @@ def _parse_service(name: str, data: dict) -> ServiceDef:
     else:
         if not svc.command:
             raise ValueError(f"Service {name!r}: command service requires 'command'")
+        if svc.args:
+            raise ValueError(
+                f"Service {name!r}: 'args' is only meaningful for a container service"
+            )
 
     return svc
 
