@@ -583,6 +583,41 @@ Give each page a one-line `description:` in YAML frontmatter. `mael wiki list` p
 
 ---
 
+## Agents
+
+Drive Claude agents over a stream-json pipe, and answer them from outside the terminal they run
+in. This path runs beside `mael open` and does not replace it: an agent the daemon drives has no
+cmux pane and no TTY. See [agent-daemon.md](../dev/agent-daemon.md) for the protocol.
+
+| Command | Description |
+|---|---|
+| `mael agent daemon` | Run the agent daemon in the foreground. `--socket PATH` overrides the socket. |
+| `mael agent start [CWD]` | Start an agent in CWD (default `.`). Takes `--prompt`, `--mode`, `--model`. |
+| `mael agent list` | Show every agent, and what each waiting one waits on. `--json` emits rows as JSON. |
+| `mael agent say ID TEXT` | Send TEXT to an agent as a user message. |
+| `mael agent answer ID CHOICE` | Answer an agent's pending question. |
+| `mael agent approve ID` | Approve an agent's pending plan or tool call. |
+| `mael agent deny ID` | Deny it. `--reason TEXT` reaches the agent as the tool result. |
+| `mael agent attach ID` | Stream an agent's events, and forward each line you type. |
+| `mael agent stop ID` | Stop an agent. |
+
+```bash
+mael agent daemon &                             # one per machine; nothing starts it for you
+mael agent start . --prompt "run the tests"     # prints the agent id
+mael agent start /tmp --mode auto               # unattended
+mael agent list                                 # who is waiting, and on what
+mael agent answer 1761dcf6 "Green"              # answer a question
+mael agent approve 0b2f5f5b                     # approve a plan or a tool call
+mael agent deny 0b2f5f5b --reason "not now"
+mael agent say 1761dcf6 "also update the README"
+mael agent attach 1761dcf6                      # teleport: live stream, typed input
+mael agent attach 1761dcf6 < /dev/null          # ...read-only
+mael agent stop 1761dcf6
+```
+
+The daemon does not start on its own, and an agent dies with the daemon holding it. Every agent
+is a normal `claude` process.
+
 ## Dev environments
 
 See [dev-environments.md](../guide/dev-environments.md).

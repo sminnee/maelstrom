@@ -9,6 +9,7 @@ import click
 from . import __version__, session_discovery
 from . import task as task_model
 from .admin_cli import cmd_install, cmd_self_update
+from .agent_cli import agent as agent_cli
 from .base_store import GitConfigBaseStore
 from .cmux import mael_layout
 from .cmux.client import ensure_cmux_running, resolve_socket_path
@@ -1851,6 +1852,7 @@ cli.add_command(project_cli)
 cli.add_command(cmd_mv_project)
 cli.add_command(cmd_install)
 cli.add_command(cmd_self_update)
+cli.add_command(agent_cli)
 
 
 def main(argv: list[str] | None = None) -> int:

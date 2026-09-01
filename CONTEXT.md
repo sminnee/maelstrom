@@ -162,6 +162,29 @@ pane 1 a shell, pane 2 browsers. Pane numbering is 0-based. Every session runs i
 so that no agent runs somewhere you cannot watch it.
 _Avoid_: Window, pane group
 
+## Agents
+
+**Driven agent**:
+A `claude` process the agent daemon holds on a stream-json pipe. A driven agent has no cmux
+workspace and no TTY, so nothing observes or answers it except the daemon. Contrast a session,
+which runs in a workspace with its hooks.
+
+**Agent daemon**:
+The one process per machine that holds every driven agent and serves the control socket
+`mael agent` talks to. An agent dies with the daemon holding it.
+
+**Wait kind**:
+Which of three things a driven agent is blocked on: `awaiting-question`, `awaiting-plan-review`,
+or `awaiting-permission`. All three arrive as the same `can_use_tool` event, so the wait kind
+comes from the tool name. The wait kind is what makes an answer possible — it says which of
+`answer`, `approve` or `deny` applies.
+_Avoid_: Blocked, stuck
+
+**Teleport**:
+`mael agent attach <id>` — rendering one driven agent's event stream to a terminal and forwarding
+typed lines back to it. Teleport is a client of the control socket, not a pane attach: a driven
+agent has no pane and no transcript to resume.
+
 ## Dev environments
 
 **Environment**:
