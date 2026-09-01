@@ -12,9 +12,13 @@ import pytest
 
 from maelstrom.agent_model import (
     EXITED,
+    MESSAGE_CHARS,
+    MESSAGE_LIMIT,
+    MESSAGE_SUMMARY_CHARS,
     AgentState,
     apply_event,
     build_agent_argv,
+    build_agent_detail,
     build_agent_row,
     mark_exited,
     reply_for_answer,
@@ -206,3 +210,137 @@ def test_every_row_key_is_always_present():
     """Same contract as ``build_session_row`` — no key is ever missing."""
     keys = set(build_agent_row(AgentState(agent_id="a1", cwd="/tmp/x")))
     assert keys == set(build_agent_row(replay("plan-review.jsonl")))
+
+
+# --- retained messages -----------------------------------------------------
+
+
+def test_the_agent_keeps_what_it_said():
+    """A row that says only "processing" cannot say what the agent is doing."""
+    state = replay("normal-turn.jsonl")
+    assert state.messages == ("Hello there, friend",)
+
+
+def test_a_tool_call_is_not_a_message():
+    """A tool call is an action, not something the agent chose to say."""
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    state = apply_event(
+        state,
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {}}]},
+        },
+    )
+    assert state.messages == ()
+
+
+def test_a_thinking_block_is_not_a_message():
+    """Reasoning the agent did not choose to say is not a message."""
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    state = apply_event(
+        state,
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "thinking", "thinking": "hmm"}]},
+        },
+    )
+    assert state.messages == ()
+
+
+def _say(state: AgentState, text: str) -> AgentState:
+    return apply_event(
+        state,
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}},
+    )
+
+
+def test_only_the_last_few_messages_are_kept():
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    for i in range(MESSAGE_LIMIT + 3):
+        state = _say(state, f"line {i}")
+    assert len(state.messages) == MESSAGE_LIMIT
+    assert state.messages[-1] == f"line {MESSAGE_LIMIT + 2}"
+
+
+def test_a_huge_message_is_truncated_at_capture():
+    """Bounding the count alone would still let one agent hold megabytes."""
+    state = _say(AgentState(agent_id="a1", cwd="/tmp/x"), "x" * (MESSAGE_CHARS * 3))
+    assert len(state.messages[0]) <= MESSAGE_CHARS
+
+
+def test_a_message_arriving_during_a_wait_is_still_kept():
+    """The pending guard protects the status only. The words are the point."""
+    state = replay("question-unanswered.jsonl", stop_before_control=True)
+    state = _say(state, "while you decide, here is the context")
+    assert state.status == "awaiting-question"
+    assert state.messages[-1] == "while you decide, here is the context"
+
+
+def test_the_row_shows_what_the_agent_last_said():
+    state = _say(AgentState(agent_id="a1", cwd="/tmp/x"), "done with the tests")
+    assert build_agent_row(state)["last_message"] == "done with the tests"
+
+
+def test_the_row_message_is_one_short_line():
+    """A table cell is one line, however the agent laid its message out."""
+    state = _say(AgentState(agent_id="a1", cwd="/tmp/x"), "first\nsecond " + "y" * 200)
+    cell = build_agent_row(state)["last_message"]
+    assert "\n" not in cell
+    assert cell.startswith("first second")
+    assert len(cell) <= MESSAGE_SUMMARY_CHARS
+
+
+# --- the detail `mael agent show` renders ----------------------------------
+
+
+def test_detail_is_a_superset_of_the_row():
+    """``show`` and ``list`` must never disagree about the same agent."""
+    state = replay("question-unanswered.jsonl", stop_before_control=True)
+    detail = build_agent_detail(state)
+    assert build_agent_row(state).items() <= detail.items()
+
+
+def test_detail_carries_every_option_with_its_description():
+    """The options never reached the user before — that is the whole point."""
+    state = replay("question-unanswered.jsonl", stop_before_control=True)
+    detail = build_agent_detail(state)
+    question = detail["questions"][0]
+    assert question["question"] == "Which colour do you prefer?"
+    assert question["header"] == "Colour"
+    assert question["multi_select"] is False
+    assert [o["label"] for o in question["options"]] == ["Red", "Green", "Blue"]
+    assert question["options"][1]["description"] == "Natural, calm, fresh."
+
+
+def test_detail_names_the_waiting_tool_and_its_input():
+    state = replay("permission-request.jsonl", stop_before_control=True)
+    detail = build_agent_detail(state)
+    assert detail["waiting_kind"] == "awaiting-permission"
+    assert detail["waiting_tool"] == "WebFetch"
+    assert detail["waiting_input"]["url"]
+    assert detail["questions"] == []
+
+
+def test_detail_finds_the_plan_exit_plan_mode_does_not_carry():
+    """``ExitPlanMode`` has an empty input; the plan is the text just before it."""
+    state = replay("plan-review.jsonl", stop_before_control=True)
+    assert state.pending is not None
+    assert state.pending.input == {}
+    assert "Verification" in build_agent_detail(state)["plan"]
+
+
+def test_detail_has_no_plan_when_the_wait_is_not_a_plan_review():
+    state = replay("question-unanswered.jsonl", stop_before_control=True)
+    assert build_agent_detail(state)["plan"] == ""
+
+
+def test_detail_shows_the_last_messages_in_full():
+    """A summary is a table's job. ``show`` is where the whole text belongs."""
+    long_text = "y" * (MESSAGE_SUMMARY_CHARS * 4)
+    state = _say(AgentState(agent_id="a1", cwd="/tmp/x"), long_text)
+    assert build_agent_detail(state)["messages"] == [long_text]
+
+
+def test_detail_of_an_idle_agent_still_has_every_key():
+    keys = set(build_agent_detail(AgentState(agent_id="a1", cwd="/tmp/x")))
+    assert keys == set(build_agent_detail(replay("plan-review.jsonl")))

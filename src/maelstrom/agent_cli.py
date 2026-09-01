@@ -6,12 +6,14 @@ does no agent logic: it parses flags, sends a command, and prints the reply.
 Rendering goes through ``build_agent_row`` in the model layer, the way
 ``session_cli`` renders through ``session_view``.
 
-``mael agent daemon`` runs the daemon in the foreground. Nothing starts it
-automatically — see ``docs/dev/agent-daemon.md``.
+The first command that needs a daemon starts one, in the transport layer.
+``mael agent daemon`` runs one in the foreground instead — see
+``docs/dev/agent-daemon.md``.
 """
 
 import asyncio
 import json
+import shlex
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -19,12 +21,18 @@ from typing import Any
 
 import click
 
+from .agent_model import (
+    AWAITING_PERMISSION,
+    AWAITING_PLAN_REVIEW,
+    AWAITING_QUESTION,
+    BACKLOG_END,
+)
 from .agent_server import AgentDaemon
 from .agent_transport import DaemonClient, SocketDaemonClient, resolve_socket_path
 from .table import draw_table
 
 #: Columns ``mael agent list`` prints, in order.
-LIST_COLUMNS = ["id", "state", "waiting_on", "cwd", "model", "cost"]
+LIST_COLUMNS = ["id", "state", "waiting_on", "last_message", "cwd", "model", "cost"]
 
 
 #: Overridden by tests to drive commands through ``RecordingDaemonClient``.
@@ -74,7 +82,7 @@ def cmd_daemon(socket_path: str | None) -> None:
     "--session-id",
     "session_id",
     default=None,
-    help="Pin the agent to this Claude session id, so it can be resumed.",
+    help="Pin the Claude session id the agent reports.",
 )
 def cmd_start(
     cwd: str,
@@ -109,6 +117,70 @@ def cmd_list(as_json: bool) -> None:
         click.echo("No agents running.")
         return
     draw_table(rows, LIST_COLUMNS)
+
+
+@agent.command("show")
+@click.argument("agent_id")
+@click.option("--json", "as_json", is_flag=True, help="Emit the detail as JSON.")
+def cmd_show(agent_id: str, as_json: bool) -> None:
+    """Show one agent in full: what it said, and what it waits on."""
+    detail = _send({"cmd": "show", "id": agent_id})["agent"]
+    if as_json:
+        click.echo(json.dumps(detail, indent=2))
+        return
+    _print_detail(detail)
+
+
+def _answer_hint(detail: dict[str, Any]) -> str:
+    """The command that resolves this agent's wait, or ``""`` when none does."""
+    agent_id = detail["id"]
+    kind = detail.get("waiting_kind", "")
+    if kind == AWAITING_QUESTION:
+        options = [
+            option["label"]
+            for question in detail.get("questions", [])
+            for option in question.get("options", [])
+        ]
+        choice = options[0] if options else "<choice>"
+        # An option label is model-written text. Unquoted, one carrying a `$` or
+        # a backtick becomes a live substitution the moment a user pastes it.
+        return f"mael agent answer {agent_id} {shlex.quote(choice)}"
+    if kind == AWAITING_PLAN_REVIEW:
+        return f"mael agent approve {agent_id}"
+    if kind == AWAITING_PERMISSION:
+        return f"mael agent approve {agent_id}   (or deny)"
+    return ""
+
+
+def _print_detail(detail: dict[str, Any]) -> None:
+    """Render one agent's detail: its state, its words, and its wait."""
+    for key in ("id", "state", "session", "cwd", "model", "cost"):
+        if detail.get(key):
+            click.echo(f"{key + ':':<9} {detail[key]}")
+
+    for message in detail.get("messages", []):
+        click.echo(f"\n{message}")
+
+    if detail.get("plan"):
+        click.echo(f"\nPlan:\n{detail['plan']}")
+
+    for question in detail.get("questions", []):
+        header = question.get("header") or "Question"
+        multi = " (choose any)" if question.get("multi_select") else ""
+        click.echo(f"\n{header}{multi}: {question['question']}")
+        for option in question.get("options", []):
+            description = option.get("description", "")
+            suffix = f" — {description}" if description else ""
+            click.echo(f"  {option['label']}{suffix}")
+
+    if detail.get("waiting_tool") and not detail.get("questions"):
+        click.echo(f"\nWaiting on: {detail['waiting_tool']}")
+        if detail.get("waiting_input"):
+            click.echo(f"  {json.dumps(detail['waiting_input'])[:400]}")
+
+    hint = _answer_hint(detail)
+    if hint:
+        click.echo(f"\nAnswer with:  {hint}")
 
 
 @agent.command("say")
@@ -159,6 +231,92 @@ def cmd_attach(agent_id: str) -> None:
         pass
 
 
+@agent.command("tail")
+@click.argument("agent_id")
+@click.option("-f", "follow", is_flag=True, help="Keep streaming new events.")
+def cmd_tail(agent_id: str, follow: bool) -> None:
+    """Read an agent without driving it: print its events, and stop.
+
+    The read-only half of ``attach``. With ``-f`` it keeps streaming; without
+    it, it stops where the replayed history ends. Nothing you type reaches the
+    agent either way.
+    """
+    try:
+        asyncio.run(_tail(agent_id, follow))
+    except KeyboardInterrupt:
+        pass
+
+
+#: How long ``tail`` waits for one line before giving up.
+#:
+#: A backstop, not a heuristic: the backlog marker is what ends a tail. This
+#: only catches a daemon that never sends it, so the command errors instead of
+#: hanging.
+TAIL_READ_TIMEOUT = 30.0
+
+
+async def _connect_attached(
+    agent_id: str,
+) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    """Open a connection to the daemon and put it in ``attach`` mode.
+
+    Shared by ``attach`` and ``tail``. Both stream the same replay-then-follow
+    output; they differ only in what they do with stdin and where they stop.
+    """
+    path = resolve_socket_path()
+    try:
+        reader, writer = await asyncio.open_unix_connection(path)
+    except OSError as exc:
+        click.echo(f"Error: agent daemon not reachable at {path}: {exc}", err=True)
+        sys.exit(1)
+    writer.write((json.dumps({"cmd": "attach", "id": agent_id}) + "\n").encode())
+    await writer.drain()
+    return reader, writer
+
+
+async def _stream(reader: asyncio.StreamReader, *, follow: bool = True) -> None:
+    """Print the agent's events until the stream ends.
+
+    With ``follow`` false it stops at the backlog marker instead.
+    """
+    while True:
+        if follow:
+            line = await reader.readline()
+        else:
+            try:
+                line = await asyncio.wait_for(
+                    reader.readline(), timeout=TAIL_READ_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                click.echo("Error: the daemon stopped sending events", err=True)
+                sys.exit(1)
+        if not line:
+            return
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if "error" in event and "type" not in event:
+            click.echo(f"Error: {event['error']}", err=True)
+            return
+        if event.get("type") == BACKLOG_END:
+            if not follow:
+                return
+            continue
+        text = _render(event)
+        if text:
+            click.echo(text)
+
+
+async def _tail(agent_id: str, follow: bool) -> None:
+    """Stream an agent's events without forwarding anything back to it."""
+    reader, writer = await _connect_attached(agent_id)
+    try:
+        await _stream(reader, follow=follow)
+    finally:
+        writer.close()
+
+
 def _render(event: dict[str, Any]) -> str:
     """One event as a line to show, or ``""`` for one not worth showing."""
     kind = event.get("type")
@@ -184,30 +342,7 @@ def _render(event: dict[str, Any]) -> str:
 async def _attach(agent_id: str) -> None:
     """Stream the agent's events while forwarding stdin lines to it."""
     path = resolve_socket_path()
-    try:
-        reader, writer = await asyncio.open_unix_connection(path)
-    except OSError as exc:
-        click.echo(f"Error: agent daemon not reachable at {path}: {exc}", err=True)
-        sys.exit(1)
-
-    writer.write((json.dumps({"cmd": "attach", "id": agent_id}) + "\n").encode())
-    await writer.drain()
-
-    async def show() -> None:
-        while True:
-            line = await reader.readline()
-            if not line:
-                return
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if "error" in event and "type" not in event:
-                click.echo(f"Error: {event['error']}", err=True)
-                return
-            text = _render(event)
-            if text:
-                click.echo(text)
+    reader, writer = await _connect_attached(agent_id)
 
     async def forward() -> None:
         """Send each typed line to the agent as a user message.
@@ -248,7 +383,7 @@ async def _attach(agent_id: str) -> None:
     # The event stream decides when attach ends, not stdin. Closed stdin is
     # normal — a piped or redirected `mael agent attach` is a read-only view of
     # a live agent — so `forward` finishing must not tear the stream down.
-    streaming = asyncio.create_task(show())
+    streaming = asyncio.create_task(_stream(reader))
     typing = asyncio.create_task(forward())
     try:
         await streaming

@@ -21,10 +21,12 @@ from typing import Any
 
 from .agent_model import (
     AWAITING_QUESTION,
+    BACKLOG_END,
     EXITED,
     AgentState,
     apply_event,
     build_agent_argv,
+    build_agent_detail,
     build_agent_row,
     mark_exited,
     reply_for_answer,
@@ -183,9 +185,13 @@ class AgentDaemon:
             return {"error": f"no such agent: {payload.get('id', '')}"}
 
         # `Agent.send` returns silently on a closed stdin, so without this every
-        # command against a dead agent would report success.
-        if agent.state.status == EXITED and command != "stop":
+        # command against a dead agent would report success. `show` and `stop`
+        # send nothing, and reading why an agent died is why `show` exists.
+        if agent.state.status == EXITED and command not in ("stop", "show"):
             return {"error": f"agent {agent.state.agent_id} has exited"}
+
+        if command == "show":
+            return {"agent": build_agent_detail(agent.state)}
 
         if command == "say":
             await agent.send(user_message(payload["text"]))
@@ -297,7 +303,9 @@ class AgentDaemon:
         """Stream one agent's events to a client until it disconnects.
 
         Replays the buffered ``recent`` events first, so a client that attaches
-        mid-turn sees the context it arrived into rather than starting blank.
+        mid-turn sees the context it arrived into rather than starting blank. A
+        :data:`~maelstrom.agent_model.BACKLOG_END` marker closes the replay, so
+        ``mael agent tail`` knows where history stops without a timing guess.
         """
         agent = self.agents.get(agent_id)
         if agent is None:
@@ -313,6 +321,7 @@ class AgentDaemon:
         try:
             for event in agent.state.recent:
                 writer.write((json.dumps(event) + "\n").encode())
+            writer.write((json.dumps({"type": BACKLOG_END}) + "\n").encode())
             await writer.drain()
             while True:
                 event = await queue.get()
