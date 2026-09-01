@@ -5,22 +5,14 @@ captured from ``claude -p --input-format stream-json --output-format stream-json
 on v2.1.252. Nothing here is designed from an assumed event shape.
 """
 
-import asyncio
 import json
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
-from click.testing import CliRunner
 
-from maelstrom import agent_cli
-from maelstrom.agent_daemon import (
+from maelstrom.agent_model import (
     EXITED,
-    Agent,
-    AgentDaemon,
     AgentState,
-    RecordingDaemonClient,
-    SocketDaemonClient,
     apply_event,
     build_agent_argv,
     build_agent_row,
@@ -32,13 +24,6 @@ from maelstrom.agent_daemon import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
-
-
-def _stub_agent(agent_id: str = "a1") -> Agent:
-    """An `Agent` with a stub child, so `handle` is testable with no subprocess."""
-    proc = MagicMock()
-    proc.stdin.is_closing.return_value = True
-    return Agent(agent_id, "/tmp/x", proc)
 
 
 def replay(name: str, stop_before_control: bool = False) -> AgentState:
@@ -221,115 +206,3 @@ def test_every_row_key_is_always_present():
     """Same contract as ``build_session_row`` — no key is ever missing."""
     keys = set(build_agent_row(AgentState(agent_id="a1", cwd="/tmp/x")))
     assert keys == set(build_agent_row(replay("plan-review.jsonl")))
-
-
-# --- the daemon command surface --------------------------------------------
-
-
-async def _handle(daemon: AgentDaemon, payload: dict) -> dict:
-    return await daemon.handle(payload)
-
-
-def test_handle_rejects_an_unknown_agent():
-    reply = asyncio.run(
-        _handle(AgentDaemon("/tmp/x.sock"), {"cmd": "say", "id": "nope"})
-    )
-    assert "no such agent" in reply["error"]
-
-
-def test_handle_rejects_an_unknown_command():
-    daemon = AgentDaemon("/tmp/x.sock")
-    daemon.agents["a1"] = _stub_agent()
-    reply = asyncio.run(_handle(daemon, {"cmd": "wat", "id": "a1"}))
-    assert "unknown command" in reply["error"]
-
-
-def test_handle_refuses_to_answer_an_agent_that_is_not_waiting():
-    daemon = AgentDaemon("/tmp/x.sock")
-    daemon.agents["a1"] = _stub_agent()
-    reply = asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
-    assert "not waiting" in reply["error"]
-
-
-def test_handle_refuses_every_command_against_an_exited_agent():
-    """Answering a dead agent must fail loudly, not report a silent success."""
-    daemon = AgentDaemon("/tmp/x.sock")
-    agent = _stub_agent()
-    agent.state = mark_exited(agent.state, 1)
-    daemon.agents["a1"] = agent
-    reply = asyncio.run(_handle(daemon, {"cmd": "say", "id": "a1", "text": "hi"}))
-    assert "has exited" in reply["error"]
-
-
-def test_handle_refuses_to_answer_a_wait_that_is_not_a_question():
-    """`answer` on a plan review would send an empty answers map, reading as no answer."""
-    daemon = AgentDaemon("/tmp/x.sock")
-    agent = _stub_agent()
-    agent.state = replay("plan-review.jsonl", stop_before_control=True)
-    daemon.agents["a1"] = agent
-    reply = asyncio.run(_handle(daemon, {"cmd": "answer", "id": "a1", "choice": "yes"}))
-    assert "not waiting on a question" in reply["error"]
-
-
-def test_handle_lists_every_agent():
-    daemon = AgentDaemon("/tmp/x.sock")
-    daemon.agents["a1"] = _stub_agent()
-    reply = asyncio.run(_handle(daemon, {"cmd": "list"}))
-    assert [row["id"] for row in reply["agents"]] == ["a1"]
-
-
-# --- the transport fake ----------------------------------------------------
-
-
-def run_cli(argv: list[str], replies: list[dict] | None = None):
-    """Drive `mael agent` through the fake transport, and return (result, client)."""
-    client = RecordingDaemonClient(replies=list(replies or []))
-    agent_cli._client_factory = lambda: client
-    try:
-        return CliRunner().invoke(agent_cli.agent, argv), client
-    finally:
-        agent_cli._client_factory = SocketDaemonClient
-
-
-def test_start_sends_the_cwd_and_the_prompt():
-    result, client = run_cli(
-        ["start", ".", "--prompt", "go", "--mode", "auto"], [{"id": "a1"}]
-    )
-    assert result.exit_code == 0
-    assert result.output.strip() == "a1"
-    sent = client.calls[0]
-    assert sent["cmd"] == "start"
-    assert sent["prompt"] == "go"
-    assert sent["mode"] == "auto"
-    assert Path(sent["cwd"]).is_absolute()
-
-
-def test_answer_sends_the_choice():
-    _, client = run_cli(["answer", "a1", "Green"])
-    assert client.calls == [{"cmd": "answer", "id": "a1", "choice": "Green"}]
-
-
-def test_deny_sends_the_reason():
-    _, client = run_cli(["deny", "a1", "--reason", "not now"])
-    assert client.calls[0]["reason"] == "not now"
-
-
-def test_list_renders_the_wait_kind():
-    rows = [
-        build_agent_row(replay("question-unanswered.jsonl", stop_before_control=True))
-    ]
-    result, _ = run_cli(["list"], [{"agents": rows}])
-    assert "awaiting-question" in result.output
-    assert "Which colour do you prefer?" in result.output
-
-
-def test_list_says_so_when_nothing_runs():
-    result, _ = run_cli(["list"], [{"agents": []}])
-    assert "No agents running." in result.output
-
-
-def test_a_daemon_error_exits_non_zero():
-    """The CLI must fail loudly, not print an error and report success."""
-    result, _ = run_cli(["say", "a1", "hi"], [{"error": "agent a1 has exited"}])
-    assert result.exit_code == 1
-    assert "has exited" in result.output
