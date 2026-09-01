@@ -28,7 +28,12 @@ from .agent_model import (
     BACKLOG_END,
 )
 from .agent_server import AgentDaemon
-from .agent_transport import DaemonClient, SocketDaemonClient, resolve_socket_path
+from .agent_transport import (
+    DaemonClient,
+    SocketDaemonClient,
+    ensure_daemon,
+    resolve_socket_path,
+)
 from .table import draw_table
 
 #: Columns ``mael agent list`` prints, in order.
@@ -265,6 +270,10 @@ async def _connect_attached(
     """
     path = resolve_socket_path()
     try:
+        # `attach` and `tail` open their own connection rather than going
+        # through `SocketDaemonClient` — that client wraps `asyncio.run`, which
+        # cannot nest — so they start the daemon here themselves.
+        await ensure_daemon(path)
         reader, writer = await asyncio.open_unix_connection(path)
     except OSError as exc:
         click.echo(f"Error: agent daemon not reachable at {path}: {exc}", err=True)

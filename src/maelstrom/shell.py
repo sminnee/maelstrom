@@ -28,6 +28,7 @@ a leaf — it imports only stdlib, so anything may depend on it without cycles.
 
 import os
 import shlex
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -125,6 +126,21 @@ def to_argv(expr: ShellExpr, *, replace_process: bool = False) -> list[str]:
             return ["sh", "-c", f"exec {s}" if replace_process else s]
         case _:
             assert_never(expr)
+
+
+def mael_path() -> str:
+    """Absolute path to the ``mael`` binary.
+
+    For spawning ``mael`` from a bare environment — a launchd job, or a daemon
+    detached from the starting shell — where a bare ``mael`` may not resolve.
+    Lives in ``shell`` because ``schedule_launchd`` is macOS-only.
+    """
+    found = shutil.which("mael")
+    if found:
+        return found
+    # Conventional location, for a PATH that does not carry `mael` yet.
+    # `ensure_schedule_agent` rewrites the plist on the next install if wrong.
+    return str(Path.home() / ".local" / "bin" / "mael")
 
 
 def _echo(cmd: ShellExpr) -> None:
