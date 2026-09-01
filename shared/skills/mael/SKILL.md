@@ -146,6 +146,10 @@ printf 'feat: add new feature [PROJ-XXX]\n\nDetailed description.\n' | git commi
 Prefixes: `feat:` (new behaviour), `fix:` (bug fix), `refactor:` (no behaviour change), `chore:`
 (everything else). Append the Linear issue ID in brackets when applicable.
 
+**Record test-shaping decisions in the body.** When a bug needed a new test, say that the original
+suite had no gap to close. When an unattended session re-cut existing tests the plan did not name,
+say which tests changed and why.
+
 **`--amend` rewords HEAD, never the commit you had in mind.** Aiming it at a commit further down the
 branch silently moves that message onto HEAD and leaves two commits mislabelled — invisible until you
 read `git log`. To reword a commit deeper in the stack, script `git rebase -i` with
