@@ -1,6 +1,6 @@
 """``mael agent`` — start, watch, answer and teleport into daemon-driven agents.
 
-The thin CLI over :mod:`maelstrom.agent_daemon`. Every command is one NDJSON
+The thin CLI over :mod:`maelstrom.agent_server`. Every command is one NDJSON
 round-trip to the daemon's control socket, so this module holds no state and
 does no agent logic: it parses flags, sends a command, and prints the reply.
 Rendering goes through ``build_agent_row`` in the model layer, the way
@@ -19,12 +19,8 @@ from typing import Any
 
 import click
 
-from .agent_daemon import (
-    AgentDaemon,
-    DaemonClient,
-    SocketDaemonClient,
-    resolve_socket_path,
-)
+from .agent_server import AgentDaemon
+from .agent_transport import DaemonClient, SocketDaemonClient, resolve_socket_path
 from .table import draw_table
 
 #: Columns ``mael agent list`` prints, in order.
@@ -74,7 +70,19 @@ def cmd_daemon(socket_path: str | None) -> None:
 @click.option("--prompt", "-p", default="", help="Opening prompt for the agent.")
 @click.option("--mode", default=None, help="Permission mode, e.g. auto or plan.")
 @click.option("--model", default=None, help="Model for the agent.")
-def cmd_start(cwd: str, prompt: str, mode: str | None, model: str | None) -> None:
+@click.option(
+    "--session-id",
+    "session_id",
+    default=None,
+    help="Pin the agent to this Claude session id, so it can be resumed.",
+)
+def cmd_start(
+    cwd: str,
+    prompt: str,
+    mode: str | None,
+    model: str | None,
+    session_id: str | None,
+) -> None:
     """Start an agent in CWD."""
     reply = _send(
         {
@@ -83,6 +91,7 @@ def cmd_start(cwd: str, prompt: str, mode: str | None, model: str | None) -> Non
             "prompt": prompt,
             "mode": mode,
             "model": model,
+            "session": session_id,
         }
     )
     click.echo(reply["id"])

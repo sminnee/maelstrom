@@ -43,7 +43,7 @@ after one turn, which is what a bare `claude -p` does.
 ## The event vocabulary
 
 Every shape below was recorded from a live agent on v2.1.252 and saved under
-`tests/fixtures/agent_events/`. `tests/test_agent_daemon.py` replays those transcripts through
+`tests/fixtures/agent_events/`. `tests/test_agent_model.py` replays those transcripts through
 the state machine, so nothing here is designed from an assumed shape.
 
 ### A turn
@@ -131,14 +131,16 @@ A follow-up message is a plain user turn on stdin. The opening prompt uses the s
 `src/maelstrom/` follows the three layers in
 [architecture-patterns.md](architecture-patterns.md):
 
-- `agent_daemon.py` — model and transport. The `apply_event` reducer, the `build_agent_row`
-  renderer, the reply builders, and the transport trio (`DaemonClient` Protocol,
-  `SocketDaemonClient`, `RecordingDaemonClient`), mirroring `cmux/client.py`.
+- `agent_model.py` — the pure model. The `apply_event` reducer, the `build_agent_row` renderer,
+  the argv, and the reply builders. No I/O, no clock, no subprocess.
+- `agent_transport.py` — the transport trio, mirroring `cmux/client.py`: a `DaemonClient`
+  Protocol, the real `SocketDaemonClient`, and the `RecordingDaemonClient` fake.
+- `agent_server.py` — the daemon. Child processes, the control socket, and `AgentDaemon.handle`.
 - `agent_cli.py` — the thin CLI. It parses flags, sends one command, and prints the reply.
 
-`apply_event` and `build_agent_row` are pure. Replaying a transcript through `apply_event` gives
-the same state every time, with no subprocess and no socket, the way
-`session_view.build_session_row` works.
+`agent_model.py` holds no I/O at all, so replaying a transcript through `apply_event` gives the
+same state every time, with no subprocess and no socket — the way `session_view.build_session_row`
+works. `tests/test_agent_model.py` does exactly that against the recorded fixtures.
 
 The state comes from observed events, not from hook inference. So the daemon needs no equivalent
 of `session_view.STALE_PROCESSING_SECS`, and an interrupt is visible rather than leaving a
@@ -166,6 +168,7 @@ daemon holding it, so starting one by accident is worse than a clear error.
 ```bash
 mael agent daemon &                                   # listens on ~/.maelstrom/agent-daemon.sock
 mael agent start ~/Projects/maelstrom/maelstrom-alpha --prompt "run the tests"
+mael agent start . --session-id <uuid>                # pin the session, so it can be resumed
 mael agent list
 mael agent answer a1b2c3d4 "Green"
 mael agent approve a1b2c3d4
