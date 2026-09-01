@@ -105,7 +105,7 @@ class TestEnsureScheduleAgent:
     def test_installs_when_marker_present(
         self, home, darwin, launchctl, no_power_commands, monkeypatch
     ):
-        monkeypatch.setattr(sl, "_mael_path", lambda: "/abs/bin/mael")
+        monkeypatch.setattr(sl, "mael_path", lambda: "/abs/bin/mael")
         sl.install_marker()
         msgs = sl.ensure_schedule_agent()
         assert sl.plist_path().exists()
@@ -134,11 +134,11 @@ class TestEnsureScheduleAgent:
 
     def test_self_heals_mael_path(self, home, darwin, launchctl, monkeypatch):
         sl.install_marker()
-        monkeypatch.setattr(sl, "_mael_path", lambda: "/old/mael")
+        monkeypatch.setattr(sl, "mael_path", lambda: "/old/mael")
         sl.ensure_schedule_agent()
         assert "/old/mael" in sl.plist_path().read_text()
         # A later install/self-update with a new path rewrites the plist.
-        monkeypatch.setattr(sl, "_mael_path", lambda: "/new/mael")
+        monkeypatch.setattr(sl, "mael_path", lambda: "/new/mael")
         sl.ensure_schedule_agent()
         assert "/new/mael" in sl.plist_path().read_text()
 

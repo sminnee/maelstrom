@@ -25,6 +25,17 @@ def _block_real_cmux():
 
 
 @pytest.fixture(autouse=True)
+def _block_agent_daemon_autostart(monkeypatch):
+    """Keep any test from leaving an agent daemon running.
+
+    ``mael agent`` starts a daemon when it finds none, so an unrelated test that
+    touches the transport would spawn a real background process. The auto-start
+    tests unset this themselves.
+    """
+    monkeypatch.setenv("MAEL_AGENT_NO_AUTOSTART", "1")
+
+
+@pytest.fixture(autouse=True)
 def _pin_harness_env(monkeypatch):
     """Keep the outer shell's harness out of the tests.
 

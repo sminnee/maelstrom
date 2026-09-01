@@ -29,11 +29,12 @@ non-interactive for ``mael install`` / ``mael self-update``.
 
 import os
 import platform
-import shutil
 import subprocess
 from pathlib import Path
 
 import click
+
+from .shell import mael_path
 
 LABEL = "nz.tangerinelabs.maelstrom.schedule"
 
@@ -55,19 +56,9 @@ def log_path() -> Path:
     return _maelstrom_dir() / "schedule.log"
 
 
-def _mael_path() -> str:
-    """Absolute path to the ``mael`` binary (so launchd's bare env can find it)."""
-    found = shutil.which("mael")
-    if found:
-        return found
-    # Fall back to a conventional location; ensure_schedule_agent self-heals the
-    # path on the next install/self-update if this guess is wrong.
-    return str(Path.home() / ".local" / "bin" / "mael")
-
-
 def _agent_path() -> str:
     """A PATH covering ``mael`` and ``cmux`` for the launchd job's bare env."""
-    mael_dir = str(Path(_mael_path()).parent)
+    mael_dir = str(Path(mael_path()).parent)
     candidates = [
         mael_dir,
         str(Path.home() / ".local" / "bin"),
@@ -185,7 +176,7 @@ def ensure_schedule_agent() -> list[str]:
             else "Schedule agent: not enabled (no marker)."
         ]
 
-    mael = _mael_path()
+    mael = mael_path()
     log = log_path()
     log.parent.mkdir(parents=True, exist_ok=True)
     plist.parent.mkdir(parents=True, exist_ok=True)
