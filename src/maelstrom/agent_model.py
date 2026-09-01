@@ -144,10 +144,56 @@ class AgentState:
     #: The most recent events, for ``attach`` and ``list`` to render without
     #: replaying the transcript from disk.
     recent: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    #: What the agent last said, most recent last. A driven agent writes no
+    #: session transcript, so this buffer is the only record of its words —
+    #: see ``docs/dev/agent-daemon.md``, "What is not persisted".
+    messages: tuple[str, ...] = field(default_factory=tuple)
 
 
 #: How many events to keep per agent for ``attach`` to render on connect.
 RECENT_LIMIT = 200
+
+#: How many of the agent's own messages to keep. ``show`` renders the last few.
+MESSAGE_LIMIT = 5
+#: How much of one message to keep, so a whole plan survives without the buffer
+#: growing without bound.
+MESSAGE_CHARS = 8000
+#: How much of the last message a table cell holds.
+MESSAGE_SUMMARY_CHARS = 60
+
+#: Event type the daemon writes once the replayed backlog has all been sent.
+#: ``mael agent tail`` without ``-f`` stops there. A marker rather than an idle
+#: timeout, because a timeout would race a slow agent and flake.
+BACKLOG_END = "mael_backlog_end"
+
+
+def _message_texts(event: dict[str, Any]) -> list[str]:
+    """The text the agent chose to say in one ``assistant`` event.
+
+    ``text`` blocks only. A ``thinking`` block is reasoning the agent did not
+    choose to say, and a ``tool_use`` block is an action rather than words —
+    both are already visible in ``waiting_on`` when they matter.
+    """
+    blocks = event.get("message", {}).get("content", []) or []
+    return [
+        block["text"]
+        for block in blocks
+        if isinstance(block, dict) and block.get("type") == "text" and block.get("text")
+    ]
+
+
+def _with_messages(state: AgentState, event: dict[str, Any]) -> AgentState:
+    """``state`` with any text in ``event`` appended to its message buffer."""
+    texts = [text[:MESSAGE_CHARS] for text in _message_texts(event)]
+    if not texts:
+        return state
+    return replace(state, messages=(state.messages + tuple(texts))[-MESSAGE_LIMIT:])
+
+
+def _one_line(text: str, limit: int = MESSAGE_SUMMARY_CHARS) -> str:
+    """``text`` collapsed to one short line, for a table cell."""
+    collapsed = " ".join(text.split())
+    return collapsed[:limit]
 
 
 def apply_event(state: AgentState, event: dict[str, Any]) -> AgentState:
@@ -192,6 +238,9 @@ def apply_event(state: AgentState, event: dict[str, Any]) -> AgentState:
         return state
 
     if kind == "assistant":
+        # Capture above the guard: the guard protects the status, not the words,
+        # and a plan review needs the text the agent wrote just before it asked.
+        state = _with_messages(state, event)
         # A pending wait outranks assistant output. Streaming partials and
         # parallel tool blocks can arrive after a request opens, and letting one
         # set PROCESSING would render a row saying "processing" that still names
@@ -241,8 +290,67 @@ def build_agent_row(state: AgentState) -> dict[str, Any]:
         "cwd": state.cwd,
         "model": state.model,
         "waiting_on": state.pending.summary if state.pending else "",
+        "last_message": _one_line(state.messages[-1]) if state.messages else "",
         "cost": f"{state.total_cost_usd:.4f}" if state.total_cost_usd else "",
     }
+
+
+#: How many of the retained messages ``show`` renders.
+DETAIL_MESSAGES = 3
+
+
+def build_agent_detail(state: AgentState) -> dict[str, Any]:
+    """Everything ``mael agent show`` reports about one agent.
+
+    A superset of :func:`build_agent_row`: the row is spread in, so the two
+    commands can never disagree about the same agent. Every key is always
+    present, on the same contract as the row.
+
+    Two keys carry what a row cannot. ``questions`` holds each option and its
+    description, which is what a user needs to answer well. ``plan`` holds the
+    plan text — ``ExitPlanMode`` arrives with an empty ``input``, so the plan is
+    not in the request at all. It is the last thing the agent said before it
+    asked, which is why the message buffer has to exist for ``show`` to work.
+    """
+    pending = state.pending
+    plan = ""
+    if pending is not None and pending.wait_kind == AWAITING_PLAN_REVIEW:
+        plan = state.messages[-1] if state.messages else ""
+    return {
+        **build_agent_row(state),
+        "messages": list(state.messages[-DETAIL_MESSAGES:]),
+        "waiting_kind": pending.wait_kind if pending else "",
+        "waiting_tool": pending.tool_name if pending else "",
+        "waiting_input": dict(pending.input) if pending else {},
+        "questions": _question_details(pending),
+        "plan": plan,
+    }
+
+
+def _question_details(pending: PendingRequest | None) -> list[dict[str, Any]]:
+    """Each question of an ``AskUserQuestion``, with its options, else empty."""
+    if pending is None or pending.tool_name != QUESTION_TOOL:
+        return []
+    details = []
+    for question in pending.input.get("questions", []):
+        if not isinstance(question, dict):
+            continue
+        details.append(
+            {
+                "question": question.get("question", ""),
+                "header": question.get("header", ""),
+                "multi_select": bool(question.get("multiSelect")),
+                "options": [
+                    {
+                        "label": option.get("label", ""),
+                        "description": option.get("description", ""),
+                    }
+                    for option in question.get("options", [])
+                    if isinstance(option, dict)
+                ],
+            }
+        )
+    return details
 
 
 # --- messages written back to the child ------------------------------------
