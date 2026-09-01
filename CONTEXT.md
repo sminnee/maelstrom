@@ -180,10 +180,21 @@ comes from the tool name. The wait kind is what makes an answer possible — it 
 `answer`, `approve` or `deny` applies.
 _Avoid_: Blocked, stuck
 
+**Agent message**:
+One thing a driven agent said, in its own words. Text blocks only — a `thinking` block is
+reasoning the agent did not choose to say, and a `tool_use` block is an action. A driven agent
+writes no session transcript, so the daemon keeps the last few messages itself. They are the only
+record of what the agent said, and the only place a plan can be read from.
+
 **Teleport**:
 `mael agent attach <id>` — rendering one driven agent's event stream to a terminal and forwarding
 typed lines back to it. Teleport is a client of the control socket, not a pane attach: a driven
-agent has no pane and no transcript to resume.
+agent has no pane and no transcript to resume. Contrast a tail, which renders the same stream but
+sends nothing back.
+
+**Tail**:
+`mael agent tail <id>` — rendering one driven agent's event stream without driving it. A tail
+is read-only by construction: it has no channel back to the agent at all.
 
 ## Dev environments
 

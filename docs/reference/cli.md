@@ -593,7 +593,9 @@ cmux pane and no TTY. See [agent-daemon.md](../dev/agent-daemon.md) for the prot
 |---|---|
 | `mael agent daemon` | Run the agent daemon in the foreground. `--socket PATH` overrides the socket. |
 | `mael agent start [CWD]` | Start an agent in CWD (default `.`). Takes `--prompt`, `--mode`, `--model`, `--session-id`. |
-| `mael agent list` | Show every agent, and what each waiting one waits on. `--json` emits rows as JSON. |
+| `mael agent list` | Show every agent, what each waiting one waits on, and what each last said. `--json` emits rows as JSON. |
+| `mael agent show ID` | Show one agent in full: its messages, every question option, the plan, and the command that answers the wait. `--json` emits the detail as JSON. |
+| `mael agent tail ID` | Print an agent's events and stop, without driving it. `-f` keeps streaming. The read-only half of `attach`. |
 | `mael agent say ID TEXT` | Send TEXT to an agent as a user message. |
 | `mael agent answer ID CHOICE` | Answer an agent's pending question. |
 | `mael agent approve ID` | Approve an agent's pending plan or tool call. |
@@ -602,21 +604,25 @@ cmux pane and no TTY. See [agent-daemon.md](../dev/agent-daemon.md) for the prot
 | `mael agent stop ID` | Stop an agent. |
 
 ```bash
-mael agent daemon &                             # one per machine; nothing starts it for you
-mael agent start . --prompt "run the tests"     # prints the agent id
+mael agent start . --prompt "run the tests"     # starts the daemon too; prints the agent id
 mael agent start /tmp --mode auto               # unattended
-mael agent list                                 # who is waiting, and on what
+mael agent list                                 # who is waiting, on what, and what each said
+mael agent show 1761dcf6                        # every option, with descriptions
 mael agent answer 1761dcf6 "Green"              # answer a question
 mael agent approve 0b2f5f5b                     # approve a plan or a tool call
 mael agent deny 0b2f5f5b --reason "not now"
 mael agent say 1761dcf6 "also update the README"
+mael agent tail 1761dcf6                        # print the history, then stop
+mael agent tail -f 1761dcf6                     # ...and keep streaming
 mael agent attach 1761dcf6                      # teleport: live stream, typed input
-mael agent attach 1761dcf6 < /dev/null          # ...read-only
 mael agent stop 1761dcf6
+mael agent daemon                               # run the daemon in the foreground instead
 ```
 
-The daemon does not start on its own, and an agent dies with the daemon holding it. Every agent
-is a normal `claude` process.
+The first command that needs the daemon starts it, in its own process group, logging to
+`~/.maelstrom/agent-daemon.log` — a foreground `mael agent daemon` ignores that log. Set
+`MAEL_AGENT_NO_AUTOSTART=1` to turn auto-start off. An agent dies
+with the daemon holding it, and every agent is a normal `claude` process.
 
 ## Dev environments
 

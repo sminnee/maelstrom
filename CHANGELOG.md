@@ -12,6 +12,19 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **`mael agent show ID`.** Prints one agent in full: what it last said, every option of a
+  question with its description, the plan text of a plan review, and the command that answers
+  the wait. `--json` emits the detail as JSON. Works on an exited agent.
+
+- **`mael agent tail ID`.** Prints an agent's events and stops, without driving it. `-f` keeps
+  streaming. The read-only half of `mael agent attach`.
+
+- **The agent daemon starts on demand.** The first `mael agent` command that needs a daemon
+  starts one, in its own process group, logging to `~/.maelstrom/agent-daemon.log`.
+  `MAEL_AGENT_NO_AUTOSTART=1` turns that off; `MAEL_AGENT_LOG` moves the log.
+
+- **`last_message` column on `mael agent list`.** What each agent last said, cut to one line.
+
 - **`args:` on a container service.** A container service in `.maelstrom.yaml` can pass
   arguments to its image, e.g. `args: ["-c", "max_locks_per_transaction=1024"]` to raise a
   Postgres lock limit.
