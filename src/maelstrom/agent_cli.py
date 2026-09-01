@@ -168,6 +168,8 @@ def _print_detail(detail: dict[str, Any]) -> None:
 
     if detail.get("plan"):
         click.echo(f"\nPlan:\n{detail['plan']}")
+    if detail.get("plan_file"):
+        click.echo(f"\nPlan file: {detail['plan_file']}")
 
     for question in detail.get("questions", []):
         header = question.get("header") or "Question"

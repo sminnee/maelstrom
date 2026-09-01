@@ -1,8 +1,13 @@
 """The agent state machine, replayed against recorded ``claude`` event streams.
 
 Every fixture in ``tests/fixtures/agent_events/`` is a real NDJSON transcript,
-captured from ``claude -p --input-format stream-json --output-format stream-json``
-on v2.1.252. Nothing here is designed from an assumed event shape.
+captured from ``claude -p --input-format stream-json --output-format stream-json``.
+Nothing here is designed from an assumed event shape.
+
+Two plan-review fixtures record the two shapes ``ExitPlanMode`` takes.
+``plan-review-with-plan.jsonl`` is the normal one, where the request carries the
+plan. ``plan-review.jsonl`` is an agent whose plan-file write a sandbox refused,
+so the request arrives bare and the plan is in a message instead.
 """
 
 import json
@@ -321,12 +326,23 @@ def test_detail_names_the_waiting_tool_and_its_input():
     assert detail["questions"] == []
 
 
-def test_detail_finds_the_plan_exit_plan_mode_does_not_carry():
-    """``ExitPlanMode`` has an empty input; the plan is the text just before it."""
+def test_detail_reads_the_plan_the_request_carries():
+    """``ExitPlanMode`` carries the plan in its input. Prefer it to any guess."""
+    state = replay("plan-review-with-plan.jsonl", stop_before_control=True)
+    detail = build_agent_detail(state)
+    assert "## Verification" in detail["plan"]
+    assert detail["plan"] == state.pending.input["plan"]
+    assert detail["plan_file"].endswith(".md")
+
+
+def test_detail_falls_back_to_the_last_message_when_the_request_is_bare():
+    """A sandboxed plan write leaves an empty input, and the text in a message."""
     state = replay("plan-review.jsonl", stop_before_control=True)
     assert state.pending is not None
     assert state.pending.input == {}
-    assert "Verification" in build_agent_detail(state)["plan"]
+    detail = build_agent_detail(state)
+    assert "Verification" in detail["plan"]
+    assert detail["plan_file"] == ""
 
 
 def test_detail_has_no_plan_when_the_wait_is_not_a_plan_review():
