@@ -30,6 +30,8 @@ See `docs/dev/` for architecture and design docs:
 - `docs/dev/scheduled-tasks.md` — launchd firing mechanics for template tasks.
 - `docs/dev/cmux.md` — how the `cmux/` package drives cmux: the three layers, the idempotent
   `ensure_*` verbs, and the pane 0/1/2 convention.
+- `docs/dev/agent-daemon.md` — driving agents over a stream-json pipe: the flags, the event
+  vocabulary, the reply shapes, and teleport.
 
 `CONTEXT.md` at the repo root is the domain glossary. Read it before you write prose or name
 anything, and reuse its terms verbatim, including each term's `_Avoid_` list. Add new domain

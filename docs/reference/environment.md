@@ -146,6 +146,7 @@ that lack the key.
 | Variable | Default | Meaning |
 |---|---|---|
 | `CMUX_SOCKET_PATH` | `/tmp/cmux.sock` | Socket maelstrom uses to drive cmux. Set it when cmux listens elsewhere. |
+| `MAEL_AGENT_SOCKET` | `~/.maelstrom/agent-daemon.sock` | Control socket for `mael agent`. Both the daemon and the CLI read it, so set it for both. |
 | `EDITOR` | `vi` | Editor for `mael task edit` and `mael task add --edit`. |
 | `TMPDIR` | system temp | Scratch directory for artifact downloads. |
 
