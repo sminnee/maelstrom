@@ -138,9 +138,20 @@ def test_show_names_approve_for_a_plan_review():
 
 
 def test_show_prints_the_plan_in_full():
-    detail = build_agent_detail(replay("plan-review.jsonl", stop_before_control=True))
+    detail = build_agent_detail(
+        replay("plan-review-with-plan.jsonl", stop_before_control=True)
+    )
     result, _ = run_cli(["show", "a1"], [{"agent": detail}])
-    assert "Verification" in result.output
+    assert "## Verification" in result.output
+
+
+def test_show_names_the_file_the_plan_was_written_to():
+    detail = build_agent_detail(
+        replay("plan-review-with-plan.jsonl", stop_before_control=True)
+    )
+    result, _ = run_cli(["show", "a1"], [{"agent": detail}])
+    assert "Plan file: " in result.output
+    assert ".md" in result.output
 
 
 def test_show_json_emits_the_detail_as_is():

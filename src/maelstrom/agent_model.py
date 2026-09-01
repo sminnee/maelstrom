@@ -308,14 +308,10 @@ def build_agent_detail(state: AgentState) -> dict[str, Any]:
 
     Two keys carry what a row cannot. ``questions`` holds each option and its
     description, which is what a user needs to answer well. ``plan`` holds the
-    plan text — ``ExitPlanMode`` arrives with an empty ``input``, so the plan is
-    not in the request at all. It is the last thing the agent said before it
-    asked, which is why the message buffer has to exist for ``show`` to work.
+    plan text, and ``plan_file`` the file the agent wrote it to.
     """
     pending = state.pending
-    plan = ""
-    if pending is not None and pending.wait_kind == AWAITING_PLAN_REVIEW:
-        plan = state.messages[-1] if state.messages else ""
+    plan, plan_file = _plan_details(pending, state.messages)
     return {
         **build_agent_row(state),
         "messages": list(state.messages[-DETAIL_MESSAGES:]),
@@ -324,7 +320,30 @@ def build_agent_detail(state: AgentState) -> dict[str, Any]:
         "waiting_input": dict(pending.input) if pending else {},
         "questions": _question_details(pending),
         "plan": plan,
+        "plan_file": plan_file,
     }
+
+
+def _plan_details(
+    pending: PendingRequest | None, messages: tuple[str, ...]
+) -> tuple[str, str]:
+    """The plan under review and the file holding it, else two empty strings.
+
+    ``ExitPlanMode`` carries the plan in its own ``input``, under ``plan``, with
+    ``planFilePath`` naming the file the agent wrote it to. Read it from there.
+
+    The fallback covers an agent that could not write its plan file: the write is
+    denied, ``input`` arrives empty, and the agent puts the plan in an ordinary
+    message instead. Recorded in ``plan-review.jsonl``, where a sandbox refused
+    the write. Then the last message is the best available text, and there is no
+    file to name.
+    """
+    if pending is None or pending.wait_kind != AWAITING_PLAN_REVIEW:
+        return "", ""
+    plan = pending.input.get("plan") or ""
+    if plan:
+        return plan, pending.input.get("planFilePath") or ""
+    return (messages[-1] if messages else ""), ""
 
 
 def _question_details(pending: PendingRequest | None) -> list[dict[str, Any]]:

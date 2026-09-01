@@ -184,7 +184,7 @@ _Avoid_: Blocked, stuck
 One thing a driven agent said, in its own words. Text blocks only — a `thinking` block is
 reasoning the agent did not choose to say, and a `tool_use` block is an action. A driven agent
 writes no session transcript, so the daemon keeps the last few messages itself. They are the only
-record of what the agent said, and the only place a plan can be read from.
+record of what the agent said.
 
 **Teleport**:
 `mael agent attach <id>` — rendering one driven agent's event stream to a terminal and forwarding

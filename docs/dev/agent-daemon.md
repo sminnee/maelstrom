@@ -233,17 +233,21 @@ Colour: Which colour do you prefer?
 Answer with:  mael agent answer 1761dcf6 Red
 ```
 
-**`ExitPlanMode` carries an empty `input`.** There is no `plan` key and no `description`:
+**`ExitPlanMode` carries the plan in its own `input`**, under `plan`, with `planFilePath` naming
+the file the agent wrote it to:
 
 ```json
-{"type": "control_request", "request_id": "b464dd4e-…",
+{"type": "control_request", "request_id": "18a1c0f2-…",
  "request": {"subtype": "can_use_tool", "tool_name": "ExitPlanMode",
-             "input": {}, "requires_user_interaction": true}}
+             "input": {"plan": "# Create hello.txt\n\n## Context…",
+                       "planFilePath": "~/.claude/plans/plan-a-hello-txt-….md"},
+             "requires_user_interaction": true}}
 ```
 
-The plan is the assistant text block immediately before the request. So `show` reads it from the
-retained messages, which is why the daemon keeps them at all. This is the least guessable fact
-here, alongside the `answers` key.
+An agent that **cannot write its plan file** sends an empty `input` instead, and puts the plan in
+an ordinary message. `plan-review.jsonl` records exactly that: a sandbox refused the write with
+`EPERM`. So `show` reads the request first and falls back to the last retained message, which is
+the only case where the message buffer stands in for the plan.
 
 `show` works on an exited agent. Reading why an agent died is the main reason to run it, and
 `show` sends the agent nothing.
