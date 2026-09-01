@@ -59,8 +59,9 @@ reality, plan the top item, and hand the next planner an updated tail.
      execute draft's body. The execute session builds test-first (`/tdd`), which bars testing
      at a seam nobody agreed; it runs `mode: auto` with no one to ask, so agree them here,
      with the user's approval of the draft. Name the public boundary each test observes
-     behaviour through, not the internals behind it. Use `/codebase-design` for the vocabulary
-     when the boundary itself is the open question.
+     behaviour through, not the internals behind it. Name any re-cut of existing tests the
+     step needs — tests to merge, split, delete or re-home. Use `/codebase-design` for the
+     vocabulary when the boundary itself is the open question.
    - Use AskUserQuestion to confirm scope if the boundary is unclear.
    - **Decide: is this the final step?** After scoping, judge whether this step exhausts the
      remaining-work list. That decision picks the draft set (final = no tail draft).
