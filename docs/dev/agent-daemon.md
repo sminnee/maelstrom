@@ -131,10 +131,12 @@ A follow-up message is a plain user turn on stdin. The opening prompt uses the s
 `src/maelstrom/` follows the three layers in
 [architecture-patterns.md](architecture-patterns.md):
 
-- `agent_model.py` — the pure model. The `apply_event` reducer, the `build_agent_row` renderer,
-  the argv, and the reply builders. No I/O, no clock, no subprocess.
+- `agent_model.py` — the pure model. The `apply_event` reducer, the `build_agent_row` and
+  `build_agent_detail` renderers, the argv, and the reply builders. No I/O, no clock, no
+  subprocess.
 - `agent_transport.py` — the transport trio, mirroring `cmux/client.py`: a `DaemonClient`
-  Protocol, the real `SocketDaemonClient`, and the `RecordingDaemonClient` fake.
+  Protocol, the real `SocketDaemonClient`, and the `RecordingDaemonClient` fake. Auto-start lives
+  here too, because every command funnels through one connect.
 - `agent_server.py` — the daemon. Child processes, the control socket, and `AgentDaemon.handle`.
 - `agent_cli.py` — the thin CLI. It parses flags, sends one command, and prints the reply.
 
@@ -152,33 +154,45 @@ The event stream ending is the only notice the daemon gets that a child has gone
 moves to `exited`, and `mael agent list` shows the exit code:
 
 ```
-id        state      waiting_on  cwd           model
-0efb3469  exited(1)              /private/tmp  claude-opus-5
+id        state      waiting_on  last_message               cwd
+0efb3469  exited(1)              Running the test suite now  /private/tmp
 ```
 
-Every command except `stop` refuses against an exited agent. Writing to a closed stdin succeeds
-silently, so without that refusal `mael agent answer` would report success against a dead
-process.
+Every command that writes to the agent refuses against an exited agent. Writing to a closed stdin
+succeeds silently, so without that refusal `mael agent answer` would report success against a dead
+process. `stop`, `show`, `tail` and `attach` send the agent nothing, so they still work — and
+`show` is how you find out why it died.
 
 ## Running it
 
-The daemon is one process per machine and does not start on its own. An agent dies with the
-daemon holding it, so starting one by accident is worse than a clear error.
+The daemon is one process per machine, and the first command that needs it starts it. A daemon
+started by accident holds no agents, so it costs nothing.
 
 ```bash
-mael agent daemon &                                   # listens on ~/.maelstrom/agent-daemon.sock
 mael agent start ~/Projects/maelstrom/maelstrom-alpha --prompt "run the tests"
-mael agent start . --session-id <uuid>                # pin the session, so it can be resumed
+mael agent start . --session-id <uuid>                # pin the session id
 mael agent list
+mael agent show a1b2c3d4
 mael agent answer a1b2c3d4 "Green"
 mael agent approve a1b2c3d4
 mael agent deny a1b2c3d4 --reason "not on a public network"
 mael agent say a1b2c3d4 "also update the README"
+mael agent tail a1b2c3d4
 mael agent attach a1b2c3d4
 mael agent stop a1b2c3d4
+mael agent daemon                                     # run it in the foreground instead
 ```
 
-`MAEL_AGENT_SOCKET` overrides the socket path. `mael agent list --json` emits the rows as JSON.
+An auto-started daemon writes its output to `~/.maelstrom/agent-daemon.log`, and runs in its own
+process group. So Ctrl-C on the command that started it does not kill the daemon holding every
+agent. A daemon that fails to start is reported with what it wrote to that log.
+
+Auto-start waits 5 seconds for the daemon to bind, and reports a child that dies sooner as soon as
+it dies. `MAEL_AGENT_NO_AUTOSTART=1` turns auto-start off, and every spawned daemon inherits it, so
+a daemon can never spawn a daemon.
+
+`MAEL_AGENT_SOCKET` overrides the socket path, and `MAEL_AGENT_LOG` overrides the log path.
+`mael agent list --json` emits the rows as JSON.
 
 A second daemon on the same socket refuses to start. Unlinking a live socket would leave the
 first daemon listening on a path no client can reach, holding agents nothing can stop. A stale
@@ -188,11 +202,62 @@ socket file left by a killed daemon refuses connections, so it reads as free and
 mechanism:
 
 ```
-id        state                 waiting_on                   cwd            model
-0c35d123  idle                                               ~/…/alpha      claude-opus-5
-1761dcf6  awaiting-question     Which colour do you prefer?  /private/tmp   claude-opus-5
-0b2f5f5b  awaiting-plan-review  ExitPlanMode                 /private/tmp   claude-opus-5
+id        state                 waiting_on                   last_message              cwd
+0c35d123  idle                                               Both tests pass now.      ~/…/alpha
+1761dcf6  awaiting-question     Which colour do you prefer?  I need one decision …     /private/tmp
+0b2f5f5b  awaiting-plan-review  ExitPlanMode                 **Context:** Create a …   /private/tmp
 ```
+
+`last_message` is what the agent last said, cut to one line. Without it two working agents look
+identical, because a state and a wait kind say only that both are busy.
+
+### Showing one agent
+
+`mael agent show <id>` prints one agent in full: what it last said, every option of a question with
+its description, the plan text of a plan review, and the command that answers the wait.
+
+```
+id:       1761dcf6
+state:    awaiting-question
+session:  ce84c0ca-c8e1-41ed-a05f-f7fd3e5c6ec5
+cwd:      /private/tmp
+model:    claude-opus-5
+
+I'll ask about your colour preference.
+
+Colour: Which colour do you prefer?
+  Red — Warm, bold, high-energy.
+  Green — Natural, calm, fresh.
+  Blue — Cool, calm, classic.
+
+Answer with:  mael agent answer 1761dcf6 Red
+```
+
+**`ExitPlanMode` carries an empty `input`.** There is no `plan` key and no `description`:
+
+```json
+{"type": "control_request", "request_id": "b464dd4e-…",
+ "request": {"subtype": "can_use_tool", "tool_name": "ExitPlanMode",
+             "input": {}, "requires_user_interaction": true}}
+```
+
+The plan is the assistant text block immediately before the request. So `show` reads it from the
+retained messages, which is why the daemon keeps them at all. This is the least guessable fact
+here, alongside the `answers` key.
+
+`show` works on an exited agent. Reading why an agent died is the main reason to run it, and
+`show` sends the agent nothing.
+
+### Tailing
+
+`mael agent tail <id>` renders an agent's event stream without driving it. It prints the buffered
+history and stops. `mael agent tail -f <id>` keeps streaming. Nothing typed reaches the agent
+either way, so a tail is read-only by construction rather than by redirecting stdin.
+
+The daemon writes a `{"type": "mael_backlog_end"}` marker after the replayed history, which is how
+a tail without `-f` knows where to stop. An idle timeout would race a slow agent and flake. A
+30-second read timeout backstops a daemon that never sends the marker, so a tail errors rather
+than hangs — it is not what ends a normal tail.
 
 ### Teleport
 
@@ -202,7 +267,33 @@ agent's buffered recent events, streams new ones, and forwards each line you typ
 message.
 
 The event stream decides when attach ends, not stdin. Closed stdin is normal, so
-`mael agent attach <id> < /dev/null` is a read-only view of a live agent.
+`mael agent attach <id> < /dev/null` is also a read-only view. Prefer `mael agent tail -f <id>`,
+which says so in the command rather than in a redirect.
+
+## What is not persisted
+
+**A driven agent writes no session transcript.** Claude's own
+`~/.claude/projects/<slug>/<session-id>.jsonl` does not exist for an agent on a stream-json pipe.
+
+Four probes confirmed this on v2.1.252, each removing one confound:
+
+| Probe | Condition | Transcript |
+|---|---|---|
+| 1 | `--setting-sources ""` | none |
+| 2 | no `--setting-sources` | none |
+| 3 | Claude env vars unset (`CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`, …) | none |
+| 4 | real project directory holding 493 transcripts | none |
+
+Every run exited `success` and reported a session id. No project directory was created for the
+probe's cwd, while other sessions wrote to disk in the same window.
+
+Two consequences. The daemon keeps the agent's messages itself, because nothing else holds them.
+And `--session-id` does **not** make a driven agent resumable — it pins the id the agent reports,
+and no more.
+
+Re-test with one probe if a later `claude` version changes this. If transcripts appear, the
+retained buffer becomes a cache, and `show` can read further back than the 5 messages the daemon
+retains. `show` renders the last 3 of them, and each is kept whole up to 8000 characters.
 
 ## Rejected alternatives
 

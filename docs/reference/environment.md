@@ -147,6 +147,8 @@ that lack the key.
 |---|---|---|
 | `CMUX_SOCKET_PATH` | `/tmp/cmux.sock` | Socket maelstrom uses to drive cmux. Set it when cmux listens elsewhere. |
 | `MAEL_AGENT_SOCKET` | `~/.maelstrom/agent-daemon.sock` | Control socket for `mael agent`. Both the daemon and the CLI read it, so set it for both. |
+| `MAEL_AGENT_LOG` | `~/.maelstrom/agent-daemon.log` | Where an auto-started agent daemon writes its output. |
+| `MAEL_AGENT_NO_AUTOSTART` | unset | Set to `1` to stop `mael agent` starting a daemon it finds missing. Every auto-started daemon inherits it, so a daemon never spawns a daemon. |
 | `EDITOR` | `vi` | Editor for `mael task edit` and `mael task add --edit`. |
 | `TMPDIR` | system temp | Scratch directory for artifact downloads. |
 
