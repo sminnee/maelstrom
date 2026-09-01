@@ -46,7 +46,8 @@ internals. Where you get them depends on how the work arrived:
 Use `codebase-design` for the vocabulary when the boundary itself is the open question.
 
 Refactoring is not part of the loop — it belongs to `/code-review`, step 2 of the task-completion
-flow. Get to green first.
+flow. Get to green first. Re-cutting existing tests is different: the `tdd` skill does that green,
+before red.
 
 ## Language
 
