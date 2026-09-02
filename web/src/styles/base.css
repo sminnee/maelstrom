@@ -11,7 +11,7 @@ body {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font);
-  font-size: 13px;
+  font-size: var(--text-md);
   line-height: 1.4;
 }
 button {
@@ -20,17 +20,49 @@ button {
   background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 2px 8px;
+  padding: 2px var(--space-2);
   cursor: pointer;
 }
 button:hover {
   border-color: var(--border-strong);
 }
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+a {
+  color: var(--accent);
+}
 code,
 pre {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
+
+/* The one place a phase becomes a colour. Anything under a phased element reads `--phase`. */
+[data-phase='shaping'] {
+  --phase: var(--phase-shaping);
+}
+[data-phase='planning'] {
+  --phase: var(--phase-planning);
+}
+[data-phase='executing'] {
+  --phase: var(--phase-executing);
+}
+[data-phase='finalising'] {
+  --phase: var(--phase-finalising);
+}
+
 ::highlight(document-comments) {
   background: color-mix(in srgb, var(--attention) 35%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+  }
 }

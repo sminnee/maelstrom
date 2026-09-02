@@ -1,28 +1,104 @@
+/*
+ * Two layers. Primitives name raw values and are used only in this file.
+ * Semantic tokens name a role (a background, a border, a foreground, a hue)
+ * and are what every component reads. Dark is the default; the light scheme
+ * re-points the semantic tokens and darkens the hues so they hold contrast
+ * on a light ground. No file outside this one names a hex colour.
+ */
 :root {
-  color-scheme: dark;
-  --bg: #0f1115;
-  --bg-raised: #171a21;
-  --bg-sunken: #0a0c10;
-  --border: #2a2f3a;
-  --border-strong: #3d4454;
-  --fg: #e6e8ee;
-  --fg-muted: #9aa3b5;
-  --fg-faint: #5f6878;
-  --accent: #7aa2f7;
-  --attention: #ff9f43;
-  --danger: #f7768e;
-  --ok: #9ece6a;
+  color-scheme: light dark;
 
-  --phase-shaping: #b58cf6;
-  --phase-planning: #6ea8fe;
-  --phase-executing: #2fc4b2;
-  --phase-finalising: #f0b35a;
+  /* Primitives: the neutral ramp, dark end first. */
+  --n0: #0a0c10;
+  --n1: #0f1115;
+  --n2: #171a21;
+  --n3: #2a2f3a;
+  --n4: #3d4454;
+  --n5: #5f6878;
+  --n6: #9aa3b5;
+  --n8: #e6e8ee;
+  --n9: #f7f8fa;
+  --white: #ffffff;
+  --black: #000000;
+
+  /* Primitives: hues on a dark ground. */
+  --hue-accent: #7aa2f7;
+  --hue-attention: #ff9f43;
+  --hue-danger: #f7768e;
+  --hue-ok: #9ece6a;
+  --hue-shaping: #b58cf6;
+  --hue-planning: #6ea8fe;
+  --hue-executing: #2fc4b2;
+  --hue-finalising: #f0b35a;
+
+  /* Semantic: surfaces and lines. */
+  --bg: var(--n1);
+  --bg-raised: var(--n2);
+  --bg-sunken: var(--n0);
+  --border: var(--n3);
+  --border-strong: var(--n4);
+
+  /* Semantic: text. */
+  --fg: var(--n8);
+  --fg-muted: var(--n6);
+  --fg-faint: var(--n5);
+  --fg-on-hue: var(--black);
+
+  /* Semantic: meaning. */
+  --accent: var(--hue-accent);
+  --attention: var(--hue-attention);
+  --danger: var(--hue-danger);
+  --ok: var(--hue-ok);
+  --phase-shaping: var(--hue-shaping);
+  --phase-planning: var(--hue-planning);
+  --phase-executing: var(--hue-executing);
+  --phase-finalising: var(--hue-finalising);
+  /* The current phase's hue: `base.css` sets it from `[data-phase]`. */
+  --phase: var(--fg-faint);
+
+  --shadow-card: 0 16px 40px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.5);
+  --z-card: 10;
 
   --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --radius: 6px;
+  --radius-lg: 10px;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 15px;
+
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
+
+  --duration-fast: 120ms;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: var(--n9);
+    --bg-raised: var(--white);
+    --bg-sunken: #eef0f4;
+    --border: #d9dde6;
+    --border-strong: #b8bfcc;
+
+    --fg: var(--n2);
+    --fg-muted: #4f5768;
+    --fg-faint: #6b7385;
+    --fg-on-hue: var(--white);
+
+    --hue-accent: #3b6fd6;
+    --hue-attention: #c9650c;
+    --hue-danger: #c8324f;
+    --hue-ok: #4a8a1f;
+    --hue-shaping: #7c4fd6;
+    --hue-planning: #2f6fd0;
+    --hue-executing: #148f80;
+    --hue-finalising: #b57a12;
+
+    --shadow-card: 0 16px 40px rgba(20, 24, 34, 0.18), 0 1px 3px rgba(20, 24, 34, 0.12);
+  }
 }

@@ -10,22 +10,9 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  --phase: var(--fg-faint);
   transition:
     box-shadow 0.2s,
     opacity 0.2s;
-}
-.node[data-phase='shaping'] {
-  --phase: var(--phase-shaping);
-}
-.node[data-phase='planning'] {
-  --phase: var(--phase-planning);
-}
-.node[data-phase='executing'] {
-  --phase: var(--phase-executing);
-}
-.node[data-phase='finalising'] {
-  --phase: var(--phase-finalising);
 }
 .node[data-state='working'] {
   border-color: var(--phase);
@@ -79,7 +66,7 @@
   padding: 0;
   cursor: pointer;
   background: var(--attention);
-  color: #000;
+  color: var(--fg-on-hue);
   font-weight: 700;
   border-radius: 999px;
   width: 16px;
