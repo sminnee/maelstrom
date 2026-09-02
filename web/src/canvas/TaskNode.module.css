@@ -1,0 +1,122 @@
+.node {
+  width: 220px;
+  height: 76px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--phase);
+  color: var(--fg);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  --phase: var(--fg-faint);
+  transition:
+    box-shadow 0.2s,
+    opacity 0.2s;
+}
+.node[data-phase='shaping'] {
+  --phase: var(--phase-shaping);
+}
+.node[data-phase='planning'] {
+  --phase: var(--phase-planning);
+}
+.node[data-phase='executing'] {
+  --phase: var(--phase-executing);
+}
+.node[data-phase='finalising'] {
+  --phase: var(--phase-finalising);
+}
+.node[data-state='working'] {
+  border-color: var(--phase);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+.node[data-state='needs-attention'] {
+  border-color: var(--attention);
+  box-shadow:
+    0 0 0 1px var(--attention),
+    0 0 14px 2px color-mix(in srgb, var(--attention) 55%, transparent);
+}
+.node[data-state='idle'] {
+  opacity: 0.75;
+}
+.node[data-state='queued'] {
+  border-style: dashed;
+  opacity: 0.6;
+  filter: saturate(0.4);
+}
+.node[data-state='done'] {
+  opacity: 0.5;
+  filter: grayscale(0.8);
+}
+.node[data-state='exited'] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 1px var(--danger);
+}
+.node[data-focused] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.id {
+  font-family: var(--mono);
+  font-weight: 600;
+}
+.phase {
+  color: var(--phase);
+  text-transform: uppercase;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  margin-left: auto;
+}
+.badge {
+  background: var(--attention);
+  color: #000;
+  font-weight: 700;
+  border-radius: 999px;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+}
+.tick {
+  color: var(--ok);
+}
+.title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.foot {
+  font-size: 11px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reason {
+  color: var(--attention);
+}
+.meta {
+  font-family: var(--mono);
+}
+.handle {
+  opacity: 0;
+}
+@keyframes pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--phase) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--phase) 0%, transparent);
+  }
+}
