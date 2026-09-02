@@ -1,7 +1,8 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { Background, ReactFlow, type Edge, type Node } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { deriveGraph } from '../selectors/graph';
+import { focusedTaskId, summaryTab } from '../selectors/tabs';
 import { useAppStore } from '../store/store';
 import { layoutSwimlanes } from './layout';
 import { GroupNode, type GroupFlowNode } from './GroupNode';
@@ -14,6 +15,10 @@ export function Canvas() {
   const world = useAppStore((s) => s.world);
   const groupBy = useAppStore((s) => s.ui.groupBy);
   const filters = useAppStore((s) => s.ui.filters);
+  const tabs = useAppStore((s) => s.ui.tabs);
+  const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
+  const openTab = useAppStore((s) => s.openTab);
+  const focused = focusedTaskId(world, tabs, activeTabKey);
 
   const { nodes, edges } = useMemo(() => {
     const graph = deriveGraph(world, { groupBy, filters });
@@ -39,7 +44,7 @@ export function Canvas() {
       width: layout.nodeSize.width,
       height: layout.nodeSize.height,
       draggable: false,
-      data: { node, focused: false },
+      data: { node, focused: node.id === focused },
     }));
     const flowEdges: Edge[] = graph.edges.map((e) => ({
       id: e.id,
@@ -48,7 +53,14 @@ export function Canvas() {
       type: 'smoothstep',
     }));
     return { nodes: [...groupNodes, ...taskNodes] as Node[], edges: flowEdges };
-  }, [world, groupBy, filters]);
+  }, [world, groupBy, filters, focused]);
+
+  const onNodeClick = useCallback(
+    (_: unknown, node: Node) => {
+      if (node.type === 'task') openTab(summaryTab(node.id));
+    },
+    [openTab],
+  );
 
   return (
     <div className={styles.canvas} data-testid="canvas">
@@ -59,6 +71,7 @@ export function Canvas() {
         fitView
         minZoom={0.2}
         nodesConnectable={false}
+        onNodeClick={onNodeClick}
         elementsSelectable
       >
         <Background gap={24} color="var(--border)" />

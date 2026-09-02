@@ -1,0 +1,31 @@
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+  min-width: 320px;
+  flex-shrink: 0;
+}
+.grip {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 2;
+}
+.grip:hover {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.empty {
+  padding: 24px;
+  color: var(--fg-faint);
+  text-align: center;
+}

@@ -1,0 +1,30 @@
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--fg-muted);
+  --phase: var(--fg-faint);
+}
+.chip[data-phase='shaping'] {
+  --phase: var(--phase-shaping);
+}
+.chip[data-phase='planning'] {
+  --phase: var(--phase-planning);
+}
+.chip[data-phase='executing'] {
+  --phase: var(--phase-executing);
+}
+.chip[data-phase='finalising'] {
+  --phase: var(--phase-finalising);
+}
+.swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--phase);
+}
+.task {
+  font-weight: 600;
+}
