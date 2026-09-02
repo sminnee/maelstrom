@@ -13,6 +13,15 @@ body {
   font-family: var(--font);
   font-size: var(--text-md);
   line-height: 1.4;
+  scrollbar-color: var(--border-strong) transparent;
+  accent-color: var(--accent);
+}
+::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 button {
   font: inherit;

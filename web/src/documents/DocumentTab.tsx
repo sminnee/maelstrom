@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
+import { describeDocumentStatus } from '../selectors/status';
 import { sessionTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
 import { useAppStore } from '../store/store';
@@ -52,7 +53,7 @@ export function DocumentTab({ documentId }: { documentId: string }) {
           <span className={styles.title}>{doc.title}</span>
           <span className={styles.version}>v{doc.version}</span>
           <span className={styles.status} data-status={doc.status}>
-            {doc.status}
+            {describeDocumentStatus(doc.status)}
           </span>
         </div>
         <div className={styles.taskLine}>

@@ -253,7 +253,7 @@ describe('review in a document tab', () => {
     expect(margin).toHaveTextContent('Make the cap configurable.');
 
     await user.click(screen.getByRole('button', { name: 'Request changes' }));
-    expect(screen.getByTestId('document-tab')).toHaveTextContent('changes-requested');
+    expect(screen.getByTestId('document-tab')).toHaveTextContent('changes requested');
     await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
     expect(screen.getByRole('tabpanel')).toHaveTextContent('Make the cap configurable.');
   }, 15_000);

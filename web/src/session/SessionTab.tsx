@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { describeState } from '../selectors/status';
 import { useAppStore } from '../store/store';
 import { useCommand } from '../store/useCommand';
 import { MessageInput } from './MessageInput';
@@ -9,6 +10,7 @@ import styles from './SessionTab.module.css';
 export function SessionTab({ agentId }: { agentId: string }) {
   const { send, error } = useCommand();
   const agent = useAppStore((s) => s.world.agents[agentId]);
+  const task = useAppStore((s) => (agent ? s.world.tasks[agent.taskId] : undefined));
   const transcript = useAppStore((s) => s.transcripts[agentId]);
   const bottom = useRef<HTMLDivElement>(null);
   const count = transcript?.items.length ?? 0;
@@ -23,7 +25,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
       <div className={styles.head}>
         <span className={styles.agent}>{agent.id}</span>
         <span className={styles.state} data-state={agent.state}>
-          {agent.state}
+          {describeState(task, agent)}
         </span>
         {agent.waitingOn && <span className={styles.waiting}>{agent.waitingOn}</span>}
       </div>
