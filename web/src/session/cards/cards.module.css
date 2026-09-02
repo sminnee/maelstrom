@@ -144,7 +144,119 @@
   border-radius: var(--radius);
   padding: 2px 6px;
 }
-.question button[aria-pressed='true'] {
+.primary {
   border-color: var(--accent);
   color: var(--accent);
+  font-weight: 600;
+}
+.quiet {
+  color: var(--fg-muted);
+}
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+}
+.stepChip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  color: var(--fg-muted);
+}
+.stepChip[data-current] {
+  border-color: var(--attention);
+  color: var(--fg);
+}
+.stepChip[data-answered] {
+  color: var(--fg-muted);
+}
+.stepChip:disabled {
+  opacity: 0.5;
+}
+.stepHeader {
+  font-weight: 600;
+}
+.stepAnswer {
+  color: var(--fg);
+}
+.stepAnswer::before {
+  content: '·';
+  margin-right: var(--space-1);
+  color: var(--fg-faint);
+}
+.stepCount {
+  margin-left: auto;
+  color: var(--fg-faint);
+  font-family: var(--mono);
+}
+.questionText {
+  font-weight: 500;
+}
+.optionList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.option {
+  display: grid;
+  grid-template-columns: auto 1.5ch 1fr;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.option:hover {
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+.option[data-chosen] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.option input[type='radio'],
+.option input[type='checkbox'] {
+  margin: 0;
+  accent-color: var(--accent);
+}
+.optionKey {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+}
+.optionBody {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.optionLabel {
+  color: var(--fg);
+}
+.optionDesc {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+.otherInput {
+  margin-top: 2px;
+  font: inherit;
+  color: inherit;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2px 6px;
+  width: 100%;
+}
+.answeredRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+.answeredRow .answer {
+  color: var(--fg);
+  font-weight: 500;
 }

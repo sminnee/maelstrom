@@ -8,7 +8,7 @@ import { isActionable } from '../../protocol/phase';
 import type { ClientState } from '../../protocol/reducer';
 import { applyEvent } from '../../protocol/reducer';
 import type { Beat } from './scripts';
-import { askBeat, expandBeat, permissionBeat, planMarkdown, scriptFor } from './scripts';
+import { MULTI_QUESTIONS, expandBeat, permissionBeat, planMarkdown, scriptFor } from './scripts';
 import type { Rng } from './rng';
 
 export interface Cursor {
@@ -247,7 +247,8 @@ class Run {
     const task = this.state.world.tasks[agent.taskId];
     switch (forced.kind) {
       case 'ask':
-        return askBeat(this.rng);
+        // The forced question is the two-question set, so the drawer exercises stepping.
+        return { kind: 'ask', questions: MULTI_QUESTIONS };
       case 'permission':
         return permissionBeat(this.rng);
       case 'plan':
