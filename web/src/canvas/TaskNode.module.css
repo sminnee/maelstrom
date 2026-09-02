@@ -1,7 +1,7 @@
 .node {
   width: 220px;
   height: 76px;
-  padding: 6px 10px;
+  padding: var(--space-2) 10px;
   border-radius: var(--radius);
   background: var(--bg-raised);
   border: 1px solid var(--border);
@@ -9,10 +9,16 @@
   color: var(--fg);
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   transition:
     box-shadow 0.2s,
     opacity 0.2s;
+}
+.node > * {
+  transition: opacity var(--duration-fast);
+}
+.node[data-expanded] > *:not(.handle) {
+  opacity: 0;
 }
 .node[data-state='working'] {
   border-color: var(--phase);
@@ -25,16 +31,14 @@
     0 0 14px 2px color-mix(in srgb, var(--attention) 55%, transparent);
 }
 .node[data-state='idle'] {
-  opacity: 0.75;
+  opacity: 0.8;
 }
 .node[data-state='queued'] {
   border-style: dashed;
-  opacity: 0.6;
-  filter: saturate(0.4);
+  opacity: 0.65;
 }
 .node[data-state='done'] {
   opacity: 0.5;
-  filter: grayscale(0.8);
 }
 .node[data-state='exited'] {
   border-color: var(--danger);
@@ -44,24 +48,35 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.head {
+.title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-md);
+  font-weight: 500;
+  line-height: 1.25;
+}
+.line {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
 }
 .id {
   font-family: var(--mono);
-  font-weight: 600;
 }
 .phase {
   color: var(--phase);
   text-transform: uppercase;
   font-size: 9px;
   letter-spacing: 0.06em;
-  margin-left: auto;
 }
-.badge {
+.spacer {
+  flex: 1;
+}
+/* `.line .badge` outranks PanelLink's `.link`, whatever order the stylesheets load in. */
+.line .badge {
   border: none;
   padding: 0;
   cursor: pointer;
@@ -74,32 +89,60 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: var(--text-xs);
+  text-decoration: none;
+}
+.line .badge:hover {
+  text-decoration: none;
+  filter: brightness(1.1);
 }
 .tick {
   color: var(--ok);
 }
-.title {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-weight: 500;
-}
 .foot {
-  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
   color: var(--fg-muted);
   white-space: nowrap;
+  overflow: hidden;
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--fg-faint);
+  flex-shrink: 0;
+}
+.node[data-state='working'] .dot {
+  background: var(--phase);
+}
+.node[data-state='needs-attention'] .dot {
+  background: var(--attention);
+}
+.node[data-state='done'] .dot {
+  background: var(--ok);
+}
+.node[data-state='exited'] .dot {
+  background: var(--danger);
+}
+.state,
+.reason {
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .reason {
   color: var(--attention);
 }
-.meta {
-  font-family: var(--mono);
-}
 .handle {
   opacity: 0;
+}
+/* Without the pulse, a working node still reads as live. */
+@media (prefers-reduced-motion: reduce) {
+  .node[data-state='working'] {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--phase) 45%, transparent);
+  }
 }
 @keyframes pulse {
   0%,

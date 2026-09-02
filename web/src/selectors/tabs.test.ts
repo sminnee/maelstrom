@@ -1,29 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import {
-  closeTab,
-  documentTab,
-  openOrFocusTab,
-  sessionTab,
-  summaryTab,
-  tabAttribution,
-} from './tabs';
+import { closeTab, documentTab, openOrFocusTab, sessionTab, tabAttribution } from './tabs';
 import { makeAgent, makeDocument, makeTask, worldWith } from '../test/fixtures';
 
 describe('openOrFocusTab', () => {
   it('adds a new tab and does not add one that is open already', () => {
-    const once = openOrFocusTab([], summaryTab('NORT-7'));
-    const twice = openOrFocusTab(once, summaryTab('NORT-7'));
+    const once = openOrFocusTab([], documentTab('doc-1'));
+    const twice = openOrFocusTab(once, documentTab('doc-1'));
     expect(twice).toHaveLength(1);
     expect(openOrFocusTab(twice, sessionTab('agent-1'))).toHaveLength(2);
   });
 });
 
 describe('closeTab', () => {
-  const tabs = [summaryTab('A'), sessionTab('a1'), documentTab('d1')];
+  const tabs = [documentTab('d0'), sessionTab('a1'), documentTab('d1')];
 
   it('closing the active tab activates its right neighbour', () => {
     expect(closeTab(tabs, 'session:a1', 'session:a1')).toEqual({
-      tabs: [summaryTab('A'), documentTab('d1')],
+      tabs: [documentTab('d0'), documentTab('d1')],
       activeTabKey: 'document:d1',
     });
   });
@@ -33,11 +26,11 @@ describe('closeTab', () => {
   });
 
   it('closing an inactive tab leaves the active one alone', () => {
-    expect(closeTab(tabs, 'summary:A', 'document:d1').activeTabKey).toBe('summary:A');
+    expect(closeTab(tabs, 'document:d0', 'document:d1').activeTabKey).toBe('document:d0');
   });
 
   it('closing the only tab leaves nothing active', () => {
-    expect(closeTab([summaryTab('A')], 'summary:A', 'summary:A').activeTabKey).toBeNull();
+    expect(closeTab([documentTab('d0')], 'document:d0', 'document:d0').activeTabKey).toBeNull();
   });
 });
 
@@ -53,20 +46,16 @@ describe('tabAttribution', () => {
   });
 
   it('names the task and phase for each tab kind', () => {
-    expect(tabAttribution(world, summaryTab('NORT-7'))).toEqual({
+    expect(tabAttribution(world, sessionTab('agent-1'))).toEqual({
       taskId: 'NORT-7',
       phase: 'planning',
       agentId: 'agent-1',
-      title: 'summary',
-    });
-    expect(tabAttribution(world, sessionTab('agent-1'))).toMatchObject({
-      taskId: 'NORT-7',
-      phase: 'planning',
       title: 'session',
     });
-    expect(tabAttribution(world, documentTab('doc-1'))).toMatchObject({
+    expect(tabAttribution(world, documentTab('doc-1'))).toEqual({
       taskId: 'NORT-7',
       phase: 'planning',
+      agentId: 'agent-1',
       title: 'plan.md',
     });
   });

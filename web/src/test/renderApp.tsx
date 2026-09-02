@@ -34,3 +34,8 @@ export function clickNode(taskId: string): Element {
   fireEvent.click(node);
   return node;
 }
+
+/** Press one key on whatever has focus, else the body. */
+export function pressKey(key: string) {
+  fireEvent.keyDown(document.activeElement ?? document.body, { key });
+}
