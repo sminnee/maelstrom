@@ -1,6 +1,6 @@
 import type { World } from '../protocol/events';
 
-export type GroupBy = 'project' | 'branch';
+export type GroupBy = 'project' | 'branch' | 'none';
 
 export interface Filters {
   project: string | null;

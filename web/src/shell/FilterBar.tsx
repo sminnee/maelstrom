@@ -1,7 +1,10 @@
 import { useEffect } from 'react';
+import type { GroupBy } from '../selectors/filters';
 import { filterOptions } from '../selectors/filters';
 import { useAppStore } from '../store/store';
 import styles from './FilterBar.module.css';
+
+const GROUP_BY_OPTIONS: GroupBy[] = ['project', 'branch', 'none'];
 
 /** Project and branch filters plus the grouping toggle. All client state. */
 export function FilterBar() {
@@ -50,12 +53,12 @@ export function FilterBar() {
       </label>
       <label className={styles.field}>
         <span>Group by</span>
-        <select
-          value={groupBy}
-          onChange={(e) => setGroupBy(e.target.value === 'branch' ? 'branch' : 'project')}
-        >
-          <option value="project">project</option>
-          <option value="branch">branch</option>
+        <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}>
+          {GROUP_BY_OPTIONS.map((g) => (
+            <option key={g} value={g}>
+              {g}
+            </option>
+          ))}
         </select>
       </label>
       <label className={styles.field}>
