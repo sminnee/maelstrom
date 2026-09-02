@@ -88,10 +88,25 @@ describe('deriveGraph', () => {
     });
     const graph = deriveGraph(world, {
       groupBy: 'project',
-      filters: { ...noFilters(), branch: 'feat/db' },
+      filters: { ...noFilters(), branch: 'northwind/feat/db' },
     });
     expect(graph.nodes.map((n) => n.id)).toEqual(['T2', 'T3']);
     expect(graph.edges.map((e) => e.id)).toEqual(['T2->T3']);
+  });
+
+  it('hide done drops done and cancelled tasks', () => {
+    const world = worldWith({
+      tasks: [
+        makeTask({ id: 'T1', status: 'done' }),
+        makeTask({ id: 'T2', status: 'cancelled' }),
+        makeTask({ id: 'T3', status: 'todo' }),
+      ],
+    });
+    const graph = deriveGraph(world, {
+      groupBy: 'project',
+      filters: { ...noFilters(), hideDone: true },
+    });
+    expect(graph.nodes.map((n) => n.id)).toEqual(['T3']);
   });
 
   it('the project filter keeps only that project and its group', () => {
