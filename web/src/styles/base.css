@@ -31,3 +31,6 @@ pre {
   font-family: var(--mono);
   font-size: 12px;
 }
+::highlight(document-comments) {
+  background: color-mix(in srgb, var(--attention) 35%, transparent);
+}

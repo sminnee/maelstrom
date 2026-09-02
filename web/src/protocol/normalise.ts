@@ -358,7 +358,10 @@ class Emitter {
         this.update(pending.itemId, { answers: answers as Record<string, string> });
       }
     } else if (pending.tool === PLAN_TOOL) {
-      this.update(pending.itemId, { decision: allow ? 'approve' : 'deny' });
+      this.update(pending.itemId, {
+        decision: allow ? 'approve' : 'deny',
+        ...(allow ? {} : { reason: str(payload.message) }),
+      });
       if (pending.documentId)
         this.documentStatus(pending.documentId, allow ? 'approved' : 'changes-requested');
     } else {

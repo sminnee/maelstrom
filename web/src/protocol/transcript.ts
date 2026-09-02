@@ -62,6 +62,8 @@ export interface PlanReviewItem extends Base {
   requestId: RequestId;
   documentId: DocumentId | null;
   decision?: 'approve' | 'deny';
+  /** Why it was denied: the deny message, which the agent gets as its tool result. */
+  reason?: string;
 }
 
 export interface TurnResultItem extends Base {
