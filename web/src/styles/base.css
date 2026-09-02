@@ -1,0 +1,33 @@
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.4;
+}
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+button:hover {
+  border-color: var(--border-strong);
+}
+code,
+pre {
+  font-family: var(--mono);
+  font-size: 12px;
+}

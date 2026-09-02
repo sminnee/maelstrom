@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      web: ${{ steps.filter.outputs.web }}
     steps:
       - uses: actions/checkout@v7.0.0
         with:
@@ -25,6 +26,7 @@ jobs:
           # skipped because `needs` failed does not report success, so a broken
           # detection would leave the same stuck gate this workflow removes.
           code=true
+          web=true
           base_ref="refs/remotes/origin/$GITHUB_BASE_REF"
           if git fetch --no-tags origin "+refs/heads/$GITHUB_BASE_REF:$base_ref" &&
              base=$(git merge-base "$base_ref" HEAD) &&
@@ -35,11 +37,16 @@ jobs:
             if ! echo "$changed" | grep -Eq '^(src/|tests/|bin/|pyproject\.toml$|\.github/workflows/test\.yml$)'; then
               code=false
             fi
+            if ! echo "$changed" | grep -Eq '^(web/|\.github/workflows/test\.yml$)'; then
+              web=false
+            fi
           else
             echo "Could not read the changed files."
           fi
           echo "Run the gates: $code"
+          echo "Run the web gates: $web"
           echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "web=$web" >> "$GITHUB_OUTPUT"
 
   test:
     needs: changes
@@ -97,3 +104,41 @@ jobs:
 
       - name: Run e2e tests
         run: uv run pytest tests/e2e/ -v
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4.4.0
+        with:
+          # `working-directory` does not reach a `uses` step.
+          package_json_file: web/package.json
+
+      - name: Set up Node
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build

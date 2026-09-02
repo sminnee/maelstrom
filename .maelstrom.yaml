@@ -1,3 +1,10 @@
 linear:
   team_id: 3201e7ca-cceb-4079-b8ef-51ffbde14db7
   product_label: Maelstrom
+
+services:
+  web:
+    optional: true
+    ports: [FRONTEND, FRONTEND_HMR]
+    dir: web
+    command: pnpm dev
