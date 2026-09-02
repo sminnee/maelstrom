@@ -44,9 +44,19 @@
 .status[data-status='changes-requested'] {
   color: var(--danger);
 }
+.taskLine {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
 .taskTitle {
-  font-size: 12px;
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
   color: var(--fg-muted);
+}
+.sessionLink {
+  font-size: var(--text-xs);
 }
 .body {
   flex: 1;

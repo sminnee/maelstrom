@@ -4,6 +4,7 @@ import type { Agent, Task } from '../protocol/entities';
 import type { QuestionItem } from '../protocol/transcript';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { QuestionPrompt } from '../session/cards/QuestionPrompt';
+import { PanelLink } from '../shell/PanelLink';
 import { useAppStore } from '../store/store';
 import { useCommand } from '../store/useCommand';
 import styles from './QuickActions.module.css';
@@ -19,7 +20,6 @@ export function QuickActions({
   attention: Attention[];
 }) {
   const { send, error } = useCommand();
-  const openTab = useAppStore((s) => s.openTab);
   const transcripts = useAppStore((s) => s.transcripts);
   const [reason, setReason] = useState('');
 
@@ -67,11 +67,7 @@ export function QuickActions({
             >
               Deny
             </button>
-            {planDoc && (
-              <button type="button" onClick={() => openTab(documentTab(planDoc))}>
-                Open plan
-              </button>
-            )}
+            {planDoc && <PanelLink tab={documentTab(planDoc)}>Plan</PanelLink>}
           </div>
         )}
       {agent && requestId && question && (
@@ -84,9 +80,7 @@ export function QuickActions({
       )}
       {agent && (
         <div className={styles.row}>
-          <button type="button" onClick={() => openTab(sessionTab(agent.id))}>
-            Open session
-          </button>
+          <PanelLink tab={sessionTab(agent.id)}>Session</PanelLink>
           {agent.state !== 'exited' && (
             <button
               type="button"

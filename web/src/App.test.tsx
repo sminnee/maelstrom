@@ -116,7 +116,7 @@ describe('the session tab', () => {
     const user = userEvent.setup();
     await renderApp();
     clickNode('NORT-9');
-    await user.click(screen.getByRole('button', { name: 'Open session' }));
+    await user.click(screen.getByRole('link', { name: 'Session' }));
     expect(screen.getAllByRole('tab')).toHaveLength(2);
     const input = screen.getByRole('textbox', { name: 'Message to agent' });
     await user.type(input, 'Prefer the ICU collation.');
@@ -134,9 +134,9 @@ describe('document tabs', () => {
     for (let i = 0; i < 8; i += 1) await stepSim(backend);
 
     clickNode('NORT-7');
-    await user.click(screen.getByRole('button', { name: /plan\.md v1/ }));
+    await user.click(screen.getByRole('link', { name: /plan\.md v1/ }));
     clickNode('NORT-9');
-    await user.click(screen.getByRole('button', { name: /plan\.md v1/ }));
+    await user.click(screen.getByRole('link', { name: /plan\.md v1/ }));
     const chips = () =>
       [...document.querySelectorAll('[role="tab"] [data-testid="tab-chip"]')].map(
         (c) => c.textContent,
@@ -149,7 +149,7 @@ describe('document tabs', () => {
     expect(screen.getByRole('tabpanel')).toHaveTextContent('Migrate to Postgres 16');
 
     clickNode('NORT-9');
-    await user.click(screen.getByRole('button', { name: 'Open session' }));
+    await user.click(screen.getByRole('link', { name: 'Session' }));
     expect(docTabs()).toHaveLength(2);
     expect(chips().length).toBeGreaterThanOrEqual(3);
   });
@@ -158,7 +158,7 @@ describe('document tabs', () => {
     const user = userEvent.setup();
     await renderApp();
     clickNode('NORT-7');
-    await user.click(screen.getByRole('button', { name: /plan\.md v1/ }));
+    await user.click(screen.getByRole('link', { name: /plan\.md v1/ }));
     expect(document.querySelector('[data-task-id="NORT-7"]')).toHaveAttribute('data-focused');
     clickNode('NORT-9');
     expect(screen.getByRole('tab', { selected: true })).toHaveAttribute(
@@ -199,7 +199,7 @@ describe('review in a document tab', () => {
     );
 
     clickNode('NORT-9');
-    await user.click(screen.getByRole('button', { name: /plan\.md v1/ }));
+    await user.click(screen.getByRole('link', { name: /plan\.md v1/ }));
     const tab = screen.getByTestId('document-tab');
     const inline = tab.querySelector('[data-testid="inline-question"]')!;
     expect(inline).not.toBeNull();
@@ -214,7 +214,7 @@ describe('review in a document tab', () => {
     const user = userEvent.setup();
     await renderApp();
     clickNode('NORT-7');
-    await user.click(screen.getByRole('button', { name: /plan\.md v1/ }));
+    await user.click(screen.getByRole('link', { name: /plan\.md v1/ }));
     const body = screen.getByTestId('document-body');
     const text = [...body.querySelectorAll('li')].find((el) =>
       el.textContent?.includes('10,000 rows'),
@@ -237,7 +237,7 @@ describe('review in a document tab', () => {
     await user.click(screen.getByRole('button', { name: 'Request changes' }));
     expect(screen.getByTestId('document-tab')).toHaveTextContent('changes-requested');
     clickNode('NORT-7');
-    await user.click(screen.getByRole('button', { name: 'Open session' }));
+    await user.click(screen.getByRole('link', { name: 'Session' }));
     expect(screen.getByRole('tabpanel')).toHaveTextContent('Make the cap configurable.');
   }, 15_000);
 });
