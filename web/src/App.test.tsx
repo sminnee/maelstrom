@@ -201,7 +201,9 @@ describe('review in a document tab', () => {
     clickNode('NORT-9');
     await user.click(screen.getByRole('link', { name: /plan\.md v1/ }));
     const tab = screen.getByTestId('document-tab');
-    const inline = within(tab.querySelector('[data-testid="inline-question"]') as HTMLElement);
+    const inline = within(tab.querySelector('[data-testid="inline-decision"]') as HTMLElement);
+    // The decision shows what the agent said before it asked.
+    expect(inline.getByText('Before this')).toBeInTheDocument();
     await user.click(inline.getAllByRole('checkbox')[0]!);
     await user.click(inline.getByRole('button', { name: 'Next' }));
     await user.click(inline.getAllByRole('radio')[0]!);
