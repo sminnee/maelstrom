@@ -13,3 +13,6 @@
   margin: 0;
   letter-spacing: 0.02em;
 }
+.spacer {
+  flex: 1;
+}

@@ -1,21 +1,39 @@
 import type { DebugBackend, SimControls } from '../protocol/backend';
-import type { Command, Reply, ResultFor } from '../protocol/commands';
+import type { Command, CommandError, Reply, ResultFor } from '../protocol/commands';
 import type { EventFrame, ServerEvent } from '../protocol/events';
 import type { Seq } from '../protocol/ids';
+import type { ClientState } from '../protocol/reducer';
 import { validateCommand } from '../protocol/validate';
 import type { Store } from './store';
-import { applyCommand } from './sim/commands';
 
 export interface Clock {
   now(): string;
 }
 
+export interface BackendDeps {
+  store: Store;
+  clock: Clock;
+  sim: SimControls;
+  /** Run a validated command: the events to append and the ack payload, or a refusal. */
+  runCommand(
+    state: ClientState,
+    cmd: Command,
+    now: string,
+  ): { events: ServerEvent[]; result: unknown } | { error: CommandError };
+}
+
+export interface InMemoryBackend extends DebugBackend {
+  /** Append events (from the simulation) and deliver them to subscribers. */
+  publish(events: ServerEvent[]): void;
+}
+
 /**
  * The fake transport. `connect` delivers a snapshot or a replay through
  * `subscribe`, `command` validates then applies its consequence as events,
- * and everything else is the simulation's business (`sim`).
+ * and the simulation publishes its own events between commands.
  */
-export function createInMemoryBackend(store: Store, clock: Clock, sim: SimControls): DebugBackend {
+export function createInMemoryBackend(deps: BackendDeps): InMemoryBackend {
+  const { store, clock } = deps;
   const listeners = new Set<(frame: EventFrame) => void>();
   let connected = false;
 
@@ -29,7 +47,7 @@ export function createInMemoryBackend(store: Store, clock: Clock, sim: SimContro
   }
 
   return {
-    sim,
+    sim: deps.sim,
     async connect(opts) {
       connected = true;
       const resumeFrom: Seq | undefined = opts?.resumeFrom;
@@ -43,9 +61,13 @@ export function createInMemoryBackend(store: Store, clock: Clock, sim: SimContro
     async command<C extends Command>(cmd: C): Promise<Reply<C>> {
       const error = validateCommand(store.state.world, cmd);
       if (error) return { ok: false, error };
-      const { events, result } = applyCommand(store.state, cmd, clock.now());
+      const out = deps.runCommand(store.state, cmd, clock.now());
+      if ('error' in out) return { ok: false, error: out.error };
+      emit(store.append(out.events, clock.now()));
+      return { ok: true, result: out.result as ResultFor<C> };
+    },
+    publish(events) {
       emit(store.append(events, clock.now()));
-      return { ok: true, result: result as ResultFor<C> };
     },
     close() {
       // Subscriptions survive a close, as they survive a dropped WebSocket:
@@ -54,5 +76,3 @@ export function createInMemoryBackend(store: Store, clock: Clock, sim: SimContro
     },
   };
 }
-
-export type { ServerEvent };
