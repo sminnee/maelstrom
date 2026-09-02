@@ -1,6 +1,7 @@
 import { ReactFlowProvider } from '@xyflow/react';
 import { Canvas } from '../canvas/Canvas';
 import { Panel } from '../panel/Panel';
+import { DebugDrawer } from '../sim/DebugDrawer';
 import { TopBar } from './TopBar';
 import styles from './AppShell.module.css';
 
@@ -15,6 +16,7 @@ export function AppShell() {
           </main>
           <Panel />
         </div>
+        <DebugDrawer />
       </div>
     </ReactFlowProvider>
   );
