@@ -10,7 +10,7 @@ import styles from './Transcript.module.css';
 
 export interface TranscriptHandlers {
   onAnswer?: (requestId: string, answers: Record<string, string>) => void;
-  onDecide?: (requestId: string, decision: 'allow' | 'deny', reason: string) => void;
+  onDecide?: (requestId: string, decision: 'approve' | 'deny', reason: string) => void;
 }
 
 /** The rich transcript: one card per item, in order. */

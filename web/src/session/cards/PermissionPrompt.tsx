@@ -9,7 +9,7 @@ export function PermissionPrompt({
 }: {
   item: PermissionRequestItem;
   /** A deny carries the reason the agent gets as its tool result. */
-  onDecide?: (decision: 'allow' | 'deny', reason: string) => void;
+  onDecide?: (decision: 'approve' | 'deny', reason: string) => void;
 }) {
   const [reason, setReason] = useState('');
   return (
@@ -24,8 +24,13 @@ export function PermissionPrompt({
         </div>
       ) : (
         <div className={styles.options}>
-          <button type="button" disabled={!onDecide} onClick={() => onDecide?.('allow', '')}>
-            Allow
+          <button
+            type="button"
+            className={styles.primary}
+            disabled={!onDecide}
+            onClick={() => onDecide?.('approve', '')}
+          >
+            Approve
           </button>
           <input
             className={styles.reasonInput}

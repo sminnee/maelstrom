@@ -1,8 +1,7 @@
 import { useEffect, useRef } from 'react';
+import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
-import type { QuestionItem } from '../protocol/transcript';
 import { sessionTab } from '../selectors/tabs';
-import { QuestionPrompt } from '../session/cards/QuestionPrompt';
 import { PanelLink } from '../shell/PanelLink';
 import { useAppStore } from '../store/store';
 import { useCommand } from '../store/useCommand';
@@ -19,7 +18,6 @@ export function DocumentTab({ documentId }: { documentId: string }) {
   const task = useAppStore((s) => (doc ? s.world.tasks[doc.taskId] : undefined));
   const agent = useAppStore((s) => (doc ? s.world.agents[doc.agentId] : undefined));
   const allComments = useAppStore((s) => s.world.comments);
-  const transcript = useAppStore((s) => (doc ? s.transcripts[doc.agentId] : undefined));
   const body = useRef<HTMLDivElement>(null);
   const { pending, onMouseUp, clear } = useSelectionComment(body, doc?.markdown ?? '');
 
@@ -35,13 +33,6 @@ export function DocumentTab({ documentId }: { documentId: string }) {
   }, [comments, doc?.markdown]);
 
   if (!doc) return <div className={styles.empty}>Document {documentId} is gone.</div>;
-
-  const question =
-    agent?.state === 'awaiting-question'
-      ? ((transcript?.items ?? []).find(
-          (i): i is QuestionItem => i.type === 'question' && i.requestId === agent.pendingRequestId,
-        ) ?? null)
-      : null;
 
   return (
     <div className={styles.document} data-phase={task?.phase} data-testid="document-tab">
@@ -64,19 +55,10 @@ export function DocumentTab({ documentId }: { documentId: string }) {
           )}
         </div>
       </header>
-      {question && agent && (
-        <div className={styles.question} data-testid="inline-question">
-          <QuestionPrompt
-            item={question}
-            onAnswer={(answers) =>
-              void send({
-                type: 'agent.answer',
-                agentId: agent.id,
-                requestId: question.requestId,
-                answers,
-              })
-            }
-          />
+      {/* A plan review is answered by the review bar below, so it is not shown twice. */}
+      {!!agent?.pendingRequestId && agent.state !== 'awaiting-plan-review' && (
+        <div className={styles.question} data-testid="inline-decision">
+          <DecisionCard agent={agent} />
         </div>
       )}
       <div className={styles.split}>

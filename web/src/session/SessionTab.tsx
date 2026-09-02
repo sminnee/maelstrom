@@ -36,7 +36,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
               void send({ type: 'agent.answer', agentId, requestId, answers }),
             onDecide: (requestId, decision, reason) =>
               void send(
-                decision === 'allow'
+                decision === 'approve'
                   ? { type: 'agent.approve', agentId, requestId }
                   : {
                       type: 'agent.deny',
