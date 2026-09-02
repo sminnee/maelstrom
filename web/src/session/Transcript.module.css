@@ -1,0 +1,34 @@
+.transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+}
+.card {
+  min-width: 0;
+}
+.note,
+.system {
+  font-size: 11px;
+  color: var(--fg-faint);
+  font-family: var(--mono);
+}
+.plan {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid var(--phase-planning);
+  border-radius: var(--radius);
+}
+.plan[data-decision] {
+  border-color: var(--border);
+}
+.decision {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.error {
+  color: var(--danger);
+}

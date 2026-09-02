@@ -1,37 +1,9 @@
-import { readFileSync, readdirSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { contextForAgent, normaliseStreamEvent, type RawStreamEvent } from './normalise';
+import { contextForAgent, normaliseStreamEvent } from './normalise';
 import { applyEvent, initialClientState, type ClientState } from './reducer';
 import { makeAgent, makeDocument, worldWith } from '../test/fixtures';
-
-// vitest runs from web/, and the recorded daemon streams live beside the Python tests.
-const FIXTURES = resolve(process.cwd(), '../tests/fixtures/agent_events');
-
-function readFixture(name: string): RawStreamEvent[] {
-  return readFileSync(resolve(FIXTURES, name), 'utf8')
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as RawStreamEvent);
-}
-
-/** Replay a fixture through normalise and the reducer, as a real backend would. */
-function replay(name: string, opts: { stopBeforeControlResponse?: boolean } = {}): ClientState {
-  const agent = makeAgent({ id: 'ag1', state: 'idle' });
-  let state = applyEvent(initialClientState(), {
-    type: 'snapshot',
-    world: worldWith({ agents: [agent] }),
-    transcripts: {},
-  });
-  let ctx = contextForAgent(state, 'ag1');
-  for (const raw of readFixture(name)) {
-    if (opts.stopBeforeControlResponse && raw.type === 'control_response' && ctx.pending) break;
-    const out = normaliseStreamEvent(state, ctx, raw, '2026-09-01T00:00:00Z');
-    ctx = out.ctx;
-    for (const event of out.events) state = applyEvent(state, event);
-  }
-  return state;
-}
+import { FIXTURES, replayFixture as replay } from '../test/replayFixture';
 
 const types = (state: ClientState) => (state.transcripts['ag1']?.items ?? []).map((i) => i.type);
 const agentOf = (state: ClientState) => state.world.agents['ag1']!;

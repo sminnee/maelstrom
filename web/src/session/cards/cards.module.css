@@ -1,0 +1,150 @@
+.message {
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+.message[data-role='user'] {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-raised));
+}
+.role {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-faint);
+  margin-bottom: 2px;
+}
+.tool {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+}
+.toolHead {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  list-style: none;
+}
+.toolName {
+  font-family: var(--mono);
+  font-weight: 600;
+}
+.toolTitle {
+  flex: 1;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.status {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+.tool[data-status='error'] .status,
+.tool[data-status='denied'] .status {
+  color: var(--danger);
+}
+.tool[data-status='running'] .status {
+  color: var(--accent);
+}
+.code,
+.command,
+.output {
+  margin: 0;
+  padding: 6px 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-top: 1px solid var(--border);
+  max-height: 260px;
+  overflow: auto;
+}
+.command {
+  color: var(--fg);
+}
+.output {
+  color: var(--fg-muted);
+}
+.output[data-error] {
+  color: var(--danger);
+}
+.diff {
+  font-family: var(--mono);
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+  overflow-x: auto;
+}
+.diffRow {
+  display: flex;
+  gap: 6px;
+  padding: 0 8px;
+  white-space: pre;
+}
+.diffRow[data-kind='add'] {
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+  color: var(--ok);
+}
+.diffRow[data-kind='remove'] {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  color: var(--danger);
+}
+.sign {
+  width: 1ch;
+  color: var(--fg-faint);
+}
+.prompt {
+  padding: 8px 10px;
+  border: 1px solid var(--attention);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--attention) 8%, var(--bg-raised));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.prompt[data-answered],
+.prompt[data-decision] {
+  border-color: var(--border);
+  background: var(--bg-raised);
+}
+.qhead {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--attention);
+}
+.prompt[data-answered] .qhead,
+.prompt[data-decision] .qhead {
+  color: var(--fg-faint);
+}
+.options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.answer {
+  color: var(--fg-muted);
+}
+.result {
+  font-size: 11px;
+  color: var(--fg-faint);
+  text-align: right;
+  font-family: var(--mono);
+}
+.reasonInput {
+  flex: 1;
+  min-width: 120px;
+  font: inherit;
+  color: inherit;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2px 6px;
+}
+.question button[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
