@@ -1,7 +1,11 @@
-export function App() {
+import type { Backend } from './protocol/backend';
+import { AppShell } from './shell/AppShell';
+import { BackendProvider } from './store/BackendProvider';
+
+export function App({ backend, autoConnect = false }: { backend: Backend; autoConnect?: boolean }) {
   return (
-    <div>
-      <h1>maelstrom</h1>
-    </div>
+    <BackendProvider backend={backend} autoConnect={autoConnect}>
+      <AppShell />
+    </BackendProvider>
   );
 }
