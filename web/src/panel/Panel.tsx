@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { useAppStore } from '../store/store';
 import type { PanelTab } from '../store/uiSlice';
+import { SessionTab } from '../session/SessionTab';
 import { SummaryTab } from '../summary/SummaryTab';
 import { PANEL_BODY_ID, PanelTabs } from './PanelTabs';
 import styles from './Panel.module.css';
@@ -55,7 +56,7 @@ function TabBody({ tab }: { tab: PanelTab }) {
     case 'summary':
       return <SummaryTab taskId={tab.taskId} />;
     case 'session':
-      return <div className={styles.empty}>Session {tab.agentId}</div>;
+      return <SessionTab agentId={tab.agentId} />;
     case 'document':
       return <div className={styles.empty}>Document {tab.documentId}</div>;
   }

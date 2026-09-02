@@ -1,0 +1,49 @@
+.session {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-family: var(--mono);
+}
+.agent {
+  color: var(--fg-muted);
+}
+.state {
+  color: var(--fg-muted);
+}
+.state[data-state='processing'] {
+  color: var(--accent);
+}
+.state[data-state^='awaiting'] {
+  color: var(--attention);
+}
+.state[data-state='exited'] {
+  color: var(--danger);
+}
+.waiting {
+  color: var(--attention);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.error {
+  color: var(--danger);
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.empty {
+  padding: 24px;
+  color: var(--fg-faint);
+}

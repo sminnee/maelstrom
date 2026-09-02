@@ -2,9 +2,10 @@ import { useState } from 'react';
 import type { Attention } from '../protocol/attention';
 import type { Agent, Task } from '../protocol/entities';
 import type { QuestionItem } from '../protocol/transcript';
-import { useBackend } from '../store/backendContext';
-import { useAppStore } from '../store/store';
 import { documentTab, sessionTab } from '../selectors/tabs';
+import { QuestionPrompt } from '../session/cards/QuestionPrompt';
+import { useAppStore } from '../store/store';
+import { useCommand } from '../store/useCommand';
 import styles from './QuickActions.module.css';
 
 /** Approve, deny, answer, launch, open session: the commands a summary can send. */
@@ -17,17 +18,13 @@ export function QuickActions({
   agent: Agent | undefined;
   attention: Attention[];
 }) {
-  const backend = useBackend();
+  const { send, error } = useCommand();
   const openTab = useAppStore((s) => s.openTab);
   const transcripts = useAppStore((s) => s.transcripts);
   const [reason, setReason] = useState('');
-  const [error, setError] = useState<string | null>(null);
 
-  const send = async (cmd: Parameters<typeof backend.command>[0]) => {
-    setError(null);
-    const reply = await backend.command(cmd);
-    if (!reply.ok) setError(`${reply.error.code}: ${reply.error.message}`);
-    else if (cmd.type === 'agent.deny') setReason('');
+  const deny = async (agentId: string, requestId: string) => {
+    if (await send({ type: 'agent.deny', agentId, requestId, reason })) setReason('');
   };
 
   const requestId = agent?.pendingRequestId ?? null;
@@ -42,7 +39,7 @@ export function QuickActions({
   return (
     <section className={styles.actions} data-testid="quick-actions">
       {!agent && task.actionable && (
-        <button type="button" onClick={() => send({ type: 'agent.launch', taskId: task.id })}>
+        <button type="button" onClick={() => void send({ type: 'agent.launch', taskId: task.id })}>
           Launch
         </button>
       )}
@@ -52,7 +49,7 @@ export function QuickActions({
           <div className={styles.row}>
             <button
               type="button"
-              onClick={() => send({ type: 'agent.approve', agentId: agent.id, requestId })}
+              onClick={() => void send({ type: 'agent.approve', agentId: agent.id, requestId })}
             >
               Approve
             </button>
@@ -66,7 +63,7 @@ export function QuickActions({
             <button
               type="button"
               disabled={!reason.trim()}
-              onClick={() => send({ type: 'agent.deny', agentId: agent.id, requestId, reason })}
+              onClick={() => void deny(agent.id, requestId)}
             >
               Deny
             </button>
@@ -78,32 +75,12 @@ export function QuickActions({
           </div>
         )}
       {agent && requestId && question && (
-        <div className={styles.questions}>
-          {question.questions.map((q) => (
-            <div key={q.question} className={styles.question}>
-              <div className={styles.qtext}>{q.question}</div>
-              <div className={styles.row}>
-                {q.options.map((o) => (
-                  <button
-                    key={o.label}
-                    type="button"
-                    title={o.description}
-                    onClick={() =>
-                      send({
-                        type: 'agent.answer',
-                        agentId: agent.id,
-                        requestId,
-                        answers: { [q.question]: o.label },
-                      })
-                    }
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+        <QuestionPrompt
+          item={question}
+          onAnswer={(answers) =>
+            void send({ type: 'agent.answer', agentId: agent.id, requestId, answers })
+          }
+        />
       )}
       {agent && (
         <div className={styles.row}>
@@ -111,7 +88,10 @@ export function QuickActions({
             Open session
           </button>
           {agent.state !== 'exited' && (
-            <button type="button" onClick={() => send({ type: 'agent.stop', agentId: agent.id })}>
+            <button
+              type="button"
+              onClick={() => void send({ type: 'agent.stop', agentId: agent.id })}
+            >
               Stop
             </button>
           )}
