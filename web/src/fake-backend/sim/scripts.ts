@@ -11,7 +11,7 @@ export type Beat =
   | { kind: 'read'; path: string }
   | { kind: 'edit'; path: string; old: string; new: string }
   | { kind: 'bash'; command: string; output: string; exitCode: number }
-  | { kind: 'ask'; question: Question }
+  | { kind: 'ask'; questions: Question[] }
   | { kind: 'permission'; tool: string; input: Record<string, unknown>; description: string }
   | { kind: 'plan'; markdown: string }
   | {
@@ -31,34 +31,66 @@ export const bash = (r: { command: string; output: string; exitCode: number }): 
   ...r,
 });
 
-export const QUESTIONS: Question[] = [
+/** Two questions at once, the second a multi-select: the shape the prompt must step through. */
+export const MULTI_QUESTIONS: Question[] = [
   {
-    question: 'Should the export stream rows or build the file first?',
-    header: 'Export',
-    multiSelect: false,
+    question: 'Which columns should the export include?',
+    header: 'Columns',
+    multiSelect: true,
     options: [
-      { label: 'Stream', description: 'Constant memory; no total row count up front.' },
-      { label: 'Build first', description: 'Simpler; needs the whole file in memory.' },
+      { label: 'Id', description: 'The order id.' },
+      { label: 'Customer', description: 'The customer name.' },
+      { label: 'Total', description: 'The order total.' },
+      { label: 'Status', description: 'Where the order is in fulfilment.' },
     ],
   },
   {
-    question: 'Keep the old collation for existing rows?',
-    header: 'Collation',
+    question: 'Which format should the export use?',
+    header: 'Format',
     multiSelect: false,
     options: [
-      { label: 'Keep', description: 'No reindex; mixed ordering until the next dump.' },
-      { label: 'Reindex now', description: 'One-off REINDEX; ordering consistent immediately.' },
+      { label: 'CSV', description: 'Opens anywhere; no types.' },
+      { label: 'Parquet', description: 'Typed and compact; needs a reader.' },
     ],
   },
-  {
-    question: 'Which grouping should the canvas default to?',
-    header: 'Grouping',
-    multiSelect: false,
-    options: [
-      { label: 'Project', description: 'One lane per project.' },
-      { label: 'Branch', description: 'One lane per branch, labelled with its worktree.' },
-    ],
-  },
+];
+
+/** Each entry is one AskUserQuestion call: one or more questions asked together. */
+export const QUESTION_SETS: Question[][] = [
+  [
+    {
+      question: 'Should the export stream rows or build the file first?',
+      header: 'Export',
+      multiSelect: false,
+      options: [
+        { label: 'Stream', description: 'Constant memory; no total row count up front.' },
+        { label: 'Build first', description: 'Simpler; needs the whole file in memory.' },
+      ],
+    },
+  ],
+  [
+    {
+      question: 'Keep the old collation for existing rows?',
+      header: 'Collation',
+      multiSelect: false,
+      options: [
+        { label: 'Keep', description: 'No reindex; mixed ordering until the next dump.' },
+        { label: 'Reindex now', description: 'One-off REINDEX; ordering consistent immediately.' },
+      ],
+    },
+  ],
+  [
+    {
+      question: 'Which grouping should the canvas default to?',
+      header: 'Grouping',
+      multiSelect: false,
+      options: [
+        { label: 'Project', description: 'One lane per project.' },
+        { label: 'Branch', description: 'One lane per branch, labelled with its worktree.' },
+      ],
+    },
+  ],
+  MULTI_QUESTIONS,
 ];
 
 export const PERMISSIONS: Beat[] = [
@@ -86,7 +118,7 @@ export const PERMISSIONS: Beat[] = [
 ];
 
 export function askBeat(rng: Rng): Beat {
-  return { kind: 'ask', question: pick(rng, QUESTIONS) };
+  return { kind: 'ask', questions: pick(rng, QUESTION_SETS) };
 }
 
 export function permissionBeat(rng: Rng): Beat {
@@ -251,7 +283,7 @@ export function expandBeat(beat: Beat, ids: IdGen, sessionId: string): RawStream
       return [assistant([t.block]), toolResult(t.id, beat.output, beat.exitCode !== 0)];
     }
     case 'ask': {
-      const input = { questions: [beat.question] };
+      const input = { questions: beat.questions };
       const t = toolUse('AskUserQuestion', input);
       return [assistant([t.block]), controlRequest(t.id, 'AskUserQuestion', input)];
     }

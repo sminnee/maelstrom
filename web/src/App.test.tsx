@@ -201,9 +201,11 @@ describe('review in a document tab', () => {
     clickNode('NORT-9');
     await user.click(screen.getByRole('link', { name: /plan\.md v1/ }));
     const tab = screen.getByTestId('document-tab');
-    const inline = tab.querySelector('[data-testid="inline-question"]')!;
-    expect(inline).not.toBeNull();
-    await user.click(inline.querySelector('button')!);
+    const inline = within(tab.querySelector('[data-testid="inline-question"]') as HTMLElement);
+    await user.click(inline.getAllByRole('checkbox')[0]!);
+    await user.click(inline.getByRole('button', { name: 'Next' }));
+    await user.click(inline.getAllByRole('radio')[0]!);
+    await user.click(inline.getByRole('button', { name: 'Answer' }));
     expect(document.querySelector('[data-task-id="NORT-9"]')).not.toHaveAttribute(
       'data-state',
       'needs-attention',
