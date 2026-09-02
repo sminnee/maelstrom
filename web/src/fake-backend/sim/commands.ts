@@ -1,159 +1,122 @@
-import type { Command, ResultMap } from '../../protocol/commands';
-import type { ServerEvent } from '../../protocol/events';
-import type { ClientState } from '../../protocol/reducer';
-import type { Agent } from '../../protocol/entities';
+import type { Command, CommandError, ResultMap } from '../../protocol/commands';
 import type { Document } from '../../protocol/documents';
-import type { Attention } from '../../protocol/attention';
+import type { Task } from '../../protocol/entities';
+import type { ServerEvent } from '../../protocol/events';
+import type { RawStreamEvent } from '../../protocol/normalise';
+import { PLAN_TOOL, QUESTION_TOOL } from '../../protocol/normalise';
+import { isActionable } from '../../protocol/phase';
+import { validateCommand } from '../../protocol/validate';
+import type { ClientState } from '../../protocol/reducer';
+import { applyEvent } from '../../protocol/reducer';
+import type { Beat } from './scripts';
+import { TASK_CHAIN, replyScript, reviseScript } from './scripts';
+import type { SimWorld } from './stepper';
+import { exitAgent, launchAgent, onCommand } from './stepper';
+
+/** A delegated command the world cannot take; the backend answers with its error. */
+export class CommandRefused extends Error {
+  error: CommandError;
+  constructor(error: CommandError) {
+    super(error.message);
+    this.error = error;
+  }
+}
 
 export interface Consequence {
   events: ServerEvent[];
+  sim: SimWorld;
   result: ResultMap[Command['type']];
 }
 
-let counter = 0;
-const nextId = (prefix: string) => `${prefix}-${(counter += 1)}`;
-
 /**
- * What the world does because of a validated command. Pure: returns the
- * events, and the store applies them. A real backend does the same work by
- * writing to the daemon, the notebook or GitHub, then reporting the result.
+ * What the world does because of a validated command. Agent-directed commands
+ * become the daemon's own reply shapes (`control_response`, a `user` turn)
+ * and go through the normaliser, so the fake takes the path a real backend
+ * would. Notebook-side commands are events straight away.
  */
-export function applyCommand(state: ClientState, cmd: Command, now: string): Consequence {
+export function applyCommand(
+  state: ClientState,
+  sim: SimWorld,
+  cmd: Command,
+  now: string,
+): Consequence {
   const { world } = state;
   switch (cmd.type) {
     case 'agent.approve':
     case 'agent.deny':
     case 'agent.answer': {
       const agent = world.agents[cmd.agentId]!;
-      const events: ServerEvent[] = [];
-      const patch =
-        cmd.type === 'agent.answer'
-          ? { answers: cmd.answers }
-          : agent.state === 'awaiting-plan-review'
-            ? { decision: cmd.type === 'agent.approve' ? 'approve' : 'deny' }
-            : {
-                decision: cmd.type === 'agent.approve' ? 'allow' : 'deny',
-                ...(cmd.type === 'agent.deny' ? { reason: cmd.reason } : {}),
-              };
-      const item = pendingItem(state, agent);
-      if (item) {
-        events.push({ type: 'transcript.update', agentId: agent.id, itemId: item, patch });
-      }
-      if (cmd.type === 'agent.deny') {
-        events.push({
-          type: 'transcript.append',
-          agentId: agent.id,
-          item: { id: nextId('msg'), ts: now, type: 'message', role: 'user', markdown: cmd.reason },
-        });
-      }
-      for (const doc of documentsFor(world.documents, cmd.requestId)) {
-        events.push({
-          type: 'upsert',
-          kind: 'document',
-          entity: {
-            ...doc,
-            status: cmd.type === 'agent.approve' ? 'approved' : 'changes-requested',
-          },
-        });
-      }
-      for (const att of openAttention(world.attention, agent.id)) {
-        events.push({ type: 'upsert', kind: 'attention', entity: { ...att, clearedAt: now } });
-      }
-      events.push({
-        type: 'upsert',
-        kind: 'agent',
-        entity: { ...agent, state: 'processing', waitingOn: '', pendingRequestId: null },
-      });
-      return { events, result: {} };
-    }
-    case 'agent.say': {
-      const agent = world.agents[cmd.agentId]!;
-      const events: ServerEvent[] = [
+      const pending = sim.agents[agent.id]?.ctx.pending;
+      const input = pending?.input ?? {};
+      const response =
+        cmd.type === 'agent.deny'
+          ? { behavior: 'deny', message: cmd.reason }
+          : cmd.type === 'agent.answer'
+            ? { behavior: 'allow', updatedInput: { ...input, answers: cmd.answers } }
+            : { behavior: 'allow', updatedInput: cmd.updatedInput ?? input };
+      const raw: RawStreamEvent[] = [
         {
-          type: 'transcript.append',
-          agentId: agent.id,
-          item: { id: nextId('msg'), ts: now, type: 'message', role: 'user', markdown: cmd.text },
+          type: 'control_response',
+          response: { subtype: 'success', request_id: cmd.requestId, response },
         },
       ];
-      if (agent.state === 'idle') {
-        events.push({ type: 'upsert', kind: 'agent', entity: { ...agent, state: 'processing' } });
+      if (pending?.toolUseId) {
+        raw.push(
+          toolResult(
+            pending.toolUseId,
+            resultTextFor(cmd, pending.tool),
+            cmd.type === 'agent.deny',
+          ),
+        );
       }
-      return { events, result: {} };
+      let follow: Beat[] = [];
+      if (cmd.type === 'agent.deny' && pending?.tool === PLAN_TOOL) {
+        const task = world.tasks[agent.taskId];
+        if (task) follow = reviseScript(task);
+      }
+      const out = onCommand(state, sim, agent.id, raw, follow, now);
+      return { ...out, result: {} };
+    }
+    case 'agent.say': {
+      const raw: RawStreamEvent[] = [
+        { type: 'user', message: { role: 'user', content: [{ type: 'text', text: cmd.text }] } },
+      ];
+      const out = onCommand(state, sim, cmd.agentId, raw, replyScript(cmd.text), now);
+      return { ...out, result: {} };
     }
     case 'agent.stop': {
-      const agent = world.agents[cmd.agentId]!;
-      return {
-        events: [
-          {
-            type: 'upsert',
-            kind: 'agent',
-            entity: {
-              ...agent,
-              state: 'exited',
-              exitCode: 0,
-              pendingRequestId: null,
-              waitingOn: '',
-            },
-          },
-          ...openAttention(world.attention, agent.id).map((att): ServerEvent => ({
-            type: 'upsert',
-            kind: 'attention',
-            entity: { ...att, clearedAt: now },
-          })),
-        ],
-        result: {},
-      };
+      const out = exitAgent(state, sim, cmd.agentId, 0, now);
+      return { ...out, result: {} };
     }
     case 'agent.launch': {
       const task = world.tasks[cmd.taskId]!;
-      const worktree =
-        Object.values(world.worktrees).find((w) => w.branch === task.branch && !w.isClosed) ??
-        Object.values(world.worktrees).find((w) => w.project === task.project);
-      const agent: Agent = {
-        id: nextId('ag'),
-        state: 'processing',
-        session: '',
-        cwd: worktree?.path ?? '',
-        model: cmd.model ?? 'claude-opus-5',
-        waitingOn: '',
-        lastMessage: '',
-        costUsd: 0,
-        taskId: task.id,
-        project: task.project,
-        worktreeId: worktree?.id ?? '',
-        phase: task.phase,
-        exitCode: null,
-        pendingRequestId: null,
-      };
-      return {
-        events: [
-          {
-            type: 'upsert',
-            kind: 'task',
-            entity: { ...task, status: 'in-progress', updated: now },
-          },
-          { type: 'upsert', kind: 'agent', entity: agent },
-          {
-            type: 'transcript.append',
-            agentId: agent.id,
-            item: {
-              id: nextId('sys'),
-              ts: now,
-              type: 'system',
-              subtype: 'init',
-              sessionId: `sess-${agent.id}`,
-              model: agent.model,
-            },
-          },
-        ],
-        result: { agentId: agent.id },
-      };
+      const launched = launchAgent(state, sim, task, now, cmd.model);
+      return { events: launched.events, sim: launched.sim, result: { agentId: launched.agentId } };
     }
     case 'document.approve':
     case 'document.requestChanges': {
       const doc = world.documents[cmd.documentId]!;
-      const agent = world.agents[doc.agentId];
       const approved = cmd.type === 'document.approve';
+      if (doc.source.type === 'plan_review') {
+        // A plan is answered through the daemon: the same path as approve/deny.
+        const unresolved = unresolvedComments(state, doc);
+        const reason = [cmd.type === 'document.requestChanges' ? cmd.summary : '', ...unresolved]
+          .filter(Boolean)
+          .join('\n\n');
+        const command: Command = approved
+          ? { type: 'agent.approve', agentId: doc.agentId, requestId: doc.source.requestId }
+          : {
+              type: 'agent.deny',
+              agentId: doc.agentId,
+              requestId: doc.source.requestId,
+              reason: reason || 'Changes requested',
+            };
+        // The document command validated the document; the agent must still
+        // hold the request it maps to, or the answer has nowhere to go.
+        const error = validateCommand(world, command);
+        if (error) throw new CommandRefused(error);
+        return applyCommand(state, sim, command, now);
+      }
       const events: ServerEvent[] = [
         {
           type: 'upsert',
@@ -166,45 +129,36 @@ export function applyCommand(state: ClientState, cmd: Command, now: string): Con
           events.push({ type: 'upsert', kind: 'attention', entity: { ...att, clearedAt: now } });
         }
       }
-      if (agent && agent.state !== 'exited') {
-        const item = pendingItem(state, agent);
-        if (item && agent.pendingRequestId) {
-          events.push({
-            type: 'transcript.update',
-            agentId: agent.id,
-            itemId: item,
-            patch: { decision: approved ? 'approve' : 'deny' },
-          });
-        }
-        if (!approved) {
-          const unresolved = Object.values(world.comments).filter(
-            (c) => c.documentId === doc.id && c.version === doc.version && !c.resolved,
-          );
-          const body = [cmd.summary, ...unresolved.map((c) => `> ${c.anchor.quote}\n\n${c.body}`)]
-            .filter(Boolean)
-            .join('\n\n');
-          events.push({
-            type: 'transcript.append',
-            agentId: agent.id,
-            item: {
-              id: nextId('msg'),
-              ts: now,
-              type: 'message',
-              role: 'user',
-              markdown: `Changes requested on ${doc.title} v${doc.version}:\n\n${body}`,
-            },
-          });
-        }
-        events.push({
-          type: 'upsert',
-          kind: 'agent',
-          entity: { ...agent, state: 'processing', waitingOn: '', pendingRequestId: null },
-        });
+      let next = state;
+      for (const e of events) next = applyEvent(next, e);
+      if (approved && doc.kind === 'tasks') {
+        const created = promoteTasks(next, doc, now);
+        events.push(...created);
       }
-      return { events, result: {} };
+      const agent = world.agents[doc.agentId];
+      if (!approved && agent && agent.state !== 'exited') {
+        const body = [
+          cmd.type === 'document.requestChanges' ? cmd.summary : '',
+          ...unresolvedComments(state, doc),
+        ]
+          .filter(Boolean)
+          .join('\n\n');
+        const say = applyCommand(
+          next,
+          sim,
+          {
+            type: 'agent.say',
+            agentId: agent.id,
+            text: `Changes requested on ${doc.title} v${doc.version}:\n\n${body}`,
+          },
+          now,
+        );
+        return { events: [...events, ...say.events], sim: say.sim, result: {} };
+      }
+      return { events, sim, result: {} };
     }
     case 'comment.add': {
-      const id = nextId('cmt');
+      const id = `cmt_${(sim.counter + 1).toString(36)}`;
       return {
         events: [
           {
@@ -222,6 +176,7 @@ export function applyCommand(state: ClientState, cmd: Command, now: string): Con
             },
           },
         ],
+        sim: { ...sim, counter: sim.counter + 1 },
         result: { commentId: id },
       };
     }
@@ -229,93 +184,134 @@ export function applyCommand(state: ClientState, cmd: Command, now: string): Con
       const comment = world.comments[cmd.commentId]!;
       return {
         events: [{ type: 'upsert', kind: 'comment', entity: { ...comment, resolved: true } }],
+        sim,
         result: {},
       };
     }
     case 'task.create': {
-      const id = `${cmd.project.slice(0, 4).toUpperCase()}-${100 + (counter += 1)}`;
-      const title = cmd.draft.split('\n')[0]?.replace(/^#\s*/, '') || 'Untitled';
+      const { task, sim: next } = newTask(sim, cmd.project, cmd.draft, '', now);
       return {
-        events: [
-          {
-            type: 'upsert',
-            kind: 'task',
-            entity: {
-              id,
-              project: cmd.project,
-              title,
-              status: 'todo',
-              command: '',
-              mode: 'auto',
-              branch: `feat/${id.toLowerCase()}`,
-              parent: '',
-              follows: [],
-              priority: 'normal',
-              model: '',
-              base: '',
-              content: cmd.draft,
-              steps: [],
-              log: [],
-              created: now,
-              updated: now,
-              phase: 'executing',
-              actionable: true,
-            },
-          },
-        ],
-        result: { taskId: id },
+        events: [{ type: 'upsert', kind: 'task', entity: task }],
+        sim: next,
+        result: { taskId: task.id },
       };
     }
     case 'shaping.start': {
-      const id = `${cmd.project.slice(0, 4).toUpperCase()}-${100 + (counter += 1)}`;
       const title = cmd.brief.split('\n')[0]?.slice(0, 60) || 'Shaping';
-      const taskEvents = applyCommand(
-        state,
-        { type: 'task.create', project: cmd.project, draft: `# ${title}\n\n${cmd.brief}` },
+      const { task, sim: next } = newTask(
+        sim,
+        cmd.project,
+        `# ${title}\n\n${cmd.brief}`,
+        'shape',
         now,
       );
-      const created = taskEvents.events[0];
-      if (created?.type !== 'upsert' || created.kind !== 'task') throw new Error('unreachable');
-      const shaped = {
-        ...created.entity,
-        id,
-        command: 'shape',
-        phase: 'shaping' as const,
-        mode: 'normal' as const,
-      };
-      const next: ClientState = {
-        ...state,
-        world: { ...world, tasks: { ...world.tasks, [id]: shaped } },
-      };
-      const launch = applyCommand(next, { type: 'agent.launch', taskId: id }, now);
+      const withTask = applyEvent(state, { type: 'upsert', kind: 'task', entity: task });
+      const launched = launchAgent(withTask, next, task, now);
       return {
-        events: [{ type: 'upsert', kind: 'task', entity: shaped }, ...launch.events],
-        result: { agentId: (launch.result as { agentId: string }).agentId, taskId: id },
+        events: [{ type: 'upsert', kind: 'task', entity: task }, ...launched.events],
+        sim: launched.sim,
+        result: { agentId: launched.agentId, taskId: task.id },
       };
     }
   }
 }
 
-/** The transcript item carrying the agent's pending request, if any. */
-function pendingItem(state: ClientState, agent: Agent): string | null {
-  if (!agent.pendingRequestId) return null;
-  const items = state.transcripts[agent.id]?.items ?? [];
-  for (let i = items.length - 1; i >= 0; i -= 1) {
-    const item = items[i]!;
-    if ('requestId' in item && item.requestId === agent.pendingRequestId) return item.id;
+function toolResult(toolUseId: string, content: string, isError: boolean): RawStreamEvent {
+  return {
+    type: 'user',
+    message: {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: toolUseId, content, is_error: isError }],
+    },
+  };
+}
+
+function resultTextFor(cmd: Command, tool: string): string {
+  if (cmd.type === 'agent.deny') return cmd.reason;
+  if (cmd.type === 'agent.answer') {
+    return Object.entries(cmd.answers)
+      .map(([q, a]) => `${q} → ${a}`)
+      .join('\n');
   }
-  return null;
+  if (tool === PLAN_TOOL) return 'User has approved exiting plan mode. You can now proceed.';
+  if (tool === QUESTION_TOOL) return 'User did not answer the questions.';
+  return 'Approved.';
 }
 
-function documentsFor(documents: Record<string, Document>, requestId: string): Document[] {
-  return Object.values(documents).filter(
-    (d) =>
-      d.status === 'awaiting-review' &&
-      d.source.type === 'plan_review' &&
-      d.source.requestId === requestId,
-  );
+function unresolvedComments(state: ClientState, doc: Document): string[] {
+  return Object.values(state.world.comments)
+    .filter((c) => c.documentId === doc.id && c.version === doc.version && !c.resolved)
+    .map((c) => `> ${c.anchor.quote}\n\n${c.body}`);
 }
 
-function openAttention(attention: Record<string, Attention>, agentId: string): Attention[] {
-  return Object.values(attention).filter((a) => a.clearedAt === null && a.agentId === agentId);
+function newTask(
+  sim: SimWorld,
+  project: string,
+  content: string,
+  command: string,
+  now: string,
+): { task: Task; sim: SimWorld } {
+  const counter = sim.counter + 1;
+  const id = `${project.slice(0, 4).toUpperCase()}-${100 + counter}`;
+  const title = content.split('\n')[0]?.replace(/^#\s*/, '') || 'Untitled';
+  const task: Task = {
+    id,
+    project,
+    title,
+    status: 'todo',
+    command,
+    mode: command ? 'normal' : 'auto',
+    branch: `feat/${id.toLowerCase()}`,
+    parent: '',
+    follows: [],
+    priority: 'normal',
+    model: '',
+    base: '',
+    content,
+    steps: [],
+    log: [],
+    created: now,
+    updated: now,
+    phase: command === 'shape' ? 'shaping' : 'executing',
+    actionable: true,
+  };
+  return { task, sim: { ...sim, counter } };
+}
+
+/** Approving a task-set document promotes its tasks into the notebook. */
+function promoteTasks(state: ClientState, doc: Document, now: string): ServerEvent[] {
+  const parent = state.world.tasks[doc.taskId];
+  if (!parent) return [];
+  const events: ServerEvent[] = [];
+  let previous = parent.id;
+  let tasks = state.world.tasks;
+  for (const spec of TASK_CHAIN) {
+    const id = `${parent.id}.${spec.suffix}`;
+    if (tasks[id]) continue;
+    const task: Task = {
+      ...parent,
+      id,
+      title: spec.title,
+      status: 'todo',
+      command: spec.command,
+      mode: spec.command ? 'normal' : 'auto',
+      follows: [previous],
+      content: `# ${spec.title}\n\nFrom ${doc.title} of ${parent.id}.\n`,
+      created: now,
+      updated: now,
+      phase:
+        spec.command === 'plan-task'
+          ? 'planning'
+          : spec.command === 'watch-pr'
+            ? 'finalising'
+            : 'executing',
+      actionable: false,
+    };
+    tasks = { ...tasks, [id]: task };
+    const promoted = { ...task, actionable: isActionable(task, tasks) };
+    tasks = { ...tasks, [id]: promoted };
+    events.push({ type: 'upsert', kind: 'task', entity: promoted });
+    previous = id;
+  }
+  return events;
 }

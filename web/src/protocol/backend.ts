@@ -35,6 +35,8 @@ export interface SimControls {
   step(n?: number): void;
   setSpeed(x: number): void;
   force(f: ForcedBeat): void;
+  /** Called after every tick and every play/pause/speed change. Returns the unsubscribe. */
+  subscribe(listener: () => void): () => void;
   readonly state: SimState;
 }
 

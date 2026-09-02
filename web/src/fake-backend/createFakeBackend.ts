@@ -1,6 +1,10 @@
-import type { DebugBackend, SimControls, SimState } from '../protocol/backend';
-import { createInMemoryBackend } from './inMemoryBackend';
+import type { DebugBackend, ForcedBeat, SimControls } from '../protocol/backend';
+import { createInMemoryBackend, type InMemoryBackend } from './inMemoryBackend';
 import { SEED_TIME, seedWorld } from './scenarios/seedWorld';
+import { CommandRefused, applyCommand } from './sim/commands';
+import { mulberry32 } from './sim/rng';
+import { createScheduler } from './sim/scheduler';
+import { initialSimState, step, type SimWorld } from './sim/stepper';
 import { createStore } from './store';
 
 export interface FakeBackendOptions {
@@ -8,7 +12,12 @@ export interface FakeBackendOptions {
   seed?: number;
   /** Start the simulation clock on connect. Tests use `false` and `sim.step()`. */
   autoplay?: boolean;
+  /** Wall-clock ms per tick at speed 1. */
+  tickMs?: number;
 }
+
+/** How much simulated time one tick covers. */
+const SIM_SECONDS_PER_TICK = 20;
 
 /** A `DebugBackend` over an in-browser simulation. */
 export function createFakeBackend(opts: FakeBackendOptions = {}): DebugBackend {
@@ -21,26 +30,60 @@ export function createFakeBackend(opts: FakeBackendOptions = {}): DebugBackend {
     clock.now(),
   );
 
-  const state: SimState = { playing: false, speed: 1, tick: 0 };
-  const sim: SimControls = {
-    play: () => {
-      state.playing = true;
+  const rng = mulberry32(opts.seed ?? 1);
+  let sim: SimWorld = initialSimState(store.state);
+
+  const scheduler = createScheduler({
+    baseMs: opts.tickMs ?? 1200,
+    onTick: () => {
+      nowMs += SIM_SECONDS_PER_TICK * 1000;
+      const out = step(store.state, sim, rng, clock.now());
+      sim = out.sim;
+      backend.publish(out.events);
     },
-    pause: () => {
-      state.playing = false;
+  });
+
+  const controls: SimControls = {
+    play: scheduler.play,
+    pause: scheduler.pause,
+    step: scheduler.step,
+    setSpeed: scheduler.setSpeed,
+    subscribe: scheduler.subscribe,
+    force: (f: ForcedBeat) => {
+      sim = { ...sim, force: [...sim.force, f] };
     },
-    step: (n = 1) => {
-      state.tick += n;
-      nowMs += n * 1000;
-    },
-    setSpeed: (x) => {
-      state.speed = x;
-    },
-    force: () => {},
     get state() {
-      return state;
+      return scheduler.state;
     },
   };
-  void opts;
-  return createInMemoryBackend(store, clock, sim);
+
+  const backend: InMemoryBackend = createInMemoryBackend({
+    store,
+    clock,
+    sim: controls,
+    runCommand: (state, cmd, now) => {
+      try {
+        const out = applyCommand(state, sim, cmd, now);
+        sim = out.sim;
+        return { events: out.events, result: out.result };
+      } catch (e) {
+        if (e instanceof CommandRefused) return { error: e.error };
+        throw e;
+      }
+    },
+  });
+
+  const connect = backend.connect.bind(backend);
+  const close = backend.close.bind(backend);
+  return {
+    ...backend,
+    async connect(o) {
+      await connect(o);
+      if (opts.autoplay) controls.play();
+    },
+    close() {
+      controls.pause();
+      close();
+    },
+  };
 }
