@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
 import { sessionTab } from '../selectors/tabs';
@@ -19,18 +19,27 @@ export function DocumentTab({ documentId }: { documentId: string }) {
   const agent = useAppStore((s) => (doc ? s.world.agents[doc.agentId] : undefined));
   const allComments = useAppStore((s) => s.world.comments);
   const body = useRef<HTMLDivElement>(null);
-  const { pending, onMouseUp, clear } = useSelectionComment(body, doc?.markdown ?? '');
+  const { selection, pending, startComment, clear } = useSelectionComment(
+    body,
+    doc?.markdown ?? '',
+  );
 
-  const comments = Object.values(allComments)
-    .filter((c) => c.documentId === documentId && c.version === doc?.version)
-    .sort((a, b) => a.anchor.start - b.anchor.start || a.createdAt.localeCompare(b.createdAt));
+  const version = doc?.version;
+  const comments = useMemo(
+    () =>
+      Object.values(allComments)
+        .filter((c) => c.documentId === documentId && c.version === version)
+        .sort((a, b) => a.anchor.start - b.anchor.start || a.createdAt.localeCompare(b.createdAt)),
+    [allComments, documentId, version],
+  );
   const unresolved = comments.filter((c) => !c.resolved).length;
+  const pendingAnchor = pending?.anchor ?? null;
 
   useEffect(() => {
     if (!body.current) return;
-    return applyHighlights(body.current, comments);
-    // Re-run when the comment set or the rendered text changes.
-  }, [comments, doc?.markdown]);
+    return applyHighlights(body.current, comments, pendingAnchor);
+    // Re-run when the comment set, the pending anchor or the rendered text changes.
+  }, [comments, pendingAnchor, doc?.markdown]);
 
   if (!doc) return <div className={styles.empty}>Document {documentId} is gone.</div>;
 
@@ -62,21 +71,25 @@ export function DocumentTab({ documentId }: { documentId: string }) {
         </div>
       )}
       <div className={styles.split}>
-        <div className={styles.body} ref={body} onMouseUp={onMouseUp} data-testid="document-body">
+        <div className={styles.body} ref={body} data-testid="document-body">
           <Markdown source={doc.markdown} />
         </div>
         <CommentMargin
           comments={comments}
+          selection={selection}
           pending={pending}
+          onStart={startComment}
           onCancel={clear}
-          onAdd={(anchor, text) => {
-            void send({
+          onAdd={async (anchor, text) => {
+            const ok = await send({
               type: 'comment.add',
               documentId,
               version: doc.version,
               anchor,
               body: text,
-            }).then(clear);
+            });
+            if (ok) clear();
+            return ok;
           }}
           onResolve={(commentId) => void send({ type: 'comment.resolve', commentId })}
         />

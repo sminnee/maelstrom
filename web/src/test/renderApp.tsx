@@ -39,3 +39,17 @@ export function clickNode(taskId: string): Element {
 export function pressKey(key: string) {
   fireEvent.keyDown(document.activeElement ?? document.body, { key });
 }
+
+/**
+ * Select `text[start, end)` inside a text node, as a drag would. jsdom queues
+ * selectionchange; the helper fires it at once so the test needs no wait.
+ */
+export function selectText(node: Node, start: number, end: number) {
+  const range = document.createRange();
+  range.setStart(node, start);
+  range.setEnd(node, end);
+  const selection = window.getSelection()!;
+  selection.removeAllRanges();
+  selection.addRange(range);
+  fireEvent(document, new Event('selectionchange'));
+}
