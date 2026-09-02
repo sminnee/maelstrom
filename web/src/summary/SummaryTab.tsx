@@ -1,6 +1,7 @@
 import { openAttentionFor, agentForTask } from '../selectors/graph';
 import { useAppStore } from '../store/store';
 import { documentTab } from '../selectors/tabs';
+import { PanelLink } from '../shell/PanelLink';
 import { QuickActions } from './QuickActions';
 import styles from './SummaryTab.module.css';
 
@@ -79,10 +80,9 @@ export function SummaryTab({ taskId }: { taskId: string }) {
 }
 
 function DocumentLink(props: { id: string; title: string; version: number; status: string }) {
-  const openTab = useAppStore((s) => s.openTab);
   return (
-    <button type="button" className={styles.link} onClick={() => openTab(documentTab(props.id))}>
+    <PanelLink tab={documentTab(props.id)}>
       {props.title} v{props.version} · {props.status}
-    </button>
+    </PanelLink>
   );
 }

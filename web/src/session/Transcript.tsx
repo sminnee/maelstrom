@@ -1,4 +1,6 @@
 import type { TranscriptItem } from '../protocol/transcript';
+import { documentTab } from '../selectors/tabs';
+import { PanelLink } from '../shell/PanelLink';
 import { AgentMessage } from './cards/AgentMessage';
 import { PermissionPrompt } from './cards/PermissionPrompt';
 import { QuestionPrompt } from './cards/QuestionPrompt';
@@ -9,7 +11,6 @@ import styles from './Transcript.module.css';
 export interface TranscriptHandlers {
   onAnswer?: (requestId: string, answers: Record<string, string>) => void;
   onDecide?: (requestId: string, decision: 'allow' | 'deny', reason: string) => void;
-  onOpenDocument?: (documentId: string) => void;
 }
 
 /** The rich transcript: one card per item, in order. */
@@ -68,11 +69,7 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
       return (
         <div className={styles.plan} data-decision={item.decision}>
           <span>Plan review</span>
-          {documentId && (
-            <button type="button" onClick={() => handlers.onOpenDocument?.(documentId)}>
-              Open plan
-            </button>
-          )}
+          {documentId && <PanelLink tab={documentTab(documentId)}>Plan</PanelLink>}
           <span className={styles.decision}>{item.decision ?? 'awaiting review'}</span>
           {item.reason && <div className={styles.reason}>{item.reason}</div>}
         </div>

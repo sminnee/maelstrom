@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { Markdown } from '../markdown/Markdown';
 import type { QuestionItem } from '../protocol/transcript';
+import { sessionTab } from '../selectors/tabs';
 import { QuestionPrompt } from '../session/cards/QuestionPrompt';
+import { PanelLink } from '../shell/PanelLink';
 import { useAppStore } from '../store/store';
 import { useCommand } from '../store/useCommand';
 import { CommentMargin } from './comments/CommentMargin';
@@ -53,7 +55,14 @@ export function DocumentTab({ documentId }: { documentId: string }) {
             {doc.status}
           </span>
         </div>
-        {task && <div className={styles.taskTitle}>{task.title}</div>}
+        <div className={styles.taskLine}>
+          {task && <span className={styles.taskTitle}>{task.title}</span>}
+          {agent && (
+            <PanelLink tab={sessionTab(agent.id)} className={styles.sessionLink}>
+              Session
+            </PanelLink>
+          )}
+        </div>
       </header>
       {question && agent && (
         <div className={styles.question} data-testid="inline-question">

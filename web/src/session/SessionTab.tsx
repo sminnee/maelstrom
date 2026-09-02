@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react';
-import { documentTab } from '../selectors/tabs';
 import { useAppStore } from '../store/store';
 import { useCommand } from '../store/useCommand';
 import { MessageInput } from './MessageInput';
@@ -11,7 +10,6 @@ export function SessionTab({ agentId }: { agentId: string }) {
   const { send, error } = useCommand();
   const agent = useAppStore((s) => s.world.agents[agentId]);
   const transcript = useAppStore((s) => s.transcripts[agentId]);
-  const openTab = useAppStore((s) => s.openTab);
   const bottom = useRef<HTMLDivElement>(null);
   const count = transcript?.items.length ?? 0;
 
@@ -47,7 +45,6 @@ export function SessionTab({ agentId }: { agentId: string }) {
                       reason,
                     },
               ),
-            onOpenDocument: (id) => openTab(documentTab(id)),
           }}
         />
         <div ref={bottom} />
