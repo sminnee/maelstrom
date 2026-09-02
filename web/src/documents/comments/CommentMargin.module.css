@@ -1,0 +1,67 @@
+.margin {
+  width: 220px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+  font-size: 12px;
+}
+.composer,
+.comment {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  background: var(--bg-raised);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.composer {
+  border-color: var(--accent);
+}
+.comment[data-resolved] {
+  opacity: 0.5;
+}
+.quote {
+  margin: 0;
+  padding-left: 6px;
+  border-left: 2px solid var(--attention);
+  color: var(--fg-muted);
+  font-size: 11px;
+  max-height: 60px;
+  overflow: hidden;
+}
+.body {
+  white-space: pre-wrap;
+}
+.meta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--fg-faint);
+  font-size: 10px;
+}
+.resolve {
+  margin-left: auto;
+  font-size: 10px;
+  padding: 0 4px;
+}
+.row {
+  display: flex;
+  gap: 6px;
+}
+.hint {
+  color: var(--fg-faint);
+}
+.composer textarea {
+  font: inherit;
+  color: inherit;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 6px;
+  resize: vertical;
+}

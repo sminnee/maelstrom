@@ -1,0 +1,23 @@
+.bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-raised);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.bar input {
+  flex: 1;
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 3px 6px;
+}
+.approve {
+  border-color: var(--ok);
+  color: var(--ok);
+}

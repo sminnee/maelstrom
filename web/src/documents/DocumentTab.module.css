@@ -71,3 +71,17 @@
   padding: 24px;
   color: var(--fg-faint);
 }
+.split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.question {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.error {
+  color: var(--danger);
+  padding: 4px 12px;
+  font-size: 12px;
+}

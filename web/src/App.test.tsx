@@ -180,3 +180,65 @@ describe('document tabs', () => {
     );
   });
 });
+
+describe('review in a document tab', () => {
+  it('answers a question inline and the node leaves needs-attention', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    const { backend } = await renderApp();
+    const { stepSim } = await import('./test/renderApp');
+    // NORT-9's agent produces a plan, gets it approved, then asks a question.
+    backend.sim.force({ kind: 'plan', agentId: 'd9a4c7f1' });
+    for (let i = 0; i < 8; i += 1) await stepSim(backend);
+    clickNode('NORT-9');
+    await user.click(screen.getByRole('button', { name: 'Approve' }));
+    backend.sim.force({ kind: 'ask', agentId: 'd9a4c7f1' });
+    for (let i = 0; i < 6; i += 1) await stepSim(backend);
+    expect(document.querySelector('[data-task-id="NORT-9"]')).toHaveAttribute(
+      'data-state',
+      'needs-attention',
+    );
+
+    clickNode('NORT-9');
+    await user.click(screen.getByRole('button', { name: /plan\.md v1/ }));
+    const tab = screen.getByTestId('document-tab');
+    const inline = tab.querySelector('[data-testid="inline-question"]')!;
+    expect(inline).not.toBeNull();
+    await user.click(inline.querySelector('button')!);
+    expect(document.querySelector('[data-task-id="NORT-9"]')).not.toHaveAttribute(
+      'data-state',
+      'needs-attention',
+    );
+  });
+
+  it('a comment on selected text lands in the margin and request changes sends it to the agent', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    const { fireEvent } = await import('@testing-library/react');
+    await renderApp();
+    clickNode('NORT-7');
+    await user.click(screen.getByRole('button', { name: /plan\.md v1/ }));
+    const body = screen.getByTestId('document-body');
+    const text = [...body.querySelectorAll('li')].find((el) =>
+      el.textContent?.includes('10,000 rows'),
+    )!;
+    const node = text.firstChild!;
+    const range = document.createRange();
+    range.setStart(node, 0);
+    range.setEnd(node, 'Cap the export'.length);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    fireEvent.mouseUp(body);
+
+    await user.type(screen.getByRole('textbox', { name: 'Comment' }), 'Make the cap configurable.');
+    await user.click(screen.getByRole('button', { name: 'Add comment' }));
+    const margin = screen.getByTestId('comment-margin');
+    expect(margin).toHaveTextContent('Cap the export');
+    expect(margin).toHaveTextContent('Make the cap configurable.');
+
+    await user.click(screen.getByRole('button', { name: 'Request changes' }));
+    expect(screen.getByTestId('document-tab')).toHaveTextContent('changes-requested');
+    clickNode('NORT-7');
+    await user.click(screen.getByRole('button', { name: 'Open session' }));
+    expect(screen.getByRole('tabpanel')).toHaveTextContent('Make the cap configurable.');
+  }, 15_000);
+});

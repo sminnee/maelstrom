@@ -74,6 +74,7 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
             </button>
           )}
           <span className={styles.decision}>{item.decision ?? 'awaiting review'}</span>
+          {item.reason && <div className={styles.reason}>{item.reason}</div>}
         </div>
       );
     }
