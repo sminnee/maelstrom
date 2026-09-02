@@ -2,19 +2,6 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  --phase: var(--fg-faint);
-}
-.document[data-phase='shaping'] {
-  --phase: var(--phase-shaping);
-}
-.document[data-phase='planning'] {
-  --phase: var(--phase-planning);
-}
-.document[data-phase='executing'] {
-  --phase: var(--phase-executing);
-}
-.document[data-phase='finalising'] {
-  --phase: var(--phase-finalising);
 }
 .header {
   padding: 8px 12px;

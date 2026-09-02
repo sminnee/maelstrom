@@ -3,19 +3,6 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  --phase: var(--fg-faint);
-}
-.summary[data-phase='shaping'] {
-  --phase: var(--phase-shaping);
-}
-.summary[data-phase='planning'] {
-  --phase: var(--phase-planning);
-}
-.summary[data-phase='executing'] {
-  --phase: var(--phase-executing);
-}
-.summary[data-phase='finalising'] {
-  --phase: var(--phase-finalising);
 }
 .header {
   border-left: 4px solid var(--phase);
