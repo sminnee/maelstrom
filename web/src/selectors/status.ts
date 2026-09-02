@@ -1,5 +1,10 @@
 import type { Agent, Task } from '../protocol/entities';
 
+/** A document's status in words: `awaiting-review` becomes "awaiting review". */
+export function describeDocumentStatus(status: string): string {
+  return status.replace(/-/g, ' ');
+}
+
 /**
  * A task's state in words, for the node and the expanded node. Raw agent
  * states such as `awaiting-question` never reach the screen.

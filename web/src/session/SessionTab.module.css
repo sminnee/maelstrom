@@ -17,6 +17,10 @@
 }
 .state {
   color: var(--fg-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .state[data-state='processing'] {
   color: var(--accent);

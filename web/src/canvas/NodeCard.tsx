@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import { ViewportPortal } from '@xyflow/react';
+import { ViewportPortal, useReactFlow } from '@xyflow/react';
 import { DecisionCard } from '../decisions/DecisionCard';
 import type { GraphNode } from '../selectors/graph';
-import { describeState } from '../selectors/status';
+import { describeDocumentStatus, describeState } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { toolCallTitle } from '../session/toolCards';
 import { PanelLink } from '../shell/PanelLink';
@@ -38,9 +38,35 @@ export function NodeCard({
   const transcript = useAppStore((s) => s.transcripts[node.agent?.id ?? '']);
   const collapseNode = useAppStore((s) => s.collapseNode);
   const { send, error } = useCommand();
+  const { getViewport, setViewport } = useReactFlow();
   const card = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
   const { task, agent } = node;
+
+  // A card that runs past the canvas edge pans into view. It measures the
+  // laid-out box (the grow animation only plays towards it), and again
+  // whenever the content changes the card's size.
+  useLayoutEffect(() => {
+    const el = card.current;
+    const pane = el?.closest('.react-flow');
+    if (!el || !pane || typeof el.getBoundingClientRect !== 'function') return;
+    const intoView = () => {
+      const box = el.getBoundingClientRect();
+      const edge = pane.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) return;
+      const margin = 16;
+      const dx = Math.min(0, edge.right - margin - box.right);
+      const dy = Math.min(0, edge.bottom - margin - box.bottom);
+      if (dx === 0 && dy === 0) return;
+      const { x, y, zoom } = getViewport();
+      void setViewport({ x: x + dx, y: y + dy, zoom }, { duration: 300 });
+    };
+    intoView();
+    if (typeof ResizeObserver !== 'function') return;
+    const observer = new ResizeObserver(intoView);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [getViewport, setViewport]);
 
   // Grow from the node's size to the card's measured size; the content fades in after.
   useLayoutEffect(() => {
@@ -180,7 +206,7 @@ export function NodeCard({
               {agent && <PanelLink tab={sessionTab(agent.id)}>Session</PanelLink>}
               {documents.map((d) => (
                 <PanelLink key={d.id} tab={documentTab(d.id)}>
-                  {d.title} v{d.version} · {d.status.replace('-', ' ')}
+                  {d.title} v{d.version} · {describeDocumentStatus(d.status)}
                 </PanelLink>
               ))}
             </div>
