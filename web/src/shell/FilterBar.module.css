@@ -1,0 +1,21 @@
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.field select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1px 4px;
+  max-width: 180px;
+}

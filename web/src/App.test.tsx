@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { seedWorld } from './fake-backend/scenarios/seedWorld';
 import { renderApp, stepSim } from './test/renderApp';
 
@@ -38,5 +39,24 @@ describe('the simulation on the canvas', () => {
         'needs-attention';
     }
     expect(changed).toBe(true);
+  });
+});
+
+describe('grouping and filters', () => {
+  it('filtering by branch removes the nodes of other branches', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await user.selectOptions(screen.getByLabelText('Branch'), 'northwind/feat/orders');
+    const nodes = [...document.querySelectorAll('[data-testid="task-node"]')];
+    expect(nodes.map((n) => n.getAttribute('data-task-id')).sort()).toEqual(['NORT-7', 'NORT-7.1']);
+  });
+
+  it('grouping by branch shows one group per branch', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await user.selectOptions(screen.getByLabelText('Group by'), 'branch');
+    const groups = [...document.querySelectorAll('[data-testid="group-node"]')];
+    const branches = new Set(Object.values(seedWorld().world.tasks).map((t) => t.branch));
+    expect(groups).toHaveLength(branches.size);
   });
 });

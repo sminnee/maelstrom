@@ -6,6 +6,7 @@ import type { TaskId } from '../protocol/ids';
 import type { NodeState } from '../protocol/phase';
 import { nodeState } from '../protocol/phase';
 import type { Filters, GroupBy } from './filters';
+import { branchKey } from './filters';
 
 export interface GraphNode {
   id: TaskId;
@@ -62,7 +63,7 @@ export function deriveGraph(world: World, opts: GraphOptions): Graph {
   const tasks = Object.values(world.tasks)
     .filter((t) => t.status !== 'template')
     .filter((t) => !opts.filters.project || t.project === opts.filters.project)
-    .filter((t) => !opts.filters.branch || t.branch === opts.filters.branch)
+    .filter((t) => !opts.filters.branch || branchKey(t.project, t.branch) === opts.filters.branch)
     .filter((t) => !opts.filters.hideDone || (t.status !== 'done' && t.status !== 'cancelled'))
     .sort((a, b) => a.created.localeCompare(b.created) || a.id.localeCompare(b.id));
 
