@@ -236,6 +236,54 @@ A gate that cannot fail is not a gate. A point where a human approves something 
 *checkpoint*, not a gate.
 _Avoid_: Gate (for a human approval step)
 
+**Checkpoint**:
+A point where the user approves, answers or decides something before the work continues: a plan
+review, a question, a permission, a document review. A checkpoint is where a human steps in; a
+gate is automated.
+_Avoid_: Gate, approval step
+
+## Orchestrator UI
+
+**Phase**:
+Which of four stages a task's work is in: shaping, planning, executing, finalising. Derived from
+the task's `command`; an agent inherits its task's phase.
+_Avoid_: Stage, step
+
+**Shaping**:
+Exploring a brief until a set of tasks is agreed and created. Ends at a user checkpoint. May be
+skipped.
+
+**Planning**:
+Producing an agreed plan for one task. Ends at the plan-review checkpoint.
+
+**Executing**:
+Building the code, running its own review, opening the PR. Ends when the PR first ships.
+
+**Finalising**:
+Answering CI failures and review feedback on an open PR. Ends when it merges.
+
+**Document**:
+A versioned markdown artefact an agent produces for a checkpoint: a plan, a task set, a PR
+description, a review.
+_Avoid_: Artefact, output, file
+
+**Comment**:
+Feedback anchored to a span of one document version. Requesting changes sends the unresolved
+comments back to the agent.
+
+**Attention item**:
+One thing waiting on the user: a wait kind, a document awaiting review, an exited agent. Raised
+and cleared by the backend, never inferred by the UI.
+
+**Brief**:
+The free-text starting point for shaping.
+
+**Beat**:
+One thing a simulated agent does: `say`, `read`, `edit`, `bash`, `ask`, `permission`, `plan`,
+`finish` or `exit`. A beat expands to raw stream-json in the daemon's recorded shapes. A script
+is a list of beats, walked one per tick.
+_Avoid_: Step, action, event
+
 ## Knowledge stores
 
 **Task notebook**:
