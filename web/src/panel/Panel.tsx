@@ -3,7 +3,6 @@ import { useAppStore } from '../store/store';
 import type { PanelTab } from '../store/uiSlice';
 import { DocumentTab } from '../documents/DocumentTab';
 import { SessionTab } from '../session/SessionTab';
-import { SummaryTab } from '../summary/SummaryTab';
 import { PANEL_BODY_ID, PanelTabs } from './PanelTabs';
 import styles from './Panel.module.css';
 
@@ -58,7 +57,7 @@ export function Panel() {
         {active ? (
           <TabBody tab={active} />
         ) : (
-          <div className={styles.empty}>Click a node to open it.</div>
+          <div className={styles.empty}>Open a session or a document from a node.</div>
         )}
       </div>
     </aside>
@@ -67,8 +66,6 @@ export function Panel() {
 
 function TabBody({ tab }: { tab: PanelTab }) {
   switch (tab.kind) {
-    case 'summary':
-      return <SummaryTab taskId={tab.taskId} />;
     case 'session':
       return <SessionTab agentId={tab.agentId} />;
     case 'document':

@@ -11,8 +11,6 @@ function hrefFor(tab: PanelTab): string {
       return `#panel/session/${tab.agentId}`;
     case 'document':
       return `#panel/document/${tab.documentId}`;
-    case 'summary':
-      return `#panel/summary/${tab.taskId}`;
   }
 }
 

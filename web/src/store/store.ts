@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { EventFrame } from '../protocol/events';
 import type { ClientState } from '../protocol/reducer';
 import { applyServerEvent, initialClientState } from '../protocol/reducer';
+import type { TaskId } from '../protocol/ids';
 import type { Filters, GroupBy } from '../selectors/filters';
 import type { PanelTab, UiState } from './uiSlice';
 import { initialUiState } from './uiSlice';
@@ -16,6 +17,9 @@ export interface AppStore extends ClientState {
   openTab(tab: PanelTab): void;
   activateTab(key: string): void;
   closeTab(key: string): void;
+  /** Expand a node in place. With `toggle`, expanding the expanded node collapses it. */
+  expandNode(taskId: TaskId, toggle?: boolean): void;
+  collapseNode(): void;
   setDrawerOpen(open: boolean): void;
   setPanelWidth(width: number): void;
 }
@@ -39,6 +43,12 @@ export const useAppStore = create<AppStore>()((set) => ({
       const { tabs, activeTabKey } = closeTabIn(s.ui.tabs, s.ui.activeTabKey, key);
       return { ui: { ...s.ui, tabs, activeTabKey } };
     }),
+  expandNode: (taskId, toggle = true) =>
+    set((s) => ({
+      ui: { ...s.ui, expandedTaskId: toggle && s.ui.expandedTaskId === taskId ? null : taskId },
+    })),
+  collapseNode: () =>
+    set((s) => (s.ui.expandedTaskId ? { ui: { ...s.ui, expandedTaskId: null } } : s)),
   setDrawerOpen: (drawerOpen) => set((s) => ({ ui: { ...s.ui, drawerOpen } })),
   setPanelWidth: (panelWidth) => set((s) => ({ ui: { ...s.ui, panelWidth } })),
 }));

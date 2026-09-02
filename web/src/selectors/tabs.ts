@@ -2,7 +2,6 @@ import type { Phase } from '../protocol/entities';
 import type { World } from '../protocol/events';
 import type { AgentId, TaskId } from '../protocol/ids';
 import type { PanelTab } from '../store/uiSlice';
-import { agentForTask } from './graph';
 
 /** Add `tab` unless a tab with its key is open already. Either way it is the one to focus. */
 export function openOrFocusTab(tabs: PanelTab[], tab: PanelTab): PanelTab[] {
@@ -23,11 +22,6 @@ export function closeTab(
   return { tabs: remaining, activeTabKey: neighbour?.key ?? null };
 }
 
-export const summaryTab = (taskId: TaskId): PanelTab => ({
-  key: `summary:${taskId}`,
-  kind: 'summary',
-  taskId,
-});
 export const sessionTab = (agentId: AgentId): PanelTab => ({
   key: `session:${agentId}`,
   kind: 'session',
@@ -44,23 +38,13 @@ export interface TabAttribution {
   /** Null when the entity has left the world: the chip then draws no phase. */
   phase: Phase | null;
   agentId: AgentId | null;
-  /** What the tab is: 'summary', 'session', or the document title. */
+  /** What the tab is: 'session', or the document title. */
   title: string;
 }
 
 /** Which task (and phase) a tab belongs to, so two tabs from two agents are told apart. */
 export function tabAttribution(world: World, tab: PanelTab): TabAttribution {
   switch (tab.kind) {
-    case 'summary': {
-      const task = world.tasks[tab.taskId];
-      const agent = agentForTask(world, tab.taskId);
-      return {
-        taskId: tab.taskId,
-        phase: task?.phase ?? agent?.phase ?? null,
-        agentId: agent?.id ?? null,
-        title: 'summary',
-      };
-    }
     case 'session': {
       const agent = world.agents[tab.agentId];
       return {
