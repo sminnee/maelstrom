@@ -175,6 +175,8 @@ class Run {
       this.exit(agent, forced.exitCode);
       return;
     }
+    // The forced beat plays after the current beat's remaining events, so an
+    // open tool call still gets its result.
     if (forced) this.queue(agent.id, [this.forcedBeat(forced, agent)]);
 
     const current = this.state.world.agents[agent.id]!;

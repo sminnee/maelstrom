@@ -124,9 +124,8 @@ describe('the session tab', () => {
 
 describe('document tabs', () => {
   it('two documents from two agents open as two attributed tabs that survive a third', async () => {
-    const user = (await import('@testing-library/user-event')).default.setup();
+    const user = userEvent.setup();
     const { backend } = await renderApp();
-    const { stepSim } = await import('./test/renderApp');
     // A second plan, from a second agent, so there are two documents to open.
     backend.sim.force({ kind: 'plan', agentId: 'd9a4c7f1' });
     for (let i = 0; i < 8; i += 1) await stepSim(backend);
@@ -153,7 +152,7 @@ describe('document tabs', () => {
   });
 
   it('focusing a document tab focuses its node, and clicking another node moves the focus', async () => {
-    const user = (await import('@testing-library/user-event')).default.setup();
+    const user = userEvent.setup();
     await renderApp();
     clickNode('NORT-7');
     await user.click(screen.getByRole('button', { name: /plan\.md v1/ }));
@@ -171,7 +170,6 @@ describe('document tabs', () => {
 
   it('the attention badge on a node opens its document', async () => {
     await renderApp();
-    const { fireEvent } = await import('@testing-library/react');
     const badge = document.querySelector('[data-task-id="NORT-7"] [aria-label="needs attention"]')!;
     fireEvent.click(badge);
     expect(screen.getByRole('tab', { selected: true })).toHaveAttribute(
@@ -183,9 +181,8 @@ describe('document tabs', () => {
 
 describe('review in a document tab', () => {
   it('answers a question inline and the node leaves needs-attention', async () => {
-    const user = (await import('@testing-library/user-event')).default.setup();
+    const user = userEvent.setup();
     const { backend } = await renderApp();
-    const { stepSim } = await import('./test/renderApp');
     // NORT-9's agent produces a plan, gets it approved, then asks a question.
     backend.sim.force({ kind: 'plan', agentId: 'd9a4c7f1' });
     for (let i = 0; i < 8; i += 1) await stepSim(backend);
@@ -211,8 +208,7 @@ describe('review in a document tab', () => {
   });
 
   it('a comment on selected text lands in the margin and request changes sends it to the agent', async () => {
-    const user = (await import('@testing-library/user-event')).default.setup();
-    const { fireEvent } = await import('@testing-library/react');
+    const user = userEvent.setup();
     await renderApp();
     clickNode('NORT-7');
     await user.click(screen.getByRole('button', { name: /plan\.md v1/ }));
@@ -241,4 +237,37 @@ describe('review in a document tab', () => {
     await user.click(screen.getByRole('button', { name: 'Open session' }));
     expect(screen.getByRole('tabpanel')).toHaveTextContent('Make the cap configurable.');
   }, 15_000);
+});
+
+describe('the debug drawer', () => {
+  it('forcing a question makes the node need attention and raises the chip count', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const before = Number(screen.getByTestId('attention-chip').textContent?.replace(/\D/g, ''));
+    await user.click(screen.getByRole('button', { name: 'Toggle debug drawer' }));
+    const drawer = screen.getByTestId('debug-drawer');
+    const row = within(drawer).getByTestId('drawer-agent-d9a4c7f1');
+    await user.click(within(row).getByRole('button', { name: 'Ask' }));
+    expect(document.querySelector('[data-task-id="NORT-9"]')).toHaveAttribute(
+      'data-state',
+      'needs-attention',
+    );
+    expect(Number(screen.getByTestId('attention-chip').textContent?.replace(/\D/g, ''))).toBe(
+      before + 1,
+    );
+  });
+
+  it('forcing an exit turns the node red', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await user.click(screen.getByRole('button', { name: 'Toggle debug drawer' }));
+    const row = within(screen.getByTestId('debug-drawer')).getByTestId('drawer-agent-c3e8f1b5');
+    await user.click(within(row).getByRole('button', { name: 'Exit 1' }));
+    expect(document.querySelector('[data-task-id="MAEL-40.1"]')).toHaveAttribute(
+      'data-state',
+      'exited',
+    );
+    await user.click(screen.getByRole('button', { name: 'Toggle debug drawer' }));
+    expect(screen.queryByTestId('debug-drawer')).toBeNull();
+  });
 });
