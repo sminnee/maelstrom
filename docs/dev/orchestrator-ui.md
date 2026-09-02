@@ -16,7 +16,7 @@ unit that needs orders shows it on the canvas itself.
 | Protocol | `protocol/` | Entity types, events, commands, the `Backend` interface, and the pure reducers | Nothing |
 | Fake backend | `fake-backend/` | The in-browser simulation that implements `Backend` | Protocol |
 | State | `store/`, `selectors/` | One zustand store and the pure functions that derive views from it | Protocol |
-| UI | `canvas/`, `panel/`, `summary/`, `session/`, `documents/`, `shell/`, `sim/` | React components | State, Protocol |
+| UI | `canvas/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, `sim/`, plus the `markdown/` and `styles/` they share, and `test/` for shared test helpers | React components and CSS | State, Protocol |
 
 The protocol has no React and no I/O. That is what lets the fake backend and the client share
 one reducer, and what lets a Python backend implement the same contract later.
@@ -47,6 +47,36 @@ Two pure modules carry the rules a real backend must apply:
 - `protocol/normalise.ts` turns the daemon's raw stream-json into transcript items, agent
   upserts, documents and attention items. It follows `agent_model.apply_event` and is tested by
   replaying every fixture under `tests/fixtures/agent_events/`.
+
+## The canvas and the panel
+
+The canvas is where the user decides. The panel is where the user reads.
+
+Clicking a task node expands it in place, showing the state in words ("Needs you · plan
+review", never a raw agent state). Esc, the close button and a click on the canvas collapse
+it. The attention chip expands the next node that needs the user.
+
+A decision shows the last three things the agent said or did, then the prompt. A question
+follows AskUserQuestion's shape; `session/cards/QuestionPrompt.tsx` says why every answer
+sends together. A permission shows the tool input with Approve and Deny. A plan review links
+to the plan with Approve and Deny. Deny sends the reason as the agent's tool result, and the
+agent carries on with it. The expanded node and the document tab render the same
+`DecisionCard`, so the two agree.
+
+The panel holds session and document tabs only. A panel link opens a session or a document as
+a tab; `shell/PanelLink.tsx` says why links, not buttons. Every tab carries a phase chip and
+its task id, so two agents' tabs are told apart.
+
+Group by `project` and `branch` draw one hairline lane per group. Group by `none` draws no
+lanes.
+
+Commenting on a document takes one drag. Selecting text shows a "Comment on selection" control
+level with the selection. Clicking it paints the selection in a stronger highlight and opens the
+composer with the textarea focused.
+
+Colour comes from `styles/tokens.css`, which holds both the primitive and the semantic layer
+and documents the rule: no file outside it names a hex colour. One `[data-phase]` rule in
+`styles/base.css` sets `--phase` from a phase attribute.
 
 ## The fake backend and a real one
 
@@ -85,15 +115,12 @@ any live agent.
 
 ## What the tests cover
 
-Tests sit at the seams the plan agreed, never against internals:
+Tests sit at the seams the plan agreed, never against internals: the pure modules, the
+`Backend` contract through `createFakeBackend`, the question prompt at its props seam, and the
+app boundary with Testing Library on a paused fake backend advanced by `sim.step()`.
 
-- The pure modules: reducer, validation, phase, normalisation (fixture replay), the stepper, the
-  graph and layout selectors, the tab and attention selectors, comment anchors.
-- The `Backend` contract, through `createFakeBackend`.
-- The app boundary, with Testing Library on a paused fake backend, advanced with `sim.step()`:
-  opening tabs, approving, answering, filtering, commenting, forcing events.
-
-Colours, glow, animation, pan and zoom, pixel positions and markdown fidelity are not tested.
+Colours, light mode, glow, the grow animation, pan and zoom, pixel positions and markdown
+fidelity are not tested.
 
 Canvas nodes are clicked with `fireEvent.click`, not user-event — see `clickNode` in
 `src/test/renderApp.tsx` for why. Everything outside the canvas uses user-event.
@@ -101,5 +128,6 @@ Canvas nodes are clicked with `fireEvent.click`, not user-event — see `clickNo
 ## Out of scope for the proof of concept
 
 The WebSocket backend and its Python bridge, an embedded terminal, auth, persistence across
-reloads, an elk layout, keyboard shortcuts, syntax highlighting in markdown, and answering a
-plan review from the session tab (the summary and document tabs answer it).
+reloads, an elk layout, a global keyboard shortcut layer (Esc on the card and the question's
+digit keys are local to their components), syntax highlighting in markdown, and answering a
+plan review from the session tab (the expanded node and the document tab answer it).
