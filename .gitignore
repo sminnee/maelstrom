@@ -45,6 +45,8 @@ htmlcov/
 
 # Node
 node_modules/
+web/.vite/
+*.tsbuildinfo
 
 # OS
 .DS_Store
