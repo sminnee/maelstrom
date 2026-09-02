@@ -1,11 +1,19 @@
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import type { GraphNode } from '../selectors/graph';
+import { documentTab, summaryTab } from '../selectors/tabs';
+import { useAppStore } from '../store/store';
 import styles from './TaskNode.module.css';
 
 export type TaskFlowNode = Node<{ node: GraphNode; focused: boolean }, 'task'>;
 
 export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
   const { node, focused } = data;
+  const openTab = useAppStore((s) => s.openTab);
+  const openAttention = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const documentId = node.attention.find((a) => a.documentId)?.documentId;
+    openTab(documentId ? documentTab(documentId) : summaryTab(node.id));
+  };
   return (
     <div
       className={styles.node}
@@ -20,9 +28,14 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
         <span className={styles.id}>{node.id}</span>
         <span className={styles.phase}>{node.phase}</span>
         {node.state === 'needs-attention' && (
-          <span className={styles.badge} aria-label="needs attention">
+          <button
+            type="button"
+            className={styles.badge}
+            aria-label="needs attention"
+            onClick={openAttention}
+          >
             !
-          </span>
+          </button>
         )}
         {node.state === 'done' && <span className={styles.tick}>✓</span>}
       </div>
