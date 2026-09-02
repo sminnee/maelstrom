@@ -4,7 +4,6 @@
   flex-direction: column;
   border-left: 1px solid var(--border);
   background: var(--bg);
-  min-width: 320px;
   flex-shrink: 0;
 }
 .grip {
