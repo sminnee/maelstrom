@@ -278,6 +278,21 @@ and cleared by the backend, never inferred by the UI.
 **Brief**:
 The free-text starting point for shaping.
 
+**Expanded node**:
+A task node grown in place into a card that shows its status, the decision it waits on, and
+links into the panel. One node is expanded at a time.
+_Avoid_: Popup, detail panel, summary tab, dialog
+
+**Decision**:
+The block an expanded node or a document shows when an agent waits on the user: the last
+messages before the wait, then the prompt (question, permission or plan review).
+_Avoid_: Checkpoint UI, prompt card
+
+**Panel link**:
+A link that opens a session or a document as a tab in the right panel. It carries the
+open-in-panel icon.
+_Avoid_: Open button
+
 **Beat**:
 One thing a simulated agent does: `say`, `read`, `edit`, `bash`, `ask`, `permission`, `plan`,
 `finish` or `exit`. A beat expands to raw stream-json in the daemon's recorded shapes. A script
