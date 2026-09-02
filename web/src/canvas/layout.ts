@@ -49,6 +49,7 @@ export function layoutSwimlanes(graph: Graph): Layout {
 
   const bands: { id: string; height: number }[] = [];
   for (const group of graph.groups) {
+    const header = group.kind === 'none' ? 0 : LANE_HEADER;
     const taken = new Map<number, Set<number>>();
     const slotOf = new Map<string, number>();
     let rows = 0;
@@ -65,13 +66,13 @@ export function layoutSwimlanes(graph: Graph): Layout {
       slotOf.set(id, slot);
       nodes[id] = {
         x: LANE_PAD + column * (NODE.width + GAP_X),
-        y: LANE_HEADER + LANE_PAD + slot * (NODE.height + GAP_Y),
+        y: header + LANE_PAD + slot * (NODE.height + GAP_Y),
       };
       rows = Math.max(rows, slot + 1);
       columns = Math.max(columns, column + 1);
     }
     const width = LANE_PAD * 2 + columns * NODE.width + Math.max(0, columns - 1) * GAP_X;
-    const height = LANE_HEADER + LANE_PAD * 2 + rows * NODE.height + Math.max(0, rows - 1) * GAP_Y;
+    const height = header + LANE_PAD * 2 + rows * NODE.height + Math.max(0, rows - 1) * GAP_Y;
     maxWidth = Math.max(maxWidth, width);
     bands.push({ id: group.id, height });
   }

@@ -78,6 +78,21 @@ describe('deriveGraph', () => {
     expect(graph.nodes.find((n) => n.id === 'T2')?.groupId).toBe(db?.id);
   });
 
+  it('groups by none with one unlabelled group holding every node, edges kept', () => {
+    const world = worldWith({
+      tasks: [
+        makeTask({ id: 'T1', project: 'northwind' }),
+        makeTask({ id: 'T2', project: 'maelstrom', follows: ['T1'] }),
+      ],
+    });
+    const graph = deriveGraph(world, { groupBy: 'none', filters: noFilters() });
+    expect(graph.groups).toEqual([
+      { id: 'all', kind: 'none', label: '', sublabel: '', nodeIds: ['T1', 'T2'] },
+    ]);
+    expect(graph.nodes.map((n) => n.groupId)).toEqual(['all', 'all']);
+    expect(graph.edges.map((e) => e.id)).toEqual(['T1->T2']);
+  });
+
   it('filters drop nodes and the edges that dangle from them', () => {
     const world = worldWith({
       tasks: [

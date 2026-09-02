@@ -72,7 +72,7 @@ export function deriveGraph(world: World, opts: GraphOptions): Graph {
   for (const task of tasks) {
     const agent = agentForTask(world, task.id);
     const attention = openAttentionFor(world, task, agent);
-    const groupId = opts.groupBy === 'project' ? task.project : `${task.project}/${task.branch}`;
+    const groupId = groupIdFor(task, opts.groupBy);
     if (!groups.has(groupId)) groups.set(groupId, makeGroup(world, task, groupId, opts.groupBy));
     groups.get(groupId)!.nodeIds.push(task.id);
     nodes.push({
@@ -103,7 +103,20 @@ export function deriveGraph(world: World, opts: GraphOptions): Graph {
   };
 }
 
+function groupIdFor(task: Task, kind: GroupBy): string {
+  switch (kind) {
+    case 'project':
+      return task.project;
+    case 'branch':
+      return `${task.project}/${task.branch}`;
+    case 'none':
+      return 'all';
+  }
+}
+
+/** With `none`, one unlabelled group holds every node and the canvas draws no lane for it. */
 function makeGroup(world: World, task: Task, id: string, kind: GroupBy): GraphGroup {
+  if (kind === 'none') return { id, kind, label: '', sublabel: '', nodeIds: [] };
   if (kind === 'project') {
     return {
       id,

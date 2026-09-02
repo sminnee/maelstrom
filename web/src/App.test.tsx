@@ -51,13 +51,16 @@ describe('grouping and filters', () => {
     expect(nodes.map((n) => n.getAttribute('data-task-id')).sort()).toEqual(['NORT-7', 'NORT-7.1']);
   });
 
-  it('grouping by branch shows one group per branch', async () => {
+  it('grouping by branch shows one group per branch, and by none shows no groups', async () => {
     const user = userEvent.setup();
     await renderApp();
     await user.selectOptions(screen.getByLabelText('Group by'), 'branch');
-    const groups = [...document.querySelectorAll('[data-testid="group-node"]')];
+    const groups = () => document.querySelectorAll('[data-testid="group-node"]');
     const branches = new Set(Object.values(seedWorld().world.tasks).map((t) => t.branch));
-    expect(groups).toHaveLength(branches.size);
+    expect(groups()).toHaveLength(branches.size);
+    await user.selectOptions(screen.getByLabelText('Group by'), 'none');
+    expect(groups()).toHaveLength(0);
+    expect(screen.getAllByTestId('task-node').length).toBeGreaterThan(0);
   });
 });
 

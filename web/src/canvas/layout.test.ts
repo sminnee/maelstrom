@@ -81,6 +81,26 @@ describe('layoutSwimlanes', () => {
     expect(layout.nodes['D']!.y).toBeGreaterThan(layout.nodes['C']!.y);
   });
 
+  it('group by none lays the whole world out as one band with no header', () => {
+    const graph = deriveGraph(worldWith({ tasks: chain }), {
+      groupBy: 'none',
+      filters: noFilters(),
+    });
+    const layout = layoutSwimlanes(graph);
+    expect(Object.keys(layout.groups)).toEqual(['all']);
+    expect(Math.min(...graph.nodes.map((n) => layout.nodes[n.id]!.y))).toBeLessThan(
+      layoutSwimlanes(graphOf(chain)).nodes['A']!.y,
+    );
+    expect(layout.nodes['B']!.x).toBeGreaterThan(layout.nodes['A']!.x);
+    expect(layout.nodes['F']!.x).toBeGreaterThan(layout.nodes['E']!.x);
+    const boxes = graph.nodes.map((n) => ({ ...layout.nodes[n.id]!, ...layout.nodeSize }));
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        expect(overlaps(boxes[i]!, boxes[j]!)).toBe(false);
+      }
+    }
+  });
+
   it('is deterministic', () => {
     expect(layoutSwimlanes(graphOf(chain))).toEqual(layoutSwimlanes(graphOf(chain)));
   });

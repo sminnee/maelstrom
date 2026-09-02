@@ -23,7 +23,11 @@ export function Canvas() {
   const { nodes, edges } = useMemo(() => {
     const graph = deriveGraph(world, { groupBy, filters });
     const layout = layoutSwimlanes(graph);
-    const groupNodes: GroupFlowNode[] = graph.groups.map((group) => {
+    // A group with an empty label (group by none) draws no lane: its nodes
+    // sit at absolute positions instead of inside a parent.
+    const lanes = graph.groups.filter((g) => g.label !== '');
+    const laneIds = new Set(lanes.map((g) => g.id));
+    const groupNodes: GroupFlowNode[] = lanes.map((group) => {
       const box = layout.groups[group.id]!;
       return {
         id: `group:${group.id}`,
@@ -39,8 +43,13 @@ export function Canvas() {
     const taskNodes: TaskFlowNode[] = graph.nodes.map((node) => ({
       id: node.id,
       type: 'task',
-      parentId: `group:${node.groupId}`,
-      position: layout.nodes[node.id]!,
+      ...(laneIds.has(node.groupId) ? { parentId: `group:${node.groupId}` } : {}),
+      position: laneIds.has(node.groupId)
+        ? layout.nodes[node.id]!
+        : {
+            x: layout.groups[node.groupId]!.x + layout.nodes[node.id]!.x,
+            y: layout.groups[node.groupId]!.y + layout.nodes[node.id]!.y,
+          },
       width: layout.nodeSize.width,
       height: layout.nodeSize.height,
       draggable: false,
