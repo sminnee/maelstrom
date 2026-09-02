@@ -1,0 +1,9 @@
+.chip {
+  font-weight: 600;
+  color: var(--attention);
+  border-color: color-mix(in srgb, var(--attention) 50%, transparent);
+}
+.chip[data-count='0'] {
+  color: var(--fg-faint);
+  border-color: var(--border);
+}
