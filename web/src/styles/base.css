@@ -54,7 +54,10 @@ pre {
 }
 
 ::highlight(document-comments) {
-  background: color-mix(in srgb, var(--attention) 35%, transparent);
+  background: color-mix(in srgb, var(--attention) 30%, transparent);
+}
+::highlight(document-pending) {
+  background: color-mix(in srgb, var(--attention) 65%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {

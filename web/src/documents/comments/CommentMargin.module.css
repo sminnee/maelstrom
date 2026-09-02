@@ -1,4 +1,5 @@
 .margin {
+  position: relative;
   width: 220px;
   flex-shrink: 0;
   border-left: 1px solid var(--border);
@@ -7,7 +8,16 @@
   flex-direction: column;
   gap: 10px;
   overflow: auto;
-  font-size: 12px;
+  font-size: var(--text-sm);
+}
+.offer {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  border-color: var(--attention);
+  color: var(--attention);
+  font-weight: 500;
+  z-index: 1;
 }
 .composer,
 .comment {
@@ -17,10 +27,10 @@
   background: var(--bg-raised);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .composer {
-  border-color: var(--accent);
+  border-color: var(--attention);
 }
 .comment[data-resolved] {
   opacity: 0.5;
@@ -30,7 +40,7 @@
   padding-left: 6px;
   border-left: 2px solid var(--attention);
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: var(--text-xs);
   max-height: 60px;
   overflow: hidden;
 }
@@ -52,6 +62,14 @@
 .row {
   display: flex;
   gap: 6px;
+}
+.primary {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.quiet {
+  color: var(--fg-muted);
 }
 .hint {
   color: var(--fg-faint);

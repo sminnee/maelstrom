@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { seedWorld } from './fake-backend/scenarios/seedWorld';
-import { clickNode, pressKey, renderApp, stepSim } from './test/renderApp';
+import { clickNode, pressKey, renderApp, selectText, stepSim } from './test/renderApp';
 
 /** The one expanded node, as the card it grew into. */
 const expanded = () => screen.getByRole('dialog');
@@ -232,7 +232,7 @@ describe('review in a document tab', () => {
     expect(nodeState('NORT-9')).not.toBe('needs-attention');
   });
 
-  it('a comment on selected text lands in the margin and request changes sends it to the agent', async () => {
+  it('one drag offers a comment; the composer opens on click, and request changes sends it to the agent', async () => {
     const user = userEvent.setup();
     await renderApp();
     clickNode('NORT-7');
@@ -241,15 +241,11 @@ describe('review in a document tab', () => {
     const text = [...body.querySelectorAll('li')].find((el) =>
       el.textContent?.includes('10,000 rows'),
     )!;
-    const node = text.firstChild!;
-    const range = document.createRange();
-    range.setStart(node, 0);
-    range.setEnd(node, 'Cap the export'.length);
-    const selection = window.getSelection()!;
-    selection.removeAllRanges();
-    selection.addRange(range);
-    fireEvent.mouseUp(body);
-
+    selectText(text.firstChild!, 0, 'Cap the export'.length);
+    // The control appears at once; no second click on the text is needed.
+    expect(screen.queryByRole('textbox', { name: 'Comment' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Comment on selection' }));
+    expect(screen.getByTestId('comment-margin')).toHaveTextContent('Cap the export');
     await user.type(screen.getByRole('textbox', { name: 'Comment' }), 'Make the cap configurable.');
     await user.click(screen.getByRole('button', { name: 'Add comment' }));
     const margin = screen.getByTestId('comment-margin');
