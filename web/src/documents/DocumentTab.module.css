@@ -1,0 +1,73 @@
+.document {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  --phase: var(--fg-faint);
+}
+.document[data-phase='shaping'] {
+  --phase: var(--phase-shaping);
+}
+.document[data-phase='planning'] {
+  --phase: var(--phase-planning);
+}
+.document[data-phase='executing'] {
+  --phase: var(--phase-executing);
+}
+.document[data-phase='finalising'] {
+  --phase: var(--phase-finalising);
+}
+.header {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  border-left: 4px solid var(--phase);
+}
+.line {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--fg-muted);
+}
+.task {
+  font-weight: 600;
+  color: var(--fg);
+}
+.phase {
+  color: var(--phase);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+}
+.title {
+  color: var(--fg);
+}
+.version {
+  color: var(--fg-faint);
+}
+.status {
+  margin-left: auto;
+}
+.status[data-status='awaiting-review'] {
+  color: var(--attention);
+}
+.status[data-status='approved'] {
+  color: var(--ok);
+}
+.status[data-status='changes-requested'] {
+  color: var(--danger);
+}
+.taskTitle {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 14px;
+}
+.empty {
+  padding: 24px;
+  color: var(--fg-faint);
+}

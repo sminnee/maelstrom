@@ -75,6 +75,9 @@
   margin-left: auto;
 }
 .badge {
+  border: none;
+  padding: 0;
+  cursor: pointer;
   background: var(--attention);
   color: #000;
   font-weight: 700;

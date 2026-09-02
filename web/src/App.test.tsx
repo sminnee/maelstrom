@@ -121,3 +121,62 @@ describe('the session tab', () => {
     expect(screen.getByText('Prefer the ICU collation.')).toBeInTheDocument();
   });
 });
+
+describe('document tabs', () => {
+  it('two documents from two agents open as two attributed tabs that survive a third', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    const { backend } = await renderApp();
+    const { stepSim } = await import('./test/renderApp');
+    // A second plan, from a second agent, so there are two documents to open.
+    backend.sim.force({ kind: 'plan', agentId: 'd9a4c7f1' });
+    for (let i = 0; i < 8; i += 1) await stepSim(backend);
+
+    clickNode('NORT-7');
+    await user.click(screen.getByRole('button', { name: /plan\.md v1/ }));
+    clickNode('NORT-9');
+    await user.click(screen.getByRole('button', { name: /plan\.md v1/ }));
+    const chips = () =>
+      [...document.querySelectorAll('[role="tab"] [data-testid="tab-chip"]')].map(
+        (c) => c.textContent,
+      );
+    const docTabs = () => [...document.querySelectorAll('[role="tab"][data-tab-key^="document:"]')];
+    expect(docTabs()).toHaveLength(2);
+    expect(
+      new Set(docTabs().map((t) => t.querySelector('[data-testid="tab-chip"]')?.textContent)).size,
+    ).toBe(2);
+    expect(screen.getByRole('tabpanel')).toHaveTextContent('Migrate to Postgres 16');
+
+    clickNode('NORT-9');
+    await user.click(screen.getByRole('button', { name: 'Open session' }));
+    expect(docTabs()).toHaveLength(2);
+    expect(chips().length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('focusing a document tab focuses its node, and clicking another node moves the focus', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    await renderApp();
+    clickNode('NORT-7');
+    await user.click(screen.getByRole('button', { name: /plan\.md v1/ }));
+    expect(document.querySelector('[data-task-id="NORT-7"]')).toHaveAttribute('data-focused');
+    clickNode('NORT-9');
+    expect(screen.getByRole('tab', { selected: true })).toHaveAttribute(
+      'data-tab-key',
+      'summary:NORT-9',
+    );
+    expect(document.querySelector('[data-task-id="NORT-7"]')).not.toHaveAttribute('data-focused');
+    expect(document.querySelector('[data-task-id="NORT-9"]')).toHaveAttribute('data-focused');
+    await user.click(screen.getByRole('tab', { name: /plan\.md/ }));
+    expect(document.querySelector('[data-task-id="NORT-7"]')).toHaveAttribute('data-focused');
+  });
+
+  it('the attention badge on a node opens its document', async () => {
+    await renderApp();
+    const { fireEvent } = await import('@testing-library/react');
+    const badge = document.querySelector('[data-task-id="NORT-7"] [aria-label="needs attention"]')!;
+    fireEvent.click(badge);
+    expect(screen.getByRole('tab', { selected: true })).toHaveAttribute(
+      'data-tab-key',
+      'document:doc-nort7-plan',
+    );
+  });
+});
