@@ -1135,21 +1135,21 @@ class TestBuildPrompt:
         assert model.build_prompt(t) == "Do thing\n\nNo token here."
 
 
-# --- _permission_mode_for ---
+# --- permission_mode_for ---
 
 
 class TestPermissionMode:
     def test_plan_maps_to_plan(self):
-        assert model._permission_mode_for("plan") == "plan"
+        assert model.permission_mode_for("plan") == "plan"
 
     def test_auto_maps_to_auto(self):
-        assert model._permission_mode_for("auto") == "auto"
+        assert model.permission_mode_for("auto") == "auto"
 
     def test_normal_maps_to_none(self):
-        assert model._permission_mode_for("normal") is None
+        assert model.permission_mode_for("normal") is None
 
     def test_unknown_maps_to_none(self):
-        assert model._permission_mode_for("anything-else") is None
+        assert model.permission_mode_for("anything-else") is None
 
 
 # --- next_task ---

@@ -121,3 +121,19 @@ def move_with_actions(store, project, id, new_status, *, now=None, index=None):
     if field:
         run_action(moved, getattr(moved, field))
     return moved
+
+
+def index_is_fresh(store, index) -> bool:
+    """Whether ``index`` is complete at the store's current HEAD.
+
+    Capture this *before* a mutation: an incremental row update preserves
+    completeness, so a fresh index may be re-stamped afterwards, while a stale
+    one must keep scanning until ``task reindex`` rebuilds it.
+    """
+    return index.head() == store.head()
+
+
+def restamp(store, index, *, was_fresh: bool) -> None:
+    """Advance the index HEAD stamp after a mutation, only if it was complete."""
+    if was_fresh:
+        index.set_head(store.head())

@@ -1745,7 +1745,7 @@ def build_prompt(task: Task) -> str:
     return head
 
 
-def _permission_mode_for(mode: str) -> str | None:
+def permission_mode_for(mode: str) -> str | None:
     """Map a task ``mode`` to Claude's ``--permission-mode`` value.
 
     ``"plan"`` → ``"plan"``; ``"auto"`` → ``"auto"`` (Claude's classifier-vetted

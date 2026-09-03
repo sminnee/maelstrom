@@ -45,14 +45,14 @@ class ScriptedAsyncDaemonClient:
     ``rows`` is what ``list`` answers with. ``backlog`` is what an attach
     replays before the marker. ``push`` delivers a live event to an attached
     stream and ``end_stream`` closes it, so a test can play a fixture as the
-    host would. ``replies`` are consumed in order for any request; once they
-    run out, ``list`` answers from ``rows``, ``start`` adds a row, and every
-    other command answers ``{"ok": True}``.
+    host would. ``replies`` scripts answers per command, consumed in order;
+    with none left, ``list`` answers from ``rows``, ``start`` adds a row,
+    ``stop`` drops one, and every other command answers ``{"ok": True}``.
     """
 
     rows: dict[str, dict[str, Any]] = field(default_factory=dict)
     backlog: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
-    replies: list[dict[str, Any]] = field(default_factory=list)
+    replies: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     calls: list[dict[str, Any]] = field(default_factory=list)
     next_start_id: str = "new1"
     #: Agent ids whose next attach answers with an error instead of a stream.
@@ -61,9 +61,9 @@ class ScriptedAsyncDaemonClient:
 
     async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.calls.append(payload)
-        if self.replies:
-            return self.replies.pop(0)
-        command = payload.get("cmd")
+        command = str(payload.get("cmd"))
+        if self.replies.get(command):
+            return self.replies[command].pop(0)
         if command == "list":
             return {"agents": list(self.rows.values())}
         if command == "start":

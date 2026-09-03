@@ -424,6 +424,28 @@ def reply_for_denial(pending: PendingRequest, reason: str = "") -> dict[str, Any
     )
 
 
+def reply_for_answers(
+    pending: PendingRequest, answers: dict[str, str]
+) -> dict[str, Any]:
+    """Answer an ``AskUserQuestion`` with one answer per question.
+
+    ``answers`` is keyed by each question's own text, which is how the agent
+    files them. The orchestrator UI answers every question at once this way;
+    :func:`reply_for_answer` is the one-choice-for-all form the CLI uses.
+
+    Raises:
+        ValueError: If ``answers`` is empty — the agent reads an empty map as
+            no answer at all, so sending it would resolve the wait wrongly.
+    """
+    if not answers:
+        raise ValueError("no answers given")
+    payload = dict(pending.input)
+    payload["answers"] = dict(answers)
+    return _control_response(
+        pending.request_id, {"behavior": "allow", "updatedInput": payload}
+    )
+
+
 def reply_for_answer(pending: PendingRequest, choice: str) -> dict[str, Any]:
     """Answer an ``AskUserQuestion`` with ``choice``.
 
@@ -437,8 +459,4 @@ def reply_for_answer(pending: PendingRequest, choice: str) -> dict[str, Any]:
     rare; a per-question answer is a later refinement of this same field.
     """
     answers = {question: choice for question in pending.questions}
-    payload = dict(pending.input)
-    payload["answers"] = answers
-    return _control_response(
-        pending.request_id, {"behavior": "allow", "updatedInput": payload}
-    )
+    return reply_for_answers(pending, answers)

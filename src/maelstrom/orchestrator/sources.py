@@ -8,15 +8,39 @@ holds one shape of the world and diffs readings of it.
 """
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from .. import task as model
+from .. import task_actions
 from ..list_all import build_list_all_data
+from ..session_discovery import LiveSessionSet
 from ..task_index import TaskIndex
+from ..task_launch import LaunchBlocked, check_not_live, check_synced, plan_launch
 from ..task_store import TaskStore
+from ..worktree import WorktreeSetup
 from .protocol import Project, Task, Worktree
 from .world_build import project_entity, task_entity, worktree_entity
+
+#: Opens the worktree a task runs in: ``(project, task, branch) -> WorktreeSetup``.
+OpenWorktree = Callable[[str, model.Task, str], WorktreeSetup]
+
+
+@dataclass(frozen=True)
+class LaunchRequest:
+    """A task moved to in-progress, and the ``start`` the agent host needs.
+
+    Returned by :meth:`TaskSource.launch` once the worktree is open and the
+    task is in-progress; :meth:`TaskSource.rollback` undoes the move when the
+    host refuses the start.
+    """
+
+    project: str
+    task_id: str
+    #: The status the task had before the launch moved it, for the rollback.
+    previous_status: str
+    payload: dict[str, Any]
 
 
 class TaskSource(Protocol):
@@ -28,6 +52,19 @@ class TaskSource(Protocol):
 
     def read(self) -> list[Task]:
         """Every task the server shows, with ``actionable`` decided by the notebook."""
+        ...
+
+    def launch(self, task_id: str, model_name: str | None) -> LaunchRequest:
+        """Open the task's worktree, move it in-progress, and say what to start.
+
+        Raises:
+            KeyError: If no task has ``task_id``.
+            LaunchBlocked: If a live session holds the task or its rebase failed.
+        """
+        ...
+
+    def rollback(self, request: LaunchRequest) -> None:
+        """Move a task the host refused to start back to where it was."""
         ...
 
 
@@ -53,11 +90,15 @@ class NotebookTaskSource:
         *,
         index: TaskIndex | None = None,
         version: Callable[[], str | None] | None = None,
+        open_worktree: OpenWorktree | None = None,
+        live_sessions: Callable[[], LiveSessionSet] = LiveSessionSet,
     ) -> None:
         self.store = store
         self.projects = projects
         self.index = index
         self._version = version
+        self.open_worktree = open_worktree
+        self.live_sessions = live_sessions
 
     def version(self) -> str | None:
         return self._version() if self._version is not None else self.store.head()
@@ -73,6 +114,47 @@ class NotebookTaskSource:
                 )
                 entities.append(task_entity(task, actionable=actionable))
         return entities
+
+    def _find(self, task_id: str) -> model.Task:
+        for project in self.projects():
+            try:
+                return model.load(self.store, project, task_id)
+            except KeyError:
+                continue
+        raise KeyError(f"Task not found: {task_id}")
+
+    def launch(self, task_id: str, model_name: str | None) -> LaunchRequest:
+        if self.open_worktree is None:
+            raise LaunchBlocked("This server cannot open worktrees")
+        task = self._find(task_id)
+        plan = plan_launch(task.project, task)
+        check_not_live(task.id, plan.session_id, self.live_sessions())
+        setup = self.open_worktree(task.project, task, plan.branch)
+        check_synced(task.id, plan.branch, setup)
+        self._move(task.project, task.id, model.STATUS_IN_PROGRESS)
+        payload = {
+            "cmd": "start",
+            "cwd": str(setup.path),
+            "prompt": plan.prompt,
+            "mode": plan.permission_mode,
+            "model": model_name or plan.model,
+            "session": plan.session_id,
+            "env": plan.env,
+        }
+        return LaunchRequest(task.project, task.id, task.status, payload)
+
+    def rollback(self, request: LaunchRequest) -> None:
+        self._move(request.project, request.task_id, request.previous_status)
+
+    def _move(self, project: str, task_id: str, status: str) -> None:
+        """Move a task, keeping the index's head stamp honest, as the CLI does."""
+        index = self.index
+        was_fresh = index is not None and task_actions.index_is_fresh(self.store, index)
+        task_actions.move_with_actions(
+            self.store, project, task_id, status, index=index
+        )
+        if index is not None:
+            task_actions.restamp(self.store, index, was_fresh=was_fresh)
 
 
 class InMemoryWorktreeSource:

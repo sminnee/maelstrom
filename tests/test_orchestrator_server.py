@@ -16,6 +16,7 @@ from maelstrom import task as model
 from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
 from maelstrom.orchestrator.server import Orchestrator
 from maelstrom.orchestrator.sources import InMemoryWorktreeSource, NotebookTaskSource
+from maelstrom.worktree import WorktreeSetup
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
 NOW = "2026-09-01T00:00:00Z"
@@ -58,6 +59,9 @@ class Harness:
             ],
         )
         self.daemon = ScriptedAsyncDaemonClient()
+        self.tasks.open_worktree = lambda project, task, branch: WorktreeSetup(
+            path=Path(WORKTREE_PATH), name="alpha", action="reused"
+        )
         options = {"task_poll": 0.02, "worktree_poll": 0.02, "agent_poll": 0.02}
         options.update(over)
         self.orch = Orchestrator(
@@ -217,6 +221,25 @@ def test_a_second_hello_is_refused_and_an_unknown_command_is_invalid(harness):
     assert second["reply"]["error"]["code"] == "invalid"
     assert unsupported["ok"] is False
     assert unsupported["error"]["code"] == "invalid"
+
+
+def test_a_command_missing_a_field_is_refused_not_dropped(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                reply = await command(ws, {"type": "agent.say", "agentId": "ag1"})
+                probe = await command(
+                    ws, {"type": "agent.say", "agentId": "ag1", "text": "hi"}, "c2"
+                )
+        return reply, probe
+
+    reply, probe = run(scenario())
+    assert reply["ok"] is False
+    assert reply["error"]["code"] == "invalid"
+    assert probe["ok"] is True
 
 
 def test_a_message_that_is_not_a_hello_first_is_refused(harness):
@@ -470,3 +493,316 @@ def test_a_row_reporting_an_exit_the_stream_never_showed_is_applied(harness):
 
     frame = run(scenario())
     assert frame["event"]["entity"]["exitCode"] == 1
+
+
+# --- commands ----------------------------------------------------------------
+
+
+def waiting_on(harness, fixture: str, **row) -> tuple[list[dict], list[dict]]:
+    """Park ``ag1`` in the wait ``fixture`` records, and return the cut."""
+    backlog, rest = split_at_control_response(read_fixture(fixture))
+    harness.daemon.rows["ag1"] = agent_row(**row)
+    harness.daemon.backlog["ag1"] = backlog
+    return backlog, rest
+
+
+def pending_of(snapshot: dict) -> str:
+    return snapshot["world"]["agents"]["ag1"]["pendingRequestId"]
+
+
+async def command_with_frames(
+    ws, cmd: dict, command_id: str = "c1"
+) -> tuple[dict, list[dict]]:
+    """Send a command; return its reply and the event frames that preceded it.
+
+    A command's consequences are published before its reply, as the fake
+    backend does, so those frames are what the command caused.
+    """
+    await ws.send(json.dumps({"id": command_id, "command": cmd}))
+    frames = []
+    while True:
+        message = await recv(ws)
+        if "reply" in message and message["reply"]["id"] == command_id:
+            return message["reply"], frames
+        if "seq" in message:
+            frames.append(message)
+
+
+def entities_of(frames: list[dict], kind: str) -> list[dict]:
+    return [f["event"]["entity"] for f in frames if f["event"].get("kind") == kind]
+
+
+def updates_of(frames: list[dict]) -> list[dict]:
+    return [f["event"] for f in frames if f["event"]["type"] == "transcript.update"]
+
+
+def test_approve_reaches_the_host_and_resolves_the_wait(harness):
+    waiting_on(harness, "permission-request.jsonl")
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                snapshot = (await say_hello(ws))[0]["event"]
+                return await command_with_frames(
+                    ws,
+                    {
+                        "type": "agent.approve",
+                        "agentId": "ag1",
+                        "requestId": pending_of(snapshot),
+                    },
+                )
+
+    reply, frames = run(scenario())
+    assert reply == {"id": "c1", "ok": True, "result": {}}
+    assert {"cmd": "approve", "id": "ag1"} in harness.daemon.calls
+    agent = entities_of(frames, "agent")[-1]
+    assert agent["state"] == "processing"
+    assert agent["pendingRequestId"] is None
+    assert updates_of(frames)[0]["patch"] == {"decision": "allow"}
+    cleared = [a for a in entities_of(frames, "attention") if a["clearedAt"]]
+    assert len(cleared) == 1
+
+
+def test_deny_sends_the_reason_and_records_it(harness):
+    waiting_on(harness, "permission-request.jsonl")
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                snapshot = (await say_hello(ws))[0]["event"]
+                return await command_with_frames(
+                    ws,
+                    {
+                        "type": "agent.deny",
+                        "agentId": "ag1",
+                        "requestId": pending_of(snapshot),
+                        "reason": "not on this network",
+                    },
+                )
+
+    reply, frames = run(scenario())
+    assert reply["ok"] is True
+    assert {
+        "cmd": "deny",
+        "id": "ag1",
+        "reason": "not on this network",
+    } in harness.daemon.calls
+    assert updates_of(frames)[0]["patch"] == {
+        "decision": "deny",
+        "reason": "not on this network",
+    }
+
+
+def test_answer_sends_the_answers_map_and_files_it_on_the_question(harness):
+    waiting_on(harness, "question-unanswered.jsonl")
+    answers = {"Which colour do you prefer?": "Blue"}
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                snapshot = (await say_hello(ws))[0]["event"]
+                return await command_with_frames(
+                    ws,
+                    {
+                        "type": "agent.answer",
+                        "agentId": "ag1",
+                        "requestId": pending_of(snapshot),
+                        "answers": answers,
+                    },
+                )
+
+    reply, frames = run(scenario())
+    assert reply["ok"] is True
+    assert {"cmd": "answer", "id": "ag1", "answers": answers} in harness.daemon.calls
+    assert updates_of(frames)[0]["patch"] == {"answers": answers}
+
+
+def test_say_sends_the_text_and_shows_it_as_a_user_message(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                return await command_with_frames(
+                    ws,
+                    {"type": "agent.say", "agentId": "ag1", "text": "also the README"},
+                )
+
+    reply, frames = run(scenario())
+    assert reply["ok"] is True
+    assert {
+        "cmd": "say",
+        "id": "ag1",
+        "text": "also the README",
+    } in harness.daemon.calls
+    item = next(
+        f["event"]["item"] for f in frames if f["event"]["type"] == "transcript.append"
+    )
+    assert item["type"] == "message"
+    assert item["role"] == "user"
+    assert item["markdown"] == "also the README"
+
+
+def test_stop_reaches_the_host_and_marks_the_agent_exited_cleanly(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                return await command_with_frames(
+                    ws, {"type": "agent.stop", "agentId": "ag1"}
+                )
+
+    reply, frames = run(scenario())
+    assert reply["ok"] is True
+    assert {"cmd": "stop", "id": "ag1"} in harness.daemon.calls
+    agent = entities_of(frames, "agent")[-1]
+    assert agent["state"] == "exited"
+    assert agent["exitCode"] == 0
+
+
+def test_a_refused_command_replies_with_its_code_and_publishes_nothing(harness):
+    waiting_on(harness, "question-unanswered.jsonl")
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                ready = (await say_hello(ws))[-1]["ready"]["seq"]
+                unknown = await command(
+                    ws,
+                    {"type": "agent.approve", "agentId": "nobody", "requestId": "x"},
+                    "c1",
+                )
+                stale = await command(
+                    ws,
+                    {"type": "agent.approve", "agentId": "ag1", "requestId": "old"},
+                    "c2",
+                )
+                wrong = await command(
+                    ws,
+                    {
+                        "type": "agent.approve",
+                        "agentId": "ag1",
+                        "requestId": "2ba1273d-d878-4923-ba21-31faa1067613",
+                    },
+                    "c3",
+                )
+                return ready, harness.orch.log.seq, unknown, stale, wrong
+
+    ready, after, unknown, stale, wrong = run(scenario())
+    assert unknown["error"]["code"] == "unknown_id"
+    assert stale["error"]["code"] == "stale_request"
+    assert wrong["error"]["code"] == "wrong_wait_kind"
+    assert after == ready
+    host_calls = [
+        c["cmd"] for c in harness.daemon.calls if c["cmd"] not in ("list", "attach")
+    ]
+    assert host_calls == []
+
+
+def test_a_host_refusal_maps_to_the_matching_code(harness):
+    waiting_on(harness, "permission-request.jsonl")
+    harness.daemon.replies["approve"] = [{"error": "agent ag1 is not waiting"}]
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                snapshot = (await say_hello(ws))[0]["event"]
+                return await command(
+                    ws,
+                    {
+                        "type": "agent.approve",
+                        "agentId": "ag1",
+                        "requestId": pending_of(snapshot),
+                    },
+                )
+
+    reply = run(scenario())
+    assert reply["ok"] is False
+    assert reply["error"]["code"] == "not_waiting"
+
+
+def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
+    harness.add_task(
+        "NORT-7",
+        command="plan-task",
+        mode="auto",
+        model="claude-opus-5",
+        content="Do it.",
+    )
+    session = model.session_id_for(PROJECT, "NORT-7")
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                return await command_with_frames(
+                    ws, {"type": "agent.launch", "taskId": "NORT-7"}
+                )
+
+    reply, frames = run(scenario())
+    assert reply == {"id": "c1", "ok": True, "result": {"agentId": "new1"}}
+    start = next(c for c in harness.daemon.calls if c["cmd"] == "start")
+    assert start["cwd"] == WORKTREE_PATH
+    assert start["prompt"] == "/plan-task NORT-7\n\nDo it."
+    assert start["mode"] == "auto"
+    assert start["model"] == "claude-opus-5"
+    assert start["session"] == session
+    assert start["env"] == {
+        "MAEL_TASK_ID": "NORT-7",
+        "MAEL_TASK_PARENT": "NORT-7",
+        "MAEL_TASK_SESSION_ID": session,
+    }
+    assert model.load(harness.store, PROJECT, "NORT-7").status == "in-progress"
+    assert entities_of(frames, "task")[-1]["status"] == "in-progress"
+    agent = entities_of(frames, "agent")[-1]
+    assert agent["id"] == "new1"
+    assert agent["taskId"] == "NORT-7"
+    assert agent["worktreeId"] == "northwind-alpha"
+    assert agent["phase"] == "planning"
+
+
+def test_a_launch_the_host_refuses_rolls_the_task_back_to_todo(harness):
+    harness.add_task("NORT-7")
+    harness.daemon.replies["start"] = [
+        {"error": "could not start claude: no such file"}
+    ]
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                return await command(ws, {"type": "agent.launch", "taskId": "NORT-7"})
+
+    reply = run(scenario())
+    assert reply["ok"] is False
+    assert reply["error"]["code"] == "invalid"
+    assert "no such file" in reply["error"]["message"]
+    assert model.load(harness.store, PROJECT, "NORT-7").status == "todo"
+
+
+def test_a_launch_blocked_by_a_failed_sync_leaves_the_task_todo(store):
+    from maelstrom.worktree import SyncResult
+
+    harness = Harness(store)
+    harness.add_task("NORT-7")
+    harness.tasks.open_worktree = lambda project, task, branch: WorktreeSetup(
+        path=Path(WORKTREE_PATH),
+        name="alpha",
+        action="recycled",
+        sync=SyncResult(success=False, branch=branch, message="rebase conflict"),
+    )
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                return await command(ws, {"type": "agent.launch", "taskId": "NORT-7"})
+
+    reply = run(scenario())
+    assert reply["ok"] is False
+    assert "rebase conflict" in reply["error"]["message"]
+    assert model.load(harness.store, PROJECT, "NORT-7").status == "todo"
+    assert not [c for c in harness.daemon.calls if c["cmd"] == "start"]
