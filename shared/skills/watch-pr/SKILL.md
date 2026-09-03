@@ -1,9 +1,8 @@
 ---
 name: watch-pr
-description: Watch the current branch's PR through CI, fix each failure, resubmit, and loop until CI passes. Invoked as the `/watch-pr` slash command.
-disable-model-invocation: true
+description: Watch the current branch's PR through CI, fix each failure, resubmit, and loop until CI passes. Use after a PR is pushed as the last step of the task-completion flow, when the user asks to watch or babysit a PR, or when CI on the current branch is red and needs fixing. Invoked as the `/watch-pr` slash command.
 metadata:
-  opencode/autoinvoke: false
+  opencode/autoinvoke: true
   opencode/slash: true
 ---
 
