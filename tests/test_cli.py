@@ -11,7 +11,8 @@ from unittest.mock import ANY, MagicMock, patch
 
 from click.testing import CliRunner
 
-from maelstrom.cli import _resolve_pr, cli
+from maelstrom.cli import cli
+from maelstrom.list_all import resolve_pr
 from maelstrom.project_scaffold import scaffold_files
 from maelstrom.worktree import SyncResult, WorktreeInfo, WorktreeSetup
 from maelstrom.worktree_model import CopyBackResult
@@ -28,31 +29,31 @@ class TestResolvePr:
 
     def test_a_hit_in_the_batch_needs_no_further_call(self):
         batch = {"feat/x": (42, 5)}
-        with patch("maelstrom.cli.get_pr_number_and_commits") as per_branch:
-            assert _resolve_pr(batch, Path("/p"), "feat/x") == (42, 5)
+        with patch("maelstrom.list_all.get_pr_number_and_commits") as per_branch:
+            assert resolve_pr(batch, Path("/p"), "feat/x") == (42, 5)
         per_branch.assert_not_called()
 
     def test_a_miss_in_a_good_batch_is_no_pr_not_a_lookup(self):
-        with patch("maelstrom.cli.get_pr_number_and_commits") as per_branch:
-            assert _resolve_pr({"other": (1, 1)}, Path("/p"), "feat/x") == (None, None)
+        with patch("maelstrom.list_all.get_pr_number_and_commits") as per_branch:
+            assert resolve_pr({"other": (1, 1)}, Path("/p"), "feat/x") == (None, None)
         per_branch.assert_not_called()
 
     def test_an_empty_batch_still_answers_without_a_lookup(self):
-        with patch("maelstrom.cli.get_pr_number_and_commits") as per_branch:
-            assert _resolve_pr({}, Path("/p"), "feat/x") == (None, None)
+        with patch("maelstrom.list_all.get_pr_number_and_commits") as per_branch:
+            assert resolve_pr({}, Path("/p"), "feat/x") == (None, None)
         per_branch.assert_not_called()
 
     def test_a_failed_batch_falls_back_to_the_per_branch_call(self):
         with patch(
-            "maelstrom.cli.get_pr_number_and_commits", return_value=(7, 3)
+            "maelstrom.list_all.get_pr_number_and_commits", return_value=(7, 3)
         ) as per_branch:
-            assert _resolve_pr(None, Path("/p"), "feat/x") == (7, 3)
+            assert resolve_pr(None, Path("/p"), "feat/x") == (7, 3)
         per_branch.assert_called_once_with(Path("/p"), "feat/x")
 
     def test_a_detached_worktree_is_never_looked_up(self):
         """Both PR columns key on the branch name, so there is nothing to ask."""
-        with patch("maelstrom.cli.get_pr_number_and_commits") as per_branch:
-            assert _resolve_pr(None, Path("/p"), None) == (None, None)
+        with patch("maelstrom.list_all.get_pr_number_and_commits") as per_branch:
+            assert resolve_pr(None, Path("/p"), None) == (None, None)
         per_branch.assert_not_called()
 
     def test_list_all_reads_the_batch_not_one_call_per_row(self):
@@ -80,15 +81,18 @@ class TestResolvePr:
                 projects_dir=Path("/tmp/claude/projects")
             )
             with (
-                patch("maelstrom.cli.find_all_projects", return_value=[project_path]),
-                patch("maelstrom.cli.list_worktrees", return_value=[mock_wt]),
-                patch("maelstrom.cli.closed_worktrees", return_value=set()),
-                patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]),
-                patch("maelstrom.cli.get_local_only_commits", return_value=0),
                 patch(
-                    "maelstrom.cli.get_open_prs", return_value={"feat/test": (99, 7)}
+                    "maelstrom.list_all.find_all_projects", return_value=[project_path]
                 ),
-                patch("maelstrom.cli.get_pr_number_and_commits", side_effect=boom),
+                patch("maelstrom.list_all.list_worktrees", return_value=[mock_wt]),
+                patch("maelstrom.list_all.closed_worktrees", return_value=set()),
+                patch("maelstrom.list_all.get_worktree_dirty_files", return_value=[]),
+                patch("maelstrom.list_all.get_local_only_commits", return_value=0),
+                patch(
+                    "maelstrom.list_all.get_open_prs",
+                    return_value={"feat/test": (99, 7)},
+                ),
+                patch("maelstrom.list_all.get_pr_number_and_commits", side_effect=boom),
                 patch(
                     "maelstrom.session_discovery.LiveSessionSet.count_for",
                     return_value=0,
@@ -121,12 +125,14 @@ class TestResolvePr:
                 projects_dir=Path("/tmp/claude/projects")
             )
             with (
-                patch("maelstrom.cli.find_all_projects", return_value=[project_path]),
-                patch("maelstrom.cli.list_worktrees", return_value=[detached]),
-                patch("maelstrom.cli.closed_worktrees", return_value=set()),
-                patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]),
-                patch("maelstrom.cli.get_local_only_commits", return_value=0),
-                patch("maelstrom.cli.get_open_prs") as batch,
+                patch(
+                    "maelstrom.list_all.find_all_projects", return_value=[project_path]
+                ),
+                patch("maelstrom.list_all.list_worktrees", return_value=[detached]),
+                patch("maelstrom.list_all.closed_worktrees", return_value=set()),
+                patch("maelstrom.list_all.get_worktree_dirty_files", return_value=[]),
+                patch("maelstrom.list_all.get_local_only_commits", return_value=0),
+                patch("maelstrom.list_all.get_open_prs") as batch,
                 patch(
                     "maelstrom.session_discovery.LiveSessionSet.count_for",
                     return_value=0,
@@ -156,13 +162,15 @@ class TestResolvePr:
                 projects_dir=Path("/tmp/claude/projects")
             )
             with (
-                patch("maelstrom.cli.find_all_projects", return_value=[project_path]),
-                patch("maelstrom.cli.list_worktrees", return_value=worktrees),
-                patch("maelstrom.cli.closed_worktrees", return_value=set()),
-                patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]),
-                patch("maelstrom.cli.get_local_only_commits", return_value=0),
-                patch("maelstrom.cli.get_open_prs", return_value={}) as batch,
-                patch("maelstrom.cli.get_pushed_commit_count", return_value=0),
+                patch(
+                    "maelstrom.list_all.find_all_projects", return_value=[project_path]
+                ),
+                patch("maelstrom.list_all.list_worktrees", return_value=worktrees),
+                patch("maelstrom.list_all.closed_worktrees", return_value=set()),
+                patch("maelstrom.list_all.get_worktree_dirty_files", return_value=[]),
+                patch("maelstrom.list_all.get_local_only_commits", return_value=0),
+                patch("maelstrom.list_all.get_open_prs", return_value={}) as batch,
+                patch("maelstrom.list_all.get_pushed_commit_count", return_value=0),
                 patch(
                     "maelstrom.session_discovery.LiveSessionSet.count_for",
                     return_value=0,
@@ -199,7 +207,7 @@ class TestListAllJson:
             mock_config.return_value = MagicMock(
                 projects_dir=Path("/tmp/claude/projects")
             )
-            with patch("maelstrom.cli.find_all_projects", return_value=[]):
+            with patch("maelstrom.list_all.find_all_projects", return_value=[]):
                 result = runner.invoke(cli, ["--json", "list-all"])
                 assert result.exit_code == 0
                 data = json.loads(result.output)
@@ -223,18 +231,23 @@ class TestListAllJson:
             mock_config.return_value = MagicMock(
                 projects_dir=Path("/tmp/claude/projects")
             )
-            with patch("maelstrom.cli.find_all_projects", return_value=[project_path]):
-                with patch("maelstrom.cli.list_worktrees", return_value=[mock_wt]):
-                    with patch("maelstrom.cli.closed_worktrees", return_value=set()):
+            with patch(
+                "maelstrom.list_all.find_all_projects", return_value=[project_path]
+            ):
+                with patch("maelstrom.list_all.list_worktrees", return_value=[mock_wt]):
+                    with patch(
+                        "maelstrom.list_all.closed_worktrees", return_value=set()
+                    ):
                         with patch(
-                            "maelstrom.cli.get_worktree_dirty_files",
+                            "maelstrom.list_all.get_worktree_dirty_files",
                             return_value=["file.txt"],
                         ):
                             with patch(
-                                "maelstrom.cli.get_local_only_commits", return_value=2
+                                "maelstrom.list_all.get_local_only_commits",
+                                return_value=2,
                             ):
                                 with patch(
-                                    "maelstrom.cli.get_pr_number_and_commits",
+                                    "maelstrom.list_all.get_pr_number_and_commits",
                                     return_value=(42, 5),
                                 ):
                                     with patch(
@@ -283,21 +296,27 @@ class TestListAllJson:
             mock_config.return_value = MagicMock(
                 projects_dir=Path("/tmp/claude/projects")
             )
-            with patch("maelstrom.cli.find_all_projects", return_value=[project_path]):
-                with patch("maelstrom.cli.list_worktrees", return_value=[mock_wt]):
-                    with patch("maelstrom.cli.closed_worktrees", return_value=set()):
+            with patch(
+                "maelstrom.list_all.find_all_projects", return_value=[project_path]
+            ):
+                with patch("maelstrom.list_all.list_worktrees", return_value=[mock_wt]):
+                    with patch(
+                        "maelstrom.list_all.closed_worktrees", return_value=set()
+                    ):
                         with patch(
-                            "maelstrom.cli.get_worktree_dirty_files", return_value=[]
+                            "maelstrom.list_all.get_worktree_dirty_files",
+                            return_value=[],
                         ):
                             with patch(
-                                "maelstrom.cli.get_local_only_commits", return_value=0
+                                "maelstrom.list_all.get_local_only_commits",
+                                return_value=0,
                             ):
                                 with patch(
-                                    "maelstrom.cli.get_pr_number_and_commits",
+                                    "maelstrom.list_all.get_pr_number_and_commits",
                                     return_value=(None, None),
                                 ):
                                     with patch(
-                                        "maelstrom.cli.get_pushed_commit_count",
+                                        "maelstrom.list_all.get_pushed_commit_count",
                                         return_value=0,
                                     ):
                                         with patch(
@@ -329,13 +348,16 @@ class TestListAllJson:
             mock_config.return_value = MagicMock(
                 projects_dir=Path("/tmp/claude/projects")
             )
-            with patch("maelstrom.cli.find_all_projects", return_value=[project_path]):
-                with patch("maelstrom.cli.list_worktrees", return_value=[mock_wt]):
+            with patch(
+                "maelstrom.list_all.find_all_projects", return_value=[project_path]
+            ):
+                with patch("maelstrom.list_all.list_worktrees", return_value=[mock_wt]):
                     with patch(
-                        "maelstrom.cli.closed_worktrees", return_value={wt_path}
+                        "maelstrom.list_all.closed_worktrees", return_value={wt_path}
                     ):
                         with patch(
-                            "maelstrom.cli.get_worktree_dirty_files", return_value=[]
+                            "maelstrom.list_all.get_worktree_dirty_files",
+                            return_value=[],
                         ):
                             with patch(
                                 "maelstrom.session_discovery.LiveSessionSet.count_for",
@@ -359,7 +381,7 @@ class TestListAllJson:
             mock_config.return_value = MagicMock(
                 projects_dir=Path("/tmp/claude/projects")
             )
-            with patch("maelstrom.cli.find_all_projects", return_value=[]):
+            with patch("maelstrom.list_all.find_all_projects", return_value=[]):
                 result = runner.invoke(cli, ["list-all"])
                 assert result.exit_code == 0
                 assert "No projects found." in result.output

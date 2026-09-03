@@ -8,13 +8,15 @@ holds one shape of the world and diffs readings of it.
 """
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Protocol
 
 from .. import task as model
+from ..list_all import build_list_all_data
 from ..task_index import TaskIndex
 from ..task_store import TaskStore
 from .protocol import Project, Task, Worktree
-from .world_build import task_entity
+from .world_build import project_entity, task_entity, worktree_entity
 
 
 class TaskSource(Protocol):
@@ -86,3 +88,20 @@ class InMemoryWorktreeSource:
 
     def read(self) -> tuple[list[Project], list[Worktree]]:
         return list(self.projects), list(self.worktrees)
+
+
+class ListAllWorktreeSource:
+    """Projects and worktrees from :func:`maelstrom.list_all.build_list_all_data`."""
+
+    def __init__(self, projects_dir: Path) -> None:
+        self.projects_dir = projects_dir
+
+    def read(self) -> tuple[list[Project], list[Worktree]]:
+        data = build_list_all_data(self.projects_dir)
+        projects = [project_entity(p) for p in data["projects"]]
+        worktrees = [
+            worktree_entity(p["name"], row)
+            for p in data["projects"]
+            for row in p["worktrees"]
+        ]
+        return projects, worktrees
