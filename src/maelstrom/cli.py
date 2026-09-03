@@ -7,7 +7,6 @@ from pathlib import Path
 import click
 
 from . import __version__, session_discovery
-from . import task as task_model
 from .admin_cli import cmd_install, cmd_self_update
 from .agent_cli import agent as agent_cli
 from .base_store import GitConfigBaseStore
@@ -34,7 +33,6 @@ from .git_cli import print_rebase_conflict_help
 from .github import (
     create_project_repo,
     get_open_prs,
-    get_pr_number_and_commits,
     wait_for_merge,
 )
 from .github_cli import gh as gh_cli
@@ -42,7 +40,15 @@ from .integrations.linear import linear
 from .integrations.sentry import sentry
 from .integrations.slack import slack
 from .integrations.uptimerobot import uptimerobot
+from .list_all import (
+    branch_session_ids,
+    build_list_all_data,
+    resolve_pr,
+    session_display,
+    session_stopped,
+)
 from .mv_project_cli import cmd_mv_project
+from .orchestrator_cli import orchestrator as orchestrator_cli
 from .ports import get_app_url
 from .project_cli import project as project_cli
 from .schedule_launchd import schedule_group
@@ -54,7 +60,6 @@ from .task_cli import _harness_options as _harness_flags
 from .task_cli import add_task, resolve_harness_or_fail
 from .task_cli import task as task_cli
 from .task_index import StaleTaskIndexError
-from .task_store import GitFileStore
 from .wiki_cli import wiki as wiki_cli
 from .worktree import (
     SyncResult,
@@ -65,7 +70,6 @@ from .worktree import (
     copy_back_new_env_vars,
     create_worktree,
     current_stack_tip,
-    find_all_projects,
     get_current_branch,
     get_local_only_commits,
     get_pushed_commit_count,
@@ -92,7 +96,6 @@ from .worktree_model import (
     extract_project_name,
     extract_worktree_name_from_folder,
     get_worktree_folder_name,
-    has_claude_transcript,
     order_by_stack,
     validate_base,
 )
@@ -545,65 +548,6 @@ def cmd_remove(targets, force):
 cli.add_command(cmd_remove, name="rm")
 
 
-def _branch_session_ids(project_name):
-    """Map ``branch -> [session_id, ...]`` for every task in ``project_name``.
-
-    Several tasks can share a branch/worktree (one PR per parent), so each branch
-    maps to the deterministic session ids of *all* its tasks. Used to detect a
-    stopped-but-not-live session for a worktree: any of a branch's task sessions
-    having an on-disk transcript means that worktree "ran before". Returns an empty
-    map when the task notebook is absent or unreadable — the SESSION column then
-    simply shows no stopped marker; this cosmetic feature must never break ``list``.
-    """
-    try:
-        store = GitFileStore()
-        result: dict[str, list[str]] = {}
-        for t in task_model.list_tasks(store, project=project_name, no_index=True):
-            branch = t.branch or task_model.default_branch(t.id, t.parent)
-            result.setdefault(branch, []).append(
-                task_model.session_id_for(project_name, t.id)
-            )
-        return result
-    except (OSError, ValueError, KeyError):
-        # An absent/unreadable notebook or a malformed task must degrade to "no
-        # marker", not crash `list`. Kept narrow: a logic bug (AttributeError etc.)
-        # still surfaces rather than being silently swallowed.
-        return {}
-
-
-def _resolve_pr(open_prs, project_path, branch):
-    """Resolve ``branch`` to ``(pr_number, commit_count)`` for the PR column.
-
-    ``open_prs`` is the whole-repo batch from :func:`get_open_prs`, or ``None``
-    when that call failed. A successful batch is authoritative: a branch missing
-    from it has no open PR, so we answer without a second network call. A failed
-    batch falls back to the per-branch lookup, which keeps a broken ``gh`` no
-    worse than it was before batching — one blank row rather than a blank column.
-    """
-    if not branch:
-        return (None, None)
-    if open_prs is not None:
-        return open_prs.get(branch, (None, None))
-    return get_pr_number_and_commits(project_path, branch)
-
-
-def _session_display(count, worktree_path, branch, branch_sessions):
-    """Render the SESSION cell: live count wins, else a stopped marker, else blank.
-
-    ``count`` is the live-session count for the worktree. When there is a live
-    session we show it unchanged. When there is none, we show ``"— stopped"`` if
-    any task on ``branch`` left an on-disk transcript in ``worktree_path`` (ran and
-    stopped), distinguishing it from a never-run worktree, which stays blank.
-    """
-    if count:
-        return str(count)
-    if branch:
-        for session_id in branch_sessions.get(branch, []):
-            if has_claude_transcript(worktree_path, session_id):
-                return "— stopped"
-    return ""
-
-
 @cli.command("list")
 @click.argument("project", required=False, default=None)
 def cmd_list(project):
@@ -665,7 +609,7 @@ def cmd_list(project):
     live_sessions = session_discovery.LiveSessionSet()
     # Branch → task session ids, built once, so the SESSION column can show a
     # stopped marker (transcript exists, no live session) vs blank (never run).
-    branch_sessions = _branch_session_ids(project_name)
+    branch_sessions = branch_session_ids(project_name)
     # Every open PR in one call, rather than one `gh pr list` per row. The
     # per-branch call is ~0.8s, so this is most of the command's runtime.
     open_prs = get_open_prs(project_path)
@@ -684,7 +628,7 @@ def cmd_list(project):
         local_display = str(local_commits) if local_commits > 0 else ""
 
         # PR info (number and commit count)
-        pr_num, pr_commits = _resolve_pr(open_prs, project_path, wt.branch)
+        pr_num, pr_commits = resolve_pr(open_prs, project_path, wt.branch)
         if pr_num:
             pr_display = f"#{pr_num} ({pr_commits})"
         elif wt.branch:
@@ -696,8 +640,9 @@ def cmd_list(project):
 
         # Live Claude session count, or a stopped marker when a transcript exists.
         session_count = live_sessions.count_for(wt.path)
-        session_display = _session_display(
-            session_count, wt.path, wt.branch, branch_sessions
+        session_cell = session_display(
+            session_count,
+            not session_count and session_stopped(wt.path, wt.branch, branch_sessions),
         )
 
         # App URL with running status
@@ -716,7 +661,7 @@ def cmd_list(project):
                 "LOCAL COMMITS": local_display,
                 "PR (COMMITS)": pr_display,
                 "APP": app_display,
-                "SESSION": session_display,
+                "SESSION": session_cell,
             }
         )
 
@@ -737,175 +682,60 @@ def cmd_list(project):
         click.echo(f"\nClosed environments: {', '.join(closed_names)}")
 
 
+def _list_all_row(project_name: str, wt: dict) -> dict:
+    """One table row of ``mael list-all`` from one ``build_list_all_data`` row."""
+    # A stacked branch reads "child ← parent", so the whole stack is
+    # visible without a new column.
+    branch_display = wt["branch"] or "(detached)"
+    if wt["base"]:
+        branch_display = f"{branch_display} \u2190 {wt['base']}"
+    if wt["pr_number"]:
+        pr_display = f"#{wt['pr_number']} ({wt['pr_commits']})"
+    elif wt["pushed_commits"]:
+        pr_display = f"({wt['pushed_commits']})"
+    else:
+        pr_display = ""
+    session_cell = session_display(wt["session_count"], wt["session_stopped"])
+    app_display = ""
+    if wt["app_url"]:
+        port = wt["app_url"].split(":")[-1]
+        app_display = wt["app_url"] if wt["app_running"] else f"*{port}"
+    return {
+        "PROJECT": project_name,
+        "WORKTREE": wt["folder"],
+        "BRANCH": branch_display,
+        "DIRTY FILES": str(wt["dirty_files"]) if wt["dirty_files"] else "",
+        "LOCAL COMMITS": str(wt["local_commits"]) if wt["local_commits"] > 0 else "",
+        "PR (COMMITS)": pr_display,
+        "APP": app_display,
+        "SESSION": session_cell,
+    }
+
+
 @cli.command("list-all")
 def cmd_list_all():
     """List all worktrees across all projects."""
     output_json = click.get_current_context().obj.get("json", False)
     global_config = load_global_config()
-    projects_dir = global_config.projects_dir
 
-    projects = find_all_projects(projects_dir)
-    if not projects:
-        if output_json:
-            click.echo('{"projects": []}')
-        else:
-            click.echo("No projects found.")
-        return
-
-    # One live-session sweep shared across every project/worktree row, plus a
-    # memo so the per-session worktree-list lookup runs once, not per row.
-    live_sessions = session_discovery.LiveSessionSet()
-
-    # Collect structured data for all worktrees
-    projects_data = []
-    rows = []
-    closed_by_project: dict[str, list[str]] = {}
-    for project_path in projects:
-        project_name = project_path.name
-        worktrees = list_worktrees(project_path)
-        worktree_data = []
-        # Branch → task session ids for this project (stopped-marker detection).
-        branch_sessions = _branch_session_ids(project_name)
-        # One PR lookup per project, not per worktree. The batch is repo-scoped,
-        # so it belongs inside this loop. A project whose worktrees are all
-        # detached has no branch to ask about, and `list-all` visits every
-        # project — so skip the round trip rather than spend one per project.
-        open_prs = (
-            get_open_prs(project_path) if any(wt.branch for wt in worktrees) else {}
-        )
-        # Likewise the closed check: one batch per project, not two subprocesses
-        # per worktree.
-        closed_paths = closed_worktrees(project_path, worktrees)
-        # One store read per project answers the base for every row.
-        bases = GitConfigBaseStore(project_path).all()
-
-        for wt in worktrees:
-            # Skip the project root (bare repo)
-            if wt.path == project_path:
-                continue
-
-            display_name = (
-                extract_worktree_name_from_folder(project_name, wt.path.name)
-                or wt.path.name
-            )
-
-            # Check if worktree is closed (detached at origin/main)
-            closed = wt.path in closed_paths
-
-            if closed:
-                closed_by_project.setdefault(project_name, []).append(display_name)
-                # Still include in JSON data but skip table row
-                worktree_data.append(
-                    {
-                        "name": display_name,
-                        "folder": wt.path.name,
-                        "path": str(wt.path),
-                        "branch": wt.branch or None,
-                        "base": None,
-                        "is_closed": True,
-                        "dirty_files": 0,
-                        "local_commits": 0,
-                        "pr_number": None,
-                        "pr_commits": None,
-                        "pushed_commits": None,
-                        "app_url": None,
-                        "app_running": False,
-                        "session_count": 0,
-                    }
-                )
-                continue
-
-            # A stacked branch reads "child ← parent", so the whole stack is
-            # visible without a new column.
-            base = bases.get(wt.branch or "")
-            branch_display = wt.branch or "(detached)"
-            if base:
-                branch_display = f"{branch_display} \u2190 {base}"
-
-            # Dirty files count
-            dirty_files = get_worktree_dirty_files(wt.path)
-            dirty_count = len(dirty_files)
-            dirty_display = str(dirty_count) if dirty_files else ""
-
-            # Local unpushed commits
-            local_commits = get_local_only_commits(wt.path, wt.branch)
-            local_display = str(local_commits) if local_commits > 0 else ""
-
-            # PR info (number and commit count)
-            pr_num, pr_commits = _resolve_pr(open_prs, project_path, wt.branch)
-            pushed_commits = None
-            if pr_num:
-                pr_display = f"#{pr_num} ({pr_commits})"
-            elif wt.branch:
-                # Check for pushed commits without PR
-                pushed_commits = get_pushed_commit_count(wt.path, wt.branch)
-                pr_display = f"({pushed_commits})" if pushed_commits else ""
-            else:
-                pr_display = ""
-
-            # Live Claude session count, or a stopped marker when a transcript exists.
-            session_count = live_sessions.count_for(wt.path)
-            session_display = _session_display(
-                session_count, wt.path, wt.branch, branch_sessions
-            )
-
-            # App URL with running status
-            app_display = ""
-            app_url = None
-            app_running = False
-            app_info = get_app_url(project_path, display_name)
-            if app_info:
-                url, is_running = app_info
-                app_url = url
-                app_running = is_running
-                port = url.split(":")[-1]
-                app_display = url if is_running else f"*{port}"
-
-            worktree_data.append(
-                {
-                    "name": display_name,
-                    "folder": wt.path.name,
-                    "path": str(wt.path),
-                    "branch": wt.branch or None,
-                    "base": base,
-                    "is_closed": False,
-                    "dirty_files": dirty_count,
-                    "local_commits": local_commits,
-                    "pr_number": pr_num,
-                    "pr_commits": pr_commits,
-                    "pushed_commits": pushed_commits,
-                    "app_url": app_url,
-                    "app_running": app_running,
-                    "session_count": session_count,
-                }
-            )
-
-            rows.append(
-                {
-                    "PROJECT": project_name,
-                    "WORKTREE": wt.path.name,
-                    "BRANCH": branch_display,
-                    "DIRTY FILES": dirty_display,
-                    "LOCAL COMMITS": local_display,
-                    "PR (COMMITS)": pr_display,
-                    "APP": app_display,
-                    "SESSION": session_display,
-                }
-            )
-
-        projects_data.append(
-            {
-                "name": project_name,
-                "path": str(project_path),
-                "worktrees": worktree_data,
-            }
-        )
-
+    data = build_list_all_data(global_config.projects_dir)
     if output_json:
         import json as json_mod
 
-        click.echo(json_mod.dumps({"projects": projects_data}))
+        click.echo(json_mod.dumps(data))
         return
+    if not data["projects"]:
+        click.echo("No projects found.")
+        return
+
+    rows = []
+    closed_by_project: dict[str, list[str]] = {}
+    for project in data["projects"]:
+        for wt in project["worktrees"]:
+            if wt["is_closed"]:
+                closed_by_project.setdefault(project["name"], []).append(wt["name"])
+                continue
+            rows.append(_list_all_row(project["name"], wt))
 
     if not rows:
         if closed_by_project:
@@ -1853,6 +1683,7 @@ cli.add_command(cmd_mv_project)
 cli.add_command(cmd_install)
 cli.add_command(cmd_self_update)
 cli.add_command(agent_cli)
+cli.add_command(orchestrator_cli)
 
 
 def main(argv: list[str] | None = None) -> int:
