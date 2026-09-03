@@ -1,8 +1,8 @@
 # The orchestrator UI
 
 A web app that shows every agent as a node on one canvas and captures the user's checkpoints in
-the tool. It lives under `web/`. Today it runs against a fake backend that simulates the world in
-the browser. A real backend later implements the same interface over a WebSocket.
+the tool. It lives under `web/`. It runs against the orchestrator server over one WebSocket, or
+against a fake backend that simulates the world in the browser.
 
 The guiding metaphor is a real-time strategy game. Everything running is on one canvas, and a
 unit that needs orders shows it on the canvas itself.
@@ -14,12 +14,12 @@ unit that needs orders shows it on the canvas itself.
 | Layer | Directory | Holds | Imports |
 |---|---|---|---|
 | Protocol | `protocol/` | Entity types, events, commands, the `Backend` interface, and the pure reducers | Nothing |
-| Fake backend | `fake-backend/` | The in-browser simulation that implements `Backend` | Protocol |
+| Backends | `ws-backend/`, `fake-backend/` | The WebSocket client and the in-browser simulation, each implementing `Backend` | Protocol |
 | State | `store/`, `selectors/` | One zustand store and the pure functions that derive views from it | Protocol |
 | UI | `canvas/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, `sim/`, plus the `markdown/` and `styles/` they share, and `test/` for shared test helpers | React components and CSS | State, Protocol |
 
 The protocol has no React and no I/O. That is what lets the fake backend and the client share
-one reducer, and what lets a Python backend implement the same contract later.
+one reducer, and what lets the orchestrator server apply the same reducer in Python.
 
 `sim/` holds the FAKE chip and the debug drawer. Delete that directory with the fake backend.
 
@@ -32,12 +32,14 @@ One duplex channel carries two kinds of frame, kept apart:
 - **Replies** answer one command. A reply never enters the event log.
 
 The events are `snapshot`, `upsert`, `remove`, `transcript.append`,
-`transcript.update` and `error`. An upsert carries the whole entity, so the client never merges.
+`transcript.update`, `transcript.truncated` and `error`. An upsert carries the whole entity, so the client never merges.
 Each command is acked with `ok: true` or an error code mirroring the daemon's own refusals.
 `protocol/commands.ts` lists every command and every code.
 
 On reconnect the client sends the last `seq` it applied. The server replays from its ring buffer
-when it can, else it sends a fresh snapshot.
+when it can, else it sends a fresh snapshot. A snapshot is a new epoch: it lands whatever its
+`seq`, so a restarted server recovers every client.
+[orchestrator-server.md](orchestrator-server.md) documents the wire format.
 
 Two pure modules carry the rules a real backend must apply:
 
@@ -46,7 +48,8 @@ Two pure modules carry the rules a real backend must apply:
   `done`, `exited`).
 - `protocol/normalise.ts` turns the daemon's raw stream-json into transcript items, agent
   upserts, documents and attention items. It follows `agent_model.apply_event` and is tested by
-  replaying every fixture under `tests/fixtures/agent_events/`.
+  replaying every fixture under `tests/fixtures/agent_events/`. It is the reference for the
+  server's Python port; see [orchestrator-server.md](orchestrator-server.md), "Normaliser parity".
 
 ## The canvas and the panel
 
@@ -94,20 +97,28 @@ the matching wait and raise one attention item. `finish` moves the task to `done
 one that became actionable. Every random choice goes through a seeded generator, so the same
 seed yields the same events.
 
-A real backend replaces `fake-backend/` with a WebSocket client and keeps everything else. On
-the Python side it bridges four sources: the task notebook for tasks, the session registry and
-`mael list-all` for worktrees and sessions, and the agent daemon for transcripts and waits. It
-applies the same phase rule and the same normalisation.
+The real backend is `ws-backend/wsBackend.ts` in front of the orchestrator server. It replaces
+`fake-backend/` one for one and keeps everything else. `main.tsx` picks it when
+`VITE_ORCHESTRATOR_URL` is set, and the fake otherwise. The FAKE chip feature-detects the fake,
+so its absence says the real server is behind the page.
+
+The server applies the same phase rule and the same normalisation, in Python. It bridges three
+sources: the task notebook for tasks, `list-all` for projects and worktrees, and the agent host
+for agents, transcripts and waits. [orchestrator-server.md](orchestrator-server.md) describes it.
 
 ## How to run it
 
 ```
-mael env start web              # serves on the worktree's FRONTEND port
+mael env start                  # this repo's services: the web app and the orchestrator server
+cd web && pnpm dev              # the web app alone, on port 5173, against the fake backend
 cd web && pnpm test             # vitest, jsdom
 cd web && pnpm lint && pnpm typecheck && pnpm build
 ```
 
-Without maelstrom, `cd web && pnpm dev` serves on port 5173.
+Under maelstrom the `web` service always points at the `orchestrator` service, so start both. A
+worktree whose `.env` has no `ORCHESTRATOR_PORT` needs `mael env reset` once to add it. Without
+maelstrom, `VITE_ORCHESTRATOR_URL=ws://localhost:8765 pnpm dev` runs against a
+`mael orchestrator serve`.
 
 The FAKE chip in the top bar plays, pauses, steps and sets the speed of the simulation. Its ⚙
 opens the debug drawer, which forces a question, a permission, a plan, a finish or an exit on
@@ -116,8 +127,9 @@ any live agent.
 ## What the tests cover
 
 Tests sit at the seams the plan agreed, never against internals: the pure modules, the
-`Backend` contract through `createFakeBackend`, the question prompt at its props seam, and the
-app boundary with Testing Library on a paused fake backend advanced by `sim.step()`.
+`Backend` contract through `createFakeBackend` and through `createWsBackend` over an injected
+fake socket, the question prompt at its props seam, and the app boundary with Testing Library on
+a paused fake backend advanced by `sim.step()`.
 
 Colours, light mode, glow, the grow animation, pan and zoom, pixel positions and markdown
 fidelity are not tested.
@@ -125,9 +137,10 @@ fidelity are not tested.
 Canvas nodes are clicked with `fireEvent.click`, not user-event — see `clickNode` in
 `src/test/renderApp.tsx` for why. Everything outside the canvas uses user-event.
 
-## Out of scope for the proof of concept
+## Out of scope
 
-The WebSocket backend and its Python bridge, an embedded terminal, auth, persistence across
+Against the real server, documents, comments, task creation and shaping answer `invalid`; the
+server serves agents only. Also out of scope: an embedded terminal, auth, persistence across
 reloads, an elk layout, a global keyboard shortcut layer (Esc on the card and the question's
 digit keys are local to their components), syntax highlighting in markdown, and answering a
 plan review from the session tab (the expanded node and the document tab answer it).

@@ -196,6 +196,17 @@ sends nothing back.
 `mael agent tail <id>` — rendering one driven agent's event stream without driving it. A tail
 is read-only by construction: it has no channel back to the agent at all.
 
+**Agent host**:
+The agent daemon as the orchestrator server sees it: the thing agents run in and are answered
+through, reached only over its control socket. The name says the server has a client's view of
+it, and that it may later run on another machine.
+_Avoid_: Daemon (in UI-facing prose)
+
+**Orchestrator server**:
+The process that builds the world from the notebook, `list-all` and the agent host, and serves
+it to the orchestrator UI over one WebSocket. `mael orchestrator serve` runs it.
+_Avoid_: Backend, API server
+
 ## Dev environments
 
 **Environment**:

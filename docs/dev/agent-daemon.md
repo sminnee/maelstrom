@@ -151,7 +151,8 @@ session stuck in `processing`.
 ## When an agent dies
 
 The event stream ending is the only notice the daemon gets that a child has gone. The agent then
-moves to `exited`, and `mael agent list` shows the exit code:
+moves to `exited`, every attached client gets the `mael_agent_exited` marker, and
+`mael agent list` shows the exit code:
 
 ```
 id        state      waiting_on  last_message               cwd
@@ -273,6 +274,78 @@ message.
 The event stream decides when attach ends, not stdin. Closed stdin is normal, so
 `mael agent attach <id> < /dev/null` is also a read-only view. Prefer `mael agent tail -f <id>`,
 which says so in the command rather than in a redirect.
+
+## The control socket protocol
+
+The daemon's socket is the interface the orchestrator server drives agents through, and the one
+`mael agent` uses. This section is the reference for that interface: the orchestrator server ↔
+agent host protocol. A host on another machine later means the same messages over TCP.
+
+The transport is NDJSON on a Unix domain socket at `MAEL_AGENT_SOCKET`. Every command is one line
+in and one line out, except `attach`, which holds the connection open and streams.
+
+### Commands
+
+Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<message>"}`.
+
+| `cmd` | Request fields | Ok reply |
+|---|---|---|
+| `start` | `cwd`; optional `prompt`, `mode`, `model`, `session`, `env` | `{"ok": true, "id": "<agent id>"}` |
+| `list` | — | `{"agents": [<row>, …]}`, each row as `mael agent list --json` prints |
+| `show` | `id` | `{"agent": <detail>}`, as `mael agent show --json` prints |
+| `say` | `id`, `text` | `{"ok": true}` |
+| `approve` | `id` | `{"ok": true}` |
+| `deny` | `id`; optional `reason` | `{"ok": true}` |
+| `answer` | `id`; `answers` (a map keyed by question text) or `choice` | `{"ok": true}` |
+| `stop` | `id` | `{"ok": true}` |
+| `attach` | `id` | A stream; see below |
+
+`start` merges `env` over the daemon's own environment for that child, with no allowlist: a
+client of the socket can set any variable. The socket's file permissions are the trust boundary.
+A task launch passes `MAEL_TASK_ID`, `MAEL_TASK_PARENT` and `MAEL_TASK_SESSION_ID` this way.
+
+`answer` with `answers` files each answer under its question. `choice` applies one answer to
+every question. An empty `answers` map is refused: the agent reads an empty map as no answer at
+all.
+
+`stop` removes the agent from the daemon. A later `list` does not name it.
+
+### The guards
+
+| Refusal | When |
+|---|---|
+| `no such agent: <id>` | No agent has that id |
+| `agent <id> has exited` | Any command except `show` and `stop` against an exited agent |
+| `agent <id> is not waiting` | `approve`, `deny` or `answer` with no pending request |
+| `agent <id> is not waiting on a question — use approve or deny` | `answer` against a permission or plan review |
+| `no answers given` | `answer` with an empty `answers` map |
+| `could not start claude: …` | `start` when the child could not be spawned |
+| `unknown command: <cmd>` | Anything else |
+
+### The attach stream
+
+`{"cmd": "attach", "id": "<agent id>"}` turns the connection into a stream of the agent's raw
+stream-json events, one per line:
+
+1. The retained backlog: up to 200 events, oldest first.
+2. `{"type": "mael_backlog_end"}`.
+3. Live events, as the agent emits them.
+4. `{"type": "mael_agent_exited", "exit_code": N}`, then the stream ends.
+
+An attach to an agent that has already exited sends 1, 2 and 4. An unknown id gets one
+`{"error": "no such agent: <id>"}` line, and the stream ends.
+
+The two `mael_*` markers are the daemon's own, not the agent's. Neither reaches
+`apply_event`.
+
+### Retention
+
+| What | Kept |
+|---|---|
+| Raw events per agent | The last 200 |
+| Agent messages | The last 5, each up to 8000 characters |
+| Events queued for one slow attached client | 1000; the oldest is dropped silently past that |
+| Agent state | In memory only; an agent dies with the daemon |
 
 ## What is not persisted
 

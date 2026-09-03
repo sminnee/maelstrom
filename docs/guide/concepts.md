@@ -137,12 +137,14 @@ Agents are told to consult the wiki before they solve a cross-project problem, a
 correct the page they used if it turns out to be wrong. See
 [cli.md](../reference/cli.md) for the commands.
 
-### The orchestrator UI — a proof of concept
+### The orchestrator UI and server
 
 `web/` holds a web app that shows every agent as a node on one canvas, with edges for the work
 each node unblocks, and captures your checkpoints in the tool: plan approval, questions,
-permissions, document feedback. See
-[the orchestrator UI](../dev/orchestrator-ui.md) for how it is built and how to run it.
+permissions, document feedback. `mael orchestrator serve` runs the orchestrator server behind
+it, which builds that world from the task notebook, `list-all` and the agent host. See
+[the orchestrator UI](../dev/orchestrator-ui.md) for how the app is built and how to run it, and
+[the orchestrator server](../dev/orchestrator-server.md) for the server and its wire protocol.
 
 ### Dev environments — isolated services
 

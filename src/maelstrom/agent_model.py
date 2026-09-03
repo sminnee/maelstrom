@@ -167,9 +167,8 @@ MESSAGE_SUMMARY_CHARS = 60
 BACKLOG_END = "mael_backlog_end"
 
 #: Event type the daemon writes to every attached client once the agent's
-#: process has gone, carrying ``exit_code``. It is the last event of an attach
-#: stream, so a client knows the stream ended because the agent did, not
-#: because the connection dropped.
+#: process has gone, carrying ``exit_code``. The last event of an attach
+#: stream, so a client knows the agent ended it, not a dropped connection.
 AGENT_EXITED = "mael_agent_exited"
 
 
@@ -429,8 +428,13 @@ def reply_for_answers(
 ) -> dict[str, Any]:
     """Answer an ``AskUserQuestion`` with one answer per question.
 
-    ``answers`` is keyed by each question's own text, which is how the agent
-    files them. The orchestrator UI answers every question at once this way;
+    An answer is not a separate message — it rides back on the same allow, in
+    ``updatedInput['answers']``, keyed by each question's own text. Allowing
+    the call without that key is what "the user did not answer the questions"
+    means to the agent, so a bare :func:`reply_for_approval` would look like an
+    answer and silently be none.
+
+    The orchestrator UI answers every question at once this way;
     :func:`reply_for_answer` is the one-choice-for-all form the CLI uses.
 
     Raises:
@@ -449,14 +453,8 @@ def reply_for_answers(
 def reply_for_answer(pending: PendingRequest, choice: str) -> dict[str, Any]:
     """Answer an ``AskUserQuestion`` with ``choice``.
 
-    An answer is not a separate message — it rides back on the same allow, in
-    ``updatedInput['answers']``, keyed by the question's own text. Allowing the
-    call without that key is what "the user did not answer the questions" means
-    to the agent, so a bare :func:`reply_for_approval` here would look like an
-    answer and silently be none.
-
     A ``choice`` applies to every question asked. Multi-question prompts are
-    rare; a per-question answer is a later refinement of this same field.
+    rare; :func:`reply_for_answers` is the per-question form.
     """
     answers = {question: choice for question in pending.questions}
     return reply_for_answers(pending, answers)

@@ -34,6 +34,8 @@ See `docs/dev/` for architecture and design docs:
   vocabulary, the reply shapes, and teleport.
 - `docs/dev/orchestrator-ui.md` — the `web/` canvas app: its four layers, the event and
   command protocol, how the fake backend and a real one relate, and how to run it.
+- `docs/dev/orchestrator-server.md` — the server behind that app: its layers, how it keeps the
+  world fresh, launch, and the UI ↔ server wire protocol.
 
 `CONTEXT.md` at the repo root is the domain glossary. Read it before you write prose or name
 anything, and reuse its terms verbatim, including each term's `_Avoid_` list. Add new domain

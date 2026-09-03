@@ -332,10 +332,8 @@ class Orchestrator:
                 if kind == BACKLOG_END:
                     in_backlog = False
                     # The host's ring holds RECENT_LIMIT events, so a backlog
-                    # that size may have lost older ones. A backlog of exactly
-                    # that size that lost nothing is marked too; the host does
-                    # not say which, and the UI only says older items may be
-                    # missing.
+                    # that size may have lost older ones. It does not say
+                    # which, so a full backlog is marked either way.
                     if watch.backlog_count >= RECENT_LIMIT:
                         await self.publish(
                             [{"type": "transcript.truncated", "agentId": agent_id}]

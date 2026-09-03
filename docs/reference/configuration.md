@@ -80,6 +80,8 @@ services:
     ports: [FRONTEND, FRONTEND_HMR]      # -> ${FRONTEND_PORT}, ${FRONTEND_HMR_PORT}
     dir: frontend
     command: env PORT=${FRONTEND_PORT} node server-dev.ts
+    env:
+      VITE_ORCHESTRATOR_URL: ws://localhost:${ORCHESTRATOR_PORT}   # a sibling's port, expanded at start
 
   server:
     ports: [SERVER]
@@ -87,6 +89,10 @@ services:
 
   worker:
     command: uv run serve-dev worker       # no ports, no dir
+
+  orchestrator:
+    ports: [ORCHESTRATOR]
+    command: uv run mael orchestrator serve --port ${ORCHESTRATOR_PORT}
 
   ladle:
     optional: true                         # skipped by `mael env start`
