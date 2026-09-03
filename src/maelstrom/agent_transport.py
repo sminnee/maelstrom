@@ -150,6 +150,45 @@ def _reason(offset: int) -> str:
     return f": {tail}" if tail else ""
 
 
+#: How long a request waits for the daemon's reply line before giving up.
+REPLY_TIMEOUT = 30.0
+
+
+async def request_over_socket(
+    socket_path: str, payload: dict[str, Any], *, autostart: bool = True
+) -> dict[str, Any]:
+    """One NDJSON round-trip over the daemon's Unix domain socket.
+
+    The body both socket clients share. A connection failure, a reply that
+    never comes within :data:`REPLY_TIMEOUT`, a closed connection and a
+    malformed line all come back as a reply whose ``error`` explains them,
+    never an exception — the same non-fatal contract as ``CmuxResult``.
+
+    ``autostart`` starts a daemon first when none answers on ``socket_path``.
+    """
+    try:
+        if autostart:
+            await ensure_daemon(socket_path)
+        reader, writer = await asyncio.open_unix_connection(socket_path)
+    except (OSError, asyncio.TimeoutError) as exc:
+        return {"error": f"agent daemon not reachable at {socket_path}: {exc}"}
+    try:
+        writer.write((json.dumps(payload) + "\n").encode())
+        await writer.drain()
+        try:
+            line = await asyncio.wait_for(reader.readline(), REPLY_TIMEOUT)
+        except asyncio.TimeoutError:
+            return {"error": f"agent daemon did not reply within {REPLY_TIMEOUT:g}s"}
+    finally:
+        writer.close()
+    if not line:
+        return {"error": "agent daemon closed the connection without replying"}
+    try:
+        return json.loads(line)
+    except json.JSONDecodeError as exc:
+        return {"error": f"agent daemon sent a malformed reply: {exc}"}
+
+
 class DaemonClient(Protocol):
     """A transport that sends one command to the daemon and returns its reply."""
 
@@ -192,32 +231,6 @@ class SocketDaemonClient:
     autostart: bool = True
 
     def request(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return asyncio.run(self._request(payload))
-
-    async def _request(self, payload: dict[str, Any]) -> dict[str, Any]:
-        try:
-            reader, writer = await self._connect()
-        except (OSError, asyncio.TimeoutError) as exc:
-            return {"error": f"agent daemon not reachable at {self.socket_path}: {exc}"}
-        try:
-            writer.write((json.dumps(payload) + "\n").encode())
-            await writer.drain()
-            line = await reader.readline()
-        finally:
-            writer.close()
-        if not line:
-            return {"error": "agent daemon closed the connection without replying"}
-        try:
-            return json.loads(line)
-        except json.JSONDecodeError as exc:
-            return {"error": f"agent daemon sent a malformed reply: {exc}"}
-
-    async def _connect(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
-        """Connect, starting the daemon first if none is listening.
-
-        Every command funnels through here, which is why auto-start hooks in at
-        this one point rather than in each caller.
-        """
-        if self.autostart:
-            await ensure_daemon(self.socket_path)
-        return await asyncio.open_unix_connection(self.socket_path)
+        return asyncio.run(
+            request_over_socket(self.socket_path, payload, autostart=self.autostart)
+        )
