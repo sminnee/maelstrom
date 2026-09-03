@@ -6,13 +6,12 @@ export interface Filters {
   project: string | null;
   /** A branch key, `<project>/<branch>`: two projects may share a branch name. */
   branch: string | null;
-  hideDone: boolean;
 }
 
 export const branchKey = (project: string, branch: string) => `${project}/${branch}`;
 
 export function noFilters(): Filters {
-  return { project: null, branch: null, hideDone: false };
+  return { project: null, branch: null };
 }
 
 export interface BranchOption {

@@ -1,20 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import { deriveGraph } from './graph';
 import { noFilters } from './filters';
-import { makeAgent, makeAttention, makeTask, makeWorktree, worldWith } from '../test/fixtures';
+import {
+  makeAgent,
+  makeAttention,
+  makeTask,
+  makeWorktree,
+  onDesk,
+  worldWith,
+} from '../test/fixtures';
+
+/** A world whose every task is on the desk: what the canvas draws. */
+function drawnWorld(parts: Parameters<typeof worldWith>[0]) {
+  return worldWith({ ...parts, desk: parts.desk ?? onDesk(parts.tasks ?? []) });
+}
 
 const byProject = { groupBy: 'project' as const, filters: noFilters() };
 
 describe('deriveGraph', () => {
   it('a task without an agent is a queued node', () => {
-    const world = worldWith({ tasks: [makeTask({ id: 'T1', status: 'todo' })] });
+    const world = drawnWorld({ tasks: [makeTask({ id: 'T1', status: 'todo' })] });
     const graph = deriveGraph(world, byProject);
     expect(graph.nodes).toHaveLength(1);
     expect(graph.nodes[0]).toMatchObject({ id: 'T1', state: 'queued', phase: 'executing' });
   });
 
   it('follows becomes an edge from the followed task to the follower', () => {
-    const world = worldWith({
+    const world = drawnWorld({
       tasks: [makeTask({ id: 'T1' }), makeTask({ id: 'T2', follows: ['T1'] })],
     });
     const graph = deriveGraph(world, byProject);
@@ -22,7 +34,7 @@ describe('deriveGraph', () => {
   });
 
   it('a done task is a done node, and a working agent makes a working node', () => {
-    const world = worldWith({
+    const world = drawnWorld({
       tasks: [
         makeTask({ id: 'T1', status: 'done' }),
         makeTask({ id: 'T2', status: 'in-progress' }),
@@ -36,7 +48,7 @@ describe('deriveGraph', () => {
   });
 
   it('an open attention item makes the node need attention and gives it a reason', () => {
-    const world = worldWith({
+    const world = drawnWorld({
       tasks: [makeTask({ id: 'T2', status: 'in-progress' })],
       agents: [makeAgent({ id: 'a2', taskId: 'T2', state: 'awaiting-question' })],
       attention: [makeAttention({ agentId: 'a2', taskId: 'T2', summary: 'Which colour?' })],
@@ -48,7 +60,7 @@ describe('deriveGraph', () => {
   });
 
   it('groups by project with one group per project', () => {
-    const world = worldWith({
+    const world = drawnWorld({
       tasks: [
         makeTask({ id: 'T1', project: 'northwind' }),
         makeTask({ id: 'T2', project: 'maelstrom' }),
@@ -63,7 +75,7 @@ describe('deriveGraph', () => {
   });
 
   it('groups by branch with one group per branch, labelled with its worktree', () => {
-    const world = worldWith({
+    const world = drawnWorld({
       worktrees: [makeWorktree({ id: 'northwind-bravo', nato: 'bravo', branch: 'feat/db' })],
       tasks: [
         makeTask({ id: 'T1', branch: 'feat/orders' }),
@@ -79,7 +91,7 @@ describe('deriveGraph', () => {
   });
 
   it('groups by none with one unlabelled group holding every node, edges kept', () => {
-    const world = worldWith({
+    const world = drawnWorld({
       tasks: [
         makeTask({ id: 'T1', project: 'northwind' }),
         makeTask({ id: 'T2', project: 'maelstrom', follows: ['T1'] }),
@@ -94,7 +106,7 @@ describe('deriveGraph', () => {
   });
 
   it('filters drop nodes and the edges that dangle from them', () => {
-    const world = worldWith({
+    const world = drawnWorld({
       tasks: [
         makeTask({ id: 'T1', branch: 'feat/orders' }),
         makeTask({ id: 'T2', branch: 'feat/db', follows: ['T1'] }),
@@ -109,23 +121,18 @@ describe('deriveGraph', () => {
     expect(graph.edges.map((e) => e.id)).toEqual(['T2->T3']);
   });
 
-  it('hide done drops done and cancelled tasks', () => {
+  it('only tasks on the desk are drawn', () => {
+    const drawn = makeTask({ id: 'T3', status: 'todo' });
     const world = worldWith({
-      tasks: [
-        makeTask({ id: 'T1', status: 'done' }),
-        makeTask({ id: 'T2', status: 'cancelled' }),
-        makeTask({ id: 'T3', status: 'todo' }),
-      ],
+      tasks: [makeTask({ id: 'T1' }), makeTask({ id: 'T2' }), drawn],
+      desk: onDesk([drawn]),
     });
-    const graph = deriveGraph(world, {
-      groupBy: 'project',
-      filters: { ...noFilters(), hideDone: true },
-    });
+    const graph = deriveGraph(world, byProject);
     expect(graph.nodes.map((n) => n.id)).toEqual(['T3']);
   });
 
   it('the project filter keeps only that project and its group', () => {
-    const world = worldWith({
+    const world = drawnWorld({
       tasks: [
         makeTask({ id: 'T1', project: 'northwind' }),
         makeTask({ id: 'T2', project: 'maelstrom' }),

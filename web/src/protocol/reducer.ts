@@ -20,6 +20,7 @@ export function emptyWorld(): World {
     documents: {},
     comments: {},
     attention: {},
+    desk: {},
   };
 }
 

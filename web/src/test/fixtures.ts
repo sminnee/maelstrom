@@ -1,4 +1,4 @@
-import type { Agent, Project, Task, Worktree } from '../protocol/entities';
+import type { Agent, DeskEntry, Project, Task, Worktree } from '../protocol/entities';
 import type { Attention } from '../protocol/attention';
 import type { Document } from '../protocol/documents';
 import type { World } from '../protocol/events';
@@ -30,6 +30,7 @@ export function makeWorktree(over: Partial<Worktree> = {}): Worktree {
 export function makeTask(over: Partial<Task> = {}): Task {
   return {
     id: 'NORT-7',
+    notebookId: 'NORT-7',
     project: 'northwind',
     title: 'Add order export',
     status: 'todo',
@@ -102,6 +103,15 @@ export function makeAttention(over: Partial<Attention> = {}): Attention {
   };
 }
 
+export function makeDeskEntry(over: Partial<DeskEntry> = {}): DeskEntry {
+  return { id: 'NORT-7', addedAt: '2026-09-01T00:00:00Z', ...over };
+}
+
+/** Desk entries for every one of `tasks`, for a world drawn whole. */
+export function onDesk(tasks: Task[]): DeskEntry[] {
+  return tasks.map((t) => makeDeskEntry({ id: t.id }));
+}
+
 /** A world holding the given entities, keyed by id. */
 export function worldWith(parts: {
   projects?: Project[];
@@ -110,6 +120,7 @@ export function worldWith(parts: {
   agents?: Agent[];
   documents?: Document[];
   attention?: Attention[];
+  desk?: DeskEntry[];
 }): World {
   const world = emptyWorld();
   for (const p of parts.projects ?? []) world.projects[p.id] = p;
@@ -118,5 +129,6 @@ export function worldWith(parts: {
   for (const a of parts.agents ?? []) world.agents[a.id] = a;
   for (const d of parts.documents ?? []) world.documents[d.id] = d;
   for (const a of parts.attention ?? []) world.attention[a.id] = a;
+  for (const e of parts.desk ?? []) world.desk[e.id] = e;
   return world;
 }

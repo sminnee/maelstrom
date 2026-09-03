@@ -52,6 +52,16 @@ export function validateCommand(world: World, cmd: Command): CommandError | null
       if (!task.actionable) return err('invalid', `Task ${task.id} is not actionable`);
       return null;
     }
+    case 'desk.add': {
+      if (!world.tasks[cmd.taskId]) return err('unknown_id', `No task ${cmd.taskId}`);
+      return null;
+    }
+    case 'desk.remove': {
+      if (!world.desk[cmd.taskId]) {
+        return err('unknown_id', `Task ${cmd.taskId} is not on the desk`);
+      }
+      return null;
+    }
     case 'document.approve':
     case 'document.requestChanges':
     case 'comment.add': {

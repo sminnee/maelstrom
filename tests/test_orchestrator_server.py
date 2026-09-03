@@ -32,11 +32,12 @@ def read_fixture(name: str) -> list[dict]:
 class Harness:
     """An orchestrator over in-memory sources and a scripted agent host."""
 
-    def __init__(self, store, **over):
+    def __init__(self, store, *, desk=None, projects=(PROJECT,), **over):
         self.store = store
         self.version = 0
+        self.projects = list(projects)
         self.tasks = NotebookTaskSource(
-            store, lambda: [PROJECT], version=lambda: str(self.version)
+            store, lambda: list(self.projects), version=lambda: str(self.version)
         )
         self.worktrees = InMemoryWorktreeSource(
             projects=[{"id": PROJECT, "name": PROJECT, "stackTip": "main"}],
@@ -65,12 +66,17 @@ class Harness:
         options = {"task_poll": 0.02, "worktree_poll": 0.02, "agent_poll": 0.02}
         options.update(over)
         self.orch = Orchestrator(
-            self.tasks, self.worktrees, self.daemon, clock=lambda: NOW, **options
+            self.tasks,
+            self.worktrees,
+            self.daemon,
+            clock=lambda: NOW,
+            desk=desk,
+            **options,
         )
 
-    def add_task(self, task_id: str, **fields) -> None:
+    def add_task(self, task_id: str, *, project: str = PROJECT, **fields) -> None:
         title = fields.pop("title", task_id)
-        model.create(self.store, project=PROJECT, title=title, id=task_id, **fields)
+        model.create(self.store, project=project, title=title, id=task_id, **fields)
         self.version += 1
 
 
@@ -147,8 +153,8 @@ def test_hello_gets_a_snapshot_of_the_world_then_ready(harness):
     snapshot = received[0]
     assert snapshot["event"]["type"] == "snapshot"
     world = snapshot["event"]["world"]
-    assert world["tasks"]["NORT-7"]["phase"] == "planning"
-    assert world["tasks"]["NORT-7"]["actionable"] is True
+    assert world["tasks"]["northwind/NORT-7"]["phase"] == "planning"
+    assert world["tasks"]["northwind/NORT-7"]["actionable"] is True
     assert world["projects"][PROJECT]["stackTip"] == "main"
     assert world["worktrees"]["northwind-alpha"]["path"] == WORKTREE_PATH
     assert received[1]["ready"]["seq"] == snapshot["seq"]
@@ -164,7 +170,7 @@ def test_a_task_edit_arrives_as_an_upsert(harness):
 
     frame = run(scenario())
     assert frame["event"]["kind"] == "task"
-    assert frame["event"]["entity"]["id"] == "NORT-8"
+    assert frame["event"]["entity"]["id"] == "northwind/NORT-8"
     assert frame["event"]["entity"]["actionable"] is False
 
 
@@ -183,7 +189,7 @@ def test_a_resume_inside_the_ring_replays_and_outside_it_snapshots(harness):
 
     replayed, snapshotted = run(scenario())
     assert [m["event"]["type"] for m in replayed[:-1]] == ["upsert"]
-    assert replayed[0]["event"]["entity"]["id"] == "NORT-9"
+    assert replayed[0]["event"]["entity"]["id"] == "northwind/NORT-9"
     assert [m["event"]["type"] for m in snapshotted[:-1]] == ["snapshot"]
 
 
@@ -308,7 +314,7 @@ def test_the_snapshot_carries_an_attached_agents_transcript_and_open_attention(h
     assert attached == ["ag1"]
     agent = snapshot["world"]["agents"]["ag1"]
     assert agent["state"] == "awaiting-question"
-    assert agent["taskId"] == "NORT-7"
+    assert agent["taskId"] == "northwind/NORT-7"
     assert agent["project"] == PROJECT
     assert agent["worktreeId"] == "northwind-alpha"
     assert agent["pendingRequestId"] == "2ba1273d-d878-4923-ba21-31faa1067613"
@@ -319,7 +325,7 @@ def test_the_snapshot_carries_an_attached_agents_transcript_and_open_attention(h
         a for a in snapshot["world"]["attention"].values() if a["clearedAt"] is None
     ]
     assert [a["kind"] for a in open_items] == ["question"]
-    assert open_items[0]["taskId"] == "NORT-7"
+    assert open_items[0]["taskId"] == "northwind/NORT-7"
 
 
 def test_a_backlog_the_size_of_the_hosts_window_is_marked_truncated(harness):
@@ -529,7 +535,11 @@ async def command_with_frames(
 
 
 def entities_of(frames: list[dict], kind: str) -> list[dict]:
-    return [f["event"]["entity"] for f in frames if f["event"].get("kind") == kind]
+    return [
+        f["event"]["entity"]
+        for f in frames
+        if f["event"].get("kind") == kind and f["event"]["type"] == "upsert"
+    ]
 
 
 def updates_of(frames: list[dict]) -> list[dict]:
@@ -739,7 +749,7 @@ def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 return await command_with_frames(
-                    ws, {"type": "agent.launch", "taskId": "NORT-7"}
+                    ws, {"type": "agent.launch", "taskId": "northwind/NORT-7"}
                 )
 
     reply, frames = run(scenario())
@@ -759,9 +769,11 @@ def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
     assert entities_of(frames, "task")[-1]["status"] == "in-progress"
     agent = entities_of(frames, "agent")[-1]
     assert agent["id"] == "new1"
-    assert agent["taskId"] == "NORT-7"
+    assert agent["taskId"] == "northwind/NORT-7"
     assert agent["worktreeId"] == "northwind-alpha"
     assert agent["phase"] == "planning"
+    # A task launched from the UI joins the desk.
+    assert entities_of(frames, "desk")[-1]["id"] == "northwind/NORT-7"
 
 
 def test_a_launch_the_host_refuses_rolls_the_task_back_to_todo(harness):
@@ -774,7 +786,9 @@ def test_a_launch_the_host_refuses_rolls_the_task_back_to_todo(harness):
         async with harness.orch.serving("127.0.0.1", 0) as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
-                return await command(ws, {"type": "agent.launch", "taskId": "NORT-7"})
+                return await command(
+                    ws, {"type": "agent.launch", "taskId": "northwind/NORT-7"}
+                )
 
     reply = run(scenario())
     assert reply["ok"] is False
@@ -799,10 +813,167 @@ def test_a_launch_blocked_by_a_failed_sync_leaves_the_task_todo(store):
         async with harness.orch.serving("127.0.0.1", 0) as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
-                return await command(ws, {"type": "agent.launch", "taskId": "NORT-7"})
+                return await command(
+                    ws, {"type": "agent.launch", "taskId": "northwind/NORT-7"}
+                )
 
     reply = run(scenario())
     assert reply["ok"] is False
     assert "rebase conflict" in reply["error"]["message"]
     assert model.load(harness.store, PROJECT, "NORT-7").status == "todo"
     assert not [c for c in harness.daemon.calls if c["cmd"] == "start"]
+
+
+# -- the desk --
+
+
+def test_two_projects_may_share_a_notebook_id(store):
+    harness = Harness(store, projects=("northwind", "askastro"))
+    harness.add_task("2026-06-11.1", project="northwind")
+    harness.add_task("2026-06-11.1", project="askastro")
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                return await say_hello(ws)
+
+    world = run(scenario())[0]["event"]["world"]
+    assert set(world["tasks"]) == {
+        "northwind/2026-06-11.1",
+        "askastro/2026-06-11.1",
+    }
+
+
+def test_desk_add_publishes_an_upsert_then_replies(harness):
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                return await command_with_frames(
+                    ws, {"type": "desk.add", "taskId": "northwind/NORT-7"}
+                )
+
+    reply, frames = run(scenario())
+    assert reply == {"id": "c1", "ok": True, "result": {}}
+    entry = entities_of(frames, "desk")[-1]
+    assert entry["id"] == "northwind/NORT-7"
+    assert entry["addedAt"] == NOW
+
+
+def test_desk_remove_publishes_a_remove_then_replies(harness):
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                await command(ws, {"type": "desk.add", "taskId": "northwind/NORT-7"})
+                return await command_with_frames(
+                    ws,
+                    {"type": "desk.remove", "taskId": "northwind/NORT-7"},
+                    command_id="c2",
+                )
+
+    reply, frames = run(scenario())
+    assert reply == {"id": "c2", "ok": True, "result": {}}
+    removes = [f["event"] for f in frames if f["event"].get("kind") == "desk"]
+    assert removes[-1] == {
+        "type": "remove",
+        "kind": "desk",
+        "id": "northwind/NORT-7",
+    }
+
+
+def test_a_second_desk_add_is_ok_and_publishes_nothing(harness):
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                await command(ws, {"type": "desk.add", "taskId": "northwind/NORT-7"})
+                before = harness.orch.log.seq
+                reply = await command(
+                    ws,
+                    {"type": "desk.add", "taskId": "northwind/NORT-7"},
+                    command_id="c2",
+                )
+                return reply, before, harness.orch.log.seq
+
+    reply, before, after = run(scenario())
+    assert reply["ok"] is True
+    assert after == before
+
+
+def test_a_task_deleted_from_the_notebook_leaves_the_desk(harness):
+    harness.add_task("NORT-7")
+    # A second task keeps the project in the reading. A project with no tasks
+    # at all is indistinguishable from one the scan missed, so its desk
+    # entries are kept.
+    harness.add_task("NORT-8")
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                await command(ws, {"type": "desk.add", "taskId": "northwind/NORT-7"})
+                model.delete(harness.store, PROJECT, "NORT-7")
+                harness.version += 1
+                await next_frame(
+                    ws,
+                    lambda f: (
+                        f["event"].get("kind") == "desk"
+                        and f["event"]["type"] == "remove"
+                    ),
+                )
+                return harness.orch.log.state["world"]["desk"]
+
+    assert run(scenario()) == {}
+
+
+def test_the_desk_survives_a_restart(store):
+    from maelstrom.desk_store import InMemoryDeskStore
+
+    desk = InMemoryDeskStore()
+
+    async def scenario(harness):
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                await command(ws, {"type": "desk.add", "taskId": "northwind/NORT-7"})
+
+    first = Harness(store, desk=desk)
+    first.add_task("NORT-7")
+    run(scenario(first))
+
+    second = Harness(store, desk=desk)
+
+    async def read_back():
+        async with second.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                return (await say_hello(ws))[0]["event"]["world"]["desk"]
+
+    assert list(run(read_back())) == ["northwind/NORT-7"]
+
+
+def test_a_project_the_scan_misses_keeps_its_desk_entries(store):
+    """A project briefly absent must not cost the user the desk it holds."""
+    harness = Harness(store, projects=("northwind", "askastro"))
+    harness.add_task("NORT-7", project="northwind")
+    harness.add_task("ASK-1", project="askastro")
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                await command(ws, {"type": "desk.add", "taskId": "askastro/ASK-1"})
+                # The project disappears from the scan, as an unmounted volume
+                # or a renamed directory would make it.
+                harness.projects = ["northwind"]
+                harness.version += 1
+                await harness.orch.refresh_tasks()
+                return harness.orch.log.state["world"]["desk"]
+
+    assert list(run(scenario())) == ["askastro/ASK-1"]

@@ -1,8 +1,9 @@
 import { useReactFlow } from '@xyflow/react';
 import { nextAttentionTask, openAttention } from '../selectors/attention';
-import { deriveGraph } from '../selectors/graph';
+import { filteredTasks } from '../selectors/graph';
 import { focusedTaskId } from '../selectors/tabs';
 import { useAppStore } from '../store/store';
+import { useCommand } from '../store/useCommand';
 import styles from './AttentionChip.module.css';
 
 /** `⚠N` in the top bar. Clicking expands the next node that needs the user and fits the view to it. */
@@ -10,20 +11,32 @@ export function AttentionChip() {
   const world = useAppStore((s) => s.world);
   const tabs = useAppStore((s) => s.ui.tabs);
   const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
-  const groupBy = useAppStore((s) => s.ui.groupBy);
   const filters = useAppStore((s) => s.ui.filters);
   const expandedTaskId = useAppStore((s) => s.ui.expandedTaskId);
   const expandNode = useAppStore((s) => s.expandNode);
+  const view = useAppStore((s) => s.ui.view);
+  const setView = useAppStore((s) => s.setView);
   const { fitView } = useReactFlow();
-  const visible = new Set(deriveGraph(world, { groupBy, filters }).nodes.map((n) => n.id));
+  const { send } = useCommand();
+  // Counted over every task the filters allow, not only the drawn ones: the
+  // desk opens empty, and an agent blocked on a task the user has not put on
+  // it still needs them.
+  const visible = new Set(filteredTasks(world, filters).map((t) => t.id));
   const count = openAttention(world, visible).length;
 
-  const go = () => {
+  const go = async () => {
     const current = expandedTaskId ?? focusedTaskId(world, tabs, activeTabKey);
     const next = nextAttentionTask(world, current, visible);
     if (!next) return;
+    // The canvas draws the desk, so a task off it has no node to expand.
+    if (!(next in world.desk)) await send({ type: 'desk.add', taskId: next });
+    // From the task list, the canvas has to be showing before it can be
+    // fitted, so the fit waits for the frame that draws it.
+    if (view !== 'canvas') setView('canvas');
     expandNode(next, false);
-    void fitView({ nodes: [{ id: next }], duration: 300, maxZoom: 1.2 });
+    requestAnimationFrame(() => {
+      void fitView({ nodes: [{ id: next }], duration: 300, maxZoom: 1.2 });
+    });
   };
 
   return (
@@ -33,7 +46,7 @@ export function AttentionChip() {
       data-testid="attention-chip"
       data-count={count}
       aria-label={`${count} items need attention`}
-      onClick={go}
+      onClick={() => void go()}
       disabled={count === 0}
     >
       ⚠ {count}

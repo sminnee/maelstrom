@@ -162,7 +162,8 @@ export function NodeCard({
             <div className={styles.titleBlock}>
               <h2 className={styles.title}>{task.title}</h2>
               <div className={styles.idLine}>
-                <span className={styles.id}>{task.id}</span>
+                {/* The lane names the project, so the bare id is enough. */}
+                <span className={styles.id}>{task.notebookId}</span>
                 <span className={styles.phase}>{task.phase}</span>
               </div>
               {meta.length > 0 && <div className={styles.meta}>{meta.join(' · ')}</div>}

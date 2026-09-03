@@ -69,6 +69,18 @@ def validate_command(world: World, cmd: dict[str, Any]) -> dict[str, str] | None
             return _err("invalid", f"Task {task_id} is not actionable")
         return None
 
+    if kind == "desk.add":
+        task_id = cmd.get("taskId", "")
+        if task_id not in world["tasks"]:
+            return _err("unknown_id", f"No task {task_id}")
+        return None
+
+    if kind == "desk.remove":
+        task_id = cmd.get("taskId", "")
+        if task_id not in world["desk"]:
+            return _err("unknown_id", f"Task {task_id} is not on the desk")
+        return None
+
     if kind in ("document.approve", "document.requestChanges", "comment.add"):
         document_id = cmd.get("documentId", "")
         doc = world["documents"].get(document_id)

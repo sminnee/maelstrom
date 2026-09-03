@@ -16,3 +16,22 @@
 .spacer {
   flex: 1;
 }
+.views {
+  display: flex;
+  gap: 4px;
+}
+.view {
+  font: inherit;
+  font-size: 11px;
+  color: var(--fg-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.view[aria-pressed='true'] {
+  color: var(--fg);
+  background: var(--bg-raised);
+  border-color: var(--fg-faint);
+}

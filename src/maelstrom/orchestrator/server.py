@@ -21,9 +21,12 @@ from websockets.asyncio.server import Server, ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
 from ..agent_model import AGENT_EXITED, BACKLOG_END, RECENT_LIMIT
+from ..desk_store import DeskStore, InMemoryDeskStore
 from ..task_launch import LaunchBlocked
 from ..util import now_iso
+from . import desk as desk_model
 from .daemon_bridge import AsyncDaemonClient
+from .desk import DeskTable
 from .event_log import RING_SIZE, EventLog
 from .normalise import (
     NormaliseContext,
@@ -83,6 +86,7 @@ class Orchestrator:
         worktrees: WorktreeSource,
         daemon: AsyncDaemonClient,
         *,
+        desk: DeskStore | None = None,
         clock: Callable[[], str] = now_iso,
         executor: Executor | None = None,
         ring_size: int = RING_SIZE,
@@ -93,6 +97,7 @@ class Orchestrator:
         self.tasks = tasks
         self.worktrees = worktrees
         self.daemon = daemon
+        self.desk = desk if desk is not None else InMemoryDeskStore()
         self.clock = clock
         self.executor = executor
         self.log = EventLog(ring_size)
@@ -117,6 +122,7 @@ class Orchestrator:
     async def start(self) -> None:
         """Read every source once, then keep them fresh in the background."""
         await self.refresh_tasks()
+        await self._load_desk()
         await self.refresh_worktrees()
         await self.refresh_agents()
         self._started.set()
@@ -214,6 +220,7 @@ class Orchestrator:
         entities = await self._run(self.tasks.read)
         new = {task["id"]: task for task in entities}
         await self.publish(diff_kind("task", self.log.state["world"]["tasks"], new))
+        await self._prune_desk()
 
     async def refresh_worktrees(self) -> None:
         """Re-read ``list-all``, one read in flight at a time."""
@@ -227,6 +234,48 @@ class Orchestrator:
             "worktree", world["worktrees"], {w["id"]: w for w in worktrees}
         )
         await self.publish(events)
+
+    # -- the desk --
+
+    async def _load_desk(self) -> None:
+        """Put the stored desk in the world, less any task the notebook lost."""
+        stored = await self._run(self.desk.load)
+        await self._set_desk(self._pruned(stored))
+
+    async def _prune_desk(self) -> None:
+        """Drop desk entries for tasks that are no longer in the notebook."""
+        pruned = self._pruned(self.log.state["world"]["desk"])
+        await self._set_desk(pruned)
+
+    def _pruned(self, table: DeskTable) -> DeskTable:
+        """``table`` pruned against the projects the last task read covered."""
+        tasks = self.log.state["world"]["tasks"]
+        return desk_model.prune(table, tasks, {t["project"] for t in tasks.values()})
+
+    async def _set_desk(self, table: DeskTable) -> None:
+        """Save the desk, then publish what changed about it.
+
+        Saving first is what makes a restart show the desk the last client
+        saw, rather than one change behind it.
+        """
+        old = self.log.state["world"]["desk"]
+        if table == old:
+            return
+        await self._run(self.desk.save, table)
+        await self.publish(diff_kind("desk", old, table))
+
+    async def _desk_add(self, command: dict[str, Any]) -> dict[str, Any]:
+        await self._add_to_desk(command["taskId"])
+        return {"ok": True, "result": {}}
+
+    async def _add_to_desk(self, task_id: str) -> None:
+        table = self.log.state["world"]["desk"]
+        await self._set_desk(desk_model.add(table, task_id, self.clock()))
+
+    async def _desk_remove(self, command: dict[str, Any]) -> dict[str, Any]:
+        table = self.log.state["world"]["desk"]
+        await self._set_desk(desk_model.remove(table, command["taskId"]))
+        return {"ok": True, "result": {}}
 
     # -- agents --
 
@@ -391,9 +440,10 @@ class Orchestrator:
         request each; the world change comes back as events, either from the
         host's stream or synthesised here as the reply shape the host itself
         would have written (a ``control_response``, a ``user`` turn), which the
-        normaliser handles like any other stream event. Everything but the six
-        agent commands answers ``invalid``: documents, comments, task creation
-        and shaping are out of scope for this server.
+        normaliser handles like any other stream event. The two desk commands
+        reach the host not at all: the desk is the server's own table.
+        Everything but those eight answers ``invalid``: documents, comments,
+        task creation and shaping are out of scope for this server.
         """
         kind = str(command.get("type"))
         handlers = {
@@ -403,6 +453,8 @@ class Orchestrator:
             "agent.say": self._say,
             "agent.stop": self._stop,
             "agent.launch": self._launch,
+            "desk.add": self._desk_add,
+            "desk.remove": self._desk_remove,
         }
         handler = handlers.get(kind)
         if handler is None:
@@ -546,6 +598,7 @@ class Orchestrator:
                     await self.refresh_tasks(force=True)
                     return _refused(_code_for(error), error)
                 await self.refresh_tasks(force=True)
+                await self._add_to_desk(task_id)
                 await self._adopt(_started_row(agent_id, request.payload))
             except Exception as exc:  # noqa: BLE001 — the rollback must run
                 log.exception("launch of %s failed after the task moved", task_id)

@@ -12,6 +12,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **The desk.** The orchestrator canvas draws the tasks you have put on your desk, not every task
+  in the world. A new task list view lists every task, with filters for status, project, branch
+  and text, and each row adds its task to the desk or takes it off. Launching a task from the UI
+  puts it on the desk. The desk is kept at `~/.maelstrom/desk.json`, so it survives a restart.
+
 - **`mael agent show ID`.** Prints one agent in full: what it last said, every option of a
   question with its description, the plan text of a plan review, and the command that answers
   the wait. `--json` emits the detail as JSON. Works on an exited agent.

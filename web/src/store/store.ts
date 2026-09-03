@@ -4,7 +4,8 @@ import type { ClientState } from '../protocol/reducer';
 import { applyServerEvent, initialClientState } from '../protocol/reducer';
 import type { TaskId } from '../protocol/ids';
 import type { Filters, GroupBy } from '../selectors/filters';
-import type { PanelTab, UiState } from './uiSlice';
+import type { ListFilters } from '../selectors/taskList';
+import type { PanelTab, UiState, View } from './uiSlice';
 import { initialUiState } from './uiSlice';
 import { closeTab as closeTabIn, openOrFocusTab } from '../selectors/tabs';
 
@@ -12,8 +13,10 @@ export interface AppStore extends ClientState {
   ui: UiState;
   applyFrame(frame: EventFrame): void;
   reset(): void;
+  setView(view: View): void;
   setGroupBy(groupBy: GroupBy): void;
   setFilters(patch: Partial<Filters>): void;
+  setListFilters(patch: Partial<ListFilters>): void;
   openTab(tab: PanelTab): void;
   activateTab(key: string): void;
   closeTab(key: string): void;
@@ -30,8 +33,11 @@ export const useAppStore = create<AppStore>()((set) => ({
   ui: initialUiState(),
   applyFrame: (frame) => set((s) => applyServerEvent(s, frame)),
   reset: () => set({ ...initialClientState(), ui: initialUiState() }),
+  setView: (view) => set((s) => ({ ui: { ...s.ui, view } })),
   setGroupBy: (groupBy) => set((s) => ({ ui: { ...s.ui, groupBy } })),
   setFilters: (patch) => set((s) => ({ ui: { ...s.ui, filters: { ...s.ui.filters, ...patch } } })),
+  setListFilters: (patch) =>
+    set((s) => ({ ui: { ...s.ui, listFilters: { ...s.ui.listFilters, ...patch } } })),
   openTab: (tab) =>
     set((s) => {
       const tabs = openOrFocusTab(s.ui.tabs, tab);

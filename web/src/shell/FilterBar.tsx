@@ -61,14 +61,6 @@ export function FilterBar() {
           ))}
         </select>
       </label>
-      <label className={styles.field}>
-        <input
-          type="checkbox"
-          checked={filters.hideDone}
-          onChange={(e) => setFilters({ hideDone: e.target.checked })}
-        />
-        <span>hide done and cancelled</span>
-      </label>
     </div>
   );
 }

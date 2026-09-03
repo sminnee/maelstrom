@@ -1,6 +1,6 @@
 import type { Attention } from './attention';
 import type { Comment, Document } from './documents';
-import type { Agent, Project, Task, Worktree } from './entities';
+import type { Agent, DeskEntry, Project, Task, Worktree } from './entities';
 import type {
   AgentId,
   AttentionId,
@@ -22,6 +22,7 @@ export interface World {
   documents: Record<DocumentId, Document>;
   comments: Record<CommentId, Comment>;
   attention: Record<AttentionId, Attention>;
+  desk: Record<TaskId, DeskEntry>;
 }
 
 export type EntityKind = keyof EntityMap;
@@ -34,6 +35,7 @@ export interface EntityMap {
   document: Document;
   comment: Comment;
   attention: Attention;
+  desk: DeskEntry;
 }
 
 export const ENTITY_KINDS: readonly EntityKind[] = [
@@ -44,6 +46,7 @@ export const ENTITY_KINDS: readonly EntityKind[] = [
   'document',
   'comment',
   'attention',
+  'desk',
 ];
 
 /** Which `World` key each entity kind lives under. */
@@ -55,6 +58,7 @@ export const WORLD_KEY: { [K in EntityKind]: keyof World } = {
   document: 'documents',
   comment: 'comments',
   attention: 'attention',
+  desk: 'desk',
 };
 
 export type UpsertEvent = {

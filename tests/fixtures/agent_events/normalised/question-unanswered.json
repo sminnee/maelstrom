@@ -35,7 +35,8 @@
         "raisedAt": "2026-09-01T00:00:00Z",
         "clearedAt": "2026-09-01T00:00:00Z"
       }
-    }
+    },
+    "desk": {}
   },
   "transcripts": {
     "ag1": {

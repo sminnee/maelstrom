@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { validateCommand } from './validate';
-import { makeAgent, makeDocument, makeTask, worldWith } from '../test/fixtures';
+import { makeAgent, makeDeskEntry, makeDocument, makeTask, worldWith } from '../test/fixtures';
 
 const waitingForPlan = makeAgent({
   id: 'agent-1',
@@ -106,6 +106,24 @@ describe('validateCommand', () => {
     expect(
       validateCommand(world, { type: 'document.approve', documentId: 'doc-1', version: 1 }),
     ).toMatchObject({ code: 'invalid' });
+  });
+
+  it('reports unknown_id for adding a task that is not in the world to the desk', () => {
+    expect(validateCommand(worldWith({}), { type: 'desk.add', taskId: 'NORT-7' })).toMatchObject({
+      code: 'unknown_id',
+    });
+  });
+
+  it('reports unknown_id for removing a task that is not on the desk', () => {
+    const world = worldWith({ tasks: [makeTask()] });
+    expect(validateCommand(world, { type: 'desk.remove', taskId: 'NORT-7' })).toMatchObject({
+      code: 'unknown_id',
+    });
+  });
+
+  it('accepts adding a task that is on the desk already', () => {
+    const world = worldWith({ tasks: [makeTask()], desk: [makeDeskEntry()] });
+    expect(validateCommand(world, { type: 'desk.add', taskId: 'NORT-7' })).toBeNull();
   });
 
   it('accepts a well-formed approve of the pending request', () => {

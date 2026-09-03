@@ -23,8 +23,10 @@ def make_task(**over) -> dict:
     return task
 
 
-def world_with(agents=(), tasks=(), documents=(), projects=()):
+def world_with(agents=(), tasks=(), documents=(), projects=(), desk=()):
     world = empty_world()
+    for entry in desk:
+        world["desk"][entry] = {"id": entry, "addedAt": "2026-09-04T09:00:00Z"}
     for a in agents:
         world["agents"][a["id"]] = a
     for t in tasks:
@@ -118,12 +120,12 @@ def test_invalid_for_an_empty_message_reason_or_answer_set(cmd):
 
 def test_invalid_for_launching_a_task_that_is_not_actionable():
     world = world_with(tasks=[make_task(actionable=False)])
-    cmd = {"type": "agent.launch", "taskId": "NORT-7"}
+    cmd = {"type": "agent.launch", "taskId": "northwind/NORT-7"}
     assert code(validate_command(world, cmd)) == "invalid"
 
 
 def test_unknown_id_for_launching_a_task_not_in_the_world():
-    cmd = {"type": "agent.launch", "taskId": "NORT-7"}
+    cmd = {"type": "agent.launch", "taskId": "northwind/NORT-7"}
     assert code(validate_command(empty_world(), cmd)) == "unknown_id"
 
 
@@ -145,4 +147,30 @@ def test_accepts_a_well_formed_approve_of_the_pending_request():
 
 def test_accepts_a_launch_of_an_actionable_task():
     world = world_with(tasks=[make_task()])
-    assert validate_command(world, {"type": "agent.launch", "taskId": "NORT-7"}) is None
+    assert (
+        validate_command(world, {"type": "agent.launch", "taskId": "northwind/NORT-7"})
+        is None
+    )
+
+
+def test_unknown_id_for_adding_a_task_not_in_the_world_to_the_desk():
+    cmd = {"type": "desk.add", "taskId": "northwind/NORT-7"}
+    assert code(validate_command(empty_world(), cmd)) == "unknown_id"
+
+
+def test_unknown_id_for_removing_a_task_that_is_not_on_the_desk():
+    world = world_with(tasks=[make_task()])
+    cmd = {"type": "desk.remove", "taskId": "northwind/NORT-7"}
+    assert code(validate_command(world, cmd)) == "unknown_id"
+
+
+def test_accepts_adding_a_task_that_is_on_the_desk_already():
+    world = world_with(tasks=[make_task()], desk=["northwind/NORT-7"])
+    cmd = {"type": "desk.add", "taskId": "northwind/NORT-7"}
+    assert validate_command(world, cmd) is None
+
+
+def test_accepts_removing_a_task_that_is_on_the_desk():
+    world = world_with(tasks=[make_task()], desk=["northwind/NORT-7"])
+    cmd = {"type": "desk.remove", "taskId": "northwind/NORT-7"}
+    assert validate_command(world, cmd) is None
