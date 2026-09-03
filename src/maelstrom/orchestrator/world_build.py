@@ -77,10 +77,38 @@ def parse_log(text: str) -> list[TaskLogEntry]:
     return entries
 
 
+def task_key(project: str, notebook_id: str) -> str:
+    """The wire id for a task: its project, then its notebook id.
+
+    A notebook id is unique inside its project but not across projects, so the
+    wire qualifies it. ``is_safe_id`` forbids ``/`` in either half, which makes
+    the split exact.
+    """
+    return f"{project}/{notebook_id}"
+
+
+def split_task_key(key: str) -> tuple[str, str]:
+    """The project and notebook id a wire task id holds.
+
+    Raises:
+        ValueError: If ``key`` carries no project.
+    """
+    project, sep, notebook_id = key.partition("/")
+    if not sep:
+        raise ValueError(f"Not a qualified task id: {key!r}")
+    return project, notebook_id
+
+
 def task_entity(task: model.Task, *, actionable: bool) -> Task:
-    """The wire task for a notebook task. ``actionable`` comes from the notebook's own rule."""
+    """The wire task for a notebook task. ``actionable`` comes from the notebook's own rule.
+
+    ``follows`` is qualified with the task's own project: a task only ever
+    follows a task beside it in the notebook. ``parent`` is left bare, because
+    it is often virtual and names no real task.
+    """
     return {
-        "id": task.id,
+        "id": task_key(task.project, task.id),
+        "notebookId": task.id,
         "project": task.project,
         "title": task.title,
         "status": task.status,
@@ -88,7 +116,7 @@ def task_entity(task: model.Task, *, actionable: bool) -> Task:
         "mode": task.mode,
         "branch": task.branch or model.default_branch(task.id, task.parent),
         "parent": task.parent,
-        "follows": list(task.follows),
+        "follows": [task_key(task.project, f) for f in task.follows],
         "priority": task.priority,
         "model": task.model,
         "base": task.base,
@@ -206,7 +234,8 @@ def link_agent(
         (
             t
             for t in tasks.values()
-            if session and model.session_id_for(t["project"], t["id"]) == session
+            if session
+            and model.session_id_for(t["project"], t["notebookId"]) == session
         ),
         None,
     )

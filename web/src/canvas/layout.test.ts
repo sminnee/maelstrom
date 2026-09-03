@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { layoutSwimlanes } from './layout';
 import { deriveGraph } from '../selectors/graph';
 import { noFilters } from '../selectors/filters';
-import { makeTask, worldWith } from '../test/fixtures';
+import { makeTask, onDesk, worldWith } from '../test/fixtures';
 import type { Task } from '../protocol/entities';
 
 function graphOf(tasks: Task[]) {
-  return deriveGraph(worldWith({ tasks }), { groupBy: 'project', filters: noFilters() });
+  return deriveGraph(worldWith({ tasks, desk: onDesk(tasks) }), {
+    groupBy: 'project',
+    filters: noFilters(),
+  });
 }
 
 const chain = [
@@ -82,7 +85,7 @@ describe('layoutSwimlanes', () => {
   });
 
   it('group by none lays the whole world out as one band with no header', () => {
-    const graph = deriveGraph(worldWith({ tasks: chain }), {
+    const graph = deriveGraph(worldWith({ tasks: chain, desk: onDesk(chain) }), {
       groupBy: 'none',
       filters: noFilters(),
     });

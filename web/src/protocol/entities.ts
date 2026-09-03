@@ -41,9 +41,16 @@ export interface TaskLogEntry {
   text: string;
 }
 
-/** Mirrors a task file's frontmatter plus two backend-derived fields. */
+/**
+ * Mirrors a task file's frontmatter plus the fields the backend derives.
+ *
+ * `id` is the wire id, `<project>/<notebook id>`; `notebookId` is the bare id
+ * the notebook itself uses. Notebook ids repeat across projects, so only the
+ * qualified one is unique in the world.
+ */
 export interface Task {
   id: TaskId;
+  notebookId: string;
   project: ProjectId;
   title: string;
   status: TaskStatus;
@@ -91,4 +98,10 @@ export interface Agent {
   phase: Phase;
   exitCode: number | null;
   pendingRequestId: RequestId | null;
+}
+
+/** One task on the desk: the set of tasks the user has put on the canvas. */
+export interface DeskEntry {
+  id: TaskId;
+  addedAt: string;
 }

@@ -21,7 +21,12 @@ from ..task_launch import LaunchBlocked, check_not_live, check_synced, plan_laun
 from ..task_store import TaskStore
 from ..worktree import WorktreeSetup
 from .protocol import Project, Task, Worktree
-from .world_build import project_entity, task_entity, worktree_entity
+from .world_build import (
+    project_entity,
+    split_task_key,
+    task_entity,
+    worktree_entity,
+)
 
 #: Opens the worktree a task runs in: ``(project, task, branch) -> WorktreeSetup``.
 OpenWorktree = Callable[[str, model.Task, str], WorktreeSetup]
@@ -115,18 +120,12 @@ class NotebookTaskSource:
                 entities.append(task_entity(task, actionable=actionable))
         return entities
 
-    def _find(self, task_id: str) -> model.Task:
-        for project in self.projects():
-            try:
-                return model.load(self.store, project, task_id)
-            except KeyError:
-                continue
-        raise KeyError(f"Task not found: {task_id}")
-
     def launch(self, task_id: str, model_name: str | None) -> LaunchRequest:
+        """``task_id`` is the wire id; the notebook is asked for the bare one."""
         if self.open_worktree is None:
             raise LaunchBlocked("This server cannot open worktrees")
-        task = self._find(task_id)
+        project, notebook_id = split_task_key(task_id)
+        task = model.load(self.store, project, notebook_id)
         plan = plan_launch(task.project, task)
         check_not_live(task.id, plan.session_id, self.live_sessions())
         setup = self.open_worktree(task.project, task, plan.branch)

@@ -131,6 +131,21 @@ describe('applyServerEvent', () => {
     });
   });
 
+  it('keeps the desk in its own table', () => {
+    const entry = { id: 'askastro/2026-06-11.1', addedAt: '2026-09-04T09:00:00Z' };
+    let state = applyServerEvent(
+      initialClientState(),
+      frame(1, { type: 'snapshot', world: emptyWorld(), transcripts: {} }),
+    );
+    state = applyServerEvent(state, frame(2, { type: 'upsert', kind: 'desk', entity: entry }));
+    expect(state.world.desk).toEqual({ 'askastro/2026-06-11.1': entry });
+    state = applyServerEvent(
+      state,
+      frame(3, { type: 'remove', kind: 'desk', id: 'askastro/2026-06-11.1' }),
+    );
+    expect(state.world.desk).toEqual({});
+  });
+
   it('rejects an upsert of an unknown entity kind', () => {
     const state = applyServerEvent(
       initialClientState(),

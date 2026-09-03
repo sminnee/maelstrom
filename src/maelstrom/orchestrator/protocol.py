@@ -57,9 +57,14 @@ class TaskLogEntry(TypedDict):
 
 
 class Task(TypedDict):
-    """A task file's frontmatter plus two fields the server derives."""
+    """A task file's frontmatter plus the fields the server derives.
+
+    ``id`` is the wire id, ``<project>/<notebook id>``; ``notebookId`` is the
+    bare id the notebook itself uses.
+    """
 
     id: str
+    notebookId: str
     project: str
     title: str
     status: str
@@ -157,6 +162,13 @@ class Comment(TypedDict):
     createdAt: str
 
 
+class DeskEntry(TypedDict):
+    """One task on the desk: its wire id, and when the user put it there."""
+
+    id: str
+    addedAt: str
+
+
 class World(TypedDict):
     projects: dict[str, Project]
     worktrees: dict[str, Worktree]
@@ -165,6 +177,7 @@ class World(TypedDict):
     documents: dict[str, Document]
     comments: dict[str, Comment]
     attention: dict[str, Attention]
+    desk: dict[str, DeskEntry]
 
 
 class ClientState(TypedDict):
@@ -195,6 +208,7 @@ ENTITY_KINDS = (
     "document",
     "comment",
     "attention",
+    "desk",
 )
 
 #: Which ``World`` key each entity kind lives under.
@@ -206,6 +220,7 @@ WORLD_KEY = {
     "document": "documents",
     "comment": "comments",
     "attention": "attention",
+    "desk": "desk",
 }
 
 
@@ -218,6 +233,7 @@ def empty_world() -> World:
         "documents": {},
         "comments": {},
         "attention": {},
+        "desk": {},
     }
 
 

@@ -16,7 +16,7 @@ unit that needs orders shows it on the canvas itself.
 | Protocol | `protocol/` | Entity types, events, commands, the `Backend` interface, and the pure reducers | Nothing |
 | Backends | `ws-backend/`, `fake-backend/` | The WebSocket client and the in-browser simulation, each implementing `Backend` | Protocol |
 | State | `store/`, `selectors/` | One zustand store and the pure functions that derive views from it | Protocol |
-| UI | `canvas/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, `sim/`, plus the `markdown/` and `styles/` they share, and `test/` for shared test helpers | React components and CSS | State, Protocol |
+| UI | `canvas/`, `tasklist/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, `sim/`, plus the `markdown/` and `styles/` they share, and `test/` for shared test helpers | React components and CSS | State, Protocol |
 
 The protocol has no React and no I/O. That is what lets the fake backend and the client share
 one reducer, and what lets the orchestrator server apply the same reducer in Python.
@@ -31,15 +31,19 @@ One duplex channel carries two kinds of frame, kept apart:
   a frame whose `seq` is not newer than the last one it applied, so replay is idempotent.
 - **Replies** answer one command. A reply never enters the event log.
 
+The `desk` entity kind is the desk itself: one entry per task on it, carrying the wire task id
+and when the user put it there. `desk.add` and `desk.remove` are the two commands that edit it.
+A task launched from the UI joins the desk as well.
+
 The events are `snapshot`, `upsert`, `remove`, `transcript.append`,
 `transcript.update`, `transcript.truncated` and `error`. An upsert carries the whole entity, so the client never merges.
 Each command is acked with `ok: true` or an error code mirroring the daemon's own refusals.
 `protocol/commands.ts` lists every command and every code.
 
 On reconnect the client sends the last `seq` it applied. The server replays from its ring buffer
-when it can, else it sends a fresh snapshot. A snapshot is a new epoch: it lands whatever its
-`seq`, so a restarted server recovers every client.
-[orchestrator-server.md](orchestrator-server.md) documents the wire format.
+when it can, else it sends a fresh snapshot.
+[orchestrator-server.md](orchestrator-server.md) documents the wire format and the snapshot
+epoch rule.
 
 Two pure modules carry the rules a real backend must apply:
 
@@ -51,9 +55,19 @@ Two pure modules carry the rules a real backend must apply:
   replaying every fixture under `tests/fixtures/agent_events/`. It is the reference for the
   server's Python port; see [orchestrator-server.md](orchestrator-server.md), "Normaliser parity".
 
-## The canvas and the panel
+## The canvas, the task list and the panel
 
-The canvas is where the user decides. The panel is where the user reads.
+The canvas is where the user decides. The panel is where the user reads. The task list is where
+the user chooses what the canvas draws.
+
+The canvas draws the desk: the tasks the user has put on it, and nothing else. It opens empty
+against the real server, because the world holds about 700 tasks across every project and most
+of them are finished. The task list lists every task with filters for status, project, branch
+and text, and each row toggles that task on or off the desk. The top bar switches between the
+two views; the canvas filter bar shows on the canvas only, since the task list carries its own.
+
+A node shows the bare notebook id, because its lane already names the project. A panel tab shows
+the qualified id, because a tab exists to tell two projects' tasks apart.
 
 Clicking a task node expands it in place, showing the state in words ("Needs you · plan
 review", never a raw agent state). Esc, the close button and a click on the canvas collapse
@@ -139,8 +153,13 @@ Canvas nodes are clicked with `fireEvent.click`, not user-event — see `clickNo
 
 ## Out of scope
 
-Against the real server, documents, comments, task creation and shaping answer `invalid`; the
-server serves agents only. Also out of scope: an embedded terminal, auth, persistence across
-reloads, an elk layout, a global keyboard shortcut layer (Esc on the card and the question's
-digit keys are local to their components), syntax highlighting in markdown, and answering a
-plan review from the session tab (the expanded node and the document tab answer it).
+Against the real server, documents, comments, task creation and shaping answer `invalid`. The
+server serves agents only.
+
+The desk is the exception to persistence: it lives on the server and survives a restart. The
+open tabs, the filters and the expanded node do not.
+
+Also out of scope: an embedded terminal, auth, an elk layout, a global keyboard shortcut layer
+(Esc on the card and the question's digit keys are local to their components), syntax
+highlighting in markdown, and answering a plan review from the session tab (the expanded node
+and the document tab answer it).

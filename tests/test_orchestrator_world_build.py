@@ -14,7 +14,9 @@ from maelstrom.orchestrator.world_build import (
     parse_agent_state,
     phase_for_command,
     project_entity,
+    split_task_key,
     task_entity,
+    task_key,
     worktree_entity,
 )
 
@@ -71,13 +73,14 @@ Do the export.
 def test_task_entity_mirrors_the_frontmatter_and_derives_phase_and_actionable():
     task = model.Task.from_markdown(TASK_MD, status="in-progress")
     entity = task_entity(task, actionable=False)
-    assert entity["id"] == "NORT-7.2"
+    assert entity["id"] == "northwind/NORT-7.2"
+    assert entity["notebookId"] == "NORT-7.2"
     assert entity["project"] == "northwind"
     assert entity["status"] == "in-progress"
     assert entity["command"] == "plan-task"
     assert entity["phase"] == "planning"
     assert entity["actionable"] is False
-    assert entity["follows"] == ["NORT-7.1"]
+    assert entity["follows"] == ["northwind/NORT-7.1"]
     assert entity["parent"] == "NORT-7"
     assert entity["priority"] == "high"
     assert entity["model"] == "claude-opus-5"
@@ -239,9 +242,9 @@ def test_link_agent_finds_the_worktree_by_cwd_and_the_task_by_session():
     link = link_agent(
         {"cwd": LIST_ALL_ROW["path"], "session": session},
         worktrees=worktrees,
-        tasks={"NORT-7": task},
+        tasks={"northwind/NORT-7": task},
     )
-    assert link.task_id == "NORT-7"
+    assert link.task_id == "northwind/NORT-7"
     assert link.project == "northwind"
     assert link.worktree_id == "northwind-alpha"
     assert link.phase == "planning"
@@ -268,3 +271,14 @@ def test_diff_kind_upserts_new_and_changed_and_removes_gone():
         {"type": "upsert", "kind": "task", "entity": {"id": "d", "v": 1}},
         {"type": "remove", "kind": "task", "id": "c"},
     ]
+
+
+def test_task_key_round_trips_a_project_and_a_notebook_id():
+    key = task_key("northwind", "NORT-7.2")
+    assert key == "northwind/NORT-7.2"
+    assert split_task_key(key) == ("northwind", "NORT-7.2")
+
+
+def test_split_task_key_rejects_a_bare_id():
+    with pytest.raises(ValueError):
+        split_task_key("NORT-7.2")

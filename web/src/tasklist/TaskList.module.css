@@ -1,0 +1,62 @@
+.view {
+  height: 100%;
+  overflow: auto;
+  background: var(--bg);
+}
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+  position: sticky;
+  top: 0;
+}
+.check,
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.field select,
+.field input {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1px 4px;
+  max-width: 180px;
+}
+.error {
+  margin: 0;
+  padding: 6px 12px;
+  color: var(--attention);
+  font-size: 12px;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.table th,
+.table td {
+  text-align: left;
+  padding: 4px 12px;
+  border-top: 1px solid var(--border);
+}
+.table th {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+.mono {
+  font-family: var(--mono);
+}
+.empty {
+  color: var(--fg-faint);
+}

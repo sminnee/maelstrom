@@ -58,14 +58,24 @@ export function openAttentionFor(world: World, task: Task, agent?: Agent): Atten
     .sort((a, b) => a.raisedAt.localeCompare(b.raisedAt));
 }
 
+/**
+ * The tasks the canvas filters allow, whether or not they are on the desk.
+ *
+ * The attention chip counts against this rather than the drawn nodes: an
+ * agent blocked on a task the user has not put on the desk still needs them.
+ */
+export function filteredTasks(world: World, filters: Filters): Task[] {
+  return Object.values(world.tasks)
+    .filter((t) => t.status !== 'template')
+    .filter((t) => !filters.project || t.project === filters.project)
+    .filter((t) => !filters.branch || branchKey(t.project, t.branch) === filters.branch)
+    .sort((a, b) => a.created.localeCompare(b.created) || a.id.localeCompare(b.id));
+}
+
 /** Everything the canvas draws, derived from the world plus client state. */
 export function deriveGraph(world: World, opts: GraphOptions): Graph {
-  const tasks = Object.values(world.tasks)
-    .filter((t) => t.status !== 'template')
-    .filter((t) => !opts.filters.project || t.project === opts.filters.project)
-    .filter((t) => !opts.filters.branch || branchKey(t.project, t.branch) === opts.filters.branch)
-    .filter((t) => !opts.filters.hideDone || (t.status !== 'done' && t.status !== 'cancelled'))
-    .sort((a, b) => a.created.localeCompare(b.created) || a.id.localeCompare(b.id));
+  // The canvas draws the desk: what the user has put on it, and nothing else.
+  const tasks = filteredTasks(world, opts.filters).filter((t) => t.id in world.desk);
 
   const groups = new Map<string, GraphGroup>();
   const nodes: GraphNode[] = [];

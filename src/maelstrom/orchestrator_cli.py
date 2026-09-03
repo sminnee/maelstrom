@@ -14,6 +14,7 @@ import click
 
 from .agent_transport import resolve_socket_path
 from .context import load_global_config
+from .desk_store import JsonDeskStore
 from .orchestrator.daemon_bridge import SocketAsyncDaemonClient
 from .orchestrator.server import Orchestrator
 from .orchestrator.sources import ListAllWorktreeSource, NotebookTaskSource
@@ -58,7 +59,9 @@ def build_orchestrator(
     )
     worktrees = ListAllWorktreeSource(projects_dir)
     daemon = SocketAsyncDaemonClient(socket_path or resolve_socket_path())
-    return Orchestrator(tasks, worktrees, daemon, executor=executor)
+    return Orchestrator(
+        tasks, worktrees, daemon, desk=JsonDeskStore(), executor=executor
+    )
 
 
 def run_server(host: str, port: int, socket_path: str | None) -> None:

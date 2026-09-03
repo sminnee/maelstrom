@@ -194,3 +194,18 @@ def test_apply_event_does_not_mutate_its_input():
     )
     assert before["world"]["tasks"] == {}
     assert "NORT-7" in after["world"]["tasks"]
+
+
+def test_the_desk_is_an_entity_kind_with_its_own_table():
+    entry = {"id": "askastro/2026-06-11.1", "addedAt": NOW}
+    assert empty_world()["desk"] == {}
+    state = apply_server_event(initial_client_state(), frame(1, snapshot()))
+    state = apply_server_event(
+        state, frame(2, {"type": "upsert", "kind": "desk", "entity": entry})
+    )
+    assert state["world"]["desk"] == {"askastro/2026-06-11.1": entry}
+    state = apply_server_event(
+        state,
+        frame(3, {"type": "remove", "kind": "desk", "id": "askastro/2026-06-11.1"}),
+    )
+    assert state["world"]["desk"] == {}

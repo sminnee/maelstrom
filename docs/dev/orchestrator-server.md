@@ -20,9 +20,11 @@ carries and nothing maps between a dataclass and the wire.
 | `normalise.py` | pure | The stream-json normaliser, a port of `web/src/protocol/normalise.ts` |
 | `validate.py` | pure | Command validation, a port of `web/src/protocol/validate.ts` |
 | `event_log.py` | pure | The seq-stamped log: `append`, `replay_from`, `snapshot_frame`, a ring of 5000 frames |
-| `world_build.py` | pure | Entity builders from a task, a `list-all` row and an agent row; `link_agent`; `diff_kind` |
+| `world_build.py` | pure | Entity builders from a task, a `list-all` row and an agent row; `link_agent`; `diff_kind`; `task_key` |
+| `desk.py` | pure | The desk table: `add`, `remove`, `prune`, each returning a new table |
 | `sources.py` | storage | `TaskSource` and `WorktreeSource`, over the notebook and `list_all.build_list_all_data` |
 | `daemon_bridge.py` | storage | `AsyncDaemonClient`: the socket client for the agent host, and a scripted fake |
+| `../desk_store.py` | storage | `DeskStore`: the desk as one JSON file at `~/.maelstrom/desk.json`, or in memory |
 | `server.py` | adapter | `Orchestrator`: the log, the pollers, one watch per agent, the commands, the socket |
 | `../orchestrator_cli.py` | CLI | `mael orchestrator serve` |
 
@@ -46,6 +48,7 @@ through `apply_event`, and sent to every client as a frame. Nothing mutates the 
 | Tasks | Poll the notebook's git HEAD. On change, read every project's tasks and diff | 2 s |
 | Worktrees and projects | Re-read `build_list_all_data`, one read in flight at a time | 15 s |
 | Agents | Reconcile the host's `list` against the world | 2 s |
+| Desk | Read once at start, then pruned on every task refresh and written through on change | — |
 
 Blocking reads run on one worker thread. The SQLite index behind the notebook is bound to the
 thread that opens it, so a pool of one keeps every read on the same connection.
@@ -88,8 +91,22 @@ session already holds the task, or the worktree's rebase failed. `NotebookTaskSo
 runs them, then hands the host a `start`.
 
 A start the host refuses rolls the task back to the status it had. A second launch of a task
-still in flight is refused. Not built: `--resume`, the opencode harness, and the cmux placement
-the CLI does.
+still in flight is refused. A launched task also joins the desk, so the node the user just
+started is drawn on the canvas. Not built: `--resume`, the opencode harness, and the cmux
+placement the CLI does.
+
+## Task ids on the wire
+
+A notebook id such as `2026-06-11.1` is unique inside its project and repeats across projects.
+The wire therefore qualifies it: a task's `id` is `<project>/<notebook id>`, built by `task_key`
+and split back by `split_task_key`. The bare id travels beside it as `notebookId`, because the
+launch and the agent link both need the notebook's own id.
+
+A task's `follows` entries are qualified with the task's own project, since a task only follows
+a task beside it in the notebook. Its `parent` is left bare: nothing in the UI resolves a parent,
+and a parent is often virtual, naming no real task.
+
+The desk keys on the wire id too, so two projects may each keep their own `2026-06-11.1`.
 
 ## The wire protocol: UI ↔ orchestrator server
 
@@ -157,6 +174,12 @@ A command's consequences are published as frames before its reply arrives.
 | `agent.say` | `say` with `text` | `{}` |
 | `agent.stop` | `stop` | `{}` |
 | `agent.launch` | `start`, after the launch steps above | `{"agentId": "…"}` |
+| `desk.add` | nothing | `{}` |
+| `desk.remove` | nothing | `{}` |
+
+The two desk commands reach the host as nothing: the desk is the server's own table. `agent.launch`
+also adds its task to the desk. A second `desk.add` for a task already on the desk answers `ok`
+and publishes nothing.
 
 `document.*`, `comment.*`, `task.create` and `shaping.start` answer `invalid`. `updatedInput` on
 `agent.approve` is ignored: the host approves a call with its input as proposed.
@@ -172,7 +195,7 @@ The world is validated before the host is asked, with the same rules as the fake
 
 | Code | When |
 |---|---|
-| `unknown_id` | No agent, task or document has that id |
+| `unknown_id` | No agent, task or document has that id, or no desk entry does |
 | `agent_exited` | The agent has exited |
 | `not_waiting` | The agent has no pending request |
 | `stale_request` | The request id is not the pending one |

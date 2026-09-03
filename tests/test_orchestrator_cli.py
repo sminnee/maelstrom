@@ -48,7 +48,11 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(tm
     from types import SimpleNamespace
     from unittest.mock import patch
 
-    from maelstrom.orchestrator.sources import ListAllWorktreeSource, NotebookTaskSource
+    from maelstrom.desk_store import JsonDeskStore
+    from maelstrom.orchestrator.sources import (
+        ListAllWorktreeSource,
+        NotebookTaskSource,
+    )
     from maelstrom.orchestrator_cli import build_orchestrator
     from maelstrom.worktree import WorktreeSetup
 
@@ -78,6 +82,7 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(tm
     assert orchestrator.tasks.projects() == ["northwind"]
     assert orchestrator.tasks.store is store.return_value
     assert isinstance(orchestrator.worktrees, ListAllWorktreeSource)
+    assert isinstance(orchestrator.desk, JsonDeskStore)
     assert orchestrator.worktrees.projects_dir == projects_dir
     assert orchestrator.daemon.socket_path == "/tmp/a.sock"
     assert opened is setup

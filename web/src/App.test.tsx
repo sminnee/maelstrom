@@ -17,10 +17,11 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: 'maelstrom' })).toBeInTheDocument();
   });
 
-  it('renders one node per task in the seed world', async () => {
+  it('renders one node per task on the desk', async () => {
     await renderApp();
-    const expected = Object.values(seedWorld().world.tasks)
-      .filter((t) => t.status !== 'template')
+    const world = seedWorld().world;
+    const expected = Object.values(world.tasks)
+      .filter((t) => t.status !== 'template' && t.id in world.desk)
       .map((t) => t.id)
       .sort();
     const rendered = (await screen.findAllByTestId('task-node'))
@@ -58,7 +59,12 @@ describe('grouping and filters', () => {
     await renderApp();
     await user.selectOptions(screen.getByLabelText('Group by'), 'branch');
     const groups = () => document.querySelectorAll('[data-testid="group-node"]');
-    const branches = new Set(Object.values(seedWorld().world.tasks).map((t) => t.branch));
+    const world = seedWorld().world;
+    const branches = new Set(
+      Object.values(world.tasks)
+        .filter((t) => t.id in world.desk)
+        .map((t) => t.branch),
+    );
     expect(groups()).toHaveLength(branches.size);
     await user.selectOptions(screen.getByLabelText('Group by'), 'none');
     expect(groups()).toHaveLength(0);
@@ -289,5 +295,83 @@ describe('the debug drawer', () => {
     expect(screen.getByTestId('debug-drawer')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Toggle debug drawer' }));
     expect(screen.queryByTestId('debug-drawer')).toBeNull();
+  });
+});
+
+describe('the task list', () => {
+  const goToList = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(screen.getByRole('button', { name: 'Task list' }));
+    return screen.getByTestId('task-list');
+  };
+  const listRow = (taskId: string) =>
+    document.querySelector(`[data-testid="task-list"] [data-task-id="${taskId}"]`)!;
+
+  it('lists every task in the world, whether it is on the desk or not', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const list = await goToList(user);
+    const listed = within(list)
+      .getAllByRole('row')
+      .map((r) => r.getAttribute('data-task-id'))
+      .filter(Boolean);
+    expect(listed.sort()).toEqual(Object.keys(seedWorld().world.tasks).sort());
+  });
+
+  it('adds a task to the desk, and it is then drawn on the canvas', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+    expect(listRow('NORT-3')).toHaveAttribute('data-on-desk', 'false');
+
+    await user.click(within(listRow('NORT-3') as HTMLElement).getByRole('button'));
+    expect(listRow('NORT-3')).toHaveAttribute('data-on-desk', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'Canvas' }));
+    expect(document.querySelector('[data-task-id="NORT-3"]')).toBeInTheDocument();
+  });
+
+  it('removes a task from the desk, and it leaves the canvas', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    expect(document.querySelector('[data-task-id="NORT-9"]')).toBeInTheDocument();
+
+    await goToList(user);
+    await user.click(within(listRow('NORT-9') as HTMLElement).getByRole('button'));
+    expect(listRow('NORT-9')).toHaveAttribute('data-on-desk', 'false');
+
+    await user.click(screen.getByRole('button', { name: 'Canvas' }));
+    expect(document.querySelector('[data-task-id="NORT-9"]')).not.toBeInTheDocument();
+  });
+
+  it('the attention chip still counts an agent blocked on an off-desk task', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const before = chipCount();
+    expect(before).toBeGreaterThan(0);
+
+    // Clear the desk entirely: the canvas draws nothing, but agents still wait.
+    await goToList(user);
+    for (const r of Array.from(
+      document.querySelectorAll('[data-testid="task-list"] [data-on-desk="true"]'),
+    )) {
+      await user.click(within(r as HTMLElement).getByRole('button'));
+    }
+    expect(document.querySelectorAll('[data-on-desk="true"]')).toHaveLength(0);
+    expect(chipCount()).toBe(before);
+
+    // Following the chip puts its task back on the desk so it has a node.
+    await user.click(screen.getByTestId('attention-chip'));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('the attention chip returns to the canvas and expands the node', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+    expect(screen.queryByTestId('task-node')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('attention-chip'));
+    expect(screen.getByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true');
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 });

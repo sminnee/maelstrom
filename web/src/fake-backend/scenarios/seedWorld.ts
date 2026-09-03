@@ -62,6 +62,9 @@ function task(spec: TaskSpec): Task {
   const created = T(spec.createdMinutesAgo ?? 120);
   return {
     id: spec.id,
+    // The fake runs one project space, so a notebook id is already unique;
+    // the server qualifies its own with the project.
+    notebookId: spec.id,
     project: spec.project,
     title: spec.title,
     status: spec.status,
@@ -382,6 +385,13 @@ export function seedWorld(): Seed {
     documents: keyed(documents),
     comments: {},
     attention: keyed(attention),
+    // The seed desk holds every task still in play, so the canvas opens with
+    // work on it. Done and cancelled tasks live in the task list only.
+    desk: keyed(
+      Object.values(byId)
+        .filter((t) => t.status !== 'done' && t.status !== 'cancelled')
+        .map((t) => ({ id: t.id, addedAt: T(120) })),
+    ),
   };
 
   const transcripts: Record<AgentId, Transcript> = {

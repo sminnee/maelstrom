@@ -2,6 +2,7 @@ import type { Command, CommandError, ResultMap } from '../../protocol/commands';
 import type { Document } from '../../protocol/documents';
 import type { Task } from '../../protocol/entities';
 import type { ServerEvent } from '../../protocol/events';
+import type { TaskId } from '../../protocol/ids';
 import type { RawStreamEvent } from '../../protocol/normalise';
 import { PLAN_TOOL, QUESTION_TOOL } from '../../protocol/normalise';
 import { isActionable } from '../../protocol/phase';
@@ -91,7 +92,24 @@ export function applyCommand(
     case 'agent.launch': {
       const task = world.tasks[cmd.taskId]!;
       const launched = launchAgent(state, sim, task, now, cmd.model);
-      return { events: launched.events, sim: launched.sim, result: { agentId: launched.agentId } };
+      const events = world.desk[task.id]
+        ? launched.events
+        : [...launched.events, deskUpsert(task.id, now)];
+      return { events, sim: launched.sim, result: { agentId: launched.agentId } };
+    }
+    case 'desk.add': {
+      return {
+        events: world.desk[cmd.taskId] ? [] : [deskUpsert(cmd.taskId, now)],
+        sim,
+        result: {},
+      };
+    }
+    case 'desk.remove': {
+      return {
+        events: [{ type: 'remove', kind: 'desk', id: cmd.taskId }],
+        sim,
+        result: {},
+      };
     }
     case 'document.approve':
     case 'document.requestChanges': {
@@ -216,6 +234,11 @@ export function applyCommand(
   }
 }
 
+/** The upsert that puts one task on the desk. */
+function deskUpsert(taskId: TaskId, now: string): ServerEvent {
+  return { type: 'upsert', kind: 'desk', entity: { id: taskId, addedAt: now } };
+}
+
 function toolResult(toolUseId: string, content: string, isError: boolean): RawStreamEvent {
   return {
     type: 'user',
@@ -256,6 +279,7 @@ function newTask(
   const title = content.split('\n')[0]?.replace(/^#\s*/, '') || 'Untitled';
   const task: Task = {
     id,
+    notebookId: id,
     project,
     title,
     status: 'todo',

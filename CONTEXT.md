@@ -289,6 +289,21 @@ and cleared by the backend, never inferred by the UI.
 **Brief**:
 The free-text starting point for shaping.
 
+**Desk**:
+The set of tasks the user has put on the canvas. The desk is tracked apart from the notebook and
+is not a status, so a task stays on the desk whatever its status. There is one desk today, and
+one per user later.
+_Avoid_: Workspace, board, pinned
+
+**Canvas**:
+The view that draws the desk as swimlanes of task nodes.
+_Avoid_: Graph view, board
+
+**Task list**:
+The full-width view that lists every task the server knows, with filters for status, project,
+branch and text. The task list is where a task joins the desk or leaves it.
+_Avoid_: Table view, index
+
 **Expanded node**:
 A task node grown in place into a card that shows its status, the decision it waits on, and
 links into the panel. One node is expanded at a time.
