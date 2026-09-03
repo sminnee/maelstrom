@@ -166,6 +166,16 @@ def test_transcript_append_then_update_merges_the_patch():
     assert state["transcripts"]["agent-1"]["truncatedBefore"] is False
 
 
+def test_transcript_truncated_marks_the_window_even_before_any_item():
+    state = apply_event(initial_client_state(), snapshot())
+    state = apply_event(state, {"type": "transcript.truncated", "agentId": "agent-1"})
+    assert state["transcripts"]["agent-1"] == {
+        "agentId": "agent-1",
+        "items": [],
+        "truncatedBefore": True,
+    }
+
+
 def test_an_error_event_is_kept_with_its_seq():
     state = apply_event(initial_client_state(), {"type": "error", "message": "boom"}, 9)
     assert state["errors"] == [{"seq": 9, "message": "boom", "agentId": None}]

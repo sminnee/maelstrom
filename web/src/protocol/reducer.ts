@@ -84,6 +84,15 @@ export function applyEvent(state: ClientState, event: ServerEvent, seq: Seq = 0)
         transcripts: { ...state.transcripts, [event.agentId]: { ...current, items } },
       };
     }
+    case 'transcript.truncated': {
+      const current = state.transcripts[event.agentId] ?? {
+        agentId: event.agentId,
+        items: [],
+        truncatedBefore: false,
+      };
+      const transcript = { ...current, truncatedBefore: true };
+      return { ...state, transcripts: { ...state.transcripts, [event.agentId]: transcript } };
+    }
     case 'error':
       return {
         ...state,

@@ -86,6 +86,12 @@ export interface TranscriptUpdateEvent {
   patch: Partial<TranscriptItem>;
 }
 
+/** The agent host's event window dropped items older than this transcript holds. */
+export interface TranscriptTruncatedEvent {
+  type: 'transcript.truncated';
+  agentId: AgentId;
+}
+
 export interface ErrorEvent {
   type: 'error';
   message: string;
@@ -98,6 +104,7 @@ export type ServerEvent =
   | RemoveEvent
   | TranscriptAppendEvent
   | TranscriptUpdateEvent
+  | TranscriptTruncatedEvent
   | ErrorEvent;
 
 /** One event as it travels: seq-stamped, replayable, describes the world. */

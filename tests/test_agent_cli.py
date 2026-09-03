@@ -248,3 +248,13 @@ def test_tail_reports_an_unknown_agent():
     with _serving(replay("normal-turn.jsonl")):
         result = CliRunner().invoke(agent_cli.agent, ["tail", "nope"])
     assert "no such agent" in result.output
+
+
+def test_tail_follow_ends_when_the_agent_has_exited():
+    """``-f`` on a dead agent must return, because the stream says it ended."""
+    from maelstrom.agent_model import mark_exited
+
+    with _serving(mark_exited(replay("normal-turn.jsonl"), 0)):
+        result = CliRunner().invoke(agent_cli.agent, ["tail", "-f", "a1"])
+    assert result.exit_code == 0
+    assert "Hello there, friend" in result.output

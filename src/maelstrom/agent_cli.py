@@ -22,6 +22,7 @@ from typing import Any
 import click
 
 from .agent_model import (
+    AGENT_EXITED,
     AWAITING_PERMISSION,
     AWAITING_PLAN_REVIEW,
     AWAITING_QUESTION,
@@ -288,7 +289,8 @@ async def _connect_attached(
 async def _stream(reader: asyncio.StreamReader, *, follow: bool = True) -> None:
     """Print the agent's events until the stream ends.
 
-    With ``follow`` false it stops at the backlog marker instead.
+    With ``follow`` false it stops at the backlog marker instead. Either way
+    the exit marker ends it: the agent is gone, so there is nothing to follow.
     """
     while True:
         if follow:
@@ -314,6 +316,9 @@ async def _stream(reader: asyncio.StreamReader, *, follow: bool = True) -> None:
             if not follow:
                 return
             continue
+        if event.get("type") == AGENT_EXITED:
+            click.echo(f"— agent exited ({event.get('exit_code')})")
+            return
         text = _render(event)
         if text:
             click.echo(text)

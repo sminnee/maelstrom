@@ -15,11 +15,13 @@ with the daemon holding it. See ``docs/dev/agent-daemon.md``.
 
 import asyncio
 import json
+import os
 import uuid
 from pathlib import Path
 from typing import Any
 
 from .agent_model import (
+    AGENT_EXITED,
     AWAITING_QUESTION,
     BACKLOG_END,
     EXITED,
@@ -55,6 +57,11 @@ def _offer(queue: "asyncio.Queue[dict[str, Any]]", event: dict[str, Any]) -> Non
         except asyncio.QueueEmpty:
             return
         queue.put_nowait(event)
+
+
+def _exit_marker(exit_code: int | None) -> dict[str, Any]:
+    """The last event of an attach stream: the agent's process has gone."""
+    return {"type": AGENT_EXITED, "exit_code": exit_code}
 
 
 class Agent:
@@ -102,7 +109,12 @@ class Agent:
                 for queue in list(self.watchers):
                     _offer(queue, event)
         finally:
-            self.state = mark_exited(self.state, await self.proc.wait())
+            exit_code = await self.proc.wait()
+            self.state = mark_exited(self.state, exit_code)
+            # Tell every watcher the stream ended because the agent did, so an
+            # attach can return rather than wait on a queue nothing will fill.
+            for queue in list(self.watchers):
+                _offer(queue, _exit_marker(exit_code))
 
     async def stop(self) -> None:
         """End the agent: close its stdin, then kill it if it does not exit."""
@@ -132,8 +144,14 @@ class AgentDaemon:
         model: str | None = None,
         session_id: str | None = None,
         agent_id: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> str:
-        """Spawn an agent in ``cwd`` and return its id."""
+        """Spawn an agent in ``cwd`` and return its id.
+
+        ``env`` is merged over the daemon's own environment. A task launch
+        passes ``MAEL_TASK_ID`` and its siblings this way; without them the
+        agent's skills cannot name the task they run for.
+        """
         agent_id = agent_id or uuid.uuid4().hex[:8]
         argv = build_agent_argv(
             permission_mode=permission_mode, session_id=session_id, model=model
@@ -147,6 +165,7 @@ class AgentDaemon:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=cwd,
+            env={**os.environ, **(env or {})},
         )
         agent = Agent(agent_id, cwd, proc)
         self.agents[agent_id] = agent
@@ -169,6 +188,7 @@ class AgentDaemon:
                     permission_mode=payload.get("mode"),
                     model=payload.get("model"),
                     session_id=payload.get("session"),
+                    env=payload.get("env") or None,
                 )
             except OSError as exc:
                 # Without this the exception escapes `handle`, the connection
@@ -306,6 +326,10 @@ class AgentDaemon:
         mid-turn sees the context it arrived into rather than starting blank. A
         :data:`~maelstrom.agent_model.BACKLOG_END` marker closes the replay, so
         ``mael agent tail`` knows where history stops without a timing guess.
+
+        The stream ends with an :data:`~maelstrom.agent_model.AGENT_EXITED`
+        marker when the agent's process goes — at once, for an agent that has
+        already gone — so a follower returns instead of waiting forever.
         """
         agent = self.agents.get(agent_id)
         if agent is None:
@@ -323,10 +347,18 @@ class AgentDaemon:
                 writer.write((json.dumps(event) + "\n").encode())
             writer.write((json.dumps({"type": BACKLOG_END}) + "\n").encode())
             await writer.drain()
+            if agent.state.status == EXITED:
+                writer.write(
+                    (json.dumps(_exit_marker(agent.state.exit_code)) + "\n").encode()
+                )
+                await writer.drain()
+                return
             while True:
                 event = await queue.get()
                 writer.write((json.dumps(event) + "\n").encode())
                 await writer.drain()
+                if event.get("type") == AGENT_EXITED:
+                    return
         except (ConnectionError, BrokenPipeError):
             return
         finally:

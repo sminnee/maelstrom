@@ -106,6 +106,16 @@ async def next_frame(ws, predicate=lambda frame: True, timeout: float = 2.0) -> 
             return message
 
 
+async def frames_until(ws, predicate, timeout: float = 2.0) -> list[dict]:
+    """Every event frame up to and including the first matching ``predicate``."""
+    frames = []
+    while True:
+        frame = await next_frame(ws, timeout=timeout)
+        frames.append(frame)
+        if predicate(frame):
+            return frames
+
+
 def url(server) -> str:
     return f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}"
 
@@ -222,3 +232,241 @@ def test_a_message_that_is_not_a_hello_first_is_refused(harness):
 
     reply = run(scenario())
     assert reply["reply"]["ok"] is False
+
+
+# --- agents ------------------------------------------------------------------
+
+
+def agent_row(agent_id: str = "ag1", **over) -> dict:
+    """What ``mael agent list --json`` prints for one agent."""
+    row = {
+        "id": agent_id,
+        "state": "idle",
+        "session": "",
+        "cwd": WORKTREE_PATH,
+        "model": "",
+        "waiting_on": "",
+        "last_message": "",
+        "cost": "",
+    }
+    row.update(over)
+    return row
+
+
+def split_at_control_response(events: list[dict]) -> tuple[list[dict], list[dict]]:
+    """A fixture cut where the user would answer: the backlog, and what follows.
+
+    The cut is the ``control_response`` to a ``control_request`` seen earlier;
+    the init handshake's reply comes first and is not it.
+    """
+    asked: set[str] = set()
+    for i, event in enumerate(events):
+        if event["type"] == "control_request":
+            asked.add(event.get("request_id", ""))
+        if event["type"] == "control_response":
+            if (event.get("response") or {}).get("request_id") in asked:
+                return events[:i], events[i:]
+    return events, []
+
+
+def test_the_snapshot_carries_an_attached_agents_transcript_and_open_attention(harness):
+    harness.add_task("NORT-7")
+    session = model.session_id_for(PROJECT, "NORT-7")
+    backlog, _ = split_at_control_response(read_fixture("question-unanswered.jsonl"))
+    harness.daemon.rows["ag1"] = agent_row(session=session, state="awaiting-question")
+    harness.daemon.backlog["ag1"] = backlog
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                return (await say_hello(ws))[0]["event"], list(harness.daemon.attached)
+
+    snapshot, attached = run(scenario())
+    assert attached == ["ag1"]
+    agent = snapshot["world"]["agents"]["ag1"]
+    assert agent["state"] == "awaiting-question"
+    assert agent["taskId"] == "NORT-7"
+    assert agent["project"] == PROJECT
+    assert agent["worktreeId"] == "northwind-alpha"
+    assert agent["pendingRequestId"] == "2ba1273d-d878-4923-ba21-31faa1067613"
+    items = snapshot["transcripts"]["ag1"]["items"]
+    assert [i["type"] for i in items][-1] == "question"
+    assert snapshot["transcripts"]["ag1"]["truncatedBefore"] is False
+    open_items = [
+        a for a in snapshot["world"]["attention"].values() if a["clearedAt"] is None
+    ]
+    assert [a["kind"] for a in open_items] == ["question"]
+    assert open_items[0]["taskId"] == "NORT-7"
+
+
+def test_a_backlog_the_size_of_the_hosts_window_is_marked_truncated(harness):
+    from maelstrom.agent_model import RECENT_LIMIT
+
+    events = read_fixture("normal-turn.jsonl")
+    padding = [{"type": "rate_limit_event"}] * (RECENT_LIMIT - len(events))
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.backlog["ag1"] = padding + events
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                return (await say_hello(ws))[0]["event"]
+
+    snapshot = run(scenario())
+    assert snapshot["transcripts"]["ag1"]["truncatedBefore"] is True
+
+
+def test_a_backlog_one_short_of_the_window_is_not_marked_truncated(harness):
+    from maelstrom.agent_model import RECENT_LIMIT
+
+    events = read_fixture("normal-turn.jsonl")
+    padding = [{"type": "rate_limit_event"}] * (RECENT_LIMIT - 1 - len(events))
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.backlog["ag1"] = padding + events
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                return (await say_hello(ws))[0]["event"]
+
+    snapshot = run(scenario())
+    assert snapshot["transcripts"]["ag1"]["truncatedBefore"] is False
+
+
+async def wait_until(predicate, timeout: float = 2.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not predicate():
+        if asyncio.get_running_loop().time() > deadline:
+            raise TimeoutError("condition not met")
+        await asyncio.sleep(0.01)
+
+
+def test_an_attach_the_host_refuses_is_retried_on_the_next_reconciliation(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.attach_failures.add("ag1")
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                await wait_until(lambda: harness.daemon.attached == ["ag1"])
+                return harness.orch.log.state["errors"]
+
+    errors = run(scenario())
+    assert [e["agentId"] for e in errors] == ["ag1"]
+    assert "attach refused" in errors[0]["message"]
+
+
+def test_a_live_event_arrives_as_a_transcript_append(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                for event in read_fixture("normal-turn.jsonl"):
+                    harness.daemon.push("ag1", event)
+                appended = await next_frame(
+                    ws, lambda f: f["event"]["type"] == "transcript.append"
+                )
+                idle = await next_frame(
+                    ws,
+                    lambda f: (
+                        f["event"]["type"] == "upsert"
+                        and f["event"]["kind"] == "agent"
+                        and f["event"]["entity"]["state"] == "idle"
+                        and f["event"]["entity"]["costUsd"] > 0
+                    ),
+                )
+        return appended, idle
+
+    appended, idle = run(scenario())
+    assert appended["event"]["agentId"] == "ag1"
+    assert appended["event"]["item"]["type"] == "system"
+    assert idle["event"]["entity"]["lastMessage"] == "Hello there, friend"
+
+
+def test_the_exit_marker_marks_the_agent_exited_and_raises_attention(harness):
+    from maelstrom.agent_model import AGENT_EXITED
+
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                harness.daemon.push("ag1", {"type": AGENT_EXITED, "exit_code": 2})
+                harness.daemon.end_stream("ag1")
+                return await frames_until(
+                    ws,
+                    lambda f: (
+                        f["event"]["type"] == "upsert"
+                        and f["event"]["kind"] == "agent"
+                        and f["event"]["entity"]["state"] == "exited"
+                    ),
+                )
+
+    frames = run(scenario())
+    assert frames[-1]["event"]["entity"]["exitCode"] == 2
+    attention = [
+        f["event"]["entity"] for f in frames if f["event"].get("kind") == "attention"
+    ]
+    assert [a["kind"] for a in attention] == ["agent_exited"]
+    assert attention[0]["agentId"] == "ag1"
+
+
+def test_reconciliation_attaches_new_agents_and_retires_gone_ones(harness):
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                harness.daemon.rows["ag2"] = agent_row("ag2", cwd="/private/tmp")
+                appeared = await next_frame(
+                    ws,
+                    lambda f: (
+                        f["event"]["type"] == "upsert"
+                        and f["event"]["kind"] == "agent"
+                        and f["event"]["entity"]["id"] == "ag2"
+                    ),
+                )
+                await wait_until(lambda: "ag2" in harness.daemon.attached)
+                attached = list(harness.daemon.attached)
+                del harness.daemon.rows["ag2"]
+                harness.daemon.end_stream("ag2")
+                gone = await next_frame(
+                    ws,
+                    lambda f: (
+                        f["event"]["type"] == "upsert"
+                        and f["event"]["kind"] == "agent"
+                        and f["event"]["entity"]["state"] == "exited"
+                    ),
+                )
+        return appeared, attached, gone
+
+    appeared, attached, gone = run(scenario())
+    assert appeared["event"]["entity"]["taskId"] == ""
+    assert appeared["event"]["entity"]["worktreeId"] == ""
+    assert appeared["event"]["entity"]["phase"] == "executing"
+    assert attached == ["ag2"]
+    assert gone["event"]["entity"]["exitCode"] == 0
+
+
+def test_a_row_reporting_an_exit_the_stream_never_showed_is_applied(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                harness.daemon.rows["ag1"]["state"] = "exited(1)"
+                return await next_frame(
+                    ws,
+                    lambda f: (
+                        f["event"]["type"] == "upsert"
+                        and f["event"]["kind"] == "agent"
+                        and f["event"]["entity"]["state"] == "exited"
+                    ),
+                )
+
+    frame = run(scenario())
+    assert frame["event"]["entity"]["exitCode"] == 1
