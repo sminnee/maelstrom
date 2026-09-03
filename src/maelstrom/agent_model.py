@@ -166,6 +166,12 @@ MESSAGE_SUMMARY_CHARS = 60
 #: timeout, because a timeout would race a slow agent and flake.
 BACKLOG_END = "mael_backlog_end"
 
+#: Event type the daemon writes to every attached client once the agent's
+#: process has gone, carrying ``exit_code``. It is the last event of an attach
+#: stream, so a client knows the stream ended because the agent did, not
+#: because the connection dropped.
+AGENT_EXITED = "mael_agent_exited"
+
 
 def _message_texts(event: dict[str, Any]) -> list[str]:
     """The text the agent chose to say in one ``assistant`` event.
