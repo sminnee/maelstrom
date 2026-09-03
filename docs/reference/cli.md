@@ -597,7 +597,7 @@ cmux pane and no TTY. See [agent-daemon.md](../dev/agent-daemon.md) for the prot
 | `mael agent show ID` | Show one agent in full: its messages, every question option, the plan, and the command that answers the wait. `--json` emits the detail as JSON. |
 | `mael agent tail ID` | Print an agent's events and stop, without driving it. `-f` keeps streaming. The read-only half of `attach`. |
 | `mael agent say ID TEXT` | Send TEXT to an agent as a user message. |
-| `mael agent answer ID CHOICE` | Answer an agent's pending question. |
+| `mael agent answer ID CHOICE` | Answer an agent's pending question. CHOICE answers every question the agent asked. |
 | `mael agent approve ID` | Approve an agent's pending plan or tool call. |
 | `mael agent deny ID` | Deny it. `--reason TEXT` reaches the agent as the tool result. |
 | `mael agent attach ID` | Stream an agent's events, and forward each line you type. |
@@ -623,6 +623,24 @@ The first command that needs the daemon starts it, in its own process group, log
 `~/.maelstrom/agent-daemon.log` — a foreground `mael agent daemon` ignores that log. Set
 `MAEL_AGENT_NO_AUTOSTART=1` to turn auto-start off. An agent dies
 with the daemon holding it, and every agent is a normal `claude` process.
+
+## Orchestrator
+
+Serve the world to the orchestrator UI: tasks from the notebook, worktrees from `list-all`, and
+agents from the agent host, over one WebSocket. See
+[orchestrator-server.md](../dev/orchestrator-server.md) for the protocol.
+
+| Command | Description |
+|---|---|
+| `mael orchestrator serve` | Run the orchestrator server in the foreground. `--host` (default `127.0.0.1`), `--port` (default `8765`), `--socket PATH` for the agent host's socket. |
+
+```bash
+mael orchestrator serve                     # ws://127.0.0.1:8765
+mael orchestrator serve --port 3072         # what mael env start runs, on the worktree's port
+```
+
+The first command that needs the agent host starts one, as `mael agent` does. Under maelstrom,
+`mael env start` runs the server and the web app together.
 
 ## Dev environments
 
