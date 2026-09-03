@@ -81,3 +81,48 @@ def test_a_task_source_with_no_worktree_opener_refuses_to_launch(store):
     with pytest.raises(LaunchBlocked, match="cannot open worktrees"):
         source.launch("T-1", None)
     assert model.load(store, "p", "T-1").status == "todo"
+
+
+def _source_that_launches(store, *, has_transcript):
+    """A ``NotebookTaskSource`` whose worktree and transcript check are fixed."""
+    from maelstrom.orchestrator.sources import NotebookTaskSource
+
+    source = NotebookTaskSource(
+        store,
+        lambda: ["p"],
+        live_sessions=lambda: LiveSessionSet([]),
+        has_transcript=has_transcript,
+    )
+    source.open_worktree = lambda project, task, branch: WorktreeSetup(
+        path=Path("/w/alpha"), name="alpha", action="reused"
+    )
+    return source
+
+
+def test_launch_resumes_a_task_that_has_already_run(store):
+    """Relaunching a stopped task must continue its session, not claim its id."""
+    model.create(store, project="p", title="x", id="T-1")
+    source = _source_that_launches(store, has_transcript=lambda path, sid: True)
+    request = source.launch("p/T-1", None)
+    assert request.payload["resume"] is True
+
+
+def test_launch_of_a_task_that_never_ran_claims_a_fresh_session(store):
+    model.create(store, project="p", title="x", id="T-1")
+    source = _source_that_launches(store, has_transcript=lambda path, sid: False)
+    request = source.launch("p/T-1", None)
+    assert request.payload["resume"] is False
+
+
+def test_launch_asks_about_the_worktree_the_session_will_run_in(store):
+    """The transcript lives under the worktree path, so the check needs it."""
+    model.create(store, project="p", title="x", id="T-1")
+    seen: list[tuple] = []
+
+    def has_transcript(path, session_id):
+        seen.append((path, session_id))
+        return False
+
+    source = _source_that_launches(store, has_transcript=has_transcript)
+    request = source.launch("p/T-1", None)
+    assert seen == [(Path("/w/alpha"), request.payload["session"])]

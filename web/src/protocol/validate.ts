@@ -46,6 +46,15 @@ export function validateCommand(world: World, cmd: Command): CommandError | null
       if (cmd.type === 'agent.say' && !cmd.text.trim()) return err('invalid', 'Message is empty');
       return null;
     }
+    case 'agent.resume': {
+      // The one agent command that wants an exited agent: it starts the
+      // process again under the same id. A running one would give the session
+      // two children fighting over one transcript.
+      const agent = world.agents[cmd.agentId];
+      if (!agent) return err('unknown_id', `No agent ${cmd.agentId}`);
+      if (agent.state !== 'exited') return err('invalid', `Agent ${agent.id} is running`);
+      return null;
+    }
     case 'agent.launch': {
       const task = world.tasks[cmd.taskId];
       if (!task) return err('unknown_id', `No task ${cmd.taskId}`);

@@ -448,6 +448,13 @@ def _check_secret_file_perms(project_path: Path) -> CheckResult:
         (maelstrom_dir / GLOBAL_CONFIG_FILENAME, 0o600, "config.yaml"),
         (Path.home() / GLOBAL_CONFIG_FILENAME_LEGACY, 0o600, "~/.maelstrom.yaml"),
         (maelstrom_dir / ALLOCATIONS_FILENAME, 0o600, ALLOCATIONS_FILENAME),
+        (maelstrom_dir / "agents", 0o700, "~/.maelstrom/agents"),
+    ]
+    # Each spawn record holds the env its agent was started with, and the socket
+    # contract puts no allowlist on that env.
+    targets += [
+        (record, 0o600, f"agents/{record.name}")
+        for record in sorted((maelstrom_dir / "agents").glob("*.json"))
     ]
 
     # Every worktree .env — enumerated exactly as _check_env_markers does.

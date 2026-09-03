@@ -9,26 +9,37 @@ child's event stream, derives state through
 :func:`maelstrom.agent_model.apply_event`, and writes answers back on the
 child's stdin. No MCP server, no WebSocket, no lockfile, no ports.
 
-Agent state lives in memory only, so there is no store Protocol — an agent dies
-with the daemon holding it. See ``docs/dev/agent-daemon.md``.
+An agent's live state lives in memory, but its *spawn record* does not: every
+agent has an :class:`~maelstrom.agent_model.AgentSpec` on disk saying what it
+would take to start it again. ``claude`` keeps the conversation itself — a
+driven agent writes a transcript, and ``--resume`` replays it — so a crashed
+child, a crashed daemon or a reboot loses the live state and nothing else. See
+``docs/dev/agent-daemon.md``.
 """
 
 import asyncio
 import json
+import logging
 import os
 import uuid
+from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .agent_model import (
     AGENT_EXITED,
     AWAITING_QUESTION,
     BACKLOG_END,
+    DEFAULT_RESUME_PROMPT,
     EXITED,
+    SPEC_EXITED,
+    SPEC_RUNNING,
+    AgentSpec,
     AgentState,
     apply_event,
     build_agent_argv,
     build_agent_detail,
+    build_agent_env,
     build_agent_row,
     mark_exited,
     reply_for_answer,
@@ -37,7 +48,11 @@ from .agent_model import (
     reply_for_denial,
     user_message,
 )
-from .agent_transport import resolve_socket_path
+from .agent_spec_store import AgentSpecStore, JsonAgentSpecStore
+from .agent_transport import resolve_socket_path, resolve_spec_dir
+from .worktree_model import has_claude_transcript
+
+log = logging.getLogger(__name__)
 
 #: How far one attached client may fall behind before it starts losing events.
 WATCHER_QUEUE_LIMIT = 1000
@@ -73,9 +88,19 @@ class Agent:
     open is what makes the process a long-lived, drivable agent.
     """
 
-    def __init__(self, agent_id: str, cwd: str, proc: asyncio.subprocess.Process):
+    def __init__(
+        self,
+        agent_id: str,
+        cwd: str,
+        proc: asyncio.subprocess.Process,
+        on_exit: "Callable[[int | None], None] | None" = None,
+    ):
         self.state = AgentState(agent_id=agent_id, cwd=cwd)
         self.proc = proc
+        # Called once, with the exit code, when the child's stream ends. The
+        # daemon uses it to record the exit, so a crash observed by a daemon
+        # that then dies itself is still known to the next one.
+        self.on_exit = on_exit
         self.watchers: list[asyncio.Queue[dict[str, Any]]] = []
         # Held, not fire-and-forget: a task only the event loop references can
         # be garbage-collected mid-stream, which would freeze the agent's state
@@ -112,6 +137,8 @@ class Agent:
         finally:
             exit_code = await self.proc.wait()
             self.state = mark_exited(self.state, exit_code)
+            if self.on_exit is not None:
+                self.on_exit(exit_code)
             # Tell every watcher the stream ended because the agent did, so an
             # attach can return rather than wait on a queue nothing will fill.
             for queue in list(self.watchers):
@@ -127,11 +154,50 @@ class Agent:
             self.proc.kill()
 
 
+def _exited_agent(spec: AgentSpec) -> Agent:
+    """An :class:`Agent` for a record whose child is already gone.
+
+    Has no process, so nothing can be sent to it — every command against an
+    exited agent is refused anyway, except ``show``, ``stop`` and ``resume``,
+    which is exactly what a restored record needs to answer.
+    """
+    agent = Agent(spec.agent_id, spec.cwd, _DEAD_PROC)
+    agent.state = mark_exited(agent.state, spec.exit_code)
+    return agent
+
+
+class _DeadProcess:
+    """Stands in for the child of an agent that exited before this daemon ran.
+
+    ``Agent.send`` returns silently on a closing stdin, and ``Agent.stop``
+    closes it, so a closed-stdin stand-in makes both safe without a branch.
+    """
+
+    stdin = None
+    stdout = None
+    returncode: int | None = None
+
+    async def wait(self) -> int | None:
+        return self.returncode
+
+
+#: One shared instance: it is stateless, and every restored agent wants the same.
+_DEAD_PROC: Any = _DeadProcess()
+
+
 class AgentDaemon:
     """The N agents on this machine, and the control socket the CLI talks to."""
 
-    def __init__(self, socket_path: str | None = None):
+    def __init__(
+        self,
+        socket_path: str | None = None,
+        specs: AgentSpecStore | None = None,
+        *,
+        has_transcript: Callable[[Path, str], bool] = has_claude_transcript,
+    ):
         self.socket_path = socket_path or resolve_socket_path()
+        self.specs = specs or JsonAgentSpecStore(Path(resolve_spec_dir()))
+        self.has_transcript = has_transcript
         self.agents: dict[str, Agent] = {}
 
     # -- lifecycle --
@@ -146,16 +212,43 @@ class AgentDaemon:
         session_id: str | None = None,
         agent_id: str | None = None,
         env: dict[str, str] | None = None,
+        resume: bool = False,
     ) -> str:
         """Spawn an agent in ``cwd`` and return its id.
 
-        ``env`` is merged over the daemon's own environment. A task launch
-        passes ``MAEL_TASK_ID`` and its siblings this way; without them the
-        agent's skills cannot name the task they run for.
+        ``env`` is merged over the daemon's own environment, scrubbed by
+        :func:`~maelstrom.agent_model.build_agent_env`. A task launch passes
+        ``MAEL_TASK_ID`` and its siblings this way; without them the agent's
+        skills cannot name the task they run for.
+
+        A session id is minted when the caller gives none, so the spawn record
+        always names a session to resume — a child that dies before its
+        ``system/init`` would otherwise be unresumable.
+
+        ``resume`` continues the session ``claude`` already has on disk instead
+        of claiming a new one. ``agent_id`` keeps the id the orchestrator and
+        the user already know, which is what makes a resume invisible to them.
         """
         agent_id = agent_id or uuid.uuid4().hex[:8]
+        session_id = session_id or str(uuid.uuid4())
+        spec = AgentSpec(
+            agent_id=agent_id,
+            cwd=cwd,
+            session_id=session_id,
+            permission_mode=permission_mode,
+            model=model,
+            env=dict(env or {}),
+            prompt=prompt,
+            status=SPEC_RUNNING,
+        )
+        # Written before the spawn, not after: a daemon killed between the two
+        # would otherwise leave a running child no record can find.
+        self.specs.write(spec)
         argv = build_agent_argv(
-            permission_mode=permission_mode, session_id=session_id, model=model
+            permission_mode=permission_mode,
+            session_id=session_id,
+            model=model,
+            resume=resume,
         )
         # stderr joins stdout so a child that dies early — a bad --model, an
         # expired login — leaves its reason in the event buffer. pump() skips
@@ -166,14 +259,82 @@ class AgentDaemon:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=cwd,
-            env={**os.environ, **(env or {})},
+            env=build_agent_env(dict(os.environ), env),
         )
-        agent = Agent(agent_id, cwd, proc)
+        agent = Agent(agent_id, cwd, proc, on_exit=self._record_exit(agent_id))
         self.agents[agent_id] = agent
         agent.pump_task = asyncio.create_task(agent.pump())
         if prompt:
             await agent.send(user_message(prompt))
         return agent_id
+
+    def _record_exit(self, agent_id: str) -> Callable[[int | None], None]:
+        """A callback that writes ``agent_id``'s exit into its spawn record.
+
+        The record outlives this daemon, so an exit it observed is still known
+        after a restart — and a record left ``running`` is genuinely an agent
+        that needs bringing back, rather than one that already died.
+        """
+
+        def record(exit_code: int | None) -> None:
+            spec = self.specs.read(agent_id)
+            if spec is None:
+                return  # `stop` deleted it; a deliberate stop is not a crash
+            self.specs.write(replace(spec, status=SPEC_EXITED, exit_code=exit_code))
+
+        return record
+
+    async def _resume(self, spec: AgentSpec, text: str | None) -> str:
+        """Start ``spec``'s agent again, under its own id.
+
+        A child that never got its opening prompt wrote no transcript, so it is
+        started fresh with its original prompt. Otherwise the transcript is
+        replayed and the agent gets a turn back — see
+        :data:`~maelstrom.agent_model.DEFAULT_RESUME_PROMPT`.
+
+        The transcript on disk is the one fact worth trusting here. A record
+        saying no prompt went out cannot be believed: a daemon killed just after
+        the send would have written exactly that, and ``--session-id`` on an id
+        Claude already knows is refused — so the agent would be unrecoverable
+        rather than awkward.
+        """
+        replay = self.has_transcript(Path(spec.cwd), spec.session_id)
+        prompt = text or (DEFAULT_RESUME_PROMPT if replay else spec.prompt)
+        return await self.start_agent(
+            spec.cwd,
+            prompt,
+            permission_mode=spec.permission_mode,
+            model=spec.model,
+            session_id=spec.session_id,
+            agent_id=spec.agent_id,
+            env=spec.env or None,
+            resume=replay,
+        )
+
+    async def restore(self) -> None:
+        """Bring back the agents the last daemon held.
+
+        A record still marked ``running`` is an agent whose daemon died without
+        stopping it, so it is spawned again. An ``exited`` record is loaded as an
+        exited agent instead — ``list``, ``show`` and ``resume`` all work on it,
+        but nothing respawns it. That is also the loop guard: a resumed child
+        that dies again is recorded ``exited``, so the next daemon start leaves
+        it alone.
+        """
+        for spec in self.specs.list():
+            if spec.status == SPEC_RUNNING:
+                try:
+                    await self._resume(spec, None)
+                except Exception:  # noqa: BLE001
+                    # `restore` runs before the socket binds, so an exception
+                    # escaping here loses every agent rather than the one whose
+                    # record is bad. A partial record reaches this by design:
+                    # `spec_from_dict` defaults rather than raises, because a
+                    # resume is worth attempting on one.
+                    log.exception("could not resume agent %s", spec.agent_id)
+                    self.specs.write(replace(spec, status=SPEC_EXITED))
+            else:
+                self.agents[spec.agent_id] = _exited_agent(spec)
 
     # -- the command surface the CLI drives --
 
@@ -190,6 +351,7 @@ class AgentDaemon:
                     model=payload.get("model"),
                     session_id=payload.get("session"),
                     env=payload.get("env") or None,
+                    resume=bool(payload.get("resume", False)),
                 )
             except OSError as exc:
                 # Without this the exception escapes `handle`, the connection
@@ -205,9 +367,25 @@ class AgentDaemon:
         if agent is None:
             return {"error": f"no such agent: {payload.get('id', '')}"}
 
+        if command == "resume":
+            if agent.state.status != EXITED:
+                # Two children on one session id would fight over one transcript.
+                return {"error": f"agent {agent.state.agent_id} is running"}
+            spec = self.specs.read(agent.state.agent_id)
+            if spec is None:
+                # Reachable when a `stop` races a `resume`: the agent is still
+                # in memory, so "no such agent" would contradict `list`.
+                return {"error": f"agent {agent.state.agent_id} has no spawn record"}
+            try:
+                await self._resume(spec, payload.get("text") or None)
+            except OSError as exc:
+                return {"error": f"could not start claude: {exc}"}
+            return {"ok": True, "id": agent.state.agent_id}
+
         # `Agent.send` returns silently on a closed stdin, so without this every
-        # command against a dead agent would report success. `show` and `stop`
-        # send nothing, and reading why an agent died is why `show` exists.
+        # command against a dead agent would report success. `show`, `stop` and
+        # `resume` send nothing, and reading why an agent died is why `show`
+        # exists.
         if agent.state.status == EXITED and command not in ("stop", "show"):
             return {"error": f"agent {agent.state.agent_id} has exited"}
 
@@ -219,6 +397,9 @@ class AgentDaemon:
             return {"ok": True}
 
         if command == "stop":
+            # Deleted first: a stop is deliberate, so no later daemon start
+            # should read the record and bring the agent back.
+            self.specs.delete(agent.state.agent_id)
             await agent.stop()
             self.agents.pop(agent.state.agent_id, None)
             return {"ok": True}
@@ -273,19 +454,35 @@ class AgentDaemon:
         if await self._socket_is_live(path):
             raise RuntimeError(f"a daemon is already serving {path}")
         path.unlink(missing_ok=True)
+        # Before listening, so the first client to connect sees the restored
+        # agents rather than an empty list it would read as "nothing running".
+        await self.restore()
         server = await asyncio.start_unix_server(self._on_client, str(path))
         try:
             async with server:
                 await server.serve_forever()
         finally:
-            # Orphaned children would keep running with their stdin held by a
-            # dead parent, so shutdown has to reach them.
-            await asyncio.gather(
-                *(agent.stop() for agent in self.agents.values()),
-                return_exceptions=True,
-            )
-            self.agents.clear()
+            await self.shutdown()
             path.unlink(missing_ok=True)
+
+    async def shutdown(self) -> None:
+        """Stop every child, leaving each record resumable.
+
+        Orphaned children would keep running with their stdin held by a dead
+        parent, so shutdown has to reach them. Stopping a child ends its stream,
+        which would record an exit — and an exit recorded here is
+        indistinguishable from a crash, so the next daemon start would leave the
+        agent alone. Dropping the callback first is what keeps the records
+        ``running``, which is what makes restarting the daemon to pick up new
+        code free.
+        """
+        for agent in self.agents.values():
+            agent.on_exit = None
+        await asyncio.gather(
+            *(agent.stop() for agent in self.agents.values()),
+            return_exceptions=True,
+        )
+        self.agents.clear()
 
     @staticmethod
     async def _socket_is_live(path: Path) -> bool:

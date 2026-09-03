@@ -501,6 +501,129 @@ def test_a_row_reporting_an_exit_the_stream_never_showed_is_applied(harness):
     assert frame["event"]["entity"]["exitCode"] == 1
 
 
+def test_an_agent_that_comes_back_under_its_old_id_is_revived(harness):
+    """A resumed agent keeps its id, so the row that returns is the same agent."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                await wait_until(lambda: "ag1" in harness.daemon.attached)
+                harness.daemon.rows["ag1"]["state"] = "exited(1)"
+                await next_frame(
+                    ws,
+                    lambda f: (
+                        f["event"]["type"] == "upsert"
+                        and f["event"]["kind"] == "agent"
+                        and f["event"]["entity"]["state"] == "exited"
+                    ),
+                )
+                harness.daemon.rows["ag1"]["state"] = "idle"
+                back = await next_frame(
+                    ws,
+                    lambda f: (
+                        f["event"]["type"] == "upsert"
+                        and f["event"]["kind"] == "agent"
+                        and f["event"]["entity"]["state"] == "idle"
+                    ),
+                )
+                await wait_until(
+                    lambda: (
+                        harness.daemon.calls.count({"cmd": "attach", "id": "ag1"}) == 2
+                    )
+                )
+                return back
+
+    frame = run(scenario())
+    # The re-attached backlog re-normalises into the same transcript, which
+    # still holds the turns from before the exit.
+    assert frame["event"]["entity"]["exitCode"] is None
+
+
+def test_a_revived_agent_loses_the_attention_its_exit_raised(harness):
+    """The exit is over, so the item asking someone to look at it must go."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                harness.daemon.rows["ag1"]["state"] = "exited(1)"
+                raised = await next_frame(
+                    ws,
+                    lambda f: (
+                        f["event"]["type"] == "upsert"
+                        and f["event"]["kind"] == "attention"
+                    ),
+                )
+                harness.daemon.rows["ag1"]["state"] = "idle"
+                cleared = await next_frame(
+                    ws,
+                    lambda f: (
+                        f["event"]["type"] == "upsert"
+                        and f["event"]["kind"] == "attention"
+                        and f["event"]["entity"]["clearedAt"] is not None
+                    ),
+                )
+                return raised, cleared
+
+    raised, cleared = run(scenario())
+    assert raised["event"]["entity"]["kind"] == "agent_exited"
+    assert cleared["event"]["entity"]["id"] == raised["event"]["entity"]["id"]
+
+
+def test_a_revived_agent_links_to_the_task_that_arrived_while_it_was_gone(harness):
+    """An agent away during a task's arrival must still find it on the way back."""
+    session = model.session_id_for(PROJECT, "NORT-7")
+    harness.daemon.rows["ag1"] = agent_row(session=session)
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                harness.daemon.rows["ag1"]["state"] = "exited(1)"
+                await next_frame(
+                    ws,
+                    lambda f: (
+                        f["event"]["type"] == "upsert"
+                        and f["event"]["kind"] == "agent"
+                        and f["event"]["entity"]["state"] == "exited"
+                    ),
+                )
+                # The task appears only while the agent is gone, so the link it
+                # held at exit is stale by the time it comes back.
+                harness.add_task("NORT-7")
+                harness.version += 1
+                await next_frame(
+                    ws,
+                    lambda f: (
+                        f["event"]["type"] == "upsert" and f["event"]["kind"] == "task"
+                    ),
+                )
+                harness.daemon.rows["ag1"]["state"] = "idle"
+                # Every agent frame from the moment it comes back. The revive
+                # pass must carry the link itself: a later poll fixing it leaves
+                # a stale link on screen in between.
+                frames = []
+                while True:
+                    frame = await next_frame(
+                        ws,
+                        lambda f: (
+                            f["event"]["type"] == "upsert"
+                            and f["event"]["kind"] == "agent"
+                        ),
+                    )
+                    frames.append(frame["event"]["entity"])
+                    if frame["event"]["entity"]["taskId"]:
+                        return frames
+
+    frames = run(scenario())
+    # The first frame of the revive already names the task, so nothing renders
+    # an agent that has come back with no task on it.
+    assert frames[0]["taskId"] == "northwind/NORT-7"
+
+
 # --- commands ----------------------------------------------------------------
 
 
@@ -977,3 +1100,61 @@ def test_a_project_the_scan_misses_keeps_its_desk_entries(store):
                 return harness.orch.log.state["world"]["desk"]
 
     assert list(run(scenario())) == ["askastro/ASK-1"]
+
+
+def test_resume_reaches_the_host_for_an_exited_agent(harness):
+    harness.daemon.rows["ag1"] = agent_row(state="exited(1)")
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                return await command(ws, {"type": "agent.resume", "agentId": "ag1"})
+
+    reply = run(scenario())
+    assert reply["ok"] is True
+    assert {"cmd": "resume", "id": "ag1"} in harness.daemon.calls
+
+
+def test_resume_of_an_agent_that_is_running_is_refused(harness):
+    """Validation catches it before the host, so nothing is spawned twice."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                return await command(ws, {"type": "agent.resume", "agentId": "ag1"})
+
+    reply = run(scenario())
+    assert reply["ok"] is False
+    assert reply["error"]["code"] == "invalid"
+
+
+def test_a_host_that_says_the_agent_is_running_refuses_the_resume(harness):
+    """The host is the authority: it may know of a child the world does not."""
+    harness.daemon.rows["ag1"] = agent_row(state="exited(1)")
+    harness.daemon.replies["resume"] = [{"error": "agent ag1 is running"}]
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                return await command(ws, {"type": "agent.resume", "agentId": "ag1"})
+
+    reply = run(scenario())
+    assert reply["ok"] is False
+    assert reply["error"]["code"] == "invalid"
+    assert "is running" in reply["error"]["message"]
+
+
+def test_resume_of_an_agent_the_world_does_not_know_is_refused(harness):
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                return await command(ws, {"type": "agent.resume", "agentId": "nope"})
+
+    reply = run(scenario())
+    assert reply["ok"] is False
+    assert reply["error"]["code"] == "unknown_id"

@@ -41,11 +41,12 @@ from pathlib import Path, PurePath
 
 from .shell import run_cmd
 
-# ``mael`` launches ``claude --session-id <uuid>``; recover that uuid from the
-# command line. Matches a canonical uuid so a bare ``claude`` with no flag (or a
-# process that never carried one) simply yields ``None``.
+# ``mael`` launches ``claude --session-id <uuid>``, and continues an existing
+# session with ``claude --resume <uuid>``; recover that uuid from either.
+# Matches a canonical uuid, so a bare ``claude`` with no flag — or a
+# ``--resume`` with no id, which opens a picker — simply yields ``None``.
 _SESSION_ID_RE = re.compile(
-    r"--session-id[=\s]+"
+    r"--(?:session-id|resume)[=\s]+"
     r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
 )
 

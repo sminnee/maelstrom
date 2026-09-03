@@ -35,6 +35,7 @@ def build_agent_argv(
     session_id: str | None = None,
     *,
     model: str | None = None,
+    resume: bool = False,
 ) -> list[str]:
     """The ``claude`` argv for a daemon-driven agent.
 
@@ -52,6 +53,10 @@ def build_agent_argv(
 
     The prompt is not an argv argument — it is written to the child's stdin as a
     ``user`` message, which is also how every later message reaches it.
+
+    ``resume`` swaps ``--session-id`` for ``--resume``, which continues the
+    session ``claude`` already has on disk instead of claiming a new id. The
+    same switch ``worktree_launcher.build_claude_command`` makes for a pane.
     """
     argv = [
         "claude",
@@ -69,8 +74,114 @@ def build_agent_argv(
     if model:
         argv += ["--model", model]
     if session_id:
-        argv += ["--session-id", session_id]
+        argv += ["--resume", session_id] if resume else ["--session-id", session_id]
     return argv
+
+
+#: Markers ``claude`` sets in a session's own environment. Inherited by a child
+#: they can suppress the transcript a resume depends on, so a driven agent is
+#: spawned without them. The VS Code extension scrubs the same two.
+_CHILD_MARKERS = ("CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION")
+#: Asks for the transcript even where an inherited marker would have skipped it.
+FORCE_PERSISTENCE_ENV = "CLAUDE_CODE_FORCE_SESSION_PERSISTENCE"
+
+#: What a resumed agent is told on its first turn back.
+#:
+#: A print-mode session sits idle until a user turn arrives, and a permission
+#: the agent was blocked on does not survive the restart. So the resume needs a
+#: turn of its own, and that turn has to say why it came.
+DEFAULT_RESUME_PROMPT = (
+    "Your previous process ended unexpectedly. Your last turn may be "
+    "incomplete. Check the working tree and continue from where you left off."
+)
+
+
+def build_agent_env(
+    base: dict[str, str], extra: dict[str, str] | None
+) -> dict[str, str]:
+    """The environment for a driven ``claude`` child.
+
+    Takes ``base`` (the daemon's own environment), drops the two markers that
+    can stop the child writing a transcript, asks for persistence outright, then
+    lets ``extra`` win — the no-allowlist contract in
+    ``docs/dev/agent-daemon.md`` stands.
+    """
+    env = dict(base)
+    for marker in _CHILD_MARKERS:
+        env.pop(marker, None)
+    env[FORCE_PERSISTENCE_ENV] = "1"
+    env.update(extra or {})
+    return env
+
+
+#: A spawn record's two states. ``stop`` deletes the record instead.
+SPEC_RUNNING = "running"
+SPEC_EXITED = "exited"
+
+
+@dataclass(frozen=True)
+class AgentSpec:
+    """What it takes to spawn one agent again, after the daemon has gone.
+
+    Where to run, which session to continue, and the argv and environment to
+    rebuild. See ``docs/dev/agent-daemon.md``.
+
+    ``session_id`` is always set, because the daemon mints one when the caller
+    gives none. A child that died before its ``system/init`` is resumable all
+    the same.
+
+    ``prompt`` is kept so a child that died before its first turn can be started
+    again with the prompt it never got. Whether a resume replays instead is
+    decided by the transcript on disk, not by this record.
+
+    ``env`` is the caller's own extra vars only, never the daemon's environment
+    — that is re-read at spawn time.
+    """
+
+    agent_id: str
+    cwd: str
+    session_id: str
+    permission_mode: str | None = None
+    model: str | None = None
+    env: dict[str, str] = field(default_factory=dict)
+    prompt: str = ""
+    status: str = SPEC_RUNNING
+    exit_code: int | None = None
+
+
+def spec_to_dict(spec: AgentSpec) -> dict[str, Any]:
+    """``spec`` as the plain JSON the store writes."""
+    return {
+        "agent_id": spec.agent_id,
+        "cwd": spec.cwd,
+        "session_id": spec.session_id,
+        "permission_mode": spec.permission_mode,
+        "model": spec.model,
+        "env": dict(spec.env),
+        "prompt": spec.prompt,
+        "status": spec.status,
+        "exit_code": spec.exit_code,
+    }
+
+
+def spec_from_dict(data: dict[str, Any]) -> AgentSpec:
+    """An :class:`AgentSpec` from stored JSON, defaulting what it lacks.
+
+    A record written by an older daemon is missing fields rather than wrong, so
+    every optional one falls back rather than raising — a resume is worth
+    attempting on a partial record.
+    """
+    return AgentSpec(
+        agent_id=data["agent_id"],
+        cwd=data["cwd"],
+        session_id=data["session_id"],
+        permission_mode=data.get("permission_mode"),
+        model=data.get("model"),
+        env=dict(data.get("env") or {}),
+        prompt=data.get("prompt", ""),
+        status=data.get("status", SPEC_RUNNING),
+        exit_code=data.get("exit_code"),
+    )
 
 
 @dataclass(frozen=True)

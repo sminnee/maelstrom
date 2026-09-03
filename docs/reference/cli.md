@@ -601,7 +601,8 @@ cmux pane and no TTY. See [agent-daemon.md](../dev/agent-daemon.md) for the prot
 | `mael agent approve ID` | Approve an agent's pending plan or tool call. |
 | `mael agent deny ID` | Deny it. `--reason TEXT` reaches the agent as the tool result. |
 | `mael agent attach ID` | Stream an agent's events, and forward each line you type. |
-| `mael agent stop ID` | Stop an agent. |
+| `mael agent stop ID` | Stop an agent, and forget it. A stopped agent is not brought back. |
+| `mael agent resume ID` | Start an exited agent again, keeping its id and its conversation. `--text TEXT` replaces the default first turn. |
 
 ```bash
 mael agent start . --prompt "run the tests"     # starts the daemon too; prints the agent id
@@ -616,13 +617,19 @@ mael agent tail 1761dcf6                        # print the history, then stop
 mael agent tail -f 1761dcf6                     # ...and keep streaming
 mael agent attach 1761dcf6                      # teleport: live stream, typed input
 mael agent stop 1761dcf6
+mael agent resume 1761dcf6                      # after a crash: same id, same conversation
+mael agent resume 1761dcf6 --text "rerun the failing test"
 mael agent daemon                               # run the daemon in the foreground instead
 ```
 
 The first command that needs the daemon starts it, in its own process group, logging to
 `~/.maelstrom/agent-daemon.log` — a foreground `mael agent daemon` ignores that log. Set
-`MAEL_AGENT_NO_AUTOSTART=1` to turn auto-start off. An agent dies
-with the daemon holding it, and every agent is a normal `claude` process.
+`MAEL_AGENT_NO_AUTOSTART=1` to turn auto-start off. Every agent is a normal `claude` process.
+
+A crashed child shows as `exited(N)` in `mael agent list`, and `mael agent resume` brings it back
+with the conversation it had. A daemon start resumes every agent that was running, under the same
+ids. Claude keeps the conversation in its own session transcript; the daemon keeps one spawn
+record per agent under `~/.maelstrom/agents/`.
 
 ## Orchestrator
 

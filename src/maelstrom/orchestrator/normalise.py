@@ -248,6 +248,52 @@ def mark_exited(
     return out.done()
 
 
+def revive_agent(
+    state: ClientState,
+    ctx: NormaliseContext,
+    row_state: str,
+    now: str,
+    *,
+    task_id: str,
+    project: str,
+    worktree_id: str,
+    phase: str,
+) -> Normalised:
+    """The events for an exited agent that has come back under its own id.
+
+    A resume keeps the agent id, so the row that returns names the agent the
+    world already holds. The exit is over: the code is cleared and the item
+    that asked someone to look at it goes with it. The inverse of
+    :func:`mark_exited`.
+
+    The links are re-resolved in the same event, not a following one. A task or
+    worktree that arrived while the agent was gone would otherwise leave the
+    revived agent on screen with a stale link until the next poll.
+    """
+    agent = state["world"]["agents"].get(ctx.agent_id)
+    if agent is None:
+        return Normalised([], ctx)
+    out = _Emitter(state, agent, ctx, now)
+    out.agent(
+        {
+            "state": row_state,
+            "exitCode": None,
+            "taskId": task_id,
+            "project": project,
+            "worktreeId": worktree_id,
+            "phase": phase,
+        }
+    )
+    for item in state["world"]["attention"].values():
+        if (
+            item["kind"] == "agent_exited"
+            and item["agentId"] == ctx.agent_id
+            and item["clearedAt"] is None
+        ):
+            out.clear(item["id"])
+    return out.done()
+
+
 class _Emitter:
     """Collects the events for one raw event and threads the context through."""
 

@@ -12,6 +12,13 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Driven agents survive a crash.** A driven agent writes a normal Claude session transcript, so
+  `mael agent resume ID` starts an exited agent again under its own id, with the conversation it
+  had. `--text TEXT` replaces the default first turn. A daemon start resumes every agent that was
+  running when the last daemon died, so restarting the daemon to pick up new code costs nothing.
+  `mael agent stop ID` now forgets the agent: a stopped agent is not brought back. The daemon keeps
+  one spawn record per agent under `~/.maelstrom/agents/`, overridable with `MAEL_AGENT_SPEC_DIR`.
+
 - **The desk.** The orchestrator canvas draws the tasks you have put on your desk, not every task
   in the world. A new task list view lists every task, with filters for status, project, branch
   and text, and each row adds its task to the desk or takes it off. Launching a task from the UI

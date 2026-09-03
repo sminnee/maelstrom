@@ -229,6 +229,24 @@ def cmd_stop(agent_id: str) -> None:
     _send({"cmd": "stop", "id": agent_id})
 
 
+@agent.command("resume")
+@click.argument("agent_id")
+@click.option(
+    "--text",
+    "-t",
+    default="",
+    help="What to tell the agent on its first turn back.",
+)
+def cmd_resume(agent_id: str, text: str) -> None:
+    """Start an exited agent again, keeping its id and its conversation.
+
+    ``claude`` writes a transcript for a driven agent, so the conversation
+    survives a crashed child, a crashed daemon or a reboot. Without ``--text``
+    the agent is told its process ended and to carry on from where it was.
+    """
+    _send({"cmd": "resume", "id": agent_id, "text": text})
+
+
 @agent.command("attach")
 @click.argument("agent_id")
 def cmd_attach(agent_id: str) -> None:

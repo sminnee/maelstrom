@@ -475,6 +475,31 @@ class TestCheckSecretFilePerms:
         assert self._mode(config) == 0o600
         assert self._mode(env_file) == 0o600
 
+    def test_tightens_a_loose_spawn_record(self, tmp_path, monkeypatch):
+        """A record holds the env its agent was started with, allowlist-free."""
+        import os
+
+        from maelstrom.doctor import _check_secret_file_perms
+
+        project_path, mael_dir, config, allocations, env_file = self._setup(
+            tmp_path, monkeypatch
+        )
+        os.chmod(mael_dir, 0o700)
+        os.chmod(config, 0o600)
+        os.chmod(allocations, 0o600)
+        os.chmod(env_file, 0o600)
+        agents = mael_dir / "agents"
+        agents.mkdir()
+        record = agents / "a1.json"
+        record.write_text("{}")
+        os.chmod(record, 0o644)
+
+        result = _check_secret_file_perms(project_path)
+
+        assert result.status == CheckStatus.FIXED
+        assert "agents/a1.json" in result.message
+        assert self._mode(record) == 0o600
+
     def test_rerun_after_fix_reports_ok(self, tmp_path, monkeypatch):
         import os
 

@@ -20,6 +20,7 @@ from ..task_index import TaskIndex
 from ..task_launch import LaunchBlocked, check_not_live, check_synced, plan_launch
 from ..task_store import TaskStore
 from ..worktree import WorktreeSetup
+from ..worktree_model import has_claude_transcript
 from .protocol import Project, Task, Worktree
 from .world_build import (
     project_entity,
@@ -97,6 +98,7 @@ class NotebookTaskSource:
         version: Callable[[], str | None] | None = None,
         open_worktree: OpenWorktree | None = None,
         live_sessions: Callable[[], LiveSessionSet] = LiveSessionSet,
+        has_transcript: Callable[[Path, str], bool] = has_claude_transcript,
     ) -> None:
         self.store = store
         self.projects = projects
@@ -104,6 +106,7 @@ class NotebookTaskSource:
         self._version = version
         self.open_worktree = open_worktree
         self.live_sessions = live_sessions
+        self.has_transcript = has_transcript
 
     def version(self) -> str | None:
         return self._version() if self._version is not None else self.store.head()
@@ -139,6 +142,8 @@ class NotebookTaskSource:
             "model": model_name or plan.model,
             "session": plan.session_id,
             "env": plan.env,
+            # A task that has run before already owns its session id.
+            "resume": self.has_transcript(setup.path, plan.session_id),
         }
         return LaunchRequest(task.project, task.id, task.status, payload)
 
