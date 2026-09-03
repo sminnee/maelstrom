@@ -1,0 +1,294 @@
+"""The Python normaliser matches the TypeScript one, fixture for fixture.
+
+``web/src/protocol/normalise.ts`` turns the agent host's raw stream-json into
+transcript items, agent upserts, documents and attention items. The server does
+the same in Python, so the wire never carries raw stream-json. The goldens under
+``tests/fixtures/agent_events/normalised/`` are written by the TS side
+(``UPDATE_GOLDEN=1 pnpm test``); every fixture must replay to the same world
+here. The remaining cases port ``normalise.test.ts``.
+"""
+
+import json
+from pathlib import Path
+
+import pytest
+
+from maelstrom.orchestrator.normalise import (
+    NormaliseContext,
+    context_for_agent,
+    mark_exited,
+    normalise_stream_event,
+)
+from maelstrom.orchestrator.protocol import (
+    ClientState,
+    apply_event,
+    empty_world,
+    initial_client_state,
+)
+
+FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
+GOLDEN = FIXTURES / "normalised"
+NOW = "2026-09-01T00:00:00Z"
+
+
+def make_agent(**over) -> dict:
+    """The seed agent ``web/src/test/fixtures.ts`` replays every fixture into."""
+    agent = {
+        "id": "agent-1",
+        "state": "processing",
+        "session": "sess-1",
+        "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
+        "model": "claude-opus-5",
+        "waitingOn": "",
+        "lastMessage": "",
+        "costUsd": 0,
+        "taskId": "NORT-7",
+        "project": "northwind",
+        "worktreeId": "northwind-alpha",
+        "phase": "executing",
+        "exitCode": None,
+        "pendingRequestId": None,
+    }
+    agent.update(over)
+    return agent
+
+
+def make_document(**over) -> dict:
+    doc = {
+        "id": "doc-1",
+        "agentId": "agent-1",
+        "taskId": "NORT-7",
+        "kind": "plan",
+        "title": "plan.md",
+        "markdown": "# Plan\n\nDo the thing.\n",
+        "version": 1,
+        "status": "awaiting-review",
+        "source": {"type": "plan_review", "requestId": "req-1", "planFilePath": ""},
+    }
+    doc.update(over)
+    return doc
+
+
+def read_fixture(name: str) -> list[dict]:
+    lines = (FIXTURES / name).read_text().splitlines()
+    return [json.loads(line) for line in lines if line.strip()]
+
+
+def seed(agents: list[dict], documents: list[dict] = ()) -> ClientState:
+    world = empty_world()
+    for agent in agents:
+        world["agents"][agent["id"]] = agent
+    for doc in documents:
+        world["documents"][doc["id"]] = doc
+    return apply_event(
+        initial_client_state(), {"type": "snapshot", "world": world, "transcripts": {}}
+    )
+
+
+def replay(name: str, *, stop_before_control_response: bool = False) -> ClientState:
+    state = seed([make_agent(id="ag1", state="idle")])
+    ctx = context_for_agent(state, "ag1")
+    for raw in read_fixture(name):
+        if (
+            stop_before_control_response
+            and raw.get("type") == "control_response"
+            and ctx.pending is not None
+        ):
+            break
+        out = normalise_stream_event(state, ctx, raw, NOW)
+        ctx = out.ctx
+        for event in out.events:
+            state = apply_event(state, event)
+    return state
+
+
+def types(state: ClientState) -> list[str]:
+    return [
+        item["type"] for item in state["transcripts"].get("ag1", {"items": []})["items"]
+    ]
+
+
+def agent_of(state: ClientState) -> dict:
+    return state["world"]["agents"]["ag1"]
+
+
+def open_attention(state: ClientState) -> list[dict]:
+    return [a for a in state["world"]["attention"].values() if a["clearedAt"] is None]
+
+
+def items_of(state: ClientState, kind: str) -> list[dict]:
+    return [i for i in state["transcripts"]["ag1"]["items"] if i["type"] == kind]
+
+
+FIXTURE_NAMES = sorted(p.name for p in FIXTURES.glob("*.jsonl"))
+
+
+@pytest.mark.parametrize("name", FIXTURE_NAMES)
+def test_every_fixture_replays_to_the_golden_the_ts_normaliser_wrote(name):
+    golden = json.loads((GOLDEN / name.replace(".jsonl", ".json")).read_text())
+    state = replay(name)
+    assert {"world": state["world"], "transcripts": state["transcripts"]} == golden
+
+
+def test_a_completed_turn_ends_idle_with_the_cost_and_one_result_line():
+    state = replay("normal-turn.jsonl")
+    assert types(state) == ["system", "message", "message", "turn_result"]
+    assert agent_of(state)["state"] == "idle"
+    assert agent_of(state)["costUsd"] == 0.1495855
+    first = state["transcripts"]["ag1"]["items"][0]
+    assert first["sessionId"] == "029ed263-b318-4d4e-a661-32f9c9f23f19"
+
+
+def test_plan_review_with_a_plan_yields_a_document_and_one_attention_item():
+    state = replay("plan-review-with-plan.jsonl")
+    assert agent_of(state)["state"] == "awaiting-plan-review"
+    docs = list(state["world"]["documents"].values())
+    assert len(docs) == 1
+    assert docs[0]["kind"] == "plan"
+    assert docs[0]["status"] == "awaiting-review"
+    assert docs[0]["markdown"].startswith("# Create hello.txt")
+    assert docs[0]["source"]["requestId"] == "9df2f603-da86-44cf-ac99-4e102c7f7add"
+    assert len(open_attention(state)) == 1
+    assert open_attention(state)[0]["kind"] == "plan_review"
+    assert open_attention(state)[0]["documentId"] == docs[0]["id"]
+    last = state["transcripts"]["ag1"]["items"][-1]
+    assert last["type"] == "plan_review"
+    assert last["documentId"] == docs[0]["id"]
+
+
+def test_plan_review_without_a_plan_takes_the_last_message_as_the_plan():
+    state = replay("plan-review.jsonl", stop_before_control_response=True)
+    assert agent_of(state)["state"] == "awaiting-plan-review"
+    doc = next(iter(state["world"]["documents"].values()))
+    assert len(doc["markdown"]) > 20
+    assert doc["source"]["planFilePath"] == ""
+
+
+def test_an_approved_plan_review_resumes_the_agent_and_approves_the_document():
+    state = replay("plan-review.jsonl")
+    assert agent_of(state)["state"] == "idle"
+    assert agent_of(state)["pendingRequestId"] is None
+    doc = next(iter(state["world"]["documents"].values()))
+    assert doc["status"] == "approved"
+    assert open_attention(state) == []
+    assert items_of(state, "plan_review")[0]["decision"] == "approve"
+
+
+def test_an_unanswered_question_leaves_the_agent_awaiting_a_question():
+    state = replay("question-unanswered.jsonl", stop_before_control_response=True)
+    agent = agent_of(state)
+    assert agent["state"] == "awaiting-question"
+    assert agent["pendingRequestId"] == "2ba1273d-d878-4923-ba21-31faa1067613"
+    assert agent["waitingOn"] == "Which colour do you prefer?"
+    assert open_attention(state)[0]["kind"] == "question"
+    question = items_of(state, "question")[0]
+    assert question["questions"][0]["question"] == "Which colour do you prefer?"
+    assert "answers" not in question
+
+
+def test_an_answered_question_records_the_answers_on_the_item():
+    state = replay("question-answered.jsonl")
+    question = items_of(state, "question")[0]
+    assert question["answers"] == {"Which colour do you prefer?": "Green"}
+    assert agent_of(state)["state"] == "idle"
+
+
+def test_a_permission_request_awaits_permission_and_its_allow_is_recorded():
+    waiting = replay("permission-request.jsonl", stop_before_control_response=True)
+    assert agent_of(waiting)["state"] == "awaiting-permission"
+    assert open_attention(waiting)[0]["kind"] == "permission"
+    done = replay("permission-request.jsonl")
+    request = items_of(done, "permission_request")[0]
+    assert request["tool"] == "WebFetch"
+    assert request["decision"] == "allow"
+    assert agent_of(done)["state"] == "idle"
+
+
+def test_a_denied_tool_call_ends_denied_and_the_agent_is_not_left_waiting():
+    state = replay("permission-denied.jsonl")
+    call = items_of(state, "tool_call")[0]
+    assert call["tool"] == "Bash"
+    assert call["status"] == "denied"
+    assert agent_of(state)["state"] == "idle"
+
+
+def test_a_tool_use_and_its_result_merge_into_one_item():
+    state = replay("plan-review.jsonl")
+    calls = items_of(state, "tool_call")
+    assert len(calls) > 2
+    assert all(c["status"] in ("done", "error") for c in calls)
+    errored = next(c for c in calls if c["status"] == "error")
+    assert "EPERM" in errored["output"]
+
+
+def test_a_plan_sent_back_comes_around_as_the_next_version_of_the_same_document():
+    doc = make_document(
+        id="doc-1", agentId="ag1", version=1, status="changes-requested"
+    )
+    state = seed([make_agent(id="ag1", state="processing")], [doc])
+    ctx = context_for_agent(state, "ag1")
+    out = normalise_stream_event(
+        state,
+        ctx,
+        {
+            "type": "control_request",
+            "request_id": "req-2",
+            "request": {
+                "subtype": "can_use_tool",
+                "tool_name": "ExitPlanMode",
+                "input": {"plan": "# Revised", "planFilePath": "/p.md"},
+                "tool_use_id": "toolu_2",
+            },
+        },
+        NOW,
+    )
+    for event in out.events:
+        state = apply_event(state, event)
+    docs = list(state["world"]["documents"].values())
+    assert len(docs) == 1
+    assert docs[0]["id"] == "doc-1"
+    assert docs[0]["version"] == 2
+    assert docs[0]["status"] == "awaiting-review"
+    assert docs[0]["markdown"] == "# Revised"
+
+
+def test_context_for_agent_rebuilds_the_pending_request_from_the_world():
+    """A server that resumes an agent mid-wait must still answer it."""
+    waiting = replay("question-unanswered.jsonl", stop_before_control_response=True)
+    ctx = context_for_agent(waiting, "ag1")
+    assert ctx.pending is not None
+    assert ctx.pending.request_id == "2ba1273d-d878-4923-ba21-31faa1067613"
+    assert ctx.pending.tool == "AskUserQuestion"
+    assert ctx.pending.attention_id == open_attention(waiting)[0]["id"]
+    assert ctx.next_id == len(waiting["transcripts"]["ag1"]["items"]) + 1
+
+
+def test_mark_exited_clears_the_wait_and_raises_attention_on_a_bad_exit():
+    waiting = replay("question-unanswered.jsonl", stop_before_control_response=True)
+    ctx = context_for_agent(waiting, "ag1")
+    out = mark_exited(waiting, ctx, 1, NOW)
+    state = waiting
+    for event in out.events:
+        state = apply_event(state, event)
+    agent = agent_of(state)
+    assert agent["state"] == "exited"
+    assert agent["exitCode"] == 1
+    assert agent["pendingRequestId"] is None
+    kinds = sorted(a["kind"] for a in open_attention(state))
+    assert kinds == ["agent_exited"]
+
+
+def test_mark_exited_with_a_clean_exit_raises_nothing():
+    state = replay("normal-turn.jsonl")
+    out = mark_exited(state, context_for_agent(state, "ag1"), 0, NOW)
+    for event in out.events:
+        state = apply_event(state, event)
+    assert agent_of(state)["state"] == "exited"
+    assert open_attention(state) == []
+
+
+def test_an_unknown_agent_normalises_to_nothing():
+    state = seed([])
+    ctx = NormaliseContext(agent_id="ghost")
+    out = normalise_stream_event(state, ctx, {"type": "result"}, NOW)
+    assert out.events == []

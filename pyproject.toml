@@ -12,6 +12,7 @@ dependencies = [
     "pyyaml>=6.0",
     "click>=8.0",
     "markdown-to-mrkdwn>=0.3",
+    "websockets>=13",
 ]
 
 [project.optional-dependencies]

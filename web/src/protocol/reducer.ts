@@ -30,9 +30,11 @@ export function initialClientState(): ClientState {
 /**
  * The client state after one frame. Pure. A frame whose seq is not newer than
  * the last one applied is dropped, which is what makes replay idempotent.
+ * A snapshot is the exception — see "The snapshot epoch rule" in
+ * `docs/dev/orchestrator-server.md`.
  */
 export function applyServerEvent(state: ClientState, frame: EventFrame): ClientState {
-  if (frame.seq <= state.lastSeq) return state;
+  if (frame.event.type !== 'snapshot' && frame.seq <= state.lastSeq) return state;
   const next = applyEvent(state, frame.event, frame.seq);
   return { ...next, lastSeq: frame.seq };
 }

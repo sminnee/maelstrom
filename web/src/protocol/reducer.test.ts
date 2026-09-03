@@ -54,6 +54,21 @@ describe('applyServerEvent', () => {
     expect(state.lastSeq).toBe(5);
   });
 
+  it('a snapshot is a new epoch: it lands whatever its seq and resets the guard', () => {
+    let state = applyServerEvent(
+      initialClientState(),
+      frame(500, { type: 'snapshot', world: emptyWorld(), transcripts: {} }),
+    );
+    state = applyServerEvent(
+      state,
+      frame(1, { type: 'snapshot', world: worldWith({ tasks: [makeTask()] }), transcripts: {} }),
+    );
+    expect(state.world.tasks['NORT-7']).toBeDefined();
+    expect(state.lastSeq).toBe(1);
+    state = applyServerEvent(state, frame(2, { type: 'remove', kind: 'task', id: 'NORT-7' }));
+    expect(state.world.tasks).toEqual({});
+  });
+
   it('remove deletes the entity by kind and id', () => {
     let state = applyServerEvent(
       initialClientState(),

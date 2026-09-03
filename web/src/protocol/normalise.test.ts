@@ -3,7 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { contextForAgent, normaliseStreamEvent } from './normalise';
 import { applyEvent, initialClientState, type ClientState } from './reducer';
 import { makeAgent, makeDocument, worldWith } from '../test/fixtures';
-import { FIXTURES, replayFixture as replay } from '../test/replayFixture';
+import {
+  FIXTURES,
+  goldenOf,
+  readGolden,
+  replayFixture as replay,
+  writeGolden,
+} from '../test/replayFixture';
 
 const types = (state: ClientState) => (state.transcripts['ag1']?.items ?? []).map((i) => i.type);
 const agentOf = (state: ClientState) => state.world.agents['ag1']!;
@@ -15,6 +21,15 @@ describe('normaliseStreamEvent replays the recorded daemon streams', () => {
     const names = readdirSync(FIXTURES).filter((n) => n.endsWith('.jsonl'));
     expect(names.length).toBeGreaterThan(0);
     for (const name of names) expect(() => replay(name)).not.toThrow();
+  });
+
+  it('every fixture replays to its golden, which the Python normaliser is held to', () => {
+    // `UPDATE_GOLDEN=1 pnpm test` re-records; see tests/test_orchestrator_normalise.py.
+    const names = readdirSync(FIXTURES).filter((n) => n.endsWith('.jsonl'));
+    for (const name of names) {
+      writeGolden(name);
+      expect(goldenOf(replay(name)), name).toEqual(readGolden(name));
+    }
   });
 
   it('a completed turn ends idle with the cost and one result line', () => {
