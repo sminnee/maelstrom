@@ -1,0 +1,86 @@
+{
+  "world": {
+    "projects": {},
+    "worktrees": {},
+    "tasks": {},
+    "agents": {
+      "ag1": {
+        "id": "ag1",
+        "state": "idle",
+        "session": "4c3cdd66-89d3-41a5-9d05-5ea6182593c6",
+        "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
+        "model": "claude-opus-5",
+        "waitingOn": "",
+        "lastMessage": "Permission was denied for that command, so nothing ran. The ",
+        "costUsd": 0.1433145,
+        "taskId": "NORT-7",
+        "project": "northwind",
+        "worktreeId": "northwind-alpha",
+        "phase": "executing",
+        "exitCode": null,
+        "pendingRequestId": null
+      }
+    },
+    "documents": {},
+    "comments": {},
+    "attention": {}
+  },
+  "transcripts": {
+    "ag1": {
+      "agentId": "ag1",
+      "items": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "sessionId": "4c3cdd66-89d3-41a5-9d05-5ea6182593c6",
+          "model": "claude-opus-5",
+          "id": "ag1-1",
+          "ts": "2026-09-01T00:00:00Z"
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "markdown": "Run the bash command: rm -rf /tmp/nonexistent-probe-dir",
+          "id": "ag1-2",
+          "ts": "2026-09-01T00:00:00Z"
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "I'll run that command.",
+          "id": "ag1-3",
+          "ts": "2026-09-01T00:00:00Z"
+        },
+        {
+          "type": "tool_call",
+          "toolUseId": "toolu_01YGKwwhecHW9dWEuT8fPE6o",
+          "tool": "Bash",
+          "input": {
+            "command": "rm -rf /tmp/nonexistent-probe-dir",
+            "description": "Remove nonexistent probe directory"
+          },
+          "status": "denied",
+          "id": "toolu_01YGKwwhecHW9dWEuT8fPE6o",
+          "ts": "2026-09-01T00:00:00Z",
+          "output": "Permission to use Bash with command rm -rf /tmp/nonexistent-probe-dir has been denied."
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "Permission was denied for that command, so nothing ran. The path `/tmp/nonexistent-probe-dir` is outside the sandbox's writable paths (which cover `/tmp/claude-501` and `$TMPDIR`, not `/tmp` generally), and `rm -rf` needs explicit approval regardless.\n\nIf you want to proceed, you can either approve it when prompted in an interactive session, or tell me to retry with the sandbox disabled and I'll re-request it.",
+          "id": "ag1-4",
+          "ts": "2026-09-01T00:00:00Z"
+        },
+        {
+          "type": "turn_result",
+          "subtype": "success",
+          "costUsd": 0.1433145,
+          "durationMs": 7109,
+          "id": "ag1-5",
+          "ts": "2026-09-01T00:00:00Z"
+        }
+      ],
+      "truncatedBefore": false
+    }
+  }
+}
