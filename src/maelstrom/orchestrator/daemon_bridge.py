@@ -55,6 +55,8 @@ class ScriptedAsyncDaemonClient:
     replies: list[dict[str, Any]] = field(default_factory=list)
     calls: list[dict[str, Any]] = field(default_factory=list)
     next_start_id: str = "new1"
+    #: Agent ids whose next attach answers with an error instead of a stream.
+    attach_failures: set[str] = field(default_factory=set)
     _queues: dict[str, list[asyncio.Queue[Any]]] = field(default_factory=dict)
 
     async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -83,6 +85,10 @@ class ScriptedAsyncDaemonClient:
 
     async def attach(self, agent_id: str) -> AsyncIterator[dict[str, Any]]:
         self.calls.append({"cmd": "attach", "id": agent_id})
+        if agent_id in self.attach_failures:
+            self.attach_failures.discard(agent_id)
+            yield {"error": f"attach refused: {agent_id}"}
+            return
         if agent_id not in self.rows:
             yield {"error": f"no such agent: {agent_id}"}
             return

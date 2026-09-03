@@ -173,3 +173,73 @@ def test_attach_still_marks_the_end_for_an_agent_that_said_nothing():
 
     asyncio.run(attach_then_disconnect())
     assert [json.loads(line).get("type") for line in writer.lines] == [BACKLOG_END]
+
+
+# --- the three additions the orchestrator server relies on --------------------
+
+
+def test_start_merges_env_over_the_daemons_own_environment(monkeypatch):
+    """Without ``env`` reaching the child, ``MAEL_TASK_ID`` never reaches its skills."""
+    from unittest.mock import AsyncMock, patch
+
+    from maelstrom import agent_server
+
+    monkeypatch.setenv("INHERITED", "yes")
+    proc = MagicMock()
+    proc.stdin.is_closing.return_value = True
+    proc.stdout.readline = AsyncMock(return_value=b"")
+    proc.wait = AsyncMock(return_value=0)
+    daemon = AgentDaemon("/tmp/x.sock")
+    with patch.object(
+        agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
+    ) as spawn:
+        asyncio.run(
+            _handle(
+                daemon,
+                {"cmd": "start", "cwd": "/tmp/x", "env": {"MAEL_TASK_ID": "T-1"}},
+            )
+        )
+    env = spawn.call_args.kwargs["env"]
+    assert env["MAEL_TASK_ID"] == "T-1"
+    assert env["INHERITED"] == "yes"
+
+
+def test_a_watcher_is_told_when_the_agent_exits():
+    """The attach stream ends with the exit marker, not with a silent hang."""
+    from unittest.mock import AsyncMock
+
+    from maelstrom.agent_model import AGENT_EXITED
+
+    proc = MagicMock()
+    proc.stdin.is_closing.return_value = True
+    proc.stdout.readline = AsyncMock(return_value=b"")
+    proc.wait = AsyncMock(return_value=3)
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = Agent("a1", "/tmp/x", proc)
+    daemon.agents["a1"] = agent
+    writer = _recording_writer()
+
+    async def attach_then_exit():
+        attached = asyncio.create_task(daemon._attach("a1", writer))
+        await asyncio.sleep(0)
+        await agent.pump()
+        await asyncio.wait_for(attached, timeout=2)
+
+    asyncio.run(attach_then_exit())
+    events = [json.loads(line) for line in writer.lines]
+    assert events[-1] == {"type": AGENT_EXITED, "exit_code": 3}
+    assert events[-2]["type"] == BACKLOG_END
+
+
+def test_attaching_to_an_exited_agent_ends_after_the_backlog():
+    from maelstrom.agent_model import AGENT_EXITED
+
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    agent.state = mark_exited(replay("normal-turn.jsonl"), 0)
+    daemon.agents["a1"] = agent
+    writer = _recording_writer()
+    asyncio.run(asyncio.wait_for(daemon._attach("a1", writer), timeout=2))
+    kinds = [json.loads(line).get("type") for line in writer.lines]
+    assert kinds[-2:] == [BACKLOG_END, AGENT_EXITED]
+    assert json.loads(writer.lines[-1])["exit_code"] == 0

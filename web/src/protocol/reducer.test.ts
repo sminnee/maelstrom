@@ -118,6 +118,19 @@ describe('applyServerEvent', () => {
     expect(items[0]).toMatchObject({ tool: 'Bash', status: 'done', output: 'a.txt\n' });
   });
 
+  it('transcript.truncated marks the window, even before any item', () => {
+    let state = applyServerEvent(
+      initialClientState(),
+      frame(1, { type: 'snapshot', world: emptyWorld(), transcripts: {} }),
+    );
+    state = applyServerEvent(state, frame(2, { type: 'transcript.truncated', agentId: 'agent-1' }));
+    expect(state.transcripts['agent-1']).toEqual({
+      agentId: 'agent-1',
+      items: [],
+      truncatedBefore: true,
+    });
+  });
+
   it('rejects an upsert of an unknown entity kind', () => {
     const state = applyServerEvent(
       initialClientState(),

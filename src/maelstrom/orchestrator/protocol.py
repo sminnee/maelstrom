@@ -175,7 +175,7 @@ class ClientState(TypedDict):
 
 
 #: A server event: ``snapshot``, ``upsert``, ``remove``, ``transcript.append``,
-#: ``transcript.update`` or ``error``, as a plain dict.
+#: ``transcript.update``, ``transcript.truncated`` or ``error``, as a plain dict.
 ServerEvent = dict[str, Any]
 
 
@@ -281,6 +281,16 @@ def apply_event(state: ClientState, event: ServerEvent, seq: int = 0) -> ClientS
         ]
         return _with_transcript(
             state, agent_id, cast(Transcript, {**current, "items": items})
+        )
+    if kind == "transcript.truncated":
+        agent_id = event["agentId"]
+        current = state["transcripts"].get(agent_id) or {
+            "agentId": agent_id,
+            "items": [],
+            "truncatedBefore": False,
+        }
+        return _with_transcript(
+            state, agent_id, cast(Transcript, {**current, "truncatedBefore": True})
         )
     if kind == "error":
         entry = {

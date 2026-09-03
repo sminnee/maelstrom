@@ -20,12 +20,25 @@ from typing import Any
 from websockets.asyncio.server import Server, ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
+from ..agent_model import AGENT_EXITED, BACKLOG_END, RECENT_LIMIT
 from ..util import now_iso
 from .daemon_bridge import AsyncDaemonClient
 from .event_log import RING_SIZE, EventLog
-from .protocol import EventFrame, ServerEvent
+from .normalise import (
+    NormaliseContext,
+    context_for_agent,
+    mark_exited,
+    normalise_stream_event,
+)
+from .protocol import Agent, EventFrame, ServerEvent
 from .sources import TaskSource, WorktreeSource
-from .world_build import diff_kind
+from .world_build import (
+    AgentLink,
+    agent_entity,
+    diff_kind,
+    link_agent,
+    parse_agent_state,
+)
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +48,8 @@ TASK_POLL_SECS = 2.0
 WORKTREE_POLL_SECS = 15.0
 #: How often the agent host's ``list`` is reconciled against the world.
 AGENT_POLL_SECS = 2.0
+#: How long adopting an agent waits for its replayed backlog to end.
+BACKLOG_TIMEOUT_SECS = 5.0
 
 
 def _reply(command_id: Any, reply: dict[str, Any]) -> str:
@@ -43,6 +58,18 @@ def _reply(command_id: Any, reply: dict[str, Any]) -> str:
 
 def _refused(code: str, message: str) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message}}
+
+
+class AgentWatch:
+    """One agent's attach stream and the normaliser state it feeds."""
+
+    def __init__(self, agent_id: str, ctx: NormaliseContext) -> None:
+        self.agent_id = agent_id
+        self.ctx = ctx
+        self.task: asyncio.Task[None] | None = None
+        self.backlog_count = 0
+        #: Set once the backlog marker has arrived, or the stream ended first.
+        self.caught_up = asyncio.Event()
 
 
 class Orchestrator:
@@ -79,6 +106,7 @@ class Orchestrator:
         self._worktree_read = asyncio.Lock()
         self._pollers: list[asyncio.Task[None]] = []
         self._started = asyncio.Event()
+        self._watches: dict[str, AgentWatch] = {}
 
     # -- running --
 
@@ -86,18 +114,21 @@ class Orchestrator:
         """Read every source once, then keep them fresh in the background."""
         await self.refresh_tasks()
         await self.refresh_worktrees()
+        await self.refresh_agents()
         self._started.set()
         self._pollers = [
             asyncio.create_task(self._poll(self._task_poll, self.refresh_tasks)),
             asyncio.create_task(
                 self._poll(self._worktree_poll, self.refresh_worktrees)
             ),
+            asyncio.create_task(self._poll(self._agent_poll, self.refresh_agents)),
         ]
 
     async def stop(self) -> None:
-        for poller in self._pollers:
-            poller.cancel()
-        await asyncio.gather(*self._pollers, return_exceptions=True)
+        watching = [w.task for w in self._watches.values() if w.task is not None]
+        for task in [*self._pollers, *watching]:
+            task.cancel()
+        await asyncio.gather(*self._pollers, *watching, return_exceptions=True)
         self._pollers = []
 
     async def serve(self, host: str, port: int) -> None:
@@ -192,6 +223,161 @@ class Orchestrator:
             "worktree", world["worktrees"], {w["id"]: w for w in worktrees}
         )
         await self.publish(events)
+
+    # -- agents --
+
+    async def refresh_agents(self) -> None:
+        """Reconcile the agent host's ``list`` against the world.
+
+        A new id is adopted and attached. An id that is gone has exited: the
+        host drops a stopped agent, so ``exited(0)`` is the state it left in.
+        A row reporting an exit the stream never showed is applied as-is. A
+        live agent whose stream ended without an exit is attached again. And a
+        live agent's links are re-resolved, so a task or worktree that arrived
+        after the agent still finds it.
+        """
+        reply = await self.daemon.request({"cmd": "list"})
+        if "error" in reply:
+            log.warning("agent host: %s", reply["error"])
+            return
+        rows = {row["id"]: row for row in reply.get("agents", [])}
+        agents = self.log.state["world"]["agents"]
+        for agent_id, row in rows.items():
+            if agent_id not in agents:
+                await self._adopt(row)
+                continue
+            if agents[agent_id]["state"] == "exited":
+                continue
+            state, exit_code = parse_agent_state(row.get("state", ""))
+            if state == "exited":
+                await self._exit(agent_id, exit_code)
+                continue
+            if agent_id not in self._watches:
+                await self._attach(agent_id)
+            await self._relink(row)
+        for agent_id, agent in list(agents.items()):
+            if agent_id not in rows and agent["state"] != "exited":
+                await self._exit(agent_id, 0)
+
+    def _link(self, row: dict[str, Any]) -> AgentLink:
+        world = self.log.state["world"]
+        return link_agent(row, worktrees=world["worktrees"], tasks=world["tasks"])
+
+    async def _adopt(self, row: dict[str, Any]) -> None:
+        """Put a new agent in the world and start following its stream."""
+        link = self._link(row)
+        entity = agent_entity(
+            row,
+            task_id=link.task_id,
+            project=link.project,
+            worktree_id=link.worktree_id,
+            phase=link.phase,
+        )
+        await self.publish([{"type": "upsert", "kind": "agent", "entity": entity}])
+        await self._attach(entity["id"])
+
+    async def _attach(self, agent_id: str) -> None:
+        """Follow an agent's stream, and wait for its replayed backlog to end."""
+        watch = AgentWatch(agent_id, context_for_agent(self.log.state, agent_id))
+        self._watches[agent_id] = watch
+        watch.task = asyncio.create_task(self._follow(watch))
+        # A host that never sends the backlog marker only delays adoption; it
+        # does not block the server.
+        try:
+            await asyncio.wait_for(watch.caught_up.wait(), BACKLOG_TIMEOUT_SECS)
+        except asyncio.TimeoutError:
+            log.warning(
+                "agent %s: no backlog marker within %ss", agent_id, BACKLOG_TIMEOUT_SECS
+            )
+
+    async def _relink(self, row: dict[str, Any]) -> None:
+        agent = self.log.state["world"]["agents"][row["id"]]
+        link = self._link(row)
+        linked: Agent = {
+            **agent,
+            "taskId": link.task_id,
+            "project": link.project,
+            "worktreeId": link.worktree_id,
+            "phase": link.phase,
+        }
+        if linked != agent:
+            await self.publish([{"type": "upsert", "kind": "agent", "entity": linked}])
+
+    async def _follow(self, watch: AgentWatch) -> None:
+        """Normalise one agent's attach stream into the log until it ends.
+
+        The watch is dropped when the stream ends, whatever ended it. An agent
+        still listed by the host is attached again on the next reconciliation.
+        """
+        agent_id = watch.agent_id
+        in_backlog = True
+        try:
+            async for event in self.daemon.attach(agent_id):
+                if "error" in event and "type" not in event:
+                    await self.publish(
+                        [
+                            {
+                                "type": "error",
+                                "message": event["error"],
+                                "agentId": agent_id,
+                            }
+                        ]
+                    )
+                    return
+                kind = event.get("type")
+                if kind == BACKLOG_END:
+                    in_backlog = False
+                    # The host's ring holds RECENT_LIMIT events, so a backlog
+                    # that size may have lost older ones. A backlog of exactly
+                    # that size that lost nothing is marked too; the host does
+                    # not say which, and the UI only says older items may be
+                    # missing.
+                    if watch.backlog_count >= RECENT_LIMIT:
+                        await self.publish(
+                            [{"type": "transcript.truncated", "agentId": agent_id}]
+                        )
+                    watch.caught_up.set()
+                    continue
+                if kind == AGENT_EXITED:
+                    await self._exit(agent_id, event.get("exit_code"), from_stream=True)
+                    return
+                if in_backlog:
+                    watch.backlog_count += 1
+                await self._normalise(watch, event)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 — one bad stream must not take the server down
+            log.exception("attach stream for %s failed", agent_id)
+        finally:
+            watch.caught_up.set()
+            if self._watches.get(agent_id) is watch:
+                del self._watches[agent_id]
+
+    async def _normalise(self, watch: AgentWatch, raw: dict[str, Any]) -> None:
+        out = normalise_stream_event(self.log.state, watch.ctx, raw, self.clock())
+        watch.ctx = out.ctx
+        await self.publish(out.events)
+
+    async def _exit(
+        self, agent_id: str, exit_code: int | None, *, from_stream: bool = False
+    ) -> None:
+        """Mark an agent exited, once.
+
+        An exit learned from anywhere but the agent's own stream also ends
+        that stream: a host that dropped the connection would otherwise leave
+        the watch waiting forever.
+        """
+        agent = self.log.state["world"]["agents"].get(agent_id)
+        if agent is None or agent["state"] == "exited":
+            return
+        watch = self._watches.get(agent_id)
+        ctx = watch.ctx if watch else context_for_agent(self.log.state, agent_id)
+        out = mark_exited(self.log.state, ctx, exit_code, self.clock())
+        if watch:
+            watch.ctx = out.ctx
+        await self.publish(out.events)
+        if watch and watch.task and not from_stream:
+            watch.task.cancel()
 
     # -- commands --
 
