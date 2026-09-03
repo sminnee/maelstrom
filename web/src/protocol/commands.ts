@@ -18,6 +18,7 @@ export type Command =
   | { type: 'agent.say'; agentId: AgentId; text: string }
   | { type: 'agent.launch'; taskId: TaskId; model?: string }
   | { type: 'agent.stop'; agentId: AgentId }
+  | { type: 'agent.resume'; agentId: AgentId; text?: string }
   | { type: 'desk.add'; taskId: TaskId }
   | { type: 'desk.remove'; taskId: TaskId }
   | { type: 'document.approve'; documentId: DocumentId; version: number }
@@ -37,6 +38,7 @@ export interface ResultMap {
   'agent.say': Record<string, never>;
   'agent.launch': { agentId: AgentId };
   'agent.stop': Record<string, never>;
+  'agent.resume': Record<string, never>;
   'desk.add': Record<string, never>;
   'desk.remove': Record<string, never>;
   'document.approve': Record<string, never>;

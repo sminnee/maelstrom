@@ -1,6 +1,6 @@
 import { readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { contextForAgent, normaliseStreamEvent } from './normalise';
+import { contextForAgent, markExited, normaliseStreamEvent, reviveAgent } from './normalise';
 import { applyEvent, initialClientState, type ClientState } from './reducer';
 import { makeAgent, makeDocument, worldWith } from '../test/fixtures';
 import {
@@ -163,5 +163,42 @@ describe('a plan sent back for changes', () => {
       status: 'awaiting-review',
       markdown: '# Revised',
     });
+  });
+});
+
+describe('reviveAgent', () => {
+  /** An agent that has crashed, with the attention item its exit raised. */
+  function exited(): ClientState {
+    let state = initialClientState();
+    state = applyEvent(state, {
+      type: 'upsert',
+      kind: 'agent',
+      entity: makeAgent({ id: 'ag1', state: 'processing' }),
+    });
+    const out = markExited(state, contextForAgent(state, 'ag1'), 1, '2026-09-01T00:00:00Z');
+    for (const event of out.events) state = applyEvent(state, event);
+    return state;
+  }
+
+  it('clears the exit code so the agent reads as live again', () => {
+    let state = exited();
+    const out = reviveAgent(state, contextForAgent(state, 'ag1'), 'idle', '2026-09-01T00:01:00Z');
+    for (const event of out.events) state = applyEvent(state, event);
+    expect(state.world.agents['ag1']).toMatchObject({ state: 'idle', exitCode: null });
+  });
+
+  it('clears the attention item the exit raised', () => {
+    let state = exited();
+    const out = reviveAgent(state, contextForAgent(state, 'ag1'), 'idle', '2026-09-01T00:01:00Z');
+    for (const event of out.events) state = applyEvent(state, event);
+    const items = Object.values(state.world.attention).filter((a) => a.kind === 'agent_exited');
+    expect(items).toHaveLength(1);
+    expect(items[0]!.clearedAt).not.toBeNull();
+  });
+
+  it('does nothing for an agent the world does not hold', () => {
+    const state = initialClientState();
+    const out = reviveAgent(state, contextForAgent(state, 'ghost'), 'idle', '2026-09-01T00:00:00Z');
+    expect(out.events).toEqual([]);
   });
 });

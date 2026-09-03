@@ -60,6 +60,18 @@ def validate_command(world: World, cmd: dict[str, Any]) -> dict[str, str] | None
             return _err("invalid", "Message is empty")
         return None
 
+    if kind == "agent.resume":
+        # The one agent command that wants an exited agent: it starts the
+        # process again under the same id. A running one would give the
+        # session two children fighting over one transcript.
+        agent_id = cmd.get("agentId", "")
+        agent = world["agents"].get(agent_id)
+        if agent is None:
+            return _err("unknown_id", f"No agent {agent_id}")
+        if agent["state"] != "exited":
+            return _err("invalid", f"Agent {agent_id} is running")
+        return None
+
     if kind == "agent.launch":
         task_id = cmd.get("taskId", "")
         task = world["tasks"].get(task_id)

@@ -171,7 +171,8 @@ which runs in a workspace with its hooks.
 
 **Agent daemon**:
 The one process per machine that holds every driven agent and serves the control socket
-`mael agent` talks to. An agent dies with the daemon holding it.
+`mael agent` talks to. A driven agent's live state dies with the daemon, but its spawn record
+does not, so a later daemon can start the agent again.
 
 **Wait kind**:
 Which of three things a driven agent is blocked on: `awaiting-question`, `awaiting-plan-review`,
@@ -182,15 +183,20 @@ _Avoid_: Blocked, stuck
 
 **Agent message**:
 One thing a driven agent said, in its own words. Text blocks only — a `thinking` block is
-reasoning the agent did not choose to say, and a `tool_use` block is an action. A driven agent
-writes no session transcript, so the daemon keeps the last few messages itself. They are the only
-record of what the agent said.
+reasoning the agent did not choose to say, and a `tool_use` block is an action. The daemon keeps
+the last few messages, so `mael agent list` and `mael agent show` answer without reading a file.
+
+**Spawn record**:
+What one driven agent takes to start again: its working directory, its session id, its permission
+mode, its model, and the environment it was given. Claude keeps the conversation itself, so the
+spawn record holds only the things Claude does not.
+_Avoid_: Agent state, checkpoint, snapshot
 
 **Teleport**:
 `mael agent attach <id>` — rendering one driven agent's event stream to a terminal and forwarding
 typed lines back to it. Teleport is a client of the control socket, not a pane attach: a driven
-agent has no pane and no transcript to resume. Contrast a tail, which renders the same stream but
-sends nothing back.
+agent has no pane to attach to. Contrast a tail, which renders the same stream but sends nothing
+back.
 
 **Tail**:
 `mael agent tail <id>` — rendering one driven agent's event stream without driving it. A tail

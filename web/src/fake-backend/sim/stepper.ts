@@ -3,7 +3,12 @@ import type { Agent, Task } from '../../protocol/entities';
 import type { ServerEvent } from '../../protocol/events';
 import type { AgentId } from '../../protocol/ids';
 import type { NormaliseContext, RawStreamEvent } from '../../protocol/normalise';
-import { contextForAgent, markExited, normaliseStreamEvent } from '../../protocol/normalise';
+import {
+  contextForAgent,
+  markExited,
+  normaliseStreamEvent,
+  reviveAgent,
+} from '../../protocol/normalise';
 import { isActionable } from '../../protocol/phase';
 import type { ClientState } from '../../protocol/reducer';
 import { applyEvent } from '../../protocol/reducer';
@@ -80,6 +85,22 @@ export function exitAgent(
   const run = new Run(state, sim, () => 0, now);
   const agent = state.world.agents[agentId];
   if (agent) run.exit(agent, exitCode);
+  return run.result();
+}
+
+/**
+ * Bring an exited agent back, as a resume does: it keeps its id and its
+ * conversation, so the world updates rather than gaining a second agent.
+ */
+export function reviveExitedAgent(
+  state: ClientState,
+  sim: SimWorld,
+  agentId: AgentId,
+  now: string,
+): StepResult {
+  const run = new Run(state, sim, () => 0, now);
+  const agent = state.world.agents[agentId];
+  if (agent) run.revive(agent);
   return run.result();
 }
 
@@ -258,6 +279,13 @@ class Run {
       case 'exit':
         return { kind: 'exit', exitCode: forced.exitCode };
     }
+  }
+
+  revive(agent: Agent) {
+    const entry = this.simFor(agent);
+    const out = reviveAgent(this.state, entry.ctx, 'idle', this.now);
+    this.sim.agents[agent.id] = { ...entry, ctx: out.ctx };
+    this.emit(out.events);
   }
 
   exit(agent: Agent, exitCode: number) {

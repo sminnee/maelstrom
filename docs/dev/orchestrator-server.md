@@ -63,6 +63,11 @@ is adopted and attached. An id that is gone has exited: the host drops a stopped
 `exited(0)` is the state it left in. A row reporting `exited(N)` that the stream never showed is
 applied as-is.
 
+An exited id that comes back live is the same agent again, not a new one: a resume keeps the
+agent id. The server clears the exit code, clears the attention item the exit raised, and attaches
+a second time. The re-attached backlog re-normalises into the same transcript, which still holds
+the turns from before the exit.
+
 Adoption waits for the host's replayed backlog to end, so the next snapshot already holds the
 agent's transcript and the wait it is in. A backlog the size of the host's window (200 events)
 marks the transcript `truncatedBefore` through a `transcript.truncated` event.
@@ -90,10 +95,14 @@ session id, environment, permission mode, branch and prompt, and the same two re
 session already holds the task, or the worktree's rebase failed. `NotebookTaskSource.launch`
 runs them, then hands the host a `start`.
 
+A task that has already run owns its session id, and claiming that id again is refused. So the
+launch asks `has_claude_transcript` whether the worktree holds a transcript for it, and sets
+`resume` on the `start` when it does. That is the same switch `mael task run` makes for a pane.
+
 A start the host refuses rolls the task back to the status it had. A second launch of a task
 still in flight is refused. A launched task also joins the desk, so the node the user just
-started is drawn on the canvas. Not built: `--resume`, the opencode harness, and the cmux
-placement the CLI does.
+started is drawn on the canvas. Not built: the opencode harness, and the cmux placement the CLI
+does.
 
 ## Task ids on the wire
 
@@ -232,7 +241,10 @@ The first command that needs the agent host starts one, as `mael agent` does.
   exit the stream missed, and nothing else.
 - Agents started outside the server attach with a 200-event backlog, and link to a task only when
   started with the task's session id.
-- A server restart loses every transcript beyond the host's 200 events.
+- A server restart loses every transcript beyond the host's 200 events. Claude's own session
+  transcript holds the whole conversation, but nothing reads it back yet.
 - The snapshot carries every task in every project, content included. A large notebook makes a
   large snapshot; a client library with a receive limit must raise it.
 - `stop` removes the agent from the host. The server marks it `exited(0)` on the ok reply.
+- `agent.resume` starts an exited agent again. No UI drives it yet, so a crashed agent is brought
+  back with `mael agent resume <id>`.

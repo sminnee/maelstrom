@@ -258,3 +258,20 @@ def test_tail_follow_ends_when_the_agent_has_exited():
         result = CliRunner().invoke(agent_cli.agent, ["tail", "-f", "a1"])
     assert result.exit_code == 0
     assert "Hello there, friend" in result.output
+
+
+def test_resume_sends_the_agent_id():
+    result, client = run_cli(["resume", "a1"], [{"ok": True, "id": "a1"}])
+    assert result.exit_code == 0
+    assert client.calls == [{"cmd": "resume", "id": "a1", "text": ""}]
+
+
+def test_resume_passes_the_text_the_user_gave():
+    _, client = run_cli(["resume", "a1", "--text", "carry on"], [{"ok": True}])
+    assert client.calls[0]["text"] == "carry on"
+
+
+def test_resume_of_a_running_agent_exits_non_zero():
+    result, _ = run_cli(["resume", "a1"], [{"error": "agent a1 is running"}])
+    assert result.exit_code == 1
+    assert "is running" in result.output

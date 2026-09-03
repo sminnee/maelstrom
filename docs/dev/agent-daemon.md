@@ -164,6 +164,9 @@ succeeds silently, so without that refusal `mael agent answer` would report succ
 process. `stop`, `show`, `tail` and `attach` send the agent nothing, so they still work — and
 `show` is how you find out why it died.
 
+`resume` is the one command that wants an exited agent. It refuses a running one: two children on
+one session id would fight over one transcript.
+
 ## Running it
 
 The daemon is one process per machine, and the first command that needs it starts it. A daemon
@@ -171,7 +174,8 @@ started by accident holds no agents, so it costs nothing.
 
 ```bash
 mael agent start ~/Projects/maelstrom/maelstrom-alpha --prompt "run the tests"
-mael agent start . --session-id <uuid>                # pin the session id
+mael agent start . --session-id <uuid>                # pin the session to resume later
+mael agent resume a1b2c3d4                            # start an exited agent again
 mael agent list
 mael agent show a1b2c3d4
 mael agent answer a1b2c3d4 "Green"
@@ -192,7 +196,8 @@ Auto-start waits 5 seconds for the daemon to bind, and reports a child that dies
 it dies. `MAEL_AGENT_NO_AUTOSTART=1` turns auto-start off, and every spawned daemon inherits it, so
 a daemon can never spawn a daemon.
 
-`MAEL_AGENT_SOCKET` overrides the socket path, and `MAEL_AGENT_LOG` overrides the log path.
+`MAEL_AGENT_SOCKET` overrides the socket path, `MAEL_AGENT_LOG` the log path, and
+`MAEL_AGENT_SPEC_DIR` the spawn-record directory.
 `mael agent list --json` emits the rows as JSON.
 
 A second daemon on the same socket refuses to start. Unlinking a live socket would leave the
@@ -267,9 +272,8 @@ than hangs — it is not what ends a normal tail.
 ### Teleport
 
 `mael agent attach <id>` is teleport. A headless agent has no TTY, so there is no pane to attach
-to and no transcript to resume. Attach is another client of the same socket: it replays the
-agent's buffered recent events, streams new ones, and forwards each line you type as a user
-message.
+to. Attach is another client of the same socket: it replays the agent's buffered recent events,
+streams new ones, and forwards each line you type as a user message.
 
 The event stream decides when attach ends, not stdin. Closed stdin is normal, so
 `mael agent attach <id> < /dev/null` is also a read-only view. Prefer `mael agent tail -f <id>`,
@@ -290,7 +294,7 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 
 | `cmd` | Request fields | Ok reply |
 |---|---|---|
-| `start` | `cwd`; optional `prompt`, `mode`, `model`, `session`, `env` | `{"ok": true, "id": "<agent id>"}` |
+| `start` | `cwd`; optional `prompt`, `mode`, `model`, `session`, `env`, `resume` | `{"ok": true, "id": "<agent id>"}` |
 | `list` | — | `{"agents": [<row>, …]}`, each row as `mael agent list --json` prints |
 | `show` | `id` | `{"agent": <detail>}`, as `mael agent show --json` prints |
 | `say` | `id`, `text` | `{"ok": true}` |
@@ -298,6 +302,7 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 | `deny` | `id`; optional `reason` | `{"ok": true}` |
 | `answer` | `id`; `answers` (a map keyed by question text) or `choice` | `{"ok": true}` |
 | `stop` | `id` | `{"ok": true}` |
+| `resume` | `id`; optional `text` | `{"ok": true, "id": "<agent id>"}` |
 | `attach` | `id` | A stream; see below |
 
 `start` merges `env` over the daemon's own environment for that child, with no allowlist: a
@@ -308,14 +313,28 @@ A task launch passes `MAEL_TASK_ID`, `MAEL_TASK_PARENT` and `MAEL_TASK_SESSION_I
 every question. An empty `answers` map is refused: the agent reads an empty map as no answer at
 all.
 
-`stop` removes the agent from the daemon. A later `list` does not name it.
+`start` with `resume: true` continues the session `session` names instead of claiming it. A task
+that has run before already owns its session id, and claiming it again is refused, so the
+orchestrator sets this from the transcript on disk.
+
+`stop` removes the agent from the daemon and deletes its spawn record. A later `list` does not
+name it, and no later daemon start brings it back.
+
+`resume` starts an exited agent again under its own id, and sends it one turn: `text`, or the
+default nudge. See "The resume rules".
+
+`start` and `resume` both report the spawn, not the run. A child that dies straight after
+spawning — a bad `--model`, an expired login, a `--resume` Claude will not accept — is reported
+`ok`, and the exit shows in the next `list`. `mael agent show` says why.
 
 ### The guards
 
 | Refusal | When |
 |---|---|
 | `no such agent: <id>` | No agent has that id |
-| `agent <id> has exited` | Any command except `show` and `stop` against an exited agent |
+| `agent <id> has exited` | Any command except `show`, `stop` and `resume` against an exited agent |
+| `agent <id> is running` | `resume` against an agent that has not exited |
+| `agent <id> has no spawn record` | `resume` when a `stop` deleted the record first |
 | `agent <id> is not waiting` | `approve`, `deny` or `answer` with no pending request |
 | `agent <id> is not waiting on a question — use approve or deny` | `answer` against a permission or plan review |
 | `no answers given` | `answer` with an empty `answers` map |
@@ -345,32 +364,68 @@ The two `mael_*` markers are the daemon's own, not the agent's. Neither reaches
 | Raw events per agent | The last 200 |
 | Agent messages | The last 5, each up to 8000 characters |
 | Events queued for one slow attached client | 1000; the oldest is dropped silently past that |
-| Agent state | In memory only; an agent dies with the daemon |
+| Agent state | Spawn record on disk; events and live state in memory |
 
-## What is not persisted
+## What is persisted
 
-**A driven agent writes no session transcript.** Claude's own
-`~/.claude/projects/<slug>/<session-id>.jsonl` does not exist for an agent on a stream-json pipe.
+**Claude keeps the conversation. The daemon keeps how to start it again.**
 
-Four probes confirmed this on v2.1.252, each removing one confound:
+A driven agent writes a normal session transcript to
+`~/.claude/projects/<slug>/<session-id>.jsonl`, the same file an interactive session writes. The
+transcript holds every `user` and `assistant` entry, in the same `message` shape the stream
+carries. It does not hold `control_request`, `control_response`, `result` or `system/init` — so a
+pending permission is not in it, and neither is a wait.
 
-| Probe | Condition | Transcript |
-|---|---|---|
-| 1 | `--setting-sources ""` | none |
-| 2 | no `--setting-sources` | none |
-| 3 | Claude env vars unset (`CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`, …) | none |
-| 4 | real project directory holding 493 transcripts | none |
+Each entry is stamped `"entrypoint": "sdk-cli"`. The `claude --resume` picker and the VS Code
+session list both hide that entrypoint, so a driven session does not appear in either. An explicit
+`claude -p --resume <id>` ignores the filter and works.
 
-Every run exited `success` and reported a session id. No project directory was created for the
-probe's cwd, while other sessions wrote to disk in the same window.
+The transcript is what makes a resume possible, so the daemon protects it. Every child is spawned
+without `CLAUDECODE` and `CLAUDE_CODE_CHILD_SESSION`, which an inherited marker can use to
+suppress the write, and with `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1`. See
+`agent_model.build_agent_env`.
 
-Two consequences. The daemon keeps the agent's messages itself, because nothing else holds them.
-And `--session-id` does **not** make a driven agent resumable — it pins the id the agent reports,
-and no more.
+### The spawn record
 
-Re-test with one probe if a later `claude` version changes this. If transcripts appear, the
-retained buffer becomes a cache, and `show` can read further back than the 5 messages the daemon
-retains. `show` renders the last 3 of them, and each is kept whole up to 8000 characters.
+Claude stores none of the cwd, permission mode, model or environment a spawn needs. So the daemon
+writes one record per agent to `~/.maelstrom/agents/<agent-id>.json`, holding exactly that:
+
+| Field | Why |
+|---|---|
+| `agent_id`, `cwd` | The id the orchestrator and the user already know; where to spawn |
+| `session_id` | Always set — the daemon mints one when the caller gives none. A child that dies before its `system/init` stays resumable |
+| `permission_mode`, `model`, `env` | The argv and environment to rebuild. `env` is the caller's own extra vars only |
+| `prompt` | A child that died before its first turn is started again with the prompt it never got |
+| `status` | `running` or `exited`. A `stop` deletes the record |
+| `exit_code` | So `list` still reports the exit after a daemon restart |
+
+`MAEL_AGENT_SPEC_DIR` overrides the directory. A test daemon on its own socket wants its own
+records, so it cannot resume the real daemon's agents.
+
+Records are written owner-only (`0600`, in a `0700` directory). `env` holds whatever a client
+passed to `start`, and that has no allowlist, so a record can hold a secret. `mael doctor`
+tightens a record it finds loose.
+
+### The resume rules
+
+- **A crashed child does not restart itself.** The agent shows `exited(N)`, and
+  `mael agent resume <id>` brings it back. The id is kept, which is what makes a resume invisible
+  to the orchestrator and to the user.
+- **A daemon start resumes every record still marked `running`.** A record marked `exited` is
+  loaded as an exited agent instead, so `list`, `show` and `resume` all answer for it, but nothing
+  respawns it. That is also the loop guard: a resumed child that dies again is recorded `exited`,
+  so the next daemon start leaves it alone.
+- **A daemon shutdown stops every child but leaves the records `running`.** So the next daemon
+  start resumes them. Restarting the daemon to pick up new code costs nothing.
+- **A resumed agent gets a turn saying why it came back.** A print-mode session sits idle until a
+  user turn arrives, and a permission it was blocked on did not survive. `mael agent resume --text`
+  replaces the default nudge in `agent_model.DEFAULT_RESUME_PROMPT`.
+- **A daemon shutdown does not record an exit.** Stopping a child ends its stream, which would
+  otherwise mark the record `exited` and stop the next daemon resuming it.
+
+The retained event buffer is still the only history the daemon itself reads. Reading the
+transcript back through the normaliser is a follow-up, not built. `show` renders the last 3
+messages, and each is kept whole up to 8000 characters.
 
 ## Rejected alternatives
 

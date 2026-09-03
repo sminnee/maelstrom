@@ -163,6 +163,8 @@ def harden_global_config() -> list[str]:
         (maelstrom_dir, 0o700, "~/.maelstrom"),
         (maelstrom_dir / GLOBAL_CONFIG_FILENAME, 0o600, "~/.maelstrom/config.yaml"),
         (Path.home() / GLOBAL_CONFIG_FILENAME_LEGACY, 0o600, "~/.maelstrom.yaml"),
+        # Each spawn record holds the env its agent was started with.
+        (maelstrom_dir / "agents", 0o700, "~/.maelstrom/agents"),
     ]
     for path, mode, label in targets:
         if not path.exists():

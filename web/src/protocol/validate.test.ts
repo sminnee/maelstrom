@@ -23,6 +23,24 @@ describe('validateCommand', () => {
     ).toMatchObject({ code: 'agent_exited' });
   });
 
+  it('allows a resume of an agent that has exited', () => {
+    const world = worldWith({ agents: [makeAgent({ state: 'exited', exitCode: 1 })] });
+    expect(validateCommand(world, { type: 'agent.resume', agentId: 'agent-1' })).toBeNull();
+  });
+
+  it('refuses a resume of an agent that is still running', () => {
+    const world = worldWith({ agents: [makeAgent({ state: 'idle' })] });
+    expect(validateCommand(world, { type: 'agent.resume', agentId: 'agent-1' })).toMatchObject({
+      code: 'invalid',
+    });
+  });
+
+  it('reports unknown_id for a resume of an agent it does not know', () => {
+    expect(
+      validateCommand(worldWith({}), { type: 'agent.resume', agentId: 'ghost' }),
+    ).toMatchObject({ code: 'unknown_id' });
+  });
+
   it('reports not_waiting when the agent has no pending request', () => {
     const world = worldWith({ agents: [makeAgent({ state: 'processing' })] });
     expect(

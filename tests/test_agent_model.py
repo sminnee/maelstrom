@@ -20,15 +20,19 @@ from maelstrom.agent_model import (
     MESSAGE_CHARS,
     MESSAGE_LIMIT,
     MESSAGE_SUMMARY_CHARS,
+    AgentSpec,
     AgentState,
     apply_event,
     build_agent_argv,
     build_agent_detail,
+    build_agent_env,
     build_agent_row,
     mark_exited,
     reply_for_answer,
     reply_for_approval,
     reply_for_denial,
+    spec_from_dict,
+    spec_to_dict,
     user_message,
 )
 
@@ -193,6 +197,66 @@ def test_argv_pins_a_session_id_when_given():
 def test_argv_passes_the_permission_mode_through():
     argv = build_agent_argv(permission_mode="auto")
     assert argv[argv.index("--permission-mode") + 1] == "auto"
+
+
+def test_argv_resumes_an_existing_session_instead_of_pinning_one():
+    # `--session-id <id>` on an id claude already knows is refused, so a resume
+    # has to switch flags. Same switch as worktree_launcher.build_claude_command.
+    argv = build_agent_argv(session_id="dead-beef", resume=True)
+    assert argv[argv.index("--resume") + 1] == "dead-beef"
+    assert "--session-id" not in argv
+
+
+# --- the child's environment ------------------------------------------------
+
+
+def test_env_drops_the_markers_that_suppress_a_transcript():
+    # An inherited CLAUDE_CODE_CHILD_SESSION can stop the child writing a
+    # transcript, which is the one thing a resume depends on.
+    base = {"PATH": "/bin", "CLAUDECODE": "1", "CLAUDE_CODE_CHILD_SESSION": "1"}
+    env = build_agent_env(base, None)
+    assert "CLAUDECODE" not in env
+    assert "CLAUDE_CODE_CHILD_SESSION" not in env
+    assert env["CLAUDE_CODE_FORCE_SESSION_PERSISTENCE"] == "1"
+    assert env["PATH"] == "/bin"
+
+
+def test_env_leaves_the_caller_the_last_word():
+    # The socket contract has no allowlist: a client may set anything, including
+    # the vars the scrub removes.
+    env = build_agent_env({"PATH": "/bin"}, {"MAEL_TASK_ID": "t1", "CLAUDECODE": "1"})
+    assert env["MAEL_TASK_ID"] == "t1"
+    assert env["CLAUDECODE"] == "1"
+
+
+def test_env_does_not_mutate_the_base():
+    base = {"CLAUDECODE": "1"}
+    build_agent_env(base, None)
+    assert base == {"CLAUDECODE": "1"}
+
+
+# --- the spawn record -------------------------------------------------------
+
+
+def test_spec_round_trips_through_plain_json():
+    spec = AgentSpec(
+        agent_id="a1",
+        cwd="/w",
+        session_id="sid",
+        permission_mode="auto",
+        model="opus",
+        env={"MAEL_TASK_ID": "t1"},
+        prompt="go",
+        status="exited",
+        exit_code=-9,
+    )
+    assert spec_from_dict(spec_to_dict(spec)) == spec
+
+
+def test_spec_from_dict_fills_in_what_an_older_record_lacks():
+    spec = spec_from_dict({"agent_id": "a1", "cwd": "/w", "session_id": "sid"})
+    assert spec.status == "running"
+    assert spec.env == {}
 
 
 # --- the row `mael agent list` renders -------------------------------------

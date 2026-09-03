@@ -33,6 +33,7 @@ from .normalise import (
     context_for_agent,
     mark_exited,
     normalise_stream_event,
+    revive_agent,
 )
 from .protocol import Agent, EventFrame, ServerEvent
 from .sources import TaskSource, WorktreeSource
@@ -299,9 +300,13 @@ class Orchestrator:
             if agent_id not in agents:
                 await self._adopt(row)
                 continue
-            if agents[agent_id]["state"] == "exited":
-                continue
             state, exit_code = parse_agent_state(row.get("state", ""))
+            if agents[agent_id]["state"] == "exited":
+                if state != "exited":
+                    # A resume keeps the agent id, so the row that came back is
+                    # this agent alive again, not a new one.
+                    await self._revive(row, state)
+                continue
             if state == "exited":
                 await self._exit(agent_id, exit_code)
                 continue
@@ -311,6 +316,34 @@ class Orchestrator:
         for agent_id, agent in list(agents.items()):
             if agent_id not in rows and agent["state"] != "exited":
                 await self._exit(agent_id, 0)
+
+    async def _revive(self, row: dict[str, Any], state: str) -> None:
+        """Bring an exited agent back: clear its exit, and follow it again.
+
+        The re-attached backlog re-normalises into the same transcript, which
+        still holds the turns from before the exit, so nothing is lost and
+        nothing is duplicated. The links are resolved again in the same pass: a
+        task or worktree that arrived while the agent was gone would otherwise
+        be missing from it until some later poll took the live-agent branch.
+        """
+        agent_id = row["id"]
+        watch = self._watches.pop(agent_id, None)
+        if watch is not None and watch.task is not None:
+            watch.task.cancel()
+        ctx = context_for_agent(self.log.state, agent_id)
+        link = self._link(row)
+        out = revive_agent(
+            self.log.state,
+            ctx,
+            state,
+            self.clock(),
+            task_id=link.task_id,
+            project=link.project,
+            worktree_id=link.worktree_id,
+            phase=link.phase,
+        )
+        await self.publish(out.events)
+        await self._attach(agent_id)
 
     def _link(self, row: dict[str, Any]) -> AgentLink:
         world = self.log.state["world"]
@@ -452,6 +485,7 @@ class Orchestrator:
             "agent.answer": self._answer,
             "agent.say": self._say,
             "agent.stop": self._stop,
+            "agent.resume": self._resume_agent,
             "agent.launch": self._launch,
             "desk.add": self._desk_add,
             "desk.remove": self._desk_remove,
@@ -570,6 +604,22 @@ class Orchestrator:
         # The host drops a stopped agent, so its stream ends without a marker
         # and the next list no longer names it: this is its clean exit.
         await self._exit(agent_id, 0)
+        return {"ok": True, "result": {}}
+
+    async def _resume_agent(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Ask the host to start an exited agent again, under its own id.
+
+        The world changes when the next reconcile sees the row live again, so
+        nothing is synthesised here — unlike the reply commands, the host's own
+        ``list`` is the evidence the agent is back.
+        """
+        payload: dict[str, Any] = {"cmd": "resume", "id": command["agentId"]}
+        text = str(command.get("text", "")).strip()
+        if text:
+            payload["text"] = text
+        refused = await self._ask_host(payload)
+        if refused:
+            return refused
         return {"ok": True, "result": {}}
 
     async def _launch(self, command: dict[str, Any]) -> dict[str, Any]:

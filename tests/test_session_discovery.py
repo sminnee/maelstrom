@@ -127,6 +127,22 @@ class TestAllLiveSessions:
             )
         ]
 
+    def test_captures_session_id_from_a_resumed_session(self, monkeypatch):
+        # A resumed session carries `--resume <uuid>`, not `--session-id`. Miss
+        # it and the run-guard lets a second launch of the same task through.
+        sid = "97894d02-f335-5ea3-9d9f-050330a4902b"
+        monkeypatch.setattr(
+            session_discovery,
+            "run_cmd",
+            _fake_run_cmd(
+                "47519\n",
+                _lsof_records([(47519, "/w/delta")]),
+                _ps_records([(47519, f"claude -p --resume {sid} --verbose")]),
+            ),
+        )
+        sessions = session_discovery.all_live_sessions()
+        assert sessions[0].session_id == sid
+
     def test_session_id_none_when_flag_absent(self, monkeypatch):
         # A bare `claude` launched outside mael has no --session-id.
         monkeypatch.setattr(

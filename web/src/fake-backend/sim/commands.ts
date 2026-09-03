@@ -12,7 +12,7 @@ import { applyEvent } from '../../protocol/reducer';
 import type { Beat } from './scripts';
 import { TASK_CHAIN, replyScript, reviseScript } from './scripts';
 import type { SimWorld } from './stepper';
-import { exitAgent, launchAgent, onCommand } from './stepper';
+import { exitAgent, launchAgent, onCommand, reviveExitedAgent } from './stepper';
 
 /** A delegated command the world cannot take; the backend answers with its error. */
 export class CommandRefused extends Error {
@@ -87,6 +87,10 @@ export function applyCommand(
     }
     case 'agent.stop': {
       const out = exitAgent(state, sim, cmd.agentId, 0, now);
+      return { ...out, result: {} };
+    }
+    case 'agent.resume': {
+      const out = reviveExitedAgent(state, sim, cmd.agentId, now);
       return { ...out, result: {} };
     }
     case 'agent.launch': {

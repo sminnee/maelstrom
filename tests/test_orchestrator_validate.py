@@ -59,6 +59,24 @@ def test_agent_exited_when_the_agent_has_gone():
     assert code(validate_command(world, cmd)) == "agent_exited"
 
 
+def test_a_resume_of_an_exited_agent_is_allowed():
+    agent = make_agent(state="exited", exitCode=1)
+    cmd = {"type": "agent.resume", "agentId": "agent-1"}
+    assert validate_command(world_with(agents=[agent]), cmd) is None
+
+
+def test_a_resume_of_a_running_agent_is_refused():
+    # Two children on one session id would fight over one transcript.
+    agent = make_agent(state="idle")
+    cmd = {"type": "agent.resume", "agentId": "agent-1"}
+    assert code(validate_command(world_with(agents=[agent]), cmd)) == "invalid"
+
+
+def test_a_resume_of_an_unknown_agent_is_unknown_id():
+    cmd = {"type": "agent.resume", "agentId": "ghost"}
+    assert code(validate_command(empty_world(), cmd)) == "unknown_id"
+
+
 def test_not_waiting_when_there_is_no_pending_request():
     world = world_with(agents=[make_agent(state="processing")])
     cmd = {"type": "agent.approve", "agentId": "agent-1", "requestId": "req-1"}

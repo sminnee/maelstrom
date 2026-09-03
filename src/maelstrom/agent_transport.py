@@ -24,6 +24,8 @@ from .shell import mael_path
 DEFAULT_SOCKET_PATH = str(Path.home() / ".maelstrom" / "agent-daemon.sock")
 #: Where an auto-started daemon writes its output.
 DEFAULT_LOG_PATH = str(Path.home() / ".maelstrom" / "agent-daemon.log")
+#: Where the daemon keeps its spawn records, beside the socket and the log.
+DEFAULT_SPEC_DIR = str(Path.home() / ".maelstrom" / "agents")
 #: Set to ``1`` to keep a command from starting a daemon of its own.
 NO_AUTOSTART_ENV = "MAEL_AGENT_NO_AUTOSTART"
 
@@ -46,6 +48,15 @@ def resolve_socket_path() -> str:
 def resolve_log_path() -> str:
     """Where an auto-started daemon's output goes."""
     return os.environ.get("MAEL_AGENT_LOG") or DEFAULT_LOG_PATH
+
+
+def resolve_spec_dir() -> str:
+    """Where the daemon keeps its spawn records.
+
+    Overridden by ``MAEL_AGENT_SPEC_DIR``, so a test daemon on its own socket
+    also keeps its own records and cannot resume the real one's agents.
+    """
+    return os.environ.get("MAEL_AGENT_SPEC_DIR") or DEFAULT_SPEC_DIR
 
 
 def autostart_enabled() -> bool:

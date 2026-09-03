@@ -235,6 +235,36 @@ export function markExited(
   return out.done();
 }
 
+/**
+ * The events for an exited agent that has come back under its own id.
+ *
+ * A resume keeps the agent id, so the row that returns names the agent the
+ * world already holds. The exit is over: the code is cleared and the item that
+ * asked someone to look at it goes with it. The inverse of `markExited`.
+ *
+ * `links` re-resolves the agent's task and worktree in the same event. A task
+ * that arrived while the agent was gone would otherwise leave the revived agent
+ * on screen with a stale link.
+ */
+export function reviveAgent(
+  state: ClientState,
+  ctx: NormaliseContext,
+  rowState: Agent['state'],
+  now: string,
+  links: Pick<Agent, 'taskId' | 'project' | 'worktreeId' | 'phase'> | null = null,
+): Normalised {
+  const agent = state.world.agents[ctx.agentId];
+  if (!agent) return { events: [], ctx };
+  const out = new Emitter(state, agent, ctx, now);
+  out.agent({ state: rowState, exitCode: null, ...(links ?? {}) });
+  for (const item of Object.values(state.world.attention)) {
+    if (item.kind === 'agent_exited' && item.agentId === ctx.agentId && item.clearedAt === null) {
+      out.clear(item.id);
+    }
+  }
+  return out.done();
+}
+
 /** Collects the events for one raw event and threads the context through. */
 class Emitter {
   events: ServerEvent[] = [];
