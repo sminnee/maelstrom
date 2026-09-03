@@ -4,7 +4,12 @@ linear:
 
 services:
   web:
-    optional: true
     ports: [FRONTEND, FRONTEND_HMR]
     dir: web
     command: pnpm dev
+    env:
+      VITE_ORCHESTRATOR_URL: ws://localhost:${ORCHESTRATOR_PORT}
+
+  orchestrator:
+    ports: [ORCHESTRATOR]
+    command: uv run mael orchestrator serve --port ${ORCHESTRATOR_PORT}

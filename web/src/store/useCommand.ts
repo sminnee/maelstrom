@@ -16,9 +16,16 @@ export function useCommand(): {
   const send = useCallback(
     async (cmd: Command) => {
       setError(null);
-      const reply = await backend.command(cmd);
-      if (!reply.ok) setError(`${reply.error.code}: ${reply.error.message}`);
-      return reply.ok;
+      try {
+        const reply = await backend.command(cmd);
+        if (!reply.ok) setError(`${reply.error.code}: ${reply.error.message}`);
+        return reply.ok;
+      } catch (err) {
+        // The transport failed: the socket dropped mid-command, or it is
+        // reconnecting. Shown where a refusal would be, so nothing is silent.
+        setError(`transport: ${err instanceof Error ? err.message : String(err)}`);
+        return false;
+      }
     },
     [backend],
   );
