@@ -12,14 +12,15 @@ from concurrent.futures import Executor, ThreadPoolExecutor
 
 import click
 
-from .context import load_global_config
 from .agent_transport import resolve_socket_path
+from .context import load_global_config
 from .orchestrator.daemon_bridge import SocketAsyncDaemonClient
 from .orchestrator.server import Orchestrator
 from .orchestrator.sources import ListAllWorktreeSource, NotebookTaskSource
+from .task import Task
 from .task_cli import open_index
 from .task_store import GitFileStore
-from .worktree import find_all_projects
+from .worktree import WorktreeSetup, find_all_projects, setup_worktree_for_branch
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -36,10 +37,24 @@ def build_orchestrator(
     """
     projects_dir = load_global_config().projects_dir
     store = GitFileStore()
+
+    def open_worktree(project: str, task: Task, branch: str) -> WorktreeSetup:
+        # The launcher owns install; ``task.base`` seeds the branch's stored
+        # base the first time, as ``mael task run`` does.
+        return setup_worktree_for_branch(
+            projects_dir / project,
+            project,
+            branch,
+            run_install=False,
+            base=task.base or None,
+            announce=lambda line: click.echo(line, err=True),
+        )
+
     tasks = NotebookTaskSource(
         store,
         lambda: [path.name for path in find_all_projects(projects_dir)],
         index=open_index(store),
+        open_worktree=open_worktree,
     )
     worktrees = ListAllWorktreeSource(projects_dir)
     daemon = SocketAsyncDaemonClient(socket_path or resolve_socket_path())

@@ -32,6 +32,7 @@ from .agent_model import (
     build_agent_row,
     mark_exited,
     reply_for_answer,
+    reply_for_answers,
     reply_for_approval,
     reply_for_denial,
     user_message,
@@ -237,7 +238,16 @@ class AgentDaemon:
                             f"question — use approve or deny"
                         )
                     }
-                await agent.send(reply_for_answer(pending, payload["choice"]))
+                if "answers" in payload:
+                    try:
+                        reply = reply_for_answers(pending, payload["answers"] or {})
+                    except ValueError as exc:
+                        return {"error": str(exc)}
+                elif payload.get("choice"):
+                    reply = reply_for_answer(pending, payload["choice"])
+                else:
+                    return {"error": "no answer given"}
+                await agent.send(reply)
             elif command == "approve":
                 await agent.send(reply_for_approval(pending))
             else:

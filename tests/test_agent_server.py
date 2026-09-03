@@ -243,3 +243,41 @@ def test_attaching_to_an_exited_agent_ends_after_the_backlog():
     kinds = [json.loads(line).get("type") for line in writer.lines]
     assert kinds[-2:] == [BACKLOG_END, AGENT_EXITED]
     assert json.loads(writer.lines[-1])["exit_code"] == 0
+
+
+def test_answer_accepts_a_map_of_answers_keyed_by_question():
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    agent.state = replay("question-unanswered.jsonl", stop_before_control=True)
+    sent: list[dict] = []
+
+    async def record(message: dict) -> None:
+        sent.append(message)
+
+    agent.send = record  # type: ignore[method-assign]
+    daemon.agents["a1"] = agent
+    answers = {"Which colour do you prefer?": "Blue"}
+    reply = asyncio.run(
+        _handle(daemon, {"cmd": "answer", "id": "a1", "answers": answers})
+    )
+    assert reply == {"ok": True}
+    assert sent[0]["response"]["response"]["updatedInput"]["answers"] == answers
+
+
+def test_answer_refuses_an_empty_answer_map():
+    """An empty map reads as no answer at all, so it must not resolve the wait."""
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    agent.state = replay("question-unanswered.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+    reply = asyncio.run(_handle(daemon, {"cmd": "answer", "id": "a1", "answers": {}}))
+    assert "no answers" in reply["error"]
+
+
+def test_answer_with_neither_answers_nor_choice_is_an_error_reply():
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    agent.state = replay("question-unanswered.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+    reply = asyncio.run(_handle(daemon, {"cmd": "answer", "id": "a1"}))
+    assert "no answer" in reply["error"]

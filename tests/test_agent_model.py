@@ -360,3 +360,17 @@ def test_detail_shows_the_last_messages_in_full():
 def test_detail_of_an_idle_agent_still_has_every_key():
     keys = set(build_agent_detail(AgentState(agent_id="a1", cwd="/tmp/x")))
     assert keys == set(build_agent_detail(replay("plan-review.jsonl")))
+
+
+def test_reply_for_answers_files_each_answer_under_its_question():
+    """The orchestrator UI answers every question at once, each by its text."""
+    from maelstrom.agent_model import reply_for_answers
+
+    state = replay("question-unanswered.jsonl", stop_before_control=True)
+    assert state.pending is not None
+    answers = {"Which colour do you prefer?": "Blue"}
+    reply = reply_for_answers(state.pending, answers)
+    payload = reply["response"]["response"]
+    assert payload["behavior"] == "allow"
+    assert payload["updatedInput"]["answers"] == answers
+    assert payload["updatedInput"]["questions"] == state.pending.input["questions"]

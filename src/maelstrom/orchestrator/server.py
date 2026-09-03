@@ -21,6 +21,7 @@ from websockets.asyncio.server import Server, ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
 from ..agent_model import AGENT_EXITED, BACKLOG_END, RECENT_LIMIT
+from ..task_launch import LaunchBlocked
 from ..util import now_iso
 from .daemon_bridge import AsyncDaemonClient
 from .event_log import RING_SIZE, EventLog
@@ -32,6 +33,7 @@ from .normalise import (
 )
 from .protocol import Agent, EventFrame, ServerEvent
 from .sources import TaskSource, WorktreeSource
+from .validate import validate_command
 from .world_build import (
     AgentLink,
     agent_entity,
@@ -107,6 +109,8 @@ class Orchestrator:
         self._pollers: list[asyncio.Task[None]] = []
         self._started = asyncio.Event()
         self._watches: dict[str, AgentWatch] = {}
+        #: Tasks whose launch is under way, so a second launch is refused.
+        self._launching: set[str] = set()
 
     # -- running --
 
@@ -382,8 +386,177 @@ class Orchestrator:
     # -- commands --
 
     async def handle_command(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Run one command and return its reply: ``ok`` with a result, or an error."""
-        return _refused("invalid", f"Unsupported command: {command.get('type')}")
+        """Run one command and return its reply: ``ok`` with a result, or an error.
+
+        Every command is validated against the world first, so the host is
+        only asked things it can do. The agent commands then become one host
+        request each; the world change comes back as events, either from the
+        host's stream or synthesised here as the reply shape the host itself
+        would have written (a ``control_response``, a ``user`` turn), which the
+        normaliser handles like any other stream event. Everything but the six
+        agent commands answers ``invalid``: documents, comments, task creation
+        and shaping are out of scope for this server.
+        """
+        kind = str(command.get("type"))
+        handlers = {
+            "agent.approve": self._approve,
+            "agent.deny": self._deny,
+            "agent.answer": self._answer,
+            "agent.say": self._say,
+            "agent.stop": self._stop,
+            "agent.launch": self._launch,
+        }
+        handler = handlers.get(kind)
+        if handler is None:
+            return _refused("invalid", f"Unsupported command: {kind}")
+        error = validate_command(self.log.state["world"], command)
+        if error:
+            return {"ok": False, "error": error}
+        return await handler(command)
+
+    async def _ask_host(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        """One host request; the mapped refusal, or ``None`` on success."""
+        reply = await self.daemon.request(payload)
+        if "error" in reply:
+            return _refused(_code_for(reply["error"]), reply["error"])
+        return None
+
+    async def _resolve(
+        self, agent_id: str, request_id: str, response: dict[str, Any]
+    ) -> None:
+        """Apply the reply the host wrote, as the stream would show it.
+
+        The host does not echo its own ``control_response`` into the stream,
+        so the wait would otherwise stay open in the world. If a later host
+        does echo it, the normaliser ignores a response for a request no
+        longer pending, so nothing is applied twice.
+        """
+        watch = self._watches.get(agent_id)
+        if watch is None:
+            log.warning("agent %s answered, but its stream is not attached", agent_id)
+            return
+        raw = {
+            "type": "control_response",
+            "response": {
+                "subtype": "success",
+                "request_id": request_id,
+                "response": response,
+            },
+        }
+        await self._normalise(watch, raw)
+
+    def _pending_input(self, agent_id: str) -> dict[str, Any]:
+        watch = self._watches.get(agent_id)
+        pending = watch.ctx.pending if watch else None
+        return dict(pending.input) if pending else {}
+
+    async def _approve(self, command: dict[str, Any]) -> dict[str, Any]:
+        agent_id = command["agentId"]
+        refused = await self._ask_host({"cmd": "approve", "id": agent_id})
+        if refused:
+            return refused
+        await self._resolve(
+            agent_id,
+            command["requestId"],
+            {"behavior": "allow", "updatedInput": self._pending_input(agent_id)},
+        )
+        return {"ok": True, "result": {}}
+
+    async def _deny(self, command: dict[str, Any]) -> dict[str, Any]:
+        agent_id = command["agentId"]
+        reason = command["reason"]
+        refused = await self._ask_host(
+            {"cmd": "deny", "id": agent_id, "reason": reason}
+        )
+        if refused:
+            return refused
+        await self._resolve(
+            agent_id, command["requestId"], {"behavior": "deny", "message": reason}
+        )
+        return {"ok": True, "result": {}}
+
+    async def _answer(self, command: dict[str, Any]) -> dict[str, Any]:
+        agent_id = command["agentId"]
+        answers = dict(command["answers"])
+        refused = await self._ask_host(
+            {"cmd": "answer", "id": agent_id, "answers": answers}
+        )
+        if refused:
+            return refused
+        await self._resolve(
+            agent_id,
+            command["requestId"],
+            {
+                "behavior": "allow",
+                "updatedInput": {**self._pending_input(agent_id), "answers": answers},
+            },
+        )
+        return {"ok": True, "result": {}}
+
+    async def _say(self, command: dict[str, Any]) -> dict[str, Any]:
+        agent_id = command["agentId"]
+        text = command["text"]
+        refused = await self._ask_host({"cmd": "say", "id": agent_id, "text": text})
+        if refused:
+            return refused
+        watch = self._watches.get(agent_id)
+        if watch is not None:
+            # The host does not echo a user turn either; show what was said.
+            raw = {
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": [{"type": "text", "text": text}],
+                },
+            }
+            await self._normalise(watch, raw)
+        return {"ok": True, "result": {}}
+
+    async def _stop(self, command: dict[str, Any]) -> dict[str, Any]:
+        agent_id = command["agentId"]
+        refused = await self._ask_host({"cmd": "stop", "id": agent_id})
+        if refused:
+            return refused
+        # The host drops a stopped agent, so its stream ends without a marker
+        # and the next list no longer names it: this is its clean exit.
+        await self._exit(agent_id, 0)
+        return {"ok": True, "result": {}}
+
+    async def _launch(self, command: dict[str, Any]) -> dict[str, Any]:
+        task_id = command["taskId"]
+        if task_id in self._launching:
+            return _refused("invalid", f"Task {task_id} is already launching")
+        self._launching.add(task_id)
+        try:
+            try:
+                request = await self._run(
+                    self.tasks.launch, task_id, command.get("model")
+                )
+            except KeyError:
+                return _refused("unknown_id", f"No task {task_id}")
+            except LaunchBlocked as exc:
+                await self.refresh_tasks(force=True)
+                return _refused("invalid", str(exc))
+            # From here the task is in-progress; any failure to start an
+            # agent for it must put it back, or it strands with no agent.
+            try:
+                reply = await self.daemon.request(request.payload)
+                agent_id = reply.get("id") if "error" not in reply else None
+                if not agent_id:
+                    error = reply.get("error") or "agent host sent no agent id"
+                    await self._run(self.tasks.rollback, request)
+                    await self.refresh_tasks(force=True)
+                    return _refused(_code_for(error), error)
+                await self.refresh_tasks(force=True)
+                await self._adopt(_started_row(agent_id, request.payload))
+            except Exception as exc:  # noqa: BLE001 — the rollback must run
+                log.exception("launch of %s failed after the task moved", task_id)
+                await self._run(self.tasks.rollback, request)
+                await self.refresh_tasks(force=True)
+                return _refused("invalid", f"Launch failed: {exc}")
+            return {"ok": True, "result": {"agentId": agent_id}}
+        finally:
+            self._launching.discard(task_id)
 
     # -- the socket --
 
@@ -419,7 +592,12 @@ class Orchestrator:
                         )
                     )
                     continue
-                reply = await self.handle_command(command)
+                try:
+                    reply = await self.handle_command(command)
+                except (KeyError, TypeError, AttributeError) as exc:
+                    # A field the validator did not check was missing or the
+                    # wrong shape: the client's bug, answered as one.
+                    reply = _refused("invalid", f"Malformed command: {exc!r}")
                 await ws.send(_reply(message.get("id"), reply))
         except ConnectionClosed:
             pass
@@ -440,6 +618,33 @@ class Orchestrator:
 
 
 _NEVER = object()
+
+
+def _started_row(agent_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """The list row a just-started agent would have, before the host lists it."""
+    return {
+        "id": agent_id,
+        "state": "idle",
+        "session": payload["session"],
+        "cwd": payload["cwd"],
+        "model": payload["model"] or "",
+        "waiting_on": "",
+        "last_message": "",
+        "cost": "",
+    }
+
+
+def _code_for(error: str) -> str:
+    """The wire code for one of the host's error strings."""
+    if "no such agent" in error:
+        return "unknown_id"
+    if "has exited" in error:
+        return "agent_exited"
+    if "not waiting on a question" in error:
+        return "wrong_wait_kind"
+    if "not waiting" in error:
+        return "not_waiting"
+    return "invalid"
 
 
 def _parse(raw: str | bytes) -> dict[str, Any]:

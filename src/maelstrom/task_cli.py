@@ -25,6 +25,7 @@ from .context import resolve_context
 from .shell import exec_cmd
 from .table import draw_table
 from .task_index import SqliteTaskIndex
+from .task_launch import LaunchBlocked, check_not_live, check_synced, plan_launch
 from .task_store import GitFileStore
 from .util import read_content_file
 from .worktree import (
@@ -134,7 +135,7 @@ def _mutate_index(store: GitFileStore) -> "tuple[SqliteTaskIndex, bool]":
     stamp is sound (see its docstring).
     """
     index = open_index(store)
-    return index, index.head() == store.head()
+    return index, task_actions.index_is_fresh(store, index)
 
 
 def _restamp(store: GitFileStore, index: "SqliteTaskIndex", *, was_fresh: bool) -> None:
@@ -148,8 +149,7 @@ def _restamp(store: GitFileStore, index: "SqliteTaskIndex", *, was_fresh: bool) 
     scanning until ``task reindex`` rebuilds it — never claiming freshness for a
     partial index.
     """
-    if was_fresh:
-        index.set_head(store.head())
+    task_actions.restamp(store, index, was_fresh=was_fresh)
 
 
 def _read_content_file(content_file: str | None) -> str:
@@ -193,42 +193,27 @@ def _run_task(
     still resume a previously-stopped session.
     """
     index, was_fresh = _mutate_index(store)
-    # Deterministic session id (same task → same id), passed to `claude
-    # --session-id` so the live process — and the registry — can be mapped back
-    # to this task. Computed up-front because the run-guard keys on it.
-    # Claude-only: opencode assigns its own session ids, so there is nothing to
-    # pin, resume, or guard on for that harness.
+    # The plan settles the session id, env, permission mode and branch once,
+    # the same way the orchestrator server does. Claude-only: opencode assigns
+    # its own session ids, so there is nothing to pin, resume, or guard on.
+    plan = plan_launch(project, task)
     opencode = harness == HARNESS_OPENCODE
-    session_id = None if opencode else model.session_id_for(project, task.id)
-    # Refuse a second parallel launch *of this task*: a live `claude` whose
-    # `--session-id` is this task's own id (see session_discovery). Keying on the
-    # session-id, not on worktree occupancy, means a sibling task sharing the
-    # worktree (one PR per parent → one branch) can run concurrently and never
-    # trips this guard. A *finished* session leaves nothing running, so a finished
-    # task stays re-runnable and is deliberately NOT blocked.
+    session_id = None if opencode else plan.session_id
+    # Refuse a second parallel launch *of this task*. A finished session leaves
+    # nothing running, so a finished task stays re-runnable.
     if not opencode:
-        assert session_id is not None  # set above on the claude path
-        existing = session_discovery.LiveSessionSet().for_session_id(session_id)
-        if existing is not None:
-            raise click.ClickException(
-                f"Task {task.id} already has a live Claude session "
-                f"(pid {existing.pid}). Close it before relaunching, or run "
-                f"`mael task reconcile` to inspect."
-            )
+        try:
+            check_not_live(task.id, plan.session_id, session_discovery.LiveSessionSet())
+        except LaunchBlocked as e:
+            raise click.ClickException(str(e))
 
     # Skills running inside the session self-reference via these — e.g. to
-    # `mael task done $MAEL_TASK_ID` and `--follow-end linear.<parent>`.
+    # `mael task done $MAEL_TASK_ID` and `--follow-end linear.<parent>`. The
+    # launcher adds MAEL_TASK_SESSION_ID itself once it knows the session id.
     session_env = {
-        "MAEL_TASK_ID": task.id,
-        # A parentless task self-parents: children it emits nest under it and
-        # share its branch (one PR per chain), instead of each becoming a fresh
-        # orphan. A real parent wins over the task.id fallback. A scheduled run is
-        # an intended case of this: it is created parentless (its dot-id already
-        # names it under its template), so `task.id` becomes MAEL_TASK_PARENT and
-        # its follow-ups nest under the run, not the template. See docs/dev/tasks.md.
-        "MAEL_TASK_PARENT": task.parent or task.id,
+        key: value for key, value in plan.env.items() if key != "MAEL_TASK_SESSION_ID"
     }
-    perm = model._permission_mode_for(task.mode)
+    perm = plan.permission_mode
     # The prompt is produced lazily by `mael task prompt` inside the launch
     # pipeline, not passed here — keeps the launch command line short.
 
@@ -268,7 +253,7 @@ def _run_task(
     project_path = ctx.project_path
     if project_path is None or not project_path.exists():
         raise click.ClickException(f"Project '{project}' not found at {project_path}")
-    branch = task.branch or model.default_branch(task.id, task.parent)
+    branch = plan.branch
     # The launcher owns install (shell pane on create, blocking in non-cmux).
     # ``task.base`` is a declarative input: it seeds the branch's stored base the
     # first time the worktree is set up. Empty falls through to the stack tip,
@@ -288,10 +273,10 @@ def _run_task(
     # block: an unattended session must not run against stale code. The failure
     # lands before the in-progress write below, so the task never leaves TODO —
     # the same end state as the cmux rollback, with no rollback write needed.
-    if result.sync is not None and not result.sync.success:
-        raise click.ClickException(
-            f"Sync of {branch} failed; {task.id} left TODO: {result.sync.message}"
-        )
+    try:
+        check_synced(task.id, branch, result)
+    except LaunchBlocked as e:
+        raise click.ClickException(str(e))
     # A rejected push is not a failed sync: the rebase landed, so the session may
     # start. Say so anyway — the branch and its remote have diverged, and nobody
     # is watching this run to notice.
