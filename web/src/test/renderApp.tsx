@@ -1,12 +1,10 @@
 import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/react';
 import { QueryClient } from '@tanstack/react-query';
-import { act } from 'react';
 import { App } from '../App';
 import { keys } from '../api/keys';
-import { bridgeToFakeServer } from '../fake-backend/bridgeToFakeServer';
-import { createFakeBackend } from '../fake-backend/createFakeBackend';
-import type { DebugBackend } from '../protocol/backend';
+import { useAppStore } from '../store/store';
 import { createFakeServer, type FakeServer } from './fakeServer';
+import { seedWorld } from './seedWorld';
 
 /** The seven list queries the world is read from. */
 const LIST_KEYS = [
@@ -20,23 +18,25 @@ const LIST_KEYS = [
 ];
 
 /**
- * Mount the app on a paused fake backend, with a fake server behind the API
- * and the change stream. Advance the world with `backend.sim.step()`.
+ * Mount the app on a fake server holding the seed world, behind the API, the
+ * change stream and the transcript sockets. Move the world with
+ * `server.change`, `server.append` and `server.patch`.
  *
- * With `ready: false` the fake server holds every reply and the fake backend
- * is not connected, so every list query is still loading. The test connects
- * and releases when it is ready to see the world arrive.
+ * With `ready: false` the server holds every reply, so every list query is
+ * still loading. The test releases when it is ready to see the world arrive.
  */
 export async function renderApp(
-  opts: { seed?: number; ready?: boolean } = {},
-): Promise<RenderResult & { backend: DebugBackend; server: FakeServer; queryClient: QueryClient }> {
-  const backend: DebugBackend = createFakeBackend({ seed: opts.seed ?? 1, autoplay: false });
-  const server = createFakeServer({ command: (cmd) => backend.command(cmd) });
+  opts: { ready?: boolean } = {},
+): Promise<RenderResult & { server: FakeServer; queryClient: QueryClient }> {
+  // The store is a module singleton: a test must not inherit the view, the
+  // filters or the tabs the one before it left.
+  useAppStore.getState().reset();
+  const seed = seedWorld();
+  const server = createFakeServer({ world: seed.world, transcripts: seed.transcripts });
   // No retries: a refused request must fail the test now, not after backoff.
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: 0 } },
   });
-  bridgeToFakeServer(backend, server, queryClient);
   const deps = {
     api: server.api,
     eventSourceFactory: server.eventSourceFactory,
@@ -46,31 +46,14 @@ export async function renderApp(
     queryClient,
   };
   if (opts.ready === false) server.hold();
-  const utils = render(<App backend={backend} deps={deps} />);
-  if (opts.ready === false) return { backend, server, queryClient, ...utils };
-  await act(async () => {
-    await backend.connect();
-  });
+  const utils = render(<App deps={deps} />);
+  if (opts.ready === false) return { server, queryClient, ...utils };
   await waitFor(() => {
     for (const key of LIST_KEYS) {
       if (queryClient.getQueryState(key)?.status !== 'success') throw new Error('not loaded');
     }
   });
-  return { backend, server, queryClient, ...utils };
-}
-
-/** Run `n` simulation ticks inside React's act so the resulting renders flush. */
-export async function stepSim(backend: DebugBackend, n = 1) {
-  await act(async () => {
-    backend.sim.step(n);
-  });
-}
-
-/** Drop the fake change stream, as the browser reports a drop, and let the app react. */
-export async function dropStream(server: FakeServer, how: 'connecting' | 'closed' = 'connecting') {
-  await act(async () => {
-    server.dropStream(how);
-  });
+  return { server, queryClient, ...utils };
 }
 
 /**

@@ -25,7 +25,7 @@ from maelstrom.orchestrator.protocol import (
     ClientState,
     apply_event,
     empty_world,
-    initial_client_state,
+    state_with,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
@@ -81,7 +81,7 @@ def seed(agents: list[dict], documents: list[dict] = ()) -> ClientState:
         world["agents"][agent["id"]] = agent
     for doc in documents:
         world["documents"][doc["id"]] = doc
-    return apply_event(initial_client_state(), {"type": "snapshot", "world": world})
+    return state_with(world)
 
 
 class Replayed:

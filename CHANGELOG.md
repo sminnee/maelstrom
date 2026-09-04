@@ -10,6 +10,17 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+### Changed
+
+- **The orchestrator UI reads the world over REST.** The server serves every table under `/api`,
+  sends change notices on one stream, and streams each open agent's transcript on a socket of its
+  own with a resume cursor, so a reload fetches slim task rows instead of one snapshot holding
+  every task's text, and a dropped connection shows a banner over the last known state instead
+  of an empty canvas. Every control that sends a command shows its own pending and failed state.
+  The in-browser fake backend and its FAKE chip are gone; the app runs against a server only.
+  `VITE_ORCHESTRATOR_URL` is no longer read: the web dev server proxies `/api` to
+  `ORCHESTRATOR_URL` instead.
+
 ### Added
 
 - **Driven agents survive a crash.** A driven agent writes a normal Claude session transcript, so

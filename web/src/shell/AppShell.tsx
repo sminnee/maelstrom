@@ -2,7 +2,6 @@ import { ReactFlowProvider } from '@xyflow/react';
 import { useWorld } from '../api/useWorld';
 import { Canvas } from '../canvas/Canvas';
 import { Panel } from '../panel/Panel';
-import { DebugDrawer } from '../sim/DebugDrawer';
 import { TaskEditor } from '../tasklist/TaskEditor';
 import { TaskList } from '../tasklist/TaskList';
 import { useAppStore } from '../store/store';
@@ -27,7 +26,6 @@ export function AppShell() {
           {view === 'canvas' && <Panel />}
         </div>
         {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}
-        <DebugDrawer />
       </div>
     </ReactFlowProvider>
   );

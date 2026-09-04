@@ -1,8 +1,9 @@
 # The orchestrator server
 
 The server builds the world the orchestrator UI shows — tasks, worktrees, agents,
-attention — from the task notebook, `list-all` and the agent host, and serves it to every
-browser over one WebSocket. `mael orchestrator serve` runs it.
+attention — from the task notebook, `list-all` and the agent host, and serves it over HTTP:
+resources by REST, change notices on one stream, and one socket per open agent transcript.
+`mael orchestrator serve` runs it.
 
 The server owns the business model. The agent host owns the agent processes. The server only
 reaches the host through the host's own client protocol, never by importing its internals, so a
@@ -16,10 +17,10 @@ carries and nothing maps between a dataclass and the wire.
 
 | File | Layer | Holds |
 |---|---|---|
-| `protocol.py` | pure | The wire types, `empty_world`, and `apply_event`, the reducer the browser also runs |
-| `normalise.py` | pure | The stream-json normaliser, a port of `web/src/protocol/normalise.ts` |
-| `validate.py` | pure | Command validation, a port of `web/src/protocol/validate.ts` |
-| `event_log.py` | pure | The seq-stamped log: `append`, `replay_from`, `snapshot_frame`, a ring of 5000 frames |
+| `protocol.py` | pure | The wire types, `empty_world`, and `apply_event`, the one way the world changes |
+| `normalise.py` | pure | The stream-json normaliser: the daemon's raw events to transcript items, agent upserts, documents and attention |
+| `validate.py` | pure | Command validation: the rules the server applies before it asks the host |
+| `world.py` | pure | `WorldState`: the tables, and `apply` as their only writer |
 | `world_build.py` | pure | Entity builders from a task, a `list-all` row and an agent row; `link_agent`; `diff_kind`; `task_key` |
 | `desk.py` | pure | The desk table: `add`, `remove`, `prune`, each returning a new table, and the desk id helpers |
 | `notices.py` | pure | `notices_for`: which change notices a batch of events amounts to |
@@ -28,7 +29,7 @@ carries and nothing maps between a dataclass and the wire.
 | `sources.py` | storage | `TaskSource` and `WorktreeSource`, over the notebook and `list_all.build_list_all_data` |
 | `daemon_bridge.py` | storage | `AsyncDaemonClient`: the socket client for the agent host, and a scripted fake |
 | `../desk_store.py` | storage | `DeskStore`: the desk as one JSON file at `~/.maelstrom/desk.json`, or in memory |
-| `server.py` | service | `Orchestrator`: the log, the pollers, one watch per agent, the commands, and the clients it sends frames to |
+| `server.py` | service | `Orchestrator`: the world, the pollers, one watch per agent, the transcript logs, the commands, and the hubs it tells |
 | `routes.py` | adapter | `build_app`: the aiohttp app that puts an `Orchestrator` on the network — every route, the error mapping — and `serving` / `serve_app` to run it |
 | `../orchestrator_cli.py` | CLI | `mael orchestrator serve` |
 
@@ -41,8 +42,7 @@ The Python normaliser is the one the wire carries. `tests/test_orchestrator_norm
 replays every recorded daemon stream under `tests/fixtures/agent_events/` into one seed agent
 and holds the result to a golden under `normalised/`. That test owns the goldens:
 `UPDATE_GOLDEN=1 uv run pytest tests/test_orchestrator_normalise.py` re-records them, so a
-normaliser change is a deliberate re-record and never a silent drift. The TypeScript normaliser
-is held to the same files until it goes.
+normaliser change is a deliberate re-record and never a silent drift.
 
 The tool cards run the other way. `classify_tool_call` and `tool_call_title` in `agent_view.py`
 are a hand port of `web/src/session/toolCards.ts`, which renders in the browser and stays the
@@ -51,8 +51,11 @@ reference. `tests/fixtures/agent_events/tool-cards.json` records what it makes o
 
 ## Keeping the world fresh
 
-The server holds one `EventLog`. Every change to the world is an event appended to it, applied
-through `apply_event`, and sent to every client as a frame. Nothing mutates the world directly.
+The server holds one `WorldState`. Every change to the world is an event applied through
+`apply_event`, then turned into the change notices and transcript frames the clients hear.
+Nothing mutates the world directly. The apply, the notices and the frames are one synchronous
+step on the loop, so no client sees a half-applied batch or misses a frame between a socket's
+snapshot and its first live one.
 
 | Source | How | Interval |
 |---|---|---|
@@ -251,97 +254,19 @@ check being missing, both answer 400 `invalid`.
 
 A command that changes the world answers after the change is in it, so a GET right after the
 reply is current, and the notice that follows is one more refetch. A refused command changes
-nothing and raises no notice. The launch reply waits for the host's start, as the socket command
-did; the client gives that one call a longer timeout.
+nothing and raises no notice; `agent.launch` is the exception, moving its task in-progress before
+it asks the host and rolling that back on a refusal. The launch reply waits for the host's start,
+and the client gives that one call a longer timeout.
 
-## The wire protocol: UI ↔ orchestrator server
+The desk commands and the task commands never reach the host. Both desk commands carry a desk
+id, not a bare task id, and the desk is the server's own table. A task write goes to the
+notebook: a status change moves the task through `move_with_actions`, so the status actions fire
+as `mael task status` fires them, and a patch writes the fields it is given. Both force a task
+refresh, as a launch does, so the change is in the world before the reply.
 
-JSON text frames on one WebSocket. A message's kind is the key it carries: `seq`, `reply` or
-`ready` from the server; `type` or `id` from the client.
-
-### Hello and ready
-
-The client's first message is a hello:
-
-```json
-{"type": "hello"}
-{"type": "hello", "resumeFrom": 4180}
-```
-
-The server answers with replay frames, or one `snapshot` frame, then `ready`:
-
-```json
-{"ready": {"seq": 4183}}
-```
-
-With `resumeFrom`, the server replays every frame after that seq when its ring still holds them.
-Otherwise it sends a snapshot. A message before the hello, or a second hello, gets a refusal with
-code `invalid`.
-
-### Frames
-
-Every event travels as a frame:
-
-```json
-{"seq": 4181, "ts": "2026-09-03T10:00:00Z", "event": {"type": "upsert", "kind": "task", "entity": {...}}}
-```
-
-Every event in the table below is the `event` value of such a frame.
-
-| Event | Carries |
-|---|---|
-| `snapshot` | `world`, whole. No transcripts: the server holds none |
-| `upsert` | `kind` and the whole `entity` |
-| `remove` | `kind` and `id` |
-| `transcript.append` | `agentId` and the `item` |
-| `transcript.update` | `agentId`, `itemId` and a `patch` |
-| `transcript.truncated` | `agentId`: older items were dropped by the host. The client sets `truncatedBefore` |
-| `error` | `message`, and `agentId` when one agent is concerned |
-
-Every client receives every frame. Transcripts are not filtered per connection.
-
-### Commands and replies
-
-A command carries an id the reply echoes:
-
-```json
-{"id": "c7", "command": {"type": "agent.approve", "agentId": "1761dcf6", "requestId": "bf4483ca-…"}}
-{"reply": {"id": "c7", "ok": true, "result": {}}}
-{"reply": {"id": "c7", "ok": false, "error": {"code": "not_waiting", "message": "Agent 1761dcf6 is not waiting"}}}
-```
-
-A refused agent command publishes nothing; `agent.launch` is the exception, moving its task
-in-progress before it asks the host and rolling that back on a refusal. A command the server
-relays to the host has its consequences published when the host's stream reports them, which can
-be after the reply. See "The host owns the control plane" below.
-
-| Command | Reaches the host as | Result |
-|---|---|---|
-| `agent.approve` | `approve` | `{}` |
-| `agent.deny` | `deny` with `reason` | `{}` |
-| `agent.answer` | `answer` with `answers` | `{}` |
-| `agent.say` | `say` with `text` | `{}` |
-| `agent.stop` | `stop` | `{}` |
-| `agent.launch` | `start`, after the launch steps above | `{"agentId": "…"}` |
-| `desk.add` | nothing | `{}` |
-| `desk.remove` | nothing | `{}` |
-| `task.setStatus` | nothing | `{}` |
-| `task.update` | nothing | `{}` |
-
-The desk commands and the task commands never reach the host. Both desk commands carry `id`: a
-desk id, not a bare task id, and the desk is the server's own table. A task write goes to the
-notebook: `task.setStatus` moves the task through `move_with_actions`, so the status actions fire
-as `mael task status` fires them, and `task.update` writes the fields it is given.
-
-Both task commands force a task refresh, as `agent.launch` does, so the upsert reaches the client
-before the reply.
-
-`agent.launch` also adds its task to the desk. A second `desk.add` for an entry already on the
-desk answers `ok` and publishes nothing. A `desk.remove` for a running agent is accepted, but the
-canvas keeps drawing the node until the agent stops.
-
-`document.*`, `comment.*`, `task.create` and `shaping.start` answer `invalid`. `updatedInput` on
-`agent.approve` is ignored: the host approves a call with its input as proposed.
+A launch also adds its task to the desk. A second `POST /api/desk` for an entry already on the
+desk answers `{}` and raises no notice. A `DELETE` for a running agent's entry is accepted, but
+the canvas keeps drawing the node until the agent stops.
 
 ### The host owns the control plane
 
@@ -366,7 +291,7 @@ no component has to guess whether a prompt is still live.
 
 ### Error codes
 
-The world is validated before the host is asked, with the same rules as the fake backend.
+The world is validated before the host is asked.
 
 | Code | When |
 |---|---|
@@ -382,12 +307,6 @@ The host's own refusals map to the same codes: "no such agent" to `unknown_id`, 
 `agent_exited`, "not waiting" to `not_waiting`, "not waiting on a question" to `wrong_wait_kind`,
 anything else to `invalid`.
 
-### The snapshot epoch rule
-
-The client drops a frame whose seq is not newer than the last it applied. A snapshot is the
-exception: it lands whatever its seq and resets the guard to it. A restarted server counts from 1
-again, so without this rule a client that had seen seq 4000 would drop every frame the new server
-sent. With it, reconnecting to a restarted server is one snapshot away from working.
 
 ## Running it
 
@@ -398,7 +317,7 @@ mael env start                                         # in this repo: web and o
 ```
 
 The server is one aiohttp app, built by `routes.build_app`. It binds the port first, so a port
-in use fails at once, then reads every source once, then serves. The world WebSocket is at `/`.
+in use fails at once, then reads every source once, then serves.
 
 The first command that needs the agent host starts one, as `mael agent` does.
 
@@ -410,11 +329,11 @@ The first command that needs the agent host starts one, as `mael agent` does.
   exit the stream missed, and nothing else.
 - Agents started outside the server attach with a 200-event backlog, and link to a task only when
   started with the task's session id.
-- A client that connects mid-life gets no scrollback, and an open wait renders with an empty
-  "Before this" block. It fills in from the events relayed after it arrives. Reading Claude's own
-  session transcript back through the normaliser would fix both, and is not built.
-- The snapshot carries every task in every project, content included. A large notebook makes a
-  large snapshot; a client library with a receive limit must raise it.
+- A client that connects after the server started gets the transcript the server has built since
+  it attached, not the agent's whole history. Reading Claude's own session transcript back through
+  the normaliser would fix that, and is not built.
+- A resume replays the host's window into a transcript that already holds it, so a revived agent
+  shows its last turns twice until the attach stream carries a cursor.
 - `stop` removes the agent from the host. The server marks it `exited(0)` on the ok reply.
 - `agent.resume` starts an exited agent again. No UI drives it yet, so a crashed agent is brought
   back with `mael agent resume <id>`.

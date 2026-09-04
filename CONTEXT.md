@@ -225,8 +225,21 @@ _Avoid_: Daemon (in UI-facing prose)
 
 **Orchestrator server**:
 The process that builds the world from the notebook, `list-all` and the agent host, and serves
-it to the orchestrator UI over one WebSocket. `mael orchestrator serve` runs it.
+it to the orchestrator UI over HTTP: resources by REST, change notices on one stream, one socket
+per open agent transcript. `mael orchestrator serve` runs it.
 _Avoid_: Backend, API server
+
+**Change notice**:
+One message on the orchestrator server's event stream saying which entities of one kind changed,
+by id, and nothing else. The UI refetches what it shows and finds each id present or gone.
+_Avoid_: Event, update, push, delta
+
+**Epoch**:
+A name for one life of the thing that mints it, so a cursor from before it is refused. The
+agent daemon mints one per `start` and per `resume`, and carries it on the backlog marker. The
+orchestrator server mints one at start, and carries it on the change stream's `reset`. The two
+are unrelated names on unrelated streams.
+_Avoid_: Generation, run id, session
 
 ## Dev environments
 
@@ -372,12 +385,6 @@ _Avoid_: Checkpoint UI, prompt card
 A link that opens a session or a document as a tab in the right panel. It carries the
 open-in-panel icon.
 _Avoid_: Open button
-
-**Beat**:
-One thing a simulated agent does: `say`, `read`, `edit`, `bash`, `ask`, `permission`, `plan`,
-`finish` or `exit`. A beat expands to raw stream-json in the daemon's recorded shapes. A script
-is a list of beats, walked one per tick.
-_Avoid_: Step, action, event
 
 ## Knowledge stores
 

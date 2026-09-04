@@ -11,6 +11,3 @@ export type AttentionId = string;
 export type DeskId = string;
 export type RequestId = string;
 export type TranscriptItemId = string;
-export type CommandId = string;
-/** Position in the global event log. Strictly increasing, one counter for all events. */
-export type Seq = number;

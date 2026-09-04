@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import { QueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { makeAgent, makeTask, worldWith } from '../test/fixtures';
+import { makeAgent, makeQuestionItem, makeTask, worldWith } from '../test/fixtures';
 import { createFakeServer } from '../test/fakeServer';
 import { useAnswer, useApprove, useDeny, useResume, useSay, useStop } from './agents';
 import { ApiProvider } from './ApiProvider';
@@ -20,12 +20,24 @@ import { useLaunch, useSetStatus, useUpdateTask } from './tasks';
 const ANCHOR = { quote: 'q', prefix: '', suffix: '', start: 0, end: 1 };
 
 function harness() {
+  // ag1 waits on r1, so the three answers have something to answer; ag2 has
+  // exited, so a resume has something to bring back.
   const server = createFakeServer({
     world: worldWith({
       tasks: [makeTask({ id: 'northwind/NORT-7' })],
-      agents: [makeAgent({ id: 'ag1' })],
+      agents: [
+        makeAgent({ id: 'ag1', state: 'awaiting-question', pendingRequestId: 'r1' }),
+        makeAgent({ id: 'ag2', state: 'exited', exitCode: 1 }),
+      ],
       desk: [{ id: 'task:northwind/NORT-7', addedAt: '' }],
     }),
+    transcripts: {
+      ag1: {
+        agentId: 'ag1',
+        items: [makeQuestionItem({ requestId: 'r1' })],
+        truncatedBefore: false,
+      },
+    },
   });
   const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: 0 } } });
   const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
@@ -78,7 +90,14 @@ describe('the mutation hooks', () => {
       agentKeys,
     ],
     ['useStop', useStop, { agentId: 'ag1' }, 'POST /api/agents/ag1/stop', {}, agentKeys],
-    ['useResume', useResume, { agentId: 'ag1' }, 'POST /api/agents/ag1/resume', {}, agentKeys],
+    [
+      'useResume',
+      useResume,
+      { agentId: 'ag2' },
+      'POST /api/agents/ag2/resume',
+      {},
+      [keys.agents.list(), keys.agents.detail('ag2'), keys.attention()],
+    ],
     [
       'useLaunch',
       useLaunch,

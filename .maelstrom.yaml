@@ -11,7 +11,6 @@ services:
     dir: web
     command: pnpm dev
     env:
-      VITE_ORCHESTRATOR_URL: ws://localhost:${ORCHESTRATOR_PORT}
       ORCHESTRATOR_URL: http://localhost:${ORCHESTRATOR_PORT}
 
   orchestrator:

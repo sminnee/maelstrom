@@ -1,17 +1,12 @@
-"""The client-state reducer the orchestrator server shares with the web UI.
-
-Ports of ``web/src/protocol/reducer.test.ts``. The same frames must yield the
-same state on both sides, or the server's snapshot and the client's replay
-would disagree.
-"""
+"""``apply_event``: the one way the orchestrator server's world changes."""
 
 import pytest
 
 from maelstrom.orchestrator.protocol import (
     apply_event,
-    apply_server_event,
     empty_world,
     initial_client_state,
+    state_with,
 )
 
 NOW = "2026-09-01T00:00:00Z"
@@ -43,74 +38,24 @@ def make_task(**over):
     return task
 
 
-def frame(seq, event):
-    return {"seq": seq, "ts": NOW, "event": event}
-
-
-def snapshot(world=None):
-    return {
-        "type": "snapshot",
-        "world": world if world is not None else empty_world(),
-    }
-
-
-def test_a_snapshot_replaces_the_world_and_records_its_seq():
-    world = empty_world()
-    world["tasks"]["NORT-7"] = make_task()
-    state = apply_server_event(initial_client_state(), frame(1, snapshot(world)))
-    assert state["world"]["tasks"]["NORT-7"]["title"] == "Add order export"
-    assert state["lastSeq"] == 1
-
-
 def test_an_upsert_adds_and_replaces_whole():
-    state = apply_server_event(initial_client_state(), frame(1, snapshot()))
-    state = apply_server_event(
-        state, frame(2, {"type": "upsert", "kind": "task", "entity": make_task()})
+    state = initial_client_state()
+    state = apply_event(
+        state, {"type": "upsert", "kind": "task", "entity": make_task()}
     )
     assert state["world"]["tasks"]["NORT-7"]["status"] == "todo"
-    state = apply_server_event(
-        state,
-        frame(
-            3, {"type": "upsert", "kind": "task", "entity": make_task(status="done")}
-        ),
+    state = apply_event(
+        state, {"type": "upsert", "kind": "task", "entity": make_task(status="done")}
     )
     assert state["world"]["tasks"]["NORT-7"]["status"] == "done"
-
-
-def test_a_frame_not_newer_than_the_last_is_dropped():
-    state = apply_server_event(initial_client_state(), frame(5, snapshot()))
-    state = apply_server_event(
-        state, frame(5, {"type": "upsert", "kind": "task", "entity": make_task()})
-    )
-    state = apply_server_event(
-        state, frame(3, {"type": "upsert", "kind": "task", "entity": make_task()})
-    )
-    assert state["world"]["tasks"] == {}
-    assert state["lastSeq"] == 5
-
-
-def test_a_snapshot_is_a_new_epoch_whatever_its_seq():
-    """A restarted server counts from 1 again; its snapshot must still land."""
-    state = apply_server_event(initial_client_state(), frame(500, snapshot()))
-    world = empty_world()
-    world["tasks"]["NORT-7"] = make_task()
-    state = apply_server_event(state, frame(1, snapshot(world)))
-    assert state["world"]["tasks"]["NORT-7"]["title"] == "Add order export"
-    assert state["lastSeq"] == 1
-    state = apply_server_event(
-        state, frame(2, {"type": "remove", "kind": "task", "id": "NORT-7"})
-    )
-    assert state["world"]["tasks"] == {}
 
 
 def test_remove_deletes_by_kind_and_id():
     world = empty_world()
     world["tasks"]["NORT-7"] = make_task()
     world["agents"]["agent-1"] = {"id": "agent-1"}
-    state = apply_server_event(initial_client_state(), frame(1, snapshot(world)))
-    state = apply_server_event(
-        state, frame(2, {"type": "remove", "kind": "agent", "id": "agent-1"})
-    )
+    state = state_with(world)
+    state = apply_event(state, {"type": "remove", "kind": "agent", "id": "agent-1"})
     assert state["world"]["agents"] == {}
     assert "NORT-7" in state["world"]["tasks"]
 
@@ -121,7 +66,7 @@ def test_the_transcript_events_pass_through_without_being_stored():
     The server produces these events and sends them on. Holding them here too
     is what duplicated a revived agent's history, so nothing here holds them.
     """
-    state = apply_event(initial_client_state(), snapshot())
+    state = initial_client_state()
     for event in (
         {
             "type": "transcript.append",
@@ -139,19 +84,14 @@ def test_the_transcript_events_pass_through_without_being_stored():
         assert apply_event(state, event) == state
 
 
-def test_an_error_event_is_kept_with_its_seq():
-    state = apply_event(initial_client_state(), {"type": "error", "message": "boom"}, 9)
-    assert state["errors"] == [{"seq": 9, "message": "boom", "agentId": None}]
-
-
 def test_an_unknown_entity_kind_is_a_protocol_bug():
-    state = apply_event(initial_client_state(), snapshot())
+    state = initial_client_state()
     with pytest.raises(ValueError, match="widget"):
         apply_event(state, {"type": "upsert", "kind": "widget", "entity": {"id": "w"}})
 
 
 def test_apply_event_does_not_mutate_its_input():
-    before = apply_event(initial_client_state(), snapshot())
+    before = initial_client_state()
     after = apply_event(
         before, {"type": "upsert", "kind": "task", "entity": make_task()}
     )
@@ -162,14 +102,11 @@ def test_apply_event_does_not_mutate_its_input():
 def test_the_desk_is_an_entity_kind_with_its_own_table():
     entry = {"id": "askastro/2026-06-11.1", "addedAt": NOW}
     assert empty_world()["desk"] == {}
-    state = apply_server_event(initial_client_state(), frame(1, snapshot()))
-    state = apply_server_event(
-        state, frame(2, {"type": "upsert", "kind": "desk", "entity": entry})
-    )
+    state = initial_client_state()
+    state = apply_event(state, {"type": "upsert", "kind": "desk", "entity": entry})
     assert state["world"]["desk"] == {"askastro/2026-06-11.1": entry}
-    state = apply_server_event(
-        state,
-        frame(3, {"type": "remove", "kind": "desk", "id": "askastro/2026-06-11.1"}),
+    state = apply_event(
+        state, {"type": "remove", "kind": "desk", "id": "askastro/2026-06-11.1"}
     )
     assert state["world"]["desk"] == {}
 

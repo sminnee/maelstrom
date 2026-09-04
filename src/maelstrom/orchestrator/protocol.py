@@ -1,11 +1,10 @@
-"""The wire types the orchestrator server shares with the web UI, and their reducer.
+"""The wire types the orchestrator server serves the web UI, and their reducer.
 
-A port of ``web/src/protocol/`` — ``entities.ts``, ``events.ts``,
-``transcript.ts``, ``attention.ts``, ``documents.ts`` and ``reducer.ts``.
-
-Pure: no I/O, no clock. :func:`apply_event` is the same reduction the browser
-runs, so the server's snapshot and a client's replay of the same frames agree.
-``docs/dev/orchestrator-server.md`` documents the protocol.
+The entity shapes are ``web/src/protocol/`` — ``entities.ts``, ``transcript.ts``,
+``attention.ts``, ``documents.ts`` — as ``TypedDict``s, in the wire's own
+camelCase. Pure: no I/O, no clock. :func:`apply_event` is how the server's
+world changes; the normaliser and ``agent_view`` reduce with it too.
+``docs/dev/orchestrator-server.md`` documents what the routes serve.
 """
 
 from typing import Any, Literal, TypedDict, cast
@@ -229,28 +228,14 @@ class World(TypedDict):
 
 
 class ClientState(TypedDict):
-    """What the server holds: the world, and nothing per-agent.
-
-    No ``transcripts`` — see ``docs/dev/orchestrator-server.md``, "The server
-    keeps no transcript". The browser's reducer keeps that map.
-    """
+    """The world, and nothing per-agent: transcripts live in their own logs."""
 
     world: World
-    lastSeq: int
-    errors: list[dict[str, Any]]
 
 
-#: A server event: ``snapshot``, ``upsert``, ``remove``, ``transcript.append``,
-#: ``transcript.update``, ``transcript.truncated`` or ``error``, as a plain dict.
+#: A server event: ``upsert``, ``remove``, ``transcript.append``,
+#: ``transcript.update`` or ``transcript.truncated``, as a plain dict.
 ServerEvent = dict[str, Any]
-
-
-class EventFrame(TypedDict):
-    """One event as it travels: seq-stamped and replayable."""
-
-    seq: int
-    ts: str
-    event: ServerEvent
 
 
 ENTITY_KINDS = (
@@ -291,33 +276,21 @@ def empty_world() -> World:
 
 
 def initial_client_state() -> ClientState:
-    return {"world": empty_world(), "lastSeq": 0, "errors": []}
+    return {"world": empty_world()}
 
 
-def apply_server_event(state: ClientState, frame: EventFrame) -> ClientState:
-    """The state after one frame, with the seq guard.
-
-    A frame whose seq is not newer than the last one applied is dropped, which
-    is what makes replay idempotent. A snapshot is the exception to the guard:
-    see the snapshot epoch rule in ``docs/dev/orchestrator-server.md``.
-    """
-    seq = frame["seq"]
-    if frame["event"].get("type") != "snapshot" and seq <= state["lastSeq"]:
-        return state
-    nxt = apply_event(state, frame["event"], seq)
-    return {**nxt, "lastSeq": seq}
+def state_with(world: World) -> ClientState:
+    return {"world": world}
 
 
-def apply_event(state: ClientState, event: ServerEvent, seq: int = 0) -> ClientState:
-    """The same reduction without the seq guard, for a producer stamping its own.
+def apply_event(state: ClientState, event: ServerEvent) -> ClientState:
+    """The state after one event.
 
-    Never mutates ``state``: every changed table is copied, so the event log can
-    hold earlier states by reference. A malformed event raises: it is a
+    Never mutates ``state``: every changed table is copied, so a caller may
+    hold an earlier state by reference. A malformed event raises: it is a
     protocol bug, not a runtime condition.
     """
     kind = event.get("type")
-    if kind == "snapshot":
-        return {**state, "world": event["world"]}
     if kind == "upsert":
         key = _world_key(event["kind"])
         entity = event["entity"]
@@ -329,15 +302,8 @@ def apply_event(state: ClientState, event: ServerEvent, seq: int = 0) -> ClientS
         table.pop(event["id"], None)
         return _with_world(state, cast(World, {**state["world"], key: table}))
     if kind in ("transcript.append", "transcript.update", "transcript.truncated"):
-        # Relayed, not accumulated. The browser's reducer applies them.
+        # Not the world's business: each agent's TranscriptLog keeps these.
         return state
-    if kind == "error":
-        entry = {
-            "seq": seq,
-            "message": event["message"],
-            "agentId": event.get("agentId"),
-        }
-        return {**state, "errors": [*state["errors"], entry]}
     raise ValueError(f"Unknown server event: {event!r}")
 
 

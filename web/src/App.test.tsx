@@ -1,10 +1,13 @@
 import { deskIdForTask } from './protocol/deskId';
 import { describe, expect, it } from 'vitest';
-import { fireEvent, screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
-import { seedWorld } from './fake-backend/scenarios/seedWorld';
-import { clickNode, dropStream, pressKey, renderApp, selectText, stepSim } from './test/renderApp';
+import type { Attention } from './protocol/attention';
+import type { Document } from './protocol/documents';
+import type { FakeServer } from './test/fakeServer';
+import { clickNode, pressKey, renderApp, selectText } from './test/renderApp';
+import { seedWorld } from './test/seedWorld';
 
 /** The one expanded node, as the card it grew into. */
 const expanded = () => screen.getByRole('dialog');
@@ -12,6 +15,76 @@ const chipCount = () =>
   Number(screen.getByTestId('attention-chip').textContent?.replace(/\D/g, ''));
 const nodeState = (taskId: string) =>
   document.querySelector(`[data-task-id="${taskId}"]`)?.getAttribute('data-state');
+
+/** Park NORT-9's agent on a question, as the server would after a control_request. */
+function askQuestion(server: FakeServer) {
+  const requestId = 'req-nort9-q';
+  server.append('d9a4c7f1', {
+    id: 'd9a4c7f1-q',
+    ts: '',
+    type: 'question',
+    requestId,
+    questions: [
+      {
+        question: 'Which columns?',
+        header: 'Columns',
+        multiSelect: true,
+        options: [
+          { label: 'Id', description: '' },
+          { label: 'Total', description: '' },
+        ],
+      },
+      {
+        question: 'Stream or batch?',
+        header: 'Export',
+        multiSelect: false,
+        options: [
+          { label: 'Stream', description: '' },
+          { label: 'Batch', description: '' },
+        ],
+      },
+    ],
+  });
+  const attention: Attention = {
+    id: 'att-nort9-q',
+    kind: 'question',
+    agentId: 'd9a4c7f1',
+    taskId: 'NORT-9',
+    documentId: null,
+    requestId,
+    summary: 'Which columns?',
+    raisedAt: '2026-09-02T09:00:00.000Z',
+    clearedAt: null,
+  };
+  server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
+    w.agents['d9a4c7f1'] = {
+      ...w.agents['d9a4c7f1']!,
+      state: 'awaiting-question',
+      pendingRequestId: requestId,
+      waitingOn: 'Which columns?',
+    };
+    w.attention[attention.id] = attention;
+  });
+  server.change({ kind: 'attention', ids: [attention.id] });
+}
+
+/** Give NORT-9 a plan document, as a plan review would. */
+function addPlan(server: FakeServer, status: Document['status'] = 'approved') {
+  const doc: Document = {
+    id: 'doc-nort9-plan',
+    agentId: 'd9a4c7f1',
+    taskId: 'NORT-9',
+    kind: 'plan',
+    title: 'plan.md',
+    markdown: '# Migrate to Postgres 16\n\nCarefully.\n',
+    version: 1,
+    status,
+    source: { type: 'plan_review', requestId: 'req-nort9-plan', planFilePath: '' },
+  };
+  server.change({ kind: 'document', ids: [doc.id] }, (w) => {
+    w.documents[doc.id] = doc;
+  });
+}
 
 describe('App', () => {
   it('renders the app title', async () => {
@@ -36,23 +109,24 @@ describe('App', () => {
 
   it('dismisses a free agent from its card, once the agent has stopped', async () => {
     const user = userEvent.setup();
-    const { backend } = await renderApp();
+    const { server } = await renderApp();
     clickNode('f2c6a9d4');
     const card = screen.getByRole('dialog', { name: 'bravo · feat/task-index' });
 
     expect(within(card).getByRole('button', { name: 'Dismiss' })).toBeDisabled();
 
-    backend.sim.force({ kind: 'exit', agentId: 'f2c6a9d4', exitCode: 0 });
-    let stopped = false;
-    for (let i = 0; i < 6 && !stopped; i += 1) {
-      await stepSim(backend);
-      stopped = !within(card).getByRole('button', { name: 'Dismiss' }).hasAttribute('disabled');
-    }
-    expect(stopped).toBe(true);
+    server.change({ kind: 'agent', ids: ['f2c6a9d4'] }, (w) => {
+      w.agents['f2c6a9d4'] = { ...w.agents['f2c6a9d4']!, state: 'exited', exitCode: 0 };
+    });
+    await waitFor(() =>
+      expect(within(card).getByRole('button', { name: 'Dismiss' })).toBeEnabled(),
+    );
 
     expect(document.querySelector('[data-task-id="f2c6a9d4"]')).toBeInTheDocument();
     await user.click(within(card).getByRole('button', { name: 'Dismiss' }));
-    expect(document.querySelector('[data-task-id="f2c6a9d4"]')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(document.querySelector('[data-task-id="f2c6a9d4"]')).not.toBeInTheDocument(),
+    );
   });
 
   it('draws a free agent once, named by the worktree it runs in', async () => {
@@ -65,17 +139,24 @@ describe('App', () => {
   });
 });
 
-describe('the simulation on the canvas', () => {
-  it('a stepped event moves a working node into needs-attention', async () => {
-    const { backend } = await renderApp();
+describe('change notices', () => {
+  it('a notice moves a working node into needs-attention with no reload', async () => {
+    const { server } = await renderApp();
     expect(nodeState('NORT-9')).toBe('working');
-    backend.sim.force({ kind: 'ask', agentId: 'd9a4c7f1' });
-    let changed = false;
-    for (let i = 0; i < 6 && !changed; i += 1) {
-      await stepSim(backend);
-      changed = nodeState('NORT-9') === 'needs-attention';
-    }
-    expect(changed).toBe(true);
+    askQuestion(server);
+    await waitFor(() => expect(nodeState('NORT-9')).toBe('needs-attention'));
+    expect(chipCount()).toBe(3);
+  });
+
+  it('a notice for a task the world no longer holds takes its node away', async () => {
+    const { server } = await renderApp();
+    expect(document.querySelector('[data-task-id="NORT-9.1"]')).toBeInTheDocument();
+    server.change({ kind: 'task', ids: ['NORT-9.1'] }, (w) => {
+      delete w.tasks['NORT-9.1'];
+    });
+    await waitFor(() =>
+      expect(document.querySelector('[data-task-id="NORT-9.1"]')).not.toBeInTheDocument(),
+    );
   });
 });
 
@@ -139,8 +220,23 @@ describe('the expanded node', () => {
     expect(clickNode('NORT-7')).toHaveAttribute('data-state', 'needs-attention');
     // The decision fetches the agent's detail, so the prompt follows the card.
     await user.click(await within(expanded()).findByRole('button', { name: 'Approve' }));
-    expect(nodeState('NORT-7')).not.toBe('needs-attention');
+    await waitFor(() => expect(nodeState('NORT-7')).not.toBe('needs-attention'));
     expect(chipCount()).toBe(before - 1);
+  });
+
+  it('a refused approve shows Failed on the button and leaves the node needing attention', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.refuse(/POST \/api\/agents\/[^/]+\/approve$/, {
+      status: 409,
+      code: 'stale_request',
+      message: 'Request is no longer pending',
+    });
+    expect(clickNode('NORT-7')).toHaveAttribute('data-state', 'needs-attention');
+    await user.click(await within(expanded()).findByRole('button', { name: 'Approve' }));
+    const failed = await within(expanded()).findByRole('button', { name: 'Failed' });
+    expect(failed).toHaveAttribute('title', 'Request is no longer pending');
+    expect(nodeState('NORT-7')).toBe('needs-attention');
   });
 
   it('shows the last messages before its question, then the prompt; Answer clears the attention', async () => {
@@ -153,7 +249,7 @@ describe('the expanded node', () => {
     expect(card).toHaveTextContent('Two grouping defaults are plausible');
     await user.click(within(prompt).getAllByRole('radio')[0]!);
     await user.click(within(prompt).getByRole('button', { name: 'Answer' }));
-    expect(nodeState('MAEL-52')).not.toBe('needs-attention');
+    await waitFor(() => expect(nodeState('MAEL-52')).not.toBe('needs-attention'));
   });
 });
 
@@ -189,7 +285,8 @@ describe('the session tab', () => {
     const input = screen.getByRole('textbox', { name: 'Message to agent' });
     await user.type(input, 'Prefer the ICU collation.');
     await user.click(screen.getByRole('button', { name: 'Send' }));
-    expect(screen.getByText('Prefer the ICU collation.')).toBeInTheDocument();
+    expect(await screen.findByText('Prefer the ICU collation.')).toBeInTheDocument();
+    expect(input).toHaveValue('');
   });
 
   it('leaves one live prompt when the card and the session tab show the same wait', async () => {
@@ -218,15 +315,14 @@ describe('the session tab', () => {
 describe('document tabs', () => {
   it('two documents from two expanded nodes open as two attributed tabs that survive a third', async () => {
     const user = userEvent.setup();
-    const { backend } = await renderApp();
+    const { server } = await renderApp();
     // A second plan, from a second agent, so there are two documents to open.
-    backend.sim.force({ kind: 'plan', agentId: 'd9a4c7f1' });
-    for (let i = 0; i < 8; i += 1) await stepSim(backend);
+    addPlan(server);
 
     clickNode('NORT-7');
     await user.click(within(expanded()).getByRole('link', { name: /plan\.md v1/ }));
     clickNode('NORT-9');
-    await user.click(within(expanded()).getByRole('link', { name: /plan\.md v1/ }));
+    await user.click(await within(expanded()).findByRole('link', { name: /plan\.md v1/ }));
     const chips = () =>
       [...document.querySelectorAll('[role="tab"] [data-testid="tab-chip"]')].map(
         (c) => c.textContent,
@@ -237,7 +333,9 @@ describe('document tabs', () => {
         .map((t) => t.querySelector('[data-testid="tab-chip"]')?.textContent)
         .sort(),
     ).toEqual(['NORT-7', 'NORT-9']);
-    expect(screen.getByRole('tabpanel')).toHaveTextContent('Migrate to Postgres 16');
+    await waitFor(() =>
+      expect(screen.getByRole('tabpanel')).toHaveTextContent('Migrate to Postgres 16'),
+    );
 
     // NORT-9 is still expanded: a third tab from the same card.
     await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
@@ -283,26 +381,23 @@ describe('document tabs', () => {
 describe('review in a document tab', () => {
   it('answers a question inline and the node leaves needs-attention', async () => {
     const user = userEvent.setup();
-    const { backend } = await renderApp();
-    // NORT-9's agent produces a plan, gets it approved, then asks a question.
-    backend.sim.force({ kind: 'plan', agentId: 'd9a4c7f1' });
-    for (let i = 0; i < 8; i += 1) await stepSim(backend);
+    const { server } = await renderApp();
+    // NORT-9's agent has an approved plan, and now asks a question.
+    addPlan(server);
+    askQuestion(server);
+    await waitFor(() => expect(nodeState('NORT-9')).toBe('needs-attention'));
     clickNode('NORT-9');
-    await user.click(await within(expanded()).findByRole('button', { name: 'Approve' }));
-    backend.sim.force({ kind: 'ask', agentId: 'd9a4c7f1' });
-    for (let i = 0; i < 6; i += 1) await stepSim(backend);
-    expect(nodeState('NORT-9')).toBe('needs-attention');
 
-    await user.click(within(expanded()).getByRole('link', { name: /plan\.md v1/ }));
-    const tab = screen.getByTestId('document-tab');
-    const inline = within(tab.querySelector('[data-testid="inline-decision"]') as HTMLElement);
+    await user.click(await within(expanded()).findByRole('link', { name: /plan\.md v1/ }));
+    const tab = await screen.findByTestId('document-tab');
+    const inline = within(await within(tab).findByTestId('inline-decision'));
     // The decision shows what the agent said before it asked.
     expect(await inline.findByText('Before this')).toBeInTheDocument();
     await user.click(inline.getAllByRole('checkbox')[0]!);
     await user.click(inline.getByRole('button', { name: 'Next' }));
     await user.click(inline.getAllByRole('radio')[0]!);
     await user.click(inline.getByRole('button', { name: 'Answer' }));
-    expect(nodeState('NORT-9')).not.toBe('needs-attention');
+    await waitFor(() => expect(nodeState('NORT-9')).not.toBe('needs-attention'));
   });
 
   it('one drag offers a comment; adding it and requesting changes say the server does not do that yet', async () => {
@@ -310,7 +405,7 @@ describe('review in a document tab', () => {
     await renderApp();
     clickNode('NORT-7');
     await user.click(within(expanded()).getByRole('link', { name: /plan\.md v1/ }));
-    const body = screen.getByTestId('document-body');
+    const body = await screen.findByTestId('document-body');
     const text = [...body.querySelectorAll('li')].find((el) =>
       el.textContent?.includes('10,000 rows'),
     )!;
@@ -335,54 +430,6 @@ describe('review in a document tab', () => {
     await user.click(screen.getByRole('button', { name: 'Request changes' }));
     expect(await screen.findAllByRole('button', { name: 'Not implemented yet' })).toHaveLength(2);
     expect(screen.getByTestId('document-tab')).toHaveTextContent('awaiting review');
-  });
-
-  it('a refused approve shows Failed on the button and leaves the node needing attention', async () => {
-    const user = userEvent.setup();
-    const { server } = await renderApp();
-    server.refuse(/POST \/api\/agents\/[^/]+\/approve$/, {
-      status: 409,
-      code: 'stale_request',
-      message: 'Request is no longer pending',
-    });
-    expect(clickNode('NORT-7')).toHaveAttribute('data-state', 'needs-attention');
-    await user.click(await within(expanded()).findByRole('button', { name: 'Approve' }));
-    const failed = await within(expanded()).findByRole('button', { name: 'Failed' });
-    expect(failed).toHaveAttribute('title', 'Request is no longer pending');
-    expect(nodeState('NORT-7')).toBe('needs-attention');
-  });
-});
-
-describe('the debug drawer', () => {
-  it('forcing a question makes the node need attention and raises the chip count', async () => {
-    const user = userEvent.setup();
-    await renderApp();
-    // The seed world opens with two items: NORT-7's plan review and MAEL-52's question.
-    expect(chipCount()).toBe(2);
-    await user.click(screen.getByRole('button', { name: 'Toggle debug drawer' }));
-    const drawer = screen.getByTestId('debug-drawer');
-    const row = within(drawer).getByTestId('drawer-agent-d9a4c7f1');
-    await user.click(within(row).getByRole('button', { name: 'Ask' }));
-    expect(nodeState('NORT-9')).toBe('needs-attention');
-    expect(chipCount()).toBe(3);
-  });
-
-  it('forcing an exit turns the node red', async () => {
-    const user = userEvent.setup();
-    await renderApp();
-    await user.click(screen.getByRole('button', { name: 'Toggle debug drawer' }));
-    const row = within(screen.getByTestId('debug-drawer')).getByTestId('drawer-agent-c3e8f1b5');
-    await user.click(within(row).getByRole('button', { name: 'Exit 1' }));
-    expect(nodeState('MAEL-40.1')).toBe('exited');
-  });
-
-  it('the toggle closes the drawer again', async () => {
-    const user = userEvent.setup();
-    await renderApp();
-    await user.click(screen.getByRole('button', { name: 'Toggle debug drawer' }));
-    expect(screen.getByTestId('debug-drawer')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Toggle debug drawer' }));
-    expect(screen.queryByTestId('debug-drawer')).toBeNull();
   });
 });
 
@@ -429,7 +476,7 @@ describe('the task list', () => {
     await user.click(
       within(listRow('NORT-3') as HTMLElement).getByRole('button', { name: 'Add to desk' }),
     );
-    expect(listRow('NORT-3')).toHaveAttribute('data-on-desk', 'true');
+    await waitFor(() => expect(listRow('NORT-3')).toHaveAttribute('data-on-desk', 'true'));
 
     await user.click(screen.getByRole('button', { name: 'Canvas' }));
     expect(document.querySelector('[data-task-id="NORT-3"]')).toBeInTheDocument();
@@ -444,7 +491,7 @@ describe('the task list', () => {
     await user.click(
       within(listRow('NORT-9.1') as HTMLElement).getByRole('button', { name: 'Remove from desk' }),
     );
-    expect(listRow('NORT-9.1')).toHaveAttribute('data-on-desk', 'false');
+    await waitFor(() => expect(listRow('NORT-9.1')).toHaveAttribute('data-on-desk', 'false'));
 
     await user.click(screen.getByRole('button', { name: 'Canvas' }));
     expect(document.querySelector('[data-task-id="NORT-9.1"]')).not.toBeInTheDocument();
@@ -458,7 +505,7 @@ describe('the task list', () => {
     await user.click(
       within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Remove from desk' }),
     );
-    expect(listRow('NORT-9')).toHaveAttribute('data-on-desk', 'false');
+    await waitFor(() => expect(listRow('NORT-9')).toHaveAttribute('data-on-desk', 'false'));
 
     await user.click(screen.getByRole('button', { name: 'Canvas' }));
     expect(document.querySelector('[data-task-id="NORT-9"]')).toBeInTheDocument();
@@ -474,7 +521,7 @@ describe('the task list', () => {
     await user.click(within(row()).getByRole('button', { name: 'in-progress' }));
     await user.selectOptions(within(row()).getByRole('combobox'), 'blocked');
 
-    expect(within(row()).getByRole('button', { name: 'blocked' })).toBeInTheDocument();
+    expect(await within(row()).findByRole('button', { name: 'blocked' })).toBeInTheDocument();
     expect(within(row()).queryByRole('combobox')).toBeNull();
   });
 
@@ -493,7 +540,7 @@ describe('the task list', () => {
 
     // The default filter hides done work, so the row goes. That is the filter
     // doing its job, not the move failing.
-    expect(listRow('NORT-9')).toBeNull();
+    await waitFor(() => expect(listRow('NORT-9')).toBeNull());
     await user.click(screen.getByRole('checkbox', { name: 'done' }));
     expect(listRow('NORT-9')).not.toBeNull();
     expect(
@@ -530,8 +577,8 @@ describe('the task list', () => {
     await user.type(title, 'Migrate to Postgres 17');
     await user.click(within(editor).getByRole('button', { name: 'Save' }));
 
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(listRow('NORT-9')).toHaveTextContent('Migrate to Postgres 17');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(listRow('NORT-9')).toHaveTextContent('Migrate to Postgres 17'));
   });
 
   it('keeps the advanced fields folded away until they are asked for', async () => {
@@ -550,7 +597,7 @@ describe('the task list', () => {
 
   it('sends the fields the user changed, not those the world changed under them', async () => {
     const user = userEvent.setup();
-    const { backend } = await renderApp();
+    const { server } = await renderApp();
     await goToList(user);
     await user.click(
       within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
@@ -561,19 +608,18 @@ describe('the task list', () => {
     await user.clear(title);
     await user.type(title, 'Migrate to Postgres 17');
     // The world moves while the editor is open: the branch changes elsewhere.
-    await act(async () => {
-      await backend.command({
-        type: 'task.update',
-        taskId: 'NORT-9',
-        fields: { branch: 'feat/db-migrate-2' },
-      });
+    server.change({ kind: 'task', ids: ['NORT-9'] }, (w) => {
+      w.tasks['NORT-9'] = { ...w.tasks['NORT-9']!, branch: 'feat/db-migrate-2' };
     });
+    await waitFor(() => expect(listRow('NORT-9')).toHaveTextContent('feat/db-migrate-2'));
     await user.click(within(editor).getByRole('button', { name: 'Save' }));
 
     // The title the user typed lands; the branch they never touched is not
     // overwritten with the value the editor opened on.
-    expect(listRow('NORT-9')).toHaveTextContent('Migrate to Postgres 17');
+    await waitFor(() => expect(listRow('NORT-9')).toHaveTextContent('Migrate to Postgres 17'));
     expect(listRow('NORT-9')).toHaveTextContent('feat/db-migrate-2');
+    const patch = server.requests.find((r) => r.method === 'PATCH');
+    expect(patch?.body).toEqual({ title: 'Migrate to Postgres 17' });
   });
 
   it('closes the editor on Escape when nothing was typed', async () => {
@@ -631,7 +677,7 @@ describe('the task list', () => {
     )) {
       await user.click(within(r as HTMLElement).getByRole('button', { name: 'Remove from desk' }));
     }
-    expect(document.querySelectorAll('[data-on-desk="true"]')).toHaveLength(0);
+    await waitFor(() => expect(document.querySelectorAll('[data-on-desk="true"]')).toHaveLength(0));
     expect(chipCount()).toBe(before);
 
     // Following the chip puts its task back on the desk so it has a node.
@@ -680,7 +726,9 @@ describe('the change stream', () => {
     const { server } = await renderApp();
     await act(async () => {});
     expect(screen.queryByRole('status')).toBeNull();
-    await dropStream(server);
+    await act(async () => {
+      server.dropStream();
+    });
     expect(screen.getByRole('status')).toHaveTextContent(
       'Reconnecting… showing the last known state',
     );
@@ -707,7 +755,7 @@ describe('the transcript stream', () => {
     });
     // The items stay on screen while the stream is down.
     expect(within(panel).getAllByTestId('transcript-card')).toHaveLength(before);
-    // Missed while down: the reconnect's snapshot carries it, once.
+    // Missed while down: the reconnect replays it from the cursor, once.
     server.append('d9a4c7f1', {
       id: 'x1',
       ts: '',

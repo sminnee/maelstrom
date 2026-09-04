@@ -1,6 +1,11 @@
 import type { RequestId } from '../protocol/ids';
-import { PLAN_TOOL, QUESTION_TOOL } from '../protocol/normalise';
-import type { MessageItem, ToolCallItem, TranscriptItem } from '../protocol/transcript';
+import {
+  PLAN_TOOL,
+  QUESTION_TOOL,
+  type MessageItem,
+  type ToolCallItem,
+  type TranscriptItem,
+} from '../protocol/transcript';
 
 export type ContextItem = MessageItem | ToolCallItem;
 
