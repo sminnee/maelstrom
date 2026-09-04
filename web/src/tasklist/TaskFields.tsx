@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef } from 'react';
 import type { TaskEdit } from '../api/types';
 import type { PermissionMode } from '../protocol/modes';
 import { MODES } from '../protocol/modes';
+import { INHERIT_MODEL, MODELS } from '../protocol/models';
 import { KNOWN_COMMANDS } from '../protocol/phase';
 import styles from '../ui/Dialog.module.css';
 
@@ -75,16 +76,7 @@ export function TaskFields({
         </label>
         <label className={styles.field}>
           <span>Mode</span>
-          <select
-            value={draft.mode}
-            onChange={(e) => onChange({ mode: e.target.value as PermissionMode })}
-          >
-            {MODES.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
+          <ModeSelect mode={draft.mode} onChange={(mode) => onChange({ mode })} />
         </label>
         <label className={styles.field}>
           <span>Priority</span>
@@ -98,10 +90,49 @@ export function TaskFields({
         </label>
         <label className={styles.field}>
           <span>Model</span>
-          <input value={draft.model} onChange={(e) => onChange({ model: e.target.value })} />
+          <ModelSelect model={draft.model} onChange={(model) => onChange({ model })} />
         </label>
       </details>
     </>
+  );
+}
+
+/** The permission mode a session launches under. */
+export function ModeSelect({
+  mode,
+  onChange,
+}: {
+  mode: PermissionMode;
+  onChange: (mode: PermissionMode) => void;
+}) {
+  return (
+    <select value={mode} onChange={(e) => onChange(e.target.value as PermissionMode)}>
+      {MODES.map((m) => (
+        <option key={m} value={m}>
+          {m}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** The model a session runs under. A stored model outside `MODELS` is offered too. */
+export function ModelSelect({
+  model,
+  onChange,
+}: {
+  model: string;
+  onChange: (model: string) => void;
+}) {
+  const offered: readonly string[] = [INHERIT_MODEL, ...MODELS];
+  return (
+    <select value={model} onChange={(e) => onChange(e.target.value)}>
+      {(offered.includes(model) ? offered : [...offered, model]).map((m) => (
+        <option key={m} value={m}>
+          {m === INHERIT_MODEL ? 'not set' : m}
+        </option>
+      ))}
+    </select>
   );
 }
 
