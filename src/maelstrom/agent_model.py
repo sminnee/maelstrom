@@ -37,6 +37,32 @@ INTERRUPTIBLE = (
     AWAITING_PLAN_REVIEW,
 )
 
+#: The permission modes an agent can run in, in the order a cycle visits them.
+MODES = ("plan", "auto", "normal")
+
+#: The one mode whose maelstrom word is not claude's: no flag at spawn, and
+#: ``default`` on the pipe. Nothing outside this module spells ``default``.
+NORMAL = "normal"
+WIRE_MODE = {NORMAL: "default"}
+_MAELSTROM_MODE = {wire: mael for mael, wire in WIRE_MODE.items()}
+
+
+def to_wire_mode(mode: str) -> str:
+    """``mode`` as the word ``claude`` uses on the pipe."""
+    return WIRE_MODE.get(mode, mode)
+
+
+def from_wire_mode(mode: str) -> str:
+    """``mode`` as read off an event, in maelstrom's own words."""
+    return _MAELSTROM_MODE.get(mode, mode)
+
+
+def next_mode(mode: str) -> str:
+    """The mode after ``mode`` in the cycle. An unknown mode starts it over."""
+    if mode not in MODES:
+        return MODES[0]
+    return MODES[(MODES.index(mode) + 1) % len(MODES)]
+
 
 def build_agent_argv(
     permission_mode: str | None = None,
@@ -65,6 +91,10 @@ def build_agent_argv(
     ``resume`` swaps ``--session-id`` for ``--resume``, which continues the
     session ``claude`` already has on disk instead of claiming a new id. The
     same switch ``worktree_launcher.build_claude_command`` makes for a pane.
+
+    ``permission_mode`` is maelstrom's word. ``normal`` is the absence of the
+    flag rather than a value it takes, so it emits nothing: ``claude`` refuses
+    ``--permission-mode normal``.
     """
     argv = [
         "claude",
@@ -77,7 +107,7 @@ def build_agent_argv(
         "--permission-prompt-tool",
         "stdio",
     ]
-    if permission_mode:
+    if permission_mode and permission_mode != NORMAL:
         argv += ["--permission-mode", permission_mode]
     if model:
         argv += ["--model", model]
@@ -257,6 +287,9 @@ class AgentState:
     status: str = IDLE
     pending: PendingRequest | None = None
     model: str = ""
+    #: The mode the child runs in, in maelstrom's words. Read off the stream,
+    #: never from the spawn record.
+    permission_mode: str = ""
     total_cost_usd: float = 0.0
     #: Exit code of the child, once it has gone. ``None`` while it is alive.
     exit_code: int | None = None
@@ -337,6 +370,12 @@ def _one_line(text: str, limit: int = MESSAGE_SUMMARY_CHARS) -> str:
     return collapsed[:limit]
 
 
+def _mode_of(event: dict[str, Any]) -> str:
+    """The permission mode an event announces, in maelstrom's words, else empty."""
+    mode = event.get("permissionMode")
+    return from_wire_mode(mode) if isinstance(mode, str) and mode else ""
+
+
 def apply_event(state: AgentState, event: dict[str, Any]) -> AgentState:
     """The state after one event from the agent's stream.
 
@@ -360,7 +399,13 @@ def apply_event(state: AgentState, event: dict[str, Any]) -> AgentState:
             state,
             session_id=event.get("session_id", "") or state.session_id,
             model=event.get("model", "") or state.model,
+            permission_mode=_mode_of(event) or state.permission_mode,
         )
+
+    if kind == "system" and event.get("subtype") == "status":
+        # The child announces its own mode changes here too — see
+        # docs/dev/agent-daemon.md, "Changing the permission mode".
+        return replace(state, permission_mode=_mode_of(event) or state.permission_mode)
 
     if kind == "control_request":
         request = event.get("request") or {}
@@ -445,6 +490,7 @@ def build_agent_row(state: AgentState) -> dict[str, Any]:
         "session": state.session_id,
         "cwd": state.cwd,
         "model": state.model,
+        "mode": state.permission_mode,
         "waiting_on": state.pending.summary if state.pending else "",
         "last_message": _one_line(state.last_message),
         "cost": f"{state.total_cost_usd:.4f}" if state.total_cost_usd else "",
@@ -572,6 +618,22 @@ def interrupt_request(request_id: str) -> dict[str, Any]:
         "type": "control_request",
         "request_id": request_id,
         "request": {"subtype": "interrupt"},
+    }
+
+
+def set_mode_request(request_id: str, mode: str) -> dict[str, Any]:
+    """Ask the child to run the rest of the session in ``mode``.
+
+    A host-originated request, like :func:`interrupt_request`, so it carries its
+    own ``request_id``. Unlike an interrupt the reply matters: the child refuses
+    a mode it does not know.
+
+    ``mode`` is maelstrom's word; the wire gets claude's.
+    """
+    return {
+        "type": "control_request",
+        "request_id": request_id,
+        "request": {"subtype": "set_permission_mode", "mode": to_wire_mode(mode)},
     }
 
 

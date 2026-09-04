@@ -637,6 +637,7 @@ class Orchestrator:
             "agent.answer": self._answer,
             "agent.say": self._say,
             "agent.stop": self._stop,
+            "agent.setMode": self._set_mode,
             "agent.resume": self._resume_agent,
             "agent.launch": self._launch,
             "desk.add": self._desk_add,
@@ -679,6 +680,19 @@ class Orchestrator:
     async def _say(self, command: dict[str, Any]) -> dict[str, Any]:
         return await self._relay(
             {"cmd": "say", "id": command["agentId"], "text": command["text"]}
+        )
+
+    async def _set_mode(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Ask the host to change a running agent's permission mode.
+
+        A pure relay — see docs/dev/orchestrator-server.md.
+        """
+        return await self._relay(
+            {
+                "cmd": "set-mode",
+                "id": command["agentId"],
+                "mode": command["mode"],
+            }
         )
 
     async def _relay(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -796,6 +810,10 @@ def _started_row(agent_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         "session": payload["session"],
         "cwd": payload["cwd"],
         "model": payload["model"] or "",
+        # The child announces its mode in `system`/`init`, so a launched agent
+        # has none until then. Naming the requested one here would show a mode
+        # before anything confirmed it.
+        "mode": "",
         "waiting_on": "",
         "last_message": "",
         "cost": "",

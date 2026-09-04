@@ -10,6 +10,7 @@
         "session": "b41f2740-e156-4634-842f-b2211f3b005f",
         "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
         "model": "claude-opus-5",
+        "permissionMode": "plan",
         "waitingOn": "Plan awaiting review",
         "lastMessage": "Plan written to `/Users/sminnee/.claude/plans/plan-a-hello-t",
         "costUsd": 0,

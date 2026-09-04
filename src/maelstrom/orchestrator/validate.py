@@ -7,6 +7,7 @@ host is touched.
 
 from typing import Any
 
+from ..agent_model import MODES as AGENT_MODES
 from .desk import split_desk_id
 from .protocol import World
 
@@ -16,8 +17,8 @@ TASK_STATUSES = ("todo", "in-progress", "blocked", "done", "cancelled", "templat
 #: The keys ``task.update`` writes. Anything else in ``fields`` is not an edit.
 EDITABLE = ("title", "content", "branch", "command", "mode", "priority", "model")
 
-#: The three permission modes a task launches under.
-MODES = ("plan", "auto", "normal")
+#: The three permission modes, shared with a live agent — see CONTEXT.md.
+MODES = AGENT_MODES
 
 #: The notebook's four priorities, from :data:`maelstrom.task.PRIORITIES`.
 PRIORITIES = ("critical", "high", "medium", "low")
@@ -62,7 +63,7 @@ def validate_command(world: World, cmd: dict[str, Any]) -> dict[str, str] | None
             return _err("invalid", "No answers given")
         return None
 
-    if kind in ("agent.say", "agent.stop"):
+    if kind in ("agent.say", "agent.stop", "agent.setMode"):
         agent_id = cmd.get("agentId", "")
         agent = world["agents"].get(agent_id)
         if agent is None:
@@ -71,6 +72,8 @@ def validate_command(world: World, cmd: dict[str, Any]) -> dict[str, str] | None
             return _err("agent_exited", f"Agent {agent_id} has exited")
         if kind == "agent.say" and not str(cmd.get("text", "")).strip():
             return _err("invalid", "Message is empty")
+        if kind == "agent.setMode" and cmd.get("mode", "") not in MODES:
+            return _err("invalid", f"Unknown mode: {cmd.get('mode', '')}")
         return None
 
     if kind == "agent.resume":

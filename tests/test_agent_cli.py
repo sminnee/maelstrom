@@ -73,6 +73,18 @@ def test_interrupt_sends_the_interrupt_command():
     assert client.calls == [{"cmd": "interrupt", "id": "a1"}]
 
 
+def test_set_mode_sends_the_mode():
+    _, client = run_cli(["set-mode", "a1", "auto"], [{"ok": True, "mode": "auto"}])
+    assert client.calls == [{"cmd": "set-mode", "id": "a1", "mode": "auto"}]
+
+
+def test_set_mode_refuses_a_mode_that_is_not_one_of_the_three():
+    """Click rejects it, so no daemon round trip is spent on a typo."""
+    result, client = run_cli(["set-mode", "a1", "nonsense"])
+    assert result.exit_code != 0
+    assert client.calls == []
+
+
 def test_attach_refuses_without_a_terminal_and_names_tail():
     """The TUI needs a terminal, and the read-only view is what works without one."""
     result, client = run_cli(["attach", "a1"])
@@ -93,6 +105,8 @@ def test_list_renders_the_wait_kind():
     result, _ = run_cli(["list"], [{"agents": rows}])
     assert "awaiting-question" in result.output
     assert "Which colour do you prefer?" in result.output
+    assert "mode" in result.output
+    assert "normal" in result.output
 
 
 def test_list_says_so_when_nothing_runs():

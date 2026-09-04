@@ -93,6 +93,7 @@ function agent(id: string, t: Task, worktreeId: string, over: Partial<Agent> = {
     session: `sess-${id}`,
     cwd: `/Users/dev/Projects/${t.project}/${worktreeId}`,
     model: 'claude-opus-5',
+    permissionMode: 'normal',
     waitingOn: '',
     lastMessage: '',
     costUsd: 0.42,
@@ -118,6 +119,7 @@ function freeAgent(
     session: `sess-${id}`,
     cwd: `/Users/dev/Projects/${project}/${worktreeId}`,
     model: 'claude-opus-5',
+    permissionMode: 'normal',
     waitingOn: '',
     lastMessage: '',
     costUsd: 0,
@@ -343,6 +345,7 @@ body rather than the query builder.
   const agents: Agent[] = [
     agent('a1f3c9e2', nort7, 'northwind-alpha', {
       state: 'awaiting-plan-review',
+      permissionMode: 'plan',
       waitingOn: 'Plan: order export',
       lastMessage: 'The plan is ready for review.',
       pendingRequestId: 'req-nort7-plan',

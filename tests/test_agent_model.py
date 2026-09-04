@@ -33,6 +33,7 @@ from maelstrom.agent_model import (
     reply_for_answer,
     reply_for_approval,
     reply_for_denial,
+    set_mode_request,
     spec_from_dict,
     spec_to_dict,
     user_message,
@@ -492,3 +493,52 @@ def test_apply_event_stamps_each_event_with_its_seq_and_leaves_the_input_alone()
     assert [e[SEQ_KEY] for e in state.recent] == [1, 2, 3]
     assert state.seq == 3
     assert all(SEQ_KEY not in event for event in events)
+
+
+# --- the permission mode, read off the stream ------------------------------
+
+
+def test_init_carries_the_permission_mode():
+    """Every recorded transcript's ``system``/``init`` names the mode it runs in."""
+    assert replay("interrupt.jsonl").permission_mode == "auto"
+    assert replay("plan-review-with-plan.jsonl").permission_mode == "plan"
+
+
+def test_the_wire_word_default_reads_as_normal():
+    """``default`` is claude's word for the mode maelstrom calls ``normal``."""
+    assert replay("normal-turn.jsonl").permission_mode == "normal"
+
+
+def test_a_status_event_changes_the_mode():
+    """``plan-review.jsonl`` starts in plan and leaves it when the plan is approved."""
+    state = replay("plan-review.jsonl", stop_before_control=True)
+    assert state.permission_mode == "plan"
+    assert replay("plan-review.jsonl").permission_mode == "normal"
+
+
+def test_a_status_event_without_a_mode_leaves_the_mode_alone():
+    state = AgentState(agent_id="a1", cwd="/tmp/x", permission_mode="auto")
+    state = apply_event(state, {"type": "system", "subtype": "status", "status": None})
+    assert state.permission_mode == "auto"
+
+
+def test_the_row_carries_the_mode():
+    assert build_agent_row(replay("interrupt.jsonl"))["mode"] == "auto"
+
+
+def test_argv_omits_the_flag_for_normal():
+    """`normal` is the absence of `--permission-mode`, not a value it takes."""
+    assert "--permission-mode" not in build_agent_argv(permission_mode="normal")
+    assert build_agent_argv(permission_mode="plan")[-2:] == [
+        "--permission-mode",
+        "plan",
+    ]
+
+
+def test_set_mode_request_asks_the_child_to_change_mode():
+    request = set_mode_request("r1", "normal")
+    assert request == {
+        "type": "control_request",
+        "request_id": "r1",
+        "request": {"subtype": "set_permission_mode", "mode": "default"},
+    }

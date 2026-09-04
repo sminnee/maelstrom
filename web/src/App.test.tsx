@@ -310,6 +310,16 @@ describe('the session tab', () => {
     await user.click(within(prompt).getByRole('button', { name: 'Answer' }));
     expect(nodeState('MAEL-52')).not.toBe('needs-attention');
   });
+
+  it('cycles the permission mode from the chip in the head', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('NORT-9');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+    const chip = screen.getByRole('button', { name: 'normal' });
+    await user.click(chip);
+    expect(await screen.findByRole('button', { name: 'plan' })).toBeInTheDocument();
+  });
 });
 
 describe('document tabs', () => {

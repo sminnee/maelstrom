@@ -127,6 +127,10 @@ Clicking a task node expands it in place, showing the state in words ("Needs you
 review", never a raw agent state). Esc, the close button and a click on the canvas collapse
 it. The attention chip expands the next node that needs the user.
 
+The session tab head carries a mode chip naming the agent's permission mode. A click moves the
+agent to the next mode: plan, then auto, then normal. The chip shows the mode the child last
+announced, so a refused change leaves it where it was.
+
 A decision shows the last three things the agent said or did, then the prompt. A question
 follows AskUserQuestion's shape; `session/cards/QuestionPrompt.tsx` says why every answer
 sends together. A permission shows the tool input with Approve and Deny. A plan review links

@@ -4,7 +4,7 @@ import { QueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { makeAgent, makeQuestionItem, makeTask, worldWith } from '../test/fixtures';
 import { createFakeServer } from '../test/fakeServer';
-import { useAnswer, useApprove, useDeny, useResume, useSay, useStop } from './agents';
+import { useAnswer, useApprove, useDeny, useResume, useSay, useSetMode, useStop } from './agents';
 import { ApiProvider } from './ApiProvider';
 import { useAddToDesk, useRemoveFromDesk } from './desk';
 import {
@@ -90,6 +90,14 @@ describe('the mutation hooks', () => {
       agentKeys,
     ],
     ['useStop', useStop, { agentId: 'ag1' }, 'POST /api/agents/ag1/stop', {}, agentKeys],
+    [
+      'useSetMode',
+      useSetMode,
+      { agentId: 'ag1', mode: 'auto' },
+      'POST /api/agents/ag1/set-mode',
+      { mode: 'auto' },
+      agentKeys,
+    ],
     [
       'useResume',
       useResume,

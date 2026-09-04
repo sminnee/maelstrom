@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTask, useUpdateTask } from '../api/tasks';
 import type { TaskEdit } from '../api/types';
-import type { Task, TaskMode } from '../protocol/entities';
+import type { Task } from '../protocol/entities';
+import type { PermissionMode } from '../protocol/modes';
+import { MODES } from '../protocol/modes';
 import type { TaskId } from '../protocol/ids';
 import { KNOWN_COMMANDS } from '../protocol/phase';
 import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
 import styles from './TaskEditor.module.css';
 
-const MODES: TaskMode[] = ['plan', 'auto', 'normal'];
 /** From `task.PRIORITIES`, highest first. */
 const PRIORITIES = ['critical', 'high', 'medium', 'low'];
 
@@ -167,7 +168,10 @@ function TaskForm({ task }: { task: Task }) {
           </label>
           <label className={styles.field}>
             <span>Mode</span>
-            <select value={draft.mode} onChange={(e) => set({ mode: e.target.value as TaskMode })}>
+            <select
+              value={draft.mode}
+              onChange={(e) => set({ mode: e.target.value as PermissionMode })}
+            >
               {MODES.map((m) => (
                 <option key={m} value={m}>
                   {m}

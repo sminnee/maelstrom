@@ -41,6 +41,7 @@ def make_agent(**over) -> dict:
         "session": "sess-1",
         "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
         "model": "claude-opus-5",
+        "permissionMode": "",
         "waitingOn": "",
         "lastMessage": "",
         "costUsd": 0,
@@ -211,6 +212,20 @@ def test_plan_review_without_a_plan_takes_the_last_message_as_the_plan():
     doc = next(iter(state["world"]["documents"].values()))
     assert len(doc["markdown"]) > 20
     assert doc["source"]["planFilePath"] == ""
+
+
+def test_the_init_event_carries_the_permission_mode():
+    """Every recorded transcript names the mode its agent runs in."""
+    assert agent_of(replay("plan-review-with-plan.jsonl"))["permissionMode"] == "plan"
+    # `default` on the wire is the mode maelstrom calls `normal`.
+    assert agent_of(replay("normal-turn.jsonl"))["permissionMode"] == "normal"
+
+
+def test_a_status_event_changes_the_permission_mode():
+    """Approving the plan leaves plan mode, and the child says so itself."""
+    before = replay("plan-review.jsonl", stop_before_control_response=True)
+    assert agent_of(before)["permissionMode"] == "plan"
+    assert agent_of(replay("plan-review.jsonl"))["permissionMode"] == "normal"
 
 
 def test_an_approved_plan_review_resumes_the_agent_and_approves_the_document():

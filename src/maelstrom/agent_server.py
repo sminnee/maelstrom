@@ -35,6 +35,7 @@ from .agent_model import (
     EXITED,
     INTERRUPTED_REASON,
     INTERRUPTIBLE,
+    MODES,
     SEQ_KEY,
     SPEC_EXITED,
     SPEC_RUNNING,
@@ -52,6 +53,7 @@ from .agent_model import (
     reply_for_answers,
     reply_for_approval,
     reply_for_denial,
+    set_mode_request,
     user_message,
 )
 from .agent_spec_store import AgentSpecStore, JsonAgentSpecStore
@@ -62,6 +64,11 @@ log = logging.getLogger(__name__)
 
 #: How far one attached client may fall behind before it starts losing events.
 WATCHER_QUEUE_LIMIT = 1000
+
+#: How long to wait for the child to answer a request the daemon made of it.
+#: A child that never answers must fail the command rather than hang the
+#: socket: the connection serving it answers nothing until `handle` returns.
+REQUEST_TIMEOUT = 10.0
 
 
 def _offer(queue: "asyncio.Queue[dict[str, Any]]", event: dict[str, Any]) -> None:
@@ -122,6 +129,10 @@ class Agent:
         # that then dies itself is still known to the next one.
         self.on_exit = on_exit
         self.watchers: list[asyncio.Queue[dict[str, Any]]] = []
+        #: Futures waiting on a `control_response` the daemon asked for, by
+        #: request id. Only `set-mode` uses one: every other command is
+        #: fire-and-forget, because the child's own stream is the evidence.
+        self.waiting: dict[str, asyncio.Future[dict[str, Any]]] = {}
         # Held, not fire-and-forget: a task only the event loop references can
         # be garbage-collected mid-stream, which would freeze the agent's state
         # while `mael agent list` still showed it running.
@@ -154,10 +165,55 @@ class Agent:
         per copy, so the user's own message would render twice.
         """
         self.state = apply_event(self.state, message)
+        self._settle(message)
         # The stamped copy, so a watcher sees the seq the ring holds.
         stamped = self.state.recent[-1]
         for queue in list(self.watchers):
             _offer(queue, stamped)
+
+    def _settle(self, message: dict[str, Any]) -> None:
+        """Hand a ``control_response`` to whoever asked the question."""
+        if message.get("type") != "control_response":
+            return
+        response = message.get("response") or {}
+        waiter = self.waiting.pop(str(response.get("request_id", "")), None)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(response)
+
+    def fail_waiters(self) -> None:
+        """End every wait on a child that will never answer.
+
+        An exception rather than a cancellation: cancelling a waiter is
+        indistinguishable from the daemon cancelling the task that owns it, so
+        the caller could not tell a dead child from its own shutdown.
+        """
+        for waiter in list(self.waiting.values()):
+            if not waiter.done():
+                waiter.set_exception(ConnectionResetError("the agent has exited"))
+        self.waiting.clear()
+
+    async def ask(self, request: dict[str, Any]) -> dict[str, Any] | None:
+        """Send a request the child must answer, and return its response.
+
+        ``None`` when the request never went out. Raises
+        :class:`asyncio.TimeoutError` when the child does not answer in
+        :data:`REQUEST_TIMEOUT`.
+
+        The response arrives through :meth:`record`, so it reaches every
+        attached client on the way, exactly as an unsolicited one would.
+        """
+        request_id = str(request["request_id"])
+        waiter: asyncio.Future[dict[str, Any]] = (
+            asyncio.get_running_loop().create_future()
+        )
+        self.waiting[request_id] = waiter
+        try:
+            if not await self.send(request):
+                return None
+            self.record(request)
+            return await asyncio.wait_for(waiter, REQUEST_TIMEOUT)
+        finally:
+            self.waiting.pop(request_id, None)
 
     async def pump(self) -> None:
         """Read the child's stream to its end, then record that the child died.
@@ -181,6 +237,7 @@ class Agent:
         finally:
             exit_code = await self.proc.wait()
             self.state = mark_exited(self.state, exit_code)
+            self.fail_waiters()
             if self.on_exit is not None:
                 self.on_exit(exit_code)
             # Tell every watcher the stream ended because the agent did, so an
@@ -449,6 +506,35 @@ class AgentDaemon:
             await agent.stop()
             self.agents.pop(agent.state.agent_id, None)
             return {"ok": True}
+
+        if command == "set-mode":
+            mode = str(payload.get("mode", ""))
+            # Locally first: an unknown mode is the caller's mistake, and the
+            # child answers one with an error that says less than this does.
+            if mode not in MODES:
+                return {"error": f"unknown mode: {mode} — one of {', '.join(MODES)}"}
+            request = set_mode_request(str(uuid.uuid4()), mode)
+            try:
+                response = await agent.ask(request)
+            except asyncio.TimeoutError:
+                return {"error": f"agent {agent.state.agent_id} did not answer"}
+            except ConnectionResetError:
+                # `pump` fails every waiter when the child dies.
+                return {"error": f"agent {agent.state.agent_id} has exited"}
+            if response is None:
+                return _unreachable(agent)
+            if response.get("subtype") != "success":
+                # The child refused, so nothing may report the mode as changed.
+                detail = response.get("error") or "refused"
+                return {
+                    "error": f"agent {agent.state.agent_id} refused {mode}: {detail}"
+                }
+            # The spawn record is the resume contract, so a mode change that
+            # does not reach it is reverted by the next daemon start.
+            spec = self.specs.read(agent.state.agent_id)
+            if spec is not None:
+                self.specs.write(replace(spec, permission_mode=mode))
+            return {"ok": True, "mode": mode}
 
         pending = agent.state.pending
 

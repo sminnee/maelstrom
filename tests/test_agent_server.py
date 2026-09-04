@@ -436,6 +436,32 @@ def test_resume_replays_the_session_and_keeps_the_agent_id():
     assert DEFAULT_RESUME_PROMPT in sent
 
 
+def test_a_resume_after_set_mode_normal_omits_the_flag():
+    """`normal` is the absence of the flag, so the argv must not carry the word.
+
+    `claude --permission-mode normal` is refused outright, and `restore` would
+    then record the agent `exited` — losing the agent the spawn-record write
+    exists to keep.
+    """
+    daemon, specs = _daemon_with_specs()
+    specs.write(
+        AgentSpec(
+            agent_id="a1",
+            cwd="/tmp/x",
+            session_id="sid-1",
+            permission_mode="normal",
+            status="exited",
+            exit_code=-9,
+        )
+    )
+    daemon.agents["a1"] = _stub_agent()
+    daemon.agents["a1"].state = mark_exited(daemon.agents["a1"].state, -9)
+
+    spawn = _spawning(daemon, [{"cmd": "resume", "id": "a1"}])
+    argv = list(spawn.call_args.args)
+    assert "--permission-mode" not in argv
+
+
 def test_resume_of_a_child_that_never_got_its_prompt_starts_it_fresh():
     """No prompt means no transcript, so ``--resume`` would have nothing to replay."""
     daemon, specs = _daemon_with_specs(has_transcript=False)
@@ -973,3 +999,152 @@ def test_a_watcher_that_falls_a_queue_behind_is_told_what_it_lost_once(monkeypat
     seqs = [f[SEQ_KEY] for f in live if SEQ_KEY in f]
     assert seqs == [4, 5]
     assert len(seqs) == len(set(seqs))
+
+
+# --- set-mode: the one command that reads the child's answer ---------------
+
+
+def _answering_agent(subtype: str = "success", agent_id: str = "a1"):
+    """A stub agent that answers every control request the daemon sends it.
+
+    ``set-mode`` is the one command that waits for the child, so a stub that
+    never replies would hang the test rather than fail it.
+    """
+    agent = _stub_agent(agent_id)
+    sent: list[dict] = []
+
+    async def record(message: dict) -> bool:
+        sent.append(message)
+        if message.get("type") == "control_request":
+            agent.record(
+                {
+                    "type": "control_response",
+                    "response": {
+                        "subtype": subtype,
+                        "request_id": message["request_id"],
+                        **({"error": "bad mode"} if subtype == "error" else {}),
+                    },
+                }
+            )
+        return True
+
+    agent.send = record  # type: ignore[method-assign]
+    return agent, sent
+
+
+def test_set_mode_sends_the_control_request_with_the_wire_word():
+    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
+    agent, sent = _answering_agent()
+    daemon.agents["a1"] = agent
+    reply = asyncio.run(
+        _handle(daemon, {"cmd": "set-mode", "id": "a1", "mode": "normal"})
+    )
+    assert reply == {"ok": True, "mode": "normal"}
+    assert sent[0]["request"] == {"subtype": "set_permission_mode", "mode": "default"}
+
+
+def test_set_mode_rewrites_the_spawn_record():
+    """Without this a resume or a daemon restart silently reverts the mode."""
+    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
+    daemon.agents["a1"] = _answering_agent()[0]
+    asyncio.run(_handle(daemon, {"cmd": "set-mode", "id": "a1", "mode": "auto"}))
+    spec = daemon.specs.read("a1")
+    assert spec is not None
+    assert spec.permission_mode == "auto"
+
+
+def test_set_mode_refuses_an_unknown_mode_before_touching_the_child():
+    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    agent, sent = _answering_agent()
+    daemon.agents["a1"] = agent
+    reply = asyncio.run(
+        _handle(daemon, {"cmd": "set-mode", "id": "a1", "mode": "nonsense"})
+    )
+    assert "unknown mode" in reply["error"]
+    assert sent == []
+
+
+def test_set_mode_reports_a_mode_the_child_refused():
+    """An error reply must not be recorded as a change that happened."""
+    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
+    daemon.agents["a1"] = _answering_agent(subtype="error")[0]
+    reply = asyncio.run(
+        _handle(daemon, {"cmd": "set-mode", "id": "a1", "mode": "plan"})
+    )
+    assert "error" in reply
+    spec = daemon.specs.read("a1")
+    assert spec is not None
+    assert spec.permission_mode is None
+
+
+def test_set_mode_reports_a_child_that_never_answers():
+    """The timeout is what stops one quiet child holding the socket open."""
+    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
+    agent, _ = _sending_agent()  # sends, but never answers
+    daemon.agents["a1"] = agent
+    with patch.object(agent_server, "REQUEST_TIMEOUT", 0.01):
+        reply = asyncio.run(
+            _handle(daemon, {"cmd": "set-mode", "id": "a1", "mode": "auto"})
+        )
+    assert "did not answer" in reply["error"]
+    spec = daemon.specs.read("a1")
+    assert spec is not None
+    assert spec.permission_mode is None
+
+
+def test_set_mode_reports_a_child_whose_stdin_would_not_take_it():
+    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
+    agent = _stub_agent()  # a closing stdin, so `send` returns False
+
+    async def refuse(message: dict) -> bool:
+        return False
+
+    agent.send = refuse  # type: ignore[method-assign]
+    daemon.agents["a1"] = agent
+    reply = asyncio.run(
+        _handle(daemon, {"cmd": "set-mode", "id": "a1", "mode": "auto"})
+    )
+    assert "could not reach agent" in reply["error"]
+
+
+def test_set_mode_reports_a_child_that_dies_mid_request():
+    """The child's death ends the wait, and says so rather than cancelling us.
+
+    A cancellation here would be indistinguishable from the daemon shutting
+    down, so `pump` fails the waiter instead.
+    """
+    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
+    agent = _stub_agent()
+
+    async def send_then_die(message: dict) -> bool:
+        # The child takes the request, then its stream ends before it answers.
+        agent.fail_waiters()
+        return True
+
+    agent.send = send_then_die  # type: ignore[method-assign]
+    daemon.agents["a1"] = agent
+    reply = asyncio.run(
+        _handle(daemon, {"cmd": "set-mode", "id": "a1", "mode": "auto"})
+    )
+    assert "has exited" in reply["error"]
+    spec = daemon.specs.read("a1")
+    assert spec is not None
+    assert spec.permission_mode is None
+
+
+def test_set_mode_refuses_an_exited_agent():
+    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    agent, sent = _answering_agent()
+    agent.state = mark_exited(agent.state, 1)
+    daemon.agents["a1"] = agent
+    reply = asyncio.run(
+        _handle(daemon, {"cmd": "set-mode", "id": "a1", "mode": "auto"})
+    )
+    assert "has exited" in reply["error"]
+    assert sent == []

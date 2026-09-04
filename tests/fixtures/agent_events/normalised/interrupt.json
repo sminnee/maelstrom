@@ -10,6 +10,7 @@
         "session": "ddf63b8c-399f-4ab3-bdde-f6b151e1da5f",
         "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
         "model": "claude-opus-5",
+        "permissionMode": "auto",
         "waitingOn": "",
         "lastMessage": "# The History of the Bicycle ## An Idea Waiting for Its Mate",
         "costUsd": 0,

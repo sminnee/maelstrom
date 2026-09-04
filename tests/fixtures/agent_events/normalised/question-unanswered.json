@@ -10,6 +10,7 @@
         "session": "d983eaed-4042-4ad4-be37-6f61bdc3dcc5",
         "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
         "model": "claude-opus-5[1m]",
+        "permissionMode": "normal",
         "waitingOn": "",
         "lastMessage": "I asked, but the question wasn't answered — no colour was se",
         "costUsd": 0.0604885,

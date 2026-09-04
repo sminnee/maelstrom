@@ -59,6 +59,22 @@ def test_agent_exited_when_the_agent_has_gone():
     assert code(validate_command(world, cmd)) == "agent_exited"
 
 
+def test_a_set_mode_of_a_running_agent_is_allowed():
+    cmd = {"type": "agent.setMode", "agentId": "agent-1", "mode": "auto"}
+    assert validate_command(world_with(agents=[make_agent(state="idle")]), cmd) is None
+
+
+def test_a_set_mode_to_an_unknown_mode_is_refused():
+    cmd = {"type": "agent.setMode", "agentId": "agent-1", "mode": "nonsense"}
+    assert code(validate_command(world_with(agents=[make_agent()]), cmd)) == "invalid"
+
+
+def test_a_set_mode_of_an_exited_agent_is_refused():
+    world = world_with(agents=[make_agent(state="exited", exitCode=0)])
+    cmd = {"type": "agent.setMode", "agentId": "agent-1", "mode": "auto"}
+    assert code(validate_command(world, cmd)) == "agent_exited"
+
+
 def test_a_resume_of_an_exited_agent_is_allowed():
     agent = make_agent(state="exited", exitCode=1)
     cmd = {"type": "agent.resume", "agentId": "agent-1"}

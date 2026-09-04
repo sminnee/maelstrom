@@ -177,6 +177,7 @@ def agent_entity(
         "session": row.get("session") or "",
         "cwd": row.get("cwd") or "",
         "model": row.get("model") or "",
+        "permissionMode": row.get("mode") or "",
         "waitingOn": row.get("waiting_on") or "",
         "lastMessage": row.get("last_message") or "",
         "costUsd": float(cost),

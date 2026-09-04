@@ -125,6 +125,7 @@ class Agent(TypedDict):
     session: str
     cwd: str
     model: str
+    permissionMode: str
     waitingOn: str
     lastMessage: str
     costUsd: float

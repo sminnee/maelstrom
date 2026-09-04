@@ -170,6 +170,7 @@ export function NodeCard({
     where?.branch || task?.branch || '',
     where?.nato || (agent ? agent.worktreeId : ''),
     agent?.model || task?.model || '',
+    agent?.permissionMode || '',
     agent?.costUsd ? `$${agent.costUsd.toFixed(2)}` : '',
   ].filter(Boolean);
   const title = nodeTitle(node);

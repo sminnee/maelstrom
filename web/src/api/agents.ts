@@ -81,6 +81,13 @@ export function useSay() {
   );
 }
 
+/** Change a running agent's permission mode. The child's own status event moves the world. */
+export function useSetMode() {
+  return useAgentMutation((api, vars: { agentId: AgentId; mode: string }) =>
+    api.post(`/api/agents/${vars.agentId}/set-mode`, { mode: vars.mode }),
+  );
+}
+
 export function useStop() {
   return useAgentMutation((api, vars: { agentId: AgentId }) =>
     api.post(`/api/agents/${vars.agentId}/stop`),

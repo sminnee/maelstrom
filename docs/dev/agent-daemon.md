@@ -48,9 +48,9 @@ the state machine, so nothing here is designed from an assumed shape.
 
 ### A turn
 
-A turn opens with `system`/`init`, which carries the `session_id` and the model. Assistant output
-arrives as `assistant` events. The turn closes with a `result` event carrying `total_cost_usd`
-and `subtype`.
+A turn opens with `system`/`init`, which carries the `session_id`, the model and the permission
+mode. Assistant output arrives as `assistant` events. The turn closes with a `result` event
+carrying `total_cost_usd` and `subtype`.
 
 ### A wait
 
@@ -144,6 +144,37 @@ An interrupt does not answer a request the child is blocked on. So the daemon de
 wait first, with the reason `Interrupted by user`, and the child returns that denial as the tool
 result before the interrupt lands. Recorded in
 `tests/fixtures/agent_events/interrupt-while-waiting.jsonl`.
+
+### Changing the permission mode
+
+A mode change is the second message the host sends that is not a reply, and the only one whose
+answer the daemon reads:
+
+```json
+{"type": "control_request", "request_id": "spm-1",
+ "request": {"subtype": "set_permission_mode", "mode": "acceptEdits"}}
+```
+
+The child answers, then announces the mode it is now in:
+
+```json
+{"type": "control_response", "response": {"subtype": "success",
+ "request_id": "spm-1", "response": {"mode": "acceptEdits"}}}
+{"type": "system", "subtype": "status", "status": null,
+ "permissionMode": "acceptEdits", …}
+```
+
+A mode the child does not know comes back with `subtype: "error"` instead. So the daemon waits
+for the answer: reporting a refusal as a change would leave the spawn record, the list row and
+the teleport footer all naming a mode the agent is not in. The daemon waits 10 seconds, then
+fails the command.
+
+`system`/`status` is the only thing any surface reads the mode from. The child also sends one
+when it changes mode by itself — approving an `ExitPlanMode` leaves plan mode with nobody asking.
+Recorded in `tests/fixtures/agent_events/plan-review.jsonl`.
+
+maelstrom's three modes are `plan`, `normal` and `auto`. `WIRE_MODE` in `agent_model.py` maps
+them to claude's words, and nothing else spells `default`.
 
 ### Sending a message
 
@@ -309,19 +340,23 @@ The screen has three parts. A transcript shows the agent's messages, its tool ca
 first few lines of each result, and how each turn ended. A console at the bottom sends what you
 type as a user message, and the transcript shows it. A line above the console says the agent is
 working while it owes a reply. A footer names the working directory, the model, the tokens
-consumed, the git branch and the agent's state.
+consumed, the git branch, the agent's state and its permission mode.
 
 A wait is answered in place. A permission ask, a question and a plan review each open a prompt
 over the transcript, so you never leave the terminal to run `mael agent approve` in another one.
 The prompt closes by itself when the wait ends some other way — another client answered it, the
 turn ended, or the agent died.
 
-Two keys work everywhere, including inside a prompt:
+Three keys work everywhere, including inside a prompt:
 
 | Key | What it does |
 |---|---|
 | Esc | Interrupts the running turn. Nothing happens when the agent is idle. |
+| Shift-Tab | Moves the agent to the next permission mode: plan, then auto, then normal. |
 | Ctrl-C or Ctrl-D | Detaches. The agent keeps running; `mael agent stop` is what ends one. |
+
+Shift-Tab works inside a prompt on purpose. A permission ask is exactly when the mode you want
+is a different one.
 
 Esc inside a prompt is not "close this prompt". The daemon denies the pending request and then
 interrupts the turn, which is what Esc at a permission ask does in Claude Code itself.
@@ -353,6 +388,7 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 | `deny` | `id`; optional `reason` | `{"ok": true}` |
 | `answer` | `id`; `answers` (a map keyed by question text) or `choice` | `{"ok": true}` |
 | `interrupt` | `id` | `{"ok": true}` |
+| `set-mode` | `id`, `mode` (`plan`, `normal` or `auto`) | `{"ok": true, "mode": "<mode>"}` |
 | `stop` | `id` | `{"ok": true}` |
 | `resume` | `id`; optional `text` | `{"ok": true, "id": "<agent id>"}` |
 | `attach` | `id`; optional `from`, `epoch` | A stream; see below |
@@ -370,6 +406,11 @@ that has run before already owns its session id, and claiming it again is refuse
 orchestrator sets this from the transcript on disk.
 
 `interrupt` abandons the turn the agent is running and leaves the agent alive.
+
+`set-mode` changes the permission mode of a running agent, and takes effect on the turn the agent
+is running. It is the one command that reads the child's answer, so a mode the child refuses is
+reported as a refusal. On success the daemon rewrites the spawn record, so a resume or a daemon
+restart keeps the new mode.
 
 `stop` removes the agent from the daemon and deletes its spawn record. A later `list` does not
 name it, and no later daemon start brings it back.
@@ -389,6 +430,9 @@ spawning — a bad `--model`, an expired login, a `--resume` Claude will not acc
 | `agent <id> has exited` | Any command except `show`, `stop` and `resume` against an exited agent |
 | `agent <id> is running` | `resume` against an agent that has not exited |
 | `agent <id> has no spawn record` | `resume` when a `stop` deleted the record first |
+| `unknown mode: <mode> — one of plan, normal, auto` | `set-mode` with a mode maelstrom does not have |
+| `agent <id> refused <mode>: …` | `set-mode` the child would not accept |
+| `agent <id> did not answer` | `set-mode` when the child stays quiet for 10 seconds |
 | `agent <id> is not waiting` | `approve`, `deny` or `answer` with no pending request |
 | `agent <id> is not waiting on a question — use approve or deny` | `answer` against a permission or plan review |
 | `no answers given` | `answer` with an empty `answers` map |
@@ -490,7 +534,7 @@ writes one record per agent to `~/.maelstrom/agents/<agent-id>.json`, holding ex
 |---|---|
 | `agent_id`, `cwd` | The id the orchestrator and the user already know; where to spawn |
 | `session_id` | Always set — the daemon mints one when the caller gives none. A child that dies before its `system/init` stays resumable |
-| `permission_mode`, `model`, `env` | The argv and environment to rebuild. `env` is the caller's own extra vars only |
+| `permission_mode`, `model`, `env` | The argv and environment to rebuild. `env` is the caller's own extra vars only. `set-mode` rewrites `permission_mode`, so a resume keeps the mode the agent was moved to |
 | `prompt` | A child that died before its first turn is started again with the prompt it never got |
 | `status` | `running` or `exited`. A `stop` deletes the record |
 | `exit_code` | So `list` still reports the exit after a daemon restart |

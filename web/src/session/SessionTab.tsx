@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react';
-import { useAnswer, useApprove, useDeny, useSay } from '../api/agents';
+import { useAnswer, useApprove, useDeny, useSay, useSetMode } from '../api/agents';
 import { useWorld } from '../api/useWorld';
 import { useAgentStream } from '../live/useAgentStream';
+import { nextMode } from '../protocol/modes';
 import { describeState } from '../selectors/status';
 import { answeredOnCanvas } from '../selectors/transcript';
 import { useAppStore } from '../store/store';
+import { AppButton } from '../ui/AppButton';
 import { MessageInput } from './MessageInput';
 import { Transcript } from './Transcript';
 import styles from './SessionTab.module.css';
@@ -15,6 +17,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
   const deny = useDeny();
   const answer = useAnswer();
   const say = useSay();
+  const setMode = useSetMode();
   const { world } = useWorld();
   const agent = world.agents[agentId];
   const task = agent ? world.tasks[agent.taskId] : undefined;
@@ -38,6 +41,16 @@ export function SessionTab({ agentId }: { agentId: string }) {
         <span className={styles.state} data-state={agent.state}>
           {describeState(task, agent)}
         </span>
+        {agent.permissionMode && (
+          <AppButton
+            variant="quiet"
+            className={styles.mode}
+            title={`Permission mode: ${agent.permissionMode}. Click for ${nextMode(agent.permissionMode)}.`}
+            onClick={() => setMode.mutateAsync({ agentId, mode: nextMode(agent.permissionMode) })}
+          >
+            {agent.permissionMode}
+          </AppButton>
+        )}
         {agent.waitingOn && <span className={styles.waiting}>{agent.waitingOn}</span>}
       </div>
       <div className={styles.scroll}>

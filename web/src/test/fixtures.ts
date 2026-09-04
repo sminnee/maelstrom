@@ -60,6 +60,7 @@ export function makeAgent(over: Partial<Agent> = {}): Agent {
     session: 'sess-1',
     cwd: '/Users/dev/Projects/northwind/northwind-alpha',
     model: 'claude-opus-5',
+    permissionMode: 'normal',
     waitingOn: '',
     lastMessage: '',
     costUsd: 0,

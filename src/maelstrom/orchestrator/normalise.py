@@ -13,10 +13,16 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from ..agent_model import PLAN_TOOL, QUESTION_TOOL
+from ..agent_model import PLAN_TOOL, QUESTION_TOOL, from_wire_mode
 from .protocol import Agent, Attention, ClientState, Document, ServerEvent
 
 Dict = dict[str, Any]
+
+
+def _mode_of(raw: Dict) -> str:
+    """The permission mode an event announces, in maelstrom's words, else empty."""
+    mode = raw.get("permissionMode")
+    return from_wire_mode(mode) if isinstance(mode, str) and mode else ""
 
 
 @dataclass(frozen=True)
@@ -130,6 +136,7 @@ def normalise_stream_event(
         if raw.get("subtype") == "init":
             session_id = _str(raw.get("session_id"))
             model = _str(raw.get("model"))
+            mode = _mode_of(raw)
             out.append(
                 {
                     "type": "system",
@@ -142,8 +149,14 @@ def normalise_stream_event(
                 {
                     "session": session_id or agent["session"],
                     "model": model or agent["model"],
+                    "permissionMode": mode or agent["permissionMode"],
                 }
             )
+        elif raw.get("subtype") == "status":
+            # A mode is a state, not something said, so no transcript item.
+            mode = _mode_of(raw)
+            if mode:
+                out.agent({"permissionMode": mode})
         elif raw.get("subtype") == "permission_denied":
             out.ctx = replace(
                 out.ctx,

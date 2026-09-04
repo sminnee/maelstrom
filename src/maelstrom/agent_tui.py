@@ -29,7 +29,7 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Button, Footer, Input, Markdown, SelectionList, Static
 
-from .agent_model import AGENT_EXITED, INTERRUPTIBLE, RECENT_LIMIT
+from .agent_model import AGENT_EXITED, INTERRUPTIBLE, RECENT_LIMIT, next_mode
 from .agent_transport import AsyncDaemonClient
 from .agent_view import (
     AttachView,
@@ -423,6 +423,7 @@ class AttachApp(App[None]):
 
     BINDINGS = [
         Binding("escape", "interrupt", "Interrupt", priority=True),
+        Binding("shift+tab", "cycle_mode", "Mode", priority=True),
         Binding("ctrl+c", "detach", "Detach", priority=True),
         Binding("ctrl+d", "detach", "Detach", show=False, priority=True),
     ]
@@ -578,7 +579,9 @@ class AttachApp(App[None]):
 
     def _render_status(self) -> None:
         fields = footer_fields(self.view, self._branch)
-        parts = [fields[key] for key in ("cwd", "model", "tokens", "branch", "state")]
+        parts = [
+            fields[key] for key in ("cwd", "model", "tokens", "branch", "state", "mode")
+        ]
         self.query_one("#status", Static).update("  ·  ".join(p for p in parts if p))
 
     # -- the prompts --
@@ -673,6 +676,20 @@ class AttachApp(App[None]):
         reply = await self.client.request({"cmd": "interrupt", "id": self.agent_id})
         if "error" in reply:
             self.notify(str(reply["error"]), severity="error")
+
+    def action_cycle_mode(self) -> None:
+        """Move the agent to the next permission mode."""
+        self.run_worker(self._cycle_mode(), exit_on_error=False)
+
+    async def _cycle_mode(self) -> None:
+        fields = footer_fields(self.view, self._branch)
+        mode = next_mode(fields["mode"])
+        reply = await self.client.request(
+            {"cmd": "set-mode", "id": self.agent_id, "mode": mode}
+        )
+        if "error" in reply:
+            self.notify(str(reply["error"]), severity="error")
+        # The footer is not touched here: the child announces the mode it is in.
 
     def action_detach(self) -> None:
         """Leave, with the agent still running. ``mael agent stop`` ends one."""
