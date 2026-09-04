@@ -121,4 +121,11 @@ describe('QuestionPrompt', () => {
     expect(screen.queryByRole('button')).toBeNull();
     expect(screen.queryByRole('radio')).toBeNull();
   });
+
+  it('offers nothing for a question nothing answered, even with a handler', () => {
+    render(<QuestionPrompt item={{ ...item([EXPORT]), stale: true }} onAnswer={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Answer' })).toBeNull();
+    expect(screen.queryAllByRole('radio')).toHaveLength(0);
+    expect(screen.getByText('no longer pending')).toBeInTheDocument();
+  });
 });

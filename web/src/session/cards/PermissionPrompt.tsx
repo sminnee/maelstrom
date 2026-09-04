@@ -13,7 +13,11 @@ export function PermissionPrompt({
 }) {
   const [reason, setReason] = useState('');
   return (
-    <div className={styles.prompt} data-decision={item.decision}>
+    <div
+      className={styles.prompt}
+      data-decision={item.decision}
+      data-stale={item.stale || undefined}
+    >
       <div className={styles.qhead}>Permission · {item.tool}</div>
       <div>{item.description || item.tool}</div>
       <ToolInput tool={item.tool} input={item.input} />
@@ -22,6 +26,8 @@ export function PermissionPrompt({
           {item.decision === 'allow' ? 'allowed' : 'denied'}
           {item.reason ? ` · ${item.reason}` : ''}
         </div>
+      ) : item.stale ? (
+        <div className={styles.answer}>no longer pending</div>
       ) : (
         <div className={styles.options}>
           <button

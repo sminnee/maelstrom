@@ -22,7 +22,8 @@
   border: 1px solid var(--phase-planning);
   border-radius: var(--radius);
 }
-.plan[data-decision] {
+.plan[data-decision],
+.plan[data-stale] {
   border-color: var(--border);
 }
 .decision {
