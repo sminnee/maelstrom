@@ -27,6 +27,17 @@ export function contextBefore(items: TranscriptItem[], requestId: RequestId, n =
   return context;
 }
 
+/**
+ * Whether the expanded card answers this wait, so the panel must not.
+ * One request has one live prompt — see `docs/dev/orchestrator-ui.md`.
+ *
+ * Both ids are node ids: a task node draws under its task id, a free agent
+ * under its own, so an agent with no task still matches its card.
+ */
+export function answeredOnCanvas(expandedNodeId: string | null, waitingNodeId: string): boolean {
+  return expandedNodeId !== null && expandedNodeId === waitingNodeId;
+}
+
 /** The tool whose `tool_use` raised this wait, or '' for an item that is not a wait. */
 function raisingTool(item: TranscriptItem): string {
   switch (item.type) {

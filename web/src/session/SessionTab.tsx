@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { describeState } from '../selectors/status';
+import { answeredOnCanvas } from '../selectors/transcript';
 import { useAppStore } from '../store/store';
 import { useCommand } from '../store/useCommand';
 import { MessageInput } from './MessageInput';
@@ -14,6 +15,10 @@ export function SessionTab({ agentId }: { agentId: string }) {
   const transcript = useAppStore((s) => s.transcripts[agentId]);
   const bottom = useRef<HTMLDivElement>(null);
   const count = transcript?.items.length ?? 0;
+  const expandedNodeId = useAppStore((s) => s.ui.expandedNodeId);
+  // A free agent draws under its own id, a task node under its task's.
+  const deferred =
+    agent?.pendingRequestId != null && answeredOnCanvas(expandedNodeId, agent.taskId || agent.id);
 
   useEffect(() => {
     bottom.current?.scrollIntoView?.({ block: 'end' });
@@ -33,6 +38,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
         <Transcript
           items={transcript?.items ?? []}
           truncatedBefore={transcript?.truncatedBefore ?? false}
+          deferredRequestId={deferred ? agent.pendingRequestId : null}
           handlers={{
             onAnswer: (requestId, answers) =>
               void send({ type: 'agent.answer', agentId, requestId, answers }),
