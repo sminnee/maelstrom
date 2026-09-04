@@ -1411,3 +1411,233 @@ def test_the_listing_prefers_a_stopped_record_over_an_exited_one():
         ]
         assert row["id"] == "aaa"
         assert row["model"] == "opus"
+
+
+# --- subagents on the socket ---------------------------------------------------
+
+
+def _parented(parent_id: str, text: str) -> dict:
+    return {
+        "type": "assistant",
+        "message": {"content": [{"type": "text", "text": text}]},
+        "parent_tool_use_id": parent_id,
+        "task_description": "a task",
+    }
+
+
+def _notification(tool_use_id: str, status: str = "completed") -> dict:
+    return {
+        "type": "system",
+        "subtype": "task_notification",
+        "task_id": "t",
+        "tool_use_id": tool_use_id,
+        "status": status,
+        "summary": "done",
+    }
+
+
+def _agent_with_subagent() -> tuple[AgentDaemon, Agent]:
+    """A daemon holding ``a1`` with a live subagent ``a1.1`` that said two things."""
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    agent.record({"type": "assistant", "message": {"content": []}})
+    agent.record(_parented("t1", "one"))
+    agent.record(_parented("t1", "two"))
+    daemon.agents["a1"] = agent
+    return daemon, agent
+
+
+def test_list_names_each_subagent_under_its_parent():
+    """Driven by a recorded stream, so the row reads the shapes claude sends."""
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    agent.state = replay("subagent-turn.jsonl")
+    daemon.agents["a1"] = agent
+    reply = asyncio.run(_handle(daemon, {"cmd": "list"}))
+    assert [(r["id"], r["parent"], r["state"]) for r in reply["agents"]] == [
+        ("a1", "", "idle"),
+        ("a1.1", "a1", "exited(0)"),
+    ]
+    assert reply["agents"][1]["description"] == "List and summarise docs/dev"
+
+
+def test_show_on_a_subagent_prints_the_subagent():
+    daemon, _ = _agent_with_subagent()
+    reply = asyncio.run(_handle(daemon, {"cmd": "show", "id": "a1.1"}))
+    assert reply["agent"]["id"] == "a1.1"
+    assert reply["agent"]["message"] == "two"
+
+
+def test_show_on_an_unopened_subagent_is_no_such_agent():
+    daemon, _ = _agent_with_subagent()
+    reply = asyncio.run(_handle(daemon, {"cmd": "show", "id": "a1.9"}))
+    assert "no such agent" in reply["error"]
+
+
+def test_driving_a_subagent_is_refused_with_the_parent_named():
+    daemon, _ = _agent_with_subagent()
+    for command in ("say", "approve", "deny", "answer", "interrupt", "stop", "resume"):
+        reply = asyncio.run(
+            _handle(daemon, {"cmd": command, "id": "a1.1", "text": "x"})
+        )
+        assert reply["error"] == "a1.1 is a subagent of a1; drive a1", command
+    reply = asyncio.run(
+        _handle(daemon, {"cmd": "set-mode", "id": "a1.1", "mode": "auto"})
+    )
+    assert reply["error"] == "a1.1 is a subagent of a1; drive a1"
+
+
+def test_a_typo_against_a_subagent_is_an_unknown_command_not_a_refusal():
+    daemon, _ = _agent_with_subagent()
+    reply = asyncio.run(_handle(daemon, {"cmd": "wat", "id": "a1.1"}))
+    assert "unknown command" in reply["error"]
+
+
+def test_a_parent_attach_never_sees_a_subagents_event():
+    from maelstrom.agent_model import SEQ_KEY
+
+    daemon, agent = _agent_with_subagent()
+    writer = _recording_writer()
+
+    async def scenario():
+        task = asyncio.create_task(daemon._attach("a1", writer))
+        await asyncio.sleep(0)
+        agent.record(_parented("t1", "three"))
+        agent.record({"type": "assistant", "message": {"content": []}})
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        task.cancel()
+
+    asyncio.run(scenario())
+    frames = _frames(writer)
+    assert all(f.get("parent_tool_use_id") is None for f in frames)
+    live = [f for f in frames if SEQ_KEY in f]
+    assert [f[SEQ_KEY] for f in live] == [1, 2]
+
+
+def test_attach_to_a_subagent_opens_with_its_detail_and_replays_its_ring():
+    from maelstrom.agent_model import SEQ_KEY
+
+    daemon, agent = _agent_with_subagent()
+    frames = _attach_briefly(daemon, "a1.1")
+    assert frames[0]["type"] == AGENT_DETAIL
+    assert frames[0]["agent"]["id"] == "a1.1"
+    assert frames[0]["agent"]["parent"] == "a1"
+    replayed = [f for f in frames if SEQ_KEY in f]
+    assert [f[SEQ_KEY] for f in replayed] == [1, 2]
+    assert all(f["parent_tool_use_id"] == "t1" for f in replayed)
+    assert frames[-1] == {"type": BACKLOG_END, "epoch": agent.epoch, "seq": 2}
+
+
+def test_a_cursor_on_a_subagent_replays_only_what_is_newer():
+    from maelstrom.agent_model import SEQ_KEY
+
+    daemon, agent = _agent_with_subagent()
+    frames = _attach_briefly(daemon, "a1.1", from_seq=1, epoch=agent.epoch)
+    assert [f[SEQ_KEY] for f in frames if SEQ_KEY in f] == [2]
+    assert TRUNCATED not in [f.get("type") for f in frames]
+
+
+def test_a_subagent_attach_follows_its_live_events():
+    from maelstrom.agent_model import SEQ_KEY
+
+    daemon, agent = _agent_with_subagent()
+    writer = _recording_writer()
+
+    async def scenario():
+        task = asyncio.create_task(daemon._attach("a1.1", writer))
+        await asyncio.sleep(0)
+        agent.record({"type": "assistant", "message": {"content": []}})
+        agent.record(_parented("t1", "three"))
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        task.cancel()
+
+    asyncio.run(scenario())
+    live = [f for f in _frames(writer) if SEQ_KEY in f]
+    assert [f[SEQ_KEY] for f in live] == [1, 2, 3]
+    assert live[-1]["message"]["content"][0]["text"] == "three"
+
+
+def test_the_notification_ends_the_subagents_stream_and_only_that_one():
+    from maelstrom.agent_model import AGENT_EXITED
+
+    daemon, agent = _agent_with_subagent()
+    parent, child = _recording_writer(), _recording_writer()
+
+    async def scenario():
+        parent_task = asyncio.create_task(daemon._attach("a1", parent))
+        child_task = asyncio.create_task(daemon._attach("a1.1", child))
+        await asyncio.sleep(0)
+        agent.record(_notification("t1"))
+        await asyncio.wait_for(child_task, timeout=2)
+        await asyncio.sleep(0)
+        parent_task.cancel()
+
+    asyncio.run(scenario())
+    assert _frames(child)[-1] == {"type": AGENT_EXITED, "exit_code": 0}
+    kinds = [f.get("type") for f in _frames(parent)]
+    assert AGENT_EXITED not in kinds
+    assert "system" in kinds  # the notification itself is the parent's
+
+
+def test_a_failed_subagent_ends_its_stream_with_exit_one():
+    from maelstrom.agent_model import AGENT_EXITED
+
+    daemon, agent = _agent_with_subagent()
+    child = _recording_writer()
+
+    async def scenario():
+        task = asyncio.create_task(daemon._attach("a1.1", child))
+        await asyncio.sleep(0)
+        agent.record(_notification("t1", "failed"))
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(scenario())
+    assert _frames(child)[-1] == {"type": AGENT_EXITED, "exit_code": 1}
+
+
+def test_attaching_to_an_ended_subagent_ends_after_the_backlog():
+    from maelstrom.agent_model import AGENT_EXITED
+
+    daemon, agent = _agent_with_subagent()
+    agent.record(_notification("t1"))
+    writer = _recording_writer()
+    asyncio.run(asyncio.wait_for(daemon._attach("a1.1", writer), timeout=2))
+    kinds = [f.get("type") for f in _frames(writer)]
+    assert kinds[-2:] == [BACKLOG_END, AGENT_EXITED]
+
+
+def test_a_parent_exit_reaches_the_subagents_watchers_too():
+    from maelstrom.agent_model import AGENT_EXITED
+
+    proc = MagicMock()
+    proc.stdin.is_closing.return_value = True
+    proc.stdout.readline = AsyncMock(return_value=b"")
+    proc.wait = AsyncMock(return_value=3)
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = Agent("a1", "/tmp/x", proc)
+    agent.record(_parented("t1", "one"))
+    daemon.agents["a1"] = agent
+    parent, child = _recording_writer(), _recording_writer()
+
+    async def scenario():
+        tasks = [
+            asyncio.create_task(daemon._attach("a1", parent)),
+            asyncio.create_task(daemon._attach("a1.1", child)),
+        ]
+        await asyncio.sleep(0)
+        await agent.pump()
+        for task in tasks:
+            await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(scenario())
+    assert _frames(parent)[-1] == {"type": AGENT_EXITED, "exit_code": 3}
+    assert _frames(child)[-1] == {"type": AGENT_EXITED, "exit_code": 3}
+
+
+def test_attach_to_an_unopened_subagent_is_no_such_agent():
+    daemon, _ = _agent_with_subagent()
+    writer = _recording_writer()
+    asyncio.run(daemon._attach("a1.9", writer))
+    assert "no such agent" in _frames(writer)[0]["error"]
