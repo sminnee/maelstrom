@@ -1,4 +1,4 @@
-import { deskIdForTask } from '../../protocol/deskId';
+import { deskIdForAgent, deskIdForTask } from '../../protocol/deskId';
 import type { Attention } from '../../protocol/attention';
 import type { Document } from '../../protocol/documents';
 import type { Agent, Project, Task, Worktree } from '../../protocol/entities';
@@ -101,6 +101,32 @@ function agent(id: string, t: Task, worktreeId: string, over: Partial<Agent> = {
     project: t.project,
     worktreeId,
     phase: t.phase,
+    exitCode: null,
+    pendingRequestId: null,
+    ...over,
+  };
+}
+
+/** An agent with no task: started by hand, so no task session id links it. */
+function freeAgent(
+  id: string,
+  project: string,
+  worktreeId: string,
+  over: Partial<Agent> = {},
+): Agent {
+  return {
+    id,
+    state: 'processing',
+    session: `sess-${id}`,
+    cwd: `/Users/dev/Projects/${project}/${worktreeId}`,
+    model: 'claude-opus-5',
+    waitingOn: '',
+    lastMessage: '',
+    costUsd: 0,
+    taskId: '',
+    project,
+    worktreeId,
+    phase: 'executing',
     exitCode: null,
     pendingRequestId: null,
     ...over,
@@ -333,6 +359,10 @@ export function seedWorld(): Seed {
       lastMessage: 'CI is red on the integration job; reading the log.',
       costUsd: 0.66,
     }),
+    freeAgent('f2c6a9d4', 'maelstrom', 'maelstrom-bravo', {
+      lastMessage: 'Reading the index reader before I touch it.',
+      costUsd: 0.19,
+    }),
   ];
 
   const documents: Document[] = [
@@ -387,12 +417,14 @@ export function seedWorld(): Seed {
     comments: {},
     attention: keyed(attention),
     // The seed desk holds every task still in play, so the canvas opens with
-    // work on it. Done and cancelled tasks live in the task list only.
-    desk: keyed(
-      Object.values(byId)
+    // work on it. Done and cancelled tasks live in the task list only. A free
+    // agent joins the desk the way the server's auto-join would put it there.
+    desk: keyed([
+      ...Object.values(byId)
         .filter((t) => t.status !== 'done' && t.status !== 'cancelled')
         .map((t) => ({ id: deskIdForTask(t.id), addedAt: T(120) })),
-    ),
+      ...agents.filter((a) => !a.taskId).map((a) => ({ id: deskIdForAgent(a.id), addedAt: T(30) })),
+    ]),
   };
 
   const transcripts: Record<AgentId, Transcript> = {

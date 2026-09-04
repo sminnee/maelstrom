@@ -18,17 +18,49 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: 'maelstrom' })).toBeInTheDocument();
   });
 
-  it('renders one node per task on the desk', async () => {
+  it('renders one node per task on the desk, and one per free agent', async () => {
     await renderApp();
     const world = seedWorld().world;
-    const expected = Object.values(world.tasks)
+    const tasks = Object.values(world.tasks)
       .filter((t) => t.status !== 'template' && deskIdForTask(t.id) in world.desk)
-      .map((t) => t.id)
-      .sort();
+      .map((t) => t.id);
+    const free = Object.values(world.agents)
+      .filter((a) => !a.taskId)
+      .map((a) => a.id);
     const rendered = (await screen.findAllByTestId('task-node'))
       .map((n) => n.getAttribute('data-task-id'))
       .sort();
-    expect(rendered).toEqual(expected);
+    expect(rendered).toEqual([...tasks, ...free].sort());
+  });
+
+  it('dismisses a free agent from its card, once the agent has stopped', async () => {
+    const user = userEvent.setup();
+    const { backend } = await renderApp();
+    clickNode('f2c6a9d4');
+    const card = screen.getByRole('dialog', { name: 'bravo · feat/task-index' });
+
+    expect(within(card).getByRole('button', { name: 'Dismiss' })).toBeDisabled();
+
+    backend.sim.force({ kind: 'exit', agentId: 'f2c6a9d4', exitCode: 0 });
+    let stopped = false;
+    for (let i = 0; i < 6 && !stopped; i += 1) {
+      await stepSim(backend);
+      stopped = !within(card).getByRole('button', { name: 'Dismiss' }).hasAttribute('disabled');
+    }
+    expect(stopped).toBe(true);
+
+    expect(document.querySelector('[data-task-id="f2c6a9d4"]')).toBeInTheDocument();
+    await user.click(within(card).getByRole('button', { name: 'Dismiss' }));
+    expect(document.querySelector('[data-task-id="f2c6a9d4"]')).not.toBeInTheDocument();
+  });
+
+  it('draws a free agent once, named by the worktree it runs in', async () => {
+    await renderApp();
+    const node = document.querySelector('[data-task-id="f2c6a9d4"]');
+    expect(node).toBeInTheDocument();
+    expect(node).toHaveTextContent('bravo · feat/task-index');
+    // The agent is not linked to a task, so no task node stands for it too.
+    expect(document.querySelectorAll('[data-task-id="f2c6a9d4"]')).toHaveLength(1);
   });
 });
 
@@ -352,7 +384,6 @@ describe('the task list', () => {
     await user.click(within(listRow('NORT-9') as HTMLElement).getByRole('button'));
     expect(listRow('NORT-9')).toHaveAttribute('data-on-desk', 'false');
 
-    // Running work is always drawn, so the remove is a dismiss that waits.
     await user.click(screen.getByRole('button', { name: 'Canvas' }));
     expect(document.querySelector('[data-task-id="NORT-9"]')).toBeInTheDocument();
   });
@@ -363,7 +394,7 @@ describe('the task list', () => {
     const before = chipCount();
     expect(before).toBeGreaterThan(0);
 
-    // Clear the desk entirely: the canvas draws nothing, but agents still wait.
+    // Clear the desk, so the chip is counted against off-desk work.
     await goToList(user);
     for (const r of Array.from(
       document.querySelectorAll('[data-testid="task-list"] [data-on-desk="true"]'),

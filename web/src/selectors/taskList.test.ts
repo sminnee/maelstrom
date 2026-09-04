@@ -86,4 +86,12 @@ describe('listTasks', () => {
     const row = listTasks(withAgent, noListFilters()).find((r) => r.task.id === 'northwind/NORT-7');
     expect(row?.agent?.id).toBe('a1');
   });
+
+  it('gives a free agent no row: the task list lists tasks', () => {
+    const world = worldWith({
+      tasks: [makeTask({ id: 'T1' })],
+      agents: [makeAgent({ id: 'free1', taskId: '' })],
+    });
+    expect(listTasks(world, noListFilters()).map((r) => r.task.id)).toEqual(['T1']);
+  });
 });

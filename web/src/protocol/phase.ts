@@ -28,17 +28,18 @@ export function isActionable(task: Task, tasks: Record<TaskId, Task>): boolean {
 export type NodeState = 'queued' | 'working' | 'needs-attention' | 'idle' | 'done' | 'exited';
 
 export function nodeState(
-  task: Task,
+  task: Task | undefined,
   agent: Agent | undefined,
   attention: readonly Attention[],
 ): NodeState {
-  if (task.status === 'done' || task.status === 'cancelled') return 'done';
+  if (task?.status === 'done' || task?.status === 'cancelled') return 'done';
   // A dead agent is the stronger signal: its attention item still counts in
   // the chip, but the node draws red rather than orange. An unknown exit code
   // counts as abnormal: only an observed 0 is a clean exit.
   if (agent?.state === 'exited' && agent.exitCode !== 0) return 'exited';
   const open = attention.some(
-    (item) => isOpen(item) && (item.taskId === task.id || (agent && item.agentId === agent.id)),
+    (item) =>
+      isOpen(item) && ((task && item.taskId === task.id) || (agent && item.agentId === agent.id)),
   );
   if (open) return 'needs-attention';
   if (!agent) return 'queued';
