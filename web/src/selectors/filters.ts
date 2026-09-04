@@ -1,4 +1,4 @@
-import type { World } from '../protocol/events';
+import type { WorldView } from './world';
 
 export type GroupBy = 'project' | 'branch' | 'none';
 
@@ -21,7 +21,7 @@ export interface BranchOption {
 
 /** The choices the filter bar offers, from what the world holds. */
 export function filterOptions(
-  world: World,
+  world: WorldView,
   filters: Filters,
 ): { projects: string[]; branches: BranchOption[] } {
   const projects = Object.keys(world.projects).sort();

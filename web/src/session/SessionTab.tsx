@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useWorld } from '../api/useWorld';
 import { describeState } from '../selectors/status';
 import { answeredOnCanvas } from '../selectors/transcript';
 import { useAppStore } from '../store/store';
@@ -10,8 +11,9 @@ import styles from './SessionTab.module.css';
 /** The rich transcript plus an input. VS-Code-extension-like, not a terminal. */
 export function SessionTab({ agentId }: { agentId: string }) {
   const { send } = useCommand();
-  const agent = useAppStore((s) => s.world.agents[agentId]);
-  const task = useAppStore((s) => (agent ? s.world.tasks[agent.taskId] : undefined));
+  const { world } = useWorld();
+  const agent = world.agents[agentId];
+  const task = agent ? world.tasks[agent.taskId] : undefined;
   const transcript = useAppStore((s) => s.transcripts[agentId]);
   const bottom = useRef<HTMLDivElement>(null);
   const count = transcript?.items.length ?? 0;

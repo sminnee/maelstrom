@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
+import type { TaskRow } from '../api/types';
+import { useWorld } from '../api/useWorld';
 import { deskIdForTask } from '../protocol/deskId';
-import type { Task, TaskStatus } from '../protocol/entities';
+import type { TaskStatus } from '../protocol/entities';
 import type { TaskId } from '../protocol/ids';
 import { filterOptions } from '../selectors/filters';
 import { describeState } from '../selectors/status';
@@ -13,7 +15,7 @@ import styles from './TaskList.module.css';
 
 /** Every task in the world, and the one place the desk is edited. */
 export function TaskList() {
-  const world = useAppStore((s) => s.world);
+  const { world, status, errors, retry } = useWorld();
   const filters = useAppStore((s) => s.ui.listFilters);
   const setFilters = useAppStore((s) => s.setListFilters);
   const editTask = useAppStore((s) => s.setEditingTask);
@@ -131,7 +133,22 @@ export function TaskList() {
               <td>{describeState(task, agent)}</td>
             </tr>
           ))}
-          {rows.length === 0 && (
+          {status === 'loading' && (
+            <tr>
+              <td colSpan={7} className={styles.empty}>
+                Loading…
+              </td>
+            </tr>
+          )}
+          {status === 'error' && (
+            <tr>
+              <td colSpan={7} className={styles.empty} role="alert">
+                Could not load the tasks: {errors[0]?.message ?? 'unknown error'}{' '}
+                <AppButton onClick={retry}>Retry</AppButton>
+              </td>
+            </tr>
+          )}
+          {status === 'ready' && rows.length === 0 && (
             <tr>
               <td colSpan={7} className={styles.empty}>
                 No task matches these filters.
@@ -157,7 +174,7 @@ function StatusCell({
   onDone,
   onChange,
 }: {
-  task: Task;
+  task: TaskRow;
   picking: boolean;
   onPick: () => void;
   onDone: () => void;

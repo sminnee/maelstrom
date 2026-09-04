@@ -3,6 +3,7 @@ import { deskIdForTask } from '../protocol/deskId';
 import { nextAttentionTask, openAttention } from '../selectors/attention';
 import { filteredTasks } from '../selectors/graph';
 import { focusedTaskId } from '../selectors/tabs';
+import { useWorld } from '../api/useWorld';
 import { useAppStore } from '../store/store';
 import { useCommand } from '../store/useCommand';
 import { AppButton } from '../ui/AppButton';
@@ -10,7 +11,7 @@ import styles from './AttentionChip.module.css';
 
 /** `⚠N` in the top bar. Clicking expands the next node that needs the user and fits the view to it. */
 export function AttentionChip() {
-  const world = useAppStore((s) => s.world);
+  const { world } = useWorld();
   const tabs = useAppStore((s) => s.ui.tabs);
   const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
   const filters = useAppStore((s) => s.ui.filters);

@@ -1,5 +1,6 @@
-import type { Phase, Task } from '../protocol/entities';
-import type { World } from '../protocol/events';
+import type { TaskRow } from '../api/types';
+import type { Phase } from '../protocol/entities';
+import type { WorldView } from './world';
 import type { AgentId, TaskId } from '../protocol/ids';
 import { phaseForCommand } from '../protocol/phase';
 import type { PanelTab } from '../store/uiSlice';
@@ -44,11 +45,11 @@ export interface TabAttribution {
 }
 
 /** A tab can outlive its task, and a phase it cannot read is drawn as none. */
-const phaseOf = (task: Task | undefined): Phase | null =>
+const phaseOf = (task: TaskRow | undefined): Phase | null =>
   task ? phaseForCommand(task.command) : null;
 
 /** Which task (and phase) a tab belongs to, so two tabs from two agents are told apart. */
-export function tabAttribution(world: World, tab: PanelTab): TabAttribution {
+export function tabAttribution(world: WorldView, tab: PanelTab): TabAttribution {
   switch (tab.kind) {
     case 'session': {
       const agent = world.agents[tab.agentId];
@@ -78,7 +79,7 @@ export function tabAttribution(world: World, tab: PanelTab): TabAttribution {
 
 /** The task a tab points at, for `data-focused` on the canvas. */
 export function focusedTaskId(
-  world: World,
+  world: WorldView,
   tabs: PanelTab[],
   activeTabKey: string | null,
 ): TaskId | null {

@@ -49,7 +49,7 @@ export type NodeState =
   'queued' | 'ready' | 'working' | 'needs-attention' | 'idle' | 'done' | 'cancelled' | 'exited';
 
 export function nodeState(
-  task: Task | undefined,
+  task: Pick<Task, 'id' | 'status' | 'actionable'> | undefined,
   agent: Agent | undefined,
   attention: readonly Attention[],
 ): NodeState {

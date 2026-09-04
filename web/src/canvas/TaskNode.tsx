@@ -1,4 +1,5 @@
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
+import { useDocuments } from '../api/documents';
 import type { GraphNode } from '../selectors/graph';
 import { nodeTitle } from '../selectors/graph';
 import { phaseLabel } from '../protocol/phase';
@@ -14,9 +15,11 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
   const { node, focused, expanded } = data;
   const expandNode = useAppStore((s) => s.expandNode);
   const documentId = node.attention.find((a) => a.documentId)?.documentId;
-  const documentTitle = useAppStore((s) =>
-    documentId ? s.world.documents[documentId]?.title : undefined,
-  );
+  // One query, not the whole world: a node draws for every task on the desk.
+  const documents = useDocuments();
+  const documentTitle = documentId
+    ? documents.data?.documents.find((d) => d.id === documentId)?.title
+    : undefined;
   return (
     <div
       className={styles.node}

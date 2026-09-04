@@ -3,8 +3,10 @@ import { createRoot } from 'react-dom/client';
 import './styles/tokens.css';
 import './styles/base.css';
 import { createApiClient } from './api/http';
+import { createQueryClient } from './api/queryClient';
 import { App, type AppDeps } from './App';
 import type { Backend } from './protocol/backend';
+import { bridgeToFakeServer } from './fake-backend/bridgeToFakeServer';
 import { createFakeBackend } from './fake-backend/createFakeBackend';
 import { createFakeServer } from './test/fakeServer';
 import { createWsBackend } from './ws-backend/wsBackend';
@@ -17,9 +19,15 @@ const url = import.meta.env.VITE_ORCHESTRATOR_URL;
 const backend: Backend = url
   ? createWsBackend({ url })
   : createFakeBackend({ seed: 7, autoplay: true });
-const deps: AppDeps = url
-  ? { api: createApiClient() }
-  : (({ api, eventSourceFactory }) => ({ api, eventSourceFactory }))(createFakeServer());
+const deps: AppDeps = url ? { api: createApiClient() } : fakeDeps(backend);
+
+/** The fake world behind the API too, fed from the fake backend's frames. */
+function fakeDeps(fake: Backend): AppDeps {
+  const server = createFakeServer();
+  const queryClient = createQueryClient();
+  bridgeToFakeServer(fake, server, queryClient);
+  return { api: server.api, eventSourceFactory: server.eventSourceFactory, queryClient };
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

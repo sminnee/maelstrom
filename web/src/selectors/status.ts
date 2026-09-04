@@ -1,4 +1,5 @@
-import type { Agent, Task } from '../protocol/entities';
+import type { TaskRow } from '../api/types';
+import type { Agent } from '../protocol/entities';
 
 /** A document's status in words: `awaiting-review` becomes "awaiting review". */
 export function describeDocumentStatus(status: string): string {
@@ -9,7 +10,7 @@ export function describeDocumentStatus(status: string): string {
  * A task's state in words, for the node and the expanded node. Raw agent
  * states such as `awaiting-question` never reach the screen.
  */
-export function describeState(task: Task | undefined, agent: Agent | undefined): string {
+export function describeState(task: TaskRow | undefined, agent: Agent | undefined): string {
   if (task?.status === 'done') return 'Done';
   if (task?.status === 'cancelled') return 'Cancelled';
   if (agent?.state === 'exited') {

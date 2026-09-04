@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Background, ReactFlow, useReactFlow, type Edge, type Node } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { useWorld } from '../api/useWorld';
+import { AppButton } from '../ui/AppButton';
 import { deriveGraph, type GraphNode } from '../selectors/graph';
 import { focusedTaskId } from '../selectors/tabs';
 import { useAppStore } from '../store/store';
@@ -18,7 +20,7 @@ const LEGIBLE_ZOOM = 0.75;
 const CARD_CENTRE_Y = 140;
 
 export function Canvas() {
-  const world = useAppStore((s) => s.world);
+  const { world, status, errors, retry } = useWorld();
   const groupBy = useAppStore((s) => s.ui.groupBy);
   const filters = useAppStore((s) => s.ui.filters);
   const tabs = useAppStore((s) => s.ui.tabs);
@@ -108,6 +110,23 @@ export function Canvas() {
 
   const shown = shownTaskId ? byId[shownTaskId] : undefined;
   const shownAt = shownTaskId ? positions[shownTaskId] : undefined;
+
+  // No nodes without lanes: the canvas waits for every table it draws from.
+  if (status === 'loading') {
+    return (
+      <div className={styles.frame} data-testid="canvas-loading">
+        Loading the world…
+      </div>
+    );
+  }
+  if (status === 'error') {
+    return (
+      <div className={styles.frame} role="alert" data-testid="canvas-error">
+        <div>Could not load the world: {errors[0]?.message ?? 'unknown error'}</div>
+        <AppButton onClick={retry}>Retry</AppButton>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.canvas} data-testid="canvas">

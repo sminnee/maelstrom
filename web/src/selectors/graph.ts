@@ -1,8 +1,9 @@
 import type { Attention } from '../protocol/attention';
 import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
 import { isOpen } from '../protocol/attention';
-import type { Agent, Phase, Task, Worktree } from '../protocol/entities';
-import type { World } from '../protocol/events';
+import type { TaskRow } from '../api/types';
+import type { Agent, Phase, Worktree } from '../protocol/entities';
+import type { WorldView } from './world';
 import type { TaskId } from '../protocol/ids';
 import type { NodeState } from '../protocol/phase';
 import { nodeState, phaseForCommand } from '../protocol/phase';
@@ -17,7 +18,7 @@ export interface GraphNode {
   id: string;
   kind: NodeKind;
   /** Absent on a freeAgent, which stands for no task. */
-  task: Task | undefined;
+  task: TaskRow | undefined;
   agent: Agent | undefined;
   /** Where a freeAgent gets its lane, branch and name. */
   worktree: Worktree | undefined;
@@ -78,18 +79,58 @@ export function isLive(agent: Agent | undefined): boolean {
   return agent !== undefined && agent.state !== 'exited';
 }
 
-/** The agent to show for a task: a live one first, else the most recent. */
-export function agentForTask(world: World, taskId: TaskId): Agent | undefined {
-  const agents = Object.values(world.agents).filter((a) => a.taskId === taskId);
-  return agents.find((a) => a.state !== 'exited') ?? agents[agents.length - 1];
+/**
+ * One agent per task: the live one, else the last that ran. Built once for
+ * every task at a time, so a pass over the world is O(tasks + agents), not
+ * O(tasks × agents).
+ */
+export function agentsByTask(world: WorldView): Map<TaskId, Agent> {
+  const live = new Map<TaskId, Agent>();
+  const last = new Map<TaskId, Agent>();
+  for (const agent of Object.values(world.agents)) {
+    if (!agent.taskId) continue;
+    last.set(agent.taskId, agent);
+    if (agent.state !== 'exited' && !live.has(agent.taskId)) live.set(agent.taskId, agent);
+  }
+  return new Map([...last, ...live]);
 }
 
-export function openAttentionFor(world: World, task: Task | undefined, agent?: Agent): Attention[] {
-  return Object.values(world.attention)
-    .filter(
-      (a) => isOpen(a) && ((task && a.taskId === task.id) || (agent && a.agentId === agent.id)),
-    )
+/** The open attention items, oldest first, keyed by task id and by agent id. */
+function openAttentionIndex(world: WorldView): {
+  byTask: Map<TaskId, Attention[]>;
+  byAgent: Map<string, Attention[]>;
+} {
+  const byTask = new Map<TaskId, Attention[]>();
+  const byAgent = new Map<string, Attention[]>();
+  const open = Object.values(world.attention)
+    .filter(isOpen)
     .sort((a, b) => a.raisedAt.localeCompare(b.raisedAt));
+  for (const item of open) {
+    if (item.taskId) listAt(byTask, item.taskId).push(item);
+    if (item.agentId) listAt(byAgent, item.agentId).push(item);
+  }
+  return { byTask, byAgent };
+}
+
+/** The list under `key`, made on first use. */
+function listAt<K, V>(map: Map<K, V[]>, key: K): V[] {
+  let list = map.get(key);
+  if (!list) {
+    list = [];
+    map.set(key, list);
+  }
+  return list;
+}
+
+function attentionFrom(
+  index: ReturnType<typeof openAttentionIndex>,
+  task: TaskRow | undefined,
+  agent: Agent | undefined,
+): Attention[] {
+  const items = new Map<string, Attention>();
+  for (const item of task ? (index.byTask.get(task.id) ?? []) : []) items.set(item.id, item);
+  for (const item of agent ? (index.byAgent.get(agent.id) ?? []) : []) items.set(item.id, item);
+  return [...items.values()].sort((a, b) => a.raisedAt.localeCompare(b.raisedAt));
 }
 
 /**
@@ -98,7 +139,7 @@ export function openAttentionFor(world: World, task: Task | undefined, agent?: A
  * The attention chip counts against this rather than the drawn nodes: an
  * agent blocked on a task the user has not put on the desk still needs them.
  */
-export function filteredTasks(world: World, filters: Filters): Task[] {
+export function filteredTasks(world: WorldView, filters: Filters): TaskRow[] {
   return Object.values(world.tasks)
     .filter((t) => t.status !== 'template')
     .filter((t) => !filters.project || t.project === filters.project)
@@ -107,21 +148,26 @@ export function filteredTasks(world: World, filters: Filters): Task[] {
 }
 
 /** Everything the canvas draws, derived from the world plus client state. */
-export function deriveGraph(world: World, opts: GraphOptions): Graph {
+export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
   // Drawn when it is on the desk, or its agent is live. The liveness half is
   // what puts running work on the canvas before the server's auto-join has
   // round-tripped, and what keeps it there if the entry is removed early.
+  const agents = agentsByTask(world);
+  const attentionIndex = openAttentionIndex(world);
+  const worktreeByBranch = openWorktreesByBranch(world);
   const tasks = filteredTasks(world, opts.filters).filter(
-    (t) => deskIdForTask(t.id) in world.desk || isLive(agentForTask(world, t.id)),
+    (t) => deskIdForTask(t.id) in world.desk || isLive(agents.get(t.id)),
   );
 
   const groups = new Map<string, GraphGroup>();
   const nodes: GraphNode[] = [];
   for (const task of tasks) {
-    const agent = agentForTask(world, task.id);
-    const attention = openAttentionFor(world, task, agent);
+    const agent = agents.get(task.id);
+    const attention = attentionFrom(attentionIndex, task, agent);
     const groupId = groupIdFor(task, opts.groupBy);
-    if (!groups.has(groupId)) groups.set(groupId, makeGroup(world, task, groupId, opts.groupBy));
+    if (!groups.has(groupId)) {
+      groups.set(groupId, makeGroup(world, task, groupId, opts.groupBy, worktreeByBranch));
+    }
     groups.get(groupId)!.nodeIds.push(task.id);
     nodes.push({
       id: task.id,
@@ -145,7 +191,7 @@ export function deriveGraph(world: World, opts: GraphOptions): Graph {
     if (!isLive(agent) && !(deskIdForAgent(agent.id) in world.desk)) continue;
     const worktree = world.worktrees[agent.worktreeId];
     if (!allowsAgent(opts.filters, agent, worktree)) continue;
-    const attention = openAttentionFor(world, undefined, agent);
+    const attention = attentionFrom(attentionIndex, undefined, agent);
     const groupId = groupIdForAgent(agent, worktree, opts.groupBy);
     if (!groups.has(groupId)) {
       groups.set(groupId, makeAgentGroup(world, agent, worktree, groupId, opts.groupBy));
@@ -207,7 +253,7 @@ function groupIdForAgent(agent: Agent, worktree: Worktree | undefined, kind: Gro
 
 /** A free agent's lane, named by its worktree rather than by a task. */
 function makeAgentGroup(
-  world: World,
+  world: WorldView,
   agent: Agent,
   worktree: Worktree | undefined,
   id: string,
@@ -227,7 +273,7 @@ function makeAgentGroup(
   };
 }
 
-function groupIdFor(task: Task, kind: GroupBy): string {
+function groupIdFor(task: TaskRow, kind: GroupBy): string {
   switch (kind) {
     case 'project':
       return task.project;
@@ -238,8 +284,24 @@ function groupIdFor(task: Task, kind: GroupBy): string {
   }
 }
 
+/** The open worktree on each branch, keyed by `branchKey`. */
+function openWorktreesByBranch(world: WorldView): Map<string, Worktree> {
+  const index = new Map<string, Worktree>();
+  for (const w of Object.values(world.worktrees)) {
+    const key = branchKey(w.project, w.branch);
+    if (!w.isClosed && !index.has(key)) index.set(key, w);
+  }
+  return index;
+}
+
 /** With `none`, one unlabelled group holds every node and the canvas draws no lane for it. */
-function makeGroup(world: World, task: Task, id: string, kind: GroupBy): GraphGroup {
+function makeGroup(
+  world: WorldView,
+  task: TaskRow,
+  id: string,
+  kind: GroupBy,
+  worktreeByBranch: Map<string, Worktree>,
+): GraphGroup {
   if (kind === 'none') return { id, kind, label: '', sublabel: '', nodeIds: [] };
   if (kind === 'project') {
     return {
@@ -250,9 +312,7 @@ function makeGroup(world: World, task: Task, id: string, kind: GroupBy): GraphGr
       nodeIds: [],
     };
   }
-  const worktree = Object.values(world.worktrees).find(
-    (w) => w.project === task.project && w.branch === task.branch && !w.isClosed,
-  );
+  const worktree = worktreeByBranch.get(branchKey(task.project, task.branch));
   return {
     id,
     kind,

@@ -1,43 +1,68 @@
-import { fireEvent, render, type RenderResult } from '@testing-library/react';
+import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/react';
 import { QueryClient } from '@tanstack/react-query';
 import { act } from 'react';
 import { App } from '../App';
+import { keys } from '../api/keys';
+import { bridgeToFakeServer } from '../fake-backend/bridgeToFakeServer';
 import { createFakeBackend } from '../fake-backend/createFakeBackend';
 import type { DebugBackend } from '../protocol/backend';
 import { createFakeServer, type FakeServer } from './fakeServer';
 
+/** The seven list queries the world is read from. */
+const LIST_KEYS = [
+  keys.projects(),
+  keys.worktrees(),
+  keys.tasks.list(),
+  keys.agents.list(),
+  keys.attention(),
+  keys.desk(),
+  keys.documents.list(),
+];
+
 /**
  * Mount the app on a paused fake backend, with a fake server behind the API
  * and the change stream. Advance the world with `backend.sim.step()`.
+ *
+ * With `ready: false` the fake server holds every reply and the fake backend
+ * is not connected, so every list query is still loading. The test connects
+ * and releases when it is ready to see the world arrive.
  */
 export async function renderApp(
-  opts: { seed?: number } = {},
-): Promise<RenderResult & { backend: DebugBackend; server: FakeServer }> {
+  opts: { seed?: number; ready?: boolean } = {},
+): Promise<RenderResult & { backend: DebugBackend; server: FakeServer; queryClient: QueryClient }> {
   const backend: DebugBackend = createFakeBackend({ seed: opts.seed ?? 1, autoplay: false });
   const server = createFakeServer();
   // No retries: a refused request must fail the test now, not after backoff.
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: 0 } },
   });
+  bridgeToFakeServer(backend, server, queryClient);
   const deps = { api: server.api, eventSourceFactory: server.eventSourceFactory, queryClient };
+  if (opts.ready === false) server.hold();
   const utils = render(<App backend={backend} deps={deps} />);
+  if (opts.ready === false) return { backend, server, queryClient, ...utils };
   await act(async () => {
     await backend.connect();
   });
-  return { backend, server, ...utils };
-}
-
-/** Drop the fake change stream, as the browser reports a drop, and let the app react. */
-export async function dropStream(server: FakeServer, how: 'connecting' | 'closed' = 'connecting') {
-  await act(async () => {
-    server.dropStream(how);
+  await waitFor(() => {
+    for (const key of LIST_KEYS) {
+      if (queryClient.getQueryState(key)?.status !== 'success') throw new Error('not loaded');
+    }
   });
+  return { backend, server, queryClient, ...utils };
 }
 
 /** Run `n` simulation ticks inside React's act so the resulting renders flush. */
 export async function stepSim(backend: DebugBackend, n = 1) {
   await act(async () => {
     backend.sim.step(n);
+  });
+}
+
+/** Drop the fake change stream, as the browser reports a drop, and let the app react. */
+export async function dropStream(server: FakeServer, how: 'connecting' | 'closed' = 'connecting') {
+  await act(async () => {
+    server.dropStream(how);
   });
 }
 
