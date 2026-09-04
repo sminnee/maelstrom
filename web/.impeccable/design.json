@@ -1,0 +1,510 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-04T01:54:40.672459Z",
+  "title": "Design System: Maelstrom Orchestrator",
+  "extensions": {
+    "colorMeta": {
+      "console-slate": {
+        "role": "neutral",
+        "displayName": "Console Slate",
+        "canonical": "#0f1115",
+        "tonalRamp": [
+          "#20242d",
+          "#38404f",
+          "#505b71",
+          "#697793",
+          "#8a95ac",
+          "#acb4c4",
+          "#ced3dc",
+          "#f0f2f4"
+        ],
+        "lightScheme": "#f7f8fa"
+      },
+      "console-slate-raised": {
+        "role": "neutral",
+        "displayName": "Console Slate Raised",
+        "canonical": "#171a21",
+        "tonalRamp": [
+          "#1f242d",
+          "#373f4f",
+          "#4f5a72",
+          "#677594",
+          "#8994ad",
+          "#abb3c5",
+          "#ced2dd",
+          "#f0f1f5"
+        ],
+        "lightScheme": "#ffffff"
+      },
+      "console-slate-sunken": {
+        "role": "neutral",
+        "displayName": "Console Slate Sunken",
+        "canonical": "#0a0c10",
+        "tonalRamp": [
+          "#1d232f",
+          "#343e53",
+          "#4a5977",
+          "#61749b",
+          "#8493b2",
+          "#a8b2c8",
+          "#cbd2df",
+          "#eff1f5"
+        ],
+        "lightScheme": "#eef0f4"
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "#2a2f3a",
+        "tonalRamp": [
+          "#20242c",
+          "#393f4e",
+          "#515b70",
+          "#6a7692",
+          "#8b95ab",
+          "#adb4c3",
+          "#ced3dc",
+          "#f0f1f4"
+        ],
+        "lightScheme": "#d9dde6"
+      },
+      "hairline-strong": {
+        "role": "neutral",
+        "displayName": "Hairline Strong",
+        "canonical": "#3d4454",
+        "tonalRamp": [
+          "#20242c",
+          "#393f4e",
+          "#515b70",
+          "#6a7692",
+          "#8b95ab",
+          "#adb4c3",
+          "#ced3dc",
+          "#f0f1f4"
+        ],
+        "lightScheme": "#b8bfcc"
+      },
+      "readout": {
+        "role": "neutral",
+        "displayName": "Readout",
+        "canonical": "#e6e8ee",
+        "tonalRamp": [
+          "#1f232e",
+          "#373d50",
+          "#4e5773",
+          "#667296",
+          "#8891ae",
+          "#aab1c5",
+          "#cdd1dd",
+          "#f0f1f5"
+        ],
+        "lightScheme": "#171a21"
+      },
+      "readout-muted": {
+        "role": "neutral",
+        "displayName": "Readout Muted",
+        "canonical": "#9aa3b5",
+        "tonalRamp": [
+          "#20242c",
+          "#39404e",
+          "#525c6f",
+          "#6a7791",
+          "#8b96aa",
+          "#adb4c3",
+          "#cfd3dc",
+          "#f0f2f4"
+        ],
+        "lightScheme": "#4f5768"
+      },
+      "readout-faint": {
+        "role": "neutral",
+        "displayName": "Readout Faint",
+        "canonical": "#5f6878",
+        "tonalRamp": [
+          "#22252b",
+          "#3c414b",
+          "#555d6c",
+          "#6f7a8c",
+          "#8f98a6",
+          "#b0b6c0",
+          "#d0d4da",
+          "#f1f2f4"
+        ],
+        "lightScheme": "#6b7385"
+      },
+      "signal-blue": {
+        "role": "primary",
+        "displayName": "Signal Blue",
+        "canonical": "#7aa2f7",
+        "tonalRamp": [
+          "#041a48",
+          "#082e7f",
+          "#0b42b6",
+          "#0e56ed",
+          "#427bf4",
+          "#79a1f7",
+          "#b0c8fa",
+          "#e7eefe"
+        ],
+        "lightScheme": "#3b6fd6"
+      },
+      "alert-amber": {
+        "role": "secondary",
+        "displayName": "Alert Amber",
+        "canonical": "#ff9f43",
+        "tonalRamp": [
+          "#4c2500",
+          "#874200",
+          "#c15e00",
+          "#fb7b00",
+          "#ff9937",
+          "#ffb671",
+          "#ffd4ab",
+          "#fff2e5"
+        ],
+        "lightScheme": "#c9650c"
+      },
+      "fault-rose": {
+        "role": "secondary",
+        "displayName": "Fault Rose",
+        "canonical": "#f7768e",
+        "tonalRamp": [
+          "#480411",
+          "#7f071e",
+          "#b60b2b",
+          "#ed0e37",
+          "#f44263",
+          "#f77990",
+          "#fab0be",
+          "#fee7eb"
+        ],
+        "lightScheme": "#c8324f"
+      },
+      "clear-green": {
+        "role": "secondary",
+        "displayName": "Clear Green",
+        "canonical": "#9ece6a",
+        "tonalRamp": [
+          "#273a13",
+          "#456521",
+          "#629130",
+          "#80bd3e",
+          "#9dcd68",
+          "#b9dc94",
+          "#d6eac0",
+          "#f3f9ec"
+        ],
+        "lightScheme": "#4a8a1f"
+      },
+      "phase-shaping": {
+        "role": "tertiary",
+        "displayName": "Shaping Violet",
+        "canonical": "#b58cf6",
+        "tonalRamp": [
+          "#1f0647",
+          "#360a7d",
+          "#4e0eb3",
+          "#6512e9",
+          "#8745f0",
+          "#aa7bf5",
+          "#cdb1f9",
+          "#f0e7fd"
+        ],
+        "lightScheme": "#7c4fd6"
+      },
+      "phase-planning": {
+        "role": "tertiary",
+        "displayName": "Planning Blue",
+        "canonical": "#6ea8fe",
+        "tonalRamp": [
+          "#011f4c",
+          "#013686",
+          "#014ec0",
+          "#0266fa",
+          "#3888fe",
+          "#72aafe",
+          "#accdfe",
+          "#e6f0ff"
+        ],
+        "lightScheme": "#2f6fd0"
+      },
+      "phase-executing": {
+        "role": "tertiary",
+        "displayName": "Executing Teal",
+        "canonical": "#2fc4b2",
+        "tonalRamp": [
+          "#0f3e38",
+          "#1a6d63",
+          "#259c8d",
+          "#31cbb8",
+          "#5dd8c9",
+          "#8ce4d9",
+          "#bbefe9",
+          "#eafaf8"
+        ],
+        "lightScheme": "#148f80"
+      },
+      "phase-finalising": {
+        "role": "tertiary",
+        "displayName": "Finalising Amber",
+        "canonical": "#f0b35a",
+        "tonalRamp": [
+          "#462c06",
+          "#7c4e0b",
+          "#b17010",
+          "#e69115",
+          "#eeaa47",
+          "#f3c37d",
+          "#f8dcb2",
+          "#fdf4e8"
+        ],
+        "lightScheme": "#b57a12"
+      }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "Title",
+        "purpose": "The task title on an expanded node. The one place type is allowed to be large."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "The default. Node titles, decision text, transcript prose, table rows, controls."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Metadata and secondary lines: state, footers, filter fields, tab titles."
+      },
+      "micro": {
+        "displayName": "Micro",
+        "purpose": "Tracked uppercase category labels: phase names, section heads, lane labels, table headers."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Literal strings the operator may copy, type or match: ids, branches, paths, tool calls."
+      }
+    },
+    "shadows": [
+      {
+        "name": "card-lift",
+        "value": "0 16px 40px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.5)",
+        "purpose": "A floating surface over the board. The only shadow in the system; earned by overlapping content, not by importance."
+      },
+      {
+        "name": "card-lift-light",
+        "value": "0 16px 40px rgba(20, 24, 34, 0.18), 0 1px 3px rgba(20, 24, 34, 0.12)",
+        "purpose": "The same lift retuned for the light scheme rather than reused."
+      },
+      {
+        "name": "attention-glow",
+        "value": "0 0 0 1px var(--attention), 0 0 14px 2px color-mix(in srgb, var(--attention) 55%, transparent)",
+        "purpose": "A signal, not a lift. Marks the one node asking for the operator."
+      },
+      {
+        "name": "tab-active-underline",
+        "value": "inset 0 -2px 0 var(--accent)",
+        "purpose": "Marks the active panel tab without a fill."
+      }
+    ],
+    "motion": [
+      {
+        "name": "duration-fast",
+        "value": "120ms",
+        "purpose": "Child fade when a node expands or collapses."
+      },
+      {
+        "name": "state-transition",
+        "value": "box-shadow 0.2s, opacity 0.2s",
+        "purpose": "Node state changes; slow enough to notice, short enough not to lag the hand."
+      },
+      {
+        "name": "working-pulse",
+        "value": "pulse 2.4s ease-in-out infinite",
+        "purpose": "A working node breathes a phase-hued ring outward. Replaced by a static 2px ring under prefers-reduced-motion."
+      }
+    ],
+    "grid": [
+      {
+        "name": "node",
+        "value": "220x76px",
+        "purpose": "Every task node is the same fixed size; uniformity is what makes the board scannable."
+      },
+      {
+        "name": "gap-x",
+        "value": "56px",
+        "purpose": "Horizontal step between dependency depths."
+      },
+      {
+        "name": "gap-y",
+        "value": "14px",
+        "purpose": "Vertical step between nodes in a lane."
+      },
+      {
+        "name": "lane-pad",
+        "value": "20px"
+      },
+      {
+        "name": "lane-header",
+        "value": "30px"
+      },
+      {
+        "name": "lane-gap",
+        "value": "28px"
+      },
+      {
+        "name": "top-bar",
+        "value": "40px"
+      },
+      {
+        "name": "panel-grip",
+        "value": "6px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Task Node",
+      "kind": "card",
+      "refersTo": "task-node",
+      "description": "The unit on the board. Fixed size, phase bar on the left edge, state in words and in a dot.",
+      "html": "<div class=\"ds-node\" data-state=\"working\" data-phase=\"executing\"><div class=\"ds-node-title\">Port the wire protocol to Python</div><div class=\"ds-node-line\"><span class=\"ds-node-id\">mael-14.2</span><span class=\"ds-node-phase\">EXECUTING</span></div><div class=\"ds-node-spacer\"></div><div class=\"ds-node-foot\"><span class=\"ds-node-dot\"></span><span>Working \u00b7 running tests</span></div></div>",
+      "css": ".ds-node{--phase:var(--phase-executing,#2fc4b2);width:220px;height:76px;padding:8px 10px;border-radius:6px;background:var(--bg-raised,#171a21);border:1px solid var(--border,#2a2f3a);border-left:4px solid var(--phase);color:var(--fg,#e6e8ee);display:flex;flex-direction:column;gap:3px;font-family:Inter,system-ui,sans-serif;transition:box-shadow .2s,opacity .2s}.ds-node[data-state=working]{border-color:var(--phase);box-shadow:0 0 0 2px color-mix(in srgb,var(--phase) 45%,transparent)}.ds-node-title{font-size:14px;font-weight:500;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-node-line{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-muted,#9aa3b5)}.ds-node-id{font-family:'JetBrains Mono',ui-monospace,monospace}.ds-node-phase{color:var(--phase);text-transform:uppercase;font-size:12px;letter-spacing:.06em}.ds-node-spacer{flex:1}.ds-node-foot{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-muted,#9aa3b5);white-space:nowrap;overflow:hidden}.ds-node-dot{width:6px;height:6px;border-radius:999px;background:var(--phase);flex-shrink:0}"
+    },
+    {
+      "name": "Task Node \u2014 needs attention",
+      "kind": "card",
+      "refersTo": "task-node",
+      "description": "The one loud state. Amber border, ring and glow; the left edge keeps the phase hue.",
+      "html": "<div class=\"ds-node-att\" data-phase=\"planning\"><div class=\"ds-node-att-title\">Add avatar upload</div><div class=\"ds-node-att-line\"><span class=\"ds-node-att-id\">mael-31</span><span class=\"ds-node-att-phase\">PLANNING</span><span class=\"ds-node-att-spacer\"></span><span class=\"ds-badge\">1</span></div><div class=\"ds-node-att-spacer\"></div><div class=\"ds-node-att-foot\"><span class=\"ds-node-att-dot\"></span><span class=\"ds-node-att-reason\">Needs you \u00b7 plan review</span></div></div>",
+      "css": ".ds-node-att{--phase:var(--phase-planning,#6ea8fe);width:220px;height:76px;padding:8px 10px;border-radius:6px;background:var(--bg-raised,#171a21);border:1px solid var(--attention,#ff9f43);border-left:4px solid var(--phase);color:var(--fg,#e6e8ee);display:flex;flex-direction:column;gap:3px;font-family:Inter,system-ui,sans-serif;box-shadow:0 0 0 1px var(--attention,#ff9f43),0 0 14px 2px color-mix(in srgb,var(--attention,#ff9f43) 55%,transparent)}.ds-node-att-title{font-size:14px;font-weight:500;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-node-att-line{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-muted,#9aa3b5)}.ds-node-att-id{font-family:'JetBrains Mono',ui-monospace,monospace}.ds-node-att-phase{color:var(--phase);text-transform:uppercase;font-size:12px;letter-spacing:.06em}.ds-node-att-spacer{flex:1}.ds-badge{background:var(--attention,#ff9f43);color:var(--bg-sunken,#0a0c10);font-weight:700;border-radius:999px;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;font-size:12px}.ds-node-att-foot{display:flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap;overflow:hidden}.ds-node-att-dot{width:6px;height:6px;border-radius:999px;background:var(--attention,#ff9f43);flex-shrink:0}.ds-node-att-reason{color:var(--attention,#ff9f43);overflow:hidden;text-overflow:ellipsis}"
+    },
+    {
+      "name": "Buttons",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "Small, quiet controls. Primary earns emphasis with colour and weight, never a fill.",
+      "html": "<span class=\"ds-btn-row\"><button class=\"ds-btn ds-btn-primary\">Approve</button><button class=\"ds-btn\">Deny</button><button class=\"ds-btn ds-btn-quiet\">Cancel</button><button class=\"ds-btn\" disabled>Launch</button></span>",
+      "css": ".ds-btn-row{display:inline-flex;gap:8px;font-family:Inter,system-ui,sans-serif}.ds-btn{font:inherit;font-size:14px;color:var(--fg,#e6e8ee);background:var(--bg-raised,#171a21);border:1px solid var(--border,#2a2f3a);border-radius:6px;padding:2px 8px;cursor:pointer}.ds-btn:hover{border-color:var(--border-strong,#3d4454)}.ds-btn:focus-visible{outline:2px solid var(--accent,#7aa2f7);outline-offset:2px}.ds-btn:disabled{cursor:default;opacity:.5}.ds-btn-primary{border-color:var(--accent,#7aa2f7);color:var(--accent,#7aa2f7);font-weight:600}.ds-btn-quiet{color:var(--fg-muted,#9aa3b5)}"
+    },
+    {
+      "name": "Attention Chip",
+      "kind": "chip",
+      "refersTo": "attention-badge",
+      "description": "The top-bar count of things waiting on the operator. Unlit at zero, never hidden.",
+      "html": "<span class=\"ds-chip-row\"><button class=\"ds-chip\">3 need you</button><button class=\"ds-chip\" data-count=\"0\">0 need you</button></span>",
+      "css": ".ds-chip-row{display:inline-flex;gap:8px;font-family:Inter,system-ui,sans-serif}.ds-chip{font:inherit;font-size:14px;font-weight:600;background:var(--bg-raised,#171a21);border:1px solid color-mix(in srgb,var(--attention,#ff9f43) 50%,transparent);color:var(--attention,#ff9f43);border-radius:6px;padding:2px 8px;cursor:pointer}.ds-chip:focus-visible{outline:2px solid var(--accent,#7aa2f7);outline-offset:2px}.ds-chip[data-count='0']{color:var(--fg-faint,#5f6878);border-color:var(--border,#2a2f3a)}"
+    },
+    {
+      "name": "Panel Tabs",
+      "kind": "nav",
+      "refersTo": "panel-tab",
+      "description": "Square contiguous tabs. The active one takes the field ground and a Signal Blue inset underline.",
+      "html": "<div class=\"ds-tabs\"><span class=\"ds-tab\" data-active><span class=\"ds-tab-swatch\" style=\"background:#2fc4b2\"></span><span class=\"ds-tab-id\">mael-14.2</span><span class=\"ds-tab-title\">Session</span><span class=\"ds-tab-close\">\u00d7</span></span><span class=\"ds-tab\"><span class=\"ds-tab-swatch\" style=\"background:#6ea8fe\"></span><span class=\"ds-tab-id\">mael-31</span><span class=\"ds-tab-title\">Plan</span><span class=\"ds-tab-close\">\u00d7</span></span></div>",
+      "css": ".ds-tabs{display:flex;border-bottom:1px solid var(--border,#2a2f3a);background:var(--bg-raised,#171a21);min-height:32px;font-family:Inter,system-ui,sans-serif}.ds-tab{display:inline-flex;align-items:center;gap:6px;padding:0 8px;border-right:1px solid var(--border,#2a2f3a);cursor:pointer;white-space:nowrap;color:var(--fg-muted,#9aa3b5);font-size:14px}.ds-tab[data-active]{color:var(--fg,#e6e8ee);background:var(--bg,#0f1115);box-shadow:inset 0 -2px 0 var(--accent,#7aa2f7)}.ds-tab-swatch{width:8px;height:8px;border-radius:2px}.ds-tab-id{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;font-weight:600}.ds-tab-close{color:var(--fg-faint,#5f6878);font-size:14px;line-height:1}.ds-tab-close:hover{color:var(--fg,#e6e8ee)}"
+    },
+    {
+      "name": "Field",
+      "kind": "input",
+      "refersTo": "button",
+      "description": "One chassis for selects and text inputs. Capped width so a long branch cannot push a filter bar apart.",
+      "html": "<span class=\"ds-field-row\"><label class=\"ds-field\">status <select><option>in-progress</option></select></label><label class=\"ds-field\">text <input value=\"avatar\"></label></span>",
+      "css": ".ds-field-row{display:inline-flex;gap:12px;align-items:center;font-family:Inter,system-ui,sans-serif}.ds-field{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--fg-muted,#9aa3b5)}.ds-field select,.ds-field input{font:inherit;font-size:14px;color:var(--fg,#e6e8ee);background:var(--bg,#0f1115);border:1px solid var(--border,#2a2f3a);border-radius:6px;padding:1px 4px;max-width:180px}.ds-field select:focus-visible,.ds-field input:focus-visible{outline:2px solid var(--accent,#7aa2f7);outline-offset:2px}"
+    },
+    {
+      "name": "Decision Context Rail",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "The last three things the agent said or did, before the prompt. Said is prose; did is mono.",
+      "html": "<div class=\"ds-decision\"><div class=\"ds-ctx\"><div class=\"ds-ctx-head\">BEFORE THIS</div><div class=\"ds-said\">The reducer is pure, so I can share it with the server.</div><div class=\"ds-did\"><span class=\"ds-tool\">Read</span> src/protocol/reducer.ts</div><div class=\"ds-did\"><span class=\"ds-tool\">Bash</span> pnpm test</div></div></div>",
+      "css": ".ds-decision{display:flex;flex-direction:column;gap:8px;font-family:Inter,system-ui,sans-serif}.ds-ctx{display:flex;flex-direction:column;gap:4px;padding:8px 12px;border-left:2px solid var(--border-strong,#3d4454);color:var(--fg-muted,#9aa3b5);font-size:12px}.ds-ctx-head{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--fg-faint,#5f6878)}.ds-said{font-size:14px}.ds-did{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-tool{font-weight:600}"
+    },
+    {
+      "name": "Lane Label",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "A canvas swimlane header: tracked uppercase group name plus a mono qualifier.",
+      "html": "<div class=\"ds-lane\"><span class=\"ds-lane-label\">maelstrom</span><span class=\"ds-lane-sub\">feat/design-cleanup</span></div>",
+      "css": ".ds-lane{display:flex;gap:8px;align-items:baseline;font-family:Inter,system-ui,sans-serif}.ds-lane-label{font-size:12px;font-weight:500;color:var(--fg-muted,#9aa3b5);text-transform:uppercase;letter-spacing:.06em}.ds-lane-sub{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--fg-faint,#5f6878)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Mission Control",
+    "overview": "A room whose whole job is to know the state of many things at once. The walls are dark because the readouts are the light. Nothing on the surface is decorative: every hue, every dot, every glow is a channel reporting something, and an operator who has sat here a while reads the room without focusing on any part of it.\n\nThe operator works at pace and flips constantly between three registers \u2014 sweeping the board for what needs answering, pulling one artefact close to read it properly, and laying out what runs next. The design serves that flip before it serves any single register. State is legible at a glance; the thing that needs a decision escalates itself until it is dealt with; and the board never rearranges itself under the operator's hands.\n\nThe system is flat, cool and dense. It is not a dashboard to be admired from a distance and not an ambient display: it is an instrument the operator has their hands on all day, in both light and dark, because the same surface is seen in both on the same day.",
+    "keyCharacteristics": [
+      "Colour is a channel, never a finish \u2014 a grey field is what makes a signal readable.",
+      "Phase is a hue, set once from a data attribute and inherited everywhere beneath it.",
+      "Flat by default; a shadow is earned by overlapping other content, not by importance.",
+      "Dense and quiet at rest \u2014 one attention state is allowed to be loud.",
+      "Light and dark are equal citizens, both driven from one semantic token layer."
+    ],
+    "rules": [
+      {
+        "name": "The One Source Rule",
+        "body": "No file outside `styles/tokens.css` names a colour. Not a hex, not an `rgb()`, not a named CSS colour. A component that needs a colour the semantic layer does not have adds it to the semantic layer.",
+        "section": "colors"
+      },
+      {
+        "name": "The Reporting Rule",
+        "body": "Every hue on screen reports state. Nothing is coloured because it looks better coloured. When a new element needs emphasis, the answer is weight, size or space \u2014 not a colour promoted out of the state channel.",
+        "section": "colors"
+      },
+      {
+        "name": "The Single Interrupt Rule",
+        "body": "Alert Amber is the only channel allowed to escalate itself with a glow. If a second thing starts glowing, the design has stopped ranking and started shouting.",
+        "section": "colors"
+      },
+      {
+        "name": "The Legibility Floor Rule",
+        "body": "12px is the smallest type in the system, and it is only ever used for tracked micro-labels and mono metadata. Body text is 14px. Density is bought with tighter space and shorter lines, never by shrinking type below the floor.",
+        "section": "typography"
+      },
+      {
+        "name": "The Mono Means Literal Rule",
+        "body": "Monospace marks a string the operator might copy, type or match against something else. Prose never uses it, and a mono string is never truncated without an ellipsis, because a half-shown id is worse than an obviously cut one.",
+        "section": "typography"
+      },
+      {
+        "name": "The Operator's Words Rule",
+        "body": "State appears in words the operator already owns \u2014 \"Needs you \u00b7 plan review\" \u2014 never a raw agent state, and never a term `CONTEXT.md` lists under `_Avoid_`.",
+        "section": "typography"
+      },
+      {
+        "name": "The Fixed Board Rule",
+        "body": "The board does not rearrange itself. Layout changes when the operator changes the desk, the grouping or the panel width \u2014 never as a side effect of an agent's progress. An operator reaching for a node must find it where they last saw it.",
+        "section": "layout"
+      },
+      {
+        "name": "The Overlap Test",
+        "body": "Before adding a shadow, ask whether the element overlaps content it is not part of. If it does not, it is layered with tone and a hairline instead. Importance alone never earns a shadow \u2014 that is what colour and position are for.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Left Edge Rule",
+        "body": "The 4px left border carries phase and only phase. A border on any other edge means something else \u2014 a full border colour is node state, and a shifted border colour means attention or fault.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "Do put every new colour in `styles/tokens.css` as a semantic token, and read it by role.",
+      "Do set phase with a `data-phase` attribute and let `--phase` inherit. Never look up a phase hue in a component.",
+      "Do carry state in two channels \u2014 hue and something structural (a dot, a border, an opacity step) \u2014 so no state depends on colour alone.",
+      "Do use `color-mix(in srgb, var(--token) N%, transparent)` for washes, glows and highlights, so they follow the scheme automatically.",
+      "Do keep body text at 14px and never go below the 12px floor.",
+      "Do give every interactive element a visible `:focus-visible` ring, and make every action reachable from the keyboard \u2014 this is a power tool and hands stay on the keys.",
+      "Do check contrast in both schemes. Light is not a courtesy mode.",
+      "Do provide a static fallback for anything that signals by animation, under `prefers-reduced-motion`.",
+      "Do truncate with an ellipsis and keep ids on one line."
+    ],
+    "donts": [
+      "Don't name a colour outside `tokens.css` \u2014 no hex, no `rgb()`, no named CSS colour.",
+      "Don't colour anything that is not reporting state. Emphasis is weight, size and space.",
+      "Don't let a second channel glow. One interrupt at a time.",
+      "Don't add a shadow to something that does not overlap other content.",
+      "Don't use a pill radius for anything but a dot or a count badge.",
+      "Don't put the phase hue on any edge but the left one.",
+      "Don't use mono for prose, or the interface font for an id.",
+      "Don't show a raw agent state, or any term `CONTEXT.md` lists under `_Avoid_`.",
+      "Don't let the board reflow because an agent progressed.",
+      "Don't hardcode a font size in a component \u2014 read the `--text-*` scale."
+    ]
+  }
+}
