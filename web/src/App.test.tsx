@@ -4,7 +4,7 @@ import { fireEvent, screen, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import { seedWorld } from './fake-backend/scenarios/seedWorld';
-import { clickNode, pressKey, renderApp, selectText, stepSim } from './test/renderApp';
+import { clickNode, dropStream, pressKey, renderApp, selectText, stepSim } from './test/renderApp';
 
 /** The one expanded node, as the card it grew into. */
 const expanded = () => screen.getByRole('dialog');
@@ -621,5 +621,22 @@ describe('the task list', () => {
     await user.click(screen.getByTestId('attention-chip'));
     expect(screen.getByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true');
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+});
+
+describe('the change stream', () => {
+  it('shows the banner while the stream reconnects, and keeps the nodes', async () => {
+    const { server } = await renderApp();
+    await act(async () => {});
+    expect(screen.queryByRole('status')).toBeNull();
+    await dropStream(server);
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Reconnecting… showing the last known state',
+    );
+    expect(screen.getAllByTestId('task-node').length).toBeGreaterThan(0);
+    await act(async () => {
+      server.openStreams();
+    });
+    expect(screen.queryByRole('status')).toBeNull();
   });
 });

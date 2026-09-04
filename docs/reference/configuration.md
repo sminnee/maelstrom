@@ -101,7 +101,7 @@ services:
     dir: frontend
     command: env PORT=${FRONTEND_PORT} node server-dev.ts
     env:
-      VITE_ORCHESTRATOR_URL: ws://localhost:${ORCHESTRATOR_PORT}   # a sibling's port, expanded at start
+      ORCHESTRATOR_URL: http://localhost:${ORCHESTRATOR_PORT}   # a sibling's port, expanded at start
 
   server:
     ports: [SERVER]

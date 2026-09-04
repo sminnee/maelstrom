@@ -14,8 +14,8 @@ unit that needs orders shows it on the canvas itself.
 | Layer | Directory | Holds | Imports |
 |---|---|---|---|
 | Protocol | `protocol/` | Entity types, events, commands, the `Backend` interface, and the pure reducers | Nothing |
-| Backends | `ws-backend/`, `fake-backend/` | The WebSocket client and the in-browser simulation, each implementing `Backend` | Protocol |
-| State | `store/`, `selectors/` | One zustand store and the pure functions that derive views from it | Protocol |
+| Backends | `api/`, `live/`, `ws-backend/`, `fake-backend/` | `api/`: the REST client, its query keys and the query cache. `live/`: the change stream that keeps the cache fresh. `ws-backend/` and `fake-backend/`: the WebSocket client and the in-browser simulation, each implementing `Backend` | Protocol |
+| State | `store/`, `selectors/` | One zustand store — UI state and the connection state — and the pure functions that derive views from it | Protocol |
 | UI | `canvas/`, `tasklist/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, `sim/`, plus the `ui/`, `markdown/` and `styles/` they share, and `test/` for shared test helpers | React components and CSS | State, Protocol |
 
 The protocol has no React and no I/O. That is what lets the fake backend and the client share
@@ -194,6 +194,19 @@ Under maelstrom the `web` service always points at the `orchestrator` service, s
 worktree whose `.env` has no `ORCHESTRATOR_PORT` needs `mael env reset` once to add it. Without
 maelstrom, `VITE_ORCHESTRATOR_URL=ws://localhost:8765 pnpm dev` runs against a
 `mael orchestrator serve`.
+
+The REST routes and the change stream are same-origin: the dev server proxies `/api` to the
+orchestrator named by `ORCHESTRATOR_URL` (default `http://localhost:8765`), WebSockets
+included. `vite.config.ts` reads that variable, not the bundle, so the built app carries no
+address. `pnpm build` produces a page with no proxy behind it: serving `web/dist` needs the
+orchestrator on the same origin, and nothing does that yet.
+
+`api/http.ts` is the client: every failure is an `ApiError` with a code — the server's, or
+`transport` and `timeout` for a request that got no answer. `api/queryClient.ts` sets the cache
+so nothing goes stale on its own; `live/changeStream.ts` invalidates what each notice names, and
+a `reset` invalidates everything. Its connection state lives in the store, and
+`shell/ConnectionBanner.tsx` shows "Connecting…" before any data and "Reconnecting… showing the
+last known state" once there is some.
 
 The FAKE chip in the top bar plays, pauses, steps and sets the speed of the simulation. Its ⚙
 opens the debug drawer, which forces a question, a permission, a plan, a finish or an exit on

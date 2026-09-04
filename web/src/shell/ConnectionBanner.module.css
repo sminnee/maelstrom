@@ -1,0 +1,12 @@
+.banner {
+  padding: 4px 12px;
+  font-size: var(--text-sm);
+  color: var(--fg-on-hue);
+  background: var(--attention);
+  text-align: center;
+}
+.banner[data-connection='connecting'] {
+  color: var(--fg-muted);
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+}
