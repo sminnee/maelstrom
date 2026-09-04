@@ -5,6 +5,12 @@ from pathlib import Path
 
 import yaml
 
+from .ports import (
+    DYNAMIC_PORT_BASE_MAX,
+    DYNAMIC_PORT_BASE_MIN,
+    PORT_BASE_CEILING,
+)
+
 CONFIG_FILENAME = ".maelstrom.yaml"
 
 # Container engines maelstrom knows how to drive. Presence of an ``engine:`` key
@@ -138,6 +144,31 @@ def _parse_service(name: str, data: dict) -> ServiceDef:
     return svc
 
 
+def _parse_main_port_base(value: object) -> int | None:
+    """Validate the reserved base for `_main`, or return None when unset.
+
+    Raises:
+        ValueError: If the value is not an integer, falls inside the floating
+            pool, or derives a port outside the valid range.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"main_port_base must be an integer, not {value!r}")
+    if not 1 <= value <= PORT_BASE_CEILING:
+        raise ValueError(
+            f"main_port_base {value} derives ports outside the valid range. "
+            f"Choose a base from 1 to {PORT_BASE_CEILING}."
+        )
+    if DYNAMIC_PORT_BASE_MIN <= value <= DYNAMIC_PORT_BASE_MAX:
+        raise ValueError(
+            f"main_port_base {value} is inside the floating pool "
+            f"({DYNAMIC_PORT_BASE_MIN}-{DYNAMIC_PORT_BASE_MAX}), which a NATO "
+            "worktree can be given. Choose a base outside that range."
+        )
+    return value
+
+
 @dataclass
 class MaelstromConfig:
     """Configuration for a maelstrom-managed project."""
@@ -149,6 +180,9 @@ class MaelstromConfig:
     # Structured service definitions (preferred over Procfile / start_cmd).
     # Insertion order is preserved for deterministic port allocation.
     services: list[ServiceDef] = field(default_factory=list)
+    # The port base reserved for `_main`, the fixed environment. `None` means
+    # the project does not opt in, so `_main` keeps no ports and no .env.
+    main_port_base: int | None = None
     # Linear integration
     linear_team_id: str | None = None
     linear_workspace_labels: list[str] | None = None
@@ -183,12 +217,15 @@ class MaelstromConfig:
             _parse_service(name, svc_data) for name, svc_data in services_data.items()
         ]
 
+        main_port_base = _parse_main_port_base(data.get("main_port_base"))
+
         return cls(
             port_names=data.get("port_names", []),
             shared_port_names=data.get("shared_port_names", []),
             start_cmd=data.get("start_cmd", ""),
             install_cmd=data.get("install_cmd", ""),
             services=services,
+            main_port_base=main_port_base,
             linear_team_id=linear_config.get("team_id"),
             linear_workspace_labels=linear_config.get("workspace_labels"),
             linear_product_label=linear_config.get("product_label"),

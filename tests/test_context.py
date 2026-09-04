@@ -168,6 +168,15 @@ class TestResolvedContext:
         # Folder name is now <project>-<worktree>
         assert ctx.worktree_path == Path("/Projects/myproject/myproject-alpha")
 
+    def test_worktree_path_for_main(self):
+        """`_main` is a real worktree, so it resolves as an env target."""
+        ctx = ResolvedContext(
+            projects_dir=Path("/Projects"),
+            project="myproject",
+            worktree="_main",
+        )
+        assert ctx.worktree_path == Path("/Projects/myproject/_main")
+
     def test_worktree_path_without_project(self):
         """Test worktree_path when project is None."""
         ctx = ResolvedContext(
@@ -351,6 +360,17 @@ class TestDetectContextFromCwd:
         assert project == "myproject"
         # Should extract the worktree name from folder
         assert worktree == "bravo"
+
+    def test_cwd_in_main(self, tmp_path):
+        """Running inside `_main` resolves to the `_main` worktree."""
+        projects_dir = tmp_path / "Projects"
+        main_dir = projects_dir / "myproject" / "_main"
+        main_dir.mkdir(parents=True)
+
+        project, worktree = detect_context_from_cwd(projects_dir, main_dir)
+
+        assert project == "myproject"
+        assert worktree == "_main"
 
 
 class TestLoadGlobalConfig:
