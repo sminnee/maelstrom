@@ -1,4 +1,5 @@
 import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { QueryClient } from '@tanstack/react-query';
 import { App } from '../App';
 import { keys } from '../api/keys';
@@ -24,9 +25,12 @@ const LIST_KEYS = [
  *
  * With `ready: false` the server holds every reply, so every list query is
  * still loading. The test releases when it is ready to see the world arrive.
+ *
+ * With `strict: true` the tree is wrapped in `<StrictMode>`, the way `main.tsx`
+ * mounts it, so the test sees the remount.
  */
 export async function renderApp(
-  opts: { ready?: boolean } = {},
+  opts: { ready?: boolean; strict?: boolean } = {},
 ): Promise<RenderResult & { server: FakeServer; queryClient: QueryClient }> {
   // The store is a module singleton: a test must not inherit the view, the
   // filters or the tabs the one before it left.
@@ -46,7 +50,14 @@ export async function renderApp(
     queryClient,
   };
   if (opts.ready === false) server.hold();
-  const utils = render(<App deps={deps} />);
+  const tree = opts.strict ? (
+    <StrictMode>
+      <App deps={deps} />
+    </StrictMode>
+  ) : (
+    <App deps={deps} />
+  );
+  const utils = render(tree);
   if (opts.ready === false) return { server, queryClient, ...utils };
   await waitFor(() => {
     for (const key of LIST_KEYS) {

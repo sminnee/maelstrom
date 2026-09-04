@@ -156,4 +156,24 @@ describe('agent streams', () => {
     expect(sockets[0]!.closed).toBe(false);
     expect(sockets).toHaveLength(1);
   });
+
+  it('a re-acquire after the grace opens a new socket and refills the store', () => {
+    const release = streams.acquire('ag1');
+    sockets[0]!.open();
+    sockets[0]!.receive({
+      type: 'transcript.snapshot',
+      seq: 3,
+      items: [],
+      truncatedBefore: false,
+    });
+    release();
+    vi.advanceTimersByTime(5000);
+    expect(sockets[0]!.closed).toBe(true);
+    expect(store.state['ag1']).toBeUndefined();
+
+    streams.acquire('ag1');
+    expect(sockets).toHaveLength(2);
+    expect(sockets[1]!.url).toBe('/api/agents/ag1/stream');
+    expect(store.state['ag1']).toMatchObject({ status: 'connecting' });
+  });
 });
