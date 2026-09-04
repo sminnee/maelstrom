@@ -26,7 +26,7 @@ from ..task_launch import LaunchBlocked
 from ..util import now_iso
 from . import desk as desk_model
 from .daemon_bridge import AsyncDaemonClient
-from .desk import DeskTable
+from .desk import DeskTable, desk_id_for_task
 from .event_log import RING_SIZE, EventLog
 from .normalise import (
     NormaliseContext,
@@ -266,16 +266,16 @@ class Orchestrator:
         await self.publish(diff_kind("desk", old, table))
 
     async def _desk_add(self, command: dict[str, Any]) -> dict[str, Any]:
-        await self._add_to_desk(command["taskId"])
+        await self._add_to_desk(command["id"])
         return {"ok": True, "result": {}}
 
-    async def _add_to_desk(self, task_id: str) -> None:
+    async def _add_to_desk(self, desk_id: str) -> None:
         table = self.log.state["world"]["desk"]
-        await self._set_desk(desk_model.add(table, task_id, self.clock()))
+        await self._set_desk(desk_model.add(table, desk_id, self.clock()))
 
     async def _desk_remove(self, command: dict[str, Any]) -> dict[str, Any]:
         table = self.log.state["world"]["desk"]
-        await self._set_desk(desk_model.remove(table, command["taskId"]))
+        await self._set_desk(desk_model.remove(table, command["id"]))
         return {"ok": True, "result": {}}
 
     # -- agents --
@@ -648,7 +648,7 @@ class Orchestrator:
                     await self.refresh_tasks(force=True)
                     return _refused(_code_for(error), error)
                 await self.refresh_tasks(force=True)
-                await self._add_to_desk(task_id)
+                await self._add_to_desk(desk_id_for_task(task_id))
                 await self._adopt(_started_row(agent_id, request.payload))
             except Exception as exc:  # noqa: BLE001 — the rollback must run
                 log.exception("launch of %s failed after the task moved", task_id)

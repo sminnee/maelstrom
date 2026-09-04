@@ -1,4 +1,4 @@
-import type { AgentId, ProjectId, RequestId, TaskId, WorktreeId } from './ids';
+import type { AgentId, DeskId, ProjectId, RequestId, TaskId, WorktreeId } from './ids';
 
 /** Which of the four stages a task's work is in. Derived from the task's `command`. */
 export type Phase = 'shaping' | 'planning' | 'executing' | 'finalising';
@@ -100,8 +100,8 @@ export interface Agent {
   pendingRequestId: RequestId | null;
 }
 
-/** One task on the desk: the set of tasks the user has put on the canvas. */
+/** One entry on the desk: a task or a free agent the canvas keeps drawing. */
 export interface DeskEntry {
-  id: TaskId;
+  id: DeskId;
   addedAt: string;
 }

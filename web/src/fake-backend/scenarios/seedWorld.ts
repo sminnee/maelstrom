@@ -1,3 +1,4 @@
+import { deskIdForTask } from '../../protocol/deskId';
 import type { Attention } from '../../protocol/attention';
 import type { Document } from '../../protocol/documents';
 import type { Agent, Project, Task, Worktree } from '../../protocol/entities';
@@ -390,7 +391,7 @@ export function seedWorld(): Seed {
     desk: keyed(
       Object.values(byId)
         .filter((t) => t.status !== 'done' && t.status !== 'cancelled')
-        .map((t) => ({ id: t.id, addedAt: T(120) })),
+        .map((t) => ({ id: deskIdForTask(t.id), addedAt: T(120) })),
     ),
   };
 

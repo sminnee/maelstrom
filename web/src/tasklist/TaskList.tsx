@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { deskIdForTask } from '../protocol/deskId';
 import { filterOptions } from '../selectors/filters';
 import { describeState } from '../selectors/status';
 import { LIST_STATUSES, listTasks } from '../selectors/taskList';
@@ -96,7 +97,7 @@ export function TaskList() {
                   onClick={() =>
                     void send({
                       type: onDesk ? 'desk.remove' : 'desk.add',
-                      taskId: task.id,
+                      id: deskIdForTask(task.id),
                     })
                   }
                 >

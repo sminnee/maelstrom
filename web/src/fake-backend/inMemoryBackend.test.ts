@@ -1,3 +1,4 @@
+import { deskIdForTask } from '../protocol/deskId';
 import { describe, expect, it } from 'vitest';
 import { createFakeBackend } from './createFakeBackend';
 import { seedWorld } from './scenarios/seedWorld';
@@ -122,20 +123,20 @@ describe('the fake backend honours the Backend contract', () => {
     const backend = createFakeBackend({ seed: 1, autoplay: false });
     const frames = collect(backend);
     await backend.connect();
-    const reply = await backend.command({ type: 'desk.add', taskId: 'NORT-3' });
+    const reply = await backend.command({ type: 'desk.add', id: 'task:NORT-3' });
     expect(reply.ok).toBe(true);
     const upsert = frames.find((f) => f.event.type === 'upsert' && f.event.kind === 'desk');
-    expect(upsert?.event).toMatchObject({ entity: { id: 'NORT-3' } });
+    expect(upsert?.event).toMatchObject({ entity: { id: 'task:NORT-3' } });
   });
 
   it('desk.remove acks and takes the task off the desk', async () => {
     const backend = createFakeBackend({ seed: 1, autoplay: false });
     const frames = collect(backend);
     await backend.connect();
-    const reply = await backend.command({ type: 'desk.remove', taskId: 'NORT-9' });
+    const reply = await backend.command({ type: 'desk.remove', id: 'task:NORT-9' });
     expect(reply.ok).toBe(true);
     const removed = frames.find((f) => f.event.type === 'remove' && f.event.kind === 'desk');
-    expect(removed?.event).toMatchObject({ id: 'NORT-9' });
+    expect(removed?.event).toMatchObject({ id: 'task:NORT-9' });
   });
 
   it('launching a task that is off the desk puts it on', async () => {
@@ -147,7 +148,7 @@ describe('the fake backend honours the Backend contract', () => {
     const task = Object.values(snapshot.world.tasks).find((t) => t.actionable);
     if (!task) throw new Error('seed has no actionable task');
     // The seed desk holds every task still in play, so take this one off it.
-    await backend.command({ type: 'desk.remove', taskId: task.id });
+    await backend.command({ type: 'desk.remove', id: deskIdForTask(task.id) });
     const before = frames.length;
 
     const reply = await backend.command({ type: 'agent.launch', taskId: task.id });
@@ -155,6 +156,6 @@ describe('the fake backend honours the Backend contract', () => {
     const upsert = frames
       .slice(before)
       .find((f) => f.event.type === 'upsert' && f.event.kind === 'desk');
-    expect(upsert?.event).toMatchObject({ entity: { id: task.id } });
+    expect(upsert?.event).toMatchObject({ entity: { id: deskIdForTask(task.id) } });
   });
 });

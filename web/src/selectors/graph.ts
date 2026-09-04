@@ -1,4 +1,5 @@
 import type { Attention } from '../protocol/attention';
+import { deskIdForTask } from '../protocol/deskId';
 import { isOpen } from '../protocol/attention';
 import type { Agent, Phase, Task } from '../protocol/entities';
 import type { World } from '../protocol/events';
@@ -75,7 +76,7 @@ export function filteredTasks(world: World, filters: Filters): Task[] {
 /** Everything the canvas draws, derived from the world plus client state. */
 export function deriveGraph(world: World, opts: GraphOptions): Graph {
   // The canvas draws the desk: what the user has put on it, and nothing else.
-  const tasks = filteredTasks(world, opts.filters).filter((t) => t.id in world.desk);
+  const tasks = filteredTasks(world, opts.filters).filter((t) => deskIdForTask(t.id) in world.desk);
 
   const groups = new Map<string, GraphGroup>();
   const nodes: GraphNode[] = [];

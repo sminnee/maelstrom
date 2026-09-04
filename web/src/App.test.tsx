@@ -1,3 +1,4 @@
+import { deskIdForTask } from './protocol/deskId';
 import { describe, expect, it } from 'vitest';
 import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -21,7 +22,7 @@ describe('App', () => {
     await renderApp();
     const world = seedWorld().world;
     const expected = Object.values(world.tasks)
-      .filter((t) => t.status !== 'template' && t.id in world.desk)
+      .filter((t) => t.status !== 'template' && deskIdForTask(t.id) in world.desk)
       .map((t) => t.id)
       .sort();
     const rendered = (await screen.findAllByTestId('task-node'))
@@ -62,7 +63,7 @@ describe('grouping and filters', () => {
     const world = seedWorld().world;
     const branches = new Set(
       Object.values(world.tasks)
-        .filter((t) => t.id in world.desk)
+        .filter((t) => deskIdForTask(t.id) in world.desk)
         .map((t) => t.branch),
     );
     expect(groups()).toHaveLength(branches.size);
