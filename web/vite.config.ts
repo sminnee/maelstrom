@@ -25,5 +25,9 @@ export default defineConfig({
     globals: false,
     setupFiles: ['./src/test/setup.ts'],
     css: false,
+    // A cold CI runner is far slower than a dev machine, and the transcript
+    // tests wait on a socket. The default 5 s has failed there on work that
+    // passes locally every time.
+    testTimeout: 15_000,
   },
 });
