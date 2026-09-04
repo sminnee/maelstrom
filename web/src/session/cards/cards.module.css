@@ -106,7 +106,8 @@
   gap: 6px;
 }
 .prompt[data-answered],
-.prompt[data-decision] {
+.prompt[data-decision],
+.prompt[data-stale] {
   border-color: var(--border);
   background: var(--bg-raised);
 }
@@ -117,7 +118,8 @@
   color: var(--attention);
 }
 .prompt[data-answered] .qhead,
-.prompt[data-decision] .qhead {
+.prompt[data-decision] .qhead,
+.prompt[data-stale] .qhead {
   color: var(--fg-faint);
 }
 .options {

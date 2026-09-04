@@ -67,10 +67,16 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
     case 'plan_review': {
       const documentId = item.documentId;
       return (
-        <div className={styles.plan} data-decision={item.decision}>
+        <div
+          className={styles.plan}
+          data-decision={item.decision}
+          data-stale={item.stale || undefined}
+        >
           <span>Plan review</span>
           {documentId && <PanelLink tab={documentTab(documentId)}>Plan</PanelLink>}
-          <span className={styles.decision}>{item.decision ?? 'awaiting review'}</span>
+          <span className={styles.decision}>
+            {item.decision ?? (item.stale ? 'no longer pending' : 'awaiting review')}
+          </span>
           {item.reason && <div className={styles.reason}>{item.reason}</div>}
         </div>
       );

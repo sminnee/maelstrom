@@ -56,6 +56,26 @@ describe('Transcript', () => {
     expect(rows.map((r) => r.getAttribute('data-kind'))).toEqual(['remove', 'add']);
   });
 
+  it('a plan review nothing answered no longer claims to await review', () => {
+    render(
+      <Transcript
+        truncatedBefore={false}
+        items={[
+          {
+            id: 'p1',
+            ts: '',
+            type: 'plan_review',
+            requestId: 'req-1',
+            documentId: null,
+            stale: true,
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByText('no longer pending')).toBeInTheDocument();
+    expect(screen.queryByText('awaiting review')).toBeNull();
+  });
+
   it('a denied permission shows its decision', () => {
     const state = replayFixture('permission-denied.jsonl');
     render(<Transcript items={state.transcripts['ag1']!.items} truncatedBefore={false} />);

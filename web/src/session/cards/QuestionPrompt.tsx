@@ -38,19 +38,10 @@ export function QuestionPrompt({
   const groupId = useId();
   const answered = item.answers !== undefined && Object.keys(item.answers).length > 0;
 
-  if (answered) {
-    return (
-      <div className={styles.prompt} data-answered>
-        <div className={styles.qhead}>Answered</div>
-        {item.questions.map((q) => (
-          <div key={q.question} className={styles.answeredRow}>
-            <span className={styles.stepHeader}>{q.header || 'Question'}</span>
-            <span className={styles.questionText}>{q.question}</span>
-            <span className={styles.answer}>{item.answers?.[q.question] ?? '(no answer)'}</span>
-          </div>
-        ))}
-      </div>
-    );
+  // Answered outranks stale: the normaliser marks an item stale only when
+  // nothing answered it, so an item carrying answers was answered here.
+  if (answered || item.stale) {
+    return <ReadOnly item={item} answered={answered} />;
   }
 
   const questions = item.questions;
@@ -210,6 +201,29 @@ export function QuestionPrompt({
           {last ? 'Answer' : 'Next'}
         </button>
       </div>
+    </div>
+  );
+}
+
+/** The questions with no controls: answered, or stale with nothing to show but the ask. */
+function ReadOnly({ item, answered }: { item: QuestionItem; answered: boolean }) {
+  return (
+    <div
+      className={styles.prompt}
+      data-answered={answered || undefined}
+      data-stale={!answered || undefined}
+    >
+      <div className={styles.qhead}>{answered ? 'Answered' : 'Question'}</div>
+      {item.questions.map((q) => (
+        <div key={q.question} className={styles.answeredRow}>
+          <span className={styles.stepHeader}>{q.header || 'Question'}</span>
+          <span className={styles.questionText}>{q.question}</span>
+          {answered && (
+            <span className={styles.answer}>{item.answers?.[q.question] ?? '(no answer)'}</span>
+          )}
+        </div>
+      ))}
+      {!answered && <div className={styles.answer}>no longer pending</div>}
     </div>
   );
 }
