@@ -21,7 +21,13 @@ from maelstrom.agent_model import (
     MESSAGE_CHARS,
     MESSAGE_SUMMARY_CHARS,
     PROCESSING,
+    SEQ_KEY,
     SPEC_STOPPED,
+    SUB_COMPLETED,
+    SUB_FAILED,
+    SUB_RUNNING,
+    SUB_STOPPED,
+    SUBAGENT_LIMIT,
     AgentSpec,
     AgentState,
     TranscriptMeta,
@@ -32,9 +38,12 @@ from maelstrom.agent_model import (
     build_agent_row,
     build_stopped_row,
     build_stopped_rows,
+    build_subagent_detail,
+    build_subagent_rows,
     interrupt_request,
     mark_exited,
     reply_for_answer,
+    reply_for_answers,
     reply_for_approval,
     reply_for_denial,
     set_mode_request,
@@ -438,8 +447,6 @@ def test_detail_of_an_idle_agent_still_has_every_key():
 
 def test_reply_for_answers_files_each_answer_under_its_question():
     """The orchestrator UI answers every question at once, each by its text."""
-    from maelstrom.agent_model import reply_for_answers
-
     state = replay("question-unanswered.jsonl", stop_before_control=True)
     assert state.pending is not None
     answers = {"Which colour do you prefer?": "Blue"}
@@ -492,8 +499,6 @@ def test_a_cancel_for_another_request_is_ignored():
 
 def test_apply_event_stamps_each_event_with_its_seq_and_leaves_the_input_alone():
     """The stamp lives on the copy in ``recent``: the same dict goes to the child."""
-    from maelstrom.agent_model import SEQ_KEY
-
     state = AgentState(agent_id="a1", cwd="/tmp/x")
     events = [{"type": "rate_limit_event"}, {"type": "assistant"}, {"type": "result"}]
     for event in events:
@@ -716,3 +721,246 @@ def test_stopped_rows_drop_a_session_with_no_record():
         now=1_000.0,
     )
     assert [row["id"] for row in rows] == ["kept"]
+
+
+# --- subagents: a parented event is a stream of its own -----------------------
+
+
+def _parented(parent_id: str, text: str, **extra) -> dict:
+    """One ``assistant`` text event a subagent produced."""
+    return {
+        "type": "assistant",
+        "message": {"content": [{"type": "text", "text": text}]},
+        "parent_tool_use_id": parent_id,
+        "task_description": extra.pop("description", "a task"),
+        **extra,
+    }
+
+
+def _agent_call(tool_use_id: str, **extra) -> dict:
+    """One ``assistant`` event carrying an ``Agent`` tool call."""
+    return {
+        "type": "assistant",
+        "message": {
+            "content": [
+                {"type": "tool_use", "id": tool_use_id, "name": "Agent", "input": {}}
+            ]
+        },
+        "parent_tool_use_id": None,
+        **extra,
+    }
+
+
+def _notification(tool_use_id: str, status: str = "completed", summary: str = "done"):
+    return {
+        "type": "system",
+        "subtype": "task_notification",
+        "task_id": "t",
+        "tool_use_id": tool_use_id,
+        "status": status,
+        "summary": summary,
+    }
+
+
+def test_the_parent_ring_holds_none_of_its_subagents_events():
+    """What the parent said and did, and nothing a subagent did."""
+    state = replay("subagent-turn.jsonl")
+    assert all(e.get("parent_tool_use_id") is None for e in state.recent)
+    raw = (FIXTURES / "subagent-turn.jsonl").read_text().splitlines()
+    parent_lines = [
+        line for line in raw if json.loads(line).get("parent_tool_use_id") is None
+    ]
+    assert state.seq == len(parent_lines)
+    assert [e[SEQ_KEY] for e in state.recent] == list(range(1, state.seq + 1))
+
+
+def test_the_parents_last_message_is_never_a_subagents():
+    state = replay("subagent-turn.jsonl", stop_before_control=False)
+    # The subagent speaks between the Agent call and its result; the parent's
+    # own last words are what the row shows.
+    assert "docs/dev" in state.last_message
+    assert state.last_message.startswith("The subagent")
+
+
+def test_a_subagent_opens_under_a_dotted_id_with_its_description():
+    state = replay("subagent-turn.jsonl")
+    sub = state.subagents["a1.1"]
+    assert sub.description == "List and summarise docs/dev"
+    assert sub.subagent_type == "Explore"
+    assert sub.tool_use_id == "toolu_01GYXSgBQ1wcW9LA8SSvM5uJ"
+
+
+def test_a_subagent_ring_carries_its_own_seq():
+    sub = replay("subagent-turn.jsonl").subagents["a1.1"]
+    assert all(e.get("parent_tool_use_id") == sub.tool_use_id for e in sub.recent)
+    assert [e[SEQ_KEY] for e in sub.recent] == list(range(1, sub.seq + 1))
+    assert sub.seq == len(sub.recent) > 0
+
+
+def test_a_subagent_runs_until_its_notification_then_carries_the_summary():
+    raw = (FIXTURES / "subagent-turn.jsonl").read_text().splitlines()
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    for line in raw:
+        event = json.loads(line)
+        if event.get("subtype") == "task_notification":
+            assert state.subagents["a1.1"].status == SUB_RUNNING
+            assert state.subagents["a1.1"].summary == ""
+        state = apply_event(state, event)
+    sub = state.subagents["a1.1"]
+    assert sub.status == SUB_COMPLETED
+    assert sub.summary.startswith("`docs/dev` exists")
+    assert "docs/dev" in sub.last_message
+
+
+def test_a_subagents_last_message_is_what_it_last_said():
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    state = apply_event(state, _parented("t1", "looking"))
+    state = apply_event(state, _parented("t1", "found it"))
+    assert state.subagents["a1.1"].last_message == "found it"
+    assert state.last_message == ""
+
+
+def test_a_second_subagent_is_dot_two():
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    state = apply_event(state, _parented("t1", "one"))
+    state = apply_event(state, _parented("t2", "two"))
+    assert list(state.subagents) == ["a1.1", "a1.2"]
+    assert state.subagents["a1.2"].tool_use_id == "t2"
+
+
+def test_an_unseen_id_opens_a_subagent_named_by_the_frame():
+    """No ``task_started`` came, so the frame's own description is all there is."""
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    state = apply_event(state, _parented("t9", "hi", description="Find the tests"))
+    sub = state.subagents["a1.1"]
+    assert sub.description == "Find the tests"
+    assert sub.seq == 1
+
+
+def test_a_parented_event_after_the_end_reopens_the_subagent():
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    state = apply_event(state, _parented("t1", "one"))
+    state = apply_event(state, _notification("t1"))
+    assert state.subagents["a1.1"].status == SUB_COMPLETED
+    state = apply_event(state, _parented("t1", "more"))
+    assert state.subagents["a1.1"].status == SUB_RUNNING
+    assert state.subagents["a1.1"].seq == 2
+    assert list(state.subagents) == ["a1.1"]
+
+
+def test_a_failed_or_stopped_notification_is_kept_as_such():
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    state = apply_event(state, _parented("t1", "one"))
+    state = apply_event(state, _parented("t2", "two"))
+    state = apply_event(state, _notification("t1", "failed", "boom"))
+    state = apply_event(state, _notification("t2", "stopped", ""))
+    assert state.subagents["a1.1"].status == SUB_FAILED
+    assert state.subagents["a1.1"].summary == "boom"
+    assert state.subagents["a1.2"].status == SUB_STOPPED
+
+
+def test_a_notification_for_no_known_subagent_is_ignored():
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    state = apply_event(state, _notification("nope"))
+    assert state.subagents == {}
+
+
+def test_a_background_shell_task_is_not_a_subagent():
+    """``subagent-background.jsonl`` has a ``local_bash`` task inside the subagent."""
+    state = replay("subagent-background.jsonl")
+    assert list(state.subagents) == ["a1.1"]
+
+
+def test_a_backgrounded_subagent_outlives_the_parents_tool_result():
+    """The parent's ``tool_result`` arrives at launch, so it must not end anything."""
+    raw = (FIXTURES / "subagent-background.jsonl").read_text().splitlines()
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    seq_at_result = None
+    for line in raw:
+        event = json.loads(line)
+        state = apply_event(state, event)
+        # The first turn ends while the subagent runs; a second turn reports
+        # its summary once the notification wakes the parent.
+        if event.get("type") == "result" and seq_at_result is None:
+            assert state.subagents["a1.1"].status == SUB_RUNNING
+            seq_at_result = state.subagents["a1.1"].seq
+    assert seq_at_result is not None
+    assert state.subagents["a1.1"].seq > seq_at_result
+    assert state.subagents["a1.1"].status == SUB_COMPLETED
+
+
+def test_a_subagent_of_a_subagent_is_dot_one_dot_one():
+    """The ring holding the spawning call decides the level, not the tool name."""
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    state = apply_event(state, _agent_call("outer"))
+    state = apply_event(state, _agent_call("inner", parent_tool_use_id="outer"))
+    state = apply_event(state, _parented("inner", "deep"))
+    assert list(state.subagents) == ["a1.1", "a1.1.1"]
+    assert state.subagents["a1.1.1"].seq == 1
+    assert state.subagents["a1.1"].seq == 1  # the inner call only
+
+
+def test_task_started_opens_the_subagent_before_it_speaks():
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    started = {
+        "type": "system",
+        "subtype": "task_started",
+        "task_id": "t",
+        "tool_use_id": "t1",
+        "description": "Scan the docs",
+        "subagent_type": "Explore",
+        "task_type": "local_agent",
+    }
+    state = apply_event(state, started)
+    sub = state.subagents["a1.1"]
+    assert sub.status == SUB_RUNNING
+    assert sub.description == "Scan the docs"
+    assert sub.seq == 0
+    # And the parent's ring kept the system event, as it keeps any other.
+    assert state.recent[-1]["subtype"] == "task_started"
+
+
+def test_past_the_limit_the_oldest_finished_subagent_goes_and_no_ordinal_returns():
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    for n in range(SUBAGENT_LIMIT):
+        state = apply_event(state, _parented(f"t{n}", "x"))
+    # The first stays running; the second finished, so it is the one to go.
+    state = apply_event(state, _notification("t1"))
+    state = apply_event(state, _parented("t-new", "y"))
+    assert len(state.subagents) == SUBAGENT_LIMIT
+    assert "a1.2" not in state.subagents
+    assert "a1.1" in state.subagents
+    assert state.subagents[f"a1.{SUBAGENT_LIMIT + 1}"].tool_use_id == "t-new"
+
+
+def test_an_evicted_subagent_that_speaks_again_comes_back_under_its_old_id():
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    for n in range(SUBAGENT_LIMIT):
+        state = apply_event(state, _parented(f"t{n}", "x"))
+    state = apply_event(state, _notification("t1"))
+    state = apply_event(state, _parented("t-new", "y"))
+    assert "a1.2" not in state.subagents
+    state = apply_event(state, _parented("t1", "again"))
+    assert state.subagents["a1.2"].tool_use_id == "t1"
+    assert state.subagents["a1.2"].seq == 1
+
+
+def test_a_permission_a_subagent_asks_for_names_the_subagent():
+    """The wait belongs to the parent; the detail says which subagent raised it."""
+    state = replay("subagent-permission.jsonl", stop_before_control=True)
+    assert state.status == "awaiting-permission"
+    assert state.pending is not None
+    assert state.pending.tool_name == "WebFetch"
+    assert state.pending.subagent == "a1.1"
+
+
+def test_a_permission_the_parent_asks_for_names_no_subagent():
+    state = replay("permission-request.jsonl", stop_before_control=True)
+    assert state.pending is not None
+    assert state.pending.subagent == ""
+
+
+def test_mark_exited_leaves_the_subagents_alone():
+    state = replay("subagent-turn.jsonl")
+    before = state.subagents
+    assert mark_exited(state, 0).subagents == before

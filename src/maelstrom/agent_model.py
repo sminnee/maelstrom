@@ -282,6 +282,11 @@ class PendingRequest:
     tool_name: str
     input: dict[str, Any]
     description: str = ""
+    #: The dotted id of the subagent whose tool call this is, else ``""`` for
+    #: the agent's own. The wait belongs to the agent either way — the child
+    #: blocks on one request at a time, whoever raised it — but a user deciding
+    #: wants to know which stream to read.
+    subagent: str = ""
 
     @property
     def questions(self) -> list[str]:
@@ -320,6 +325,39 @@ class PendingRequest:
         return self.description or self.tool_name
 
 
+#: The states a subagent passes through. ``running`` until its notification,
+#: then whatever the notification said. A parented event after the end puts it
+#: back to ``running``.
+SUB_RUNNING = "running"
+SUB_COMPLETED = "completed"
+SUB_FAILED = "failed"
+SUB_STOPPED = "stopped"
+SUB_STATUSES = (SUB_RUNNING, SUB_COMPLETED, SUB_FAILED, SUB_STOPPED)
+
+#: The task kind a ``task_started`` must carry to open a subagent. A background
+#: shell is a task too, keyed by its ``Bash`` call, and is not one.
+AGENT_TASK_TYPE = "local_agent"
+
+
+@dataclass(frozen=True)
+class SubagentState:
+    """One subagent of an agent: a stream of its own, keyed by a dotted id.
+
+    Its events come stamped with ``parent_tool_use_id`` and live in a ring
+    and seq of their own. See ``docs/dev/agent-daemon.md``.
+    """
+
+    tool_use_id: str
+    description: str = ""
+    subagent_type: str = ""
+    status: str = SUB_RUNNING
+    #: What the notification said, once it came.
+    summary: str = ""
+    recent: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    seq: int = 0
+    last_message: str = ""
+
+
 @dataclass(frozen=True)
 class AgentState:
     """Everything the daemon knows about one agent, derived from its events.
@@ -351,10 +389,19 @@ class AgentState:
     #: review with no plan in its input falls back to it. The conversation
     #: itself is Claude's session transcript on disk, not this field.
     last_message: str = ""
+    #: The subagents this agent has spawned, by dotted id, oldest first. A
+    #: nested one is ``X.1.1``. See :class:`SubagentState`.
+    subagents: dict[str, SubagentState] = field(default_factory=dict)
+    #: Every dotted id ever handed out, by the ``Agent`` call's tool use id.
+    #: Outlives eviction, so an ordinal is never reused.
+    subagent_ids: dict[str, str] = field(default_factory=dict)
 
 
 #: How many events to keep per agent for ``attach`` to render on connect.
 RECENT_LIMIT = 200
+
+#: How many subagents to keep per agent. See :func:`_make_room`.
+SUBAGENT_LIMIT = 50
 
 #: How much of the last message to keep, so a whole plan survives the fallback
 #: in :func:`_plan_details` without the field growing without bound.
@@ -436,11 +483,32 @@ def apply_event(state: AgentState, event: dict[str, Any]) -> AgentState:
 
     ``recent`` holds a stamped copy of the event, never the caller's dict: the
     same dict is also written to the child, which must not see the stamp.
+
+    An event with a ``parent_tool_use_id`` belongs to a subagent, and goes to
+    that subagent's ring and nowhere else: the parent's ring, seq, message,
+    status and pending are what the parent did, and a subagent's chatter must
+    not move any of them.
     """
+    if event.get("parent_tool_use_id"):
+        return _apply_subagent_event(state, event)
+
     seq = state.seq + 1
     recent = (state.recent + ({**event, SEQ_KEY: seq},))[-RECENT_LIMIT:]
     state = replace(state, recent=recent, seq=seq)
     kind = event.get("type")
+
+    if kind == "system" and event.get("subtype") == "task_started":
+        if event.get("task_type") == AGENT_TASK_TYPE and event.get("tool_use_id"):
+            return _open_subagent(
+                state,
+                str(event["tool_use_id"]),
+                description=str(event.get("description") or ""),
+                subagent_type=str(event.get("subagent_type") or ""),
+            )
+        return state
+
+    if kind == "system" and event.get("subtype") == "task_notification":
+        return _end_subagent(state, event)
 
     if kind == "system" and event.get("subtype") == "init":
         return replace(
@@ -464,6 +532,7 @@ def apply_event(state: AgentState, event: dict[str, Any]) -> AgentState:
             tool_name=request.get("tool_name", ""),
             input=request.get("input") or {},
             description=request.get("description", "") or "",
+            subagent=_ring_holding_call(state, str(request.get("tool_use_id") or "")),
         )
         return replace(state, status=pending.wait_kind, pending=pending)
 
@@ -510,11 +579,161 @@ def apply_event(state: AgentState, event: dict[str, Any]) -> AgentState:
     return state
 
 
+def subagent_of(state: AgentState, event: dict[str, Any]) -> str:
+    """The dotted id of the subagent ``event`` belongs to, or ``""`` for the agent.
+
+    Answers for the state *after* :func:`apply_event` took the event, which is
+    when the caller wants to know which ring the stamped copy landed in. An
+    id whose state was evicted answers ``""``: there is no ring to read.
+    """
+    parent = event.get("parent_tool_use_id")
+    if not parent:
+        return ""
+    dotted = state.subagent_ids.get(str(parent), "")
+    return dotted if dotted in state.subagents else ""
+
+
+def _holds_call(recent: tuple[dict[str, Any], ...], tool_use_id: str) -> bool:
+    """Whether ``recent`` carries the ``tool_use`` block with ``tool_use_id``."""
+    for event in reversed(recent):
+        if event.get("type") != "assistant":
+            continue
+        for block in event.get("message", {}).get("content", []) or []:
+            if (
+                isinstance(block, dict)
+                and block.get("type") == "tool_use"
+                and block.get("id") == tool_use_id
+            ):
+                return True
+    return False
+
+
+def _ring_holding_call(state: AgentState, tool_use_id: str) -> str:
+    """The dotted id of the subagent whose ring holds ``tool_use_id``, else ``""``.
+
+    The parent's ring is not searched: ``""`` is the answer for a call the
+    parent made, and also for one that rolled out of every ring. A subagent
+    opens once and asks rarely, so the scan is not on the hot path.
+    """
+    if not tool_use_id:
+        return ""
+    for dotted, sub in state.subagents.items():
+        if _holds_call(sub.recent, tool_use_id):
+            return dotted
+    return ""
+
+
+def _open_subagent(
+    state: AgentState,
+    tool_use_id: str,
+    *,
+    description: str = "",
+    subagent_type: str = "",
+) -> AgentState:
+    """``state`` with a subagent open for ``tool_use_id``.
+
+    A known id that is still open is left as it is. A known id whose state was
+    evicted, or a new id, gets a fresh :class:`SubagentState` — under its old
+    dotted id in the first case, and under the next ordinal at its level in the
+    second. The level is the ring that holds the spawning call: a call in the
+    parent's ring opens ``X.n``, one in ``X.1``'s ring opens ``X.1.n``.
+    """
+    dotted = state.subagent_ids.get(tool_use_id)
+    if dotted is not None and dotted in state.subagents:
+        return state
+    if dotted is None:
+        owner = _ring_holding_call(state, tool_use_id)
+        prefix = f"{owner or state.agent_id}."
+        used = sum(
+            1
+            for existing in state.subagent_ids.values()
+            if existing.startswith(prefix) and "." not in existing[len(prefix) :]
+        )
+        dotted = f"{prefix}{used + 1}"
+    subagents = _make_room(state.subagents)
+    subagents[dotted] = SubagentState(
+        tool_use_id=tool_use_id,
+        description=description,
+        subagent_type=subagent_type,
+    )
+    return replace(
+        state,
+        subagents=subagents,
+        subagent_ids={**state.subagent_ids, tool_use_id: dotted},
+    )
+
+
+def _make_room(subagents: dict[str, SubagentState]) -> dict[str, SubagentState]:
+    """A copy of ``subagents`` with room for one more under :data:`SUBAGENT_LIMIT`.
+
+    Drops the first one that is not running, in the order they opened, with a
+    reopened one last. When every one is running nothing goes: a live stream
+    is worth more than the limit.
+    """
+    copy = dict(subagents)
+    if len(copy) < SUBAGENT_LIMIT:
+        return copy
+    for dotted, sub in copy.items():
+        if sub.status != SUB_RUNNING:
+            del copy[dotted]
+            break
+    return copy
+
+
+def _end_subagent(state: AgentState, event: dict[str, Any]) -> AgentState:
+    """``state`` with the subagent ``event`` notifies about ended as it says.
+
+    A notification carries no ``task_type``, so the ``subagent_ids`` lookup is
+    what keeps a background shell's notification out: its ``tool_use_id`` was
+    never given a dotted id.
+    """
+    dotted = state.subagent_ids.get(str(event.get("tool_use_id") or ""))
+    sub = state.subagents.get(dotted or "")
+    if dotted is None or sub is None:
+        return state
+    status = str(event.get("status") or "")
+    if status not in SUB_STATUSES or status == SUB_RUNNING:
+        status = SUB_COMPLETED
+    ended = replace(sub, status=status, summary=str(event.get("summary") or ""))
+    return replace(state, subagents={**state.subagents, dotted: ended})
+
+
+def _apply_subagent_event(state: AgentState, event: dict[str, Any]) -> AgentState:
+    """One event a subagent produced, into that subagent's ring.
+
+    Opens the subagent when its ``task_started`` never came, or came before
+    this daemon was watching: the frame's own ``task_description`` and
+    ``subagent_type`` name it then. Puts an ended subagent back to running —
+    a subagent that speaks is not finished, whatever its notification said.
+    """
+    tool_use_id = str(event["parent_tool_use_id"])
+    state = _open_subagent(
+        state,
+        tool_use_id,
+        description=str(event.get("task_description") or ""),
+        subagent_type=str(event.get("subagent_type") or ""),
+    )
+    dotted = state.subagent_ids[tool_use_id]
+    sub = state.subagents[dotted]
+    seq = sub.seq + 1
+    recent = (sub.recent + ({**event, SEQ_KEY: seq},))[-RECENT_LIMIT:]
+    last_message = sub.last_message
+    if event.get("type") == "assistant":
+        texts = _message_texts(event)
+        if texts:
+            last_message = texts[-1][:MESSAGE_CHARS]
+    updated = replace(
+        sub, recent=recent, seq=seq, last_message=last_message, status=SUB_RUNNING
+    )
+    return replace(state, subagents={**state.subagents, dotted: updated})
+
+
 def mark_exited(state: AgentState, exit_code: int | None) -> AgentState:
     """The state of an agent whose child process has gone.
 
     Clears ``pending``: a request nobody can answer must not keep advertising
     itself, or ``mael agent answer`` reports success against a dead process.
+    The subagents stay as they are: their rings are still worth reading.
     """
     return replace(state, status=EXITED, pending=None, exit_code=exit_code)
 
