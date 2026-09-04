@@ -1,6 +1,7 @@
 import { deskIdForTask } from './protocol/deskId';
 import { describe, expect, it } from 'vitest';
 import { fireEvent, screen, within } from '@testing-library/react';
+import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import { seedWorld } from './fake-backend/scenarios/seedWorld';
 import { clickNode, pressKey, renderApp, selectText, stepSim } from './test/renderApp';
@@ -338,25 +339,42 @@ describe('the task list', () => {
   };
   const listRow = (taskId: string) =>
     document.querySelector(`[data-testid="task-list"] [data-task-id="${taskId}"]`)!;
-
-  it('lists every task in the world, whether it is on the desk or not', async () => {
-    const user = userEvent.setup();
-    await renderApp();
-    const list = await goToList(user);
-    const listed = within(list)
+  const listedIds = () =>
+    within(screen.getByTestId('task-list'))
       .getAllByRole('row')
       .map((r) => r.getAttribute('data-task-id'))
-      .filter(Boolean);
-    expect(listed.sort()).toEqual(Object.keys(seedWorld().world.tasks).sort());
+      .filter(Boolean)
+      .sort();
+  /** Tick every status back on, so finished tasks are listed too. */
+  const showEveryStatus = async (user: ReturnType<typeof userEvent.setup>) => {
+    for (const status of ['done', 'cancelled', 'template']) {
+      await user.click(screen.getByRole('checkbox', { name: status }));
+    }
+  };
+
+  it('opens on live work, and ticking the rest lists every task in the world', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+    const tasks = Object.values(seedWorld().world.tasks);
+    const live = tasks.filter((t) => ['todo', 'in-progress', 'blocked'].includes(t.status));
+    expect(live.length).toBeLessThan(tasks.length);
+    expect(listedIds()).toEqual(live.map((t) => t.id).sort());
+
+    await showEveryStatus(user);
+    expect(listedIds()).toEqual(tasks.map((t) => t.id).sort());
   });
 
   it('adds a task to the desk, and it is then drawn on the canvas', async () => {
     const user = userEvent.setup();
     await renderApp();
     await goToList(user);
+    await showEveryStatus(user);
     expect(listRow('NORT-3')).toHaveAttribute('data-on-desk', 'false');
 
-    await user.click(within(listRow('NORT-3') as HTMLElement).getByRole('button'));
+    await user.click(
+      within(listRow('NORT-3') as HTMLElement).getByRole('button', { name: 'Add to desk' }),
+    );
     expect(listRow('NORT-3')).toHaveAttribute('data-on-desk', 'true');
 
     await user.click(screen.getByRole('button', { name: 'Canvas' }));
@@ -369,7 +387,9 @@ describe('the task list', () => {
     expect(document.querySelector('[data-task-id="NORT-9.1"]')).toBeInTheDocument();
 
     await goToList(user);
-    await user.click(within(listRow('NORT-9.1') as HTMLElement).getByRole('button'));
+    await user.click(
+      within(listRow('NORT-9.1') as HTMLElement).getByRole('button', { name: 'Remove from desk' }),
+    );
     expect(listRow('NORT-9.1')).toHaveAttribute('data-on-desk', 'false');
 
     await user.click(screen.getByRole('button', { name: 'Canvas' }));
@@ -381,11 +401,163 @@ describe('the task list', () => {
     await renderApp();
 
     await goToList(user);
-    await user.click(within(listRow('NORT-9') as HTMLElement).getByRole('button'));
+    await user.click(
+      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Remove from desk' }),
+    );
     expect(listRow('NORT-9')).toHaveAttribute('data-on-desk', 'false');
 
     await user.click(screen.getByRole('button', { name: 'Canvas' }));
     expect(document.querySelector('[data-task-id="NORT-9"]')).toBeInTheDocument();
+  });
+
+  it('shows a status as text until it is clicked, then moves the task', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+    const row = () => listRow('NORT-9') as HTMLElement;
+    expect(within(row()).queryByRole('combobox')).toBeNull();
+
+    await user.click(within(row()).getByRole('button', { name: 'in-progress' }));
+    await user.selectOptions(within(row()).getByRole('combobox'), 'blocked');
+
+    expect(within(row()).getByRole('button', { name: 'blocked' })).toBeInTheDocument();
+    expect(within(row()).queryByRole('combobox')).toBeNull();
+  });
+
+  it('a task moved to done leaves the list, and the done filter brings it back', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+
+    await user.click(
+      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'in-progress' }),
+    );
+    await user.selectOptions(
+      within(listRow('NORT-9') as HTMLElement).getByRole('combobox'),
+      'done',
+    );
+
+    // The default filter hides done work, so the row goes. That is the filter
+    // doing its job, not the move failing.
+    expect(listRow('NORT-9')).toBeNull();
+    await user.click(screen.getByRole('checkbox', { name: 'done' }));
+    expect(listRow('NORT-9')).not.toBeNull();
+    expect(
+      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'done' }),
+    ).toBeInTheDocument();
+  });
+
+  it('closes the status picker on Escape without moving the task', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+    const row = () => listRow('NORT-9') as HTMLElement;
+
+    await user.click(within(row()).getByRole('button', { name: 'in-progress' }));
+    await user.keyboard('{Escape}');
+
+    expect(within(row()).queryByRole('combobox')).toBeNull();
+    expect(within(row()).getByRole('button', { name: 'in-progress' })).toBeInTheDocument();
+  });
+
+  it('opens the editor seeded from the task, and saving writes the new title', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+    await user.click(
+      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
+    );
+
+    const editor = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
+    const title = within(editor).getByLabelText('Title');
+    expect(title).toHaveValue('Migrate to Postgres 16');
+    await user.clear(title);
+    await user.type(title, 'Migrate to Postgres 17');
+    await user.click(within(editor).getByRole('button', { name: 'Save' }));
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(listRow('NORT-9')).toHaveTextContent('Migrate to Postgres 17');
+  });
+
+  it('keeps the advanced fields folded away until they are asked for', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+    await user.click(
+      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
+    );
+
+    const editor = screen.getByRole('dialog');
+    expect(within(editor).queryByLabelText('Command')).not.toBeVisible();
+    await user.click(within(editor).getByText('Advanced'));
+    expect(within(editor).getByLabelText('Command')).toBeVisible();
+  });
+
+  it('sends the fields the user changed, not those the world changed under them', async () => {
+    const user = userEvent.setup();
+    const { backend } = await renderApp();
+    await goToList(user);
+    await user.click(
+      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
+    );
+
+    const editor = screen.getByRole('dialog');
+    const title = within(editor).getByLabelText('Title');
+    await user.clear(title);
+    await user.type(title, 'Migrate to Postgres 17');
+    // The world moves while the editor is open: the branch changes elsewhere.
+    await act(async () => {
+      await backend.command({
+        type: 'task.update',
+        taskId: 'NORT-9',
+        fields: { branch: 'feat/db-migrate-2' },
+      });
+    });
+    await user.click(within(editor).getByRole('button', { name: 'Save' }));
+
+    // The title the user typed lands; the branch they never touched is not
+    // overwritten with the value the editor opened on.
+    expect(listRow('NORT-9')).toHaveTextContent('Migrate to Postgres 17');
+    expect(listRow('NORT-9')).toHaveTextContent('feat/db-migrate-2');
+  });
+
+  it('closes the editor on Escape when nothing was typed', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+    await user.click(
+      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
+    );
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(listRow('NORT-9')).toHaveTextContent('Migrate to Postgres 16');
+  });
+
+  it('asks before it throws away typed edits, and keeps them if you say no', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+    await user.click(
+      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
+    );
+
+    const title = within(screen.getByRole('dialog')).getByLabelText('Title');
+    await user.clear(title);
+    await user.type(title, 'Never saved');
+    await user.keyboard('{Escape}');
+
+    // The editor stays, holding what was typed, until the discard is confirmed.
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(within(screen.getByRole('dialog')).getByLabelText('Title')).toHaveValue('Never saved');
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(listRow('NORT-9')).toHaveTextContent('Migrate to Postgres 16');
   });
 
   it('the attention chip still counts an agent blocked on an off-desk task', async () => {
@@ -399,7 +571,7 @@ describe('the task list', () => {
     for (const r of Array.from(
       document.querySelectorAll('[data-testid="task-list"] [data-on-desk="true"]'),
     )) {
-      await user.click(within(r as HTMLElement).getByRole('button'));
+      await user.click(within(r as HTMLElement).getByRole('button', { name: 'Remove from desk' }));
     }
     expect(document.querySelectorAll('[data-on-desk="true"]')).toHaveLength(0);
     expect(chipCount()).toBe(before);

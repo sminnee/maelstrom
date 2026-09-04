@@ -209,3 +209,85 @@ def test_accepts_removing_a_task_that_is_on_the_desk():
     world = world_with(tasks=[make_task()], desk=["task:northwind/NORT-7"])
     cmd = {"type": "desk.remove", "id": "task:northwind/NORT-7"}
     assert validate_command(world, cmd) is None
+
+
+def test_accepts_a_status_move_of_a_task_it_knows():
+    world = world_with(tasks=[make_task()])
+    cmd = {"type": "task.setStatus", "taskId": "northwind/NORT-7", "status": "done"}
+    assert validate_command(world, cmd) is None
+
+
+def test_unknown_id_for_a_status_move_of_a_task_not_in_the_world():
+    cmd = {"type": "task.setStatus", "taskId": "northwind/NORT-7", "status": "done"}
+    assert code(validate_command(empty_world(), cmd)) == "unknown_id"
+
+
+def test_invalid_for_a_status_the_notebook_has_no_folder_for():
+    world = world_with(tasks=[make_task()])
+    cmd = {"type": "task.setStatus", "taskId": "northwind/NORT-7", "status": "finished"}
+    assert code(validate_command(world, cmd)) == "invalid"
+
+
+def test_accepts_an_update_that_changes_one_field():
+    world = world_with(tasks=[make_task()])
+    cmd = {
+        "type": "task.update",
+        "taskId": "northwind/NORT-7",
+        "fields": {"branch": "x"},
+    }
+    assert validate_command(world, cmd) is None
+
+
+def test_unknown_id_for_an_update_of_a_task_not_in_the_world():
+    cmd = {
+        "type": "task.update",
+        "taskId": "northwind/NORT-7",
+        "fields": {"title": "x"},
+    }
+    assert code(validate_command(empty_world(), cmd)) == "unknown_id"
+
+
+def test_invalid_for_an_update_that_changes_nothing():
+    world = world_with(tasks=[make_task()])
+    cmd = {"type": "task.update", "taskId": "northwind/NORT-7", "fields": {}}
+    assert code(validate_command(world, cmd)) == "invalid"
+
+
+def test_invalid_for_an_update_that_blanks_the_title():
+    world = world_with(tasks=[make_task()])
+    cmd = {
+        "type": "task.update",
+        "taskId": "northwind/NORT-7",
+        "fields": {"title": "  "},
+    }
+    assert code(validate_command(world, cmd)) == "invalid"
+
+
+def test_invalid_for_a_mode_the_notebook_cannot_launch():
+    world = world_with(tasks=[make_task()])
+    cmd = {
+        "type": "task.update",
+        "taskId": "northwind/NORT-7",
+        "fields": {"mode": "turbo"},
+    }
+    assert code(validate_command(world, cmd)) == "invalid"
+
+
+def test_invalid_for_a_priority_the_notebook_has_no_rank_for():
+    world = world_with(tasks=[make_task()])
+    cmd = {
+        "type": "task.update",
+        "taskId": "northwind/NORT-7",
+        "fields": {"priority": "urgent"},
+    }
+    assert code(validate_command(world, cmd)) == "invalid"
+
+
+def test_a_null_field_is_no_edit():
+    world = world_with(tasks=[make_task()])
+    cmd = {
+        "type": "task.update",
+        "taskId": "northwind/NORT-7",
+        "fields": {"branch": None},
+    }
+    assert code(validate_command(world, cmd)) == "invalid"

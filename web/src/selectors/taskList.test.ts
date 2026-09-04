@@ -25,9 +25,17 @@ const world = worldWith({ tasks, desk: onDesk([tasks[0]!]) });
 
 const rows = (over = {}) => listTasks(world, { ...noListFilters(), ...over }).map((r) => r.task.id);
 
+/** Rows with no status narrowing, for the cases that are about another filter. */
+const anyStatus = (over = {}) => rows({ statuses: [], ...over });
+
 describe('listTasks', () => {
-  it('lists every task, project first then id', () => {
-    expect(rows()).toEqual(['maelstrom/MAEL-1', 'northwind/NORT-7', 'northwind/NORT-9']);
+  it('opens on the live statuses, hiding finished work', () => {
+    expect(noListFilters().statuses).toEqual(['todo', 'in-progress', 'blocked']);
+    expect(rows()).toEqual(['maelstrom/MAEL-1', 'northwind/NORT-7']);
+  });
+
+  it('lists every task, project first then id, when no status is ticked', () => {
+    expect(anyStatus()).toEqual(['maelstrom/MAEL-1', 'northwind/NORT-7', 'northwind/NORT-9']);
   });
 
   it('narrows by status', () => {
@@ -35,23 +43,23 @@ describe('listTasks', () => {
   });
 
   it('matches text against the id, the notebook id and the title', () => {
-    expect(rows({ text: 'NORT-9' })).toEqual(['northwind/NORT-9']);
-    expect(rows({ text: 'order export' })).toEqual(['northwind/NORT-7']);
-    expect(rows({ text: 'maelstrom/' })).toEqual(['maelstrom/MAEL-1']);
+    expect(anyStatus({ text: 'NORT-9' })).toEqual(['northwind/NORT-9']);
+    expect(anyStatus({ text: 'order export' })).toEqual(['northwind/NORT-7']);
+    expect(anyStatus({ text: 'maelstrom/' })).toEqual(['maelstrom/MAEL-1']);
   });
 
   it('matches text whatever its case', () => {
-    expect(rows({ text: 'ORDER' })).toEqual(['northwind/NORT-7']);
+    expect(anyStatus({ text: 'ORDER' })).toEqual(['northwind/NORT-7']);
   });
 
   it('narrows by project and by branch', () => {
-    expect(rows({ project: 'maelstrom' })).toEqual(['maelstrom/MAEL-1']);
-    expect(rows({ branch: 'northwind/feat/db' })).toEqual(['northwind/NORT-9']);
+    expect(anyStatus({ project: 'maelstrom' })).toEqual(['maelstrom/MAEL-1']);
+    expect(anyStatus({ branch: 'northwind/feat/db' })).toEqual(['northwind/NORT-9']);
   });
 
   it('says which rows are on the desk', () => {
     const onIt = Object.fromEntries(
-      listTasks(world, noListFilters()).map((r) => [r.task.id, r.onDesk]),
+      listTasks(world, { ...noListFilters(), statuses: [] }).map((r) => [r.task.id, r.onDesk]),
     );
     expect(onIt).toEqual({
       'maelstrom/MAEL-1': false,
@@ -70,7 +78,10 @@ describe('listTasks', () => {
       ],
     });
     const picked = Object.fromEntries(
-      listTasks(withAgents, noListFilters()).map((r) => [r.task.id, r.agent?.id]),
+      listTasks(withAgents, { ...noListFilters(), statuses: [] }).map((r) => [
+        r.task.id,
+        r.agent?.id,
+      ]),
     );
     expect(picked['northwind/NORT-7']).toBe(agentForTask(withAgents, 'northwind/NORT-7')?.id);
     expect(picked['northwind/NORT-9']).toBe(agentForTask(withAgents, 'northwind/NORT-9')?.id);

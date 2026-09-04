@@ -985,6 +985,75 @@ def test_desk_add_publishes_an_upsert_then_replies(harness):
     assert entry["addedAt"] == NOW
 
 
+def test_set_status_moves_the_task_then_publishes_and_replies(harness):
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                return await command_with_frames(
+                    ws,
+                    {
+                        "type": "task.setStatus",
+                        "taskId": "northwind/NORT-7",
+                        "status": "done",
+                    },
+                )
+
+    reply, frames = run(scenario())
+    assert reply == {"id": "c1", "ok": True, "result": {}}
+    assert entities_of(frames, "task")[-1]["status"] == "done"
+    assert model.load(harness.store, PROJECT, "NORT-7").status == "done"
+
+
+def test_update_writes_only_the_fields_it_was_given(harness):
+    harness.add_task("NORT-7", branch="feat/orders")
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                return await command_with_frames(
+                    ws,
+                    {
+                        "type": "task.update",
+                        "taskId": "northwind/NORT-7",
+                        "fields": {"title": "Export the orders"},
+                    },
+                )
+
+    reply, frames = run(scenario())
+    assert reply == {"id": "c1", "ok": True, "result": {}}
+    assert entities_of(frames, "task")[-1]["title"] == "Export the orders"
+    task = model.load(harness.store, PROJECT, "NORT-7")
+    assert task.title == "Export the orders"
+    assert task.branch == "feat/orders"
+
+
+def test_a_write_to_a_task_the_notebook_lost_is_unknown_id(harness):
+    """The world knew the task; the notebook no longer holds it."""
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                model.delete(harness.store, PROJECT, "NORT-7")
+                return await command(
+                    ws,
+                    {
+                        "type": "task.update",
+                        "taskId": "northwind/NORT-7",
+                        "fields": {"title": "Gone"},
+                    },
+                )
+
+    reply = run(scenario())
+    assert reply["ok"] is False
+    assert reply["error"]["code"] == "unknown_id"
+
+
 def test_desk_remove_publishes_a_remove_then_replies(harness):
     harness.add_task("NORT-7")
 

@@ -40,7 +40,7 @@ export function makeTask(over: Partial<Task> = {}): Task {
     branch: 'feat/orders',
     parent: '',
     follows: [],
-    priority: 'normal',
+    priority: 'medium',
     model: '',
     base: '',
     content: '',

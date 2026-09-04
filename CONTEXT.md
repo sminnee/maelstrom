@@ -346,6 +346,12 @@ branch and text. The task list is where a task joins the desk or leaves it. It l
 a free agent has no row, and is dismissed from its node on the canvas.
 _Avoid_: Table view, index
 
+**Task editor**:
+The form that edits one task's fields: title, content and branch, with command, mode, priority
+and model folded away. It opens from the task list and writes through `task.update`. A status
+moves through the list's own status cell instead, because status is folder-derived.
+_Avoid_: Task modal, edit form, task detail
+
 **Expanded node**:
 A node grown in place into a card that shows its status, the decision it waits on, and links
 into the panel. One node is expanded at a time.

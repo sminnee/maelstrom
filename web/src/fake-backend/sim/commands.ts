@@ -2,12 +2,12 @@ import type { Command, CommandError, ResultMap } from '../../protocol/commands';
 import { deskIdForTask } from '../../protocol/deskId';
 import type { Document } from '../../protocol/documents';
 import type { Task } from '../../protocol/entities';
-import type { DeskId } from '../../protocol/ids';
+import type { DeskId, TaskId } from '../../protocol/ids';
 import type { ServerEvent } from '../../protocol/events';
 import type { RawStreamEvent } from '../../protocol/normalise';
 import { PLAN_TOOL, QUESTION_TOOL } from '../../protocol/normalise';
 import { isActionable } from '../../protocol/phase';
-import { validateCommand } from '../../protocol/validate';
+import { EDITABLE, validateCommand } from '../../protocol/validate';
 import type { ClientState } from '../../protocol/reducer';
 import { applyEvent } from '../../protocol/reducer';
 import type { Beat } from './scripts';
@@ -211,6 +211,35 @@ export function applyCommand(
         result: {},
       };
     }
+    case 'task.setStatus': {
+      const task = world.tasks[cmd.taskId]!;
+      const moved: Task = { ...task, status: cmd.status, updated: now };
+      const tasks = { ...world.tasks, [moved.id]: moved };
+      const events: ServerEvent[] = [
+        { type: 'upsert', kind: 'task', entity: withActionable(moved, tasks) },
+      ];
+      // A move re-decides the chain, but launches nothing.
+      for (const follower of Object.values(world.tasks)) {
+        if (!follower.follows.includes(moved.id)) continue;
+        const decided = withActionable(follower, tasks);
+        if (decided.actionable !== follower.actionable) {
+          events.push({ type: 'upsert', kind: 'task', entity: decided });
+        }
+      }
+      return { events, sim, result: {} };
+    }
+    case 'task.update': {
+      const task = world.tasks[cmd.taskId]!;
+      const wanted = Object.fromEntries(
+        EDITABLE.filter((key) => cmd.fields[key] != null).map((key) => [key, cmd.fields[key]]),
+      );
+      const edited: Task = { ...task, ...wanted, updated: now };
+      return {
+        events: [{ type: 'upsert', kind: 'task', entity: edited }],
+        sim,
+        result: {},
+      };
+    }
     case 'task.create': {
       const { task, sim: next } = newTask(sim, cmd.project, cmd.draft, '', now);
       return {
@@ -237,6 +266,11 @@ export function applyCommand(
       };
     }
   }
+}
+
+/** The task, with `actionable` decided again against `tasks`. */
+function withActionable(task: Task, tasks: Record<TaskId, Task>): Task {
+  return { ...task, actionable: isActionable(task, tasks) };
 }
 
 /** The upsert that puts one entry on the desk. */
@@ -293,7 +327,7 @@ function newTask(
     branch: `feat/${id.toLowerCase()}`,
     parent: '',
     follows: [],
-    priority: 'normal',
+    priority: 'medium',
     model: '',
     base: '',
     content,

@@ -23,6 +23,8 @@ export interface AppStore extends ClientState {
   /** Expand a node in place. With `toggle`, expanding the expanded node collapses it. */
   expandNode(taskId: TaskId, toggle?: boolean): void;
   collapseNode(): void;
+  /** Open the editor on a task, or close it with `null`. */
+  setEditingTask(taskId: TaskId | null): void;
   setDrawerOpen(open: boolean): void;
   setPanelWidth(width: number): void;
 }
@@ -55,6 +57,7 @@ export const useAppStore = create<AppStore>()((set) => ({
     })),
   collapseNode: () =>
     set((s) => (s.ui.expandedNodeId ? { ui: { ...s.ui, expandedNodeId: null } } : s)),
+  setEditingTask: (editingTaskId) => set((s) => ({ ui: { ...s.ui, editingTaskId } })),
   setDrawerOpen: (drawerOpen) => set((s) => ({ ui: { ...s.ui, drawerOpen } })),
   setPanelWidth: (panelWidth) => set((s) => ({ ui: { ...s.ui, panelWidth } })),
 }));

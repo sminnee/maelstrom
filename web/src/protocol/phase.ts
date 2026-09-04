@@ -3,6 +3,9 @@ import { isOpen } from './attention';
 import type { Agent, Phase, Task } from './entities';
 import type { TaskId } from './ids';
 
+/** The commands `phaseForCommand` knows. An unlisted one still runs; it executes. */
+export const KNOWN_COMMANDS = ['shape', 'plan-task', 'plan-next-step', 'watch-pr'] as const;
+
 /** The phase a task's `command` puts it in. The real backend applies this rule. */
 export function phaseForCommand(command: string): Phase {
   switch (command) {

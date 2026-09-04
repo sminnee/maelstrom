@@ -513,10 +513,11 @@ class Orchestrator:
         request each; the world change comes back as events, either from the
         host's stream or synthesised here as the reply shape the host itself
         would have written (a ``control_response``, a ``user`` turn), which the
-        normaliser handles like any other stream event. The two desk commands
-        reach the host not at all: the desk is the server's own table.
-        Everything but those eight answers ``invalid``: documents, comments,
-        task creation and shaping are out of scope for this server.
+        normaliser handles like any other stream event. The desk and task
+        commands reach the host not at all: the desk is the server's own table,
+        and a task write goes to the notebook. Everything but those eleven
+        answers ``invalid``: documents, comments, task creation and shaping are
+        out of scope for this server.
         """
         kind = str(command.get("type"))
         handlers = {
@@ -529,6 +530,8 @@ class Orchestrator:
             "agent.launch": self._launch,
             "desk.add": self._desk_add,
             "desk.remove": self._desk_remove,
+            "task.setStatus": self._set_status,
+            "task.update": self._update_task,
         }
         handler = handlers.get(kind)
         if handler is None:
@@ -698,6 +701,33 @@ class Orchestrator:
             return {"ok": True, "result": {"agentId": agent_id}}
         finally:
             self._launching.discard(task_id)
+
+    async def _set_status(self, command: dict[str, Any]) -> dict[str, Any]:
+        return await self._write_task(
+            self.tasks.set_status, command["taskId"], command["status"]
+        )
+
+    async def _update_task(self, command: dict[str, Any]) -> dict[str, Any]:
+        return await self._write_task(
+            self.tasks.update, command["taskId"], dict(command["fields"])
+        )
+
+    async def _write_task(
+        self, write: Callable[..., Any], task_id: str, *args: Any
+    ) -> dict[str, Any]:
+        """One notebook write, then the upsert it caused, then the reply.
+
+        The refresh is forced, as the launch path forces it: a version-checked
+        refresh races the poll, so the client could get its reply first.
+        """
+        try:
+            await self._run(write, task_id, *args)
+        except KeyError:
+            return _refused("unknown_id", f"No task {task_id}")
+        except ValueError as exc:
+            return _refused("invalid", str(exc))
+        await self.refresh_tasks(force=True)
+        return {"ok": True, "result": {}}
 
     # -- the socket --
 

@@ -70,6 +70,18 @@ task with filters for status, project, branch and text, and each row toggles tha
 the desk. The top bar switches between the two views; the canvas filter bar shows on the canvas
 only, since the task list carries its own.
 
+The task list opens on `todo`, `in-progress` and `blocked`, for the same reason the canvas opens
+near-empty. Ticking `done`, `cancelled` or `template` brings that work back; unticking every
+status shows every task.
+
+The task list also writes. A row's status is a button until it is clicked, then a native select
+of the six statuses — native because the view scrolls under `overflow: auto`, which would clip a
+popover. Choosing a status sends `task.setStatus`. The Edit button opens the task editor, which
+holds title, content and branch, with command, mode, priority and model under a folded
+"Advanced". Save sends `task.update` with the changed fields only. The editor renders from
+`AppShell`, above both views, and its open task lives in the store, so the canvas can open the
+same editor later.
+
 A node is one of two kinds. A **task** node stands for a notebook task, with or without an
 agent. A **freeAgent** node stands for an agent with no task, and takes its title, branch and
 lane from the worktree it runs in. An agent linked to a task draws as that task's node, so
@@ -180,7 +192,8 @@ Canvas nodes are clicked with `fireEvent.click`, not user-event — see `clickNo
 ## Out of scope
 
 Against the real server, documents, comments, task creation and shaping answer `invalid`. The
-server serves agents only.
+server drives agents, edits the desk, and writes a task's status and fields. It does nothing else
+to the notebook.
 
 The desk is the exception to persistence: it lives on the server and survives a restart. The
 open tabs, the filters and the expanded node do not.

@@ -5,15 +5,8 @@ import type { TaskId } from '../protocol/ids';
 import type { Filters } from './filters';
 import { branchKey, noFilters } from './filters';
 
-/** The six statuses, in the order the task list shows them. */
-export const LIST_STATUSES: readonly TaskStatus[] = [
-  'todo',
-  'in-progress',
-  'blocked',
-  'done',
-  'cancelled',
-  'template',
-];
+/** The statuses the task list opens on: work that is still live. */
+export const LIVE_STATUSES: readonly TaskStatus[] = ['todo', 'in-progress', 'blocked'];
 
 /** What the task list narrows by: the canvas's filters, plus status and text. */
 export interface ListFilters extends Filters {
@@ -23,7 +16,7 @@ export interface ListFilters extends Filters {
 }
 
 export function noListFilters(): ListFilters {
-  return { ...noFilters(), statuses: [], text: '' };
+  return { ...noFilters(), statuses: [...LIVE_STATUSES], text: '' };
 }
 
 /** One row of the task list. */

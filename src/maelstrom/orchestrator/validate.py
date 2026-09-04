@@ -10,6 +10,18 @@ from typing import Any
 from .desk import split_desk_id
 from .protocol import World
 
+#: The six folders a task can sit in. A move names one of these.
+TASK_STATUSES = ("todo", "in-progress", "blocked", "done", "cancelled", "template")
+
+#: The keys ``task.update`` writes. Anything else in ``fields`` is not an edit.
+EDITABLE = ("title", "content", "branch", "command", "mode", "priority", "model")
+
+#: The three permission modes a task launches under.
+MODES = ("plan", "auto", "normal")
+
+#: The notebook's four priorities, from :data:`maelstrom.task.PRIORITIES`.
+PRIORITIES = ("critical", "high", "medium", "low")
+
 WAIT_FOR_COMMAND = {
     "agent.approve": ("awaiting-permission", "awaiting-plan-review"),
     "agent.deny": ("awaiting-permission", "awaiting-plan-review"),
@@ -134,6 +146,37 @@ def validate_command(world: World, cmd: dict[str, Any]) -> dict[str, str] | None
             return _err("unknown_id", f"No comment {comment_id}")
         if comment["resolved"]:
             return _err("invalid", f"Comment {comment_id} is resolved already")
+        return None
+
+    if kind == "task.setStatus":
+        task_id = cmd.get("taskId", "")
+        if task_id not in world["tasks"]:
+            return _err("unknown_id", f"No task {task_id}")
+        status = cmd.get("status")
+        if status not in TASK_STATUSES:
+            return _err("invalid", f"No status {status}")
+        return None
+
+    if kind == "task.update":
+        task_id = cmd.get("taskId", "")
+        if task_id not in world["tasks"]:
+            return _err("unknown_id", f"No task {task_id}")
+        fields = cmd.get("fields") or {}
+        edited = [key for key in EDITABLE if fields.get(key) is not None]
+        if not edited:
+            return _err("invalid", "Nothing to change")
+        title = fields.get("title")
+        if title is not None and not str(title).strip():
+            return _err("invalid", "A title is required")
+        # Neither reaches the notebook's own check: ``model.update`` validates
+        # priority and nothing validates mode, so a bad mode would only fail
+        # later, at launch.
+        mode = fields.get("mode")
+        if mode is not None and mode not in MODES:
+            return _err("invalid", f"No mode {mode}")
+        priority = fields.get("priority")
+        if priority is not None and priority not in PRIORITIES:
+            return _err("invalid", f"No priority {priority}")
         return None
 
     if kind in ("task.create", "shaping.start"):
