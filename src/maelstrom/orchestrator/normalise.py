@@ -208,9 +208,7 @@ def normalise_stream_event(
         pending = out.ctx.pending
         if pending is not None and _str(raw.get("request_id")) == pending.request_id:
             out.end_wait()
-            out.agent(
-                {"state": "processing", "pendingRequestId": None, "waitingOn": ""}
-            )
+            out.agent({"state": "processing"})
 
     elif kind == "control_response":
         response = _dict(raw.get("response"))
@@ -248,14 +246,7 @@ def mark_exited(
         return Normalised([], ctx)
     out = _Emitter(state, agent, ctx, now)
     out.end_wait()
-    out.agent(
-        {
-            "state": "exited",
-            "exitCode": exit_code,
-            "pendingRequestId": None,
-            "waitingOn": "",
-        }
-    )
+    out.agent({"state": "exited", "exitCode": exit_code})
     if exit_code != 0:
         out.raise_attention("agent_exited", f"Exited with code {exit_code}", None, None)
     return out.done()
@@ -481,14 +472,25 @@ class _Emitter:
             if not allow:
                 patch["reason"] = _str(payload.get("message"))
             self.update(pending.item_id, patch)
-        self.end_wait()
-        self.agent({"state": "processing", "pendingRequestId": None, "waitingOn": ""})
+        self.end_wait(answered=True)
+        self.agent({"state": "processing"})
 
-    def end_wait(self) -> None:
-        """Clear the pending request and its attention item, if any."""
+    def end_wait(self, *, answered: bool = False) -> None:
+        """End the wait, and mark the item stale unless ``answered``.
+
+        See ``CONTEXT.md``, "Stale prompt". ``answered`` is for ``response``,
+        which has patched the item already. A result, a cancel and an exit all
+        leave it false.
+        """
+        # Unconditional: a truncated transcript can leave the row naming a
+        # request the context could not rebuild, and that row still has to
+        # come clean.
+        self.agent({"pendingRequestId": None, "waitingOn": ""})
         pending = self.ctx.pending
         if pending is None:
             return
+        if not answered:
+            self.update(pending.item_id, {"stale": True})
         self.clear(pending.attention_id)
         self.ctx = replace(self.ctx, pending=None)
 

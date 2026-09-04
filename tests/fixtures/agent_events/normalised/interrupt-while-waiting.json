@@ -93,7 +93,8 @@
           },
           "description": "Count to 60 with 1s sleep between numbers",
           "id": "ag1-3",
-          "ts": "2026-09-01T00:00:00Z"
+          "ts": "2026-09-01T00:00:00Z",
+          "stale": true
         },
         {
           "type": "message",

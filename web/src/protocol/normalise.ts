@@ -195,7 +195,7 @@ export function normaliseStreamEvent(
       const pending = out.ctx.pending;
       if (pending && str(raw.request_id) === pending.requestId) {
         out.endWait();
-        out.agent({ state: 'processing', pendingRequestId: null, waitingOn: '' });
+        out.agent({ state: 'processing' });
       }
       break;
     }
@@ -241,7 +241,7 @@ export function markExited(
   if (!agent) return { events: [], ctx };
   const out = new Emitter(state, agent, ctx, now);
   out.endWait();
-  out.agent({ state: 'exited', exitCode, pendingRequestId: null, waitingOn: '' });
+  out.agent({ state: 'exited', exitCode });
   if (exitCode !== 0) {
     out.raise('agent_exited', `Exited with code ${exitCode}`, null, null);
   }
@@ -413,14 +413,24 @@ class Emitter {
         ...(allow ? {} : { reason: str(payload.message) }),
       });
     }
-    this.endWait();
-    this.agent({ state: 'processing', pendingRequestId: null, waitingOn: '' });
+    this.endWait(true);
+    this.agent({ state: 'processing' });
   }
 
-  /** Clear the pending request and its attention item, if any. */
-  endWait() {
+  /**
+   * End the wait: mark the item stale unless `answered`, clear its attention
+   * item, and take the request off the agent. See `CONTEXT.md`, "Stale prompt".
+   *
+   * `answered` is for `response()`, which has patched the item already. A
+   * result, a cancel and an exit all leave it false.
+   */
+  endWait(answered = false) {
+    // Unconditional: a truncated transcript can leave the row naming a request
+    // the context could not rebuild, and that row still has to come clean.
+    this.agent({ pendingRequestId: null, waitingOn: '' });
     const pending = this.ctx.pending;
     if (!pending) return;
+    if (!answered) this.update(pending.itemId, { stale: true });
     this.clear(pending.attentionId);
     this.ctx.pending = null;
   }
