@@ -1,6 +1,7 @@
+import { PLAN_TOOL, QUESTION_TOOL } from '../protocol/normalise';
 import type { ToolCallItem } from '../protocol/transcript';
 
-export type ToolCardKind = 'bash' | 'edit' | 'write' | 'read' | 'generic';
+export type ToolCardKind = 'bash' | 'edit' | 'write' | 'read' | 'wait' | 'generic';
 
 /** Which card draws a tool call. Keyed on the tool name the daemon reports. */
 export function classifyToolCall(item: ToolCallItem): ToolCardKind {
@@ -13,6 +14,10 @@ export function classifyToolCall(item: ToolCallItem): ToolCardKind {
       return 'write';
     case 'Read':
       return 'read';
+    // The wait item that follows renders the prompt in full, so the call draws nothing.
+    case QUESTION_TOOL:
+    case PLAN_TOOL:
+      return 'wait';
     default:
       return 'generic';
   }

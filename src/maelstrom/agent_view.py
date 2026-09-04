@@ -19,7 +19,14 @@ from dataclasses import dataclass, field, replace
 from pathlib import PurePosixPath
 from typing import Any
 
-from .agent_model import AGENT_DETAIL, AGENT_EXITED, BACKLOG_END, RECENT_LIMIT
+from .agent_model import (
+    AGENT_DETAIL,
+    AGENT_EXITED,
+    BACKLOG_END,
+    PLAN_TOOL,
+    QUESTION_TOOL,
+    RECENT_LIMIT,
+)
 from .orchestrator.normalise import NormaliseContext, normalise_stream_event
 from .orchestrator.normalise import mark_exited as normalise_exited
 from .orchestrator.protocol import (
@@ -290,7 +297,14 @@ def plan_markdown(view: AttachView, item: TranscriptItem) -> str:
 
 #: Which card draws a tool call. A port of ``web/src/session/toolCards.ts``, so
 #: the TUI and the web UI classify the same call the same way.
-_TOOL_KINDS = {"Bash": "bash", "Edit": "edit", "Write": "write", "Read": "read"}
+_TOOL_KINDS = {
+    "Bash": "bash",
+    "Edit": "edit",
+    "Write": "write",
+    "Read": "read",
+    QUESTION_TOOL: "wait",
+    PLAN_TOOL: "wait",
+}
 
 
 def classify_tool_call(item: TranscriptItem) -> str:

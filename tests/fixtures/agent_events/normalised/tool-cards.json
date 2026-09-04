@@ -77,7 +77,7 @@
   {
     "tool": "ExitPlanMode",
     "input": {},
-    "kind": "generic",
+    "kind": "wait",
     "title": ""
   },
   {
@@ -85,7 +85,7 @@
     "input": {
       "questions": []
     },
-    "kind": "generic",
+    "kind": "wait",
     "title": ""
   }
 ]

@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { Transcript } from './Transcript';
+import { classifyToolCall } from './toolCards';
 import { makePlanReview } from '../test/fixtures';
 import { replayFixture } from '../test/replayFixture';
+import type { TranscriptItem } from '../protocol/transcript';
+
+const raisesAWait = (item: TranscriptItem) =>
+  item.type === 'tool_call' && classifyToolCall(item) === 'wait';
 
 describe('Transcript', () => {
   it('renders one card per item of a replayed fixture, in order and typed by item', () => {
@@ -12,10 +17,22 @@ describe('Transcript', () => {
     const kinds = screen
       .getAllByTestId('transcript-card')
       .map((c) => c.getAttribute('data-item-type'));
-    expect(kinds).toEqual(items.map((i) => i.type));
+    // The call that raises a wait draws nothing, so it takes no row of its own.
+    expect(kinds).toEqual(items.filter((i) => !raisesAWait(i)).map((i) => i.type));
     expect(kinds).toEqual(
       expect.arrayContaining(['tool_call', 'plan_review', 'permission_request', 'turn_result']),
     );
+  });
+
+  it('leaves no empty row where the call that raised a wait would have drawn', () => {
+    const state = replayFixture('plan-review.jsonl');
+    const items = state.transcripts['ag1']!.items;
+    expect(items.some(raisesAWait)).toBe(true);
+    render(<Transcript items={items} truncatedBefore={false} />);
+    // An empty wrapper still takes a gap slot, so the hole is as visible as the dump was.
+    for (const card of screen.getAllByTestId('transcript-card')) {
+      expect(card).not.toBeEmptyDOMElement();
+    }
   });
 
   it('shows a Bash command with its output and a Write as its content', () => {
