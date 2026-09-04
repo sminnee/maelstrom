@@ -49,12 +49,12 @@ export const useAppStore = create<AppStore>()((set) => ({
       const { tabs, activeTabKey } = closeTabIn(s.ui.tabs, s.ui.activeTabKey, key);
       return { ui: { ...s.ui, tabs, activeTabKey } };
     }),
-  expandNode: (taskId, toggle = true) =>
+  expandNode: (nodeId, toggle = true) =>
     set((s) => ({
-      ui: { ...s.ui, expandedTaskId: toggle && s.ui.expandedTaskId === taskId ? null : taskId },
+      ui: { ...s.ui, expandedNodeId: toggle && s.ui.expandedNodeId === nodeId ? null : nodeId },
     })),
   collapseNode: () =>
-    set((s) => (s.ui.expandedTaskId ? { ui: { ...s.ui, expandedTaskId: null } } : s)),
+    set((s) => (s.ui.expandedNodeId ? { ui: { ...s.ui, expandedNodeId: null } } : s)),
   setDrawerOpen: (drawerOpen) => set((s) => ({ ui: { ...s.ui, drawerOpen } })),
   setPanelWidth: (panelWidth) => set((s) => ({ ui: { ...s.ui, panelWidth } })),
 }));

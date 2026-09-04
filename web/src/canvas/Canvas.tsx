@@ -23,7 +23,7 @@ export function Canvas() {
   const filters = useAppStore((s) => s.ui.filters);
   const tabs = useAppStore((s) => s.ui.tabs);
   const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
-  const expandedTaskId = useAppStore((s) => s.ui.expandedTaskId);
+  const expandedNodeId = useAppStore((s) => s.ui.expandedNodeId);
   const expandNode = useAppStore((s) => s.expandNode);
   const collapseNode = useAppStore((s) => s.collapseNode);
   const { getZoom, setCenter } = useReactFlow();
@@ -64,7 +64,7 @@ export function Canvas() {
         width: layout.nodeSize.width,
         height: layout.nodeSize.height,
         draggable: false,
-        data: { node, focused: node.id === focused, expanded: node.id === expandedTaskId },
+        data: { node, focused: node.id === focused, expanded: node.id === expandedNodeId },
       };
     });
     const flowEdges: Edge[] = graph.edges.map((e) => ({
@@ -79,25 +79,25 @@ export function Canvas() {
       byId,
       positions,
     };
-  }, [world, groupBy, filters, focused, expandedTaskId]);
+  }, [world, groupBy, filters, focused, expandedNodeId]);
 
   // The card stays mounted through its collapse animation, then leaves.
   const [shownTaskId, setShownTaskId] = useState<string | null>(null);
-  if (expandedTaskId && expandedTaskId !== shownTaskId) setShownTaskId(expandedTaskId);
+  if (expandedNodeId && expandedNodeId !== shownTaskId) setShownTaskId(expandedNodeId);
   const onClosed = useCallback(() => setShownTaskId(null), []);
 
   useEffect(() => {
-    const at = expandedTaskId ? positions[expandedTaskId] : undefined;
+    const at = expandedNodeId ? positions[expandedNodeId] : undefined;
     if (!at || getZoom() >= LEGIBLE_ZOOM) return;
     void setCenter(at.x + CARD_WIDTH / 2, at.y + CARD_CENTRE_Y, { zoom: 1, duration: 300 });
     // Only on expand: a later relayout must not move the viewport.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expandedTaskId]);
+  }, [expandedNodeId]);
 
   // A filter that hides the expanded node collapses it, so a later click reopens it.
   useEffect(() => {
-    if (expandedTaskId && !byId[expandedTaskId]) collapseNode();
-  }, [expandedTaskId, byId, collapseNode]);
+    if (expandedNodeId && !byId[expandedNodeId]) collapseNode();
+  }, [expandedNodeId, byId, collapseNode]);
 
   const onNodeClick = useCallback(
     (_: unknown, node: Node) => {
@@ -128,7 +128,7 @@ export function Canvas() {
             key={shown.id}
             node={shown}
             position={shownAt}
-            open={shown.id === expandedTaskId}
+            open={shown.id === expandedNodeId}
             onClosed={onClosed}
           />
         )}

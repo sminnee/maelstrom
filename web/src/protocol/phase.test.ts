@@ -74,4 +74,16 @@ describe('nodeState', () => {
     const agent = makeAgent({ state: 'exited', exitCode: 0 });
     expect(nodeState(makeTask({ status: 'in-progress' }), agent, [])).toBe('idle');
   });
+
+  it('a free agent takes its state from the agent alone', () => {
+    expect(nodeState(undefined, makeAgent({ state: 'processing' }), [])).toBe('working');
+    expect(nodeState(undefined, makeAgent({ state: 'exited', exitCode: 0 }), [])).toBe('idle');
+    expect(nodeState(undefined, makeAgent({ state: 'exited', exitCode: 1 }), [])).toBe('exited');
+  });
+
+  it('a free agent with open attention needs the user', () => {
+    const agent = makeAgent({ id: 'a1', state: 'awaiting-question' });
+    const raised = makeAttention({ agentId: 'a1', taskId: '' });
+    expect(nodeState(undefined, agent, [raised])).toBe('needs-attention');
+  });
 });

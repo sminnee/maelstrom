@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { ViewportPortal, useReactFlow } from '@xyflow/react';
 import { DecisionCard } from '../decisions/DecisionCard';
+import { deskIdForAgent } from '../protocol/deskId';
 import type { GraphNode } from '../selectors/graph';
+import { nodeTitle } from '../selectors/graph';
 import { describeDocumentStatus, describeState } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { toolCallTitle } from '../session/toolCards';
@@ -41,7 +43,7 @@ export function NodeCard({
   const { getViewport, setViewport } = useReactFlow();
   const card = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
-  const { task, agent } = node;
+  const { task, agent, worktree } = node;
 
   // A card that runs past the canvas edge pans into view. It measures the
   // laid-out box (the grow animation only plays towards it), and again
@@ -131,14 +133,17 @@ export function NodeCard({
     return () => document.removeEventListener('keydown', onKey);
   }, [collapseNode]);
 
-  const documents = Object.values(world.documents).filter((d) => d.taskId === task.id);
-  const worktree = agent ? world.worktrees[agent.worktreeId] : undefined;
+  // A free agent has no task, so it owns no documents.
+  const documents = task ? Object.values(world.documents).filter((d) => d.taskId === task.id) : [];
+  // The worktree is where the agent runs, so its branch beats the frontmatter.
+  const where = worktree ?? (agent ? world.worktrees[agent.worktreeId] : undefined);
   const meta = [
-    task.branch,
-    worktree?.nato ?? (agent ? agent.worktreeId : ''),
-    agent?.model ?? task.model,
+    where?.branch || task?.branch || '',
+    where?.nato || (agent ? agent.worktreeId : ''),
+    agent?.model || task?.model || '',
     agent?.costUsd ? `$${agent.costUsd.toFixed(2)}` : '',
   ].filter(Boolean);
+  const title = nodeTitle(node);
   const deciding = !!agent && agent.state.startsWith('awaiting-') && !!agent.pendingRequestId;
   const running = [...(transcript?.items ?? [])]
     .reverse()
@@ -151,20 +156,20 @@ export function NodeCard({
         ref={card}
         className={`${styles.card} nowheel nopan nodrag`}
         role="dialog"
-        aria-label={task.title}
+        aria-label={title}
         tabIndex={-1}
-        data-phase={task.phase}
+        data-phase={node.phase}
         data-state={node.state}
         style={{ transform: `translate(${position.x}px, ${position.y}px)` }}
       >
         <div ref={inner} className={styles.inner}>
           <header className={styles.header}>
             <div className={styles.titleBlock}>
-              <h2 className={styles.title}>{task.title}</h2>
+              <h2 className={styles.title}>{title}</h2>
               <div className={styles.idLine}>
                 {/* The lane names the project, so the bare id is enough. */}
-                <span className={styles.id}>{task.notebookId}</span>
-                <span className={styles.phase}>{task.phase}</span>
+                <span className={styles.id}>{task ? task.notebookId : node.id.slice(0, 8)}</span>
+                <span className={styles.phase}>{node.phase}</span>
               </div>
               {meta.length > 0 && <div className={styles.meta}>{meta.join(' · ')}</div>}
             </div>
@@ -212,13 +217,28 @@ export function NodeCard({
               ))}
             </div>
             <div className={styles.commands}>
-              {!agent && task.actionable && (
+              {!agent && task?.actionable && (
                 <button
                   type="button"
                   className={styles.primary}
                   onClick={() => void send({ type: 'agent.launch', taskId: task.id })}
                 >
                   Launch
+                </button>
+              )}
+              {node.kind === 'freeAgent' && agent && (
+                <button
+                  type="button"
+                  className={styles.quiet}
+                  // Disabled while live: the node draws regardless, so a
+                  // dismiss now would do nothing.
+                  disabled={agent.state !== 'exited'}
+                  onClick={() => {
+                    collapseNode();
+                    void send({ type: 'desk.remove', id: deskIdForAgent(agent.id) });
+                  }}
+                >
+                  Dismiss
                 </button>
               )}
               {agent && agent.state !== 'exited' && (

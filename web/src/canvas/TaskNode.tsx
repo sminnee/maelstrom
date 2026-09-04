@@ -1,5 +1,6 @@
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import type { GraphNode } from '../selectors/graph';
+import { nodeTitle } from '../selectors/graph';
 import { describeState } from '../selectors/status';
 import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
@@ -26,9 +27,9 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
       data-expanded={expanded || undefined}
     >
       <Handle type="target" position={Position.Left} className={styles.handle} />
-      <div className={styles.title}>{node.task.title}</div>
+      <div className={styles.title}>{nodeTitle(node)}</div>
       <div className={styles.line}>
-        <span className={styles.id}>{node.id}</span>
+        <span className={styles.id}>{nodeIdLine(node)}</span>
         <span className={styles.phase}>{node.phase}</span>
         <span className={styles.spacer} />
         {node.state === 'needs-attention' &&
@@ -67,4 +68,9 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
       <Handle type="source" position={Position.Right} className={styles.handle} />
     </div>
   );
+}
+
+/** The id line: a task's own id, or the head of a free agent's id. */
+function nodeIdLine(node: GraphNode): string {
+  return node.task ? node.id : node.id.slice(0, 8);
 }

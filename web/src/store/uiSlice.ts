@@ -2,7 +2,7 @@ import type { Filters, GroupBy } from '../selectors/filters';
 import { noFilters } from '../selectors/filters';
 import type { ListFilters } from '../selectors/taskList';
 import { noListFilters } from '../selectors/taskList';
-import type { AgentId, DocumentId, TaskId } from '../protocol/ids';
+import type { AgentId, DocumentId } from '../protocol/ids';
 
 /** One tab in the right-hand panel: a session or a document. A task expands on the canvas instead. */
 export type PanelTab =
@@ -20,8 +20,8 @@ export interface UiState {
   listFilters: ListFilters;
   tabs: PanelTab[];
   activeTabKey: string | null;
-  /** The one node grown into a card on the canvas, if any. */
-  expandedTaskId: TaskId | null;
+  /** The one node grown into a card on the canvas, if any: a task or an agent. */
+  expandedNodeId: string | null;
   drawerOpen: boolean;
   panelWidth: number;
 }
@@ -34,7 +34,7 @@ export function initialUiState(): UiState {
     listFilters: noListFilters(),
     tabs: [],
     activeTabKey: null,
-    expandedTaskId: null,
+    expandedNodeId: null,
     drawerOpen: false,
     panelWidth: 460,
   };

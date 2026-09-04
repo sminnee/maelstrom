@@ -13,7 +13,7 @@ export function AttentionChip() {
   const tabs = useAppStore((s) => s.ui.tabs);
   const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
   const filters = useAppStore((s) => s.ui.filters);
-  const expandedTaskId = useAppStore((s) => s.ui.expandedTaskId);
+  const expandedNodeId = useAppStore((s) => s.ui.expandedNodeId);
   const expandNode = useAppStore((s) => s.expandNode);
   const view = useAppStore((s) => s.ui.view);
   const setView = useAppStore((s) => s.setView);
@@ -26,7 +26,7 @@ export function AttentionChip() {
   const count = openAttention(world, visible).length;
 
   const go = async () => {
-    const current = expandedTaskId ?? focusedTaskId(world, tabs, activeTabKey);
+    const current = expandedNodeId ?? focusedTaskId(world, tabs, activeTabKey);
     const next = nextAttentionTask(world, current, visible);
     if (!next) return;
     // The canvas draws the desk, so a task off it has no node to expand.
