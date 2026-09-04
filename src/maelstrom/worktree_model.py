@@ -57,15 +57,20 @@ def worktree_num(worktree_name: str) -> int:
     wrap keeps the number valid as a Redis database, so it is unique only for
     the first WORKTREE_NUM_MODULUS worktrees.
 
+    ``_main`` takes 0, which alpha also has — see the ``WORKTREE_NUM`` caveat in
+    `docs/reference/environment.md`.
+
     Args:
-        worktree_name: A full NATO worktree name.
+        worktree_name: A full NATO worktree name, or ``_main``.
 
     Returns:
         The worktree number, from 0 to WORKTREE_NUM_MODULUS - 1.
 
     Raises:
-        ValueError: If worktree_name is not a NATO worktree name.
+        ValueError: If worktree_name is neither a NATO name nor ``_main``.
     """
+    if worktree_name == MAIN_WORKTREE_FOLDER:
+        return 0
     return WORKTREE_NAMES.index(worktree_name) % WORKTREE_NUM_MODULUS
 
 
@@ -323,11 +328,19 @@ def print_flushed(line: str) -> None:
 
 
 # Folder holding the main branch, beside the NATO worktrees. The leading
-# underscore keeps it out of the `<project>-<nato>` pattern, so it is a
-# reference checkout rather than a workspace: no ports, no .env, and never
-# recycled. It still appears as a `mael list` row, with an empty APP column —
-# it has `main` checked out, so it is never closed.
+# underscore keeps it out of the `<project>-<nato>` pattern. It is a real
+# worktree — see `is_worktree_closable` and `docs/guide/worktrees.md`.
 MAIN_WORKTREE_FOLDER = "_main"
+
+
+def is_worktree_closable(worktree_name: str) -> bool:
+    """True if the worktree may be closed, recycled or removed.
+
+    ``_main`` is the one unclosable worktree: it holds the project's `main`
+    checkout, and its port allocation is reserved rather than pooled. Every site
+    that frees an allocation or reuses a folder gates on this.
+    """
+    return worktree_name != MAIN_WORKTREE_FOLDER
 
 
 def sanitize_branch_name(branch: str) -> str:
@@ -340,11 +353,15 @@ def get_worktree_folder_name(project_name: str, worktree_name: str) -> str:
 
     Args:
         project_name: The project name (e.g., 'askastro').
-        worktree_name: The NATO phonetic worktree name (e.g., 'alpha').
+        worktree_name: The NATO phonetic worktree name (e.g., 'alpha'), or
+            ``_main``.
 
     Returns:
-        The folder name (e.g., 'askastro-alpha').
+        The folder name (e.g., 'askastro-alpha'). ``_main`` maps to itself — it
+        takes no project prefix.
     """
+    if worktree_name == MAIN_WORKTREE_FOLDER:
+        return MAIN_WORKTREE_FOLDER
     return f"{project_name}-{worktree_name}"
 
 
@@ -359,7 +376,12 @@ def extract_worktree_name_from_folder(
 
     Returns:
         The worktree name (e.g., 'alpha') or None if not a valid worktree folder.
+        The ``_main`` folder yields ``'_main'`` — it is a real worktree, and it
+        carries no project prefix. Use :func:`is_worktree_closable` to tell it
+        apart from a NATO worktree.
     """
+    if folder_name == MAIN_WORKTREE_FOLDER:
+        return MAIN_WORKTREE_FOLDER
     prefix = f"{project_name}-"
     if folder_name.startswith(prefix):
         potential_name = folder_name[len(prefix) :]

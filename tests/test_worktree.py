@@ -14,7 +14,9 @@ from maelstrom.ports import (
 )
 from maelstrom.worktree import (
     WorktreeInfo,
+    _build_env_file,
     _commits_ahead_batch,
+    _detach_and_free_ports,
     _write_agents_md,
     add_project,
     close_worktree,
@@ -48,6 +50,7 @@ from maelstrom.worktree_model import (
     MAIN_BRANCH,
     MAIN_WORKTREE_FOLDER,
     WORKTREE_NAMES,
+    is_worktree_closable,
     parse_env_text,
 )
 
@@ -350,6 +353,129 @@ class TestBuildEnvFileServices:
         shared_base = int(env["SHARED_PORT_BASE"])
         assert env["DB_PORT"] == str(shared_base * 10 + 0)
         assert shared_base != base
+
+
+class TestBuildEnvFileForMain:
+    """`_main` takes the reserved base from config, never the dynamic pool."""
+
+    SERVICES = (
+        "services:\n"
+        "  web:\n"
+        "    command: vite\n"
+        "    ports: [FRONTEND, FRONTEND_HMR]\n"
+        "  orchestrator:\n"
+        "    command: serve\n"
+        "    ports: [ORCHESTRATOR]\n"
+    )
+
+    def _project(self, tmp_path, monkeypatch, folder, config_text):
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        worktree_path = project_path / folder
+        worktree_path.mkdir(parents=True)
+        (worktree_path / ".maelstrom.yaml").write_text(config_text)
+        return project_path, worktree_path
+
+    def test_main_uses_the_reserved_base(self, tmp_path, monkeypatch):
+        project_path, worktree_path = self._project(
+            tmp_path, monkeypatch, "_main", "main_port_base: 277\n" + self.SERVICES
+        )
+
+        _build_env_file(project_path, worktree_path, "_main")
+
+        env = read_env_file(worktree_path)
+        assert env["FRONTEND_PORT"] == "2770"
+        assert env["FRONTEND_HMR_PORT"] == "2771"
+        assert env["ORCHESTRATOR_PORT"] == "2772"
+
+    def test_main_records_the_reserved_base(self, tmp_path, monkeypatch):
+        """Recording it under the project key hides it from the dynamic pool."""
+        project_path, worktree_path = self._project(
+            tmp_path, monkeypatch, "_main", "main_port_base: 277\n" + self.SERVICES
+        )
+
+        _build_env_file(project_path, worktree_path, "_main")
+
+        assert get_port_allocation(project_path, "_main") == 277
+
+    def test_main_gets_worktree_num_zero(self, tmp_path, monkeypatch):
+        project_path, worktree_path = self._project(
+            tmp_path, monkeypatch, "_main", "main_port_base: 277\n" + self.SERVICES
+        )
+
+        _build_env_file(project_path, worktree_path, "_main")
+
+        assert read_env_file(worktree_path)["WORKTREE_NUM"] == "0"
+
+    def test_main_without_the_key_gets_a_dynamic_base(self, tmp_path, monkeypatch):
+        """Opt-out is not opt-in-with-zero: no key means the ordinary path."""
+        project_path, worktree_path = self._project(
+            tmp_path, monkeypatch, "_main", self.SERVICES
+        )
+
+        _build_env_file(project_path, worktree_path, "_main")
+
+        base = get_port_allocation(project_path, "_main")
+        assert base is not None
+        assert 300 <= base <= 999
+
+    def test_a_nato_worktree_ignores_the_reserved_base(self, tmp_path, monkeypatch):
+        """The key names `_main`'s base only; alpha still floats."""
+        project_path, worktree_path = self._project(
+            tmp_path,
+            monkeypatch,
+            "myproject-alpha",
+            "main_port_base: 277\n" + self.SERVICES,
+        )
+
+        _build_env_file(project_path, worktree_path, "alpha")
+
+        base = get_port_allocation(project_path, "alpha")
+        assert base is not None
+        assert base != 277
+        assert 300 <= base <= 999
+
+
+class TestReclaimReservedBase:
+    """A stale .env must never hand the reserved base to a NATO worktree."""
+
+    def test_a_reserved_base_in_a_stale_env_is_not_reclaimed(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        worktree_path = project_path / "myproject-bravo"
+        worktree_path.mkdir(parents=True)
+        (worktree_path / ".maelstrom.yaml").write_text(
+            "main_port_base: 277\nport_names: [FRONTEND]\n"
+        )
+        (worktree_path / ".env").write_text("PORT_BASE=277\nFRONTEND_PORT=2770\n")
+
+        reclaim_or_allocate_ports(project_path, worktree_path, "bravo")
+
+        base = get_port_allocation(project_path, "bravo")
+        assert base is not None
+        assert base != 277
+
+    def test_a_services_project_refuses_the_reserved_base_too(
+        self, tmp_path, monkeypatch
+    ):
+        """`services:` is the preferred style, so the guard must run for it."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        worktree_path = project_path / "myproject-bravo"
+        worktree_path.mkdir(parents=True)
+        (worktree_path / ".maelstrom.yaml").write_text(
+            "main_port_base: 277\nservices:\n"
+            "  web:\n    command: vite\n    ports: [FRONTEND]\n"
+        )
+        (worktree_path / ".env").write_text("PORT_BASE=277\nFRONTEND_PORT=2770\n")
+
+        reclaim_or_allocate_ports(project_path, worktree_path, "bravo")
+
+        base = get_port_allocation(project_path, "bravo")
+        assert base is not None
+        assert base != 277
 
 
 class TestReadEnvFile:
@@ -2715,8 +2841,8 @@ class TestAddProjectLayout:
     def test_main_is_checked_out_in_the_main_folder(self, project):
         assert self._branch_of(project / "_main") == "main"
 
-    def test_main_folder_is_a_reference_checkout_not_a_workspace(self, project):
-        """No .env means no ports and no dev environment for _main."""
+    def test_main_has_no_env_without_a_reserved_port_base(self, project):
+        """The fixed environment is opt-in: no `main_port_base:`, no .env."""
         assert not (project / "_main" / ".env").exists()
 
     def test_alpha_is_detached_so_it_can_be_recycled(self, project):
@@ -2728,6 +2854,39 @@ class TestAddProjectLayout:
         closed = find_closed_worktree(project)
         assert closed is not None
         assert closed.path.resolve() == alpha.resolve()
+
+    def test_main_is_not_closable(self, project):
+        """The named invariant behind every close, remove and recycle gate."""
+        assert is_worktree_closable("_main") is False
+
+    def test_close_refuses_main(self, project):
+        """`mael close` must not detach _main — the main checkout would be lost."""
+        result = close_worktree(project / "_main")
+
+        assert result.success is False
+        assert "_main" in result.message
+        assert self._branch_of(project / "_main") == "main"
+
+    def test_force_close_refuses_main(self, project):
+        """--force is an escape hatch for incomplete work, not for _main."""
+        result = close_worktree(project / "_main", force=True)
+
+        assert result.success is False
+        assert self._branch_of(project / "_main") == "main"
+
+    def test_sync_close_refuses_main(self, project):
+        """`_main` sits on main, so `sync --close` reads it as empty. Refuse it."""
+        result = _detach_and_free_ports(project / "_main")
+
+        assert result.success is False
+        assert self._branch_of(project / "_main") == "main"
+
+    def test_remove_refuses_main(self, project):
+        """`remove_worktree_by_path` must not delete the main checkout."""
+        with pytest.raises(RuntimeError, match="_main"):
+            remove_worktree_by_path(project, "_main")
+
+        assert (project / "_main").exists()
 
     def test_main_folder_is_never_offered_for_recycling(self, project):
         """Even detached, _main must not be recycled — main would be lost."""
@@ -2750,6 +2909,44 @@ class TestAddProjectLayout:
 
     def test_alpha_is_still_a_workspace(self, project):
         assert (project / "demo-alpha" / ".env").exists()
+
+    def test_main_gets_an_env_when_the_project_reserves_a_base(self, tmp_path):
+        """`main_port_base:` in the repo makes _main the fixed environment."""
+        reserved = tmp_path / "reserved"
+        reserved.mkdir()
+        source = reserved / "source"
+        source.mkdir()
+        subprocess.run(
+            ["git", "init", "-b", "main", str(source)], check=True, capture_output=True
+        )
+        (source / ".maelstrom.yaml").write_text(
+            "main_port_base: 277\nservices:\n"
+            "  web:\n    command: vite\n    ports: [FRONTEND]\n"
+        )
+        for cmd in (
+            ["git", "add", "-A"],
+            [
+                "git",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=T",
+                "commit",
+                "-m",
+                "init",
+            ],
+        ):
+            subprocess.run(cmd, cwd=source, check=True, capture_output=True)
+        remote = reserved / "demo.git"
+        subprocess.run(
+            ["git", "clone", "--bare", str(source), str(remote)],
+            check=True,
+            capture_output=True,
+        )
+
+        project = add_project(str(remote), reserved / "Projects")
+
+        assert read_env_file(project / "_main")["FRONTEND_PORT"] == "2770"
 
     def test_main_tracks_its_remote_branch(self, project):
         """A bare clone writes no branch.main.*, so add_project must set it."""

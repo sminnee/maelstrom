@@ -14,6 +14,7 @@ from maelstrom.worktree_model import (
     extract_worktree_name_from_folder,
     get_worktree_folder_name,
     has_claude_transcript,
+    is_worktree_closable,
     order_by_stack,
     parse_env_text,
     plan_rebase,
@@ -84,6 +85,29 @@ class TestWorktreeFolderNaming:
         assert (
             extract_worktree_name_from_folder("ask-astro", "ask-astro-bravo") == "bravo"
         )
+
+
+class TestMainWorktree:
+    """`_main` is the fixed environment: a real worktree that never closes."""
+
+    def test_extract_names_the_main_folder(self):
+        """The folder is called `_main`, so the extractor says `_main`."""
+        assert extract_worktree_name_from_folder("askastro", "_main") == "_main"
+
+    def test_extract_names_main_whatever_the_project(self):
+        """`_main` carries no project prefix, so the project name is irrelevant."""
+        assert extract_worktree_name_from_folder("other", "_main") == "_main"
+
+    def test_main_is_not_closable(self):
+        assert is_worktree_closable("_main") is False
+
+    def test_nato_worktrees_are_closable(self):
+        for name in WORKTREE_NAMES:
+            assert is_worktree_closable(name) is True
+
+    def test_main_takes_worktree_num_zero(self):
+        """`_main` shares 0 with alpha — 26 NATO names already wrap onto 16."""
+        assert worktree_num("_main") == 0
 
 
 class TestWorktreeShortcodes:
