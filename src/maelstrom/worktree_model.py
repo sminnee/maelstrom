@@ -3,9 +3,13 @@
 This is the model layer for the worktree subsystem, mirroring how ``task.py`` is
 the model for the task subsystem (see ``docs/dev/architecture-patterns.md``). It
 holds the NATO-naming and branch/name helpers, the ``.env`` merge/substitution
-logic, and the pure dataclasses they produce. The IO adapter ``worktree.py``
-imports from here; this module must never import the adapter (that would create a
-circular dependency).
+logic, the worktree domain errors, and the planners that decide a sync or a
+squash before any git call runs. The IO adapter ``worktree.py`` imports from
+here; this module must never import the adapter (that would create a circular
+dependency).
+
+A planner takes the git facts its caller gathered and returns what to do, so the
+decision is table-testable — see ``docs/dev/architecture-patterns.md``.
 """
 
 import re
@@ -343,6 +347,27 @@ def is_worktree_closable(worktree_name: str) -> bool:
     return worktree_name != MAIN_WORKTREE_FOLDER
 
 
+class WorktreeError(Exception):
+    """Base for the worktree states that neither builtin domain error describes.
+
+    One base so a CLI catches the whole family by name instead of listing every
+    subclass. Catch a subclass where the handler treats that case differently;
+    catch this where it does not.
+    """
+
+
+class UnclosableWorktreeError(WorktreeError):
+    """Raised when a caller asks to remove the unclosable worktree (``_main``)."""
+
+
+class WorktreeNamesExhaustedError(WorktreeError):
+    """Raised when all 26 NATO worktree names in a project are taken."""
+
+
+class WorktreeSetupError(WorktreeError):
+    """Raised when a git command that builds a worktree fails."""
+
+
 def sanitize_branch_name(branch: str) -> str:
     """Convert branch name to directory-safe name (slashes → dashes)."""
     return branch.replace("/", "-")
@@ -535,7 +560,7 @@ class CopyBackResult:
     """Keys present in both with differing values (warned, left unchanged)."""
 
 
-def _format_copy_back_block(added: dict[str, str]) -> str:
+def render_copy_back_block(added: dict[str, str]) -> str:
     """Render new keys as ``KEY=value`` lines to append to the parent ``.env``."""
     lines = [f"{key}={value}" for key, value in added.items()]
     return "\n".join(lines) + "\n"
@@ -545,7 +570,7 @@ _VAR_PATTERN = re.compile(r"\$\{(\w+)\}|\$(\w+)")
 _SOURCE_PATTERN = re.compile(r"  # source: \[(.+)\]$")
 
 
-def _substitute_vars(text: str, generated_vars: dict[str, str]) -> str:
+def substitute_vars(text: str, generated_vars: dict[str, str]) -> str:
     """Substitute ``$VAR`` / ``${VAR}`` references in ``text`` from ``generated_vars``.
 
     Unknown references are left intact. This is the shared substitution used both
@@ -578,7 +603,7 @@ def _resolve_env_line(line: str, generated_vars: dict[str, str]) -> str:
     else:
         template = line
 
-    resolved = _substitute_vars(template, generated_vars)
+    resolved = substitute_vars(template, generated_vars)
 
     if resolved != template:
         # Substitution occurred – attach/update source comment
@@ -606,7 +631,7 @@ def _is_blank_value_assignment(line: str) -> bool:
     return value.strip() == ""
 
 
-def _resolve_template_lines(text: str, generated_vars: dict[str, str]) -> str:
+def resolve_template_lines(text: str, generated_vars: dict[str, str]) -> str:
     """Apply variable resolution to every line in *text*.
 
     Blank-value assignments (``KEY=`` with no value) are parent-side sentinels
@@ -620,7 +645,7 @@ def _resolve_template_lines(text: str, generated_vars: dict[str, str]) -> str:
     return "\n".join(resolved)
 
 
-def _build_managed_section(generated_vars: dict[str, str]) -> str:
+def render_managed_section(generated_vars: dict[str, str]) -> str:
     """Build the managed section text for a .env file.
 
     Args:
@@ -634,3 +659,160 @@ def _build_managed_section(generated_vars: dict[str, str]) -> str:
         lines.append(f"{key}={value}")
     lines.append(ENV_SECTION_END)
     return "\n".join(lines)
+
+
+def apply_preserved_values(text: str, preserved: dict[str, str]) -> str:
+    """Return ``text`` with each key in *preserved* set to its preserved value.
+
+    A blank-sentinel key is one the parent ``.env`` declares as ``KEY=``, marking
+    a value the worktree owns. A regenerated worktree ``.env`` drops that line
+    (see :func:`resolve_template_lines`), so each preserved key is normally
+    missing and is appended as ``KEY=value``. A legacy ``.env`` that still holds
+    a literal ``KEY=`` line has it rewritten in place instead, so no duplicate is
+    produced. Every assignment of a preserved key is rewritten, not just the
+    first: a dotenv reader takes the last one, so a stale later line would win.
+
+    Pure: it takes the file's text and returns the text to write. The adapter
+    owns the locked read and write.
+
+    Args:
+        text: The current ``.env`` contents.
+        preserved: ``key -> value`` pairs to re-assert.
+
+    Returns:
+        The new contents, always newline-terminated. Empty ``preserved``
+        returns ``text`` unchanged.
+    """
+    if not preserved:
+        return text
+
+    out: list[str] = []
+    rewritten: set[str] = set()
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            key = stripped.split("=", 1)[0].strip()
+            if key in preserved:
+                out.append(f"{key}={preserved[key]}")
+                rewritten.add(key)
+                continue
+        out.append(line)
+
+    for key, value in preserved.items():
+        if key not in rewritten:
+            out.append(f"{key}={value}")
+    return "\n".join(out) + "\n"
+
+
+@dataclass(frozen=True)
+class RebaseCommand:
+    """The ``git rebase`` invocation a :class:`RebasePlan` turns into."""
+
+    argv: list[str]
+    """The full argv, ``git`` included."""
+    env: dict[str, str] | None = None
+    """Environment overrides, or ``None`` when the rebase needs none."""
+
+
+# --autosquash makes git open the rebase todo in an editor. Stubbing both editors
+# out with `true` applies the generated todo verbatim, unattended.
+NON_INTERACTIVE_REBASE_ENV = {"GIT_SEQUENCE_EDITOR": "true", "GIT_EDITOR": "true"}
+
+
+def plan_squash_rebase(plan: RebasePlan, *, squash: bool) -> RebaseCommand:
+    """Build the rebase command for ``plan``.
+
+    The default base has no ``upstream``, so it yields the plain pre-stacking
+    argv exactly — an unstacked worktree cannot notice that stacking exists. A
+    stacked plan replays only this branch's own commits with ``--onto``.
+
+    Args:
+        plan: The rebase decided by :func:`plan_rebase`.
+        squash: Autosquash ``fixup!`` commits into their targets.
+
+    Returns:
+        The :class:`RebaseCommand` to run.
+    """
+    if plan.upstream is None:
+        argv = ["git", "rebase", "--autostash", plan.onto]
+    else:
+        argv = ["git", "rebase", "--autostash", "--onto", plan.onto, plan.upstream]
+
+    if not squash:
+        return RebaseCommand(argv=argv)
+
+    argv.insert(2, "--autosquash")
+    return RebaseCommand(argv=argv, env=dict(NON_INTERACTIVE_REBASE_ENV))
+
+
+def fetch_prunes(base: BaseRef) -> bool:
+    """True when the fetch before a rebase should also prune remote refs.
+
+    Only a stacked branch needs it: pruning is what tells a merged base from a
+    live one. It deletes stale remote-tracking refs — a visible side effect the
+    default, unstacked path must not acquire.
+    """
+    return not base.is_default
+
+
+# What :func:`plan_sync_after_rebase` says to do with a rebased branch.
+SYNC_PUSH = "push"
+"""Publish the branch with ``--force-with-lease``, if it has a remote."""
+SYNC_CLOSE_KEEP_BRANCH = "close-keep-branch"
+"""Close the worktree; keep the branch, because another is stacked on it."""
+SYNC_CLOSE_DELETE_BRANCH = "close-delete-branch"
+"""Close the worktree and delete the now-empty branch."""
+
+
+@dataclass(frozen=True)
+class SyncDecision:
+    """What :func:`sync_worktree` does once the rebase has landed."""
+
+    action: str
+    """One of ``SYNC_PUSH``, ``SYNC_CLOSE_KEEP_BRANCH``, ``SYNC_CLOSE_DELETE_BRANCH``."""
+    base_label: str
+    """``origin/<base>`` — the ref emptiness was measured against, for messages."""
+
+
+def plan_sync_after_rebase(
+    base: str,
+    *,
+    close_if_empty: bool,
+    is_empty: bool,
+    is_a_base: bool,
+) -> SyncDecision:
+    """Decide what a successful rebase is followed by.
+
+    "Empty" is measured against the resolved base, not ``main``: a child
+    identical to its parent has nothing of its own, even when ``main`` has moved
+    on beneath them both.
+
+    Args:
+        base: The branch the rebase landed on, without an ``origin/`` prefix.
+        close_if_empty: Whether the caller asked for the close-when-empty path.
+        is_empty: Whether the branch is fully merged into its base. Read only
+            when ``close_if_empty`` holds.
+        is_a_base: Whether another branch is stacked on this one. Read only when
+            ``is_empty`` holds, so a caller for which both cost a git call may
+            ask them in that order and skip the second.
+
+    Returns:
+        The :class:`SyncDecision` to execute.
+    """
+    label = f"origin/{base}"
+    if not (close_if_empty and is_empty):
+        return SyncDecision(SYNC_PUSH, label)
+    if is_a_base:
+        return SyncDecision(SYNC_CLOSE_KEEP_BRANCH, label)
+    return SyncDecision(SYNC_CLOSE_DELETE_BRANCH, label)
+
+
+def describe_branch_deletion(
+    branch: str, base_label: str, *, remote_deleted: bool
+) -> str:
+    """The message for a branch that was empty and got deleted."""
+    scope = "local + remote" if remote_deleted else "local"
+    return (
+        f"{branch} is empty (merged into {base_label}); "
+        f"deleted branch ({scope}) and closed worktree."
+    )

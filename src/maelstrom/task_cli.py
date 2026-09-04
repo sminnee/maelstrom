@@ -41,7 +41,7 @@ from .worktree_launcher import (
     launch_claude_in_worktree,
     resolve_harness,
 )
-from .worktree_model import has_claude_transcript
+from .worktree_model import WorktreeError, has_claude_transcript
 
 
 def resolve_harness_or_fail(harness: str | None, opencode: bool) -> str:
@@ -267,7 +267,7 @@ def _run_task(
             base=task.base or None,
             announce=click.echo,
         )
-    except ValueError as e:
+    except (ValueError, WorktreeError) as e:
         raise click.ClickException(str(e))
     # Opening the worktree rebased its branch onto its base. If that failed,
     # block: an unattended session must not run against stale code. The failure

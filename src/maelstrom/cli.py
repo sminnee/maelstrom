@@ -60,6 +60,7 @@ from .task_cli import _harness_options as _harness_flags
 from .task_cli import add_task, resolve_harness_or_fail
 from .task_cli import task as task_cli
 from .task_index import StaleTaskIndexError
+from .util import error_text
 from .wiki_cli import wiki as wiki_cli
 from .worktree import (
     SyncResult,
@@ -93,6 +94,7 @@ from .worktree_model import (
     MAIN_BRANCH,
     REPAIRED_MESSAGE,
     BaseRef,
+    WorktreeError,
     extract_project_name,
     extract_worktree_name_from_folder,
     get_worktree_folder_name,
@@ -395,7 +397,7 @@ def cmd_add(branch, project, open, no_recycle, base, harness, opencode_flag):
             base=base,
             announce=click.echo,
         )
-    except (RuntimeError, ValueError) as e:
+    except (RuntimeError, ValueError, WorktreeError) as e:
         raise click.ClickException(str(e))
     worktree_path, wt_name = result.path, result.name
 
@@ -537,7 +539,9 @@ def cmd_remove(targets, force):
             remove_worktree_by_path(project_path, folder_name)
             click.echo("Worktree removed successfully.")
         except Exception as e:
-            click.echo(f"Error removing worktree '{worktree_name}': {e}", err=True)
+            click.echo(
+                f"Error removing worktree '{worktree_name}': {error_text(e)}", err=True
+            )
             errors.append(target)
 
     if errors:

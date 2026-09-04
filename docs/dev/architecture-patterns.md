@@ -84,11 +84,22 @@ catches them and converts to `click.ClickException` / exit codes — see the
 `except KeyError: raise click.ClickException(...)` pattern throughout
 [`task_cli.py`](../../src/maelstrom/task_cli.py).
 
+A domain the two builtins do not describe gets a named error instead — one that
+is neither "not found" nor "bad input". Give a subsystem's errors one base, so a
+CLI catches the family by name rather than listing every subclass.
+[`worktree_model.py`](../../src/maelstrom/worktree_model.py) has `WorktreeError`
+over `UnclosableWorktreeError`, `WorktreeNamesExhaustedError` and
+`WorktreeSetupError`.
+
+`str()` on a `KeyError` quotes its argument, so a CLI rendering a domain error
+takes the message from [`util.error_text`](../../src/maelstrom/util.py) rather
+than from `str(exc)`.
+
 This is the convention to converge on. Today the codebase is inconsistent and
 these are the things to fix as each module is refactored:
 
 - integrations raise `click.ClickException` directly from non-CLI code,
-- `worktree.py` / `env.py` raise bare `RuntimeError`,
+- `env.py` and `github.py` raise bare `RuntimeError`,
 - `cli.py` raises `SystemExit` / `click.UsageError` inline.
 
 Model code should raise domain errors; only the `*_cli.py` layer should know about

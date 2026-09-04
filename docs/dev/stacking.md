@@ -198,8 +198,8 @@ The full comparison lives beside `parent`'s own definition, in
 
 | concern | module |
 |---|---|
-| `BaseRef`, `RebasePlan`, `plan_rebase`, `validate_base`, `resolve_stack_tip`, `order_by_stack` | `worktree_model.py` (pure) |
+| `BaseRef`, `RebasePlan`, `validate_base`, `resolve_stack_tip`, `order_by_stack`, and the planners: `plan_rebase`, `plan_squash_rebase`, `fetch_prunes`, `plan_sync_after_rebase` | `worktree_model.py` (pure) |
 | `BaseStore`, `InMemoryBaseStore`, `GitConfigBaseStore` | `base_store.py` |
-| base resolution, the rebase, recording the tip, collapse | `worktree.py` (`squash_worktree`) |
+| gathering the git facts and running the plan | `worktree.py` (`squash_worktree`, `sync_worktree`) |
 | `gh stack link`, base-relative review diff | `github.py` |
 | `--base`, `mael base`, `mael stack-tip`, `mael promote`, `mael eject` | `cli.py` |
