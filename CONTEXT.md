@@ -190,7 +190,10 @@ A prompt whose wait ended, and which nobody answered through the orchestrator. T
 approved in the cmux pane, by `mael agent approve`, or by auto-accept; the host resolves the
 request and sends no `control_response`. The user can also interrupt the wait, or the agent can
 stop, before any answer arrives. The normaliser marks the item stale when the wait ends. A stale
-prompt shows what was asked. It never offers a decision.
+prompt shows what was asked. It never offers a decision. A stale plan review takes its plan
+document to the `stale` status, so the document's review bar stops offering one too. Stale means
+the outcome is unknown, not that the answer was no: a tool approved in the cmux pane went ahead,
+and the orchestrator only knows it never saw the answer.
 _Avoid_: Abandoned, orphaned, expired
 
 **Agent message**:

@@ -248,13 +248,13 @@ def test_a_turn_that_ends_mid_question_marks_the_question_stale_without_answers(
     assert agent_of(state)["pendingRequestId"] is None
 
 
-def test_a_turn_that_ends_mid_plan_review_marks_it_stale_and_leaves_the_plan_awaiting():
+def test_a_turn_that_ends_mid_plan_review_marks_it_stale_and_ends_the_documents_review():
     state = ended_mid_wait("plan-review-with-plan.jsonl")
     review = items_of(state, "plan_review")[0]
     assert review["stale"] is True
     assert "decision" not in review
     doc = next(iter(state["world"]["documents"].values()))
-    assert doc["status"] == "awaiting-review"
+    assert doc["status"] == "stale"
     assert agent_of(state)["pendingRequestId"] is None
 
 

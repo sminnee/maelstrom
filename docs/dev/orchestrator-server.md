@@ -232,8 +232,9 @@ no longer pending.
 
 A wait can also end with no answer at all — see `CONTEXT.md`, "Stale prompt". A turn's `result`,
 a `control_cancel_request` and an agent exit all end the wait, and the normaliser marks the
-transcript item stale. The item carries that truth, so no component has to guess whether a prompt
-is still live.
+transcript item stale. A stale plan review also takes its plan document to the `stale` status,
+because the document's review bar reads the document and not the item. Both carry that truth, so
+no component has to guess whether a prompt is still live.
 
 ### Error codes
 

@@ -209,12 +209,12 @@ describe('a wait that ends without an answer', () => {
     expect(agentOf(state)).toMatchObject({ pendingRequestId: null, waitingOn: '' });
   });
 
-  it('marks a plan review stale and leaves its plan awaiting review', () => {
+  it('marks a plan review stale and takes its plan out of review', () => {
     const state = endedMidWait('plan-review-with-plan.jsonl');
     const review = itemOf(state, 'plan_review');
     expect(review).toMatchObject({ stale: true });
     expect(review).not.toHaveProperty('decision');
-    expect(Object.values(state.world.documents)[0]).toMatchObject({ status: 'awaiting-review' });
+    expect(Object.values(state.world.documents)[0]).toMatchObject({ status: 'stale' });
     expect(agentOf(state)).toMatchObject({ pendingRequestId: null, waitingOn: '' });
   });
 
