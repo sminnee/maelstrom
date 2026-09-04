@@ -964,3 +964,85 @@ def test_mark_exited_leaves_the_subagents_alone():
     state = replay("subagent-turn.jsonl")
     before = state.subagents
     assert mark_exited(state, 0).subagents == before
+
+
+# --- the rows and detail a subagent renders as ------------------------------
+
+
+def test_a_top_level_row_has_no_parent_and_no_description():
+    row = build_agent_row(AgentState(agent_id="a1", cwd="/tmp/x"))
+    assert row["parent"] == ""
+    assert row["description"] == ""
+
+
+def test_subagent_rows_take_the_row_shape_under_the_parent():
+    state = replay("subagent-turn.jsonl")
+    [row] = build_subagent_rows(state)
+    last_message = row.pop("last_message")
+    assert row == {
+        "id": "a1.1",
+        "parent": "a1",
+        "description": "List and summarise docs/dev",
+        "state": "exited(0)",
+        "session": "67abe140-d302-472e-aae5-99d423dfa180",
+        "cwd": "/tmp/x",
+        "model": "claude-opus-5",
+        "mode": "auto",
+        "waiting_on": "",
+        "cost": "",
+    }
+    assert last_message.startswith("`docs/dev` exists")
+    assert "\n" not in last_message
+    assert set(row) | {"last_message"} == set(build_agent_row(state))
+
+
+def test_a_running_subagent_row_is_processing_and_shows_its_last_words():
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    state = apply_event(state, _parented("t1", "reading the docs"))
+    [row] = build_subagent_rows(state)
+    assert row["state"] == "processing"
+    assert row["last_message"] == "reading the docs"
+
+
+def test_an_ended_subagent_row_shows_its_summary_over_its_last_words():
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    state = apply_event(state, _parented("t1", "still working"))
+    state = apply_event(state, _notification("t1", "completed", "the answer"))
+    [row] = build_subagent_rows(state)
+    assert row["last_message"] == "the answer"
+    assert build_subagent_detail(state, "a1.1")["message"] == "the answer"
+
+
+def test_a_failed_or_stopped_subagent_row_is_exited_one():
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    state = apply_event(state, _parented("t1", "one"))
+    state = apply_event(state, _parented("t2", "two"))
+    state = apply_event(state, _notification("t1", "failed", "boom"))
+    state = apply_event(state, _notification("t2", "stopped", ""))
+    rows = build_subagent_rows(state)
+    assert [r["state"] for r in rows] == ["exited(1)", "exited(1)"]
+    # A summary wins; without one the last words stand.
+    assert [r["last_message"] for r in rows] == ["boom", "two"]
+
+
+def test_the_parents_detail_lists_its_subagents():
+    state = replay("subagent-turn.jsonl")
+    detail = build_agent_detail(state)
+    assert [r["id"] for r in detail["subagents"]] == ["a1.1"]
+    assert detail["waiting_subagent"] == ""
+
+
+def test_the_parents_detail_names_the_subagent_a_wait_came_from():
+    state = replay("subagent-permission.jsonl", stop_before_control=True)
+    assert build_agent_detail(state)["waiting_subagent"] == "a1.1"
+
+
+def test_a_subagents_detail_is_its_row_plus_its_message_in_full():
+    state = replay("subagent-turn.jsonl")
+    detail = build_subagent_detail(state, "a1.1")
+    [row] = build_subagent_rows(state)
+    assert row.items() <= detail.items()
+    assert detail["message"] == state.subagents["a1.1"].last_message
+    assert "\n" in detail["message"]
+    assert detail["subagents"] == []
+    assert set(detail) == set(build_agent_detail(state))

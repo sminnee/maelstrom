@@ -747,12 +747,18 @@ def build_agent_row(state: AgentState) -> dict[str, Any]:
 
     ``waiting_on`` is the point of the whole mechanism: an agent that is blocked
     says *what on*, not merely that it is busy.
+
+    ``parent`` and ``description`` are empty here: a top-level agent has no
+    parent, and its prompt is not a description. :func:`build_subagent_rows`
+    fills both.
     """
     status = state.status
     if status == EXITED and state.exit_code is not None:
         status = f"{EXITED}({state.exit_code})"
     return {
         "id": state.agent_id,
+        "parent": "",
+        "description": "",
         "state": status,
         "session": state.session_id,
         "cwd": state.cwd,
@@ -762,6 +768,56 @@ def build_agent_row(state: AgentState) -> dict[str, Any]:
         "last_message": _one_line(state.last_message),
         "cost": f"{state.total_cost_usd:.4f}" if state.total_cost_usd else "",
     }
+
+
+def _subagent_status(sub: SubagentState) -> str:
+    """A subagent's status in the words a row uses for an agent.
+
+    ``processing`` while it runs. A finished one is ``exited``, with 0 for
+    completed and 1 for failed or stopped, so a reader of ``list`` needs no
+    second vocabulary — a subagent never waits, so it is never anything else.
+    """
+    if sub.status == SUB_RUNNING:
+        return PROCESSING
+    return f"{EXITED}({0 if sub.status == SUB_COMPLETED else 1})"
+
+
+def _subagent_message(sub: SubagentState) -> str:
+    """What a subagent's row and detail show: the summary once ended, else its words."""
+    if sub.status != SUB_RUNNING and sub.summary:
+        return sub.summary
+    return sub.last_message
+
+
+def build_subagent_row(state: AgentState, dotted: str) -> dict[str, Any]:
+    """One subagent of ``state``, in the shape of :func:`build_agent_row`.
+
+    ``parent`` names the agent whose stream it came from — always the top-level
+    agent, even for a nested subagent, because that is whose child process
+    carries it. ``session``, ``cwd``, ``model`` and ``mode`` are the parent's:
+    a subagent runs inside the parent's process, in its directory, under its
+    mode. ``waiting_on`` and ``cost`` are empty: a subagent's asks are the
+    parent's waits, and its spend is in the parent's total.
+    """
+    sub = state.subagents[dotted]
+    return {
+        "id": dotted,
+        "parent": state.agent_id,
+        "description": _one_line(sub.description),
+        "state": _subagent_status(sub),
+        "session": state.session_id,
+        "cwd": state.cwd,
+        "model": state.model,
+        "mode": state.permission_mode,
+        "waiting_on": "",
+        "last_message": _one_line(_subagent_message(sub)),
+        "cost": "",
+    }
+
+
+def build_subagent_rows(state: AgentState) -> list[dict[str, Any]]:
+    """Every subagent of ``state`` as a row, oldest first."""
+    return [build_subagent_row(state, dotted) for dotted in state.subagents]
 
 
 #: Columns a stopped row carries, in the order ``mael agent list --stopped``
@@ -867,6 +923,10 @@ def build_agent_detail(state: AgentState) -> dict[str, Any]:
     option and its description, which is what a user needs to answer well.
     ``plan`` holds the plan text, and ``plan_file`` the file the agent wrote it
     to.
+
+    ``waiting_subagent`` names the subagent whose tool call the wait is for,
+    else ``""``. ``subagents`` lists every subagent as a row, so ``show`` on a
+    parent is where a user learns the dotted ids ``attach`` and ``tail`` take.
     """
     pending = state.pending
     plan, plan_file = _plan_details(pending, state.last_message)
@@ -877,9 +937,35 @@ def build_agent_detail(state: AgentState) -> dict[str, Any]:
         "waiting_kind": pending.wait_kind if pending else "",
         "waiting_tool": pending.tool_name if pending else "",
         "waiting_input": dict(pending.input) if pending else {},
+        "waiting_subagent": pending.subagent if pending else "",
         "questions": _question_details(pending),
         "plan": plan,
         "plan_file": plan_file,
+        "subagents": build_subagent_rows(state),
+    }
+
+
+def build_subagent_detail(state: AgentState, dotted: str) -> dict[str, Any]:
+    """Everything ``mael agent show`` reports about one subagent.
+
+    Its row, plus ``message``: the summary in full once it has ended, else the
+    last thing it said. The other keys of :func:`build_agent_detail` are
+    present and empty, so the two details share one shape — a subagent never
+    waits, never plans and spawns nothing this detail lists.
+    """
+    sub = state.subagents[dotted]
+    return {
+        **build_subagent_row(state, dotted),
+        "message": _subagent_message(sub),
+        "request_id": "",
+        "waiting_kind": "",
+        "waiting_tool": "",
+        "waiting_input": {},
+        "waiting_subagent": "",
+        "questions": [],
+        "plan": "",
+        "plan_file": "",
+        "subagents": [],
     }
 
 
