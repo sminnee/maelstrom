@@ -13,7 +13,13 @@ from unittest.mock import MagicMock
 from click.testing import CliRunner
 
 from maelstrom import agent_cli
-from maelstrom.agent_model import apply_event, build_agent_detail, build_agent_row
+from maelstrom.agent_model import (
+    apply_event,
+    build_agent_detail,
+    build_agent_row,
+    build_subagent_detail,
+    build_subagent_rows,
+)
 from maelstrom.agent_server import Agent, AgentDaemon
 from maelstrom.agent_transport import RecordingDaemonClient, SocketDaemonClient
 
@@ -466,3 +472,60 @@ def test_the_stopped_listing_prints_its_columns_in_order():
     assert result.exit_code == 0
     header = result.output.splitlines()[0].split()
     assert header == ["id", "age", "task", "branch", "label", "cwd"]
+
+
+# --- subagents --------------------------------------------------------------
+
+
+def test_tail_on_a_subagent_prints_that_ring_and_stops():
+    """The parent's words are not there; the subagent's are."""
+    with _serving(replay("subagent-turn.jsonl")):
+        result = CliRunner().invoke(agent_cli.agent, ["tail", "a1.1"])
+    assert result.exit_code == 0
+    assert "I'll look for the `docs/dev` directory." in result.output
+    assert "The subagent" not in result.output
+
+
+def test_list_shows_the_parent_column():
+    state = replay("subagent-turn.jsonl")
+    rows = [build_agent_row(state), *build_subagent_rows(state)]
+    result, _ = run_cli(["list"], [{"agents": rows}])
+    assert result.output.splitlines()[0].split() == agent_cli.LIST_COLUMNS
+    assert "a1.1" in result.output
+    assert "List and summarise docs/dev" in result.output
+
+
+def test_show_on_a_subagent_prints_the_subagent():
+    detail = build_subagent_detail(replay("subagent-turn.jsonl"), "a1.1")
+    result, client = run_cli(["show", "a1.1"], [{"agent": detail}])
+    assert client.calls == [{"cmd": "show", "id": "a1.1"}]
+    assert result.exit_code == 0
+    assert "a1.1" in result.output
+    assert "parent:       a1" in result.output
+    assert "description:  List and summarise docs/dev" in result.output
+    assert "`docs/dev` exists" in result.output
+    assert "Subagents:" not in result.output
+
+
+def test_show_on_a_parent_lists_its_subagents():
+    detail = build_agent_detail(replay("subagent-turn.jsonl"))
+    result, _ = run_cli(["show", "a1"], [{"agent": detail}])
+    assert "Subagents:" in result.output
+    assert "a1.1" in result.output
+    assert "exited(0)" in result.output
+    assert "List and summarise docs/dev" in result.output
+
+
+def test_show_on_a_parent_with_no_subagents_says_nothing_of_them():
+    detail = build_agent_detail(replay("normal-turn.jsonl"))
+    result, _ = run_cli(["show", "a1"], [{"agent": detail}])
+    assert "Subagents:" not in result.output
+
+
+def test_show_names_the_subagent_a_wait_came_from():
+    detail = build_agent_detail(
+        replay("subagent-permission.jsonl", stop_before_control=True)
+    )
+    result, _ = run_cli(["show", "a1"], [{"agent": detail}])
+    assert "Waiting on: WebFetch (from a1.1)" in result.output
+    assert "mael agent approve a1" in result.output

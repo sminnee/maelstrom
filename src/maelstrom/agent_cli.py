@@ -43,6 +43,8 @@ from .table import draw_table
 #: Columns ``mael agent list`` prints, in order.
 LIST_COLUMNS = [
     "id",
+    "parent",
+    "description",
     "state",
     "mode",
     "waiting_on",
@@ -51,6 +53,9 @@ LIST_COLUMNS = [
     "model",
     "cost",
 ]
+
+#: Columns ``mael agent show`` prints for a parent's subagents, in order.
+SUBAGENT_COLUMNS = ["id", "state", "description", "last_message"]
 
 
 #: Overridden by tests to drive commands through ``RecordingDaemonClient``.
@@ -265,10 +270,24 @@ def _answer_hint(detail: dict[str, Any]) -> str:
 
 
 def _print_detail(detail: dict[str, Any]) -> None:
-    """Render one agent's detail: its state, its words, and its wait."""
-    for key in ("id", "state", "session", "cwd", "model", "cost"):
+    """Render one detail, an agent's or a subagent's, as ``show`` returned it.
+
+    An agent shows its state, its words, its wait and its subagents. A
+    subagent's detail has the same keys with the last two empty, so it prints
+    its state and its words and stops.
+    """
+    for key in (
+        "id",
+        "parent",
+        "description",
+        "state",
+        "session",
+        "cwd",
+        "model",
+        "cost",
+    ):
         if detail.get(key):
-            click.echo(f"{key + ':':<9} {detail[key]}")
+            click.echo(f"{key + ':':<13} {detail[key]}")
 
     if detail.get("message"):
         click.echo(f"\n{detail['message']}")
@@ -288,13 +307,19 @@ def _print_detail(detail: dict[str, Any]) -> None:
             click.echo(f"  {option['label']}{suffix}")
 
     if detail.get("waiting_tool") and not detail.get("questions"):
-        click.echo(f"\nWaiting on: {detail['waiting_tool']}")
+        origin = detail.get("waiting_subagent", "")
+        suffix = f" (from {origin})" if origin else ""
+        click.echo(f"\nWaiting on: {detail['waiting_tool']}{suffix}")
         if detail.get("waiting_input"):
             click.echo(f"  {json.dumps(detail['waiting_input'])[:400]}")
 
     hint = _answer_hint(detail)
     if hint:
         click.echo(f"\nAnswer with:  {hint}")
+
+    if detail.get("subagents"):
+        click.echo("\nSubagents:")
+        draw_table(detail["subagents"], SUBAGENT_COLUMNS)
 
 
 @agent.command("say")
