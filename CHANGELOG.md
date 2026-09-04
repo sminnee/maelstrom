@@ -40,9 +40,9 @@ release while that section is empty, and retitles it to the version it is releas
 
 - **`mael agent list --stopped` names every session you can resume.** `mael agent resume ID` needs
   an id, and nothing printed the id of a session that had stopped. The listing reads Claude's own
-  session transcripts, so it covers sessions a person started by hand as well as agents the daemon
-  drove — a `kind` column says which. `--all` shows running and stopped together, and
-  `-w PROJECT.WORKTREE` or `--project NAME` narrows the listing to one place.
+  session transcripts for what each session was doing, and each spawn record for how to start it
+  again. `--all` shows running and stopped together, and `-w PROJECT.WORKTREE` or `--project NAME`
+  narrows the listing to one place.
 
 - **The desk.** The orchestrator canvas draws the work on your desk, not every task in the world.
   A new task list view lists every task, with filters for status, project, branch and text, and

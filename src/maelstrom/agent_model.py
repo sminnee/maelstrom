@@ -230,7 +230,12 @@ def spec_from_dict(data: dict[str, Any]) -> AgentSpec:
 
 #: Which of the two things started a session, read from a transcript's
 #: ``entrypoint``. A ``mael`` one was driven by the daemon over its stdio pipe;
-#: a ``cli`` one is a person at a terminal. Both resume the same way.
+#: a ``cli`` one is a person at a terminal.
+#:
+#: Nothing reads ``kind`` today: only a session with a spawn record is listed,
+#: and only the daemon writes one, so every listed session is ``mael``. The
+#: field stays because the transcript has it, and :class:`TranscriptMeta` is a
+#: faithful reading of the transcript head.
 KIND_MAEL = "mael"
 KIND_CLI = "cli"
 
@@ -242,9 +247,9 @@ DRIVEN_ENTRYPOINT = "sdk-cli"
 class TranscriptMeta:
     """The head of one Claude session transcript, as a listing needs it.
 
-    Claude writes the transcript, not maelstrom, so this is what survives a stop
-    that leaves no spawn record: enough to name a session, place it, and resume
-    it. The conversation itself is not read.
+    Claude writes the transcript, not maelstrom, so this is what says what a
+    session was doing: enough to name it and place it. The spawn record says how
+    to start it again. The conversation itself is not read.
 
     ``lines_read`` says how far into the file the reader went, so a test can
     hold the bounded read to its promise.
@@ -537,7 +542,7 @@ def build_agent_row(state: AgentState) -> dict[str, Any]:
 
 #: Columns a stopped row carries, in the order ``mael agent list --stopped``
 #: prints them.
-STOPPED_COLUMNS = ["id", "kind", "age", "task", "branch", "label", "cwd"]
+STOPPED_COLUMNS = ["id", "age", "task", "branch", "label", "cwd"]
 
 
 def format_age(seconds: float) -> str:
@@ -556,34 +561,32 @@ def format_age(seconds: float) -> str:
 
 def build_stopped_row(
     meta: TranscriptMeta,
-    spec: AgentSpec | None,
+    spec: AgentSpec,
     task_id: str,
     *,
     now: float,
 ) -> dict[str, Any]:
     """One resumable session, as ``mael agent list --stopped`` shows it.
 
-    ``id`` is what a resume takes: the agent id where maelstrom kept a record,
-    the session id otherwise. ``session`` always holds the session id, which is
-    what ``claude --resume`` replays.
+    ``id`` is the agent id, which is what ``mael agent resume`` takes.
+    ``session`` holds the session id, which is what ``claude --resume`` replays.
 
-    ``model`` and ``mode`` come only from the record, so a session with no
-    record leaves them blank rather than guessing.
+    ``spec`` is required: only a session with a record can be resumed, so
+    :func:`build_stopped_rows` never builds a row without one.
 
     Every key is always present, on the same contract as
     :func:`build_agent_row`, so ``--json`` can emit it as-is.
     """
     return {
-        "id": spec.agent_id if spec else meta.session_id,
+        "id": spec.agent_id,
         "session": meta.session_id,
-        "kind": meta.kind,
         "age": format_age(max(now - meta.modified_at, 0.0)),
         "task": task_id,
         "branch": meta.branch,
         "label": _one_line(meta.label, STOPPED_LABEL_CHARS),
         "cwd": str(meta.cwd),
-        "model": spec.model or "" if spec else "",
-        "mode": spec.permission_mode or "" if spec else "",
+        "model": spec.model or "",
+        "mode": spec.permission_mode or "",
         "modified_at": meta.modified_at,
     }
 
@@ -605,6 +608,10 @@ def build_stopped_rows(
     ``specs`` and ``tasks`` are keyed by session id, so a record and a
     transcript for one session merge into one row.
 
+    A session with no record is dropped. ``_resume`` reads the model, permission
+    mode and env from the record, so a transcript alone cannot be resumed —
+    listing one offers a resume that can only fail.
+
     A session still running is subtracted, on two keys. Its session id is the
     precise one, but a ``claude`` started by hand reports none — for those the
     working directory is all there is, so a transcript is dropped when a live
@@ -612,11 +619,11 @@ def build_stopped_rows(
     """
     id_free_cwds = {s.cwd.resolve() for s in live.sessions if not s.session_id}
     rows = [
-        build_stopped_row(
-            meta, specs.get(meta.session_id), tasks.get(meta.session_id, ""), now=now
-        )
+        build_stopped_row(meta, spec, tasks.get(meta.session_id, ""), now=now)
         for meta in metas
-        if live.for_session_id(meta.session_id) is None
+        for spec in [specs.get(meta.session_id)]
+        if spec is not None
+        and live.for_session_id(meta.session_id) is None
         and meta.cwd.resolve() not in id_free_cwds
     ]
     return sorted(rows, key=lambda row: row["modified_at"], reverse=True)
