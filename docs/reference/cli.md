@@ -603,7 +603,8 @@ cmux pane and no TTY. See [agent-daemon.md](../dev/agent-daemon.md) for the prot
 | `mael agent answer ID CHOICE` | Answer an agent's pending question. CHOICE answers every question the agent asked. |
 | `mael agent approve ID` | Approve an agent's pending plan or tool call. |
 | `mael agent deny ID` | Deny it. `--reason TEXT` reaches the agent as the tool result. |
-| `mael agent attach ID` | Stream an agent's events, and forward each line you type. |
+| `mael agent attach ID` | Teleport into an agent as a terminal UI. Esc interrupts the turn; Ctrl-C detaches. Needs a terminal. |
+| `mael agent interrupt ID` | Abandon the turn an agent is running, leaving the agent alive. Denies a pending wait first. |
 | `mael agent stop ID` | Stop an agent, and forget it. A stopped agent is not brought back. |
 | `mael agent resume ID` | Start an exited agent again, keeping its id and its conversation. `--text TEXT` replaces the default first turn. |
 
@@ -618,7 +619,8 @@ mael agent deny 0b2f5f5b --reason "not now"
 mael agent say 1761dcf6 "also update the README"
 mael agent tail 1761dcf6                        # print the history, then stop
 mael agent tail -f 1761dcf6                     # ...and keep streaming
-mael agent attach 1761dcf6                      # teleport: live stream, typed input
+mael agent attach 1761dcf6                      # teleport: the terminal UI
+mael agent interrupt 1761dcf6                   # abandon the turn, keep the agent
 mael agent stop 1761dcf6
 mael agent resume 1761dcf6                      # after a crash: same id, same conversation
 mael agent resume 1761dcf6 --text "rerun the failing test"

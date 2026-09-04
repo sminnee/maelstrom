@@ -13,6 +13,7 @@ dependencies = [
     "click>=8.0",
     "markdown-to-mrkdwn>=0.3",
     "websockets>=13",
+    "textual>=8.2.8,<9",
 ]
 
 [project.optional-dependencies]

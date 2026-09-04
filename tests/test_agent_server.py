@@ -652,8 +652,6 @@ def test_interrupt_sends_the_interrupt_control_request():
 
 def test_interrupt_denies_the_pending_wait_first_with_the_interrupted_reason():
     """A pending request the child still holds would survive the interrupt."""
-    from maelstrom.agent_model import INTERRUPTED_REASON
-
     daemon = AgentDaemon("/tmp/x.sock")
     agent, sent = _sending_agent()
     agent.state = replay("permission-request.jsonl", stop_before_control=True)

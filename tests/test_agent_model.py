@@ -29,6 +29,7 @@ from maelstrom.agent_model import (
     build_agent_detail,
     build_agent_env,
     build_agent_row,
+    interrupt_request,
     mark_exited,
     reply_for_answer,
     reply_for_approval,
@@ -444,8 +445,6 @@ def test_reply_for_answers_files_each_answer_under_its_question():
 
 def test_interrupt_request_is_a_control_request_with_the_interrupt_subtype():
     """Interrupt is a host->child control_request, not a user message."""
-    from maelstrom.agent_model import interrupt_request
-
     request = interrupt_request("req-7")
     assert request["type"] == "control_request"
     assert request["request_id"] == "req-7"

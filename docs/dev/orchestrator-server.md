@@ -198,10 +198,10 @@ and publishes nothing.
 `document.*`, `comment.*`, `task.create` and `shaping.start` answer `invalid`. `updatedInput` on
 `agent.approve` is ignored: the host approves a call with its input as proposed.
 
-The host does not echo its own replies into the agent's stream. The server applies the
-`control_response` or `user` turn it would have written through the normaliser, so the world
-shows the answer at once. A host that later does echo is harmless: the normaliser ignores a
-response for a request no longer pending.
+The server applies the `control_response` or `user` turn the host wrote through the normaliser,
+so the world shows the answer at once. The host echoes its own replies into the stream as well,
+so both copies arrive. The duplicate is harmless: the normaliser ignores a response for a request
+no longer pending.
 
 ### Error codes
 

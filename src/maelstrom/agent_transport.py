@@ -6,6 +6,10 @@
 - :class:`RecordingDaemonClient` — the in-memory fake, so CLI commands are
   testable without a daemon.
 
+:class:`AsyncDaemonClient` is the same pair for a caller that already owns an
+event loop: the sync clients wrap ``asyncio.run``, which cannot nest. It also
+streams an attach, which the sync Protocol has no shape for.
+
 The socket path comes from ``MAEL_AGENT_SOCKET`` and falls back to
 :data:`DEFAULT_SOCKET_PATH`.
 """
@@ -14,6 +18,7 @@ import asyncio
 import json
 import os
 import subprocess
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -245,3 +250,71 @@ class SocketDaemonClient:
         return asyncio.run(
             request_over_socket(self.socket_path, payload, autostart=self.autostart)
         )
+
+
+# --- the async pair, for a caller that already owns an event loop -----------
+
+
+class AsyncDaemonClient(Protocol):
+    """A transport for a caller on its own event loop.
+
+    ``request`` is the same single round-trip as :class:`DaemonClient`.
+    ``attach`` is what the sync Protocol has no shape for: a long-lived
+    connection yielding the agent's raw events until it ends.
+    """
+
+    async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Send ``payload`` and return the daemon's reply."""
+        ...
+
+    def attach(self, agent_id: str) -> AsyncIterator[dict[str, Any]]:
+        """Yield one agent's raw events until the stream ends."""
+        ...
+
+
+@dataclass
+class SocketAsyncDaemonClient:
+    """The real async client: same socket, on the caller's loop.
+
+    Errors reach the caller as data, not exceptions, on the same non-fatal
+    contract as :class:`SocketDaemonClient`: ``request`` returns a reply whose
+    ``error`` explains it, and ``attach`` yields one such dict and stops.
+    """
+
+    socket_path: str = field(default_factory=resolve_socket_path)
+    autostart: bool = True
+
+    async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return await request_over_socket(
+            self.socket_path, payload, autostart=self.autostart
+        )
+
+    async def attach(self, agent_id: str) -> AsyncIterator[dict[str, Any]]:
+        """Open an attach connection and yield every line the daemon sends.
+
+        A malformed line is skipped rather than ending the stream: the daemon
+        forwards the child's stdout, and a child can write a line that is not
+        JSON.
+        """
+        try:
+            if self.autostart:
+                await ensure_daemon(self.socket_path)
+            reader, writer = await asyncio.open_unix_connection(self.socket_path)
+        except (OSError, asyncio.TimeoutError) as exc:
+            yield {"error": f"agent daemon not reachable at {self.socket_path}: {exc}"}
+            return
+        try:
+            writer.write(
+                (json.dumps({"cmd": "attach", "id": agent_id}) + "\n").encode()
+            )
+            await writer.drain()
+            while True:
+                line = await reader.readline()
+                if not line:
+                    return
+                try:
+                    yield json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+        finally:
+            writer.close()

@@ -68,6 +68,19 @@ def test_answer_sends_the_choice():
     assert client.calls == [{"cmd": "answer", "id": "a1", "choice": "Green"}]
 
 
+def test_interrupt_sends_the_interrupt_command():
+    _, client = run_cli(["interrupt", "a1"])
+    assert client.calls == [{"cmd": "interrupt", "id": "a1"}]
+
+
+def test_attach_refuses_without_a_terminal_and_names_tail():
+    """The TUI needs a terminal, and the read-only view is what works without one."""
+    result, client = run_cli(["attach", "a1"])
+    assert result.exit_code != 0
+    assert "mael agent tail -f a1" in result.output
+    assert client.calls == []
+
+
 def test_deny_sends_the_reason():
     _, client = run_cli(["deny", "a1", "--reason", "not now"])
     assert client.calls[0]["reason"] == "not now"
