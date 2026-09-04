@@ -89,7 +89,8 @@ def apply_agent_detail(
     attention.
     """
     agent = state["world"]["agents"].get(ctx.agent_id)
-    if agent is None:
+    if agent is None or agent["parent"]:
+        # A subagent's asks are the parent's waits, whatever its detail says.
         return Normalised([], ctx)
     request_id = _str(detail.get("request_id"))
     if not request_id or agent["pendingRequestId"] == request_id:
@@ -125,11 +126,27 @@ def normalise_gap(
 def normalise_stream_event(
     state: ClientState, ctx: NormaliseContext, raw: Dict, now: str
 ) -> Normalised:
-    """One raw agent-host event, as the events the UI wants."""
+    """One raw agent-host event, as the events the UI wants.
+
+    A parentless agent's stream drops any event a subagent produced (one with
+    a ``parent_tool_use_id``): the host serves each subagent as a stream of its
+    own, and a host that did not would otherwise merge the two transcripts.
+
+    A subagent's own stream is a transcript and its last message, and nothing
+    more. Its state comes from the host's row, its asks are the parent's
+    waits, and it raises no attention and writes no document — so on a stream
+    whose agent has a ``parent`` the agent patch is limited to ``lastMessage``
+    and a ``control_request`` is ignored.
+    """
     agent = state["world"]["agents"].get(ctx.agent_id)
     if agent is None:
         return Normalised([], ctx)
-    out = _Emitter(state, agent, ctx, now)
+    is_child = bool(agent["parent"])
+    # No symmetric guard: the host serves a subagent's ring alone, so a child
+    # stream never carries the parent's events.
+    if raw.get("parent_tool_use_id") and not is_child:
+        return Normalised([], ctx)
+    out = _Emitter(state, agent, ctx, now, message_only=is_child)
     kind = raw.get("type")
 
     if kind == "system":
@@ -209,7 +226,7 @@ def normalise_stream_event(
 
     elif kind == "control_request":
         request = _dict(raw.get("request"))
-        if request.get("subtype") == "can_use_tool":
+        if request.get("subtype") == "can_use_tool" and not is_child:
             out.request(
                 _str(raw.get("request_id")),
                 _str(request.get("tool_use_id")),
@@ -261,7 +278,9 @@ def mark_exited(
     out = _Emitter(state, agent, ctx, now)
     out.end_wait()
     out.agent({"state": "exited", "exitCode": exit_code})
-    if exit_code != 0:
+    if exit_code != 0 and not agent["parent"]:
+        # A subagent's failure is the parent's to report: the parent gets the
+        # notification and says what it makes of it.
         out.raise_attention("agent_exited", f"Exited with code {exit_code}", None, None)
     return out.done()
 
@@ -314,12 +333,21 @@ class _Emitter:
     """Collects the events for one raw event and threads the context through."""
 
     def __init__(
-        self, state: ClientState, agent: Agent, ctx: NormaliseContext, now: str
+        self,
+        state: ClientState,
+        agent: Agent,
+        ctx: NormaliseContext,
+        now: str,
+        *,
+        message_only: bool = False,
     ):
         self.state = state
         self.now = now
         self.agent_entity: Agent = agent
         self.agent_dirty = False
+        #: Keep only ``lastMessage`` of any agent patch: a subagent's stream
+        #: moves nothing else about it.
+        self.message_only = message_only
         self.ctx = ctx
         self.events: list[ServerEvent] = []
         # Entities this batch created, so a later step in the batch can update them.
@@ -353,6 +381,10 @@ class _Emitter:
         )
 
     def agent(self, patch: Dict) -> None:
+        if self.message_only:
+            patch = {k: v for k, v in patch.items() if k == "lastMessage"}
+            if not patch:
+                return
         self.agent_entity = {**self.agent_entity, **patch}  # type: ignore[typeddict-item]
         self.agent_dirty = True
 

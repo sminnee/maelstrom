@@ -134,10 +134,26 @@ class Replayed:
         return self.state[key]
 
 
-def replay(name: str, *, stop_before_control_response: bool = False) -> Replayed:
-    out_state = Replayed(seed([make_agent(id="ag1", state="idle")]))
+def replay(
+    name: str,
+    *,
+    stop_before_control_response: bool = False,
+    parent_tool_use_id: str | None = None,
+    agent: dict | None = None,
+) -> Replayed:
+    """Replay ``name`` into ``agent`` (a seed idle agent by default).
+
+    ``parent_tool_use_id`` keeps only the lines a subagent produced under that
+    call — the stream the host serves for an ``attach`` to its dotted id.
+    """
+    out_state = Replayed(seed([agent or make_agent(id="ag1", state="idle")]))
     ctx = context_for_agent("ag1")
     for raw in read_fixture(name):
+        if (
+            parent_tool_use_id is not None
+            and raw.get("parent_tool_use_id") != parent_tool_use_id
+        ):
+            continue
         if (
             stop_before_control_response
             and raw.get("type") == "control_response"
@@ -467,3 +483,93 @@ def test_an_unknown_agent_normalises_to_nothing():
     ctx = NormaliseContext(agent_id="ghost")
     out = normalise_stream_event(state, ctx, {"type": "result"}, NOW)
     assert out.events == []
+
+
+# --- subagents ----------------------------------------------------------------
+
+AGENT_CALL = "toolu_01GYXSgBQ1wcW9LA8SSvM5uJ"
+
+
+def test_a_parents_replay_carries_none_of_its_subagents_items():
+    """The golden holds the full item list; this names the one thing it means:
+    the ``Agent`` call is there, and nothing said under it is."""
+    state = replay("subagent-turn.jsonl")
+    assert [c["tool"] for c in items_of(state, "tool_call")] == ["Agent"]
+    assert not any("I'll look for" in i.get("markdown", "") for i in state.items)
+
+
+def child() -> dict:
+    """A seed subagent, idle so a stream that wrongly moved its state would show."""
+    return make_agent(
+        id="ag1",
+        parent="parent-1",
+        description="List and summarise docs/dev",
+        state="idle",
+    )
+
+
+def replay_child(name: str, call: str = AGENT_CALL) -> Replayed:
+    """``name``'s lines under ``call``, replayed into a seed subagent.
+
+    The stream the host serves for an ``attach`` to the dotted id, which is
+    the only stream a subagent's normaliser context ever sees.
+    """
+    return replay(name, parent_tool_use_id=call, agent=child())
+
+
+def test_a_subagents_replay_is_its_own_transcript():
+    state = replay_child("subagent-turn.jsonl")
+    assert types(state) == [
+        "message",
+        "message",
+        "tool_call",
+        "message",
+        "tool_call",
+        "message",
+    ]
+    assert state.items[0]["role"] == "user"
+    assert state.items[1] == {
+        "id": "ag1-2",
+        "ts": NOW,
+        "type": "message",
+        "role": "assistant",
+        "markdown": "I'll look for the `docs/dev` directory.",
+    }
+    assert [c["status"] for c in items_of(state, "tool_call")] == ["done", "done"]
+    assert agent_of(state)["lastMessage"].startswith("`docs/dev` exists")
+
+
+def test_a_subagents_stream_moves_nothing_but_its_last_message():
+    state = replay_child("subagent-turn.jsonl")
+    expected = {**child(), "lastMessage": agent_of(state)["lastMessage"]}
+    assert agent_of(state) == expected
+    assert open_attention(state) == []
+    assert state["world"]["documents"] == {}
+
+
+def test_a_control_request_on_a_subagents_stream_is_ignored():
+    """The wait is the parent's: the host puts it on the parent's stream."""
+    lines = read_fixture("subagent-permission.jsonl")
+    request = next(e for e in lines if e.get("type") == "control_request")
+    state = Replayed(seed([child()]))
+    ctx = context_for_agent("ag1")
+    out = normalise_stream_event(state.state, ctx, request, NOW)
+    assert out.events == []
+    assert out.ctx.pending is None
+
+
+def test_a_subagents_detail_frame_raises_no_wait():
+    """The host names no request on a subagent's detail; if it ever did, it is still not ours."""
+    state = Replayed(seed([child()]))
+    detail = {"request_id": "req-9", "waiting_tool": "WebFetch", "waiting_on": "x"}
+    out = apply_agent_detail(state.state, context_for_agent("ag1"), detail, NOW)
+    assert out.events == []
+
+
+def test_a_subagent_that_exits_non_zero_raises_no_attention():
+    state = Replayed(seed([child()]))
+    out = mark_exited(state.state, context_for_agent("ag1"), 1, NOW)
+    state.take(out.events)
+    assert agent_of(state)["state"] == "exited"
+    assert agent_of(state)["exitCode"] == 1
+    assert open_attention(state) == []
