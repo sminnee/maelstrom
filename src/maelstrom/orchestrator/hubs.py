@@ -9,7 +9,7 @@ resumes from its seq.
 """
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 from .notices import Notices, merge_notices
@@ -113,11 +113,20 @@ class TranscriptSubscriber:
 
 
 class TranscriptHub:
-    """Every open transcript socket, per agent."""
+    """Every open transcript socket, per agent.
 
-    def __init__(self, queue_limit: int = WS_QUEUE_LIMIT) -> None:
+    ``on_idle`` is called with the agent id when its last socket closes, so
+    the server can stop following a stream nobody is reading.
+    """
+
+    def __init__(
+        self,
+        queue_limit: int = WS_QUEUE_LIMIT,
+        on_idle: Callable[[str], None] | None = None,
+    ) -> None:
         self._limit = queue_limit
         self._subscribers: dict[str, set[TranscriptSubscriber]] = {}
+        self.on_idle = on_idle
 
     def push(self, agent_id: str, frames: list[TranscriptFrame]) -> None:
         for subscriber in self._subscribers.get(agent_id, ()):
@@ -133,6 +142,8 @@ class TranscriptHub:
             yield subscriber
         finally:
             self._subscribers[agent_id].discard(subscriber)
+            if not self._subscribers[agent_id] and self.on_idle is not None:
+                self.on_idle(agent_id)
 
     def count(self, agent_id: str) -> int:
         return len(self._subscribers.get(agent_id, ()))
