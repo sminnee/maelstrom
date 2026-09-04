@@ -17,6 +17,8 @@ from typing import Any
 
 from ..agent_model import AGENT_DETAIL, AGENT_EXITED, BACKLOG_END, SEQ_KEY, TRUNCATED
 from ..desk_store import DeskStore, InMemoryDeskStore
+from ..task import mode_for_command
+from ..task import permission_mode_for as model_permission_mode
 from ..task_launch import LaunchBlocked
 from ..util import now_iso
 from . import desk as desk_model
@@ -691,8 +693,8 @@ class Orchestrator:
         host's own stream, because the host records what it writes to the
         child. The desk and task commands reach the host not at all: the desk
         is the server's own table, and a task write goes to the notebook.
-        Everything but those eleven answers ``invalid``: documents, comments,
-        task creation and shaping are out of scope for this server.
+        Everything but those thirteen answers ``invalid``: documents, comments
+        and shaping are out of scope for this server.
         """
         kind = str(command.get("type"))
         handlers = {
@@ -708,6 +710,9 @@ class Orchestrator:
             "desk.remove": self._desk_remove,
             "task.setStatus": self._set_status,
             "task.update": self._update_task,
+            "task.infer": self._infer_task,
+            "task.create": self._create_task,
+            "agent.start": self._start_free_agent,
         }
         handler = handlers.get(kind)
         if handler is None:
@@ -835,6 +840,90 @@ class Orchestrator:
         finally:
             self._launching.discard(task_id)
 
+    async def _infer_task(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Name a task from its prose. Reads only — nothing is written.
+
+        The inference shells out to ``claude -p``, so it runs on the executor
+        like every other blocking source call. It is slow enough that the UI
+        shows a wait for it.
+        """
+        names = await self._run(self.tasks.infer, command["draft"])
+        return {
+            "ok": True,
+            "result": {
+                "title": names.title,
+                "branch": names.branch,
+                "command": names.command,
+                "mode": mode_for_command(names.command),
+            },
+        }
+
+    async def _create_task(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Write a new task, put it on the desk, and launch it when asked.
+
+        Save and Start both file the task on the desk. A launch then runs the
+        existing launch path unchanged.
+        """
+        try:
+            task_id = await self._run(self.tasks.create, command["project"], command)
+        except ValueError as exc:
+            return _refused("invalid", str(exc))
+        await self.refresh_tasks(force=True)
+        await self._add_to_desk(desk_id_for_task(task_id))
+        result: dict[str, Any] = {"taskId": task_id}
+        if command.get("launch"):
+            launched = await self._launch({"taskId": task_id})
+            if not launched["ok"]:
+                # The task is written and on the desk; only the start failed.
+                # The refusal names it, or the client cannot tell this from
+                # "nothing was written" and a retry writes it a second time.
+                return {**launched, "error": {**launched["error"], "taskId": task_id}}
+            result["agentId"] = launched["result"]["agentId"]
+        return {"ok": True, "result": result}
+
+    async def _start_free_agent(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Start an agent in a branch's worktree, tied to no task.
+
+        A launch's payload less ``session`` and ``env`` — see
+        ``docs/dev/orchestrator-server.md``. The worktree is opened first, so
+        a branch with none gets one provisioned.
+        """
+        if self.tasks.open_worktree is None:
+            return _refused("invalid", "This server cannot open worktrees")
+        try:
+            setup = await self._run(
+                self.tasks.open_worktree, command["project"], command["branch"], ""
+            )
+        except LaunchBlocked as exc:
+            # The source's own refusal, as the launch path treats it.
+            return _refused("invalid", str(exc))
+        except Exception as exc:  # noqa: BLE001 — the client hears why
+            log.exception("could not open a worktree for a free agent")
+            return _refused("invalid", f"Could not open the worktree: {exc}")
+        payload: dict[str, Any] = {
+            "cmd": "start",
+            "cwd": str(setup.path),
+            "prompt": command["prompt"],
+            "mode": model_permission_mode(command.get("mode", "")),
+            "model": command.get("model") or None,
+            "resume": False,
+        }
+        reply = await self.daemon.request(payload)
+        agent_id = reply.get("id") if "error" not in reply else None
+        if not agent_id:
+            error = reply.get("error") or "agent host sent no agent id"
+            return _refused(_code_for(error), error)
+        # A worktree provisioned a moment ago is not in the world yet, and the
+        # adoption links the agent to it by cwd. Without this the node draws in
+        # a generic lane until the 15-second poll.
+        await self.refresh_worktrees()
+        await self._adopt(_started_row(agent_id, payload))
+        # The desk join is explicit, as the launch's is: ``_adopt`` alone does
+        # not file an agent, only the reconcile that follows one does, and the
+        # user is waiting on this reply to see the agent on the canvas.
+        await self._join_desk(agent_id)
+        return {"ok": True, "result": {"agentId": agent_id}}
+
     async def _set_status(self, command: dict[str, Any]) -> dict[str, Any]:
         return await self._write_task(
             self.tasks.set_status, command["taskId"], command["status"]
@@ -873,7 +962,9 @@ def _started_row(agent_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         "parent": "",
         "description": "",
         "state": "idle",
-        "session": payload["session"],
+        # A free agent pins no session, so the host mints its own and the
+        # next ``list`` carries it.
+        "session": payload.get("session", ""),
         "cwd": payload["cwd"],
         "model": payload["model"] or "",
         # The child announces its mode in `system`/`init`, so a launched agent

@@ -16,6 +16,7 @@ import pytest
 
 from maelstrom import task as model
 from maelstrom.agent_model import PendingRequest, reply_for_approval
+from maelstrom.branch_name import TaskNames
 from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
 from maelstrom.orchestrator.routes import build_app, serving
 from maelstrom.orchestrator.server import Orchestrator
@@ -66,6 +67,9 @@ class Harness:
         self.daemon = ScriptedAsyncDaemonClient()
         self.tasks.open_worktree = lambda project, branch, base: WorktreeSetup(
             path=Path(WORKTREE_PATH), name="alpha", action="reused"
+        )
+        self.tasks.infer = lambda draft: TaskNames(
+            title="Export the orders", branch="feat/order-export", command=""
         )
         options = {"task_poll": 0.02, "worktree_poll": 0.02, "agent_poll": 0.02}
         options.update(over)
@@ -1587,16 +1591,14 @@ def test_the_document_routes_and_the_stubs_answer(harness):
                 await api.get_json("/api/documents"),
                 await api.get("/api/documents/nope"),
                 await api.post("/api/documents/nope/comments", {"body": "x"}),
-                await api.post("/api/tasks", {"project": PROJECT, "draft": "x"}),
                 await api.get("/api/nothing-here"),
             )
 
-    documents, missing, comment, create, unknown = run(scenario())
+    documents, missing, comment, unknown = run(scenario())
     assert documents == {"documents": []}
     assert missing.status == 404
     assert comment.status == 501
     assert comment.body["error"]["code"] == "not_implemented"
-    assert create.status == 501
     assert unknown.status == 404
     assert unknown.body["error"]["code"] == "unknown_id"
 
@@ -2235,3 +2237,275 @@ def test_a_stale_plan_review_takes_its_document_to_stale(harness):
     review, document = run(scenario())
     assert review["documentId"]
     assert document["status"] == "stale"
+
+
+# --- creating a task ---------------------------------------------------------
+
+
+def test_infer_names_a_task_from_its_prose_and_writes_nothing(harness):
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post(
+                "/api/tasks/infer",
+                {"project": PROJECT, "draft": "The order export drops the last row."},
+            )
+            return reply, await api.get_json("/api/tasks")
+
+    reply, tasks = run(scenario())
+    assert reply.status == 200
+    assert reply.body == {
+        "title": "Export the orders",
+        "branch": "feat/order-export",
+        "command": "",
+        "mode": "auto",
+    }
+    # Inference only reads: nothing reached the notebook.
+    assert tasks["tasks"] == []
+
+
+def test_infer_carries_the_mode_the_inferred_command_implies(harness):
+    harness.tasks.infer = lambda draft: TaskNames(
+        title="Plan the export", branch="feat/order-export", command="plan-next-step"
+    )
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/tasks/infer", {"project": PROJECT, "draft": "Work out the export"}
+            )
+
+    reply = run(scenario())
+    assert reply.body["command"] == "plan-next-step"
+    assert reply.body["mode"] == "normal"
+
+
+def test_infer_in_a_project_the_world_does_not_hold_is_unknown_id(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/tasks/infer", {"project": "nowhere", "draft": "x"}
+            )
+
+    reply = run(scenario())
+    assert reply.status == 404
+    assert reply.body["error"]["code"] == "unknown_id"
+
+
+def test_create_writes_the_task_with_the_fields_it_was_given_and_files_it(harness):
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post(
+                "/api/tasks",
+                {
+                    "project": PROJECT,
+                    "title": "Export the orders",
+                    "content": "The order export drops the last row.",
+                    "branch": "feat/order-export",
+                    "command": "",
+                    "mode": "auto",
+                    "priority": "high",
+                },
+            )
+            return reply, await api.get_json("/api/desk"), await api.get_json(
+                "/api/tasks"
+            )
+
+    reply, desk, tasks = run(scenario())
+    assert reply.status == 200
+    task_id = reply.body["taskId"]
+    # Not launched, so no agent came back.
+    assert "agentId" not in reply.body
+    stored = model.load(harness.store, PROJECT, task_id.split("/", 1)[1])
+    assert stored.title == "Export the orders"
+    assert stored.content == "The order export drops the last row."
+    # The branch the user saw is the branch written.
+    assert stored.branch == "feat/order-export"
+    assert stored.mode == "auto"
+    assert stored.priority == "high"
+    assert stored.status == "todo"
+    # The reply follows the world change, so the new task is already there.
+    assert [t["id"] for t in tasks["tasks"]] == [task_id]
+    # Saved work joins the desk too, so what the user just ordered is on the canvas.
+    assert [entry["id"] for entry in desk["desk"]] == [f"task:{task_id}"]
+
+
+def test_create_with_launch_starts_an_agent_and_moves_the_task_in_progress(harness):
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post(
+                "/api/tasks",
+                {
+                    "project": PROJECT,
+                    "title": "Export the orders",
+                    "content": "Do it.",
+                    "branch": "feat/order-export",
+                    "mode": "auto",
+                    "launch": True,
+                },
+            )
+            return reply, await api.get_json("/api/desk")
+
+    reply, desk = run(scenario())
+    assert reply.status == 200
+    assert reply.body["agentId"] == "new1"
+    task_id = reply.body["taskId"]
+    stored = model.load(harness.store, PROJECT, task_id.split("/", 1)[1])
+    assert stored.status == "in-progress"
+    assert [entry["id"] for entry in desk["desk"]] == [f"task:{task_id}"]
+    assert host_calls(harness) == ["start"]
+
+
+def test_a_create_whose_launch_fails_still_reports_the_task_it_wrote(harness):
+    """The task is written and filed; only the start failed.
+
+    The reply has to say so, or the client cannot tell this from "nothing was
+    written" and a retry writes the task a second time.
+    """
+    harness.daemon.replies["start"] = [{"error": "agent ag1 has exited"}]
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post(
+                "/api/tasks",
+                {
+                    "project": PROJECT,
+                    "title": "Export the orders",
+                    "branch": "feat/order-export",
+                    "launch": True,
+                },
+            )
+            return reply, await api.get_json("/api/tasks")
+
+    reply, tasks = run(scenario())
+    assert reply.status == 409
+    assert reply.body["error"]["code"] == "agent_exited"
+    # The task the create wrote is named in the refusal, so the client knows
+    # not to write it again.
+    task_id = reply.body["error"]["taskId"]
+    assert [t["id"] for t in tasks["tasks"]] == [task_id]
+    assert model.load(harness.store, PROJECT, task_id.split("/", 1)[1]).status == "todo"
+
+
+def test_create_in_a_project_the_world_does_not_hold_is_unknown_id(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/tasks", {"project": "nowhere", "title": "Export the orders"}
+            )
+
+    reply = run(scenario())
+    assert reply.status == 404
+    assert reply.body["error"]["code"] == "unknown_id"
+    assert host_calls(harness) == []
+
+
+def test_create_with_no_title_is_refused_before_the_notebook(harness):
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post("/api/tasks", {"project": PROJECT, "title": "  "})
+            return reply, await api.get_json("/api/tasks")
+
+    reply, tasks = run(scenario())
+    assert reply.status == 400
+    assert reply.body["error"]["code"] == "invalid"
+    assert tasks["tasks"] == []
+
+
+# --- starting a free agent ---------------------------------------------------
+
+
+def test_a_free_agent_starts_in_the_branch_worktree_with_no_session_and_no_env(harness):
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post(
+                "/api/agents",
+                {
+                    "project": PROJECT,
+                    "branch": "feat/orders",
+                    "prompt": "Read the logs and tell me what broke.",
+                    "mode": "normal",
+                    "model": "claude-opus-5",
+                },
+            )
+            return reply, await api.get_json("/api/desk"), await api.get_json(
+                "/api/tasks"
+            )
+
+    reply, desk, tasks = run(scenario())
+    assert reply.status == 200
+    assert reply.body == {"agentId": "new1"}
+    start = next(c for c in harness.daemon.calls if c["cmd"] == "start")
+    assert start["cwd"] == WORKTREE_PATH
+    assert start["prompt"] == "Read the logs and tell me what broke."
+    assert start["model"] == "claude-opus-5"
+    # No task session pinned, no task env exported: a free agent.
+    assert "session" not in start
+    assert "env" not in start
+    # Nothing was written to the notebook.
+    assert tasks["tasks"] == []
+    # The adoption files it on the desk under itself, not under a task.
+    assert [entry["id"] for entry in desk["desk"]] == ["agent:new1"]
+
+
+def test_a_free_agent_opens_a_worktree_for_a_branch_that_has_none(harness):
+    opened: list[tuple[str, str, str]] = []
+
+    def open_worktree(project: str, branch: str, base: str):
+        opened.append((project, branch, base))
+        return WorktreeSetup(path=Path(WORKTREE_PATH), name="alpha", action="created")
+
+    harness.tasks.open_worktree = open_worktree
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/agents",
+                {
+                    "project": PROJECT,
+                    "branch": "feat/brand-new",
+                    "prompt": "Start here.",
+                    "mode": "normal",
+                },
+            )
+
+    reply = run(scenario())
+    assert reply.status == 200
+    # The same path a task launch takes, with no base to seed.
+    assert opened == [(PROJECT, "feat/brand-new", "")]
+
+
+def test_a_free_agent_the_host_refuses_is_answered_with_the_hosts_code(harness):
+    harness.daemon.replies["start"] = [{"error": "agent ag1 has exited"}]
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post(
+                "/api/agents",
+                {
+                    "project": PROJECT,
+                    "branch": "feat/orders",
+                    "prompt": "Start here.",
+                    "mode": "normal",
+                },
+            )
+            return reply, await api.get_json("/api/desk")
+
+    reply, desk = run(scenario())
+    assert reply.status == 409
+    assert reply.body["error"]["code"] == "agent_exited"
+    # Nothing was adopted, so nothing joined the desk.
+    assert desk["desk"] == []
+
+
+def test_a_free_agent_with_no_prompt_is_refused_before_the_host(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/agents",
+                {"project": PROJECT, "branch": "feat/orders", "prompt": "  "},
+            )
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert reply.body["error"]["code"] == "invalid"
+    assert host_calls(harness) == []

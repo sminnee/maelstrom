@@ -355,3 +355,136 @@ def test_an_exited_subagent_is_still_refused_as_a_subagent_not_as_exited():
         validate_command(world, cmd)["message"]
         == "agent-1.1 is a subagent of agent-1; drive agent-1"
     )
+
+
+# --- task.infer, task.create and agent.start ---
+
+PROJECT = {"id": "northwind", "name": "northwind", "stackTip": "main"}
+
+
+def test_unknown_id_for_inference_in_a_project_the_world_does_not_hold():
+    cmd = {"type": "task.infer", "project": "nowhere", "draft": "Do a thing"}
+    assert code(validate_command(empty_world(), cmd)) == "unknown_id"
+
+
+def test_invalid_for_inference_with_nothing_to_read():
+    world = world_with(projects=[PROJECT])
+    cmd = {"type": "task.infer", "project": "northwind", "draft": "  "}
+    assert code(validate_command(world, cmd)) == "invalid"
+
+
+def test_inference_from_a_draft_in_a_known_project_is_allowed():
+    world = world_with(projects=[PROJECT])
+    cmd = {"type": "task.infer", "project": "northwind", "draft": "Do a thing"}
+    assert validate_command(world, cmd) is None
+
+
+def _create(**over) -> dict:
+    cmd = {
+        "type": "task.create",
+        "project": "northwind",
+        "title": "Add order export",
+        "content": "Do a thing",
+        "branch": "feat/order-export",
+        "command": "",
+        "mode": "auto",
+        "priority": "medium",
+        "model": "",
+    }
+    cmd.update(over)
+    return cmd
+
+
+def test_a_create_with_every_field_is_allowed():
+    assert validate_command(world_with(projects=[PROJECT]), _create()) is None
+
+
+def test_unknown_id_for_a_create_in_a_project_the_world_does_not_hold():
+    cmd = _create(project="nowhere")
+    assert code(validate_command(empty_world(), cmd)) == "unknown_id"
+
+
+def test_invalid_for_a_create_with_no_title():
+    world = world_with(projects=[PROJECT])
+    assert code(validate_command(world, _create(title="  "))) == "invalid"
+
+
+def test_invalid_for_a_create_in_a_mode_the_notebook_cannot_launch():
+    world = world_with(projects=[PROJECT])
+    assert code(validate_command(world, _create(mode="turbo"))) == "invalid"
+
+
+def test_invalid_for_a_create_with_a_priority_the_notebook_has_no_rank_for():
+    world = world_with(projects=[PROJECT])
+    assert code(validate_command(world, _create(priority="urgent"))) == "invalid"
+
+
+def test_invalid_for_a_create_whose_field_is_null():
+    # A null is not "left out": it reaches the notebook and breaks the write.
+    world = world_with(projects=[PROJECT])
+    assert code(validate_command(world, _create(content=None))) == "invalid"
+
+
+def test_a_create_may_leave_the_optional_fields_out():
+    world = world_with(projects=[PROJECT])
+    cmd = {"type": "task.create", "project": "northwind", "title": "Add order export"}
+    assert validate_command(world, cmd) is None
+
+
+def test_unknown_id_for_a_free_agent_in_a_project_the_world_does_not_hold():
+    cmd = {
+        "type": "agent.start",
+        "project": "nowhere",
+        "branch": "feat/x",
+        "prompt": "Look at the logs",
+        "mode": "normal",
+    }
+    assert code(validate_command(empty_world(), cmd)) == "unknown_id"
+
+
+def test_invalid_for_a_free_agent_with_no_prompt():
+    world = world_with(projects=[PROJECT])
+    cmd = {
+        "type": "agent.start",
+        "project": "northwind",
+        "branch": "feat/x",
+        "prompt": "  ",
+        "mode": "normal",
+    }
+    assert code(validate_command(world, cmd)) == "invalid"
+
+
+def test_invalid_for_a_free_agent_with_no_branch():
+    world = world_with(projects=[PROJECT])
+    cmd = {
+        "type": "agent.start",
+        "project": "northwind",
+        "branch": "",
+        "prompt": "Look at the logs",
+        "mode": "normal",
+    }
+    assert code(validate_command(world, cmd)) == "invalid"
+
+
+def test_invalid_for_a_free_agent_in_a_mode_the_host_cannot_start():
+    world = world_with(projects=[PROJECT])
+    cmd = {
+        "type": "agent.start",
+        "project": "northwind",
+        "branch": "feat/x",
+        "prompt": "Look at the logs",
+        "mode": "turbo",
+    }
+    assert code(validate_command(world, cmd)) == "invalid"
+
+
+def test_a_free_agent_on_a_branch_with_a_prompt_is_allowed():
+    world = world_with(projects=[PROJECT])
+    cmd = {
+        "type": "agent.start",
+        "project": "northwind",
+        "branch": "feat/x",
+        "prompt": "Look at the logs",
+        "mode": "normal",
+    }
+    assert validate_command(world, cmd) is None

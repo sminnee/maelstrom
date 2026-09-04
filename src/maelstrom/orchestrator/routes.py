@@ -87,6 +87,9 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/tasks/{project}/{id}/launch", _launch)
     app.router.add_post("/api/tasks/{project}/{id}/status", _set_status)
     app.router.add_patch("/api/tasks/{project}/{id}", _update_task)
+    app.router.add_post("/api/agents", _start_free_agent)
+    app.router.add_post("/api/tasks/infer", _infer_task)
+    app.router.add_post("/api/tasks", _create_task)
     app.router.add_post("/api/desk", _desk_add)
     app.router.add_delete("/api/desk/{desk_id:.+}", _desk_remove)
     for method, path in _NOT_IMPLEMENTED:
@@ -100,7 +103,6 @@ _NOT_IMPLEMENTED = (
     ("POST", "/api/documents/{id}/comments/{cid}/resolve"),
     ("POST", "/api/documents/{id}/approve"),
     ("POST", "/api/documents/{id}/request-changes"),
-    ("POST", "/api/tasks"),
     ("POST", "/api/shaping"),
 )
 
@@ -108,10 +110,15 @@ _NOT_IMPLEMENTED = (
 # -- errors --
 
 
-def error_response(code: str, message: str) -> web.Response:
-    """The one error shape: ``{"error": {"code", "message"}}`` at the code's status."""
+def error_response(code: str, message: str, **extra: Any) -> web.Response:
+    """The one error shape: ``{"error": {"code", "message"}}`` at the code's status.
+
+    ``extra`` adds fields beside those two, for the refusal that has to say
+    more than why: a create whose launch failed names the task it wrote, so a
+    retry does not write it twice.
+    """
     return web.json_response(
-        {"error": {"code": code, "message": message}},
+        {"error": {"code": code, "message": message, **extra}},
         status=STATUS_FOR_CODE.get(code, 400),
     )
 
@@ -270,7 +277,9 @@ async def _command(request: web.Request, build: Callable[[dict[str, Any]], dict]
         log.exception("command %s failed", command.get("type"))
         return error_response("invalid", f"Malformed command: {exc!r}")
     if not reply["ok"]:
-        return error_response(reply["error"]["code"], reply["error"]["message"])
+        error = dict(reply["error"])
+        code = error.pop("code")
+        return error_response(code, error.pop("message"), **error)
     return web.json_response(reply["result"])
 
 
@@ -355,6 +364,28 @@ async def _update_task(request: web.Request) -> web.StreamResponse:
         request,
         lambda body: {"type": "task.update", "taskId": task_id, "fields": body},
     )
+
+
+async def _start_free_agent(request: web.Request) -> web.StreamResponse:
+    """Start an agent tied to no task. It may open a worktree, so it can be slow."""
+    return await _command(request, lambda body: {**body, "type": "agent.start"})
+
+
+async def _infer_task(request: web.Request) -> web.StreamResponse:
+    """Name a task from its prose. Slow: it shells out to ``claude -p``."""
+    return await _command(
+        request,
+        lambda body: {
+            "type": "task.infer",
+            "project": body.get("project"),
+            "draft": body.get("draft", ""),
+        },
+    )
+
+
+async def _create_task(request: web.Request) -> web.StreamResponse:
+    """Write a new task; ``launch`` starts it too, as ``mael task add --run`` does."""
+    return await _command(request, lambda body: {**body, "type": "task.create"})
 
 
 async def _desk_add(request: web.Request) -> web.StreamResponse:
