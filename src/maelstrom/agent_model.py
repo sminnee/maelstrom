@@ -29,6 +29,14 @@ AWAITING_PLAN_REVIEW = "awaiting-plan-review"
 #: Terminal: the child process is gone. An exited agent answers nothing.
 EXITED = "exited"
 
+#: States in which the agent still owes a reply, so a turn exists to interrupt.
+INTERRUPTIBLE = (
+    PROCESSING,
+    AWAITING_PERMISSION,
+    AWAITING_QUESTION,
+    AWAITING_PLAN_REVIEW,
+)
+
 
 def build_agent_argv(
     permission_mode: str | None = None,
@@ -345,6 +353,17 @@ def apply_event(state: AgentState, event: dict[str, Any]) -> AgentState:
         )
         return replace(state, status=pending.wait_kind, pending=pending)
 
+    if kind == "control_cancel_request":
+        # The child withdrew the ask, so nothing can answer it any more.
+        # Without this the agent goes on advertising a wait the child no
+        # longer holds, and a reply would carry a dead request id.
+        if (
+            state.pending is not None
+            and event.get("request_id") == state.pending.request_id
+        ):
+            return replace(state, status=PROCESSING, pending=None)
+        return state
+
     if kind == "control_response":
         # The wait is over: either we answered, or another client did. Either
         # way the agent is running again.
@@ -512,6 +531,28 @@ def _control_response(request_id: str, payload: dict[str, Any]) -> dict[str, Any
             "request_id": request_id,
             "response": payload,
         },
+    }
+
+
+#: What an interrupted tool call is told, and what the turn's error says.
+INTERRUPTED_REASON = "Interrupted by user"
+
+
+def interrupt_request(request_id: str) -> dict[str, Any]:
+    """Ask the child to abandon the turn it is running.
+
+    Unlike every other message here this is a request the host makes of the
+    child, not a reply to one, so it carries its own ``request_id`` for the
+    child's ``control_response`` to echo. The child then closes the turn with
+    an error-subtype ``result``.
+
+    An interrupt does not answer a pending ``can_use_tool``. Deny that first,
+    or the child sits on a request nothing will resolve.
+    """
+    return {
+        "type": "control_request",
+        "request_id": request_id,
+        "request": {"subtype": "interrupt"},
     }
 
 

@@ -143,6 +143,10 @@ export function normaliseStreamEvent(
       for (const block of blocks(raw)) {
         if (block.type === 'text' && str(block.text)) {
           out.append({ type: 'message', role: 'user', markdown: str(block.text) });
+          // A message to the agent is the start of a turn. Without this the UI
+          // shows "idle" until the agent's first event lands, which reads as
+          // though nothing was sent.
+          if (!out.ctx.pending) out.agent({ state: 'processing' });
         } else if (block.type === 'tool_result') {
           out.toolResult(block);
         }
@@ -184,6 +188,15 @@ export function normaliseStreamEvent(
         dict(request.input),
         str(request.description),
       );
+      break;
+    }
+
+    case 'control_cancel_request': {
+      const pending = out.ctx.pending;
+      if (pending && str(raw.request_id) === pending.requestId) {
+        out.endWait();
+        out.agent({ state: 'processing', pendingRequestId: null, waitingOn: '' });
+      }
       break;
     }
 

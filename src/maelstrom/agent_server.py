@@ -32,6 +32,8 @@ from .agent_model import (
     BACKLOG_END,
     DEFAULT_RESUME_PROMPT,
     EXITED,
+    INTERRUPTED_REASON,
+    INTERRUPTIBLE,
     SPEC_EXITED,
     SPEC_RUNNING,
     AgentSpec,
@@ -41,6 +43,7 @@ from .agent_model import (
     build_agent_detail,
     build_agent_env,
     build_agent_row,
+    interrupt_request,
     mark_exited,
     reply_for_answer,
     reply_for_answers,
@@ -114,6 +117,17 @@ class Agent:
         self.proc.stdin.write((json.dumps(message) + "\n").encode())
         await self.proc.stdin.drain()
 
+    def record(self, message: dict[str, Any]) -> None:
+        """Put one message into the agent's stream: reduce it, then fan it out.
+
+        Both directions go through here. The child never echoes what it is
+        sent, so every attached client would otherwise go on showing a wait
+        that has been answered.
+        """
+        self.state = apply_event(self.state, message)
+        for queue in list(self.watchers):
+            _offer(queue, message)
+
     async def pump(self) -> None:
         """Read the child's stream to its end, then record that the child died.
 
@@ -131,9 +145,7 @@ class Agent:
                     event = json.loads(line)
                 except json.JSONDecodeError:
                     continue  # a non-JSON line is noise, not a state change
-                self.state = apply_event(self.state, event)
-                for queue in list(self.watchers):
-                    _offer(queue, event)
+                self.record(event)
         finally:
             exit_code = await self.proc.wait()
             self.state = mark_exited(self.state, exit_code)
@@ -393,7 +405,9 @@ class AgentDaemon:
             return {"agent": build_agent_detail(agent.state)}
 
         if command == "say":
-            await agent.send(user_message(payload["text"]))
+            message = user_message(payload["text"])
+            await agent.send(message)
+            agent.record(message)
             return {"ok": True}
 
         if command == "stop":
@@ -405,6 +419,19 @@ class AgentDaemon:
             return {"ok": True}
 
         pending = agent.state.pending
+
+        if command == "interrupt":
+            if agent.state.status not in INTERRUPTIBLE:
+                return {"error": f"agent {agent.state.agent_id} is not running a turn"}
+            if pending is not None:
+                reply = reply_for_denial(pending, INTERRUPTED_REASON)
+                await agent.send(reply)
+                agent.record(reply)
+            request = interrupt_request(str(uuid.uuid4()))
+            await agent.send(request)
+            agent.record(request)
+            return {"ok": True}
+
         if command in ("answer", "approve", "deny"):
             if pending is None:
                 return {"error": f"agent {agent.state.agent_id} is not waiting"}
@@ -428,11 +455,12 @@ class AgentDaemon:
                     reply = reply_for_answer(pending, payload["choice"])
                 else:
                     return {"error": "no answer given"}
-                await agent.send(reply)
             elif command == "approve":
-                await agent.send(reply_for_approval(pending))
+                reply = reply_for_approval(pending)
             else:
-                await agent.send(reply_for_denial(pending, payload.get("reason", "")))
+                reply = reply_for_denial(pending, payload.get("reason", ""))
+            await agent.send(reply)
+            agent.record(reply)
             return {"ok": True}
 
         return {"error": f"unknown command: {command}"}
