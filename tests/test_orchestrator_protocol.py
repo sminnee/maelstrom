@@ -20,6 +20,7 @@ NOW = "2026-09-01T00:00:00Z"
 def make_task(**over):
     task = {
         "id": "NORT-7",
+        "notebookId": "NORT-7",
         "project": "northwind",
         "title": "Add order export",
         "status": "todo",
@@ -36,7 +37,6 @@ def make_task(**over):
         "log": [],
         "created": NOW,
         "updated": NOW,
-        "phase": "executing",
         "actionable": True,
     }
     task.update(over)
@@ -172,3 +172,19 @@ def test_the_desk_is_an_entity_kind_with_its_own_table():
         frame(3, {"type": "remove", "kind": "desk", "id": "askastro/2026-06-11.1"}),
     )
     assert state["world"]["desk"] == {}
+
+
+def test_a_task_row_is_a_task_less_its_detail_fields():
+    """The row type is kept by hand; this is what stops it drifting from the task."""
+    from maelstrom.orchestrator.protocol import (
+        TASK_DETAIL_FIELDS,
+        Task,
+        TaskRow,
+        task_row,
+    )
+
+    assert set(TaskRow.__annotations__) == set(Task.__annotations__) - set(
+        TASK_DETAIL_FIELDS
+    )
+    task = make_task(content="prose", log=[{"ts": NOW, "text": "did it"}])
+    assert set(task_row(task)) == set(TaskRow.__annotations__)

@@ -13,6 +13,7 @@ documented in ``docs/dev/orchestrator-server.md``.
 import asyncio
 import json
 import logging
+import uuid
 from collections.abc import Callable
 from concurrent.futures import Executor
 from typing import Any
@@ -27,6 +28,7 @@ from . import desk as desk_model
 from .daemon_bridge import AsyncDaemonClient
 from .desk import DeskTable, desk_id_for_agent, desk_id_for_task
 from .event_log import RING_SIZE, EventLog
+from .hubs import COALESCE_SECS, NoticeHub
 from .normalise import (
     NormaliseContext,
     Normalised,
@@ -36,7 +38,8 @@ from .normalise import (
     normalise_stream_event,
     revive_agent,
 )
-from .protocol import Agent, EventFrame, ServerEvent
+from .notices import notices_for
+from .protocol import Agent, EventFrame, ServerEvent, TranscriptItem
 from .sources import TaskSource, WorktreeSource
 from .validate import validate_command
 from .world_build import (
@@ -95,6 +98,7 @@ class Orchestrator:
         task_poll: float = TASK_POLL_SECS,
         worktree_poll: float = WORKTREE_POLL_SECS,
         agent_poll: float = AGENT_POLL_SECS,
+        notice_coalesce: float = COALESCE_SECS,
     ) -> None:
         self.tasks = tasks
         self.worktrees = worktrees
@@ -103,6 +107,16 @@ class Orchestrator:
         self.clock = clock
         self.executor = executor
         self.log = EventLog(ring_size)
+        #: Minted per server life, so a client can tell a restart from a reconnect.
+        self.epoch = uuid.uuid4().hex[:8]
+        self.notices = NoticeHub(notice_coalesce)
+        #: Bumped on every task change published; the task list's ETag.
+        self.task_revision = 0
+        #: Per agent, the transcript item of the request it waits on, kept
+        #: current with the patches the stream applies to it. The server holds
+        #: no transcript, so this is the one item it keeps: the one a decision
+        #: needs when no transcript stream is open.
+        self._pending_items: dict[str, TranscriptItem] = {}
         self._task_poll = task_poll
         self._worktree_poll = worktree_poll
         self._agent_poll = agent_poll
@@ -167,13 +181,59 @@ class Orchestrator:
     # -- keeping the world fresh --
 
     async def publish(self, events: list[ServerEvent]) -> list[EventFrame]:
-        """Append ``events`` to the log and send the frames to every client."""
+        """Append ``events`` to the log, tell the notice streams, and send the frames."""
         if not events:
             return []
         async with self._lock:
             frames = self.log.append(events, self.clock())
+            self._track_pending_items(events)
+            notices = notices_for(events)
+            if "task" in notices:
+                self.task_revision += 1
+            self.notices.notify(notices)
             await self._send_all(frames)
         return frames
+
+    def _track_pending_items(self, events: list[ServerEvent]) -> None:
+        """Keep each agent's waiting item current as the transcript events pass."""
+        for event in events:
+            kind = event.get("type")
+            if kind == "transcript.append":
+                item = event["item"]
+                if "requestId" in item:
+                    self._pending_items[event["agentId"]] = item
+            elif kind == "transcript.update":
+                item = self._pending_items.get(event["agentId"])
+                if item is not None and item["id"] == event["itemId"]:
+                    self._pending_items[event["agentId"]] = {**item, **event["patch"]}
+
+    @property
+    def world(self) -> Any:
+        return self.log.state["world"]
+
+    @property
+    def task_version(self) -> str | None:
+        """The notebook version the task table was last read at."""
+        return None if self._task_version is _NEVER else self._task_version
+
+    @property
+    def ready(self) -> asyncio.Event:
+        """Set once the first source reads have finished."""
+        return self._started
+
+    def pending_request(self, agent_id: str) -> TranscriptItem | None:
+        """The item an agent waits on: its question, permission request or plan review.
+
+        ``None`` when the agent waits on nothing, or when its wait predates this
+        server and no item for it was ever built.
+        """
+        agent = self.world["agents"].get(agent_id)
+        if agent is None or not agent["pendingRequestId"]:
+            return None
+        item = self._pending_items.get(agent_id)
+        if item is None or item.get("requestId") != agent["pendingRequestId"]:
+            return None
+        return item
 
     async def _send_all(self, frames: list[EventFrame]) -> None:
         """Send ``frames`` in order to every client; drop a client a send fails on.

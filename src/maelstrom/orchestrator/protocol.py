@@ -84,6 +84,40 @@ class Task(TypedDict):
     actionable: bool
 
 
+class TaskRow(TypedDict):
+    """A task as the task list carries it: every field but ``content`` and ``log``.
+
+    The list holds every task in every project, so the two fields that hold
+    prose stay behind ``GET /api/tasks/{project}/{id}``.
+    """
+
+    id: str
+    notebookId: str
+    project: str
+    title: str
+    status: str
+    command: str
+    mode: str
+    branch: str
+    parent: str
+    follows: list[str]
+    priority: str
+    model: str
+    base: str
+    steps: list[TaskStep]
+    created: str
+    updated: str
+    actionable: bool
+
+
+#: The ``Task`` fields a ``TaskRow`` leaves out.
+TASK_DETAIL_FIELDS = ("content", "log")
+
+
+def task_row(task: Task) -> TaskRow:
+    return cast(TaskRow, {k: v for k, v in task.items() if k not in TASK_DETAIL_FIELDS})
+
+
 class Agent(TypedDict):
     """``build_agent_row`` plus what links the agent to the rest of the world."""
 
@@ -124,6 +158,29 @@ class Document(TypedDict):
     version: int
     status: str
     source: dict[str, Any]
+
+
+class DocumentRow(TypedDict):
+    """A document as the list carries it: everything but the ``markdown``."""
+
+    id: str
+    agentId: str
+    taskId: str
+    kind: str
+    title: str
+    version: int
+    status: str
+    source: dict[str, Any]
+
+
+#: The ``Document`` fields a ``DocumentRow`` leaves out.
+DOCUMENT_DETAIL_FIELDS = ("markdown",)
+
+
+def document_row(doc: Document) -> DocumentRow:
+    return cast(
+        DocumentRow, {k: v for k, v in doc.items() if k not in DOCUMENT_DETAIL_FIELDS}
+    )
 
 
 #: A render-ready transcript item. The variants are in ``transcript.ts``; the

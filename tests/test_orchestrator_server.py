@@ -1,8 +1,8 @@
-"""The orchestrator server, end to end over a real WebSocket.
+"""The orchestrator server, end to end over a real port.
 
 The sources are in-memory and the agent host is scripted from the recorded
 fixtures, so every case runs against ``Orchestrator`` as the browser would see
-it: hello, snapshot or replay, ready, frames, commands and replies.
+it: REST reads, change notices, and commands with their replies.
 """
 
 import asyncio
@@ -86,6 +86,15 @@ class Harness:
         """Serve the orchestrator on a free port for the length of the block."""
         return serving(build_app(self.orch), "127.0.0.1", 0)
 
+    @asynccontextmanager
+    async def client(self):
+        """Serve, and yield an :class:`Api` client on the bound port."""
+        async with self.serving() as port:
+            async with aiohttp.ClientSession(
+                base_url=f"http://127.0.0.1:{port}"
+            ) as session:
+                yield Api(session)
+
 
 @asynccontextmanager
 async def connect(url: str):
@@ -93,6 +102,143 @@ async def connect(url: str):
     async with aiohttp.ClientSession() as session:
         async with session.ws_connect(url) as ws:
             yield ws
+
+
+class Reply:
+    """One HTTP reply: its status, its parsed body, and its headers."""
+
+    def __init__(self, status: int, body, headers) -> None:
+        self.status = status
+        self.body = body
+        self.headers = headers
+
+
+class Api:
+    """The server as the browser reaches it: GETs, POSTs, the notice stream, the socket."""
+
+    def __init__(self, session: aiohttp.ClientSession) -> None:
+        self.session = session
+
+    async def get(self, path: str, **headers) -> Reply:
+        async with self.session.get(path, headers=headers) as response:
+            return await _reply(response)
+
+    async def get_json(self, path: str):
+        """The body of a GET that must succeed."""
+        reply = await self.get(path)
+        assert reply.status == 200, (reply.status, reply.body)
+        return reply.body
+
+    async def post(self, path: str, body=None, *, raw: bytes | None = None) -> Reply:
+        kwargs = {"data": raw} if raw is not None else {"json": body or {}}
+        async with self.session.post(path, **kwargs) as response:
+            return await _reply(response)
+
+    async def patch(self, path: str, body=None) -> Reply:
+        async with self.session.patch(path, json=body or {}) as response:
+            return await _reply(response)
+
+    async def delete(self, path: str) -> Reply:
+        async with self.session.delete(path) as response:
+            return await _reply(response)
+
+    @asynccontextmanager
+    async def events(self):
+        """The change-notice stream, open for the block."""
+        async with self.session.get("/api/events") as response:
+            assert response.status == 200
+            assert response.content_type == "text/event-stream"
+            yield EventStream(response)
+
+    def ws(self):
+        return self.session.ws_connect("/")
+
+
+async def _reply(response: aiohttp.ClientResponse) -> Reply:
+    text = await response.text()
+    try:
+        body = json.loads(text) if text else None
+    except json.JSONDecodeError:
+        body = text
+    return Reply(response.status, body, response.headers)
+
+
+class EventStream:
+    """A reader of server-sent events: ``next`` skips pings."""
+
+    def __init__(self, response: aiohttp.ClientResponse) -> None:
+        self.response = response
+
+    async def next(self, kind: str | None = None, timeout: float = 2.0) -> dict:
+        """The next event, or the next of ``kind``."""
+        deadline = asyncio.get_running_loop().time() + timeout
+        while True:
+            remaining = deadline - asyncio.get_running_loop().time()
+            event = await asyncio.wait_for(self._read(), max(remaining, 0.01))
+            if kind is None or event["event"] == kind:
+                return event
+
+    async def change(
+        self, kind: str, entity_id: str | None = None, timeout: float = 2.0
+    ) -> list[str]:
+        """The ids of the next ``change`` notice for ``kind`` (naming ``entity_id``)."""
+        deadline = asyncio.get_running_loop().time() + timeout
+        while True:
+            remaining = deadline - asyncio.get_running_loop().time()
+            event = await self.next("change", max(remaining, 0.01))
+            data = event["data"]
+            if data["kind"] != kind:
+                continue
+            if entity_id is None or entity_id in data["ids"]:
+                return data["ids"]
+
+    async def _read(self) -> dict:
+        name = None
+        data: list[str] = []
+        while True:
+            raw = await self.response.content.readline()
+            if not raw:
+                raise EOFError("the notice stream closed")
+            line = raw.decode().rstrip("\n")
+            if line == "":
+                if name is not None:
+                    return {"event": name, "data": json.loads("\n".join(data))}
+                continue
+            if line.startswith(":"):
+                continue
+            key, _, value = line.partition(":")
+            value = value.lstrip()
+            if key == "event":
+                name = value
+            elif key == "data":
+                data.append(value)
+
+
+async def settled(
+    stream: EventStream,
+    api: Api,
+    kind: str,
+    path: str,
+    predicate,
+    timeout: float = 2.0,
+):
+    """GET ``path`` after each ``kind`` notice, until ``predicate`` holds of the body.
+
+    The notice says something about the kind changed; the GET says what. A
+    change that takes several events lands as several notices, so the read
+    repeats until the body is what the test waits for, or ``timeout`` passes
+    and the last body seen names what the predicate rejected.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout
+    body = None
+    while True:
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            raise TimeoutError(f"{path} never settled; last body: {body!r}")
+        await stream.change(kind, timeout=remaining)
+        body = await api.get_json(path)
+        if predicate(body):
+            return body
 
 
 async def recv(ws, timeout: float = 2.0) -> dict:
@@ -322,8 +468,8 @@ def published(harness, kind: str) -> list[dict]:
     ]
 
 
-def test_the_snapshot_carries_the_world_and_the_backlog_is_relayed(harness):
-    """The snapshot holds the world; the transcript reaches clients as events.
+def test_the_world_carries_the_wait_and_the_backlog_is_relayed(harness):
+    """The world holds the wait; the transcript reaches clients as events.
 
     The server keeps no transcript, so a client that connects after the
     backlog was relayed gets the wait from the world and fills its scrollback
@@ -338,14 +484,13 @@ def test_the_snapshot_carries_the_world_and_the_backlog_is_relayed(harness):
     harness.daemon.pending["ag1"] = pending_from(backlog)
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                return (await say_hello(ws))[0]["event"], list(harness.daemon.attached)
+        async with harness.client() as api:
+            agent = await api.get_json("/api/agents/ag1")
+            attention = await api.get_json("/api/attention?open=1")
+            return agent, attention["attention"], list(harness.daemon.attached)
 
-    snapshot, attached = run(scenario())
+    agent, open_items, attached = run(scenario())
     assert attached == ["ag1"]
-    assert "transcripts" not in snapshot
-    agent = snapshot["world"]["agents"]["ag1"]
     assert agent["state"] == "awaiting-question"
     assert agent["taskId"] == "northwind/NORT-7"
     assert agent["project"] == PROJECT
@@ -354,9 +499,6 @@ def test_the_snapshot_carries_the_world_and_the_backlog_is_relayed(harness):
     appended = published(harness, "transcript.append")
     assert [e["item"]["type"] for e in appended][-1] == "question"
     assert published(harness, "transcript.truncated") == []
-    open_items = [
-        a for a in snapshot["world"]["attention"].values() if a["clearedAt"] is None
-    ]
     assert [a["kind"] for a in open_items] == ["question"]
     assert open_items[0]["taskId"] == "northwind/NORT-7"
 
@@ -477,58 +619,49 @@ def test_the_exit_marker_marks_the_agent_exited_and_raises_attention(harness):
 
 def test_reconciliation_attaches_new_agents_and_retires_gone_ones(harness):
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
                 harness.daemon.rows["ag2"] = agent_row("ag2", cwd="/private/tmp")
-                appeared = await next_frame(
-                    ws,
-                    lambda f: (
-                        f["event"]["type"] == "upsert"
-                        and f["event"]["kind"] == "agent"
-                        and f["event"]["entity"]["id"] == "ag2"
-                    ),
-                )
+                await stream.change("agent", "ag2")
+                appeared = await api.get_json("/api/agents/ag2")
                 await wait_until(lambda: "ag2" in harness.daemon.attached)
                 attached = list(harness.daemon.attached)
                 del harness.daemon.rows["ag2"]
                 harness.daemon.end_stream("ag2")
-                gone = await next_frame(
-                    ws,
-                    lambda f: (
-                        f["event"]["type"] == "upsert"
-                        and f["event"]["kind"] == "agent"
-                        and f["event"]["entity"]["state"] == "exited"
-                    ),
+                gone = await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag2",
+                    lambda a: a["state"] == "exited",
                 )
         return appeared, attached, gone
 
     appeared, attached, gone = run(scenario())
-    assert appeared["event"]["entity"]["taskId"] == ""
-    assert appeared["event"]["entity"]["worktreeId"] == ""
+    assert appeared["taskId"] == ""
+    assert appeared["worktreeId"] == ""
     assert attached == ["ag2"]
-    assert gone["event"]["entity"]["exitCode"] == 0
+    assert gone["exitCode"] == 0
 
 
 def test_a_row_reporting_an_exit_the_stream_never_showed_is_applied(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
                 harness.daemon.rows["ag1"]["state"] = "exited(1)"
-                return await next_frame(
-                    ws,
-                    lambda f: (
-                        f["event"]["type"] == "upsert"
-                        and f["event"]["kind"] == "agent"
-                        and f["event"]["entity"]["state"] == "exited"
-                    ),
+                return await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda a: a["state"] == "exited",
                 )
 
-    frame = run(scenario())
-    assert frame["event"]["entity"]["exitCode"] == 1
+    assert run(scenario())["exitCode"] == 1
 
 
 def test_an_agent_that_comes_back_under_its_old_id_is_revived(harness):
@@ -536,27 +669,25 @@ def test_an_agent_that_comes_back_under_its_old_id_is_revived(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
                 await wait_until(lambda: "ag1" in harness.daemon.attached)
                 harness.daemon.rows["ag1"]["state"] = "exited(1)"
-                await next_frame(
-                    ws,
-                    lambda f: (
-                        f["event"]["type"] == "upsert"
-                        and f["event"]["kind"] == "agent"
-                        and f["event"]["entity"]["state"] == "exited"
-                    ),
+                await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda a: a["state"] == "exited",
                 )
                 harness.daemon.rows["ag1"]["state"] = "idle"
-                back = await next_frame(
-                    ws,
-                    lambda f: (
-                        f["event"]["type"] == "upsert"
-                        and f["event"]["kind"] == "agent"
-                        and f["event"]["entity"]["state"] == "idle"
-                    ),
+                back = await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda a: a["state"] == "idle",
                 )
                 await wait_until(
                     lambda: (
@@ -565,10 +696,9 @@ def test_an_agent_that_comes_back_under_its_old_id_is_revived(harness):
                 )
                 return back
 
-    frame = run(scenario())
     # The re-attached backlog re-normalises into the same transcript, which
     # still holds the turns from before the exit.
-    assert frame["event"]["entity"]["exitCode"] is None
+    assert run(scenario())["exitCode"] is None
 
 
 def test_a_revived_agent_loses_the_attention_its_exit_raised(harness):
@@ -576,31 +706,34 @@ def test_a_revived_agent_loses_the_attention_its_exit_raised(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
                 harness.daemon.rows["ag1"]["state"] = "exited(1)"
-                raised = await next_frame(
-                    ws,
-                    lambda f: (
-                        f["event"]["type"] == "upsert"
-                        and f["event"]["kind"] == "attention"
-                    ),
+                raised = await settled(
+                    stream,
+                    api,
+                    "attention",
+                    "/api/attention?open=1",
+                    lambda body: len(body["attention"]) == 1,
                 )
                 harness.daemon.rows["ag1"]["state"] = "idle"
-                cleared = await next_frame(
-                    ws,
-                    lambda f: (
-                        f["event"]["type"] == "upsert"
-                        and f["event"]["kind"] == "attention"
-                        and f["event"]["entity"]["clearedAt"] is not None
-                    ),
+                await settled(
+                    stream,
+                    api,
+                    "attention",
+                    "/api/attention?open=1",
+                    lambda body: body["attention"] == [],
                 )
-                return raised, cleared
+                everything = await api.get_json("/api/attention")
+                return raised["attention"][0], everything["attention"]
 
-    raised, cleared = run(scenario())
-    assert raised["event"]["entity"]["kind"] == "agent_exited"
-    assert cleared["event"]["entity"]["id"] == raised["event"]["entity"]["id"]
+    raised, everything = run(scenario())
+    assert raised["kind"] == "agent_exited"
+    assert raised["agentId"] == "ag1"
+    [cleared] = everything
+    assert cleared["id"] == raised["id"]
+    assert cleared["clearedAt"] is not None
 
 
 def test_a_revived_agent_links_to_the_task_that_arrived_while_it_was_gone(harness):
@@ -609,49 +742,33 @@ def test_a_revived_agent_links_to_the_task_that_arrived_while_it_was_gone(harnes
     harness.daemon.rows["ag1"] = agent_row(session=session)
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
                 harness.daemon.rows["ag1"]["state"] = "exited(1)"
-                await next_frame(
-                    ws,
-                    lambda f: (
-                        f["event"]["type"] == "upsert"
-                        and f["event"]["kind"] == "agent"
-                        and f["event"]["entity"]["state"] == "exited"
-                    ),
+                await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda a: a["state"] == "exited",
                 )
                 # The task appears only while the agent is gone, so the link it
                 # held at exit is stale by the time it comes back.
                 harness.add_task("NORT-7")
-                harness.version += 1
-                await next_frame(
-                    ws,
-                    lambda f: (
-                        f["event"]["type"] == "upsert" and f["event"]["kind"] == "task"
-                    ),
-                )
+                await stream.change("task", "northwind/NORT-7")
                 harness.daemon.rows["ag1"]["state"] = "idle"
                 # Every agent frame from the moment it comes back. The revive
                 # pass must carry the link itself: a later poll fixing it leaves
                 # a stale link on screen in between.
-                frames = []
-                while True:
-                    frame = await next_frame(
-                        ws,
-                        lambda f: (
-                            f["event"]["type"] == "upsert"
-                            and f["event"]["kind"] == "agent"
-                        ),
-                    )
-                    frames.append(frame["event"]["entity"])
-                    if frame["event"]["entity"]["taskId"]:
-                        return frames
+                await stream.change("agent", "ag1")
+                return await api.get_json("/api/agents/ag1")
 
-    frames = run(scenario())
-    # The first frame of the revive already names the task, so nothing renders
-    # an agent that has come back with no task on it.
-    assert frames[0]["taskId"] == "northwind/NORT-7"
+    agent = run(scenario())
+    # The first notice of the revive already finds the task on the agent, so
+    # nothing renders an agent that has come back with no task on it.
+    assert agent["state"] == "idle"
+    assert agent["taskId"] == "northwind/NORT-7"
 
 
 def test_a_wait_older_than_the_hosts_window_is_raised_from_the_detail_frame(harness):
@@ -668,17 +785,16 @@ def test_a_wait_older_than_the_hosts_window_is_raised_from_the_detail_frame(harn
     harness.daemon.pending["ag1"] = pending
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                return (await say_hello(ws))[0]["event"]
+        async with harness.client() as api:
+            agent = await api.get_json("/api/agents/ag1")
+            attention = await api.get_json("/api/attention?open=1")
+            return agent, attention["attention"]
 
-    snapshot = run(scenario())
-    assert snapshot["world"]["agents"]["ag1"]["pendingRequestId"] == pending.request_id
+    agent, open_items = run(scenario())
+    assert agent["pendingRequestId"] == pending.request_id
+    assert agent["pendingRequest"]["type"] == "permission_request"
     items = [e["item"] for e in published(harness, "transcript.append")]
     assert [i["type"] for i in items] == ["permission_request"]
-    open_items = [
-        a for a in snapshot["world"]["attention"].values() if a["clearedAt"] is None
-    ]
     assert [a["requestId"] for a in open_items] == [pending.request_id]
 
 
@@ -687,20 +803,16 @@ def test_a_wait_the_backlog_replays_is_raised_once(harness):
     backlog, _ = waiting_on(harness, "permission-request.jsonl")
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                return (await say_hello(ws))[0]["event"]
+        async with harness.client() as api:
+            return (await api.get_json("/api/attention?open=1"))["attention"]
 
-    snapshot = run(scenario())
+    open_items = run(scenario())
     requests = [
         e["item"]
         for e in published(harness, "transcript.append")
         if e["item"]["type"] == "permission_request"
     ]
     assert len(requests) == 1
-    open_items = [
-        a for a in snapshot["world"]["attention"].values() if a["clearedAt"] is None
-    ]
     assert len(open_items) == 1
 
 
@@ -1344,12 +1456,10 @@ def test_a_live_agent_joins_the_desk(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                return harness.orch.log.state["world"]["desk"]
+        async with harness.client() as api:
+            return await api.get_json("/api/desk")
 
-    assert list(run(scenario())) == ["agent:ag1"]
+    assert [e["id"] for e in run(scenario())["desk"]] == ["agent:ag1"]
 
 
 def test_an_agent_with_a_task_joins_the_desk_under_its_task(harness):
@@ -1358,12 +1468,10 @@ def test_an_agent_with_a_task_joins_the_desk_under_its_task(harness):
     harness.daemon.rows["ag1"] = agent_row(session=session)
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                return harness.orch.log.state["world"]["desk"]
+        async with harness.client() as api:
+            return await api.get_json("/api/desk")
 
-    assert list(run(scenario())) == ["task:northwind/NORT-7"]
+    assert [e["id"] for e in run(scenario())["desk"]] == ["task:northwind/NORT-7"]
 
 
 def test_the_desk_entry_outlives_the_agent(harness):
@@ -1371,17 +1479,23 @@ def test_the_desk_entry_outlives_the_agent(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
                 del harness.daemon.rows["ag1"]
-                await harness.orch.refresh_agents()
-                world = harness.orch.log.state["world"]
-                return world["desk"], world["agents"]["ag1"]["state"]
+                agent = await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda a: a["state"] == "exited",
+                )
+                desk = await api.get_json("/api/desk")
+                return desk["desk"], agent["state"]
 
     desk, state = run(scenario())
     assert state == "exited"
-    assert list(desk) == ["agent:ag1"]
+    assert [e["id"] for e in desk] == ["agent:ag1"]
 
 
 def test_a_second_agent_poll_publishes_nothing(harness):
@@ -1420,12 +1534,10 @@ def test_an_agent_already_exited_when_it_is_adopted_does_not_join_the_desk(harne
     harness.daemon.rows["ag1"] = agent_row(state="exited(1)")
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                return harness.orch.log.state["world"]["desk"]
+        async with harness.client() as api:
+            return await api.get_json("/api/desk")
 
-    assert run(scenario()) == {}
+    assert run(scenario()) == {"desk": []}
 
 
 def test_a_free_agent_entry_the_host_has_forgotten_is_dropped_at_load(store):
@@ -1443,11 +1555,10 @@ def test_a_free_agent_entry_the_host_has_forgotten_is_dropped_at_load(store):
     harness.add_task("NORT-7")
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                return (await say_hello(ws))[0]["event"]["world"]["desk"]
+        async with harness.client() as api:
+            return await api.get_json("/api/desk")
 
-    assert list(run(scenario())) == ["task:northwind/NORT-7"]
+    assert [e["id"] for e in run(scenario())["desk"]] == ["task:northwind/NORT-7"]
 
 
 def test_an_agent_adopted_at_start_keeps_its_entry_through_the_load(store):
@@ -1463,14 +1574,14 @@ def test_an_agent_adopted_at_start_keeps_its_entry_through_the_load(store):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                world = (await say_hello(ws))[0]["event"]["world"]
-                return world["desk"], list(world["tasks"])
+        async with harness.client() as api:
+            desk = await api.get_json("/api/desk")
+            tasks = await api.get_json("/api/tasks")
+            return desk["desk"], [t["id"] for t in tasks["tasks"]]
 
     desk, tasks = run(scenario())
     assert tasks == ["northwind/NORT-7"]
-    assert sorted(desk) == ["agent:ag1", "task:northwind/NORT-7"]
+    assert sorted(e["id"] for e in desk) == ["agent:ag1", "task:northwind/NORT-7"]
 
 
 def test_a_free_agent_entry_whose_agent_is_live_survives_the_load(store):
@@ -1482,11 +1593,10 @@ def test_a_free_agent_entry_whose_agent_is_live_survives_the_load(store):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                return (await say_hello(ws))[0]["event"]["world"]["desk"]
+        async with harness.client() as api:
+            return await api.get_json("/api/desk")
 
-    assert list(run(scenario())) == ["agent:ag1"]
+    assert [e["id"] for e in run(scenario())["desk"]] == ["agent:ag1"]
 
 
 def test_the_desk_survives_a_restart(store):
@@ -1507,11 +1617,10 @@ def test_the_desk_survives_a_restart(store):
     second = Harness(store, desk=desk)
 
     async def read_back():
-        async with second.serving() as server:
-            async with connect(url(server)) as ws:
-                return (await say_hello(ws))[0]["event"]["world"]["desk"]
+        async with second.client() as api:
+            return await api.get_json("/api/desk")
 
-    assert list(run(read_back())) == ["task:northwind/NORT-7"]
+    assert [e["id"] for e in run(read_back())["desk"]] == ["task:northwind/NORT-7"]
 
 
 def test_a_project_the_scan_misses_keeps_its_desk_entries(store):
@@ -1591,3 +1700,194 @@ def test_resume_of_an_agent_the_world_does_not_know_is_refused(harness):
     reply = run(scenario())
     assert reply["ok"] is False
     assert reply["error"]["code"] == "unknown_id"
+
+
+# --- reads -------------------------------------------------------------------
+
+
+def test_the_task_list_ships_slim_rows_and_the_detail_holds_the_prose(harness):
+    harness.add_task("NORT-7", command="plan-task", content="Do the thing.")
+
+    async def scenario():
+        async with harness.client() as api:
+            rows = await api.get("/api/tasks")
+            detail = await api.get_json("/api/tasks/northwind/NORT-7")
+            missing = await api.get("/api/tasks/northwind/NORT-9")
+            return rows, detail, missing
+
+    rows, detail, missing = run(scenario())
+    assert rows.status == 200
+    assert rows.body["version"] == "1"
+    [row] = rows.body["tasks"]
+    assert row["id"] == "northwind/NORT-7"
+    assert row["actionable"] is True
+    assert "content" not in row
+    assert "log" not in row
+    assert detail["content"] == "Do the thing."
+    assert detail["log"] == []
+    assert missing.status == 404
+    assert missing.body["error"]["code"] == "unknown_id"
+
+
+def test_the_task_list_answers_304_until_a_task_changes(harness):
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        async with harness.client() as api:
+            first = await api.get("/api/tasks")
+            etag = first.headers["ETag"]
+            same = await api.get("/api/tasks", **{"If-None-Match": etag})
+            harness.add_task("NORT-8")
+            await harness.orch.refresh_tasks()
+            moved = await api.get("/api/tasks", **{"If-None-Match": etag})
+            return same, moved, etag
+
+    same, moved, etag = run(scenario())
+    assert same.status == 304
+    assert moved.status == 200
+    assert moved.headers["ETag"] != etag
+    assert [t["id"] for t in moved.body["tasks"]] == [
+        "northwind/NORT-7",
+        "northwind/NORT-8",
+    ]
+
+
+def test_projects_worktrees_and_the_desk_each_have_a_get(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return (
+                await api.get_json("/api/projects"),
+                await api.get_json("/api/worktrees"),
+                await api.get_json("/api/desk"),
+            )
+
+    projects, worktrees, desk = run(scenario())
+    assert projects["projects"][0]["stackTip"] == "main"
+    assert worktrees["worktrees"][0]["path"] == WORKTREE_PATH
+    assert desk == {"desk": []}
+
+
+def test_an_agent_detail_carries_the_request_it_waits_on(harness):
+    harness.add_task("NORT-7")
+    session = model.session_id_for(PROJECT, "NORT-7")
+    backlog, _ = split_at_control_response(read_fixture("question-unanswered.jsonl"))
+    harness.daemon.rows["ag1"] = agent_row(session=session, state="awaiting-question")
+    harness.daemon.backlog["ag1"] = backlog
+    harness.daemon.pending["ag1"] = pending_from(backlog)
+
+    async def scenario():
+        async with harness.client() as api:
+            agents = await api.get_json("/api/agents")
+            detail = await api.get_json("/api/agents/ag1")
+            missing = await api.get("/api/agents/nobody")
+            attention = await api.get_json("/api/attention?open=1")
+            return agents, detail, missing, attention
+
+    agents, detail, missing, attention = run(scenario())
+    [agent] = agents["agents"]
+    assert agent["taskId"] == "northwind/NORT-7"
+    assert "pendingRequest" not in agent
+    assert detail["state"] == "awaiting-question"
+    assert detail["pendingRequest"]["type"] == "question"
+    assert detail["pendingRequest"]["requestId"] == detail["pendingRequestId"]
+    assert missing.status == 404
+    assert [a["kind"] for a in attention["attention"]] == ["question"]
+
+
+def test_an_agent_waiting_on_nothing_has_no_pending_request(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json("/api/agents/ag1")
+
+    assert run(scenario())["pendingRequest"] is None
+
+
+def test_the_document_routes_and_the_stubs_answer(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return (
+                await api.get_json("/api/documents"),
+                await api.get("/api/documents/nope"),
+                await api.post("/api/documents/nope/comments", {"body": "x"}),
+                await api.post("/api/tasks", {"project": PROJECT, "draft": "x"}),
+                await api.get("/api/nothing-here"),
+            )
+
+    documents, missing, comment, create, unknown = run(scenario())
+    assert documents == {"documents": []}
+    assert missing.status == 404
+    assert comment.status == 501
+    assert comment.body["error"]["code"] == "not_implemented"
+    assert create.status == 501
+    assert unknown.status == 404
+    assert unknown.body["error"]["code"] == "unknown_id"
+
+
+# --- change notices ----------------------------------------------------------
+
+
+def test_the_notice_stream_opens_with_a_reset_carrying_the_epoch(harness):
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                return await stream.next()
+
+    reset = run(scenario())
+    assert reset["event"] == "reset"
+    assert reset["data"] == {"epoch": harness.orch.epoch}
+    assert len(harness.orch.epoch) == 8
+
+
+def test_a_task_change_arrives_as_a_notice_and_the_get_shows_it(harness):
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.add_task("NORT-8")
+                ids = await stream.change("task")
+                return ids, await api.get_json("/api/tasks/northwind/NORT-8")
+
+    ids, task = run(scenario())
+    assert ids == ["northwind/NORT-8"]
+    assert task["title"] == "NORT-8"
+
+
+def test_changes_inside_the_coalesce_window_land_as_one_notice_per_kind(harness):
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.add_task("NORT-1")
+                harness.add_task("NORT-2")
+                harness.daemon.rows["ag1"] = agent_row()
+                # One poll of each source: two task upserts and one agent.
+                await harness.orch.refresh_tasks()
+                await harness.orch.refresh_agents()
+                first = await stream.next("change")
+                second = await stream.next("change")
+                return first["data"], second["data"]
+
+    first, second = run(scenario())
+    by_kind = {n["kind"]: n["ids"] for n in (first, second)}
+    assert by_kind["task"] == ["northwind/NORT-1", "northwind/NORT-2"]
+    assert by_kind["agent"] == ["ag1"]
+
+
+def test_a_removed_task_is_named_in_the_notice_and_gone_from_the_get(harness):
+    harness.add_task("NORT-7")
+    harness.add_task("NORT-8")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                model.delete(harness.store, PROJECT, "NORT-7")
+                harness.version += 1
+                ids = await stream.change("task", "northwind/NORT-7")
+                return ids, await api.get("/api/tasks/northwind/NORT-7")
+
+    ids, gone = run(scenario())
+    assert ids == ["northwind/NORT-7"]
+    assert gone.status == 404

@@ -22,11 +22,13 @@ carries and nothing maps between a dataclass and the wire.
 | `event_log.py` | pure | The seq-stamped log: `append`, `replay_from`, `snapshot_frame`, a ring of 5000 frames |
 | `world_build.py` | pure | Entity builders from a task, a `list-all` row and an agent row; `link_agent`; `diff_kind`; `task_key` |
 | `desk.py` | pure | The desk table: `add`, `remove`, `prune`, each returning a new table, and the desk id helpers |
+| `notices.py` | pure | `notices_for`: which change notices a batch of events amounts to |
+| `hubs.py` | adapter | `NoticeHub`: fan-out of change notices to every open notice stream, coalesced per subscriber |
 | `sources.py` | storage | `TaskSource` and `WorktreeSource`, over the notebook and `list_all.build_list_all_data` |
 | `daemon_bridge.py` | storage | `AsyncDaemonClient`: the socket client for the agent host, and a scripted fake |
 | `../desk_store.py` | storage | `DeskStore`: the desk as one JSON file at `~/.maelstrom/desk.json`, or in memory |
 | `server.py` | service | `Orchestrator`: the log, the pollers, one watch per agent, the commands, and the clients it sends frames to |
-| `routes.py` | adapter | `build_app`: the aiohttp app that puts an `Orchestrator` on the network, and `serving` / `serve_app` to run it |
+| `routes.py` | adapter | `build_app`: the aiohttp app that puts an `Orchestrator` on the network — every route, the error mapping — and `serving` / `serve_app` to run it |
 | `../orchestrator_cli.py` | CLI | `mael orchestrator serve` |
 
 `task_launch.py` at the top level holds the launch plan and its two guards, shared with
@@ -142,6 +144,60 @@ A desk id names what its entry stands for — see `CONTEXT.md`, "Desk". `desk_id
 `web/src/protocol/deskId.ts`. The task half carries the wire id, so two projects may each keep
 their own `2026-06-11.1`. A desk written before ids carried a kind held bare task ids;
 `JsonDeskStore.load` rewrites those to `task:` ids as it reads them.
+
+## Reading the world
+
+The world is served over REST, from memory, once the first source reads have finished. Every
+route is under `/api` and answers JSON. A task id is two path segments, because the wire id is
+`<project>/<notebookId>`.
+
+| Route | Returns |
+|---|---|
+| `GET /api/projects` | `{projects: [Project]}` |
+| `GET /api/worktrees` | `{worktrees: [Worktree]}` |
+| `GET /api/tasks` | `{tasks: [TaskRow], version}`. A row is a task without `content` and `log`. The `ETag` changes with every task change; `If-None-Match` answers 304. Compressed |
+| `GET /api/tasks/{project}/{id}` | The whole `Task`, prose included |
+| `GET /api/agents` | `{agents: [Agent]}` |
+| `GET /api/agents/{id}` | The `Agent`, plus `pendingRequest`: the question, permission request or plan review item it waits on, or null. A decision renders from this alone |
+| `GET /api/attention?open=1` | `{attention: [Attention]}`; `open` keeps only items not yet cleared |
+| `GET /api/documents` | `{documents: [Document]}` without `markdown` |
+| `GET /api/documents/{id}` | The `Document`, `markdown` included |
+| `GET /api/desk` | `{desk: [DeskEntry]}` |
+
+The task list ships every task as a slim row and the client filters. The list already filters in
+memory, and a server-side filter would fragment the client's cache.
+
+Every error is `{"error": {"code", "message"}}`. The codes are the command codes below plus
+`not_implemented`, and each has one status: `unknown_id` 404, `invalid` 400, the five conflict
+codes 409, `not_implemented` 501. A route that does not exist is 404 `unknown_id`; a body that
+is not JSON is 400 `invalid`. The document comment and review routes, task creation and shaping
+answer 501: the UI keeps its controls, and the button shows the refusal.
+
+## Change notices
+
+`GET /api/events` is a `text/event-stream`. It opens with a `reset`, then sends one `change` per
+kind that changed, and a `: ping` comment every 15 s:
+
+```
+event: reset
+data: {"epoch": "5f1c2a9e"}
+
+event: change
+data: {"kind": "task", "ids": ["northwind/NORT-7"]}
+```
+
+The kinds are `project`, `worktree`, `task`, `agent`, `attention`, `document` and `desk`. A
+notice names what changed and nothing else: no entity travels on it. A remove and an upsert both
+put the id in `ids`, and the client refetches and finds the entity present or gone. Transcript
+events raise no notice; they have their own stream.
+
+Notices coalesce for 50 ms per subscriber, so one poll that changes ten tasks is one `change`
+with ten ids. Each subscriber holds a pending set per kind, bounded by the number of entities,
+never a queue: a slow reader cannot fall behind and be dropped.
+
+There is no `id:` field and no `Last-Event-ID`. REST is the source of truth, so the answer to
+"you may have missed notices" is the one `reset` a fresh connection gets. `epoch` is minted at
+server start, so a client can tell a restart from a reconnect.
 
 ## The wire protocol: UI ↔ orchestrator server
 
