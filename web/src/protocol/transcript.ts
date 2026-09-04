@@ -45,6 +45,8 @@ export interface QuestionItem extends Base {
   questions: Question[];
   /** Keyed by question text, as the daemon files them. */
   answers?: Record<string, string>;
+  /** The wait ended with nobody answering — see `CONTEXT.md`, "Stale prompt". */
+  stale?: true;
 }
 
 export interface PermissionRequestItem extends Base {
@@ -55,6 +57,8 @@ export interface PermissionRequestItem extends Base {
   description: string;
   decision?: 'allow' | 'deny';
   reason?: string;
+  /** The wait ended with nobody answering — see `CONTEXT.md`, "Stale prompt". */
+  stale?: true;
 }
 
 export interface PlanReviewItem extends Base {
@@ -64,6 +68,8 @@ export interface PlanReviewItem extends Base {
   decision?: 'approve' | 'deny';
   /** Why it was denied: the deny message, which the agent gets as its tool result. */
   reason?: string;
+  /** The wait ended with nobody answering — see `CONTEXT.md`, "Stale prompt". */
+  stale?: true;
 }
 
 export interface TurnResultItem extends Base {

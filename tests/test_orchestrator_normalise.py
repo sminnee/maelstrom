@@ -204,6 +204,76 @@ def test_a_permission_request_awaits_permission_and_its_allow_is_recorded():
     assert agent_of(done)["state"] == "idle"
 
 
+RESULT = {
+    "type": "result",
+    "subtype": "success",
+    "total_cost_usd": 0.25,
+    "duration_ms": 1200,
+    "session_id": "sess-1",
+}
+
+
+def ended_mid_wait(
+    name: str, *, stop_before_control_response: bool = False
+) -> ClientState:
+    """Replay ``name`` up to its pending request, then end the turn on it."""
+    state = replay(name, stop_before_control_response=stop_before_control_response)
+    out = normalise_stream_event(state, context_for_agent(state, "ag1"), RESULT, NOW)
+    for event in out.events:
+        state = apply_event(state, event)
+    return state
+
+
+def test_a_turn_that_ends_mid_permission_marks_the_request_stale_and_clears_the_row():
+    state = ended_mid_wait(
+        "permission-request.jsonl", stop_before_control_response=True
+    )
+    request = items_of(state, "permission_request")[0]
+    assert request["stale"] is True
+    assert "decision" not in request
+    agent = agent_of(state)
+    assert agent["state"] == "idle"
+    assert agent["pendingRequestId"] is None
+    assert agent["waitingOn"] == ""
+    assert open_attention(state) == []
+
+
+def test_a_turn_that_ends_mid_question_marks_the_question_stale_without_answers():
+    state = ended_mid_wait(
+        "question-unanswered.jsonl", stop_before_control_response=True
+    )
+    question = items_of(state, "question")[0]
+    assert question["stale"] is True
+    assert "answers" not in question
+    assert agent_of(state)["pendingRequestId"] is None
+
+
+def test_a_turn_that_ends_mid_plan_review_marks_it_stale_and_leaves_the_plan_awaiting():
+    state = ended_mid_wait("plan-review-with-plan.jsonl")
+    review = items_of(state, "plan_review")[0]
+    assert review["stale"] is True
+    assert "decision" not in review
+    doc = next(iter(state["world"]["documents"].values()))
+    assert doc["status"] == "awaiting-review"
+    assert agent_of(state)["pendingRequestId"] is None
+
+
+def test_a_request_the_user_interrupts_is_marked_stale():
+    state = replay("interrupt-while-waiting.jsonl")
+    bash = next(i for i in items_of(state, "permission_request") if i["tool"] == "Bash")
+    assert bash["stale"] is True
+    assert "decision" not in bash
+
+
+def test_a_request_that_was_answered_is_never_marked_stale():
+    request = items_of(replay("permission-request.jsonl"), "permission_request")[0]
+    assert request["decision"] == "allow"
+    assert "stale" not in request
+    question = items_of(replay("question-answered.jsonl"), "question")[0]
+    assert question["answers"] == {"Which colour do you prefer?": "Green"}
+    assert "stale" not in question
+
+
 def test_a_denied_tool_call_ends_denied_and_the_agent_is_not_left_waiting():
     state = replay("permission-denied.jsonl")
     call = items_of(state, "tool_call")[0]
@@ -274,6 +344,7 @@ def test_mark_exited_clears_the_wait_and_raises_attention_on_a_bad_exit():
     assert agent["state"] == "exited"
     assert agent["exitCode"] == 1
     assert agent["pendingRequestId"] is None
+    assert items_of(state, "question")[0]["stale"] is True
     kinds = sorted(a["kind"] for a in open_attention(state))
     assert kinds == ["agent_exited"]
 

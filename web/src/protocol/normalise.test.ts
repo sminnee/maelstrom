@@ -166,6 +166,90 @@ describe('a plan sent back for changes', () => {
   });
 });
 
+describe('a wait that ends without an answer', () => {
+  /** The turn's own result, as the daemon sends it once the tool has run. */
+  const RESULT = {
+    type: 'result',
+    subtype: 'success',
+    total_cost_usd: 0.25,
+    duration_ms: 1200,
+    session_id: 'sess-1',
+  };
+
+  /** Replay `name` up to its pending request, then end the turn on it. */
+  function endedMidWait(name: string, opts: { stopBeforeControlResponse?: boolean } = {}) {
+    let state = replay(name, opts);
+    const ctx = contextForAgent(state, 'ag1');
+    const out = normaliseStreamEvent(state, ctx, RESULT, '2026-09-01T00:00:00Z');
+    for (const event of out.events) state = applyEvent(state, event);
+    return state;
+  }
+
+  const itemOf = (state: ClientState, type: string) =>
+    (state.transcripts['ag1']?.items ?? []).find((i) => i.type === type)!;
+
+  it('marks a permission request stale and takes it off the agent', () => {
+    const state = endedMidWait('permission-request.jsonl', { stopBeforeControlResponse: true });
+    const request = itemOf(state, 'permission_request');
+    expect(request).toMatchObject({ stale: true });
+    expect(request).not.toHaveProperty('decision');
+    expect(agentOf(state)).toMatchObject({
+      state: 'idle',
+      pendingRequestId: null,
+      waitingOn: '',
+    });
+    expect(openAttention(state)).toHaveLength(0);
+  });
+
+  it('marks a question stale without inventing answers', () => {
+    const state = endedMidWait('question-unanswered.jsonl', { stopBeforeControlResponse: true });
+    const question = itemOf(state, 'question');
+    expect(question).toMatchObject({ stale: true });
+    expect(question).not.toHaveProperty('answers');
+    expect(agentOf(state)).toMatchObject({ pendingRequestId: null, waitingOn: '' });
+  });
+
+  it('marks a plan review stale and leaves its plan awaiting review', () => {
+    const state = endedMidWait('plan-review-with-plan.jsonl');
+    const review = itemOf(state, 'plan_review');
+    expect(review).toMatchObject({ stale: true });
+    expect(review).not.toHaveProperty('decision');
+    expect(Object.values(state.world.documents)[0]).toMatchObject({ status: 'awaiting-review' });
+    expect(agentOf(state)).toMatchObject({ pendingRequestId: null, waitingOn: '' });
+  });
+
+  it('marks the open item stale when the agent exits mid-wait', () => {
+    let state = replay('question-unanswered.jsonl', { stopBeforeControlResponse: true });
+    const out = markExited(state, contextForAgent(state, 'ag1'), 1, '2026-09-01T00:00:00Z');
+    for (const event of out.events) state = applyEvent(state, event);
+    expect(itemOf(state, 'question')).toMatchObject({ stale: true });
+    expect(agentOf(state)).toMatchObject({
+      state: 'exited',
+      pendingRequestId: null,
+      waitingOn: '',
+    });
+    expect(openAttention(state).map((a) => a.kind)).toEqual(['agent_exited']);
+  });
+
+  it('marks a request stale when the user interrupts the wait', () => {
+    const state = replay('interrupt-while-waiting.jsonl');
+    const bash = (state.transcripts['ag1']?.items ?? []).find(
+      (i) => i.type === 'permission_request' && i.tool === 'Bash',
+    )!;
+    expect(bash).toMatchObject({ stale: true });
+    expect(bash).not.toHaveProperty('decision');
+  });
+
+  it('leaves an answered request alone', () => {
+    const permission = itemOf(replay('permission-request.jsonl'), 'permission_request');
+    expect(permission).toMatchObject({ decision: 'allow' });
+    expect(permission).not.toHaveProperty('stale');
+    const question = itemOf(replay('question-answered.jsonl'), 'question');
+    expect(question).toMatchObject({ answers: { 'Which colour do you prefer?': 'Green' } });
+    expect(question).not.toHaveProperty('stale');
+  });
+});
+
 describe('reviveAgent', () => {
   /** An agent that has crashed, with the attention item its exit raised. */
   function exited(): ClientState {
