@@ -1745,6 +1745,24 @@ def build_prompt(task: Task) -> str:
     return head
 
 
+def mode_for_command(command: str) -> str:
+    """The ``mode`` a task takes from the skill it runs.
+
+    An execute task (empty ``command``) runs its plan unattended in ``"auto"``.
+    A planning skill runs in ``"normal"``: the skill itself forbids code edits,
+    so plan mode adds only a review prompt for an operator who is already there.
+    ``mael linear plan`` seeds a ``plan-task`` this way today. Anything else is
+    an unknown command, which keeps :data:`DEFAULT_MODE`.
+
+    Only a starting point — the mode stays editable wherever it is offered.
+    """
+    if not command:
+        return "auto"
+    if command in ("plan-task", "plan-next-step"):
+        return "normal"
+    return DEFAULT_MODE
+
+
 def permission_mode_for(mode: str) -> str | None:
     """Map a task ``mode`` to Claude's ``--permission-mode`` value.
 

@@ -1152,6 +1152,21 @@ class TestPermissionMode:
         assert model.permission_mode_for("anything-else") is None
 
 
+# --- mode_for_command ---
+
+
+class TestModeForCommand:
+    def test_execute_task_runs_unattended(self):
+        assert model.mode_for_command("") == "auto"
+
+    @pytest.mark.parametrize("command", ["plan-task", "plan-next-step"])
+    def test_a_planning_skill_runs_normal(self, command):
+        assert model.mode_for_command(command) == "normal"
+
+    def test_unknown_command_keeps_the_default(self):
+        assert model.mode_for_command("anything-else") == model.DEFAULT_MODE
+
+
 # --- next_task ---
 
 
