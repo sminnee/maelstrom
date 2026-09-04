@@ -12,6 +12,7 @@ from unittest.mock import ANY, MagicMock, patch
 from click.testing import CliRunner
 
 from maelstrom.cli import cli
+from maelstrom.github_model import PullRequestNotMergeable
 from maelstrom.list_all import resolve_pr
 from maelstrom.project_scaffold import scaffold_files
 from maelstrom.worktree import SyncResult, WorktreeInfo, WorktreeSetup
@@ -802,7 +803,7 @@ class TestCloseWait:
         assert kwargs["poll_interval"] == 5
 
     def test_wait_runtime_error_skips_close(self):
-        """A RuntimeError (closed-unmerged / red CI) skips close and exits 1."""
+        """A not-mergeable PR (closed unmerged, or red CI) skips close and exits 1."""
         runner = CliRunner()
 
         with (
@@ -813,7 +814,7 @@ class TestCloseWait:
             patch("maelstrom.cli.get_env_status", return_value=None),
             patch(
                 "maelstrom.cli.wait_for_merge",
-                side_effect=RuntimeError("PR #7 was closed without merging"),
+                side_effect=PullRequestNotMergeable("PR #7 was closed without merging"),
             ),
             patch("maelstrom.cli.close_worktree") as mock_close,
         ):

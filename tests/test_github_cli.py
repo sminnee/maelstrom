@@ -1,12 +1,18 @@
 """Tests for maelstrom.github_cli module."""
 
+import subprocess
 from unittest.mock import patch
 
 from click.testing import CliRunner
 
 from maelstrom.cli import cli
-from maelstrom.github import PRComment, PRInfo
 from maelstrom.github_cli import _format_size, _render_pr_comments
+from maelstrom.github_model import (
+    GitHubCommandFailed,
+    PRComment,
+    PRInfo,
+    SyncFailed,
+)
 
 
 class TestFormatSize:
@@ -143,3 +149,41 @@ class TestGhCliRegistration:
         assert result.exit_code == 0
         assert "=== Commits ===" in result.output
         assert "abc123 commit" in result.output
+
+
+class TestCreatePrErrorHandling:
+    """`gh create-pr` turns domain errors into clean messages, not tracebacks."""
+
+    @staticmethod
+    def _invoke(error):
+        with (
+            patch("maelstrom.github_cli.resolve_context") as mock_ctx,
+            patch("maelstrom.github_cli.create_pr", side_effect=error),
+            patch("maelstrom.github_cli._open_pr_in_cmux"),
+        ):
+            mock_ctx.return_value.worktree_path = None
+            return CliRunner().invoke(cli, ["gh", "create-pr"])
+
+    def test_a_github_error_reads_as_a_clean_message(self):
+        result = self._invoke(GitHubCommandFailed("push branch", "rejected"))
+        assert result.exit_code == 1
+        assert "Failed to push branch: rejected" in result.output
+
+    def test_a_sync_failure_reads_as_a_clean_message(self):
+        result = self._invoke(SyncFailed("Sync failed: conflicts"))
+        assert result.exit_code == 1
+        assert "Sync failed: conflicts" in result.output
+
+    def test_a_programming_error_is_not_dressed_up_as_a_user_message(self):
+        """A bug in maelstrom must surface as a bug, not as advice to the user."""
+        result = self._invoke(AttributeError("'NoneType' has no attribute 'strip'"))
+        assert isinstance(result.exception, AttributeError)
+
+    def test_a_git_failure_inside_create_pr_still_reads_as_a_message(self):
+        """`create_pr` calls git through `run_git`, which raises
+        CalledProcessError — not a GitHubError. Narrowing the catch must not
+        turn that into a traceback at the user."""
+        err = subprocess.CalledProcessError(1, ["git"], stderr="detached HEAD")
+        result = self._invoke(err)
+        assert result.exit_code == 1
+        assert result.exception is None or isinstance(result.exception, SystemExit)
