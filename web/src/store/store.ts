@@ -30,6 +30,7 @@ export interface AppStore {
   collapseNode(): void;
   /** Open the editor on a task, or close it with `null`. */
   setEditingTask(taskId: TaskId | null): void;
+  setNewWorkOpen(open: boolean): void;
   setPanelWidth(width: number): void;
 }
 
@@ -75,5 +76,6 @@ export const useAppStore = create<AppStore>()((set) => ({
   collapseNode: () =>
     set((s) => (s.ui.expandedNodeId ? { ui: { ...s.ui, expandedNodeId: null } } : s)),
   setEditingTask: (editingTaskId) => set((s) => ({ ui: { ...s.ui, editingTaskId } })),
+  setNewWorkOpen: (newWorkOpen) => set((s) => ({ ui: { ...s.ui, newWorkOpen } })),
   setPanelWidth: (panelWidth) => set((s) => ({ ui: { ...s.ui, panelWidth } })),
 }));

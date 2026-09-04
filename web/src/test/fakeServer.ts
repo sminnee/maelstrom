@@ -2,13 +2,22 @@ import type { ApiClient } from '../api/http';
 import { createApiClient } from '../api/http';
 import type { ChangeNotice, TaskEdit } from '../api/types';
 import type { EventSourceLike } from '../live/changeStream';
+import type { PermissionMode } from '../protocol/modes';
 import { MODES } from '../protocol/modes';
 import type { SocketLike } from '../live/socketLike';
 import type { TranscriptEvent } from '../live/transcriptReducer';
 import type { Attention } from '../protocol/attention';
 import type { Document } from '../protocol/documents';
-import type { Agent, DeskEntry, Project, Task, TaskStatus, Worktree } from '../protocol/entities';
-import type { AgentId } from '../protocol/ids';
+import type {
+  Agent,
+  DeskEntry,
+  Project,
+  Task,
+  TaskMode,
+  TaskStatus,
+  Worktree,
+} from '../protocol/entities';
+import type { AgentId, TaskId } from '../protocol/ids';
 import type { Transcript, TranscriptItem } from '../protocol/transcript';
 import { FakeEventSource } from './fakeEventSource';
 import { FakeSocket } from './fakeSocket';
@@ -43,6 +52,8 @@ export interface Refusal {
   status: number;
   code: string;
   message?: string;
+  /** Fields the refusal carries beside its code and message, as the server's do. */
+  [field: string]: unknown;
 }
 
 export interface FakeRequest {
@@ -126,8 +137,8 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
     requests.push({ method, path, body });
     const refusal = refusals.find((r) => r.route.test(`${method} ${path}`));
     if (refusal) {
-      const { status, code, message } = refusal.error;
-      return json(status, { error: { code, message: message ?? code } });
+      const { status, code, message, ...detail } = refusal.error;
+      return json(status, { error: { code, message: message ?? code, ...detail } });
     }
     const reply =
       method === 'GET' ? read(path, server) : command(method, path, body, server, () => nextId++);
@@ -342,7 +353,6 @@ function read(path: string, server: FakeServer): Reply {
 const NOT_IMPLEMENTED = [
   /^POST \/api\/documents\/[^/]+\/comments/,
   /^POST \/api\/documents\/[^/]+\/(approve|request-changes)$/,
-  /^POST \/api\/tasks$/,
   /^POST \/api\/shaping$/,
 ];
 
@@ -516,6 +526,70 @@ function command(
     return ok({});
   }
 
+  if (pathname === '/api/tasks/infer' && method === 'POST') {
+    const project = str('project') ?? '';
+    const draft = str('draft')?.trim() ?? '';
+    if (!world.projects[project]) return notFound(`project ${project}`);
+    if (!draft) return error(400, 'invalid', 'Nothing to create');
+    // The real server asks a model; this reads the draft's first line, so a
+    // test gets a plausible naming without a subprocess.
+    const title = draft.split('\n')[0]!.trim().slice(0, 80);
+    const slug =
+      title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .split('-')
+        .slice(0, 4)
+        .join('-') || 'task';
+    return ok({ title, branch: `feat/${slug}`, command: '', mode: 'auto' });
+  }
+
+  if (pathname === '/api/tasks' && method === 'POST') {
+    const project = str('project') ?? '';
+    if (!world.projects[project]) return notFound(`project ${project}`);
+    const title = str('title')?.trim() ?? '';
+    if (!title) return error(400, 'invalid', 'A title is required');
+    const taskId = `${project}/NEW-${mint()}`;
+    world.tasks[taskId] = {
+      ...makeNewTask(taskId, project, title, b),
+    };
+    world.desk[`task:${taskId}`] = { id: `task:${taskId}`, addedAt: now() };
+    server.change({ kind: 'task', ids: [taskId] });
+    server.change({ kind: 'desk', ids: [`task:${taskId}`] });
+    if (!b.launch) return ok({ taskId });
+    const agentId = `new${mint()}`;
+    world.tasks[taskId] = { ...world.tasks[taskId]!, status: 'in-progress' };
+    world.agents[agentId] = makeNewAgent(agentId, {
+      taskId,
+      project,
+      model: str('model') ?? '',
+      mode: (str('mode') ?? '') as PermissionMode | '',
+    });
+    server.change({ kind: 'task', ids: [taskId] });
+    server.change({ kind: 'agent', ids: [agentId] });
+    return ok({ taskId, agentId });
+  }
+
+  if (pathname === '/api/agents' && method === 'POST') {
+    const project = str('project') ?? '';
+    if (!world.projects[project]) return notFound(`project ${project}`);
+    if (!str('branch')?.trim()) return error(400, 'invalid', 'A branch is required');
+    if (!str('prompt')?.trim()) return error(400, 'invalid', 'A prompt is required');
+    const agentId = `new${mint()}`;
+    // A free agent carries no task: that absence is what makes it free.
+    world.agents[agentId] = makeNewAgent(agentId, {
+      taskId: '',
+      project,
+      model: str('model') ?? '',
+      mode: (str('mode') ?? '') as PermissionMode | '',
+    });
+    world.desk[`agent:${agentId}`] = { id: `agent:${agentId}`, addedAt: now() };
+    server.change({ kind: 'agent', ids: [agentId] });
+    server.change({ kind: 'desk', ids: [`agent:${agentId}`] });
+    return ok({ agentId });
+  }
+
   if (pathname === '/api/desk' && method === 'POST') {
     const id = str('id') ?? '';
     world.desk[id] = { id, addedAt: now() };
@@ -531,4 +605,61 @@ function command(
     return ok({});
   }
   return error(404, 'unknown_id', `No route ${key}`);
+}
+
+/** A task as the fake notebook writes a new one: the fields sent, the rest defaulted. */
+function makeNewTask(
+  id: TaskId,
+  project: string,
+  title: string,
+  body: Record<string, unknown>,
+): Task {
+  const str = (name: string) => (body[name] === undefined ? '' : String(body[name]));
+  return {
+    id,
+    notebookId: id.split('/')[1]!,
+    project,
+    title,
+    content: str('content'),
+    status: 'todo',
+    branch: str('branch'),
+    command: str('command'),
+    mode: (str('mode') || 'plan') as TaskMode,
+    priority: str('priority') || 'medium',
+    model: str('model'),
+    parent: '',
+    follows: [],
+    base: '',
+    actionable: true,
+    steps: [],
+    log: [],
+    created: new Date().toISOString(),
+    updated: new Date().toISOString(),
+  };
+}
+
+/** An agent as the fake host starts one, for a task or for nobody. */
+function makeNewAgent(
+  agentId: AgentId,
+  over: { taskId: TaskId; project: string; model: string; mode: PermissionMode | '' },
+): Agent {
+  return {
+    id: agentId,
+    // A started agent is always top-level: only a child of one has these.
+    parent: '',
+    description: '',
+    state: 'idle',
+    session: `sess-${agentId}`,
+    cwd: '',
+    model: over.model,
+    permissionMode: over.mode,
+    waitingOn: '',
+    lastMessage: '',
+    costUsd: 0,
+    taskId: over.taskId,
+    project: over.project,
+    worktreeId: '',
+    exitCode: null,
+    pendingRequestId: null,
+  };
 }

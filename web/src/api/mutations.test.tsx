@@ -4,7 +4,16 @@ import { QueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { makeAgent, makeQuestionItem, makeTask, worldWith } from '../test/fixtures';
 import { createFakeServer } from '../test/fakeServer';
-import { useAnswer, useApprove, useDeny, useResume, useSay, useSetMode, useStop } from './agents';
+import {
+  useAnswer,
+  useApprove,
+  useDeny,
+  useResume,
+  useSay,
+  useSetMode,
+  useStartAgent,
+  useStop,
+} from './agents';
 import { ApiProvider } from './ApiProvider';
 import { useAddToDesk, useRemoveFromDesk } from './desk';
 import {
@@ -15,7 +24,7 @@ import {
 } from './documents';
 import { ApiError } from './http';
 import { keys } from './keys';
-import { useLaunch, useSetStatus, useUpdateTask } from './tasks';
+import { useCreateTask, useInferTask, useLaunch, useSetStatus, useUpdateTask } from './tasks';
 
 const ANCHOR = { quote: 'q', prefix: '', suffix: '', start: 0, end: 1 };
 
@@ -24,6 +33,8 @@ function harness() {
   // exited, so a resume has something to bring back.
   const server = createFakeServer({
     world: worldWith({
+      // The create and start hooks name a project, so the world holds one.
+      projects: [{ id: 'northwind', name: 'northwind', stackTip: 'main' }],
       tasks: [makeTask({ id: 'northwind/NORT-7' })],
       agents: [
         makeAgent({ id: 'ag1', state: 'awaiting-question', pendingRequestId: 'r1' }),
@@ -129,6 +140,53 @@ describe('the mutation hooks', () => {
       'PATCH /api/tasks/northwind/NORT-7',
       { title: 'T' },
       taskKeys,
+    ],
+    [
+      'useInferTask',
+      useInferTask,
+      { project: 'northwind', draft: 'The export drops a row' },
+      'POST /api/tasks/infer',
+      { project: 'northwind', draft: 'The export drops a row' },
+      // Inference writes nothing, so nothing is stale.
+      [],
+    ],
+    [
+      'useCreateTask',
+      useCreateTask,
+      { project: 'northwind', title: 'T', content: 'c', branch: 'feat/t', mode: 'auto' },
+      'POST /api/tasks',
+      { project: 'northwind', title: 'T', content: 'c', branch: 'feat/t', mode: 'auto' },
+      [keys.tasks.list(), keys.desk()],
+    ],
+    [
+      'useCreateTask launching',
+      useCreateTask,
+      {
+        project: 'northwind',
+        title: 'T',
+        content: 'c',
+        branch: 'feat/t',
+        mode: 'auto',
+        launch: true,
+      },
+      'POST /api/tasks',
+      {
+        project: 'northwind',
+        title: 'T',
+        content: 'c',
+        branch: 'feat/t',
+        mode: 'auto',
+        launch: true,
+      },
+      [keys.tasks.list(), keys.desk(), keys.agents.list(), keys.attention()],
+    ],
+    [
+      'useStartAgent',
+      useStartAgent,
+      { project: 'northwind', branch: 'feat/orders', prompt: 'Read the logs', mode: 'normal' },
+      'POST /api/agents',
+      { project: 'northwind', branch: 'feat/orders', prompt: 'Read the logs', mode: 'normal' },
+      [keys.agents.list(), keys.desk()],
     ],
     [
       'useAddToDesk',

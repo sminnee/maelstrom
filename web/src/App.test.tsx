@@ -925,3 +925,132 @@ describe('the transcript stream', () => {
     expect(server.sockets.filter((s) => s.agentId === 'd9a4c7f1')).toHaveLength(1);
   });
 });
+
+describe('new work', () => {
+  /** Open the form from the top bar and return its dialog. */
+  async function openNewWork(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole('button', { name: 'New' }));
+    return screen.getByRole('dialog', { name: 'New work' });
+  }
+
+  it('is reachable from the top bar in both views', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    expect(screen.getByRole('button', { name: 'New' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Task list' }));
+    expect(screen.getByRole('button', { name: 'New' })).toBeVisible();
+  });
+
+  it('holds Next back until the draft has something in it', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const form = await openNewWork(user);
+    expect(within(form).getByRole('button', { name: 'Next' })).toBeDisabled();
+    await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
+    expect(within(form).getByRole('button', { name: 'Next' })).toBeEnabled();
+  });
+
+  it('names the task from the draft, then saves it as todo onto the desk', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const form = await openNewWork(user);
+    await user.selectOptions(within(form).getByLabelText('Project'), 'northwind');
+    await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
+    await user.click(within(form).getByRole('button', { name: 'Next' }));
+
+    // Step 2 arrives with the fields the user never typed, filled in.
+    const title = await within(form).findByLabelText('Title');
+    expect(title).toHaveValue('The export drops a row');
+    // The value comes from the server, so the test pins that a branch was
+    // filled in without the user typing one — not the fake's own slug.
+    expect((within(form).getByLabelText('Branch') as HTMLInputElement).value).toMatch(/^feat\/.+/);
+    // The prose becomes the content verbatim; inference names it, never rewrites it.
+    expect(within(form).getByLabelText('Content')).toHaveValue('The export drops a row');
+
+    // Every inferred field stays editable.
+    await user.clear(title);
+    await user.type(title, 'Fix the export');
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+    const created = Object.values(server.world.tasks).find((t) => t.title === 'Fix the export');
+    expect(created).toBeDefined();
+    expect(created!.status).toBe('todo');
+    // Saved work joins the desk, so what was just ordered is on the canvas.
+    expect(server.world.desk[`task:${created!.id}`]).toBeDefined();
+  });
+
+  it('starts the task it creates when Start is pressed instead', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const form = await openNewWork(user);
+    await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
+    await user.click(within(form).getByRole('button', { name: 'Next' }));
+    await within(form).findByLabelText('Title');
+    await user.click(within(form).getByRole('button', { name: 'Start' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+    const created = Object.values(server.world.tasks).find(
+      (t) => t.title === 'The export drops a row',
+    );
+    expect(created!.status).toBe('in-progress');
+    expect(Object.values(server.world.agents).some((a) => a.taskId === created!.id)).toBe(true);
+  });
+
+  it('starts a free agent on a branch, writing no task at all', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const before = Object.keys(server.world.tasks).length;
+    const form = await openNewWork(user);
+    await user.selectOptions(within(form).getByLabelText('Project'), 'northwind');
+    await user.click(within(form).getByRole('radio', { name: 'Free agent' }));
+    await user.type(within(form).getByLabelText('Branch'), 'feat/orders');
+    await user.type(within(form).getByLabelText('What needs doing?'), 'Read the logs');
+    await user.click(within(form).getByRole('button', { name: 'Start' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+    // No task was written: a free agent is work with no notebook entry.
+    expect(Object.keys(server.world.tasks)).toHaveLength(before);
+    const free = Object.values(server.world.agents).find((a) => !a.taskId);
+    expect(free).toBeDefined();
+    expect(server.world.desk[`agent:${free!.id}`]).toBeDefined();
+  });
+
+  it('never offers to write the task twice when only its launch failed', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const form = await openNewWork(user);
+    await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
+    await user.click(within(form).getByRole('button', { name: 'Next' }));
+    await within(form).findByLabelText('Title');
+    // The task is written; the launch that follows it is refused.
+    server.refuse(/api\/tasks$/, {
+      status: 409,
+      code: 'agent_exited',
+      message: 'Agent has exited',
+      taskId: 'northwind/NEW-1',
+    });
+    await user.click(within(form).getByRole('button', { name: 'Start' }));
+
+    // The form says the task survived, and stops offering to write it again.
+    expect(await within(form).findByTestId('new-work-error')).toHaveTextContent('northwind/NEW-1');
+    expect(within(form).getByRole('button', { name: 'Save' })).toBeDisabled();
+    const creates = server.requests.filter((r) => r.method === 'POST' && r.path === '/api/tasks');
+    expect(creates).toHaveLength(1);
+  });
+
+  it('shows a refused start rather than closing on it', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.refuse(/api\/agents$/, { status: 400, code: 'invalid', message: 'No such branch' });
+    const form = await openNewWork(user);
+    await user.click(within(form).getByRole('radio', { name: 'Free agent' }));
+    await user.type(within(form).getByLabelText('Branch'), 'feat/nope');
+    await user.type(within(form).getByLabelText('What needs doing?'), 'Read the logs');
+    await user.click(within(form).getByRole('button', { name: 'Start' }));
+
+    expect(await within(form).findByTestId('new-work-error')).toHaveTextContent('No such branch');
+    // The form stays, holding what was typed.
+    expect(screen.getByRole('dialog', { name: 'New work' })).toBeVisible();
+  });
+});
