@@ -22,6 +22,7 @@ Put this file in your repository root.
 | `services` | map | `{}` | Structured service definitions. Preferred. See below. |
 | `port_names` | list of string | `[]` | Legacy flat port names. Each gets a `<NAME>_PORT` variable. |
 | `shared_port_names` | list of string | `[]` | Legacy flat port names shared across worktrees in the project. |
+| `main_port_base` | int | — | Port base reserved for the `_main` worktree, making it the project's fixed environment. Must be 1-6552 and outside 300-999. See below. |
 | `install_cmd` | string | `""` | Command that installs dependencies. Runs on worktree creation and on `mael env start`. |
 | `start_cmd` | string | `""` | Fallback start command when there is no `services:` block and no Procfile. |
 | `linear` | map | — | Linear settings. See below. |
@@ -43,6 +44,25 @@ shared_port_names: [DB]            # -> DB_PORT, one copy for the whole project
 `port_names` and `shared_port_names` still allocate ports and write `.env` on this path. Only
 the start mechanism differs. `start_cmd` runs as one service named `app`. With no `services:`,
 no Procfile and no `start_cmd`, `mael env start` fails.
+
+### `main_port_base:`
+
+`main_port_base` gives the `_main` worktree a port base that never changes, so the project has
+one always-there environment:
+
+```yaml
+main_port_base: 277        # FRONTEND 2770, FRONTEND_HMR 2771, ORCHESTRATOR 2772
+```
+
+`_main` then gets a `.env` and answers to every `mael env` verb, addressed as
+`<project>._main`. Ports come off the base as usual: `main_port_base * 10 + index`.
+
+The base must fall from **1 to 6552**, and **outside 300-999**. Maelstrom rejects anything else
+when the config loads. Inside 300-999 the allocator could hand the same base to a NATO worktree
+without a word; above 6552 the derived ports pass 65535 and no service can bind.
+
+Omit the key and `_main` keeps no ports and no `.env`. See
+[the fixed environment](../guide/worktrees.md#the-fixed-environment).
 
 ### `services:`
 

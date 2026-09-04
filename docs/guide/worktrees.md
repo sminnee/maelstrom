@@ -14,7 +14,7 @@ Maelstrom uses a bare-like layout: one shared `.git`, and each worktree beside i
 ~/Projects/myproject/
 ├── .git/                   # shared bare git directory
 ├── .mael                   # marker: this is a maelstrom project
-├── _main/                  # main branch: the reference checkout, not a worktree
+├── _main/                  # the worktree that holds the main branch
 ├── myproject-alpha/        # feature worktree
 │   ├── .maelstrom.yaml     # project config (checked in)
 │   ├── .env                # generated ports (gitignored)
@@ -25,13 +25,44 @@ Maelstrom uses a bare-like layout: one shared `.git`, and each worktree beside i
 
 ## `_main`
 
-`_main` holds the main branch. `_main` is the **reference checkout**, not a worktree: it has
-no ports and no `.env`, and `mael add` never recycles it. `mael list` shows it as a row with an
-empty APP column, because it has no ports to serve.
+`_main` holds the main branch. Keeping main there leaves every NATO worktree free for feature
+work. Git allows one worktree per branch, so a fresh `alpha` is created detached — which makes
+it a closed worktree that `mael add <branch>` recycles for the first task.
 
-Keeping main there leaves every NATO worktree free for feature work. Git allows one
-worktree per branch, so a fresh `alpha` is created detached — which makes it a closed
-worktree that `mael add <branch>` recycles for the first task.
+`_main` is the **unclosable worktree**. `mael close` and `mael rm` refuse it, and `mael add`
+never recycles it, because the project would lose its main checkout. Every other worktree can
+be closed and recycled.
+
+By default `_main` has no ports and no `.env`, so `mael list` shows it with an empty APP
+column. A project can give it both — see [the fixed environment](#the-fixed-environment).
+
+`_main` gets `WORKTREE_NUM=0`, the same number alpha has — see
+[the `WORKTREE_NUM` caveat](../reference/environment.md).
+
+## The fixed environment
+
+A project can make `_main` a running environment on ports that never change. Set
+`main_port_base:` in `.maelstrom.yaml`:
+
+```yaml
+main_port_base: 277
+```
+
+On an existing project, run `mael env reset myproject._main` once to write the `.env`. A
+project cloned after the key was added gets it at clone time.
+
+`_main` then answers to every `mael env` verb, addressed as `myproject._main` — see
+[the CLI reference](../reference/cli.md).
+
+This is a **reserved base**: it sits outside the 300-999 range the allocator draws from, so no
+NATO worktree can ever be given it — see
+[`main_port_base:`](../reference/configuration.md) for the accepted range. Ports come off the base as usual, so `277`
+with services declaring `FRONTEND`, `FRONTEND_HMR` and `ORCHESTRATOR` gives 2770, 2771 and
+2772.
+
+Use it for one always-there instance of the app: the same address every day, separate from
+whatever a NATO worktree is running. Maelstrom does this for itself — `mael self-env start`
+runs the orchestrator and web UI from the maelstrom project's own `_main`.
 
 ## Naming
 

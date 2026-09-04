@@ -149,10 +149,13 @@ it, which builds that world from the task notebook, `list-all` and the agent hos
 
 ### Dev environments — isolated services
 
-Each worktree gets a `PORT_BASE` in the range 300-999. Service ports are
+Each NATO worktree gets a `PORT_BASE` in the range 300-999. Service ports are
 `PORT_BASE * 10 + index`, so bravo's frontend and charlie's frontend never collide. Declare
 services in `.maelstrom.yaml` and maelstrom starts them, tracks their PIDs, collects their
 logs, and stops them again. Containers are supported through Docker or Apple `container`.
+
+A project can also pin a base for `_main` and run one always-there instance there — see
+[the fixed environment](worktrees.md#the-fixed-environment).
 
 Some services should not be duplicated — a database is the usual case. Mark them
 `shared: true` and the project starts one copy that every worktree subscribes to.

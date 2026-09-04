@@ -12,16 +12,20 @@ ids and session ids all derive from it.
 _Avoid_: Repo, codebase
 
 **Worktree**:
-A git worktree at `<project>/<project>-<nato>`, named from the NATO phonetic alphabet — alpha
-to zulu, 26 in all. A worktree is a durable slot that outlives the branch it currently holds,
-which is why it is never named after a branch.
+A git worktree under a project. Twenty-six are named from the NATO phonetic alphabet — alpha
+to zulu — and sit at `<project>/<project>-<nato>`. The twenty-seventh is `_main`. A worktree is
+a durable slot that outlives the branch it currently holds, which is why it is never named
+after a branch.
 _Avoid_: Checkout, workdir, workspace
 
-**Reference checkout**:
-The `_main` folder, which holds the main branch so that every NATO worktree stays free for
-work. A reference checkout is not a worktree: it has no ports, no `.env`, and never gets
-recycled.
-_Avoid_: Main worktree
+**`_main`**:
+The one worktree that holds the main branch, so that every NATO worktree stays free for work.
+`_main` is the unclosable worktree, and it takes no project prefix in its folder name.
+_Avoid_: Reference checkout, main worktree
+
+**Unclosable worktree**:
+A worktree that cannot be closed, recycled or removed. `_main` is the only one: it holds the
+project's main checkout, and losing it would leave the project with none.
 
 **Recycle**:
 Reuse a closed worktree's folder, name and port base for new work. Recycling is why worktree
@@ -241,9 +245,21 @@ A worktree currently using a project's shared services. Shared services stop whe
 subscriber list empties.
 
 **Port base**:
-The 3-digit number, 300 to 999, that one worktree owns. Each service port is
-`port_base * 10 + index`, so two worktrees never collide. The pseudo-worktree `_shared` holds
-the project's shared port base.
+The number a worktree owns. Each service port is `port_base * 10 + index`, so two worktrees
+never collide. The pseudo-worktree `_shared` holds the project's shared port base.
+
+**Floating base**:
+A port base the allocator picks, from the pool of 3-digit numbers 300 to 999. Every NATO
+worktree has one, and a recycled worktree keeps the base it had.
+
+**Reserved base**:
+The port base `_main` owns, declared by the project and outside the floating pool. A reserved
+base returns the same ports every time, and no NATO worktree can be given it.
+
+**Fixed environment**:
+The environment of `_main`, on a reserved base — the one instance that is always at the same
+address, whatever a NATO worktree happens to be running. A project opts in by declaring the
+reserved base; a project that declares none gives `_main` no ports and no environment.
 
 ## Quality checks
 

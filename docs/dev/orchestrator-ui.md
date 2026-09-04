@@ -123,11 +123,16 @@ for agents, transcripts and waits. [orchestrator-server.md](orchestrator-server.
 ## How to run it
 
 ```
-mael env start                  # this repo's services: the web app and the orchestrator server
+mael self-env start             # the always-there instance: web on 2770, orchestrator on 2772
+mael env start                  # this worktree's own copy, on its floating ports
 cd web && pnpm dev              # the web app alone, on port 5173, against the fake backend
 cd web && pnpm test             # vitest, jsdom
 cd web && pnpm lint && pnpm typecheck && pnpm build
 ```
+
+`mael self-env` runs the app from maelstrom's own `_main` worktree, on a reserved port base, so
+one instance is always at the same address whatever a NATO worktree is doing. See
+[the fixed environment](../guide/worktrees.md#the-fixed-environment).
 
 Under maelstrom the `web` service always points at the `orchestrator` service, so start both. A
 worktree whose `.env` has no `ORCHESTRATOR_PORT` needs `mael env reset` once to add it. Without

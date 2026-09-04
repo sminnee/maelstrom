@@ -83,8 +83,8 @@ Closed environments: main-check, delta, echo, foxtrot, golf, hotel, india, julie
 
 Read it row by row:
 
-- **`_main`** is the reference checkout. It appears as a row, with an empty APP column,
-  because it has no port allocation.
+- **`_main`** holds the main branch. Its APP column is empty when the project sets no
+  `main_port_base:` — see [worktrees.md](worktrees.md).
 - **`alpha`** has everything pushed. Its work is entirely in PR #1635, which holds 2 commits.
   Nothing is on this machine alone.
 - **`bravo`** has 3 live sessions in one worktree.
@@ -223,9 +223,8 @@ available for recycling: detached HEAD, no dirty files, and no commits ahead of 
 See the **Closed** entry in [CONTEXT.md](../../CONTEXT.md) for the definition of record. Closed
 worktrees appear as names on the `Closed environments:` line under the table.
 
-`_main` is the reference checkout, and it has `main` checked out rather than a detached HEAD.
-It is therefore never closed, and always gets a row. It is never recycled either — see
-[worktrees.md](worktrees.md).
+`_main` has `main` checked out rather than a detached HEAD, so it is never closed and always
+gets a row. It is never recycled either — see [worktrees.md](worktrees.md).
 
 ## What it does not tell you
 

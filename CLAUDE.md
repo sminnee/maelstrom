@@ -70,7 +70,10 @@ goes stale.
 ### Key Concepts
 
 - **Projects** live in `~/Projects/<name>/` (configurable via `~/.maelstrom/config.yaml`).
-- **Worktrees** are subdirectories named alpha, bravo, etc. (not branch names).
-- **PORT_BASE** is a 3-digit number (300-999); each service port = `PORT_BASE * 10 + index`.
+- **Worktrees** are subdirectories named alpha, bravo, etc. (not branch names), plus `_main`,
+  which holds the main branch and is the one worktree that never closes.
+- **PORT_BASE** is a 3-digit number (300-999) the allocator picks per NATO worktree; each
+  service port = `PORT_BASE * 10 + index`. `_main` uses `main_port_base:` — see
+  `docs/reference/configuration.md`.
 - When creating worktrees, an existing `.env` from the project root is merged with generated
   port vars, with `$VAR` substitution.
