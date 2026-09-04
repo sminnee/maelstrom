@@ -12,6 +12,7 @@ const VIEWS: { view: View; label: string }[] = [
 export function TopBar() {
   const view = useAppStore((s) => s.ui.view);
   const setView = useAppStore((s) => s.setView);
+  const setNewWorkOpen = useAppStore((s) => s.setNewWorkOpen);
   return (
     <header className={styles.bar}>
       <h1 className={styles.brand}>maelstrom</h1>
@@ -29,7 +30,12 @@ export function TopBar() {
         ))}
       </div>
       {view === 'canvas' && <FilterBar />}
-      <div className={styles.spacer} />
+      <div className={styles.spacer}>
+        {/* In both views, so the affordance never moves. */}
+        <button type="button" className={styles.new} onClick={() => setNewWorkOpen(true)}>
+          New
+        </button>
+      </div>
       <AttentionChip />
     </header>
   );

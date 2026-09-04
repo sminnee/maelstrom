@@ -15,6 +15,20 @@
 }
 .spacer {
   flex: 1;
+  display: flex;
+  justify-content: flex-end;
+}
+/* The one way to start new work, so it reads as the bar's action rather than
+   another view toggle. */
+.new {
+  font: inherit;
+  font-size: 11px;
+  color: var(--fg);
+  background: var(--bg-raised);
+  border: 1px solid var(--fg-faint);
+  border-radius: var(--radius);
+  padding: 2px 10px;
+  cursor: pointer;
 }
 .views {
   display: flex;

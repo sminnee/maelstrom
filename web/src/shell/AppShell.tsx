@@ -2,6 +2,7 @@ import { ReactFlowProvider } from '@xyflow/react';
 import { useWorld } from '../api/useWorld';
 import { Canvas } from '../canvas/Canvas';
 import { Panel } from '../panel/Panel';
+import { NewWork } from '../newwork/NewWork';
 import { TaskEditor } from '../tasklist/TaskEditor';
 import { TaskList } from '../tasklist/TaskList';
 import { useAppStore } from '../store/store';
@@ -13,6 +14,7 @@ export function AppShell() {
   const view = useAppStore((s) => s.ui.view);
   // Above the views, so the list's scrolling box cannot clip it.
   const editingTaskId = useAppStore((s) => s.ui.editingTaskId);
+  const newWorkOpen = useAppStore((s) => s.ui.newWorkOpen);
   const { status } = useWorld();
   // The provider stays outside the switch: the attention chip fits the view
   // from the top bar, whichever view is showing.
@@ -26,6 +28,7 @@ export function AppShell() {
           {view === 'canvas' && <Panel />}
         </div>
         {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}
+        {newWorkOpen && <NewWork />}
       </div>
     </ReactFlowProvider>
   );

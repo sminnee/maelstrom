@@ -7,13 +7,32 @@ import { errorCode, type ErrorCode } from './types';
 export class ApiError extends Error {
   readonly status: number;
   readonly code: ErrorCode;
-  constructor(status: number, code: ErrorCode, message: string) {
+  /**
+   * What the refusal said beyond its code and message. A create whose launch
+   * failed names the task it wrote here, so the caller can tell that from
+   * "nothing was written" and not retry the write.
+   */
+  readonly detail: Record<string, unknown>;
+  constructor(
+    status: number,
+    code: ErrorCode,
+    message: string,
+    detail: Record<string, unknown> = {},
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
+    this.detail = detail;
   }
 }
+
+/**
+ * How long a call that opens a worktree may take. The host provisions one
+ * before it starts an agent, and inference shells out to `claude -p`, so the
+ * three calls that can do either wait far longer than a read.
+ */
+export const SLOW_CALL_TIMEOUT_MS = 120_000;
 
 export interface RequestOptions {
   /** Overrides the client's default for one call. */
@@ -84,11 +103,13 @@ export function createApiClient(opts: ApiClientOptions = {}): ApiClient {
       }
     }
     if (!response.ok) {
-      const error = (parsed as { error?: { code?: unknown; message?: string } } | undefined)?.error;
+      const error = (parsed as { error?: Record<string, unknown> } | undefined)?.error;
+      const { code, message, ...detail } = error ?? {};
       throw new ApiError(
         response.status,
-        errorCode(error?.code),
-        error?.message ?? `${method} ${path}: ${response.status}`,
+        errorCode(code),
+        typeof message === 'string' ? message : `${method} ${path}: ${response.status}`,
+        detail,
       );
     }
     return parsed as T;

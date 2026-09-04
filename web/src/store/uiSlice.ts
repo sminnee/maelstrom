@@ -24,6 +24,12 @@ export interface UiState {
   expandedNodeId: string | null;
   /** The task the editor is open on. */
   editingTaskId: TaskId | null;
+  /**
+   * Whether the new-work form is open. Only the flag lives here: the draft
+   * itself is component state, as the editor's is, so a keystroke does not
+   * publish to every subscriber of the store.
+   */
+  newWorkOpen: boolean;
   panelWidth: number;
 }
 
@@ -37,6 +43,7 @@ export function initialUiState(): UiState {
     activeTabKey: null,
     expandedNodeId: null,
     editingTaskId: null,
+    newWorkOpen: false,
     panelWidth: 460,
   };
 }

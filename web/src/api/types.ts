@@ -18,6 +18,37 @@ export interface TaskEdit {
   model?: string;
 }
 
+/** What inference reads off a draft's prose: the fields a new task needs naming. */
+export interface InferredTask {
+  title: string;
+  branch: string;
+  command: string;
+  mode: TaskMode;
+}
+
+/**
+ * A new task, as the form sends it. Every field but the project and the title
+ * may be left out, taking the notebook's own default. `launch` starts the task
+ * as well as writing it, the way `mael task add --run` does.
+ */
+export interface TaskCreate extends TaskEdit {
+  project: string;
+  title: string;
+  launch?: boolean;
+}
+
+/**
+ * A free agent, as the form sends it. It carries no task: the branch says
+ * where it runs and the prompt says what to do, and that is all.
+ */
+export interface AgentStart {
+  project: string;
+  branch: string;
+  prompt: string;
+  mode: TaskMode;
+  model?: string;
+}
+
 /** The server's refusal codes, plus the two the client makes for itself. */
 export const ERROR_CODES = [
   'unknown_id',
