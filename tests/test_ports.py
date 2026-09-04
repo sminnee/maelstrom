@@ -34,12 +34,14 @@ class TestIsPortFree:
 
     def test_occupied_port(self):
         """Test that an occupied port returns False."""
-        # Bind to a port and check it's detected as occupied
+        # Bind port 0 and read back what the OS gave us. A hardcoded port fails
+        # with "Address already in use" whenever anything else on the machine
+        # happens to hold it — which is how this test flaked on CI.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind(("127.0.0.1", 59998))
+            s.bind(("127.0.0.1", 0))
             s.listen(1)
-            assert is_port_free(59998) is False
+            assert is_port_free(s.getsockname()[1]) is False
 
 
 class TestWaitForPort:
@@ -49,9 +51,9 @@ class TestWaitForPort:
         """Test immediate return when port is already listening."""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind(("127.0.0.1", 59997))
+            s.bind(("127.0.0.1", 0))
             s.listen(1)
-            assert wait_for_port(59997, timeout=1.0) is True
+            assert wait_for_port(s.getsockname()[1], timeout=1.0) is True
 
     def test_timeout_when_port_never_listens(self):
         """Test that False is returned after timeout when port stays free."""
@@ -61,11 +63,18 @@ class TestWaitForPort:
         """Test detection when port starts listening mid-wait."""
         import threading
 
+        # Reserve a port, close it, then re-bind it from the thread. The
+        # reserve-and-release picks a port nothing else holds, without the
+        # thread having to report its number back to the assertion.
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+
         def start_listening():
             time.sleep(0.3)
             srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            srv.bind(("127.0.0.1", 59995))
+            srv.bind(("127.0.0.1", port))
             srv.listen(1)
             # Keep socket open until test completes
             time.sleep(2.0)
@@ -73,7 +82,7 @@ class TestWaitForPort:
 
         t = threading.Thread(target=start_listening, daemon=True)
         t.start()
-        assert wait_for_port(59995, timeout=2.0, interval=0.1) is True
+        assert wait_for_port(port, timeout=2.0, interval=0.1) is True
 
 
 class TestCheckPortsFree:
