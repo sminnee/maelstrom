@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 from click.testing import CliRunner
 
-from maelstrom import agent_cli
+from maelstrom import agent_cli, agent_transport
 from maelstrom.agent_model import (
     apply_event,
     build_agent_detail,
@@ -21,7 +21,11 @@ from maelstrom.agent_model import (
     build_subagent_rows,
 )
 from maelstrom.agent_server import Agent, AgentDaemon
-from maelstrom.agent_transport import RecordingDaemonClient, SocketDaemonClient
+from maelstrom.agent_stop import stop_agents_in_worktree
+from maelstrom.agent_transport import (
+    RecordingDaemonClient,
+    SocketDaemonClient,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
 
@@ -48,14 +52,14 @@ def run_cli(argv: list[str], replies: list[dict] | None = None, resolve=None):
     and walks the real filesystem.
     """
     client = RecordingDaemonClient(replies=list(replies or []))
-    agent_cli._client_factory = lambda: client
+    agent_transport.client_factory = lambda: client
     original = agent_cli.resolve_context
     if resolve is not None:
         agent_cli.resolve_context = resolve
     try:
         return CliRunner().invoke(agent_cli.agent, argv), client
     finally:
-        agent_cli._client_factory = SocketDaemonClient
+        agent_transport.client_factory = SocketDaemonClient
         agent_cli.resolve_context = original
 
 
@@ -210,7 +214,7 @@ def test_show_sends_the_show_command():
 
 # --- tail ------------------------------------------------------------------
 #
-# `tail` opens its own connection rather than going through `_client_factory`,
+# `tail` opens its own connection rather than going through `client_factory`,
 # so the only honest test is against a real daemon on a temp socket. The daemon
 # runs on its own loop in a background thread, so the CLI's `asyncio.run` has
 # the main thread to itself.
@@ -529,3 +533,50 @@ def test_show_names_the_subagent_a_wait_came_from():
     result, _ = run_cli(["show", "a1"], [{"agent": detail}])
     assert "Waiting on: WebFetch (from a1.1)" in result.output
     assert "mael agent approve a1" in result.output
+
+
+class TestStopAgentsInWorktree:
+    """`mael close` stops the daemon's agents before it signals any pid.
+
+    A driven agent is a `claude` process in the worktree, so the pid sweep
+    would find and signal it. The daemon reads that as an unexpected exit and
+    records a crash, leaving a phantom in `mael agent list --all`.
+    """
+
+    def _stop(self, replies, path="/wt/alpha"):
+        client = RecordingDaemonClient(replies=list(replies))
+        agent_transport.client_factory = lambda: client
+        try:
+            return stop_agents_in_worktree(Path(path)), client
+        finally:
+            agent_transport.client_factory = SocketDaemonClient
+
+    def test_stops_only_the_agents_in_that_worktree(self):
+        rows = [
+            {"id": "a1", "cwd": "/wt/alpha"},
+            {"id": "a2", "cwd": "/wt/bravo"},
+            {"id": "a3", "cwd": "/wt/alpha"},
+        ]
+        messages, client = self._stop([{"agents": rows}])
+        assert client.calls == [
+            {"cmd": "list"},
+            {"cmd": "stop", "id": "a1"},
+            {"cmd": "stop", "id": "a3"},
+        ]
+        assert messages == ["agent a1: stopped", "agent a3: stopped"]
+
+    def test_no_agents_there_sends_no_stop(self):
+        messages, client = self._stop([{"agents": [{"id": "a2", "cwd": "/wt/bravo"}]}])
+        assert client.calls == [{"cmd": "list"}]
+        assert messages == []
+
+    def test_an_unreachable_daemon_is_silent(self):
+        # The close must not fail because the daemon is down; the pid sweep
+        # that follows still tears the session down.
+        messages, client = self._stop([{"error": "not reachable"}])
+        assert messages == []
+
+    def test_a_refused_stop_is_reported_not_raised(self):
+        rows = [{"id": "a1", "cwd": "/wt/alpha"}]
+        messages, _ = self._stop([{"agents": rows}, {"error": "agent a1 has exited"}])
+        assert messages == ["agent a1: agent a1 has exited"]

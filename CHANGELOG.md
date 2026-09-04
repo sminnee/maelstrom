@@ -24,6 +24,18 @@ release while that section is empty, and retitles it to the version it is releas
 - **Tool cards start folded.** Every tool call in a session tab is a one-line summary until
   clicked, whatever the tool.
 
+- **Every session launches through the agent daemon.** `mael add`, `mael open`, `mael claude`,
+  `mael task run` and `mael task next --run` now start a driven agent, and pane 0 runs
+  `mael agent attach <id>`. Ctrl-C in the pane detaches and leaves the agent running; the
+  session appears in `mael agent list` and in the orchestrator UI. Pass `--claude` for the
+  previous pane runner. `mael task run --here` still runs `claude` in the current shell. A
+  shell inside OpenCode still defaults to `opencode`; `CLAUDECODE=1` no longer selects a
+  harness, because every mael-launched session sets it.
+
+- **`mael close` stops the daemon's agents.** It asks the daemon to stop the agents running in
+  the worktree before it signals any `claude` pid, so a closed worktree no longer leaves an
+  agent recorded as crashed in `mael agent list --all`.
+
 - **The orchestrator UI reads the world over REST.** The server serves every table under `/api`,
   sends change notices on one stream, and streams each open agent's transcript on a socket of its
   own with a resume cursor, so a reload fetches slim task rows instead of one snapshot holding

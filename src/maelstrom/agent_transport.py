@@ -18,7 +18,7 @@ import asyncio
 import json
 import os
 import subprocess
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -260,6 +260,18 @@ class SocketDaemonClient:
         return asyncio.run(
             request_over_socket(self.socket_path, payload, autostart=self.autostart)
         )
+
+
+#: The transport every sync caller goes through, as one seam. Tests override
+#: this attribute to drive a command through :class:`RecordingDaemonClient`
+#: instead of a real socket. One copy, so a test patching it reaches every
+#: caller.
+client_factory: Callable[[], DaemonClient] = SocketDaemonClient
+
+
+def client() -> DaemonClient:
+    """The transport for one command."""
+    return client_factory()
 
 
 # --- the async pair, for a caller that already owns an event loop -----------

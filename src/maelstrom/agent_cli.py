@@ -15,7 +15,6 @@ import asyncio
 import json
 import shlex
 import sys
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -30,13 +29,13 @@ from .agent_model import (
     MODES,
     STOPPED_COLUMNS,
     TRUNCATED,
+    build_start_payload,
 )
 from .agent_server import SCOPE_ALL, SCOPE_RUNNING, SCOPE_STOPPED, AgentDaemon
 from .agent_transport import (
-    DaemonClient,
     SocketAsyncDaemonClient,
-    SocketDaemonClient,
 )
+from .agent_transport import client as daemon_client
 from .context import resolve_context
 from .table import draw_table
 
@@ -58,18 +57,9 @@ LIST_COLUMNS = [
 SUBAGENT_COLUMNS = ["id", "state", "description", "last_message"]
 
 
-#: Overridden by tests to drive commands through ``RecordingDaemonClient``.
-_client_factory: Callable[[], DaemonClient] = SocketDaemonClient
-
-
-def _client() -> DaemonClient:
-    """The transport for one CLI invocation."""
-    return _client_factory()
-
-
 def _send(payload: dict[str, Any]) -> dict[str, Any]:
     """Send one command, printing the daemon's error and exiting on failure."""
-    reply = _client().request(payload)
+    reply = daemon_client().request(payload)
     if "error" in reply:
         click.echo(f"Error: {reply['error']}", err=True)
         sys.exit(1)
@@ -116,14 +106,13 @@ def cmd_start(
 ) -> None:
     """Start an agent in CWD."""
     reply = _send(
-        {
-            "cmd": "start",
-            "cwd": str(Path(cwd).resolve()),
-            "prompt": prompt,
-            "mode": mode,
-            "model": model,
-            "session": session_id,
-        }
+        build_start_payload(
+            Path(cwd).resolve(),
+            prompt=prompt,
+            permission_mode=mode,
+            model=model,
+            session_id=session_id,
+        )
     )
     click.echo(reply["id"])
 

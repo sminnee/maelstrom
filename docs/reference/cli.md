@@ -143,6 +143,11 @@ Run `mael doctor NEW` afterwards.
 | `--interval INTEGER` | Poll interval in seconds. Default: 30. |
 | `--force` | Close incomplete work too. Aborts an in-progress sync, commits uncommitted changes as `wip: uncommitted changes`, keeps the branch and PR, and creates a "Reopen" task. |
 
+`mael close` stops the worktree's sessions before it tears the worktree down. It asks the agent
+daemon to stop the agents running there, then signals any remaining `claude` process. The daemon
+records those as stopped, not crashed, so a closed worktree leaves nothing in `mael agent list
+--all`.
+
 **`mael remove` / `mael rm`**
 
 | Option | Description |
@@ -221,9 +226,9 @@ resolves its own conflicts instead.
 
 | Command | Description |
 |---|---|
-| `mael open [TARGET]` | Start a Claude Code session in a worktree. `--harness claude\|opencode` / `--opencode` picks the agent CLI. |
+| `mael open [TARGET]` | Start a Claude Code session in a worktree. `--harness daemon\|claude\|opencode`, or the `--claude` / `--opencode` shorthands, picks the runner. |
 | `mael claude [TARGET]` | Same as `mael open`. |
-| `mael add [BRANCH]` | Add a worktree for a branch and start a session in it. Takes `--harness` / `--opencode` too. |
+| `mael add [BRANCH]` | Add a worktree for a branch and start a session in it. Takes the same harness flags. |
 | `mael ide [TARGET]` | Open a worktree in the configured editor. |
 | `mael session list` | List active Claude Code sessions. |
 | `mael session info [ID]` | Show the fields of one session. Defaults to the session you run it in. |
@@ -245,17 +250,44 @@ mael session end 97894d02          # stop that session
 ```
 
 **Harness choice.** `mael add`, `mael open`, `mael claude`, `mael task run` and `mael task next --run`
-take `--harness claude|opencode` (default `claude`) or the `--opencode` shorthand. With
-`opencode` the session runs `opencode2` instead of `claude`. OpenCode assigns its own
-session ids, so maelstrom does not pin, resume, or duplicate-guard those sessions — every
-opencode launch starts a fresh session, and the task prompt reaches it via
-`--prompt`.
+take `--harness daemon|claude|opencode` (default `daemon`), or the `--claude` and `--opencode`
+shorthands.
 
-When no harness flag is given, maelstrom detects the harness the command runs in: a shell
-inside Claude Code (`CLAUDECODE=1`) defaults to `claude`, a shell inside OpenCode
-(`OPENCODE_TERMINAL=1`) defaults to `opencode`. An explicit flag always wins — pass
-`--harness claude` to launch Claude from inside an OpenCode session. A plain terminal with
-neither variable set defaults to `claude`.
+| Harness | What pane 0 runs | Who owns the agent |
+|---|---|---|
+| `daemon` (default) | `mael agent attach <id>` | The agent daemon |
+| `claude` | `claude` | The pane |
+| `opencode` | `opencode2` | The pane |
+
+With `daemon` the agent daemon runs the `claude` child, and the pane attaches to it as a client.
+The session appears in `mael agent list` and in the orchestrator UI. Ctrl-C in the pane detaches
+the client and leaves the agent running — reattach with `mael agent attach <id>`. The child is
+still `claude` with the session's environment, so skills, hooks and `CLAUDE.md` behave as they
+always did.
+
+With `claude` the pane runs `claude` itself. Nothing outside the pane sees the session, and
+Ctrl-C ends it.
+
+With `opencode` the session runs `opencode2`. OpenCode assigns its own session ids, so maelstrom
+does not pin, resume, or duplicate-guard those sessions — every opencode launch starts a fresh
+session, and the task prompt reaches it through `--prompt`.
+
+When no harness flag is given, a shell inside OpenCode (`OPENCODE_TERMINAL=1`) defaults to
+`opencode`. Every other shell defaults to `daemon`. `CLAUDECODE=1` is not a signal: every session
+maelstrom launches sets it, so detecting it would send every nested `mael open` back to the pane
+runner. An explicit flag always wins — pass `--harness daemon` to launch a driven agent from
+inside an OpenCode session. Two flags naming different harnesses is an error — `--claude
+--opencode` and `--harness claude --opencode` both exit non-zero.
+
+`mael task run --here` runs the session in the current shell, so the daemon has no meaning there.
+That path falls back to `claude`, and warns when you named the daemon rather than defaulting to
+it.
+
+```bash
+mael open                    # a driven agent; the pane attaches to it
+mael open --claude           # the legacy pane runner
+mael open --harness opencode # opencode2 in the pane
+```
 
 **`mael session info` and `mael session end`**
 
@@ -589,8 +621,9 @@ Give each page a one-line `description:` in YAML frontmatter. `mael wiki list` p
 ## Agents
 
 Drive Claude agents over a stream-json pipe, and answer them from outside the terminal they run
-in. This path runs beside `mael open` and does not replace it: an agent the daemon drives has no
-cmux pane and no TTY. See [agent-daemon.md](../dev/agent-daemon.md) for the protocol.
+in. This path is how `mael open`, `mael add` and `mael task run` launch a session: the daemon
+runs the agent, and pane 0 attaches to it. `mael agent start` makes an agent with no workspace at
+all. See [agent-daemon.md](../dev/agent-daemon.md) for the protocol.
 
 | Command | Description |
 |---|---|

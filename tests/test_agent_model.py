@@ -36,6 +36,7 @@ from maelstrom.agent_model import (
     build_agent_detail,
     build_agent_env,
     build_agent_row,
+    build_start_payload,
     build_stopped_row,
     build_stopped_rows,
     build_subagent_detail,
@@ -1046,3 +1047,52 @@ def test_a_subagents_detail_is_its_row_plus_its_message_in_full():
     assert "\n" in detail["message"]
     assert detail["subagents"] == []
     assert set(detail) == set(build_agent_detail(state))
+
+
+class TestBuildStartPayload:
+    """The ``start`` command the daemon is sent, held to an exact shape.
+
+    It must match the payload ``orchestrator/sources.py`` sends for a task
+    launch — one wire shape for both callers, not two.
+    """
+
+    def test_task_launch_carries_every_field(self):
+        assert build_start_payload(
+            Path("/wt/alpha"),
+            permission_mode="auto",
+            env={"MAEL_TASK_ID": "t1", "MAEL_TASK_PARENT": "t1"},
+            session_id="sess-1",
+            resume=True,
+            model="opus",
+            prompt="do the thing",
+        ) == {
+            "cmd": "start",
+            "cwd": "/wt/alpha",
+            "prompt": "do the thing",
+            "mode": "auto",
+            "model": "opus",
+            "session": "sess-1",
+            "env": {"MAEL_TASK_ID": "t1", "MAEL_TASK_PARENT": "t1"},
+            "resume": True,
+        }
+
+    def test_taskless_launch_is_just_the_cwd(self):
+        # `mael add` / `mael open`: no prompt, no session id, no env. The agent
+        # draws as a freeAgent node in the orchestrator UI.
+        assert build_start_payload(Path("/wt/alpha")) == {
+            "cmd": "start",
+            "cwd": "/wt/alpha",
+            "resume": False,
+        }
+
+    def test_empty_env_and_falsy_model_are_omitted(self):
+        # A falsy model means "inherit the user's default"; an empty env dict
+        # would be noise on the wire.
+        assert build_start_payload(
+            Path("/wt/alpha"), prompt="hi", model="", env={}
+        ) == {"cmd": "start", "cwd": "/wt/alpha", "prompt": "hi", "resume": False}
+
+    def test_resume_is_always_sent(self):
+        # `resume` is the one falsy field that carries meaning: False says
+        # "claim a fresh session", not "the caller did not say".
+        assert build_start_payload(Path("/wt/alpha"))["resume"] is False

@@ -8,9 +8,15 @@ daemon adds that missing half. It runs each agent as a `claude` child on a bidir
 pipe, reads what the agent is doing from its event stream, and writes answers back on the child's
 stdin. `mael agent` is the client.
 
-This path is additive. It runs beside the cmux launch path and does not replace it. An agent the
-daemon drives has no cmux pane and no TTY. A session `mael task run` launches keeps its pane and
-its hooks. Whether the two converge is a later decision.
+This path is now the launch path. `mael add`, `mael open`, `mael claude`, `mael task run` and
+`mael task next --run` all start a driven agent, and the workspace's pane 0 runs
+`mael agent attach <id>` as a client of it. See
+[the harness table](../reference/cli.md#sessions-and-workspaces) for the flags and the legacy
+runners.
+
+The daemon owns the pipe, not the pane. Ctrl-C in the pane detaches the client and leaves the
+agent running. `mael agent start` makes an agent with no workspace at all, which is what the
+orchestrator's own launches do.
 
 ## The mechanism
 

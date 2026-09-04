@@ -198,6 +198,48 @@ class AgentSpec:
     exit_code: int | None = None
 
 
+def build_start_payload(
+    worktree_path: Path,
+    *,
+    permission_mode: str | None = None,
+    env: dict[str, str] | None = None,
+    session_id: str | None = None,
+    resume: bool = False,
+    model: str | None = None,
+    prompt: str = "",
+) -> dict[str, Any]:
+    """The daemon's ``start`` command for a launch. Pure.
+
+    The same wire shape ``orchestrator/sources.py`` sends for a task launch, so
+    both callers speak one protocol. Falsy fields are dropped: a taskless
+    ``mael add`` sends nothing but the cwd, so the agent draws as a freeAgent
+    node.
+
+    ``env`` carries ``MAEL_TASK_ID``, which is what keeps the ``session-end``
+    hook closing the task: Claude Code fires hooks as children of the driven
+    ``claude``, so they inherit it.
+    """
+    # `resume` is always sent: False means "claim a fresh session", which is a
+    # decision, not an omission. Every other falsy field means "the caller did
+    # not say", so the daemon's own default applies.
+    payload: dict[str, Any] = {
+        "cmd": "start",
+        "cwd": str(worktree_path),
+        "resume": resume,
+    }
+    if prompt:
+        payload["prompt"] = prompt
+    if permission_mode:
+        payload["mode"] = permission_mode
+    if model:
+        payload["model"] = model
+    if session_id:
+        payload["session"] = session_id
+    if env:
+        payload["env"] = dict(env)
+    return payload
+
+
 def spec_to_dict(spec: AgentSpec) -> dict[str, Any]:
     """``spec`` as the plain JSON the store writes."""
     return {

@@ -9,11 +9,13 @@ from unittest.mock import patch
 
 import pytest
 
+from maelstrom.agent_transport import RecordingDaemonClient
 from maelstrom.shell import Command, Pipeline, describe, exec_cmd
 from maelstrom.worktree_launcher import (
     build_claude_command,
     build_harness_command,
     build_task_launch_line,
+    launch_agent_in_worktree,
     launch_claude_in_worktree,
     open_claude_workspace,
     open_worktree,
@@ -158,41 +160,88 @@ class TestBuildHarnessCommand:
         with pytest.raises(ValueError, match="harness"):
             build_harness_command(harness="cursor")
 
+    def test_daemon_harness_raises(self):
+        # The daemon builds no pane argv — it takes a start payload. A caller
+        # that gets here with `daemon` has a bug, and a silent claude line
+        # would hide it.
+        with pytest.raises(ValueError, match="daemon"):
+            build_harness_command(harness="daemon")
+
 
 class TestResolveHarness:
     """Tests for flag + environment precedence in harness resolution.
 
-    Environment detection lets a `mael task run` typed inside an OpenCode
-    session launch OpenCode instead of Claude, without spelling out the flag.
+    The default is the daemon. ``--claude`` and ``--opencode`` are shorthands
+    for the two legacy runners. Environment detection only survives for
+    opencode: an ``OPENCODE_TERMINAL`` session's ``mael task run`` stays in
+    opencode. ``CLAUDECODE`` is deliberately NOT detected — every session mael
+    launches sets it, so detecting it would pin every nested launch to the
+    legacy runner and defeat the daemon default.
     """
 
-    def test_no_flag_no_env_is_claude(self):
+    def test_no_flag_no_env_is_daemon(self):
         with patch.dict(os.environ, {}, clear=True):
-            assert resolve_harness(None, False) == "claude"
+            assert resolve_harness(None, False, False) == "daemon"
+
+    def test_claude_flag_selects_claude(self):
+        with patch.dict(os.environ, {}, clear=True):
+            assert resolve_harness(None, False, True) == "claude"
+
+    def test_claude_flag_conflicts_with_other_harness(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with pytest.raises(ValueError, match="--claude conflicts"):
+                resolve_harness("opencode", False, True)
+
+    def test_claude_flag_agrees_with_harness_claude(self):
+        with patch.dict(os.environ, {}, clear=True):
+            assert resolve_harness("claude", False, True) == "claude"
+
+    def test_the_two_shorthands_conflict_with_each_other(self):
+        # Every other contradictory pair raises; this one must not quietly
+        # pick a winner.
+        with patch.dict(os.environ, {}, clear=True):
+            with pytest.raises(ValueError, match="--claude conflicts"):
+                resolve_harness(None, True, True)
+
+    def test_opencode_flag_conflicts_with_other_harness(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with pytest.raises(ValueError, match="--opencode conflicts"):
+                resolve_harness("claude", True, False)
 
     def test_opencode_flag_wins_over_claude_env(self):
         with patch.dict(os.environ, {"CLAUDECODE": "1"}, clear=True):
-            assert resolve_harness(None, True) == "opencode"
+            assert resolve_harness(None, True, False) == "opencode"
 
     def test_harness_flag_wins_over_opencode_env(self):
         with patch.dict(os.environ, {"OPENCODE_TERMINAL": "1"}, clear=True):
-            assert resolve_harness("claude", False) == "claude"
+            assert resolve_harness("claude", False, False) == "claude"
 
-    def test_claude_env_detects_claude(self):
+    def test_claude_env_does_not_select_claude(self):
+        # Every mael-launched session exports CLAUDECODE=1, so detecting it
+        # would make a `mael open` typed inside one fall back to the legacy
+        # pane runner.
         with patch.dict(os.environ, {"CLAUDECODE": "1"}, clear=True):
-            assert resolve_harness(None, False) == "claude"
+            assert resolve_harness(None, False, False) == "daemon"
 
     def test_opencode_env_detects_opencode(self):
         with patch.dict(os.environ, {"OPENCODE_TERMINAL": "1"}, clear=True):
-            assert resolve_harness(None, False) == "opencode"
+            assert resolve_harness(None, False, False) == "opencode"
 
-    def test_both_env_vars_claude_wins(self):
-        # CLAUDECODE means "this process is Claude Code"; OPENCODE_TERMINAL
-        # only means an opencode process is somewhere up the tree, so the
-        # more specific signal outranks it.
+    def test_both_env_vars_still_detect_opencode(self):
+        # CLAUDECODE no longer votes, so OPENCODE_TERMINAL is the only signal
+        # left and it decides.
         env = {"CLAUDECODE": "1", "OPENCODE_TERMINAL": "1"}
         with patch.dict(os.environ, env, clear=True):
-            assert resolve_harness(None, False) == "claude"
+            assert resolve_harness(None, False, False) == "opencode"
+
+    def test_daemon_is_selectable_by_name(self):
+        with patch.dict(os.environ, {"OPENCODE_TERMINAL": "1"}, clear=True):
+            assert resolve_harness("daemon", False, False) == "daemon"
+
+    def test_unknown_harness_raises(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with pytest.raises(ValueError, match="Unknown harness"):
+                resolve_harness("cursor", False, False)
 
 
 class TestBuildTaskLaunchLineOpenCode:
@@ -524,6 +573,123 @@ class TestOpenClaudeWorkspace:
             assert mock_ensure.call_args.kwargs["install_cmd"] is None
 
 
+class TestLaunchAgentInWorktree:
+    """The daemon path: start an agent, then place a pane that attaches to it.
+
+    The daemon mints the agent id and the pane needs it, so the launch is two
+    steps: one ``start`` over the daemon socket, then a cmux tab running
+    ``mael agent attach <id>``.
+    """
+
+    def _launch(self, client, **kwargs):
+        with (
+            patch("maelstrom.agent_transport.client_factory", lambda: client),
+            patch("maelstrom.worktree_launcher.ensure_cmux_running", return_value=True),
+            patch(
+                "maelstrom.worktree_launcher.open_claude_workspace",
+                return_value=True,
+            ) as mock_open,
+        ):
+            placed = launch_agent_in_worktree(
+                Path("/wt/alpha"), "proj", "alpha", **kwargs
+            )
+        return placed, mock_open
+
+    def test_places_a_pane_that_attaches_to_the_new_agent(self):
+        client = RecordingDaemonClient(replies=[{"ok": True, "id": "a7"}])
+        placed, mock_open = self._launch(client)
+
+        assert placed is True
+        assert client.calls == [{"cmd": "start", "cwd": "/wt/alpha", "resume": False}]
+        project, worktree, path, command = mock_open.call_args.args
+        assert (project, worktree, path) == ("proj", "alpha", Path("/wt/alpha"))
+        assert describe(command) == "mael agent attach a7"
+
+    def test_task_launch_sends_the_full_payload(self):
+        client = RecordingDaemonClient(replies=[{"ok": True, "id": "a7"}])
+        placed, _ = self._launch(
+            client,
+            permission_mode="auto",
+            env={"MAEL_TASK_ID": "t1"},
+            session_id="sess-1",
+            resume=True,
+            model="opus",
+            prompt="do the thing",
+        )
+
+        assert placed is True
+        assert client.calls == [
+            {
+                "cmd": "start",
+                "cwd": "/wt/alpha",
+                "prompt": "do the thing",
+                "mode": "auto",
+                "model": "opus",
+                "session": "sess-1",
+                "env": {
+                    "MAEL_TASK_ID": "t1",
+                    # The session-channel hook keys the registry on this, the
+                    # same way the legacy pipeline's env prefix does.
+                    "MAEL_TASK_SESSION_ID": "sess-1",
+                },
+                "resume": True,
+            }
+        ]
+
+    def test_cmux_is_started_after_the_agent_and_before_the_pane(self):
+        # Order matters both ways: no cmux app for a launch that fails, and no
+        # placement into a cmux that is down.
+        order = []
+        client = RecordingDaemonClient(replies=[{"ok": True, "id": "a7"}])
+        with (
+            patch(
+                "maelstrom.agent_transport.client_factory",
+                lambda: (order.append("start"), client)[1],
+            ),
+            patch(
+                "maelstrom.worktree_launcher.ensure_cmux_running",
+                side_effect=lambda: order.append("cmux") or True,
+            ),
+            patch(
+                "maelstrom.worktree_launcher.open_claude_workspace",
+                side_effect=lambda *a: order.append("place") or True,
+            ),
+        ):
+            assert launch_agent_in_worktree(Path("/wt/alpha"), "proj", "alpha") is True
+        assert order == ["start", "cmux", "place"]
+
+    def test_cmux_down_returns_false_and_places_nothing(self):
+        client = RecordingDaemonClient(replies=[{"ok": True, "id": "a7"}])
+        with (
+            patch("maelstrom.agent_transport.client_factory", lambda: client),
+            patch(
+                "maelstrom.worktree_launcher.ensure_cmux_running", return_value=False
+            ),
+            patch("maelstrom.worktree_launcher.open_claude_workspace") as mock_open,
+        ):
+            assert launch_agent_in_worktree(Path("/wt/alpha"), "proj", "alpha") is False
+        mock_open.assert_not_called()
+
+    def test_daemon_error_returns_false_and_reports_the_reason(self, capsys):
+        # An unreachable daemon must not leave an empty pane behind. The
+        # caller's own message names cmux, so the daemon's reason has to reach
+        # the user here or the diagnosis points at the wrong process.
+        client = RecordingDaemonClient(replies=[{"error": "connection refused"}])
+        placed, mock_open = self._launch(client)
+
+        assert placed is False
+        mock_open.assert_not_called()
+        assert "connection refused" in capsys.readouterr().err
+
+    def test_reply_without_an_id_returns_false_and_says_so(self, capsys):
+        client = RecordingDaemonClient(replies=[{"ok": True}])
+        placed, mock_open = self._launch(client)
+
+        assert placed is False
+        mock_open.assert_not_called()
+        assert "no agent id" in capsys.readouterr().err
+
+
 class TestLaunchClaudeInWorktree:
     """Guards the cmux-or-fail composition — there is NO local-execvp fallback.
 
@@ -548,7 +714,7 @@ class TestLaunchClaudeInWorktree:
                 patch("maelstrom.worktree_launcher.run_cmd") as mock_run,
             ):
                 placed = launch_claude_in_worktree(
-                    worktree_path, project="proj", worktree="alpha"
+                    worktree_path, project="proj", worktree="alpha", harness="claude"
                 )
                 assert placed is True
                 mock_open.assert_called_once()
@@ -569,11 +735,88 @@ class TestLaunchClaudeInWorktree:
                 patch("maelstrom.worktree_launcher.run_cmd") as mock_run,
             ):
                 placed = launch_claude_in_worktree(
-                    worktree_path, project="proj", worktree="alpha"
+                    worktree_path, project="proj", worktree="alpha", harness="claude"
                 )
                 assert placed is False
                 mock_open.assert_called_once()
                 mock_run.assert_not_called()
+
+    def test_daemon_harness_starts_the_agent_before_touching_cmux(self):
+        # The agent start comes first: a daemon failure must not leave the user
+        # with a cmux app they did not have running, and a "restart cmux"
+        # message for a cmux that is fine.
+        calls = []
+        with (
+            patch(
+                "maelstrom.worktree_launcher.ensure_cmux_running",
+                side_effect=lambda: calls.append("cmux") or True,
+            ),
+            patch(
+                "maelstrom.agent_transport.client_factory",
+                lambda: RecordingDaemonClient(replies=[{"error": "no daemon"}]),
+            ),
+            patch("maelstrom.worktree_launcher.open_claude_workspace") as mock_open,
+        ):
+            placed = launch_claude_in_worktree(
+                Path("/wt/alpha"), project="proj", worktree="alpha"
+            )
+        assert placed is False
+        assert calls == []
+        mock_open.assert_not_called()
+
+    def test_daemon_harness_routes_to_the_agent_launch(self):
+        # The default harness. cmux still has to be up (the pane is placed
+        # there), but the command is the attach client, not a bare `claude`.
+        with (
+            patch("maelstrom.worktree_launcher.ensure_cmux_running", return_value=True),
+            patch(
+                "maelstrom.worktree_launcher.launch_agent_in_worktree",
+                return_value=True,
+            ) as mock_agent,
+        ):
+            placed = launch_claude_in_worktree(
+                Path("/wt/alpha"),
+                project="proj",
+                worktree="alpha",
+                task_id="t1",
+                permission_mode="auto",
+                env={"MAEL_TASK_ID": "t1"},
+                session_id="sess-1",
+                resume=True,
+                model="opus",
+                prompt="do the thing",
+                harness="daemon",
+            )
+        assert placed is True
+        mock_agent.assert_called_once_with(
+            Path("/wt/alpha"),
+            "proj",
+            "alpha",
+            permission_mode="auto",
+            env={"MAEL_TASK_ID": "t1"},
+            session_id="sess-1",
+            resume=True,
+            model="opus",
+            prompt="do the thing",
+        )
+
+    def test_claude_harness_still_places_the_legacy_pane(self):
+        with (
+            patch("maelstrom.worktree_launcher.ensure_cmux_running", return_value=True),
+            patch(
+                "maelstrom.worktree_launcher.open_claude_workspace", return_value=True
+            ) as mock_open,
+            patch("maelstrom.worktree_launcher.launch_agent_in_worktree") as mock_agent,
+        ):
+            placed = launch_claude_in_worktree(
+                Path("/wt/alpha"),
+                project="proj",
+                worktree="alpha",
+                harness="claude",
+            )
+        assert placed is True
+        mock_agent.assert_not_called()
+        assert describe(mock_open.call_args.args[3]) == "claude"
 
     def test_returns_false_and_never_execs_when_cmux_down(self):
         # cmux can't be started → False, and open_claude_workspace/run_cmd are
@@ -595,6 +838,7 @@ class TestLaunchClaudeInWorktree:
                     task_id="t1",
                     permission_mode="plan",
                     env={"MAEL_TASK_ID": "t1"},
+                    harness="claude",
                 )
                 assert placed is False
                 mock_open.assert_not_called()
