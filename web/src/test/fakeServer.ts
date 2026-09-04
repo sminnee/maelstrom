@@ -375,6 +375,14 @@ function command(
     const agent = world.agents[agentId];
     if (!agent) return notFound(`agent ${agentId}`);
     const action = m[2]!;
+    // A subagent is read, never driven: the refusal names the parent to drive.
+    if (agent.parent) {
+      return error(
+        400,
+        'invalid',
+        `${agentId} is a subagent of ${agent.parent}; drive ${agent.parent}`,
+      );
+    }
     if (action === 'resume') {
       if (agent.state !== 'exited') return error(400, 'invalid', `Agent ${agentId} is running`);
       world.agents[agentId] = { ...agent, state: 'idle', exitCode: null };
@@ -467,6 +475,8 @@ function command(
     world.tasks[task.id] = { ...task, status: 'in-progress' };
     world.agents[agentId] = {
       id: agentId,
+      parent: '',
+      description: '',
       state: 'idle',
       session: `sess-${agentId}`,
       cwd: '',

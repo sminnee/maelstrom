@@ -118,9 +118,16 @@ def task_row(task: Task) -> TaskRow:
 
 
 class Agent(TypedDict):
-    """``build_agent_row`` plus what links the agent to the rest of the world."""
+    """``build_agent_row`` plus what links the agent to the rest of the world.
+
+    ``parent`` is ``""`` for a top-level agent and the parent's id for a
+    subagent, whose ``id`` is dotted (``X.1``). ``description`` is what the
+    parent asked a subagent to do; a top-level agent has none.
+    """
 
     id: str
+    parent: str
+    description: str
     state: str
     session: str
     cwd: str

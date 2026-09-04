@@ -806,6 +806,8 @@ def _started_row(agent_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """The list row a just-started agent would have, before the host lists it."""
     return {
         "id": agent_id,
+        "parent": "",
+        "description": "",
         "state": "idle",
         "session": payload["session"],
         "cwd": payload["cwd"],

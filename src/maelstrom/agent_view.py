@@ -103,6 +103,8 @@ def _blank_agent(agent_id: str) -> Agent:
     """The one agent entry the normaliser needs, with nothing an attach knows."""
     return {
         "id": agent_id,
+        "parent": "",
+        "description": "",
         "state": "idle",
         "session": "",
         "cwd": "",

@@ -37,6 +37,8 @@ def make_agent(**over) -> dict:
     """The seed agent ``web/src/test/fixtures.ts`` replays every fixture into."""
     agent = {
         "id": "agent-1",
+        "parent": "",
+        "description": "",
         "state": "processing",
         "session": "sess-1",
         "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
