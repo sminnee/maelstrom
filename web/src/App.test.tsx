@@ -767,4 +767,14 @@ describe('the transcript stream', () => {
     expect(within(panel).getAllByTestId('transcript-card')).toHaveLength(before + 1);
     expect(server.sockets.filter((s) => s.agentId === 'd9a4c7f1')).toHaveLength(2);
   });
+
+  it('opens the transcript socket under StrictMode, whose remount reuses the streams', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp({ strict: true });
+    clickNode('NORT-9');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+    const panel = screen.getByRole('tabpanel');
+    await within(panel).findByText('Rewriting the migration for the new collation.');
+    expect(server.sockets.filter((s) => s.agentId === 'd9a4c7f1')).toHaveLength(1);
+  });
 });

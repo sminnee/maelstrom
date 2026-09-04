@@ -27,8 +27,6 @@ export interface AgentStreamsOptions {
 export interface AgentStreams {
   /** Show an agent's transcript. Returns the release; the last release closes the stream. */
   acquire(agentId: AgentId): () => void;
-  /** Close every stream now. */
-  stop(): void;
 }
 
 /** The server closes with these when the agent is unknown, or the reader fell behind. */
@@ -63,7 +61,6 @@ export function createAgentStreams(opts: AgentStreamsOptions): AgentStreams {
   const reconnectMs = opts.reconnectMs ?? 1000;
   const graceMs = opts.graceMs ?? 5000;
   const streams = new Map<AgentId, Stream>();
-  let stopped = false;
 
   const update = (agentId: AgentId, patch: Partial<TranscriptState>) => {
     store.set(agentId, { ...(store.get(agentId) ?? emptyTranscript()), ...patch });
@@ -109,7 +106,7 @@ export function createAgentStreams(opts: AgentStreamsOptions): AgentStreams {
     socket.onclose = (event) => {
       if (stream.socket !== socket) return;
       stream.socket = null;
-      if (stream.refs === 0 || stream.ended || stopped) return;
+      if (stream.refs === 0 || stream.ended) return;
       if (event.code === CLOSE_UNKNOWN_ID) {
         stream.ended = true;
         update(agentId, { status: 'ended' });
@@ -140,7 +137,6 @@ export function createAgentStreams(opts: AgentStreamsOptions): AgentStreams {
 
   return {
     acquire(agentId) {
-      if (stopped) return () => undefined;
       let stream = streams.get(agentId);
       if (!stream) {
         stream = {
@@ -162,7 +158,7 @@ export function createAgentStreams(opts: AgentStreamsOptions): AgentStreams {
       stream.refs += 1;
       let released = false;
       return () => {
-        if (released || stopped) return;
+        if (released) return;
         released = true;
         stream.refs -= 1;
         if (stream.refs > 0) return;
@@ -171,10 +167,6 @@ export function createAgentStreams(opts: AgentStreamsOptions): AgentStreams {
           if (stream.refs === 0) close(agentId, stream);
         }, graceMs);
       };
-    },
-    stop() {
-      stopped = true;
-      for (const [agentId, stream] of [...streams]) close(agentId, stream);
     },
   };
 }
