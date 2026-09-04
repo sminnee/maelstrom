@@ -23,7 +23,7 @@ import logging
 import os
 import time
 import uuid
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -41,9 +41,12 @@ from .agent_model import (
     SPEC_EXITED,
     SPEC_RUNNING,
     SPEC_STOPPED,
+    SUB_COMPLETED,
+    SUB_RUNNING,
     TRUNCATED,
     AgentSpec,
     AgentState,
+    SubagentState,
     TranscriptMeta,
     apply_event,
     build_agent_argv,
@@ -51,6 +54,8 @@ from .agent_model import (
     build_agent_env,
     build_agent_row,
     build_stopped_rows,
+    build_subagent_detail,
+    build_subagent_rows,
     interrupt_request,
     mark_exited,
     reply_for_answer,
@@ -58,6 +63,7 @@ from .agent_model import (
     reply_for_approval,
     reply_for_denial,
     set_mode_request,
+    subagent_of,
     user_message,
 )
 from .agent_spec_store import AgentSpecStore, JsonAgentSpecStore
@@ -101,6 +107,31 @@ def _exit_marker(exit_code: int | None) -> dict[str, Any]:
     return {"type": AGENT_EXITED, "exit_code": exit_code}
 
 
+def _subagent_exit_code(sub: SubagentState) -> int:
+    """The exit code a subagent's stream ends with: 0 completed, else 1."""
+    return 0 if sub.status == SUB_COMPLETED else 1
+
+
+def _subagent_refusal(dotted: str, agent_id: str) -> dict[str, Any]:
+    """The refusal for a command that drives a subagent: only its parent takes one."""
+    return {"error": f"{dotted} is a subagent of {agent_id}; drive {agent_id}"}
+
+
+@dataclass(eq=False)
+class Watcher:
+    """One attached client and the stream it asked for. Compared by identity:
+    ``_attach`` removes the one it added, never one that looks like it.
+
+    ``subagent`` is the dotted id of the subagent it follows, or ``""`` for the
+    agent's own stream. :meth:`Agent.record` offers an event only to the
+    watchers of the ring it went to, so a parent's watcher never sees a
+    subagent's chatter and a subagent's watcher never sees the parent's.
+    """
+
+    subagent: str
+    queue: "asyncio.Queue[dict[str, Any]]"
+
+
 def _truncated(dropped: int) -> dict[str, Any]:
     """The marker for events a client should have seen and cannot."""
     return {"type": TRUNCATED, "dropped": dropped}
@@ -135,7 +166,7 @@ class Agent:
         # daemon uses it to record the exit, so a crash observed by a daemon
         # that then dies itself is still known to the next one.
         self.on_exit = on_exit
-        self.watchers: list[asyncio.Queue[dict[str, Any]]] = []
+        self.watchers: list[Watcher] = []
         #: Futures waiting on a `control_response` the daemon asked for, by
         #: request id. Only `set-mode` uses one: every other command is
         #: fire-and-forget, because the child's own stream is the evidence.
@@ -171,12 +202,30 @@ class Agent:
         the stream twice. The orchestrator's normaliser mints a fresh item id
         per copy, so the user's own message would render twice.
         """
+        before = self.state
         self.state = apply_event(self.state, message)
         self._settle(message)
-        # The stamped copy, so a watcher sees the seq the ring holds.
-        stamped = self.state.recent[-1]
-        for queue in list(self.watchers):
-            _offer(queue, stamped)
+        # The stamped copy, off the ring the event went to, so a watcher sees
+        # the seq that ring holds.
+        dotted = subagent_of(self.state, message)
+        ring = self.state.subagents[dotted].recent if dotted else self.state.recent
+        stamped = ring[-1]
+        self._fan_out(dotted, stamped)
+        # A subagent that just ended has watchers waiting on a queue nothing
+        # more will fill, so its stream ends the way the parent's does. Only a
+        # notification ends one, so only a notification is worth the scan.
+        if message.get("subtype") != "task_notification":
+            return
+        for ended, sub in self.state.subagents.items():
+            was = before.subagents.get(ended)
+            if was is not None and was.status == SUB_RUNNING != sub.status:
+                self._fan_out(ended, _exit_marker(_subagent_exit_code(sub)))
+
+    def _fan_out(self, subagent: str, event: dict[str, Any]) -> None:
+        """Offer ``event`` to every watcher of ``subagent``'s stream."""
+        for watcher in list(self.watchers):
+            if watcher.subagent == subagent:
+                _offer(watcher.queue, event)
 
     def _settle(self, message: dict[str, Any]) -> None:
         """Hand a ``control_response`` to whoever asked the question."""
@@ -249,8 +298,9 @@ class Agent:
                 self.on_exit(exit_code)
             # Tell every watcher the stream ended because the agent did, so an
             # attach can return rather than wait on a queue nothing will fill.
-            for queue in list(self.watchers):
-                _offer(queue, _exit_marker(exit_code))
+            # A subagent's watchers too: its events came from this process.
+            for watcher in list(self.watchers):
+                _offer(watcher.queue, _exit_marker(exit_code))
 
     async def stop(self) -> None:
         """End the agent: close its stdin, then kill it if it does not exit."""
@@ -288,6 +338,19 @@ class _DeadProcess:
     async def wait(self) -> int | None:
         return self.returncode
 
+
+#: The commands that write to a child or end it. A subagent takes none: its
+#: parent does.
+DRIVING_COMMANDS = (
+    "say",
+    "answer",
+    "approve",
+    "deny",
+    "interrupt",
+    "set-mode",
+    "stop",
+    "resume",
+)
 
 #: What ``list`` may be asked for. ``running`` is the default and is what the
 #: orchestrator reads: live and exited-this-daemon agents, and nothing else.
@@ -550,12 +613,21 @@ class AgentDaemon:
                 return {"error": f"unknown scope: {scope}"}
             rows = []
             if scope in (SCOPE_RUNNING, SCOPE_ALL):
-                rows += [build_agent_row(a.state) for a in self.agents.values()]
+                for a in self.agents.values():
+                    rows.append(build_agent_row(a.state))
+                    rows += build_subagent_rows(a.state)
             if scope in (SCOPE_STOPPED, SCOPE_ALL):
                 rows += self.stopped_rows(payload.get("cwd") or None)
             return {"agents": rows}
 
-        agent = self.agents.get(payload.get("id", ""))
+        agent, dotted = self._resolve(payload.get("id", ""))
+        if agent is not None and dotted:
+            # Only a read: a reply to a subagent's ask is the parent's to give.
+            if command == "show":
+                return {"agent": build_subagent_detail(agent.state, dotted)}
+            if command in DRIVING_COMMANDS:
+                return _subagent_refusal(dotted, agent.state.agent_id)
+            return {"error": f"unknown command: {command}"}
         if agent is None:
             # A stopped agent is deliberately out of `self.agents`, so a resume
             # of one has only its record to go on. Every other command needs a
@@ -696,6 +768,24 @@ class AgentDaemon:
 
         return {"error": f"unknown command: {command}"}
 
+    def _resolve(self, agent_id: str) -> tuple[Agent | None, str]:
+        """The agent ``agent_id`` names, and the dotted subagent id if it is one.
+
+        ``X`` resolves to ``(X, "")``. ``X.1`` resolves to ``(X, "X.1")`` when
+        the model has opened that subagent, and to ``(None, "")`` otherwise —
+        a subagent exists once its events have been seen, and a ``list`` is how
+        a client learns which have.
+        """
+        head, dot, _ = agent_id.partition(".")
+        agent = self.agents.get(head)
+        if agent is None:
+            return None, ""
+        if not dot:
+            return agent, ""
+        if agent_id in agent.state.subagents:
+            return agent, agent_id
+        return None, ""
+
     # -- the socket --
 
     async def serve(self) -> None:
@@ -827,8 +917,14 @@ class AgentDaemon:
         The stream ends with an :data:`~maelstrom.agent_model.AGENT_EXITED`
         marker when the agent's process goes — at once, for an agent that has
         already gone — so a follower returns instead of waiting forever.
+
+        A dotted id attaches to a subagent: the same stream, cut from that
+        subagent's ring, with its own seq and its own detail frame. Its epoch
+        is the parent's, because its life is the parent's. It ends with the
+        exit marker when the subagent's notification comes — ``0`` for
+        completed, ``1`` otherwise — or when the parent's process goes.
         """
-        agent = self.agents.get(agent_id)
+        agent, dotted = self._resolve(agent_id)
         if agent is None:
             writer.write(
                 (json.dumps({"error": f"no such agent: {agent_id}"}) + "\n").encode()
@@ -840,25 +936,25 @@ class AgentDaemon:
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(
             maxsize=WATCHER_QUEUE_LIMIT
         )
-        agent.watchers.append(queue)
+        watcher = Watcher(dotted, queue)
+        agent.watchers.append(watcher)
         try:
-            detail = {"type": AGENT_DETAIL, "agent": build_agent_detail(agent.state)}
-            writer.write((json.dumps(detail) + "\n").encode())
-            held = [e for e in agent.state.recent if e[SEQ_KEY] > from_seq]
-            first_held = held[0][SEQ_KEY] if held else agent.state.seq + 1
+            detail, ring, seq, ended, exit_code = _stream_of(agent.state, dotted)
+            frame = {"type": AGENT_DETAIL, "agent": detail}
+            writer.write((json.dumps(frame) + "\n").encode())
+            held = [e for e in ring if e[SEQ_KEY] > from_seq]
+            first_held = held[0][SEQ_KEY] if held else seq + 1
             dropped = first_held - (from_seq + 1)
             if dropped > 0:
                 writer.write((json.dumps(_truncated(dropped)) + "\n").encode())
             for event in held:
                 writer.write((json.dumps(event) + "\n").encode())
-            last = agent.state.seq
+            last = seq
             marker = {"type": BACKLOG_END, "epoch": agent.epoch, "seq": last}
             writer.write((json.dumps(marker) + "\n").encode())
             await writer.drain()
-            if agent.state.status == EXITED:
-                writer.write(
-                    (json.dumps(_exit_marker(agent.state.exit_code)) + "\n").encode()
-                )
+            if ended:
+                writer.write((json.dumps(_exit_marker(exit_code)) + "\n").encode())
                 await writer.drain()
                 return
             while True:
@@ -878,8 +974,36 @@ class AgentDaemon:
         except (ConnectionError, BrokenPipeError):
             return
         finally:
-            if queue in agent.watchers:
-                agent.watchers.remove(queue)
+            if watcher in agent.watchers:
+                agent.watchers.remove(watcher)
+
+
+def _stream_of(
+    state: AgentState, dotted: str
+) -> tuple[dict[str, Any], tuple[dict[str, Any], ...], int, bool, int | None]:
+    """What an attach to ``dotted`` (or the agent, for ``""``) replays.
+
+    The detail frame, the ring, the seq the ring reached, whether the stream
+    has already ended, and the exit code it ended with. A subagent's stream
+    has ended when its notification came or when the parent's process went,
+    whichever the state shows.
+    """
+    if not dotted:
+        ended = state.status == EXITED
+        return (
+            build_agent_detail(state),
+            state.recent,
+            state.seq,
+            ended,
+            state.exit_code,
+        )
+    sub = state.subagents[dotted]
+    detail = build_subagent_detail(state, dotted)
+    if sub.status != SUB_RUNNING:
+        return detail, sub.recent, sub.seq, True, _subagent_exit_code(sub)
+    if state.status == EXITED:
+        return detail, sub.recent, sub.seq, True, state.exit_code
+    return detail, sub.recent, sub.seq, False, None
 
 
 def _int(value: Any) -> int:
