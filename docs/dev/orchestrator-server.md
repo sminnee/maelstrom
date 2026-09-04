@@ -21,7 +21,7 @@ carries and nothing maps between a dataclass and the wire.
 | `validate.py` | pure | Command validation, a port of `web/src/protocol/validate.ts` |
 | `event_log.py` | pure | The seq-stamped log: `append`, `replay_from`, `snapshot_frame`, a ring of 5000 frames |
 | `world_build.py` | pure | Entity builders from a task, a `list-all` row and an agent row; `link_agent`; `diff_kind`; `task_key` |
-| `desk.py` | pure | The desk table: `add`, `remove`, `prune`, each returning a new table |
+| `desk.py` | pure | The desk table: `add`, `remove`, `prune`, each returning a new table, and the desk id helpers |
 | `sources.py` | storage | `TaskSource` and `WorktreeSource`, over the notebook and `list_all.build_list_all_data` |
 | `daemon_bridge.py` | storage | `AsyncDaemonClient`: the socket client for the agent host, and a scripted fake |
 | `../desk_store.py` | storage | `DeskStore`: the desk as one JSON file at `~/.maelstrom/desk.json`, or in memory |
@@ -48,7 +48,7 @@ through `apply_event`, and sent to every client as a frame. Nothing mutates the 
 | Tasks | Poll the notebook's git HEAD. On change, read every project's tasks and diff | 2 s |
 | Worktrees and projects | Re-read `build_list_all_data`, one read in flight at a time | 15 s |
 | Agents | Reconcile the host's `list` against the world | 2 s |
-| Desk | Read once at start, then pruned on every task refresh and written through on change | — |
+| Desk | Read once at start, pruned on every task refresh, joined by every live agent, and written through on change | — |
 
 Blocking reads run on one worker thread. The SQLite index behind the notebook is bound to the
 thread that opens it, so a pool of one keeps every read on the same connection.
@@ -101,8 +101,21 @@ launch asks `has_claude_transcript` whether the worktree holds a transcript for 
 
 A start the host refuses rolls the task back to the status it had. A second launch of a task
 still in flight is refused. A launched task also joins the desk, so the node the user just
-started is drawn on the canvas. Not built: the opencode harness, and the cmux placement the CLI
-does.
+started is drawn on the canvas.
+
+A newly adopted live agent joins the desk: `task:` when the agent has a task, `agent:` when it
+does not. The canvas draws running work whether or not the desk names it, so the entry is not
+what makes an agent visible — it is what keeps it visible after the agent stops, until the user
+dismisses it. The join runs once, at adoption, so a later poll cannot re-add an entry the user
+has dismissed.
+
+An `agent:` entry is never pruned during a run: an agent stays in the world once seen, so the
+entry always has an entity to draw. A restart is the exception. The world's agents are rebuilt
+from the host, so `_load_desk` drops a stored `agent:` entry naming an agent the host no longer
+lists — it would draw nothing, and the user could never dismiss it. That is why the desk loads
+after the first agent read.
+
+Not built: the opencode harness, and the cmux placement the CLI does.
 
 ## Task ids on the wire
 
@@ -115,7 +128,11 @@ A task's `follows` entries are qualified with the task's own project, since a ta
 a task beside it in the notebook. Its `parent` is left bare: nothing in the UI resolves a parent,
 and a parent is often virtual, naming no real task.
 
-The desk keys on the wire id too, so two projects may each keep their own `2026-06-11.1`.
+A desk id names what its entry stands for — see `CONTEXT.md`, "Desk". `desk_id_for_task`,
+`desk_id_for_agent` and `split_desk_id` build and split one, mirrored in
+`web/src/protocol/deskId.ts`. The task half carries the wire id, so two projects may each keep
+their own `2026-06-11.1`. A desk written before ids carried a kind held bare task ids;
+`JsonDeskStore.load` rewrites those to `task:` ids as it reads them.
 
 ## The wire protocol: UI ↔ orchestrator server
 
@@ -186,9 +203,11 @@ A command's consequences are published as frames before its reply arrives.
 | `desk.add` | nothing | `{}` |
 | `desk.remove` | nothing | `{}` |
 
-The two desk commands reach the host as nothing: the desk is the server's own table. `agent.launch`
-also adds its task to the desk. A second `desk.add` for a task already on the desk answers `ok`
-and publishes nothing.
+Both desk commands carry `id`: a desk id, not a bare task id. They reach the host as nothing,
+because the desk is the server's own table. `agent.launch` also adds its task to the desk. A
+second `desk.add` for an entry already on the desk answers `ok` and publishes nothing. A
+`desk.remove` for a running agent is accepted, but the canvas keeps drawing the node until the
+agent stops.
 
 `document.*`, `comment.*`, `task.create` and `shaping.start` answer `invalid`. `updatedInput` on
 `agent.approve` is ignored: the host approves a call with its input as proposed.
