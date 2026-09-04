@@ -546,8 +546,7 @@ def interrupt_request(request_id: str) -> dict[str, Any]:
     child's ``control_response`` to echo. The child then closes the turn with
     an error-subtype ``result``.
 
-    An interrupt does not answer a pending ``can_use_tool``. Deny that first,
-    or the child sits on a request nothing will resolve.
+    An interrupt does not answer a pending ``can_use_tool``. Deny that first.
     """
     return {
         "type": "control_request",

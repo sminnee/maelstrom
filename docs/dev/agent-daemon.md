@@ -117,6 +117,34 @@ The `answers` key is the part that is not guessable. Allowing an `AskUserQuestio
 not a neutral approval — the agent reads it as "the user did not answer the questions" and moves
 on.
 
+### Interrupting
+
+An interrupt is the one message the host sends that is not a reply. It is a `control_request` of
+its own, so it carries its own `request_id`:
+
+```json
+{"type": "control_request", "request_id": "b2724f71-…",
+ "request": {"subtype": "interrupt"}}
+```
+
+The child answers it, then closes the turn:
+
+```json
+{"type": "control_response", "response": {"subtype": "success",
+ "request_id": "b2724f71-…", "response": {"still_queued": []}}}
+{"type": "user", "message": {"role": "user",
+ "content": [{"type": "text", "text": "[Request interrupted by user]"}]}}
+{"type": "result", "subtype": "error_during_execution", "is_error": true, …}
+```
+
+The turn ends `idle`, and the agent is still there to take the next message. Recorded in
+`tests/fixtures/agent_events/interrupt.jsonl`.
+
+An interrupt does not answer a request the child is blocked on. So the daemon denies a pending
+wait first, with the reason `Interrupted by user`, and the child returns that denial as the tool
+result before the interrupt lands. Recorded in
+`tests/fixtures/agent_events/interrupt-while-waiting.jsonl`.
+
 ### Sending a message
 
 A follow-up message is a plain user turn on stdin. The opening prompt uses the same shape:
@@ -182,6 +210,7 @@ mael agent answer a1b2c3d4 "Green"
 mael agent approve a1b2c3d4
 mael agent deny a1b2c3d4 --reason "not on a public network"
 mael agent say a1b2c3d4 "also update the README"
+mael agent interrupt a1b2c3d4                         # abandon the turn, keep the agent
 mael agent tail a1b2c3d4
 mael agent attach a1b2c3d4
 mael agent stop a1b2c3d4
@@ -272,12 +301,33 @@ than hangs — it is not what ends a normal tail.
 ### Teleport
 
 `mael agent attach <id>` is teleport. A headless agent has no TTY, so there is no pane to attach
-to. Attach is another client of the same socket: it replays the agent's buffered recent events,
-streams new ones, and forwards each line you type as a user message.
+to. Attach is another client of the same socket, and it renders that socket's stream as a
+terminal UI.
 
-The event stream decides when attach ends, not stdin. Closed stdin is normal, so
-`mael agent attach <id> < /dev/null` is also a read-only view. Prefer `mael agent tail -f <id>`,
-which says so in the command rather than in a redirect.
+The screen has three parts. A transcript shows the agent's messages, its tool calls with the
+first few lines of each result, and how each turn ended. A console at the bottom sends what you
+type as a user message, and the transcript shows it. A line above the console says the agent is
+working while it owes a reply. A footer names the working directory, the model, the tokens
+consumed, the git branch and the agent's state.
+
+A wait is answered in place. A permission ask, a question and a plan review each open a prompt
+over the transcript, so you never leave the terminal to run `mael agent approve` in another one.
+The prompt closes by itself when the wait ends some other way — another client answered it, the
+turn ended, or the agent died.
+
+Two keys work everywhere, including inside a prompt:
+
+| Key | What it does |
+|---|---|
+| Esc | Interrupts the running turn. Nothing happens when the agent is idle. |
+| Ctrl-C or Ctrl-D | Detaches. The agent keeps running; `mael agent stop` is what ends one. |
+
+Esc inside a prompt is not "close this prompt". The daemon denies the pending request and then
+interrupts the turn, which is what Esc at a permission ask does in Claude Code itself.
+
+Attach needs a terminal, and refuses without one rather than rendering into a pipe. Use
+`mael agent tail -f <id>` to follow an agent from a script or a redirect. That command is the raw
+read-only view, and nothing you type reaches the agent through it.
 
 ## The control socket protocol
 
@@ -301,6 +351,7 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 | `approve` | `id` | `{"ok": true}` |
 | `deny` | `id`; optional `reason` | `{"ok": true}` |
 | `answer` | `id`; `answers` (a map keyed by question text) or `choice` | `{"ok": true}` |
+| `interrupt` | `id` | `{"ok": true}` |
 | `stop` | `id` | `{"ok": true}` |
 | `resume` | `id`; optional `text` | `{"ok": true, "id": "<agent id>"}` |
 | `attach` | `id` | A stream; see below |
@@ -316,6 +367,8 @@ all.
 `start` with `resume: true` continues the session `session` names instead of claiming it. A task
 that has run before already owns its session id, and claiming it again is refused, so the
 orchestrator sets this from the transcript on disk.
+
+`interrupt` abandons the turn the agent is running and leaves the agent alive.
 
 `stop` removes the agent from the daemon and deletes its spawn record. A later `list` does not
 name it, and no later daemon start brings it back.
@@ -356,6 +409,13 @@ An attach to an agent that has already exited sends 1, 2 and 4. An unknown id ge
 
 The two `mael_*` markers are the daemon's own, not the agent's. Neither reaches
 `apply_event`.
+
+Replies the daemon writes to the agent appear in the stream too, and in the backlog. The child
+never echoes what it is sent, so without this a client that did not send the reply would go on
+showing a wait that has already been answered. Every attached client therefore sees a wait
+resolve, whoever resolved it. The orchestrator server also synthesises its own copy of that
+`control_response`; the normaliser ignores a response for a request no longer pending, so the
+duplicate changes nothing.
 
 ### Retention
 

@@ -31,9 +31,8 @@ from .agent_model import (
 from .agent_server import AgentDaemon
 from .agent_transport import (
     DaemonClient,
+    SocketAsyncDaemonClient,
     SocketDaemonClient,
-    ensure_daemon,
-    resolve_socket_path,
 )
 from .table import draw_table
 
@@ -222,6 +221,17 @@ def cmd_deny(agent_id: str, reason: str) -> None:
     _send({"cmd": "deny", "id": agent_id, "reason": reason})
 
 
+@agent.command("interrupt")
+@click.argument("agent_id")
+def cmd_interrupt(agent_id: str) -> None:
+    """Abandon the turn an agent is running, leaving the agent alive.
+
+    A pending permission ask or question is denied first. ``stop`` is what
+    ends an agent.
+    """
+    _send({"cmd": "interrupt", "id": agent_id})
+
+
 @agent.command("stop")
 @click.argument("agent_id")
 def cmd_stop(agent_id: str) -> None:
@@ -250,11 +260,19 @@ def cmd_resume(agent_id: str, text: str) -> None:
 @agent.command("attach")
 @click.argument("agent_id")
 def cmd_attach(agent_id: str) -> None:
-    """Teleport into an agent: stream its events, and forward what you type."""
-    try:
-        asyncio.run(_attach(agent_id))
-    except KeyboardInterrupt:
-        pass
+    """Teleport into an agent: read what it does, answer it, and interrupt it.
+
+    Raises:
+        click.ClickException: If stdin or stdout is not a terminal.
+    """
+    from .agent_tui import AttachApp
+
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        raise click.ClickException(
+            f"attach needs a terminal; use `mael agent tail -f {agent_id}` "
+            f"to follow without one"
+        )
+    AttachApp(agent_id, SocketAsyncDaemonClient()).run()
 
 
 @agent.command("tail")
@@ -281,52 +299,23 @@ def cmd_tail(agent_id: str, follow: bool) -> None:
 TAIL_READ_TIMEOUT = 30.0
 
 
-async def _connect_attached(
-    agent_id: str,
-) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
-    """Open a connection to the daemon and put it in ``attach`` mode.
+async def _tail(agent_id: str, follow: bool) -> None:
+    """Print an agent's events until the stream ends, driving nothing.
 
-    Shared by ``attach`` and ``tail``. Both stream the same replay-then-follow
-    output; they differ only in what they do with stdin and where they stop.
+    Without ``follow`` it stops at the backlog marker. Either way the exit
+    marker ends it: the agent is gone, so there is nothing left to follow.
     """
-    path = resolve_socket_path()
-    try:
-        # `attach` and `tail` open their own connection rather than going
-        # through `SocketDaemonClient` — that client wraps `asyncio.run`, which
-        # cannot nest — so they start the daemon here themselves.
-        await ensure_daemon(path)
-        reader, writer = await asyncio.open_unix_connection(path)
-    except OSError as exc:
-        click.echo(f"Error: agent daemon not reachable at {path}: {exc}", err=True)
-        sys.exit(1)
-    writer.write((json.dumps({"cmd": "attach", "id": agent_id}) + "\n").encode())
-    await writer.drain()
-    return reader, writer
-
-
-async def _stream(reader: asyncio.StreamReader, *, follow: bool = True) -> None:
-    """Print the agent's events until the stream ends.
-
-    With ``follow`` false it stops at the backlog marker instead. Either way
-    the exit marker ends it: the agent is gone, so there is nothing to follow.
-    """
+    stream = SocketAsyncDaemonClient().attach(agent_id)
     while True:
-        if follow:
-            line = await reader.readline()
-        else:
-            try:
-                line = await asyncio.wait_for(
-                    reader.readline(), timeout=TAIL_READ_TIMEOUT
-                )
-            except asyncio.TimeoutError:
-                click.echo("Error: the daemon stopped sending events", err=True)
-                sys.exit(1)
-        if not line:
-            return
         try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+            event = await asyncio.wait_for(
+                anext(stream), timeout=None if follow else TAIL_READ_TIMEOUT
+            )
+        except StopAsyncIteration:
+            return
+        except asyncio.TimeoutError:
+            click.echo("Error: the daemon stopped sending events", err=True)
+            sys.exit(1)
         if "error" in event and "type" not in event:
             click.echo(f"Error: {event['error']}", err=True)
             return
@@ -340,15 +329,6 @@ async def _stream(reader: asyncio.StreamReader, *, follow: bool = True) -> None:
         text = _render(event)
         if text:
             click.echo(text)
-
-
-async def _tail(agent_id: str, follow: bool) -> None:
-    """Stream an agent's events without forwarding anything back to it."""
-    reader, writer = await _connect_attached(agent_id)
-    try:
-        await _stream(reader, follow=follow)
-    finally:
-        writer.close()
 
 
 def _render(event: dict[str, Any]) -> str:
@@ -371,56 +351,3 @@ def _render(event: dict[str, Any]) -> str:
     if kind == "result":
         return f"— turn complete ({event.get('subtype', '')})"
     return ""
-
-
-async def _attach(agent_id: str) -> None:
-    """Stream the agent's events while forwarding stdin lines to it."""
-    path = resolve_socket_path()
-    reader, writer = await _connect_attached(agent_id)
-
-    async def forward() -> None:
-        """Send each typed line to the agent as a user message.
-
-        Typed input goes over its own short-lived connection: the attach
-        connection is streaming events and is not answering commands. Opening
-        it here rather than through :class:`SocketDaemonClient` keeps it on this
-        event loop — that client wraps ``asyncio.run``, which cannot nest.
-
-        ``sys.stdin.readline`` is blocking, so it runs in the default executor
-        and the event stream keeps rendering while the user types.
-        """
-        loop = asyncio.get_running_loop()
-        while True:
-            text = await loop.run_in_executor(None, sys.stdin.readline)
-            if not text:
-                return
-            text = text.strip()
-            if not text:
-                continue
-            try:
-                say_reader, say_writer = await asyncio.open_unix_connection(path)
-            except OSError as exc:
-                click.echo(f"Error: could not send that line: {exc}", err=True)
-                continue
-            try:
-                payload = {"cmd": "say", "id": agent_id, "text": text}
-                say_writer.write((json.dumps(payload) + "\n").encode())
-                await say_writer.drain()
-                reply = await say_reader.readline()
-            finally:
-                say_writer.close()
-            if reply:
-                error = json.loads(reply).get("error")
-                if error:
-                    click.echo(f"Error: {error}", err=True)
-
-    # The event stream decides when attach ends, not stdin. Closed stdin is
-    # normal — a piped or redirected `mael agent attach` is a read-only view of
-    # a live agent — so `forward` finishing must not tear the stream down.
-    streaming = asyncio.create_task(_stream(reader))
-    typing = asyncio.create_task(forward())
-    try:
-        await streaming
-    finally:
-        typing.cancel()
-        writer.close()

@@ -197,10 +197,10 @@ spawn record holds only the things Claude does not.
 _Avoid_: Agent state, checkpoint, snapshot
 
 **Teleport**:
-`mael agent attach <id>` — rendering one driven agent's event stream to a terminal and forwarding
-typed lines back to it. Teleport is a client of the control socket, not a pane attach: a driven
-agent has no pane to attach to. Contrast a tail, which renders the same stream but sends nothing
-back.
+`mael agent attach <id>` — driving one agent from a terminal UI: a transcript of what it does, a
+console to answer it in, a prompt for each wait, and a key that interrupts the running turn.
+Teleport is a client of the control socket, not a pane attach: a driven agent has no pane to
+attach to. Contrast a tail, which renders the same stream but sends nothing back.
 
 **Tail**:
 `mael agent tail <id>` — rendering one driven agent's event stream without driving it. A tail
