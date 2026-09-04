@@ -6,8 +6,8 @@ the messages written back to the child. No I/O, no clock, no subprocess — so
 the state machine is exercisable by replaying a recorded transcript, the way
 ``session_view.build_session_row`` is.
 
-The event shapes here were recorded from a live agent on v2.1.252 and saved as
-``tests/fixtures/agent_events/``. ``docs/dev/agent-daemon.md`` documents the
+The event shapes here were recorded from live agents on v2.1.252 and v2.1.260
+and saved as ``tests/fixtures/agent_events/``. ``docs/dev/agent-daemon.md`` documents the
 protocol; read it before changing a shape.
 """
 
@@ -78,7 +78,7 @@ def build_agent_argv(
     """The ``claude`` argv for a daemon-driven agent.
 
     Starts from the same shape as
-    :func:`maelstrom.worktree_launcher.build_claude_command` and adds the four
+    :func:`maelstrom.worktree_launcher.build_claude_command` and adds the five
     flags that make the process drivable:
 
     ``-p`` with ``--input-format``/``--output-format stream-json`` turns stdio
@@ -88,6 +88,10 @@ def build_agent_argv(
     ``--permission-prompt-tool stdio`` is easy to leave out and silently defeats
     the whole point: without it a headless agent has nobody to ask, so every
     "ask" decision resolves itself. See ``docs/dev/agent-daemon.md``.
+
+    ``--forward-subagent-text`` puts a subagent's text and thinking blocks on
+    the stream beside its tool calls. Without it a subagent's own stream shows
+    what it did and never what it said.
 
     The prompt is not an argv argument — it is written to the child's stdin as a
     ``user`` message, which is also how every later message reaches it.
@@ -110,6 +114,7 @@ def build_agent_argv(
         "--verbose",
         "--permission-prompt-tool",
         "stdio",
+        "--forward-subagent-text",
     ]
     if permission_mode and permission_mode != NORMAL:
         argv += ["--permission-mode", permission_mode]

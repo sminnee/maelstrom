@@ -195,6 +195,9 @@ def test_argv_carries_the_flags_the_pipe_needs():
     # Without this the agent auto-allows instead of asking, so no wait is ever
     # observable. Confirmed against v2.1.252.
     assert "--permission-prompt-tool" in argv
+    # Without this a subagent's stream carries its tool calls only, never its
+    # words. Confirmed against v2.1.260.
+    assert "--forward-subagent-text" in argv
 
 
 def test_argv_pins_a_session_id_when_given():
