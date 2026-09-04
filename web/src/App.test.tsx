@@ -885,16 +885,24 @@ describe('the change stream', () => {
 });
 
 describe('the transcript stream', () => {
+  /**
+   * Waits for the first item to arrive over a freshly-opened transcript socket.
+   * A cold CI runner takes far longer over this than the default 1 s budget:
+   * the tab mounts, opens a socket and renders "Loading the transcript…" until
+   * the first frame lands.
+   */
+  const findFirstTranscriptItem = (panel: HTMLElement) =>
+    within(panel).findByText('Rewriting the migration for the new collation.', undefined, {
+      timeout: 10_000,
+    });
+
   it('a session tab keeps its items across a socket drop and takes what it missed once', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     clickNode('NORT-9');
     await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
     const panel = screen.getByRole('tabpanel');
-    // The first open of a heavier tab on a cold runner has blown the default 1 s budget.
-    await within(panel).findByText('Rewriting the migration for the new collation.', undefined, {
-      timeout: 3000,
-    });
+    await findFirstTranscriptItem(panel);
     const before = within(panel).getAllByTestId('transcript-card').length;
 
     await act(async () => {
@@ -921,7 +929,7 @@ describe('the transcript stream', () => {
     clickNode('NORT-9');
     await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
     const panel = screen.getByRole('tabpanel');
-    await within(panel).findByText('Rewriting the migration for the new collation.');
+    await findFirstTranscriptItem(panel);
     expect(server.sockets.filter((s) => s.agentId === 'd9a4c7f1')).toHaveLength(1);
   });
 });
