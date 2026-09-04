@@ -110,7 +110,7 @@ def check_preconditions(
 
     running_worktrees = [
         name
-        for name in _worktree_nato_names(project_path)
+        for name in _worktree_names(project_path)
         if load_env_state(env_store, project, name) is not None
     ]
     shared_running = load_shared_state(env_store, project) is not None
@@ -173,8 +173,12 @@ def _is_under(path: Path, root: Path) -> bool:
     return True
 
 
-def _worktree_nato_names(project_path: Path) -> list[str]:
-    """NATO names of the project's worktrees, from git's own worktree list."""
+def _worktree_names(project_path: Path) -> list[str]:
+    """Names of the project's worktrees, from git's own worktree list.
+
+    ``_main`` is included: it can hold a running environment, which must block a
+    project move like any other.
+    """
     names: list[str] = []
     for wt in list_worktrees(project_path):
         if wt.path == project_path:

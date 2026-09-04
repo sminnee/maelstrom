@@ -1725,7 +1725,7 @@ class TestCreateProjectIntegration:
             text=True,
         ).stdout.strip()
         assert branch == "main"
-        # A reference checkout, not a workspace: no ports, no .env.
+        # No `main_port_base:`, so `_main` gets no ports and no .env.
         assert not (main_dir / ".env").exists()
 
     def test_reports_the_directory_that_was_actually_created(self, tmp_path):

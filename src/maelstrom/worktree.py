@@ -48,6 +48,7 @@ from .worktree_model import (
     extract_project_name,
     extract_worktree_name_from_folder,
     get_worktree_folder_name,
+    is_worktree_closable,
     parse_env_text,
     plan_rebase,
     print_flushed,
@@ -526,10 +527,10 @@ def find_closed_worktree(project_path: Path) -> WorktreeInfo | None:
         # Skip the project root itself
         if wt.path == project_path:
             continue
-        # _main is a reference checkout, not a workspace. It normally has main
-        # checked out (so it is not "closed"), but never recycle it even when
-        # detached — the project would lose its main checkout.
-        if wt.path.name == MAIN_WORKTREE_FOLDER:
+        # _main normally has main checked out (so it is not "closed"), but it
+        # must not be recycled even when detached — the project would lose its
+        # main checkout.
+        if not is_worktree_closable(wt.path.name):
             continue
         if is_worktree_closed(wt):
             return wt
@@ -1315,6 +1316,14 @@ def close_worktree(worktree_path: Path, *, force: bool = False) -> CloseResult:
         CloseResult with status and message.
     """
     worktree_path = worktree_path.resolve()
+
+    # The unclosable worktree, checked before anything syncs, pushes or detaches.
+    if not is_worktree_closable(worktree_path.name):
+        return CloseResult(
+            success=False,
+            message=f"{worktree_path.name} holds the main checkout and cannot be closed",
+        )
+
     branch = get_current_branch(worktree_path)  # capture before any detach
 
     # --force never loses work: commit any dirty/untracked changes onto the branch
@@ -1370,6 +1379,14 @@ def _detach_and_free_ports(worktree_path: Path) -> CloseResult:
     Shared tail of close_worktree() and the sync --close path. Assumes the caller
     has already verified the worktree is safe to close (clean / empty).
     """
+    # _main sits on main, so it reads as "empty relative to origin/main" and
+    # would otherwise be detached here.
+    if not is_worktree_closable(worktree_path.name):
+        return CloseResult(
+            success=False,
+            message=f"{worktree_path.name} holds the main checkout and cannot be closed",
+        )
+
     # Detach HEAD at origin/main to mark as closed
     # This avoids branch conflicts when the branch might be checked out elsewhere
     try:
@@ -1383,9 +1400,9 @@ def _detach_and_free_ports(worktree_path: Path) -> CloseResult:
     # Free the port allocation so the ports can be reused
     project_path = worktree_path.parent
     project_name = project_path.name
-    nato_name = extract_worktree_name_from_folder(project_name, worktree_path.name)
-    if nato_name:
-        remove_port_allocation(project_path, nato_name)
+    name = extract_worktree_name_from_folder(project_name, worktree_path.name)
+    if name:
+        remove_port_allocation(project_path, name)
 
     return CloseResult(
         success=True,
@@ -1683,8 +1700,8 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
         ["update-ref", "--no-deref", "HEAD", head_sha], cwd=project_path, quiet=True
     )
 
-    # Check the default branch out into _main. It is a reference checkout, not a
-    # workspace: keeping main there leaves every NATO worktree free for work.
+    # Check the default branch out into _main. Keeping main there leaves every
+    # NATO worktree free for work.
     main_path = project_path / MAIN_WORKTREE_FOLDER
     run_git(["worktree", "add", str(main_path), default_branch], cwd=project_path)
 
@@ -1709,6 +1726,11 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
     write_env_file(
         alpha_path, {"WORKTREE": "alpha", "WORKTREE_NUM": str(worktree_num("alpha"))}
     )
+
+    # A project that reserves a base makes _main its fixed environment, so it
+    # gets a .env too. Without the key _main keeps none.
+    if load_config_or_default(main_path).main_port_base is not None:
+        _build_env_file(project_path, main_path, MAIN_WORKTREE_FOLDER)
 
     # Unify Claude Code memory across worktrees
     setup_claude_memory_symlink(project_path, alpha_path)
@@ -1777,7 +1799,7 @@ def _build_env_file(
     Args:
         project_path: Path to the project root.
         worktree_path: Path to the worktree.
-        worktree_name: NATO name of the worktree.
+        worktree_name: NATO name of the worktree, or ``_main``.
         reuse_ports: If True, reuse existing port allocation before allocating new.
     """
     config = load_config_or_default(worktree_path)
@@ -1802,14 +1824,22 @@ def _build_env_file(
         local_port_names = config.port_names
         shared_port_names = config.shared_port_names
 
+    # `_main` is the fixed environment when the project reserves a base for it.
+    # A reserved base is declared in config and sits outside the floating pool,
+    # so the same ports come back every time.
+    reserved_base = (
+        config.main_port_base if worktree_name == MAIN_WORKTREE_FOLDER else None
+    )
+
     # Add port variables if configured
     if local_port_names:
-        port_base = None
-        if reuse_ports:
+        port_base = reserved_base
+        if port_base is None and reuse_ports:
             port_base = get_port_allocation(project_path, worktree_name)
         if port_base is None:
             port_base = allocate_port_base(project_path, len(local_port_names))
-            record_port_allocation(project_path, worktree_name, port_base)
+        # Recording the reserved base is what keeps `allocate_port_base` off it.
+        record_port_allocation(project_path, worktree_name, port_base)
         generated_vars.update(generate_port_env_vars(port_base, local_port_names))
 
     # Add shared port variables if configured
@@ -2030,7 +2060,9 @@ def reclaim_or_allocate_ports(
         worktree_name: NATO name of the worktree.
     """
     config = load_config_or_default(worktree_path)
-    if not config.port_names:
+    # `services:` is the preferred way to declare ports, so a project using it
+    # must reach the reclaim logic below just as a legacy `port_names:` one does.
+    if not (config.port_names or config.services):
         return
 
     # Read old PORT_BASE from the worktree's existing .env
@@ -2043,6 +2075,11 @@ def reclaim_or_allocate_ports(
         except ValueError:
             old_port_base = None
     else:
+        old_port_base = None
+
+    # A NATO worktree recycled from `_main`'s folder can hold the reserved base
+    # in its stale .env. Reclaiming it would take the fixed environment's ports.
+    if old_port_base is not None and old_port_base == config.main_port_base:
         old_port_base = None
 
     if old_port_base is not None:
@@ -2373,16 +2410,17 @@ def find_worktree_by_branch(
 ) -> Path | None:
     """Find a maelstrom-managed worktree by its branch name.
 
-    Only managed worktrees count: a direct child of the project root named
+    Only NATO worktrees count: a direct child of the project root named
     ``<project>-<nato>``. Git also lists worktrees created by hand elsewhere on
     disk, and one of those can hold the branch we want. Callers use the result to
-    derive a NATO name and a port allocation, so returning a foreign path fails
-    later and further from the cause.
+    derive a worktree name and a port allocation, so returning a foreign path
+    fails later and further from the cause. ``_main`` is excluded too, unless
+    *include_main* asks for it.
 
     Args:
         project_path: Path to the project root.
         branch: Branch name to search for.
-        include_main: Also match the ``_main`` reference checkout. It has no NATO
+        include_main: Also match the ``_main`` worktree. It has no NATO
             name, so only a caller that just needs the path may ask for it.
 
     Returns:
@@ -2396,7 +2434,8 @@ def find_worktree_by_branch(
     for wt in list_worktrees(project_path):
         if wt.branch != branch or wt.path.parent != project_path:
             continue
-        if extract_worktree_name_from_folder(project_name, wt.path.name) is not None:
+        name = extract_worktree_name_from_folder(project_name, wt.path.name)
+        if name is not None and is_worktree_closable(name):
             return wt.path
         if include_main and wt.path.name == MAIN_WORKTREE_FOLDER:
             return wt.path
@@ -2656,16 +2695,18 @@ def remove_worktree(project_path: Path, branch: str) -> None:
     if worktree_path is None:
         raise RuntimeError(f"No worktree found for branch: {branch}")
 
-    # Extract NATO name before removal for port deallocation
+    # Extract the worktree name before removal for port deallocation
     project_name = project_path.name
-    nato_name = extract_worktree_name_from_folder(project_name, worktree_path.name)
+    name = extract_worktree_name_from_folder(project_name, worktree_path.name)
+    if name and not is_worktree_closable(name):
+        raise RuntimeError(f"{name} cannot be removed: it holds the main checkout")
 
     # Remove the worktree using git (--force needed for maelstrom-managed files like .env)
     run_git(["worktree", "remove", "--force", str(worktree_path)], cwd=project_path)
 
     # Free the port allocation
-    if nato_name:
-        remove_port_allocation(project_path, nato_name)
+    if name:
+        remove_port_allocation(project_path, name)
 
 
 def remove_worktree_by_path(project_path: Path, worktree_name: str) -> None:
@@ -2684,16 +2725,18 @@ def remove_worktree_by_path(project_path: Path, worktree_name: str) -> None:
     if not worktree_path.exists():
         raise RuntimeError(f"Worktree does not exist: {worktree_path}")
 
-    # Extract NATO name before removal for port deallocation
+    # Extract the worktree name before removal for port deallocation
     project_name = project_path.name
-    nato_name = extract_worktree_name_from_folder(project_name, worktree_name)
+    name = extract_worktree_name_from_folder(project_name, worktree_name)
+    if name and not is_worktree_closable(name):
+        raise RuntimeError(f"{name} cannot be removed: it holds the main checkout")
 
     # Remove the worktree using git (--force needed for maelstrom-managed files like .env)
     run_git(["worktree", "remove", "--force", str(worktree_path)], cwd=project_path)
 
     # Free the port allocation
-    if nato_name:
-        remove_port_allocation(project_path, nato_name)
+    if name:
+        remove_port_allocation(project_path, name)
 
 
 CLAUDE_LOCAL_IMPORT = "@.claude/CLAUDE.local.md"

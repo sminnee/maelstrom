@@ -84,9 +84,10 @@ def new_worktree_folder(old_project: str, new_project: str, folder: str) -> str:
 def worktree_nato_name(project: str, folder: str) -> str | None:
     """Return the NATO name in ``folder``, or ``None`` if it has none.
 
-    Unlike :func:`maelstrom.worktree_model.extract_worktree_name_from_folder`
-    this lives here so the rename model stays independent of how folders are
-    discovered; the two agree on what counts as a worktree folder.
+    NATO-only, deliberately: it answers "what does this folder rename to", and
+    ``_main`` renames to itself. Its sibling
+    :func:`maelstrom.worktree_model.extract_worktree_name_from_folder` answers
+    "which worktree is this", so it names ``_main`` too.
     """
     prefix = f"{project}-"
     if not folder.startswith(prefix):
