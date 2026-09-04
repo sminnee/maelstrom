@@ -17,9 +17,11 @@ import pytest
 
 from maelstrom.agent_model import (
     EXITED,
+    IDLE,
     MESSAGE_CHARS,
     MESSAGE_LIMIT,
     MESSAGE_SUMMARY_CHARS,
+    PROCESSING,
     AgentSpec,
     AgentState,
     apply_event,
@@ -438,3 +440,45 @@ def test_reply_for_answers_files_each_answer_under_its_question():
     assert payload["behavior"] == "allow"
     assert payload["updatedInput"]["answers"] == answers
     assert payload["updatedInput"]["questions"] == state.pending.input["questions"]
+
+
+def test_interrupt_request_is_a_control_request_with_the_interrupt_subtype():
+    """Interrupt is a host->child control_request, not a user message."""
+    from maelstrom.agent_model import interrupt_request
+
+    request = interrupt_request("req-7")
+    assert request["type"] == "control_request"
+    assert request["request_id"] == "req-7"
+    assert request["request"] == {"subtype": "interrupt"}
+
+
+def test_an_interrupted_turn_ends_idle():
+    """The child answers the interrupt, then closes the turn with an error result."""
+    state = replay("interrupt.jsonl")
+    assert state.status == IDLE
+    assert state.pending is None
+
+
+def test_an_interrupt_while_waiting_clears_the_wait():
+    """The denial the daemon sends first is what releases the blocked request."""
+    state = replay("interrupt-while-waiting.jsonl")
+    assert state.status == IDLE
+    assert state.pending is None
+
+
+def test_a_cancelled_request_stops_being_pending():
+    """The child withdrew the ask, so nothing can answer it any more."""
+    state = replay("interrupt-while-waiting.jsonl", stop_before_control=True)
+    assert state.pending is not None
+    cancel = {"type": "control_cancel_request", "request_id": state.pending.request_id}
+    state = apply_event(state, cancel)
+    assert state.pending is None
+    assert state.status == PROCESSING
+
+
+def test_a_cancel_for_another_request_is_ignored():
+    state = replay("interrupt-while-waiting.jsonl", stop_before_control=True)
+    state = apply_event(
+        state, {"type": "control_cancel_request", "request_id": "other"}
+    )
+    assert state.pending is not None

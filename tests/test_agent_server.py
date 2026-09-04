@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,6 +11,8 @@ from maelstrom.agent_model import (
     BACKLOG_END,
     DEFAULT_RESUME_PROMPT,
     EXITED,
+    INTERRUPTED_REASON,
+    PROCESSING,
     AgentSpec,
     apply_event,
     mark_exited,
@@ -619,3 +622,125 @@ def test_a_resume_asks_the_transcript_not_only_the_record():
     argv = list(spawn.call_args.args)
     assert argv[argv.index("--resume") + 1] == "sid-1"
     assert "--session-id" not in argv
+
+
+# --- interrupt, and the replies the daemon writes back into the stream ------
+
+
+def _sending_agent(agent_id: str = "a1") -> tuple[Agent, list[dict]]:
+    """A stub agent whose ``send`` records the message instead of writing it."""
+    agent = _stub_agent(agent_id)
+    sent: list[dict] = []
+
+    async def record(message: dict) -> None:
+        sent.append(message)
+
+    agent.send = record  # type: ignore[method-assign]
+    return agent, sent
+
+
+def test_interrupt_sends_the_interrupt_control_request():
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent, sent = _sending_agent()
+    agent.state = replace(agent.state, status=PROCESSING)
+    daemon.agents["a1"] = agent
+    reply = asyncio.run(_handle(daemon, {"cmd": "interrupt", "id": "a1"}))
+    assert reply == {"ok": True}
+    assert [m["request"]["subtype"] for m in sent] == ["interrupt"]
+    assert sent[0]["request_id"]
+
+
+def test_interrupt_denies_the_pending_wait_first_with_the_interrupted_reason():
+    """A pending request the child still holds would survive the interrupt."""
+    from maelstrom.agent_model import INTERRUPTED_REASON
+
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent, sent = _sending_agent()
+    agent.state = replay("permission-request.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+    asyncio.run(_handle(daemon, {"cmd": "interrupt", "id": "a1"}))
+    assert sent[0]["type"] == "control_response"
+    assert sent[0]["response"]["response"]["behavior"] == "deny"
+    assert sent[0]["response"]["response"]["message"] == INTERRUPTED_REASON
+    assert sent[1]["request"]["subtype"] == "interrupt"
+
+
+def test_interrupt_refuses_an_exited_agent():
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent, sent = _sending_agent()
+    agent.state = mark_exited(agent.state, 1)
+    daemon.agents["a1"] = agent
+    reply = asyncio.run(_handle(daemon, {"cmd": "interrupt", "id": "a1"}))
+    assert "has exited" in reply["error"]
+    assert sent == []
+
+
+def test_a_reply_the_daemon_writes_reaches_every_watcher():
+    """An attached client must see a wait resolve, whoever resolved it."""
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent, _ = _sending_agent()
+    agent.state = replay("permission-request.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+    writer = _recording_writer()
+
+    async def attach_then_approve():
+        task = asyncio.create_task(daemon._attach("a1", writer))
+        await asyncio.sleep(0)
+        await daemon.handle({"cmd": "approve", "id": "a1"})
+        await asyncio.sleep(0)
+        task.cancel()
+
+    asyncio.run(attach_then_approve())
+    assert json.loads(writer.lines[-1])["type"] == "control_response"
+
+
+def test_answering_clears_the_wait_at_once():
+    """Without the echo the daemon's own state still advertises the wait."""
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent, _ = _sending_agent()
+    agent.state = replay("permission-request.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+    asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+    assert agent.state.pending is None
+
+
+def test_a_message_the_user_sends_reaches_every_watcher():
+    """The child does not echo a user turn either, so `say` must record too."""
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent, _ = _sending_agent()
+    daemon.agents["a1"] = agent
+    writer = _recording_writer()
+
+    async def attach_then_say():
+        task = asyncio.create_task(daemon._attach("a1", writer))
+        await asyncio.sleep(0)
+        await daemon.handle({"cmd": "say", "id": "a1", "text": "carry on"})
+        await asyncio.sleep(0)
+        task.cancel()
+
+    asyncio.run(attach_then_say())
+    last = json.loads(writer.lines[-1])
+    assert last["type"] == "user"
+    assert last["message"]["content"][0]["text"] == "carry on"
+
+
+def test_interrupt_refuses_an_idle_agent():
+    """An idle agent has no turn to abandon, so ok would be a lie."""
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent, sent = _sending_agent()
+    daemon.agents["a1"] = agent
+    reply = asyncio.run(_handle(daemon, {"cmd": "interrupt", "id": "a1"}))
+    assert "not running a turn" in reply["error"]
+    assert sent == []
+
+
+def test_interrupt_accepts_a_waiting_agent():
+    """A wait is a turn the agent has not finished, so it is interruptible."""
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent, sent = _sending_agent()
+    agent.state = replay("permission-request.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+    assert asyncio.run(_handle(daemon, {"cmd": "interrupt", "id": "a1"})) == {
+        "ok": True
+    }
+    assert sent

@@ -156,6 +156,11 @@ def normalise_stream_event(
                 out.append(
                     {"type": "message", "role": "user", "markdown": _str(block["text"])}
                 )
+                # A message to the agent is the start of a turn. Without this
+                # the UI shows "idle" until the agent's first event lands,
+                # which reads as though nothing was sent.
+                if out.ctx.pending is None:
+                    out.agent({"state": "processing"})
             elif block.get("type") == "tool_result":
                 out.tool_result(block)
 
@@ -197,6 +202,14 @@ def normalise_stream_event(
                 _str(request.get("tool_name")),
                 _dict(request.get("input")),
                 _str(request.get("description")),
+            )
+
+    elif kind == "control_cancel_request":
+        pending = out.ctx.pending
+        if pending is not None and _str(raw.get("request_id")) == pending.request_id:
+            out.end_wait()
+            out.agent(
+                {"state": "processing", "pendingRequestId": None, "waitingOn": ""}
             )
 
     elif kind == "control_response":
