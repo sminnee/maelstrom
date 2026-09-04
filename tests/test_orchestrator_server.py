@@ -1913,3 +1913,210 @@ def test_a_wait_whose_answer_fell_in_a_gap_is_closed_by_the_next_reconcile(harne
     request = next(i for i in items if i["type"] == "permission_request")
     assert request["stale"] is True
     assert items[-1]["type"] == "gap"
+
+
+# --- subagents: in the world, attached only while watched ------------------
+
+
+def child_row(**over) -> dict:
+    """The row the host lists for a subagent of ``ag1``."""
+    row = agent_row(
+        "ag1.1",
+        parent="ag1",
+        description="List and summarise docs/dev",
+        state="processing",
+    )
+    row.update(over)
+    return row
+
+
+def child_events() -> list[dict]:
+    """The lines ``subagent-turn.jsonl`` carries under its one Agent call."""
+    call = "toolu_01GYXSgBQ1wcW9LA8SSvM5uJ"
+    return [
+        e
+        for e in read_fixture("subagent-turn.jsonl")
+        if e.get("parent_tool_use_id") == call
+    ]
+
+
+def attaches_to(harness: Harness, agent_id: str) -> list[dict]:
+    return [
+        c
+        for c in harness.daemon.calls
+        if c.get("cmd") == "attach" and c.get("id") == agent_id
+    ]
+
+
+def test_a_listed_subagent_is_in_the_world_but_not_attached_or_on_the_desk(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.rows["ag1.1"] = child_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            agents = await api.get_json("/api/agents")
+            child = await api.get_json("/api/agents/ag1.1")
+            desk = await api.get_json("/api/desk")
+            return agents["agents"], child, desk["desk"], list(harness.daemon.attached)
+
+    agents, child, desk, attached = run(scenario())
+    assert [a["id"] for a in agents] == ["ag1", "ag1.1"]
+    assert child["parent"] == "ag1"
+    assert child["description"] == "List and summarise docs/dev"
+    assert child["state"] == "processing"
+    assert child["pendingRequest"] is None
+    assert child["taskId"] == ""
+    assert child["worktreeId"] == "northwind-alpha"
+    assert [e["id"] for e in desk] == ["agent:ag1"]
+    assert attached == ["ag1"]
+
+
+def test_opening_a_subagents_transcript_attaches_and_the_snapshot_holds_its_backlog(
+    harness,
+):
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.rows["ag1.1"] = child_row()
+    harness.daemon.backlog["ag1.1"] = child_events()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.transcript_stream("ag1.1") as ws:
+                opening = await ws_next(ws)
+                attached = list(harness.daemon.attached)
+                harness.daemon.push(
+                    "ag1.1",
+                    {
+                        "type": "assistant",
+                        "message": {"content": [{"type": "text", "text": "more"}]},
+                        "parent_tool_use_id": "toolu_01GYXSgBQ1wcW9LA8SSvM5uJ",
+                    },
+                )
+                live = await ws_next(ws, is_event("transcript.append"))
+            return opening, attached, live["event"]["item"]
+
+    opening, attached, live = run(scenario())
+    assert opening["type"] == "transcript.snapshot"
+    kinds = [i["type"] for i in opening["items"]]
+    assert kinds[:3] == ["message", "message", "tool_call"]
+    assert sorted(attached) == ["ag1", "ag1.1"]
+    assert live["markdown"] == "more"
+
+
+def test_the_transcript_get_on_a_subagent_attaches_too(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.rows["ag1.1"] = child_row()
+    harness.daemon.backlog["ag1.1"] = child_events()
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json("/api/agents/ag1.1/transcript")
+
+    transcript = run(scenario())
+    assert len(transcript["items"]) > 3
+
+
+def test_closing_the_last_socket_on_a_subagent_detaches_after_the_grace(store):
+    harness = Harness(store, child_detach=0.05)
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.rows["ag1.1"] = child_row()
+    harness.daemon.backlog["ag1.1"] = child_events()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.transcript_stream("ag1.1") as ws:
+                await ws_next(ws)
+            still = list(harness.daemon.attached)
+            await wait_until(lambda: "ag1.1" not in harness.daemon.attached)
+            # A second open sends the cursor the first watch left.
+            async with api.transcript_stream("ag1.1") as ws:
+                await ws_next(ws)
+            return still, attaches_to(harness, "ag1.1")
+
+    still, attaches = run(scenario())
+    assert "ag1.1" in still
+    assert len(attaches) == 2
+    assert "from" not in attaches[0]
+    assert attaches[1]["from"] == len(child_events())
+    assert attaches[1]["epoch"] == "epoch-ag1.1"
+
+
+def test_a_socket_that_reopens_within_the_grace_keeps_the_watch(store):
+    harness = Harness(store, child_detach=0.5)
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.rows["ag1.1"] = child_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.transcript_stream("ag1.1") as ws:
+                await ws_next(ws)
+            async with api.transcript_stream("ag1.1") as ws:
+                await ws_next(ws)
+            return attaches_to(harness, "ag1.1")
+
+    assert len(run(scenario())) == 1
+
+
+def test_driving_a_subagent_is_refused_before_the_host_is_asked(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.rows["ag1.1"] = child_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            before = len(harness.daemon.calls)
+            reply = await api.post("/api/agents/ag1.1/say", {"text": "hi"})
+            return reply, harness.daemon.calls[before:]
+
+    reply, calls = run(scenario())
+    assert reply.status == 400
+    assert reply.body["error"]["code"] == "invalid"
+    assert reply.body["error"]["message"] == "ag1.1 is a subagent of ag1; drive ag1"
+    assert [c["cmd"] for c in calls if c["cmd"] != "list"] == []
+
+
+def test_a_subagent_that_exits_non_zero_raises_no_attention(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.rows["ag1.1"] = child_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.rows["ag1.1"]["state"] = "exited(1)"
+                child = await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1.1",
+                    lambda a: a["state"] == "exited",
+                )
+                attention = await api.get_json("/api/attention?open=1")
+                return child, attention["attention"]
+
+    child, attention = run(scenario())
+    assert child["exitCode"] == 1
+    assert attention == []
+
+
+def test_a_subagent_that_comes_back_live_is_revived_without_an_attach(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.rows["ag1.1"] = child_row(state="exited(0)")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                first = await api.get_json("/api/agents/ag1.1")
+                harness.daemon.rows["ag1.1"]["state"] = "processing"
+                back = await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1.1",
+                    lambda a: a["state"] == "processing",
+                )
+                return first, back, list(harness.daemon.attached)
+
+    first, back, attached = run(scenario())
+    assert first["state"] == "exited"
+    assert back["exitCode"] is None
+    assert attached == ["ag1"]

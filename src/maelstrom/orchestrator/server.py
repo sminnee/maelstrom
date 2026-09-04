@@ -62,6 +62,9 @@ WORKTREE_POLL_SECS = 15.0
 AGENT_POLL_SECS = 2.0
 #: How long adopting an agent waits for its replayed backlog to end.
 BACKLOG_TIMEOUT_SECS = 5.0
+#: How long a subagent's stream stays attached after its last transcript
+#: socket closes. A tab that closes and reopens within it keeps the watch.
+CHILD_DETACH_SECS = 5.0
 
 
 def _refused(code: str, message: str) -> dict[str, Any]:
@@ -108,6 +111,7 @@ class Orchestrator:
         notice_coalesce: float = COALESCE_SECS,
         transcript_ring: int = TRANSCRIPT_RING,
         ws_queue_limit: int = WS_QUEUE_LIMIT,
+        child_detach: float = CHILD_DETACH_SECS,
     ) -> None:
         self.tasks = tasks
         self.worktrees = worktrees
@@ -126,7 +130,10 @@ class Orchestrator:
         #: the agent id and its history.
         self._transcripts: dict[str, TranscriptLog] = {}
         self._transcript_ring = transcript_ring
-        self.transcripts = TranscriptHub(ws_queue_limit)
+        self.transcripts = TranscriptHub(ws_queue_limit, on_idle=self._transcript_idle)
+        self._child_detach = child_detach
+        #: Per subagent, the detach waiting for its grace to pass.
+        self._detaches: dict[str, asyncio.Task[None]] = {}
         self._task_poll = task_poll
         self._worktree_poll = worktree_poll
         self._agent_poll = agent_poll
@@ -166,10 +173,14 @@ class Orchestrator:
 
     async def stop(self) -> None:
         watching = [w.task for w in self._watches.values() if w.task is not None]
-        for task in [*self._pollers, *watching]:
+        detaching = list(self._detaches.values())
+        for task in [*self._pollers, *watching, *detaching]:
             task.cancel()
-        await asyncio.gather(*self._pollers, *watching, return_exceptions=True)
+        await asyncio.gather(
+            *self._pollers, *watching, *detaching, return_exceptions=True
+        )
         self._pollers = []
+        self._detaches.clear()
 
     async def _poll(self, interval: float, refresh: Callable[[], Any]) -> None:
         while True:
@@ -376,6 +387,12 @@ class Orchestrator:
         either way; the entry is what keeps it drawn once the agent stops. The
         join happens once, at adoption: a later poll must not re-add an entry
         the user has dismissed.
+
+        A row with a ``parent`` is a subagent. It is adopted as an entity, so
+        the parent's session tab can list it, but it is not attached and does
+        not join the desk: its stream is followed only while a transcript
+        socket is open on it (:meth:`ensure_attached`), so a subagent's events
+        never cross to this server until someone asks for them.
         """
         reply = await self.daemon.request({"cmd": "list"})
         if "error" in reply:
@@ -384,9 +401,11 @@ class Orchestrator:
         rows = {row["id"]: row for row in reply.get("agents", [])}
         agents = self.world["agents"]
         for agent_id, row in rows.items():
+            is_child = bool(row.get("parent"))
             if agent_id not in agents:
                 await self._adopt(row)
-                await self._join_desk(agent_id)
+                if not is_child:
+                    await self._join_desk(agent_id)
                 continue
             state, exit_code = parse_agent_state(row.get("state", ""))
             if agents[agent_id]["state"] == "exited":
@@ -398,7 +417,7 @@ class Orchestrator:
             if state == "exited":
                 await self._exit(agent_id, exit_code)
                 continue
-            if agent_id not in self._watches:
+            if agent_id not in self._watches and not is_child:
                 await self._attach(agent_id)
             await self._relink(row)
             await self._close_wait_lost_in_a_gap(agent_id, state)
@@ -452,7 +471,8 @@ class Orchestrator:
             worktree_id=link.worktree_id,
         )
         self._apply(out.events)
-        await self._attach(agent_id)
+        if not row.get("parent"):
+            await self._attach(agent_id)
 
     def _link(self, row: dict[str, Any]) -> AgentLink:
         world = self.world
@@ -468,7 +488,50 @@ class Orchestrator:
             worktree_id=link.worktree_id,
         )
         self._apply([{"type": "upsert", "kind": "agent", "entity": entity}])
-        await self._attach(entity["id"])
+        if not entity["parent"]:
+            await self._attach(entity["id"])
+
+    async def ensure_attached(self, agent_id: str) -> None:
+        """Follow ``agent_id``'s stream if it is a subagent nobody follows yet.
+
+        The transcript routes call this before they read: a top-level agent
+        is always attached, so it is a no-op there. For a subagent it attaches
+        and waits for the backlog, so the snapshot the route serves holds it.
+        A detach still waiting on its grace is cancelled: the reader came back.
+        """
+        agent = self.world["agents"].get(agent_id)
+        if agent is None or not agent["parent"]:
+            return
+        pending = self._detaches.pop(agent_id, None)
+        if pending is not None:
+            pending.cancel()
+        if agent_id not in self._watches:
+            await self._attach(agent_id)
+
+    def _transcript_idle(self, agent_id: str) -> None:
+        """The last transcript socket on ``agent_id`` closed.
+
+        A subagent's watch is dropped after :data:`CHILD_DETACH_SECS`, unless a
+        socket comes back first. The cursor outlives the watch, so the next
+        attach asks the host for what was missed and not the whole window.
+        """
+        agent = self.world["agents"].get(agent_id)
+        if agent is None or not agent["parent"] or agent_id not in self._watches:
+            return
+        if agent_id in self._detaches:
+            return
+        self._detaches[agent_id] = asyncio.create_task(self._detach_later(agent_id))
+
+    async def _detach_later(self, agent_id: str) -> None:
+        try:
+            await asyncio.sleep(self._child_detach)
+            if self.transcripts.count(agent_id):
+                return
+            watch = self._watches.pop(agent_id, None)
+            if watch is not None and watch.task is not None:
+                watch.task.cancel()
+        finally:
+            self._detaches.pop(agent_id, None)
 
     async def _attach(self, agent_id: str) -> None:
         """Follow an agent's stream, and wait for its replayed backlog to end."""

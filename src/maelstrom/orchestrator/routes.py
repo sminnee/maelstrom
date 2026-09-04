@@ -413,6 +413,8 @@ async def _transcript(request: web.Request) -> web.Response:
     agent_id = request.match_info["id"]
     if agent_id not in orch.world["agents"]:
         return error_response("unknown_id", f"No agent {agent_id}")
+    # A subagent is followed on demand; this read is the demand.
+    await orch.ensure_attached(agent_id)
     return web.json_response(
         {"agentId": agent_id, **orch.transcript_snapshot(agent_id)}
     )
@@ -432,6 +434,7 @@ async def _transcript_stream(request: web.Request) -> web.WebSocketResponse:
     if agent_id not in orch.world["agents"]:
         await ws.close(code=CLOSE_UNKNOWN_ID, message=b"unknown_id")
         return ws
+    await orch.ensure_attached(agent_id)
     from_seq = _int_or_none(request.query.get("from"))
     with orch.transcripts.subscribe(agent_id) as subscriber:
         log = orch.transcript_log(agent_id)
