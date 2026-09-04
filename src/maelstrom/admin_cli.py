@@ -1,4 +1,4 @@
-"""CLI commands for maelstrom self-management (install, self-update)."""
+"""CLI commands for maelstrom self-management (install, self-update, self-env)."""
 
 import shutil
 import subprocess
@@ -8,6 +8,8 @@ import click
 
 from .claude_integration import install_claude_integration
 from .context import harden_global_config
+from .env_cli import env
+from .worktree_model import MAIN_WORKTREE_FOLDER
 
 
 @click.command("install")
@@ -112,3 +114,56 @@ def cmd_self_update():
         click.echo(f"  {msg}")
 
     click.echo("Update complete.")
+
+
+# `mael self-env <verb>` is `mael env <verb>` aimed at the maelstrom project's
+# own `_main` — see `docs/guide/worktrees.md`.
+SELF_ENV_PROJECT = "maelstrom"
+SELF_ENV_TARGET = f"{SELF_ENV_PROJECT}.{MAIN_WORKTREE_FOLDER}"
+
+# `mael env`'s verbs, and how each one takes its target: through the `--worktree`
+# option, or as a positional argument.
+_TARGET_AS_OPTION = ("start", "stop", "restart", "logs")
+_TARGET_AS_ARGUMENT = ("status", "reset", "open")
+
+
+def _self_env_command(name: str) -> click.Command:
+    """Wrap one `mael env` command so it always runs against `maelstrom._main`."""
+    command = env.get_command(None, name)  # type: ignore[arg-type]
+    assert command is not None, f"mael env has no {name!r} command"
+
+    as_option = name in _TARGET_AS_OPTION
+    target_param = "worktree_opt" if as_option else "target"
+
+    class Targeted(click.Command):
+        def parse_args(self, ctx, args):
+            # Prepended, so a stray argument is the surplus one the error names.
+            target = ["-w", SELF_ENV_TARGET] if as_option else [SELF_ENV_TARGET]
+            return command.parse_args(ctx, target + list(args))
+
+    # The target is fixed, so its parameter is hidden from --help. It stays on
+    # the real command, which is what parses the arguments above.
+    return Targeted(
+        name=name,
+        callback=command.callback,
+        params=[p for p in command.params if p.name != target_param],
+        help=command.help,
+        short_help=command.short_help,
+    )
+
+
+class SelfEnvGroup(click.Group):
+    """`mael env`'s commands, each aimed at maelstrom's fixed environment."""
+
+    def list_commands(self, ctx):
+        return sorted(_TARGET_AS_OPTION + _TARGET_AS_ARGUMENT)
+
+    def get_command(self, ctx, name):
+        if name not in _TARGET_AS_OPTION + _TARGET_AS_ARGUMENT:
+            return None
+        return _self_env_command(name)
+
+
+@click.group("self-env", cls=SelfEnvGroup)
+def cmd_self_env():
+    """Manage maelstrom's own fixed environment (its `_main` worktree)."""

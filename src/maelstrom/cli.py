@@ -7,7 +7,7 @@ from pathlib import Path
 import click
 
 from . import __version__, session_discovery
-from .admin_cli import cmd_install, cmd_self_update
+from .admin_cli import cmd_install, cmd_self_env, cmd_self_update
 from .agent_cli import agent as agent_cli
 from .base_store import GitConfigBaseStore
 from .cmux import mael_layout
@@ -1682,6 +1682,7 @@ cli.add_command(project_cli)
 cli.add_command(cmd_mv_project)
 cli.add_command(cmd_install)
 cli.add_command(cmd_self_update)
+cli.add_command(cmd_self_env)
 cli.add_command(agent_cli)
 cli.add_command(orchestrator_cli)
 
