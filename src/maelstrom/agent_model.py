@@ -44,6 +44,10 @@ INTERRUPTIBLE = (
 #: The permission modes an agent can run in, in the order a cycle visits them.
 MODES = ("plan", "auto", "normal")
 
+#: The mode an approved plan puts an agent into -- see `Permission mode` in
+#: CONTEXT.md.
+AUTO = "auto"
+
 #: The one mode whose maelstrom word is not claude's: no flag at spawn, and
 #: ``default`` on the pipe. Nothing outside this module spells ``default``.
 NORMAL = "normal"

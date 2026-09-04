@@ -30,6 +30,8 @@ from typing import Any, Callable
 from .agent_model import (
     AGENT_DETAIL,
     AGENT_EXITED,
+    AUTO,
+    AWAITING_PLAN_REVIEW,
     AWAITING_QUESTION,
     BACKLOG_END,
     DEFAULT_RESUME_PROMPT,
@@ -695,28 +697,8 @@ class AgentDaemon:
             # child answers one with an error that says less than this does.
             if mode not in MODES:
                 return {"error": f"unknown mode: {mode} — one of {', '.join(MODES)}"}
-            request = set_mode_request(str(uuid.uuid4()), mode)
-            try:
-                response = await agent.ask(request)
-            except asyncio.TimeoutError:
-                return {"error": f"agent {agent.state.agent_id} did not answer"}
-            except ConnectionResetError:
-                # `pump` fails every waiter when the child dies.
-                return {"error": f"agent {agent.state.agent_id} has exited"}
-            if response is None:
-                return _unreachable(agent)
-            if response.get("subtype") != "success":
-                # The child refused, so nothing may report the mode as changed.
-                detail = response.get("error") or "refused"
-                return {
-                    "error": f"agent {agent.state.agent_id} refused {mode}: {detail}"
-                }
-            # The spawn record is the resume contract, so a mode change that
-            # does not reach it is reverted by the next daemon start.
-            spec = self.specs.read(agent.state.agent_id)
-            if spec is not None:
-                self.specs.write(replace(spec, permission_mode=mode))
-            return {"ok": True, "mode": mode}
+            error = await self._set_mode(agent, mode)
+            return error if error is not None else {"ok": True, "mode": mode}
 
         pending = agent.state.pending
 
@@ -764,9 +746,41 @@ class AgentDaemon:
             if not await agent.send(reply):
                 return _unreachable(agent)
             agent.record(reply)
+            # The allow goes first: the child is waiting on that reply.
+            if command == "approve" and pending.wait_kind == AWAITING_PLAN_REVIEW:
+                error = await self._set_mode(agent, AUTO)
+                if error is not None:
+                    return {"ok": True, "warning": error["error"]}
+                return {"ok": True, "mode": AUTO}
             return {"ok": True}
 
         return {"error": f"unknown command: {command}"}
+
+    async def _set_mode(self, agent: Agent, mode: str) -> dict | None:
+        """Move ``agent`` to ``mode``, returning an error reply or ``None``.
+
+        Nothing may report the mode as changed until the child's reply says
+        success -- the child refuses a mode it does not know.
+        """
+        request = set_mode_request(str(uuid.uuid4()), mode)
+        try:
+            response = await agent.ask(request)
+        except asyncio.TimeoutError:
+            return {"error": f"agent {agent.state.agent_id} did not answer"}
+        except ConnectionResetError:
+            # `pump` fails every waiter when the child dies.
+            return {"error": f"agent {agent.state.agent_id} has exited"}
+        if response is None:
+            return _unreachable(agent)
+        if response.get("subtype") != "success":
+            detail = response.get("error") or "refused"
+            return {"error": f"agent {agent.state.agent_id} refused {mode}: {detail}"}
+        # The spawn record is the resume contract, so a mode change that does
+        # not reach it is reverted by the next daemon start.
+        spec = self.specs.read(agent.state.agent_id)
+        if spec is not None:
+            self.specs.write(replace(spec, permission_mode=mode))
+        return None
 
     def _resolve(self, agent_id: str) -> tuple[Agent | None, str]:
         """The agent ``agent_id`` names, and the dotted subagent id if it is one.

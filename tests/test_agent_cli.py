@@ -63,6 +63,20 @@ def run_cli(argv: list[str], replies: list[dict] | None = None, resolve=None):
         agent_cli.resolve_context = original
 
 
+def test_a_warning_is_printed_without_failing_the_command():
+    """A plan approval whose mode change the child refused still approved the plan.
+
+    The command succeeded, so it must not exit non-zero -- but the refusal
+    leaves the agent in the mode it was launched under, which the operator has
+    to know about.
+    """
+    result, _ = run_cli(
+        ["approve", "a1"], [{"ok": True, "warning": "agent a1 refused auto: bad mode"}]
+    )
+    assert result.exit_code == 0
+    assert "refused auto" in result.output
+
+
 def test_start_sends_the_cwd_and_the_prompt():
     result, client = run_cli(
         ["start", ".", "--prompt", "go", "--mode", "auto"], [{"id": "a1"}]

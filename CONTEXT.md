@@ -197,8 +197,10 @@ does not, so a later daemon can start the agent again.
 **Permission mode**:
 How much a driven agent may do without asking: `plan`, `normal` or `auto`. A task launches under
 one mode, and a running agent can be moved between them — by `mael agent set-mode`, by shift+tab
-in teleport, by the mode chip in the orchestrator UI, or by the agent itself when a plan review
-is approved. The three words are the same ones a task carries, so one word means one thing.
+in teleport, by the mode chip in the orchestrator UI, or by the daemon when a plan review is
+approved. An approved plan moves the agent to `auto`: the plan is settled, so carrying it out
+does not need approving edit by edit. The three words are the same ones a task carries, so one
+word means one thing.
 Claude spells `normal` as `default` on the pipe; nothing outside `agent_model.py` uses that word.
 The mode is read off the agent's own event stream, never from what was asked for, so no surface
 can show a mode the agent refused.

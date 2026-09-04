@@ -58,11 +58,17 @@ SUBAGENT_COLUMNS = ["id", "state", "description", "last_message"]
 
 
 def _send(payload: dict[str, Any]) -> dict[str, Any]:
-    """Send one command, printing the daemon's error and exiting on failure."""
+    """Send one command, printing the daemon's error and exiting on failure.
+
+    A ``warning`` is not a failure: the command did what was asked, and
+    something alongside it did not. It prints and the command still succeeds.
+    """
     reply = daemon_client().request(payload)
     if "error" in reply:
         click.echo(f"Error: {reply['error']}", err=True)
         sys.exit(1)
+    if reply.get("warning"):
+        click.echo(f"Warning: {reply['warning']}", err=True)
     return reply
 
 
