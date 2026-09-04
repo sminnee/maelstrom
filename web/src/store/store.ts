@@ -1,21 +1,22 @@
 import { create } from 'zustand';
 import type { ConnectionState } from '../live/changeStream';
-import type { EventFrame } from '../protocol/events';
-import type { ClientState } from '../protocol/reducer';
-import { applyServerEvent, initialClientState } from '../protocol/reducer';
-import type { TaskId } from '../protocol/ids';
+import type { TranscriptState } from '../live/transcriptReducer';
+import type { AgentId, TaskId } from '../protocol/ids';
 import type { Filters, GroupBy } from '../selectors/filters';
 import type { ListFilters } from '../selectors/taskList';
 import type { PanelTab, UiState, View } from './uiSlice';
 import { initialUiState } from './uiSlice';
 import { closeTab as closeTabIn, openOrFocusTab } from '../selectors/tabs';
 
-export interface AppStore extends ClientState {
+export interface AppStore {
   ui: UiState;
   /** What the change stream is doing. */
   connection: ConnectionState;
+  /** The transcripts some view is showing, kept live by their streams. */
+  transcripts: Record<AgentId, TranscriptState>;
   setConnection(state: ConnectionState): void;
-  applyFrame(frame: EventFrame): void;
+  setTranscript(agentId: AgentId, state: TranscriptState): void;
+  dropTranscript(agentId: AgentId): void;
   reset(): void;
   setView(view: View): void;
   setGroupBy(groupBy: GroupBy): void;
@@ -33,14 +34,25 @@ export interface AppStore extends ClientState {
   setPanelWidth(width: number): void;
 }
 
-/** One store: the world as the reducer left it, plus client-only UI state. */
+/**
+ * One store for what is not fetched: UI state, the connection state and the
+ * open transcripts. The world itself lives in the query cache.
+ */
 export const useAppStore = create<AppStore>()((set) => ({
-  ...initialClientState(),
   ui: initialUiState(),
   connection: 'connecting',
+  transcripts: {},
   setConnection: (connection) => set({ connection }),
-  applyFrame: (frame) => set((s) => applyServerEvent(s, frame)),
-  reset: () => set({ ...initialClientState(), ui: initialUiState() }),
+  setTranscript: (agentId, state) =>
+    set((s) => ({ transcripts: { ...s.transcripts, [agentId]: state } })),
+  dropTranscript: (agentId) =>
+    set((s) => {
+      if (!(agentId in s.transcripts)) return s;
+      const transcripts = { ...s.transcripts };
+      delete transcripts[agentId];
+      return { transcripts };
+    }),
+  reset: () => set({ ui: initialUiState(), transcripts: {}, connection: 'connecting' }),
   setView: (view) => set((s) => ({ ui: { ...s.ui, view } })),
   setGroupBy: (groupBy) => set((s) => ({ ui: { ...s.ui, groupBy } })),
   setFilters: (patch) => set((s) => ({ ui: { ...s.ui, filters: { ...s.ui.filters, ...patch } } })),

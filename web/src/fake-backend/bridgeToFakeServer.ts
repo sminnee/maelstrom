@@ -1,4 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
+import type { TranscriptEvent } from '../live/transcriptReducer';
 import type { Backend } from '../protocol/backend';
 import { applyEvent, initialClientState, type ClientState } from '../protocol/reducer';
 import type { FakeServer } from '../test/fakeServer';
@@ -16,6 +17,9 @@ export function bridgeToFakeServer(backend: Backend, server: FakeServer, queryCl
     state = applyEvent(state, frame.event, frame.seq);
     server.world = state.world;
     server.transcripts = state.transcripts;
+    if (frame.event.type.startsWith('transcript.')) {
+      server.emitTranscript(frame.event as TranscriptEvent);
+    }
     for (const query of queryClient.getQueryCache().getAll()) {
       const path = pathForKey(query.queryKey as readonly string[]);
       if (!path) continue;

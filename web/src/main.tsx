@@ -26,7 +26,12 @@ function fakeDeps(fake: Backend): AppDeps {
   const server = createFakeServer({ command: (cmd) => fake.command(cmd) });
   const queryClient = createQueryClient();
   bridgeToFakeServer(fake, server, queryClient);
-  return { api: server.api, eventSourceFactory: server.eventSourceFactory, queryClient };
+  return {
+    api: server.api,
+    eventSourceFactory: server.eventSourceFactory,
+    webSocketFactory: server.webSocketFactory,
+    queryClient,
+  };
 }
 
 createRoot(document.getElementById('root')!).render(

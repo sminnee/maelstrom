@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useRef } from 'react';
+import type { Comment } from '../protocol/documents';
 import {
   useAddComment,
   useApproveDocument,
@@ -14,13 +15,18 @@ import { phaseForCommand, phaseLabel } from '../protocol/phase';
 import { describeDocumentStatus } from '../selectors/status';
 import { sessionTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
-import { useAppStore } from '../store/store';
 import { CommentMargin } from './comments/CommentMargin';
 import { applyHighlights } from './comments/highlights';
 import { useSelectionComment } from './comments/useSelectionComment';
 import { AppButton } from '../ui/AppButton';
 import { ReviewActions } from './ReviewActions';
 import styles from './DocumentTab.module.css';
+
+/**
+ * The server serves no comments yet, so the margin holds none: the composer
+ * stays, and its button says the server does not do that yet.
+ */
+const NO_COMMENTS: Comment[] = [];
 
 /** A rendered document, its comment margin, its review actions, and any question its agent asks. */
 export function DocumentTab({ documentId }: { documentId: string }) {
@@ -33,29 +39,19 @@ export function DocumentTab({ documentId }: { documentId: string }) {
   const doc = document.data;
   const task = doc ? world.tasks[doc.taskId] : undefined;
   const agent = doc ? world.agents[doc.agentId] : undefined;
-  const allComments = useAppStore((s) => s.world.comments);
   const body = useRef<HTMLDivElement>(null);
   const { selection, pending, startComment, clear } = useSelectionComment(
     body,
     doc?.markdown ?? '',
   );
 
-  const version = doc?.version;
-  const comments = useMemo(
-    () =>
-      Object.values(allComments)
-        .filter((c) => c.documentId === documentId && c.version === version)
-        .sort((a, b) => a.anchor.start - b.anchor.start || a.createdAt.localeCompare(b.createdAt)),
-    [allComments, documentId, version],
-  );
-  const unresolved = comments.filter((c) => !c.resolved).length;
   const pendingAnchor = pending?.anchor ?? null;
 
   useEffect(() => {
     if (!body.current) return;
-    return applyHighlights(body.current, comments, pendingAnchor);
-    // Re-run when the comment set, the pending anchor or the rendered text changes.
-  }, [comments, pendingAnchor, doc?.markdown]);
+    return applyHighlights(body.current, NO_COMMENTS, pendingAnchor);
+    // Re-run when the pending anchor or the rendered text changes.
+  }, [pendingAnchor, doc?.markdown]);
 
   const phase = task ? phaseForCommand(task.command) : null;
 
@@ -109,7 +105,7 @@ export function DocumentTab({ documentId }: { documentId: string }) {
           <Markdown source={doc.markdown} />
         </div>
         <CommentMargin
-          comments={comments}
+          comments={NO_COMMENTS}
           selection={selection}
           pending={pending}
           onStart={startComment}
@@ -123,7 +119,7 @@ export function DocumentTab({ documentId }: { documentId: string }) {
       </div>
       <ReviewActions
         doc={doc}
-        unresolved={unresolved}
+        unresolved={0}
         onApprove={() => approveDocument.mutateAsync({ documentId, version: doc.version })}
         onRequestChanges={(summary) =>
           requestChanges.mutateAsync({ documentId, version: doc.version, summary })

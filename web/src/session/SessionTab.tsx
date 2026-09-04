@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useAnswer, useApprove, useDeny, useSay } from '../api/agents';
 import { useWorld } from '../api/useWorld';
+import { useAgentStream } from '../live/useAgentStream';
 import { describeState } from '../selectors/status';
 import { answeredOnCanvas } from '../selectors/transcript';
 import { useAppStore } from '../store/store';
@@ -17,9 +18,9 @@ export function SessionTab({ agentId }: { agentId: string }) {
   const { world } = useWorld();
   const agent = world.agents[agentId];
   const task = agent ? world.tasks[agent.taskId] : undefined;
-  const transcript = useAppStore((s) => s.transcripts[agentId]);
+  const transcript = useAgentStream(agentId);
   const bottom = useRef<HTMLDivElement>(null);
-  const count = transcript?.items.length ?? 0;
+  const count = transcript.items.length;
   const expandedNodeId = useAppStore((s) => s.ui.expandedNodeId);
   // A free agent draws under its own id, a task node under its task's.
   const deferred =
@@ -40,9 +41,22 @@ export function SessionTab({ agentId }: { agentId: string }) {
         {agent.waitingOn && <span className={styles.waiting}>{agent.waitingOn}</span>}
       </div>
       <div className={styles.scroll}>
+        {transcript.status === 'connecting' && count === 0 && (
+          <div className={styles.empty}>Loading the transcript…</div>
+        )}
+        {transcript.status === 'reconnecting' && (
+          <div className={styles.empty} role="status">
+            Reconnecting to the transcript…
+          </div>
+        )}
+        {transcript.status === 'ended' && (
+          <div className={styles.empty} role="status">
+            The server no longer knows this agent.
+          </div>
+        )}
         <Transcript
-          items={transcript?.items ?? []}
-          truncatedBefore={transcript?.truncatedBefore ?? false}
+          items={transcript.items}
+          truncatedBefore={transcript.truncatedBefore}
           deferredRequestId={deferred ? agent.pendingRequestId : null}
           handlers={{
             onAnswer: (requestId, answers) => answer.mutateAsync({ agentId, requestId, answers }),

@@ -691,3 +691,32 @@ describe('the change stream', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 });
+
+describe('the transcript stream', () => {
+  it('a session tab keeps its items across a socket drop and takes what it missed once', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('NORT-9');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+    const panel = screen.getByRole('tabpanel');
+    await within(panel).findByText('Rewriting the migration for the new collation.');
+    const before = within(panel).getAllByTestId('transcript-card').length;
+
+    await act(async () => {
+      server.dropSockets('d9a4c7f1');
+    });
+    // The items stay on screen while the stream is down.
+    expect(within(panel).getAllByTestId('transcript-card')).toHaveLength(before);
+    // Missed while down: the reconnect's snapshot carries it, once.
+    server.append('d9a4c7f1', {
+      id: 'x1',
+      ts: '',
+      type: 'message',
+      role: 'assistant',
+      markdown: 'Back again.',
+    });
+    await within(panel).findByText('Back again.');
+    expect(within(panel).getAllByTestId('transcript-card')).toHaveLength(before + 1);
+    expect(server.sockets.filter((s) => s.agentId === 'd9a4c7f1')).toHaveLength(2);
+  });
+});
