@@ -222,6 +222,11 @@ so the world shows the answer at once. The host echoes its own replies into the 
 so both copies arrive. The duplicate is harmless: the normaliser ignores a response for a request
 no longer pending.
 
+A wait can also end with no answer at all — see `CONTEXT.md`, "Stale prompt". A turn's `result`,
+a `control_cancel_request` and an agent exit all end the wait, and the normaliser marks the
+transcript item stale. The item carries that truth, so no component has to guess whether a prompt
+is still live.
+
 ### Error codes
 
 The world is validated before the host is asked, with the same rules as the fake backend.

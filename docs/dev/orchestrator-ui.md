@@ -95,6 +95,12 @@ to the plan with Approve and Deny. Deny sends the reason as the agent's tool res
 agent carries on with it. The expanded node and the document tab render the same
 `DecisionCard`, so the two agree.
 
+A prompt reads one of three ways: open, answered, or stale — see `CONTEXT.md`, "Stale prompt". The
+transcript keeps a stale prompt, showing what was asked and reading "no longer pending", with no
+buttons. The expanded node and the document tab drop it, because both draw from the agent's
+pending request and that is now clear. The UI never works out which of the three applies: the
+backend marks the item stale and takes the request off the agent row.
+
 The panel holds session and document tabs only. A panel link opens a session or a document as
 a tab; `shell/PanelLink.tsx` says why links, not buttons. Every tab carries a phase chip and
 its task id, so two agents' tabs are told apart.

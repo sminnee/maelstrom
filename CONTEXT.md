@@ -185,6 +185,14 @@ comes from the tool name. The wait kind is what makes an answer possible — it 
 `answer`, `approve` or `deny` applies.
 _Avoid_: Blocked, stuck
 
+**Stale prompt**:
+A prompt whose wait ended, and which nobody answered through the orchestrator. The tool was
+approved in the cmux pane, by `mael agent approve`, or by auto-accept; the host resolves the
+request and sends no `control_response`. The user can also interrupt the wait, or the agent can
+stop, before any answer arrives. The normaliser marks the item stale when the wait ends. A stale
+prompt shows what was asked. It never offers a decision.
+_Avoid_: Abandoned, orphaned, expired
+
 **Agent message**:
 One thing a driven agent said, in its own words. Text blocks only — a `thinking` block is
 reasoning the agent did not choose to say, and a `tool_use` block is an action. The daemon keeps
