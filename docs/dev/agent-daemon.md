@@ -400,16 +400,34 @@ spawning — a bad `--model`, an expired login, a `--resume` Claude will not acc
 `{"cmd": "attach", "id": "<agent id>"}` turns the connection into a stream of the agent's raw
 stream-json events, one per line:
 
-1. The retained backlog: up to 200 events, oldest first.
-2. `{"type": "mael_backlog_end"}`.
-3. Live events, as the agent emits them.
-4. `{"type": "mael_agent_exited", "exit_code": N}`, then the stream ends.
+1. `{"type": "mael_agent_detail", "agent": {…}}`: `build_agent_detail` for the agent.
+2. The retained backlog: up to 200 events, oldest first.
+3. `{"type": "mael_backlog_end"}`.
+4. Live events, as the agent emits them.
+5. `{"type": "mael_agent_exited", "exit_code": N}`, then the stream ends.
 
-An attach to an agent that has already exited sends 1, 2 and 4. An unknown id gets one
+An attach to an agent that has already exited sends 1, 2, 3 and 5. An unknown id gets one
 `{"error": "no such agent: <id>"}` line, and the stream ends.
 
-The two `mael_*` markers are the daemon's own, not the agent's. Neither reaches
-`apply_event`.
+The opening detail frame says what the agent is waiting on, so a client does not infer it from
+the replayed events. Its `request_id` is what makes the wait answerable: a `list` row carries no
+request id, so a row alone never is.
+
+The three `mael_*` markers are the daemon's own, not the agent's. None reaches `apply_event`.
+
+### The daemon echoes what it writes
+
+Every message the daemon writes to a child also goes on that child's event stream: a `user` turn
+from `say`, and the `control_response` from `approve`, `deny` and `answer`. So an attached client
+learns of a reply it did not make itself, and needs no local guessing.
+
+This is what lets a client hold no opinion about how a wait is answered — the orchestrator server
+relies on it. It also keeps the derived state fresh: `apply_event` clears the pending request on
+the `control_response`, so `list` and `show` stop advertising a wait the moment it is answered
+rather than at the child's next event.
+
+A CLI that echoed its own `control_response` would be harmless: `apply_event` ignores a response
+whose `request_id` is not the pending one.
 
 Replies the daemon writes to the agent appear in the stream too, and in the backlog: the child
 does not repeat a `control_response`, so without this a client that did not send the reply would
@@ -426,7 +444,7 @@ stream twice, and the orchestrator's normaliser mints a fresh item id per copy.
 | What | Kept |
 |---|---|
 | Raw events per agent | The last 200 |
-| Agent messages | The last 5, each up to 8000 characters |
+| What the agent last said | One message, up to 8000 characters |
 | Events queued for one slow attached client | 1000; the oldest is dropped silently past that |
 | Agent state | Spawn record on disk; events and live state in memory |
 
@@ -488,8 +506,10 @@ tightens a record it finds loose.
   otherwise mark the record `exited` and stop the next daemon resuming it.
 
 The retained event buffer is still the only history the daemon itself reads. Reading the
-transcript back through the normaliser is a follow-up, not built. `show` renders the last 3
-messages, and each is kept whole up to 8000 characters.
+transcript back through the normaliser is a follow-up, not built. The daemon keeps only the last
+thing the agent said, up to 8000 characters: a row shows one line of it, `show` shows it whole,
+and a plan review with no plan in its input falls back to it. The conversation itself is the
+session transcript on disk.
 
 ## Rejected alternatives
 

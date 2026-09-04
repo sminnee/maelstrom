@@ -163,8 +163,8 @@ def _print_detail(detail: dict[str, Any]) -> None:
         if detail.get(key):
             click.echo(f"{key + ':':<9} {detail[key]}")
 
-    for message in detail.get("messages", []):
-        click.echo(f"\n{message}")
+    if detail.get("message"):
+        click.echo(f"\n{detail['message']}")
 
     if detail.get("plan"):
         click.echo(f"\nPlan:\n{detail['plan']}")

@@ -19,7 +19,6 @@ from maelstrom.agent_model import (
     EXITED,
     IDLE,
     MESSAGE_CHARS,
-    MESSAGE_LIMIT,
     MESSAGE_SUMMARY_CHARS,
     PROCESSING,
     AgentSpec,
@@ -284,13 +283,13 @@ def test_every_row_key_is_always_present():
     assert keys == set(build_agent_row(replay("plan-review.jsonl")))
 
 
-# --- retained messages -----------------------------------------------------
+# --- what the agent last said ------------------------------------------------
 
 
-def test_the_agent_keeps_what_it_said():
+def test_the_agent_keeps_what_it_last_said():
     """A row that says only "processing" cannot say what the agent is doing."""
     state = replay("normal-turn.jsonl")
-    assert state.messages == ("Hello there, friend",)
+    assert state.last_message == "Hello there, friend"
 
 
 def test_a_tool_call_is_not_a_message():
@@ -303,7 +302,7 @@ def test_a_tool_call_is_not_a_message():
             "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {}}]},
         },
     )
-    assert state.messages == ()
+    assert state.last_message == ""
 
 
 def test_a_thinking_block_is_not_a_message():
@@ -316,7 +315,7 @@ def test_a_thinking_block_is_not_a_message():
             "message": {"content": [{"type": "thinking", "thinking": "hmm"}]},
         },
     )
-    assert state.messages == ()
+    assert state.last_message == ""
 
 
 def _say(state: AgentState, text: str) -> AgentState:
@@ -326,18 +325,17 @@ def _say(state: AgentState, text: str) -> AgentState:
     )
 
 
-def test_only_the_last_few_messages_are_kept():
-    state = AgentState(agent_id="a1", cwd="/tmp/x")
-    for i in range(MESSAGE_LIMIT + 3):
-        state = _say(state, f"line {i}")
-    assert len(state.messages) == MESSAGE_LIMIT
-    assert state.messages[-1] == f"line {MESSAGE_LIMIT + 2}"
+def test_only_the_last_message_is_kept():
+    """Claude's session transcript holds the conversation; this holds one message."""
+    state = _say(AgentState(agent_id="a1", cwd="/tmp/x"), "first")
+    state = _say(state, "second")
+    assert state.last_message == "second"
 
 
 def test_a_huge_message_is_truncated_at_capture():
-    """Bounding the count alone would still let one agent hold megabytes."""
+    """One agent must not be able to hold megabytes in the daemon."""
     state = _say(AgentState(agent_id="a1", cwd="/tmp/x"), "x" * (MESSAGE_CHARS * 3))
-    assert len(state.messages[0]) <= MESSAGE_CHARS
+    assert len(state.last_message) <= MESSAGE_CHARS
 
 
 def test_a_message_arriving_during_a_wait_is_still_kept():
@@ -345,7 +343,7 @@ def test_a_message_arriving_during_a_wait_is_still_kept():
     state = replay("question-unanswered.jsonl", stop_before_control=True)
     state = _say(state, "while you decide, here is the context")
     assert state.status == "awaiting-question"
-    assert state.messages[-1] == "while you decide, here is the context"
+    assert state.last_message == "while you decide, here is the context"
 
 
 def test_the_row_shows_what_the_agent_last_said():
@@ -417,11 +415,11 @@ def test_detail_has_no_plan_when_the_wait_is_not_a_plan_review():
     assert build_agent_detail(state)["plan"] == ""
 
 
-def test_detail_shows_the_last_messages_in_full():
+def test_detail_shows_the_last_message_in_full():
     """A summary is a table's job. ``show`` is where the whole text belongs."""
     long_text = "y" * (MESSAGE_SUMMARY_CHARS * 4)
     state = _say(AgentState(agent_id="a1", cwd="/tmp/x"), long_text)
-    assert build_agent_detail(state)["messages"] == [long_text]
+    assert build_agent_detail(state)["message"] == long_text
 
 
 def test_detail_of_an_idle_agent_still_has_every_key():
