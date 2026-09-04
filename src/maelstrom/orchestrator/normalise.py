@@ -80,22 +80,31 @@ def context_for_agent(agent_id: str, seed: int = 0) -> NormaliseContext:
 def apply_agent_detail(
     state: ClientState, ctx: NormaliseContext, detail: Dict, now: str
 ) -> Normalised:
-    """The events for the host's opening detail frame.
+    """The events that make the world agree with the host's opening detail frame.
 
-    A wait the world does not hold is raised here, so a wait whose
-    ``control_request`` fell out of the host's replay window is still
-    answerable. Applied after the backlog: a wait the backlog carried is
-    already held, and raising it again would duplicate the item and its
-    attention.
+    ``agent_model.build_agent_detail`` always writes ``request_id``, empty
+    when the agent waits on nothing, so an empty id ends the wait the world
+    holds rather than saying nothing. See ``docs/dev/orchestrator-server.md``,
+    "Agents".
+
+    Applied after the backlog, so a wait the backlog just replayed is
+    legitimately held by both and the frame says nothing about it.
     """
     agent = state["world"]["agents"].get(ctx.agent_id)
     if agent is None or agent["parent"]:
         # A subagent's asks are the parent's waits, whatever its detail says.
         return Normalised([], ctx)
     request_id = _str(detail.get("request_id"))
-    if not request_id or agent["pendingRequestId"] == request_id:
+    held = agent["pendingRequestId"] or ""
+    if held == request_id:
         return Normalised([], ctx)
     out = _Emitter(state, agent, ctx, now)
+    if held:
+        # A wait the frame does not name is over, whatever replaces it.
+        # ``request`` overwrites the pending without retiring the old item.
+        out.end_wait()
+    if not request_id:
+        return out.done()
     out.request(
         request_id,
         "",

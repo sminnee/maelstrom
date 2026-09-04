@@ -688,11 +688,19 @@ def waiting_on(harness, fixture: str, **row) -> tuple[list[dict], list[dict]]:
     The host knows what the agent waits on, so the fake is told too: that is
     what it builds its echoed reply from, as the real daemon builds one from
     its own ``PendingRequest``.
+
+    The row's ``state`` and ``waiting_on`` follow that wait, because the real
+    host's do: ``build_agent_row`` reports the pending request's kind and its
+    summary. A row left saying ``idle`` under a live wait is a shape no host
+    produces, and the server reads such a row as a wait that is over.
     """
     backlog, rest = split_at_control_response(read_fixture(fixture))
+    pending = pending_from(backlog)
+    row.setdefault("state", pending.wait_kind)
+    row.setdefault("waiting_on", pending.summary)
     harness.daemon.rows["ag1"] = agent_row(**row)
     harness.daemon.backlog["ag1"] = backlog
-    harness.daemon.pending["ag1"] = pending_from(backlog)
+    harness.daemon.pending["ag1"] = pending
     return backlog, rest
 
 
@@ -2120,3 +2128,110 @@ def test_a_subagent_that_comes_back_live_is_revived_without_an_attach(harness):
     assert first["state"] == "exited"
     assert back["exitCode"] is None
     assert attached == ["ag1"]
+
+
+def test_a_wait_the_hosts_row_no_longer_shows_is_closed(harness):
+    """No gap marker, and the host's row still wins.
+
+    The host runs the same fold, closer to the source. Its row says the agent
+    waits on nothing, so the wait the world holds is over however the events
+    that ended it went missing.
+    """
+    waiting_on(harness, "permission-request.jsonl")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                assert (await api.get_json("/api/agents/ag1"))["pendingRequestId"]
+                # The wait ended out of sight: the host's row moved on, and no
+                # event said so.
+                harness.daemon.rows["ag1"]["state"] = "processing"
+                harness.daemon.pending.pop("ag1", None)
+                agent = await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda a: a["pendingRequestId"] is None,
+                )
+                return agent, (await transcript_of(api))["items"]
+
+    agent, items = run(scenario())
+    assert agent["state"] == "processing"
+    request = next(i for i in items if i["type"] == "permission_request")
+    assert request["stale"] is True
+
+
+def test_a_wait_the_hosts_row_still_shows_is_left_alone(harness):
+    """The row agrees with the world, so a reconciliation changes nothing.
+
+    Clearing a live wait would take the prompt off the screen with no one to
+    answer it.
+    """
+    waiting_on(harness, "permission-request.jsonl")
+
+    async def scenario():
+        async with harness.client() as api:
+            before = await api.get_json("/api/agents/ag1")
+            await harness.orch.refresh_agents()
+            await harness.orch.refresh_agents()
+            return before, await api.get_json("/api/agents/ag1")
+
+    before, after = run(scenario())
+    assert before["pendingRequestId"]
+    assert after["pendingRequestId"] == before["pendingRequestId"]
+    assert after["state"] == "awaiting-permission"
+
+
+def test_a_wait_a_dropped_stream_lost_the_answer_to_is_closed(harness):
+    """A dropped stream reports no gap, and the answer is behind the cursor.
+
+    The stream dies under a live wait, so the watch and its context go with
+    it. The agent moves on, and the re-attach replays nothing that says so.
+    The world still comes clean.
+    """
+    waiting_on(harness, "permission-request.jsonl")
+
+    async def scenario():
+        async with harness.client() as api:
+            assert (await api.get_json("/api/agents/ag1"))["pendingRequestId"]
+            # The stream dies, so the watch and its context go with it.
+            harness.daemon.end_stream("ag1")
+            # The agent answered itself while the server was not listening,
+            # and the backlog no longer carries the request.
+            harness.daemon.rows["ag1"]["state"] = "idle"
+            harness.daemon.pending.pop("ag1", None)
+            harness.daemon.backlog["ag1"] = []
+            await harness.orch.refresh_agents()
+            return await api.get_json("/api/agents/ag1")
+
+    agent = run(scenario())
+    assert agent["pendingRequestId"] is None
+
+
+def test_a_stale_plan_review_takes_its_document_to_stale(harness):
+    """The review bar reads the document, so the document has to go stale too."""
+    waiting_on(harness, "plan-review-with-plan.jsonl")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                items = (await transcript_of(api))["items"]
+                review = next(i for i in items if i["type"] == "plan_review")
+                harness.daemon.rows["ag1"]["state"] = "idle"
+                harness.daemon.pending.pop("ag1", None)
+                await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda a: a["pendingRequestId"] is None,
+                )
+                document = await api.get_json(f"/api/documents/{review['documentId']}")
+                return review, document
+
+    review, document = run(scenario())
+    assert review["documentId"]
+    assert document["status"] == "stale"

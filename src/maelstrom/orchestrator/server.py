@@ -80,9 +80,6 @@ class AgentWatch:
         self.task: asyncio.Task[None] | None = None
         #: Set once the backlog marker has arrived, or the stream ended first.
         self.caught_up = asyncio.Event()
-        #: The host dropped events mid-stream, so a wait the world holds may
-        #: have ended without this server seeing it.
-        self.gapped = False
 
 
 class Cursor:
@@ -420,26 +417,31 @@ class Orchestrator:
             if agent_id not in self._watches and not is_child:
                 await self._attach(agent_id)
             await self._relink(row)
-            await self._close_wait_lost_in_a_gap(agent_id, state)
+            await self._close_wait_the_host_no_longer_holds(agent_id, state)
         for agent_id, agent in list(agents.items()):
             if agent_id not in rows and agent["state"] != "exited":
                 await self._exit(agent_id, 0)
 
-    async def _close_wait_lost_in_a_gap(self, agent_id: str, state: str) -> None:
-        """End a wait whose answer fell in a gap the host reported.
+    async def _close_wait_the_host_no_longer_holds(
+        self, agent_id: str, state: str
+    ) -> None:
+        """End a wait the world holds that the host's row does not report.
 
-        The world says the agent waits; the host's row says it does not. The
-        events between held the answer, and they are gone, so the wait is
-        ended the way the child ends one it withdraws.
+        The row wins when the two disagree — see ``docs/dev/orchestrator-server.md``,
+        "Agents". The wait ends the way the child ends one it withdraws, so the
+        transcript item goes stale with it.
+
+        Runs after ``_attach``. A watch whose backlog has not landed holds no
+        wait of its own to end, because the frame that raises one is applied
+        at ``BACKLOG_END``, so a slow host costs nothing here.
         """
         watch = self._watches.get(agent_id)
-        if watch is None or not watch.gapped:
+        if watch is None:
             return
         agent = self.world["agents"].get(agent_id)
         request_id = agent["pendingRequestId"] if agent else None
         if not request_id or state.startswith("awaiting-"):
             return
-        watch.gapped = False
         await self._normalise(
             watch, {"type": "control_cancel_request", "request_id": request_id}
         )
@@ -635,8 +637,8 @@ class Orchestrator:
 
         Before any item, the transcript is truncated: its start is not the
         agent's start. Mid-stream, a ``gap`` item stands where the dropped
-        events were, and the next reconciliation checks the wait the world
-        holds, since its answer may be among them.
+        events were. A wait whose answer was among them is closed by
+        :meth:`_close_wait_the_host_no_longer_holds`.
         """
         dropped = event.get("dropped")
         dropped = dropped if isinstance(dropped, int) else 0
@@ -644,7 +646,6 @@ class Orchestrator:
         if not self.transcript_log(agent_id).items:
             self._apply([{"type": "transcript.truncated", "agentId": agent_id}])
             return
-        watch.gapped = True
         out = normalise_gap(self.state.state, watch.ctx, dropped, self.clock())
         await self._emit(watch, out)
 
