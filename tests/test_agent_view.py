@@ -89,6 +89,13 @@ def test_edit_title_is_the_file_path():
     assert tool_call_title(item) == "/tmp/a.py"
 
 
+def test_a_wait_raising_call_draws_nothing():
+    """The wait line that follows renders the prompt, so the call draws no card."""
+    for tool in ("ExitPlanMode", "AskUserQuestion"):
+        item = {"type": "tool_call", "tool": tool, "input": {}}
+        assert classify_tool_call(item) == "wait", tool
+
+
 def test_generic_title_falls_back_to_url_query_description():
     base = {"type": "tool_call", "tool": "WebFetch"}
     assert classify_tool_call(base) == "generic"

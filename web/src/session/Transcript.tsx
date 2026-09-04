@@ -6,6 +6,7 @@ import { PermissionPrompt } from './cards/PermissionPrompt';
 import { QuestionPrompt } from './cards/QuestionPrompt';
 import { ResultLine } from './cards/ResultLine';
 import { ToolCallCard } from './cards/ToolCallCard';
+import { classifyToolCall } from './toolCards';
 import styles from './Transcript.module.css';
 
 export interface TranscriptHandlers {
@@ -23,13 +24,16 @@ export function Transcript({
   items: TranscriptItem[];
   truncatedBefore: boolean;
   handlers?: TranscriptHandlers;
-  /** The wait the expanded card answers. Shown here as an echo, without controls. */
+  /** The wait the expanded card answers, echoed here without controls. */
   deferredRequestId?: string | null;
 }) {
   return (
     <div className={styles.transcript}>
       {truncatedBefore && <div className={styles.note}>Earlier events were not kept.</div>}
       {items.map((item) => {
+        // The wait item that follows renders this prompt in full. An empty
+        // wrapper would still take a gap slot, so the item takes no row at all.
+        if (item.type === 'tool_call' && classifyToolCall(item) === 'wait') return null;
         const deferred =
           deferredRequestId !== null && 'requestId' in item && item.requestId === deferredRequestId;
         return (

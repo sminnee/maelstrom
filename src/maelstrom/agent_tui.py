@@ -171,6 +171,8 @@ def _widget_for(item: TranscriptItem) -> Widget | None:
             return Markdown(item["markdown"])
         return Static(f"you › {item['markdown']}", classes="user", markup=False)
     if kind == "tool_call":
+        if classify_tool_call(item) == "wait":
+            return None
         return ToolCallCard(item)
     if kind in ("question", "permission_request", "plan_review"):
         return WaitLine(item)
