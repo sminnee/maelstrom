@@ -491,6 +491,10 @@ class _Emitter:
             return
         if not answered:
             self.update(pending.item_id, {"stale": True})
+            # The plan's own review bar reads the document, not the transcript
+            # item, so the document has to leave ``awaiting-review`` with it.
+            if pending.document_id:
+                self.document_status(pending.document_id, "stale")
         self.clear(pending.attention_id)
         self.ctx = replace(self.ctx, pending=None)
 

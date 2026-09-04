@@ -3,7 +3,13 @@ import type { AgentId, CommentId, DocumentId, RequestId, TaskId, TranscriptItemI
 export type DocumentKind = 'plan' | 'tasks' | 'pr' | 'review' | 'other';
 
 export type DocumentStatus =
-  'draft' | 'awaiting-review' | 'approved' | 'changes-requested' | 'superseded';
+  | 'draft'
+  | 'awaiting-review'
+  | 'approved'
+  | 'changes-requested'
+  | 'superseded'
+  /** Its review ended with nobody answering — see `CONTEXT.md`, "Stale prompt". */
+  | 'stale';
 
 /**
  * Where a document came from, so the backend knows how approve and request

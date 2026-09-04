@@ -430,7 +430,12 @@ class Emitter {
     this.agent({ pendingRequestId: null, waitingOn: '' });
     const pending = this.ctx.pending;
     if (!pending) return;
-    if (!answered) this.update(pending.itemId, { stale: true });
+    if (!answered) {
+      this.update(pending.itemId, { stale: true });
+      // The plan's own review bar reads the document, not the transcript item,
+      // so the document has to leave `awaiting-review` with it.
+      if (pending.documentId) this.documentStatus(pending.documentId, 'stale');
+    }
     this.clear(pending.attentionId);
     this.ctx.pending = null;
   }
