@@ -4,6 +4,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import type { Attention } from './protocol/attention';
+import type { Agent } from './protocol/entities';
 import { TASK_STATUSES } from './protocol/entities';
 import type { Document } from './protocol/documents';
 import type { FakeServer } from './test/fakeServer';
@@ -725,6 +726,67 @@ describe('the task list', () => {
     await waitFor(() => expect(listRow('NORT-9')).toHaveTextContent('Migrate to Postgres 17'));
   });
 
+  it('leaves a task that names no model inheriting the default', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await goToList(user);
+    await user.click(
+      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
+    );
+
+    // `docs/guide/planning.md` asks for an unset model on execute drafts, so
+    // opening one must not pin it. Saving an unrelated field sends no model.
+    const editor = await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' });
+    await user.click(within(editor).getByText('Advanced'));
+    expect(within(editor).getByLabelText('Model')).toHaveValue('');
+    const title = within(editor).getByLabelText('Title');
+    await user.clear(title);
+    await user.type(title, 'Migrate to Postgres 17');
+    await user.click(within(editor).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const patch = server.requests.filter((r) => r.method === 'PATCH').at(-1);
+    expect(patch!.body).not.toHaveProperty('model');
+  });
+
+  it('can put a task back on the inherited default', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.world.tasks['NORT-9']!.model = 'opus';
+    await goToList(user);
+    await user.click(
+      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
+    );
+
+    const editor = await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' });
+    await user.click(within(editor).getByText('Advanced'));
+    await user.selectOptions(within(editor).getByLabelText('Model'), '');
+    await user.click(within(editor).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const patch = server.requests.filter((r) => r.method === 'PATCH').at(-1);
+    expect(patch!.body).toMatchObject({ model: '' });
+  });
+
+  it('keeps a stored model the shortlist does not name', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    // The editor fetches the task itself, so seeding the stored model here
+    // reaches it: this is a value written before the shortlist existed.
+    server.world.tasks['NORT-9']!.model = 'claude-opus-4-1-20250805';
+    await goToList(user);
+    await user.click(
+      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
+    );
+
+    // The notebook's model field is free-form, so a value this build does not
+    // list is offered rather than dropped — otherwise opening the task would
+    // quietly rewrite it.
+    const editor = await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' });
+    await user.click(within(editor).getByText('Advanced'));
+    expect(within(editor).getByLabelText('Model')).toHaveValue('claude-opus-4-1-20250805');
+  });
+
   it('keeps the advanced fields folded away until they are asked for', async () => {
     const user = userEvent.setup();
     await renderApp();
@@ -941,6 +1003,18 @@ describe('new work', () => {
     return screen.getByRole('dialog', { name: 'New work' });
   }
 
+  /**
+   * The agent this run started, not one the seeded world already held.
+   * The fake host mints a started agent's id with a `new` prefix, and the
+   * seed has free agents of its own — so "the agent with no task" would
+   * find one of those and pass whatever the form sent.
+   */
+  function startedAgent(server: FakeServer): Agent {
+    const started = Object.values(server.world.agents).filter((a) => a.id.startsWith('new'));
+    expect(started).toHaveLength(1);
+    return started[0]!;
+  }
+
   it('is reachable from the top bar in both views', async () => {
     const user = userEvent.setup();
     await renderApp();
@@ -1019,9 +1093,30 @@ describe('new work', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
     // No task was written: a free agent is work with no notebook entry.
     expect(Object.keys(server.world.tasks)).toHaveLength(before);
-    const free = Object.values(server.world.agents).find((a) => !a.taskId);
-    expect(free).toBeDefined();
-    expect(server.world.desk[`agent:${free!.id}`]).toBeDefined();
+    const free = startedAgent(server);
+    expect(free.taskId).toBe('');
+    expect(server.world.desk[`agent:${free.id}`]).toBeDefined();
+    // Unchosen, a free agent runs the same defaults a new task does.
+    expect(free.permissionMode).toBe('plan');
+    expect(free.model).toBe('opus');
+  });
+
+  it('starts a free agent under the mode and model the form chose', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const form = await openNewWork(user);
+    await user.selectOptions(within(form).getByLabelText('Project'), 'northwind');
+    await user.click(within(form).getByRole('radio', { name: 'Free agent' }));
+    await user.type(within(form).getByLabelText('Branch'), 'feat/orders');
+    await user.type(within(form).getByLabelText('What needs doing?'), 'Read the logs');
+    await user.selectOptions(within(form).getByLabelText('Mode'), 'auto');
+    await user.selectOptions(within(form).getByLabelText('Model'), 'fable');
+    await user.click(within(form).getByRole('button', { name: 'Start' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+    const free = startedAgent(server);
+    expect(free.permissionMode).toBe('auto');
+    expect(free.model).toBe('fable');
   });
 
   it('never offers to write the task twice when only its launch failed', async () => {

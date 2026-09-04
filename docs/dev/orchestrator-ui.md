@@ -197,15 +197,17 @@ The top bar's "New" control opens `newwork/NewWork.tsx`, in both views so the af
 moves. The form is two steps in one dialog.
 
 - **Step 1** takes a project, a kind — task or free agent — and the prose that says what the work
-  is. The prose is the only field a task needs. A free agent also names a branch, and may name a
+  is. The prose is the only field a task needs. A free agent also names a branch, a mode and a
   model.
 - **Step 2, tasks only.** "Next" calls `useInferTask`; the step shows the inferred title, branch
-  and command, every one editable. The prose becomes the task's content unchanged. "Save" writes
+  and command, every one editable. A task's model starts unset, so it inherits the user's Claude
+  Code default until Advanced names one. The prose becomes the task's content unchanged. "Save" writes
   the task as `todo`; "Start" writes it and launches it. Both put it on the desk. "Back" returns
   to step 1 with the prose intact.
 - **Free agents skip step 2.** The branch combobox offers the branches of open worktrees in the
   chosen project and keeps anything else typed, so a branch with no worktree gets one provisioned.
-  A free agent runs in `normal` mode. "Start" runs `useStartAgent`.
+  Mode and model are dropdowns, starting on `plan` — a new task's own default — and `opus`, the
+  UI's shortlist default. "Start" runs `useStartAgent`.
 
 `ui/Dialog.tsx` and `tasklist/TaskFields.tsx` are shared with the task editor, so the two
 surfaces cannot drift on what a task's fields are.

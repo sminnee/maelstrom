@@ -3,8 +3,11 @@ import { useStartAgent } from '../api/agents';
 import { ApiError } from '../api/http';
 import { useProjects } from '../api/projects';
 import { useCreateTask, useInferTask } from '../api/tasks';
+import type { PermissionMode } from '../protocol/modes';
+import { MODES } from '../protocol/modes';
+import { DEFAULT_MODEL, INHERIT_MODEL } from '../protocol/models';
 import type { TaskDraft } from '../tasklist/TaskFields';
-import { TaskFields } from '../tasklist/TaskFields';
+import { ModeSelect, ModelSelect, TaskFields } from '../tasklist/TaskFields';
 import { useWorktrees } from '../api/worktrees';
 import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
@@ -36,7 +39,11 @@ export function NewWork() {
   const [kind, setKind] = useState<Kind>('task');
   const [draft, setDraft] = useState('');
   const [branch, setBranch] = useState('');
-  const [model, setModel] = useState('');
+  // A free agent's own mode and model. A task takes its mode from inference,
+  // and leaves its model unset: `docs/guide/planning.md` asks for that on
+  // execute drafts, and step 2's Advanced section is where one is chosen.
+  const [mode, setMode] = useState<PermissionMode>(MODES[0]);
+  const [model, setModel] = useState<string>(DEFAULT_MODEL);
   /** The inferred task, once step 2 is reached. `null` means step 1. */
   const [task, setTask] = useState<TaskDraft | null>(null);
 
@@ -69,7 +76,7 @@ export function NewWork() {
       command: inferred.command,
       mode: inferred.mode,
       priority: 'medium',
-      model,
+      model: INHERIT_MODEL,
     });
   };
 
@@ -78,8 +85,8 @@ export function NewWork() {
       project: chosen,
       branch,
       prompt: draft,
-      mode: 'normal',
-      ...(model ? { model } : {}),
+      mode,
+      model,
     });
     close(false);
   };
@@ -118,6 +125,8 @@ export function NewWork() {
           branches={branches}
           model={model}
           setModel={setModel}
+          mode={mode}
+          setMode={setMode}
         />
       )}
 
@@ -187,6 +196,8 @@ function Capture({
   branches,
   model,
   setModel,
+  mode,
+  setMode,
 }: {
   names: string[];
   project: string;
@@ -200,6 +211,8 @@ function Capture({
   branches: string[];
   model: string;
   setModel: (model: string) => void;
+  mode: PermissionMode;
+  setMode: (mode: PermissionMode) => void;
 }) {
   // Document-global, so nothing else on the page may share them.
   const kindName = useId();
@@ -262,8 +275,12 @@ function Capture({
             </datalist>
           </label>
           <label className={dialog.field}>
+            <span>Mode</span>
+            <ModeSelect mode={mode} onChange={setMode} />
+          </label>
+          <label className={dialog.field}>
             <span>Model</span>
-            <input value={model} onChange={(e) => setModel(e.target.value)} />
+            <ModelSelect model={model} onChange={setModel} />
           </label>
         </>
       )}
