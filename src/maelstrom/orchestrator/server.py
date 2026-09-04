@@ -386,7 +386,6 @@ class Orchestrator:
             task_id=link.task_id,
             project=link.project,
             worktree_id=link.worktree_id,
-            phase=link.phase,
         )
         await self.publish(out.events)
         await self._attach(agent_id)
@@ -403,7 +402,6 @@ class Orchestrator:
             task_id=link.task_id,
             project=link.project,
             worktree_id=link.worktree_id,
-            phase=link.phase,
         )
         await self.publish([{"type": "upsert", "kind": "agent", "entity": entity}])
         await self._attach(entity["id"])
@@ -440,7 +438,6 @@ class Orchestrator:
             "taskId": link.task_id,
             "project": link.project,
             "worktreeId": link.worktree_id,
-            "phase": link.phase,
         }
         if linked != agent:
             await self.publish([{"type": "upsert", "kind": "agent", "entity": linked}])

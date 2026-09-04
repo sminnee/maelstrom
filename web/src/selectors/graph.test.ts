@@ -20,11 +20,60 @@ function drawnWorld(parts: Parameters<typeof worldWith>[0]) {
 const byProject = { groupBy: 'project' as const, filters: noFilters() };
 
 describe('deriveGraph', () => {
-  it('a task without an agent is a queued node', () => {
-    const world = drawnWorld({ tasks: [makeTask({ id: 'T1', status: 'todo' })] });
-    const graph = deriveGraph(world, byProject);
-    expect(graph.nodes).toHaveLength(1);
-    expect(graph.nodes[0]).toMatchObject({ id: 'T1', state: 'queued', phase: 'executing' });
+  it('a task without an agent waits: ready when its turn has come, else queued', () => {
+    const ready = drawnWorld({ tasks: [makeTask({ id: 'T1', status: 'todo', actionable: true })] });
+    expect(deriveGraph(ready, byProject).nodes[0]).toMatchObject({
+      id: 'T1',
+      state: 'ready',
+      phase: 'build',
+    });
+    const queued = drawnWorld({
+      tasks: [makeTask({ id: 'T1', status: 'todo', actionable: false })],
+    });
+    expect(deriveGraph(queued, byProject).nodes[0]).toMatchObject({ id: 'T1', state: 'queued' });
+  });
+
+  // A running agent works in one worktree, and that is how two runs are told
+  // apart on a board of many.
+  describe('worktree', () => {
+    it('names the worktree an agent runs in', () => {
+      const world = drawnWorld({
+        tasks: [makeTask({ id: 'T1' })],
+        agents: [makeAgent({ taskId: 'T1', worktreeId: 'northwind-golf' })],
+        worktrees: [makeWorktree({ id: 'northwind-golf', nato: 'golf' })],
+      });
+      expect(deriveGraph(world, byProject).nodes[0]?.worktree?.nato).toBe('golf');
+    });
+
+    it('has none when no agent runs the task', () => {
+      const world = drawnWorld({ tasks: [makeTask({ id: 'T1' })] });
+      expect(deriveGraph(world, byProject).nodes[0]?.worktree).toBeUndefined();
+    });
+  });
+
+  // The node says the project only when nothing else on screen already does:
+  // the lane header names it when grouped by project, and the filter names it
+  // when filtered to one.
+  describe('showProject', () => {
+    const world = drawnWorld({
+      tasks: [makeTask({ id: 'northwind/NORT-7', project: 'northwind' })],
+    });
+    const showProject = (opts: Parameters<typeof deriveGraph>[1]) =>
+      deriveGraph(world, opts).nodes[0]!.showProject;
+
+    it('is false when the lane header names the project', () => {
+      expect(showProject(byProject)).toBe(false);
+    });
+
+    it('is false when the project filter names the project', () => {
+      const filters = { ...noFilters(), project: 'northwind' };
+      expect(showProject({ groupBy: 'none', filters })).toBe(false);
+    });
+
+    it('is true when neither the lane nor the filter names it', () => {
+      expect(showProject({ groupBy: 'none', filters: noFilters() })).toBe(true);
+      expect(showProject({ groupBy: 'branch', filters: noFilters() })).toBe(true);
+    });
   });
 
   it('follows becomes an edge from the followed task to the follower', () => {

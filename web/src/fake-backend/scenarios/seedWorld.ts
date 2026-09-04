@@ -4,7 +4,7 @@ import type { Document } from '../../protocol/documents';
 import type { Agent, Project, Task, Worktree } from '../../protocol/entities';
 import type { World } from '../../protocol/events';
 import type { AgentId } from '../../protocol/ids';
-import { isActionable, phaseForCommand } from '../../protocol/phase';
+import { isActionable } from '../../protocol/phase';
 import type { Transcript, TranscriptItem } from '../../protocol/transcript';
 
 /** The simulated clock starts here. Everything seeded is stamped before it. */
@@ -82,7 +82,6 @@ function task(spec: TaskSpec): Task {
     log: [],
     created,
     updated: created,
-    phase: phaseForCommand(command),
     actionable: false,
   };
 }
@@ -100,7 +99,6 @@ function agent(id: string, t: Task, worktreeId: string, over: Partial<Agent> = {
     taskId: t.id,
     project: t.project,
     worktreeId,
-    phase: t.phase,
     exitCode: null,
     pendingRequestId: null,
     ...over,
@@ -126,7 +124,6 @@ function freeAgent(
     taskId: '',
     project,
     worktreeId,
-    phase: 'executing',
     exitCode: null,
     pendingRequestId: null,
     ...over,
@@ -261,6 +258,18 @@ export function seedWorld(): Seed {
       parent: 'linear.NORT-7',
       follows: ['NORT-7'],
       createdMinutesAgo: 55,
+      content: `Export an order as CSV from the orders table.
+
+## Seams under test
+
+The HTTP endpoint. One fixture per column type, asserted through the response
+body rather than the query builder.
+
+## Steps
+
+- Add the route and its serialiser.
+- Stream the rows so a large export holds memory flat.
+`,
     }),
     // northwind: executing, then a finaliser waiting on it
     task({

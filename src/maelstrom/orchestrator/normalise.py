@@ -245,7 +245,6 @@ def revive_agent(
     task_id: str,
     project: str,
     worktree_id: str,
-    phase: str,
 ) -> Normalised:
     """The events for an exited agent that has come back under its own id.
 
@@ -269,7 +268,6 @@ def revive_agent(
             "taskId": task_id,
             "project": project,
             "worktreeId": worktree_id,
-            "phase": phase,
         }
     )
     for item in state["world"]["attention"].values():

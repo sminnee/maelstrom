@@ -9,7 +9,7 @@ import {
   normaliseStreamEvent,
   reviveAgent,
 } from '../../protocol/normalise';
-import { isActionable } from '../../protocol/phase';
+import { isActionable, phaseForCommand } from '../../protocol/phase';
 import type { ClientState } from '../../protocol/reducer';
 import { applyEvent } from '../../protocol/reducer';
 import type { Beat } from './scripts';
@@ -209,7 +209,10 @@ class Run {
     if (cursor.pending.length === 0) {
       if (cursor.beats.length === 0) {
         const task = this.state.world.tasks[current.taskId];
-        cursor = { ...cursor, beats: task ? scriptFor(current.phase, task, this.rng) : [] };
+        cursor = {
+          ...cursor,
+          beats: task ? scriptFor(phaseForCommand(task.command) ?? 'build', task, this.rng) : [],
+        };
       }
       const beat = cursor.beats[cursor.beatIndex];
       if (!beat) {
@@ -392,7 +395,6 @@ class Run {
       taskId: task.id,
       project: task.project,
       worktreeId: worktree?.id ?? '',
-      phase: task.phase,
       exitCode: null,
       pendingRequestId: null,
     };

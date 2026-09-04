@@ -15,6 +15,8 @@
   --n3: #2a2f3a;
   --n4: #3d4454;
   --n5: #5f6878;
+  /* The faintest text that still clears AA on `--bg-raised`. */
+  --n5-text: #7a8495;
   --n6: #9aa3b5;
   --n8: #e6e8ee;
   --n9: #f7f8fa;
@@ -26,10 +28,10 @@
   --hue-attention: #ff9f43;
   --hue-danger: #f7768e;
   --hue-ok: #9ece6a;
-  --hue-shaping: #b58cf6;
-  --hue-planning: #6ea8fe;
-  --hue-executing: #2fc4b2;
-  --hue-finalising: #f0b35a;
+  --hue-shape: #b58cf6;
+  --hue-plan: #6ea8fe;
+  --hue-build: #2fc4b2;
+  --hue-land: #f0b35a;
 
   /* Semantic: surfaces and lines. */
   --bg: var(--n1);
@@ -41,7 +43,7 @@
   /* Semantic: text. */
   --fg: var(--n8);
   --fg-muted: var(--n6);
-  --fg-faint: var(--n5);
+  --fg-faint: var(--n5-text);
   --fg-on-hue: var(--black);
 
   /* Semantic: meaning. */
@@ -49,10 +51,10 @@
   --attention: var(--hue-attention);
   --danger: var(--hue-danger);
   --ok: var(--hue-ok);
-  --phase-shaping: var(--hue-shaping);
-  --phase-planning: var(--hue-planning);
-  --phase-executing: var(--hue-executing);
-  --phase-finalising: var(--hue-finalising);
+  --phase-shape: var(--hue-shape);
+  --phase-plan: var(--hue-plan);
+  --phase-build: var(--hue-build);
+  --phase-land: var(--hue-land);
   /* The current phase's hue: `base.css` sets it from `[data-phase]`. */
   --phase: var(--fg-faint);
 
@@ -91,13 +93,13 @@
     --fg-on-hue: var(--white);
 
     --hue-accent: #3b6fd6;
-    --hue-attention: #c9650c;
+    --hue-attention: #b65b0b;
     --hue-danger: #c8324f;
-    --hue-ok: #4a8a1f;
-    --hue-shaping: #7c4fd6;
-    --hue-planning: #2f6fd0;
-    --hue-executing: #148f80;
-    --hue-finalising: #b57a12;
+    --hue-ok: #46821d;
+    --hue-shape: #7c4fd6;
+    --hue-plan: #2f6fd0;
+    --hue-build: #128274;
+    --hue-land: #9e6a10;
 
     --shadow-card: 0 16px 40px rgba(20, 24, 34, 0.18), 0 1px 3px rgba(20, 24, 34, 0.12);
   }

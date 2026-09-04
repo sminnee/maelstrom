@@ -49,7 +49,6 @@ export function makeTask(over: Partial<Task> = {}): Task {
     log: [],
     created: '2026-09-01T00:00:00Z',
     updated: '2026-09-01T00:00:00Z',
-    phase: 'executing',
     actionable: true,
     ...over,
   };
@@ -68,7 +67,6 @@ export function makeAgent(over: Partial<Agent> = {}): Agent {
     taskId: 'NORT-7',
     project: 'northwind',
     worktreeId: 'northwind-alpha',
-    phase: 'executing',
     exitCode: null,
     pendingRequestId: null,
     ...over,

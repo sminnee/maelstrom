@@ -1,6 +1,7 @@
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import type { GraphNode } from '../selectors/graph';
 import { nodeTitle } from '../selectors/graph';
+import { phaseLabel } from '../protocol/phase';
 import { describeState } from '../selectors/status';
 import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
@@ -21,17 +22,14 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
       className={styles.node}
       data-testid="task-node"
       data-task-id={node.id}
-      data-phase={node.phase}
+      data-phase={node.phase ?? undefined}
       data-state={node.state}
       data-focused={focused || undefined}
       data-expanded={expanded || undefined}
     >
       <Handle type="target" position={Position.Left} className={styles.handle} />
-      <div className={styles.title}>{nodeTitle(node)}</div>
-      <div className={styles.line}>
-        <span className={styles.id}>{nodeIdLine(node)}</span>
-        <span className={styles.phase}>{node.phase}</span>
-        <span className={styles.spacer} />
+      <div className={styles.head}>
+        <span className={styles.title}>{nodeTitle(node)}</span>
         {node.state === 'needs-attention' &&
           (documentId ? (
             <PanelLink
@@ -57,7 +55,7 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
           ))}
         {node.state === 'done' && <span className={styles.tick}>✓</span>}
       </div>
-      <div className={styles.foot}>
+      <div className={styles.status}>
         <span className={styles.dot} aria-hidden="true" />
         {node.reason ? (
           <span className={styles.reason}>{node.reason}</span>
@@ -65,12 +63,20 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
           <span className={styles.state}>{describeState(node.task, node.agent)}</span>
         )}
       </div>
+      <div className={styles.meta}>
+        {node.showProject && node.task && (
+          <span className={styles.project}>{node.task.project}</span>
+        )}
+        <span className={styles.id}>{nodeIdLine(node)}</span>
+        {node.worktree && <span className={styles.worktree}>{node.worktree.nato}</span>}
+        {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
+      </div>
       <Handle type="source" position={Position.Right} className={styles.handle} />
     </div>
   );
 }
 
-/** The id line: a task's own id, or the head of a free agent's id. */
+/** The id line: a task's bare notebook id, or the head of a free agent's id. */
 function nodeIdLine(node: GraphNode): string {
-  return node.task ? node.id : node.id.slice(0, 8);
+  return node.task ? node.task.notebookId : node.id.slice(0, 8);
 }

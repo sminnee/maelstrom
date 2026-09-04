@@ -5,7 +5,7 @@ import type { Agent, Phase, Task, Worktree } from '../protocol/entities';
 import type { World } from '../protocol/events';
 import type { TaskId } from '../protocol/ids';
 import type { NodeState } from '../protocol/phase';
-import { nodeState } from '../protocol/phase';
+import { nodeState, phaseForCommand } from '../protocol/phase';
 import type { Filters, GroupBy } from './filters';
 import { branchKey } from './filters';
 
@@ -22,11 +22,18 @@ export interface GraphNode {
   /** Where a freeAgent gets its lane, branch and name. */
   worktree: Worktree | undefined;
   state: NodeState;
-  phase: Phase;
+  /** Null on a freeAgent: with no task there is no command to read a phase from. */
+  phase: Phase | null;
   groupId: string;
   attention: Attention[];
   /** One line under the title saying why the node needs the user, else ''. */
   reason: string;
+  /**
+   * Does the node have to name its own project. False when something else on
+   * screen already does: the lane header when grouped by project, the filter
+   * when filtered to one. The node's width is scarce, so it never repeats.
+   */
+  showProject: boolean;
 }
 
 export interface GraphGroup {
@@ -121,12 +128,13 @@ export function deriveGraph(world: World, opts: GraphOptions): Graph {
       kind: 'task',
       task,
       agent,
-      worktree: undefined,
+      worktree: agent ? world.worktrees[agent.worktreeId] : undefined,
       state: nodeState(task, agent, attention),
-      phase: task.phase,
+      phase: phaseForCommand(task.command),
       groupId,
       attention,
       reason: attention[0]?.summary ?? '',
+      showProject: opts.groupBy !== 'project' && !opts.filters.project,
     });
   }
 
@@ -150,10 +158,11 @@ export function deriveGraph(world: World, opts: GraphOptions): Graph {
       agent,
       worktree,
       state: nodeState(undefined, agent, attention),
-      phase: agent.phase,
+      phase: null,
       groupId,
       attention,
       reason: attention[0]?.summary ?? '',
+      showProject: opts.groupBy !== 'project' && !opts.filters.project,
     });
   }
 

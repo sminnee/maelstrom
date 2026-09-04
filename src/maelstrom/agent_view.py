@@ -105,7 +105,6 @@ def _blank_agent(agent_id: str) -> Agent:
         "taskId": "",
         "project": "",
         "worktreeId": "",
-        "phase": "",
         "exitCode": None,
         "pendingRequestId": None,
     }

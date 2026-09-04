@@ -159,7 +159,7 @@ export function scriptFor(phase: Phase, task: Task, rng: Rng): Beat[] {
   const e1 = pick(rng, EDITS);
   const e2 = pick(rng, EDITS);
   switch (phase) {
-    case 'shaping':
+    case 'shape':
       return [
         say('Reading the brief and the code it touches.'),
         read(pick(rng, files)),
@@ -171,7 +171,7 @@ export function scriptFor(phase: Phase, task: Task, rng: Rng): Beat[] {
           document: { kind: 'tasks', title: 'tasks.md', markdown: tasksMarkdown(task) },
         },
       ];
-    case 'planning':
+    case 'plan':
       return [
         say('Reading the brief and the code it touches.'),
         read(pick(rng, files)),
@@ -181,7 +181,7 @@ export function scriptFor(phase: Phase, task: Task, rng: Rng): Beat[] {
         say('Plan approved. Promoting the tasks and handing over.'),
         { kind: 'finish' },
       ];
-    case 'executing':
+    case 'build':
       return [
         say('Starting on the task. Red first.'),
         read(pick(rng, files)),
@@ -196,7 +196,7 @@ export function scriptFor(phase: Phase, task: Task, rng: Rng): Beat[] {
           document: { kind: 'pr', title: 'PR description', markdown: prMarkdown(task) },
         },
       ];
-    case 'finalising':
+    case 'land':
       return [
         say('Watching CI on the PR.'),
         bash(ciRun(false, rng)),

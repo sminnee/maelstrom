@@ -122,6 +122,15 @@ describe('the expanded node', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('shows the task brief as markdown, collapsed', async () => {
+    await renderApp();
+    clickNode('NORT-7.1');
+    const brief = within(expanded()).getByTestId('task-content');
+    // Markdown, not the raw source: the heading is a heading.
+    expect(within(brief).getByRole('heading', { name: 'Seams under test' })).toBeInTheDocument();
+    expect(brief).toHaveAttribute('data-expanded', 'false');
+  });
+
   it('approving a plan from the expanded node clears the attention on the node and the chip', async () => {
     const user = userEvent.setup();
     await renderApp();

@@ -12,7 +12,6 @@ from maelstrom.orchestrator.world_build import (
     diff_kind,
     link_agent,
     parse_agent_state,
-    phase_for_command,
     project_entity,
     split_task_key,
     task_entity,
@@ -21,21 +20,6 @@ from maelstrom.orchestrator.world_build import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
-
-
-@pytest.mark.parametrize(
-    "command, phase",
-    [
-        ("shape", "shaping"),
-        ("plan-task", "planning"),
-        ("plan-next-step", "planning"),
-        ("watch-pr", "finalising"),
-        ("", "executing"),
-        ("code-review", "executing"),
-    ],
-)
-def test_phase_for_command(command, phase):
-    assert phase_for_command(command) == phase
 
 
 TASK_MD = """---
@@ -70,7 +54,7 @@ Do the export.
 """
 
 
-def test_task_entity_mirrors_the_frontmatter_and_derives_phase_and_actionable():
+def test_task_entity_mirrors_the_frontmatter_and_derives_actionable():
     task = model.Task.from_markdown(TASK_MD, status="in-progress")
     entity = task_entity(task, actionable=False)
     assert entity["id"] == "northwind/NORT-7.2"
@@ -78,7 +62,6 @@ def test_task_entity_mirrors_the_frontmatter_and_derives_phase_and_actionable():
     assert entity["project"] == "northwind"
     assert entity["status"] == "in-progress"
     assert entity["command"] == "plan-task"
-    assert entity["phase"] == "planning"
     assert entity["actionable"] is False
     assert entity["follows"] == ["northwind/NORT-7.1"]
     assert entity["parent"] == "NORT-7"
@@ -197,7 +180,6 @@ def test_agent_entity_from_a_live_row():
         task_id="NORT-7",
         project="northwind",
         worktree_id="northwind-alpha",
-        phase="executing",
     )
     assert entity["id"] == "a1"
     assert entity["state"] == "idle"
@@ -208,14 +190,11 @@ def test_agent_entity_from_a_live_row():
     assert entity["exitCode"] is None
     assert entity["pendingRequestId"] is None
     assert entity["taskId"] == "NORT-7"
-    assert entity["phase"] == "executing"
 
 
 def test_agent_entity_parses_the_exit_code_out_of_the_row_state():
     row = build_agent_row(mark_exited(replay("normal-turn.jsonl"), 3))
-    entity = agent_entity(
-        row, task_id="", project="", worktree_id="", phase="executing"
-    )
+    entity = agent_entity(row, task_id="", project="", worktree_id="")
     assert entity["state"] == "exited"
     assert entity["exitCode"] == 3
 
@@ -247,19 +226,13 @@ def test_link_agent_finds_the_worktree_by_cwd_and_the_task_by_session():
     assert link.task_id == "northwind/NORT-7"
     assert link.project == "northwind"
     assert link.worktree_id == "northwind-alpha"
-    assert link.phase == "planning"
 
 
-def test_link_agent_with_no_match_is_executing_and_unlinked():
+def test_link_agent_with_no_match_is_unlinked():
     link = link_agent(
         {"cwd": "/private/tmp", "session": "nope"}, worktrees={}, tasks={}
     )
-    assert (link.task_id, link.project, link.worktree_id, link.phase) == (
-        "",
-        "",
-        "",
-        "executing",
-    )
+    assert (link.task_id, link.project, link.worktree_id) == ("", "", "")
 
 
 def test_diff_kind_upserts_new_and_changed_and_removes_gone():

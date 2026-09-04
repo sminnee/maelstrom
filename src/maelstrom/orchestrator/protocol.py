@@ -81,7 +81,6 @@ class Task(TypedDict):
     log: list[TaskLogEntry]
     created: str
     updated: str
-    phase: str
     actionable: bool
 
 
@@ -99,7 +98,6 @@ class Agent(TypedDict):
     taskId: str
     project: str
     worktreeId: str
-    phase: str
     exitCode: int | None
     pendingRequestId: str | None
 
