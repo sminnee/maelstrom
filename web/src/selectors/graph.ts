@@ -47,6 +47,11 @@ export interface GraphOptions {
   filters: Filters;
 }
 
+/** Whether an agent is still running. An exited one draws nothing by itself. */
+export function isLive(agent: Agent | undefined): boolean {
+  return agent !== undefined && agent.state !== 'exited';
+}
+
 /** The agent to show for a task: a live one first, else the most recent. */
 export function agentForTask(world: World, taskId: TaskId): Agent | undefined {
   const agents = Object.values(world.agents).filter((a) => a.taskId === taskId);
@@ -75,8 +80,12 @@ export function filteredTasks(world: World, filters: Filters): Task[] {
 
 /** Everything the canvas draws, derived from the world plus client state. */
 export function deriveGraph(world: World, opts: GraphOptions): Graph {
-  // The canvas draws the desk: what the user has put on it, and nothing else.
-  const tasks = filteredTasks(world, opts.filters).filter((t) => deskIdForTask(t.id) in world.desk);
+  // Drawn when it is on the desk, or its agent is live. The liveness half is
+  // what puts running work on the canvas before the server's auto-join has
+  // round-tripped, and what keeps it there if the entry is removed early.
+  const tasks = filteredTasks(world, opts.filters).filter(
+    (t) => deskIdForTask(t.id) in world.desk || isLive(agentForTask(world, t.id)),
+  );
 
   const groups = new Map<string, GraphGroup>();
   const nodes: GraphNode[] = [];
