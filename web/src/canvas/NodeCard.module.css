@@ -134,6 +134,7 @@
   background: var(--danger);
 }
 .stateText {
+  flex: none;
   font-weight: 500;
 }
 .status[data-state='needs-attention'] .stateText {
@@ -145,6 +146,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* The settable status sits at the right end of the strip; the reason yields. */
+.taskStatus {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
 }
 /*
  * The brief. Collapsed to about four lines so the card stays scannable, and the

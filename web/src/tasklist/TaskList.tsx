@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import type { TaskRow } from '../api/types';
 import { useAddToDesk, useRemoveFromDesk } from '../api/desk';
 import { useSetStatus } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
@@ -11,6 +10,7 @@ import { describeState } from '../selectors/status';
 import { listTasks } from '../selectors/taskList';
 import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
+import { StatusPicker } from '../ui/StatusPicker';
 import styles from './TaskList.module.css';
 
 /** Every task in the world, and the one place the desk is edited. */
@@ -120,7 +120,7 @@ export function TaskList() {
               <td>{task.project}</td>
               <td className={styles.mono}>{task.branch}</td>
               <td>
-                <StatusCell
+                <StatusPicker
                   task={task}
                   picking={picking === task.id}
                   onPick={() => setPicking(task.id)}
@@ -159,66 +159,5 @@ export function TaskList() {
         </tbody>
       </table>
     </div>
-  );
-}
-
-/**
- * The status, as text until it is clicked, then a native select. A move the
- * server refuses shows its message in the cell.
- *
- * Native, not a popover: the view scrolls under `overflow: auto`.
- */
-function StatusCell({
-  task,
-  picking,
-  onPick,
-  onDone,
-  onChange,
-}: {
-  task: TaskRow;
-  picking: boolean;
-  onPick: () => void;
-  onDone: () => void;
-  onChange: (status: TaskStatus) => void | Promise<unknown>;
-}) {
-  const [error, setError] = useState<string | null>(null);
-  const pick = async (status: TaskStatus) => {
-    setError(null);
-    try {
-      await onChange(status);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-  if (!picking) {
-    return (
-      <>
-        <button type="button" className={styles.status} onClick={onPick}>
-          {task.status}
-        </button>
-        {error && (
-          <span className={styles.error} role="alert">
-            {error}
-          </span>
-        )}
-      </>
-    );
-  }
-  return (
-    <select
-      className={styles.statusPicker}
-      aria-label={`Status of ${task.title}`}
-      autoFocus
-      value={task.status}
-      onChange={(e) => void pick(e.target.value as TaskStatus)}
-      onKeyDown={(e) => e.key === 'Escape' && onDone()}
-      onBlur={onDone}
-    >
-      {TASK_STATUSES.map((status) => (
-        <option key={status} value={status}>
-          {status}
-        </option>
-      ))}
-    </select>
   );
 }

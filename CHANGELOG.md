@@ -30,6 +30,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **A task's status is settable from its card.** The expanded node's state strip carries the same
+  status picker the task list has, so a decision taken on the canvas does not need a trip to the
+  list. With the picker open, Esc closes the picker and leaves the card open. A free agent has no
+  task, so its card has no status control.
+
 - **Driven agents survive a crash.** A driven agent writes a normal Claude session transcript, so
   `mael agent resume ID` starts an exited agent again under its own id, with the conversation it
   had. `--text TEXT` replaces the default first turn. A daemon start resumes every agent that was
