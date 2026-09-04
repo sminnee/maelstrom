@@ -150,8 +150,30 @@ class Api:
             assert response.content_type == "text/event-stream"
             yield EventStream(response)
 
-    def ws(self):
-        return self.session.ws_connect("/")
+    def ws(self, path: str = "/"):
+        return self.session.ws_connect(path)
+
+    def transcript_stream(self, agent_id: str, from_seq: int | None = None):
+        """A socket on one agent's transcript, resuming from ``from_seq`` when given."""
+        query = f"?from={from_seq}" if from_seq is not None else ""
+        return self.session.ws_connect(f"/api/agents/{agent_id}/stream{query}")
+
+
+async def ws_next(ws, predicate=lambda message: True, timeout: float = 2.0) -> dict:
+    """The next JSON message on ``ws`` matching ``predicate``."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        remaining = deadline - asyncio.get_running_loop().time()
+        message = json.loads(
+            await asyncio.wait_for(ws.receive_str(), max(remaining, 0.01))
+        )
+        if predicate(message):
+            return message
+
+
+def is_event(kind: str):
+    """A live frame carrying an event of ``kind``."""
+    return lambda m: "seq" in m and m.get("event", {}).get("type") == kind
 
 
 async def _reply(response: aiohttp.ClientResponse) -> Reply:
@@ -459,22 +481,15 @@ def split_at_control_response(events: list[dict]) -> tuple[list[dict], list[dict
     return events, []
 
 
-def published(harness, kind: str) -> list[dict]:
-    """Every event of ``kind`` the server has published so far."""
-    return [
-        f["event"]
-        for f in harness.orch.log.replay_from(0) or []
-        if f["event"]["type"] == kind
-    ]
+async def transcript_of(api: Api, agent_id: str = "ag1") -> dict:
+    return await api.get_json(f"/api/agents/{agent_id}/transcript")
 
 
-def test_the_world_carries_the_wait_and_the_backlog_is_relayed(harness):
-    """The world holds the wait; the transcript reaches clients as events.
+def test_the_world_carries_the_wait_and_the_transcript_holds_the_backlog(harness):
+    """The world holds the wait; the transcript holds what the host replayed.
 
-    The server keeps no transcript, so a client that connects after the
-    backlog was relayed gets the wait from the world and fills its scrollback
-    in from the events that follow. That is the accepted cost of the store
-    going away.
+    A client that connects after the backlog was relayed gets the wait from
+    the world and the scrollback from the transcript route.
     """
     harness.add_task("NORT-7")
     session = model.session_id_for(PROJECT, "NORT-7")
@@ -487,18 +502,25 @@ def test_the_world_carries_the_wait_and_the_backlog_is_relayed(harness):
         async with harness.client() as api:
             agent = await api.get_json("/api/agents/ag1")
             attention = await api.get_json("/api/attention?open=1")
-            return agent, attention["attention"], list(harness.daemon.attached)
+            transcript = await transcript_of(api)
+            return (
+                agent,
+                attention["attention"],
+                transcript,
+                list(harness.daemon.attached),
+            )
 
-    agent, open_items, attached = run(scenario())
+    agent, open_items, transcript, attached = run(scenario())
     assert attached == ["ag1"]
     assert agent["state"] == "awaiting-question"
     assert agent["taskId"] == "northwind/NORT-7"
     assert agent["project"] == PROJECT
     assert agent["worktreeId"] == "northwind-alpha"
     assert agent["pendingRequestId"] == "2ba1273d-d878-4923-ba21-31faa1067613"
-    appended = published(harness, "transcript.append")
-    assert [e["item"]["type"] for e in appended][-1] == "question"
-    assert published(harness, "transcript.truncated") == []
+    assert transcript["agentId"] == "ag1"
+    assert [i["type"] for i in transcript["items"]][-1] == "question"
+    assert transcript["truncatedBefore"] is False
+    assert transcript["seq"] == len(transcript["items"])
     assert [a["kind"] for a in open_items] == ["question"]
     assert open_items[0]["taskId"] == "northwind/NORT-7"
 
@@ -512,11 +534,10 @@ def test_a_backlog_the_size_of_the_hosts_window_is_marked_truncated(harness):
     harness.daemon.backlog["ag1"] = padding + events
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)):
-                return published(harness, "transcript.truncated")
+        async with harness.client() as api:
+            return await transcript_of(api)
 
-    assert [e["agentId"] for e in run(scenario())] == ["ag1"]
+    assert run(scenario())["truncatedBefore"] is True
 
 
 def test_a_backlog_one_short_of_the_window_is_not_marked_truncated(harness):
@@ -528,11 +549,10 @@ def test_a_backlog_one_short_of_the_window_is_not_marked_truncated(harness):
     harness.daemon.backlog["ag1"] = padding + events
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)):
-                return published(harness, "transcript.truncated")
+        async with harness.client() as api:
+            return await transcript_of(api)
 
-    assert run(scenario()) == []
+    assert run(scenario())["truncatedBefore"] is False
 
 
 async def wait_until(predicate, timeout: float = 2.0) -> None:
@@ -788,12 +808,12 @@ def test_a_wait_older_than_the_hosts_window_is_raised_from_the_detail_frame(harn
         async with harness.client() as api:
             agent = await api.get_json("/api/agents/ag1")
             attention = await api.get_json("/api/attention?open=1")
-            return agent, attention["attention"]
+            transcript = await transcript_of(api)
+            return agent, attention["attention"], transcript["items"]
 
-    agent, open_items = run(scenario())
+    agent, open_items, items = run(scenario())
     assert agent["pendingRequestId"] == pending.request_id
     assert agent["pendingRequest"]["type"] == "permission_request"
-    items = [e["item"] for e in published(harness, "transcript.append")]
     assert [i["type"] for i in items] == ["permission_request"]
     assert [a["requestId"] for a in open_items] == [pending.request_id]
 
@@ -804,54 +824,44 @@ def test_a_wait_the_backlog_replays_is_raised_once(harness):
 
     async def scenario():
         async with harness.client() as api:
-            return (await api.get_json("/api/attention?open=1"))["attention"]
+            attention = await api.get_json("/api/attention?open=1")
+            transcript = await transcript_of(api)
+            return attention["attention"], transcript["items"]
 
-    open_items = run(scenario())
-    requests = [
-        e["item"]
-        for e in published(harness, "transcript.append")
-        if e["item"]["type"] == "permission_request"
-    ]
-    assert len(requests) == 1
+    open_items, items = run(scenario())
+    assert len([i for i in items if i["type"] == "permission_request"]) == 1
     assert len(open_items) == 1
 
 
-def test_a_revive_publishes_each_transcript_item_once(harness):
-    """The defect the stored transcript caused: history doubled on revive.
+def test_a_revive_mints_no_item_id_twice(harness):
+    """A resume re-attaches, and the host replays its window into the same transcript.
 
-    A resume re-attaches, the host replays its window, and the server used to
-    append those events into a transcript that still held the same turns. It
-    holds none now, so the replay is relayed and the browser drops it by id.
+    The re-normalised replay gets fresh ids, seeded past the ones already
+    handed out, so no two items share an id however many lives the agent has.
     """
     events = read_fixture("normal-turn.jsonl")
     harness.daemon.rows["ag1"] = agent_row()
     harness.daemon.backlog["ag1"] = events
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                first = published(harness, "transcript.append")
-                # The agent dies and is resumed under its own id: the host
-                # replays the same window to the re-attach.
-                harness.daemon.rows["ag1"]["state"] = "exited(1)"
-                await harness.orch.refresh_agents()
-                harness.daemon.rows["ag1"]["state"] = "idle"
-                await harness.orch.refresh_agents()
-                attaches = len(
-                    [c for c in harness.daemon.calls if c["cmd"] == "attach"]
-                )
-                return first, published(harness, "transcript.append"), attaches
+        async with harness.client() as api:
+            first = (await transcript_of(api))["items"]
+            # The agent dies and is resumed under its own id: the host
+            # replays the same window to the re-attach.
+            harness.daemon.rows["ag1"]["state"] = "exited(1)"
+            await harness.orch.refresh_agents()
+            harness.daemon.rows["ag1"]["state"] = "idle"
+            await harness.orch.refresh_agents()
+            attaches = len([c for c in harness.daemon.calls if c["cmd"] == "attach"])
+            return first, (await transcript_of(api))["items"], attaches
 
     first, after, attaches = run(scenario())
     # The revive really did re-attach and replay, or this proves nothing.
     assert attaches == 2
     assert len(first) > 0
-    ids = [e["item"]["id"] for e in after]
+    ids = [i["id"] for i in after]
     assert len(ids) == len(set(ids)), "an item was published under two ids"
-    # The replay is relayed with the ids it already had, so a client that has
-    # them applies nothing new.
-    assert [e["item"]["id"] for e in first] == ids[: len(first)]
+    assert [i["id"] for i in first] == ids[: len(first)]
 
 
 # --- commands ----------------------------------------------------------------
@@ -940,8 +950,6 @@ def test_approve_reaches_the_host_and_resolves_the_wait(harness):
     assert {"cmd": "approve", "id": "ag1"} in harness.daemon.calls
     assert agent["pendingRequestId"] is None
     assert agent["pendingRequest"] is None
-    patches = [u["patch"] for u in published(harness, "transcript.update")]
-    assert {"decision": "allow"} in patches
     assert [a["clearedAt"] is not None for a in attention] == [True]
 
 
@@ -964,17 +972,18 @@ def test_deny_sends_the_reason_and_records_it(harness):
                     "/api/agents/ag1",
                     lambda a: a["state"] == "processing",
                 )
-                return reply
+                return reply, (await transcript_of(api))["items"]
 
-    reply = run(scenario())
+    reply, items = run(scenario())
     assert reply.status == 200
     assert {
         "cmd": "deny",
         "id": "ag1",
         "reason": "not on this network",
     } in harness.daemon.calls
-    patches = [u["patch"] for u in published(harness, "transcript.update")]
-    assert {"decision": "deny", "reason": "not on this network"} in patches
+    request = next(i for i in items if i["type"] == "permission_request")
+    assert request["decision"] == "deny"
+    assert request["reason"] == "not on this network"
 
 
 def test_answer_sends_the_answers_map_and_files_it_on_the_question(harness):
@@ -997,13 +1006,13 @@ def test_answer_sends_the_answers_map_and_files_it_on_the_question(harness):
                     "/api/agents/ag1",
                     lambda a: a["state"] == "processing",
                 )
-                return reply
+                return reply, (await transcript_of(api))["items"]
 
-    reply = run(scenario())
+    reply, items = run(scenario())
     assert reply.status == 200
     assert {"cmd": "answer", "id": "ag1", "answers": answers} in harness.daemon.calls
-    patches = [u["patch"] for u in published(harness, "transcript.update")]
-    assert {"answers": answers} in patches
+    question = next(i for i in items if i["type"] == "question")
+    assert question["answers"] == answers
 
 
 def test_say_reaches_the_host_and_the_childs_replay_shows_it(harness):
@@ -1017,14 +1026,14 @@ def test_say_reaches_the_host_and_the_childs_replay_shows_it(harness):
 
     async def scenario():
         async with harness.client() as api:
-            async with api.events() as stream:
+            async with api.events() as stream, api.transcript_stream("ag1") as ws:
                 await stream.next("reset")
+                await ws_next(ws, lambda m: m["type"] == "transcript.snapshot")
                 reply = await api.post(
                     "/api/agents/ag1/say", {"text": "also the README"}
                 )
                 # Nothing changes until the child replays the turn.
                 await no_notice(stream)
-                before = len(published(harness, "transcript.append"))
                 harness.daemon.push(
                     "ag1",
                     {
@@ -1036,10 +1045,8 @@ def test_say_reaches_the_host_and_the_childs_replay_shows_it(harness):
                         "isReplay": True,
                     },
                 )
-                await wait_until(
-                    lambda: len(published(harness, "transcript.append")) > before
-                )
-                return reply, published(harness, "transcript.append")[-1]["item"]
+                frame = await ws_next(ws, is_event("transcript.append"))
+                return reply, frame["event"]["item"]
 
     reply, item = run(scenario())
     assert reply.status == 200
@@ -1458,15 +1465,13 @@ def test_a_second_agent_poll_publishes_nothing(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                before = harness.orch.log.seq
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
                 await harness.orch.refresh_agents()
-                return before, harness.orch.log.seq
+                await no_notice(stream)
 
-    before, after = run(scenario())
-    assert after == before
+    run(scenario())
 
 
 def test_a_dismissed_entry_is_not_re_added_by_the_next_poll(harness):
@@ -1832,3 +1837,171 @@ def test_a_removed_task_is_named_in_the_notice_and_gone_from_the_get(harness):
     ids, gone = run(scenario())
     assert ids == ["northwind/NORT-7"]
     assert gone.status == 404
+
+
+# --- transcript streams ------------------------------------------------------
+
+
+def test_a_fresh_transcript_socket_opens_with_the_snapshot_the_get_serves(harness):
+    waiting_on(harness, "question-unanswered.jsonl")
+
+    async def scenario():
+        async with harness.client() as api:
+            snapshot = await transcript_of(api)
+            async with api.transcript_stream("ag1") as ws:
+                opening = await ws_next(ws)
+            return snapshot, opening
+
+    snapshot, opening = run(scenario())
+    assert opening["type"] == "transcript.snapshot"
+    assert opening["items"] == snapshot["items"]
+    assert opening["seq"] == snapshot["seq"] > 0
+    assert opening["truncatedBefore"] is False
+    assert [i["type"] for i in opening["items"]][-1] == "question"
+
+
+def test_a_live_event_arrives_as_a_stamped_frame_on_every_socket(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with (
+                api.transcript_stream("ag1") as one,
+                api.transcript_stream("ag1") as two,
+            ):
+                first = await ws_next(one)
+                await ws_next(two)
+                for event in read_fixture("normal-turn.jsonl"):
+                    harness.daemon.push("ag1", event)
+                a = await ws_next(one, is_event("transcript.append"))
+                b = await ws_next(two, is_event("transcript.append"))
+            return first["seq"], a, b
+
+    seq, a, b = run(scenario())
+    assert a == b
+    assert a["seq"] == seq + 1
+    assert a["event"]["agentId"] == "ag1"
+    assert a["event"]["item"]["type"] == "system"
+
+
+def test_approve_patches_the_item_on_the_socket(harness):
+    waiting_on(harness, "permission-request.jsonl")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.transcript_stream("ag1") as ws:
+                opening = await ws_next(ws)
+                request_id = await pending_id(api)
+                await api.post("/api/agents/ag1/approve", {"requestId": request_id})
+                frame = await ws_next(
+                    ws,
+                    lambda m: (
+                        is_event("transcript.update")(m)
+                        and "decision" in m["event"]["patch"]
+                    ),
+                )
+            return opening, frame
+
+    opening, frame = run(scenario())
+    request = next(i for i in opening["items"] if i["type"] == "permission_request")
+    assert frame["event"]["itemId"] == request["id"]
+    assert frame["event"]["patch"] == {"decision": "allow"}
+
+
+def test_a_resume_inside_the_ring_replays_the_frames_it_missed(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.transcript_stream("ag1") as ws:
+                seq = (await ws_next(ws))["seq"]
+            for event in read_fixture("normal-turn.jsonl"):
+                harness.daemon.push("ag1", event)
+            await wait_until(lambda: harness.orch.transcript_log("ag1").seq > seq)
+            await asyncio.sleep(0.05)
+            async with api.transcript_stream("ag1", from_seq=seq) as resumed:
+                replay = await ws_next(resumed)
+            current = await transcript_of(api)
+            return seq, replay, current
+
+    seq, replay, current = run(scenario())
+    assert replay["type"] == "transcript.replay"
+    assert replay["seq"] == current["seq"]
+    assert [f["seq"] for f in replay["frames"]] == list(
+        range(seq + 1, current["seq"] + 1)
+    )
+    assert replay["frames"][0]["event"]["type"] == "transcript.append"
+
+
+def test_a_transcript_resume_older_than_the_ring_gets_a_snapshot(store):
+    harness = Harness(store, transcript_ring=2)
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.transcript_stream("ag1") as ws:
+                seq = (await ws_next(ws))["seq"]
+            for event in read_fixture("normal-turn.jsonl"):
+                harness.daemon.push("ag1", event)
+            await wait_until(lambda: harness.orch.transcript_log("ag1").seq > seq + 2)
+            async with api.transcript_stream("ag1", from_seq=seq) as resumed:
+                return await ws_next(resumed)
+
+    opening = run(scenario())
+    assert opening["type"] == "transcript.snapshot"
+    assert len(opening["items"]) > 2
+
+
+def test_a_socket_that_falls_behind_is_closed_lagging_and_resumes_from_its_seq(store):
+    harness = Harness(store, ws_queue_limit=2)
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.transcript_stream("ag1") as ws:
+                seq = (await ws_next(ws))["seq"]
+                # The reader never reads while the whole turn lands.
+                for event in read_fixture("normal-turn.jsonl"):
+                    harness.daemon.push("ag1", event)
+                await wait_until(
+                    lambda: harness.orch.transcript_log("ag1").seq > seq + 3
+                )
+                await asyncio.sleep(0.05)
+                received = []
+                while True:
+                    message = await asyncio.wait_for(ws.receive(), 2.0)
+                    if message.type == aiohttp.WSMsgType.CLOSE:
+                        break
+                    received.append(json.loads(message.data))
+                close_code = ws.close_code
+            last_read = received[-1]["seq"] if received else seq
+            async with api.transcript_stream("ag1", from_seq=last_read) as resumed:
+                replay = await ws_next(resumed)
+            return close_code, received, replay, seq
+
+    close_code, received, replay, opening_seq = run(scenario())
+    assert close_code == 4409
+    # It got at most a queue's worth — none, when the overflow came before it
+    # read — then the close. The resume brings every frame after the one it
+    # last read, with no gap and no repeat.
+    assert len(received) <= 2
+    last_read = received[-1]["seq"] if received else opening_seq
+    assert replay["type"] == "transcript.replay"
+    assert [f["seq"] for f in replay["frames"]] == list(
+        range(last_read + 1, replay["seq"] + 1)
+    )
+    assert len(replay["frames"]) > 0
+
+
+def test_an_unknown_agent_closes_the_socket_4404_and_the_get_is_404(harness):
+    async def scenario():
+        async with harness.client() as api:
+            missing = await api.get("/api/agents/nobody/transcript")
+            async with api.transcript_stream("nobody") as ws:
+                message = await asyncio.wait_for(ws.receive(), 2.0)
+                return missing, message.type, ws.close_code
+
+    missing, kind, code = run(scenario())
+    assert missing.status == 404
+    assert kind == aiohttp.WSMsgType.CLOSE
+    assert code == 4404

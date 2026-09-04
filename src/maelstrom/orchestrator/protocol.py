@@ -188,20 +188,6 @@ def document_row(doc: Document) -> DocumentRow:
 TranscriptItem = dict[str, Any]
 
 
-class Transcript(TypedDict):
-    """The shape a client assembles from the server's transcript events.
-
-    Nothing here holds one — the server relays the events and keeps no
-    transcript. This documents what they add up to, next to the rest of the
-    wire types.
-    """
-
-    agentId: str
-    items: list[TranscriptItem]
-    #: True when the agent host's event window dropped older items.
-    truncatedBefore: bool
-
-
 class Anchor(TypedDict):
     """Where a comment sits: a W3C TextQuoteSelector plus cached offsets."""
 

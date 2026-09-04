@@ -23,7 +23,8 @@ carries and nothing maps between a dataclass and the wire.
 | `world_build.py` | pure | Entity builders from a task, a `list-all` row and an agent row; `link_agent`; `diff_kind`; `task_key` |
 | `desk.py` | pure | The desk table: `add`, `remove`, `prune`, each returning a new table, and the desk id helpers |
 | `notices.py` | pure | `notices_for`: which change notices a batch of events amounts to |
-| `hubs.py` | adapter | `NoticeHub`: fan-out of change notices to every open notice stream, coalesced per subscriber |
+| `transcript_log.py` | pure | `TranscriptLog`: one agent's items, its seq, and the ring of frames a resume replays |
+| `hubs.py` | adapter | `NoticeHub`: change notices to every open notice stream, coalesced per subscriber. `TranscriptHub`: transcript frames to every socket open on an agent, bounded per socket |
 | `sources.py` | storage | `TaskSource` and `WorktreeSource`, over the notebook and `list_all.build_list_all_data` |
 | `daemon_bridge.py` | storage | `AsyncDaemonClient`: the socket client for the agent host, and a scripted fake |
 | `../desk_store.py` | storage | `DeskStore`: the desk as one JSON file at `~/.maelstrom/desk.json`, or in memory |
@@ -34,17 +35,19 @@ carries and nothing maps between a dataclass and the wire.
 `task_launch.py` at the top level holds the launch plan and its two guards, shared with
 `mael task run`. `list_all.py` holds the rows both `mael list-all` and the server read.
 
-## Normaliser parity
+## The normaliser and its goldens
 
-The TypeScript normaliser is the reference. `UPDATE_GOLDEN=1 pnpm test` in `web/` writes one
-golden replay per fixture to `tests/fixtures/agent_events/normalised/`. The Python tests replay
-the same fixtures into the same seed agent and must produce the same world. A change to one
-normaliser without the other fails that test rather than drifting.
+The Python normaliser is the one the wire carries. `tests/test_orchestrator_normalise.py`
+replays every recorded daemon stream under `tests/fixtures/agent_events/` into one seed agent
+and holds the result to a golden under `normalised/`. That test owns the goldens:
+`UPDATE_GOLDEN=1 uv run pytest tests/test_orchestrator_normalise.py` re-records them, so a
+normaliser change is a deliberate re-record and never a silent drift. The TypeScript normaliser
+is held to the same files until it goes.
 
-The tool-card port is held the same way. `classify_tool_call` and `tool_call_title` in
-`agent_view.py` are a hand port of `web/src/session/toolCards.ts`, and
-`normalised/tool-cards.json` records what the reference makes of each tool, so a one-sided
-change fails rather than drifting.
+The tool cards run the other way. `classify_tool_call` and `tool_call_title` in `agent_view.py`
+are a hand port of `web/src/session/toolCards.ts`, which renders in the browser and stays the
+reference. `tests/fixtures/agent_events/tool-cards.json` records what it makes of each tool;
+`UPDATE_GOLDEN=1 pnpm test` in `web/` re-records it, and the Python test replays it.
 
 ## Keeping the world fresh
 
@@ -83,9 +86,10 @@ opened before this server attached is still answerable.
 Adoption waits for the host's replayed backlog to end. A backlog the size of the host's window
 (200 events) publishes a `transcript.truncated` event.
 
-**The server keeps no transcript.** It normalises the host's stream into transcript events and
-relays them; it does not accumulate them. The projection belongs next to the thing that renders
-it, so the browser's reducer keeps that map.
+The server normalises the host's stream into transcript events and keeps one `TranscriptLog`
+per agent: the items as they stand, a seq per frame, and a ring of the last 2000 frames. The
+log outlives the agent's exit, because a resume keeps the agent id. "Transcript streams" below
+says how a client reads it.
 
 ### Links
 
@@ -198,6 +202,30 @@ never a queue: a slow reader cannot fall behind and be dropped.
 There is no `id:` field and no `Last-Event-ID`. REST is the source of truth, so the answer to
 "you may have missed notices" is the one `reset` a fresh connection gets. `epoch` is minted at
 server start, so a client can tell a restart from a reconnect.
+
+## Transcript streams
+
+A transcript never travels with the world. `GET /api/agents/{id}/transcript` answers
+`{agentId, items, truncatedBefore, seq}`, and `GET /api/agents/{id}/stream?from=<seq>` is a
+WebSocket on the same log: an opening frame, then one frame per event.
+
+```json
+{"type": "transcript.snapshot", "seq": 4183, "items": [...], "truncatedBefore": false}
+{"type": "transcript.replay",   "seq": 4183, "frames": [{"seq": 4181, "event": {...}}]}
+{"seq": 4184, "event": {"type": "transcript.append", "agentId": "…", "item": {...}}}
+{"seq": 4185, "event": {"type": "transcript.update", "agentId": "…", "itemId": "…", "patch": {...}}}
+{"seq": 4186, "event": {"type": "transcript.truncated", "agentId": "…"}}
+```
+
+The cursor is the agent's transcript seq, not an item index, because `transcript.update` patches
+an earlier item. With `from` inside the ring the opening frame is a `replay` of what was missed;
+without `from`, or with one too old, it is a `snapshot`. The subscribe and the snapshot are one
+synchronous step on the loop, so no frame lands between them.
+
+Agent state, attention and documents never travel on this socket: they change through an
+upsert, a notice, and a GET. The socket stays open across an exit and a revive. An unknown agent
+closes it `4404`. A reader that falls 500 frames behind is closed `4409 lagging` and comes back
+with `from`; nothing is lost, because the ring holds what it missed. The socket pings every 20 s.
 
 ## Commands
 

@@ -7,13 +7,12 @@ import type { ToolCallItem } from '../protocol/transcript';
 /**
  * The golden that ties `agent_view.classify_tool_call` / `tool_call_title` to
  * this module. Both are hand ports, and nothing else stops them drifting —
- * so this file is the reference and Python replays it, the same regime the
- * normaliser pair uses. `UPDATE_GOLDEN=1 pnpm test` re-records.
+ * so this file is the reference and Python replays it. This module renders
+ * in the browser, so this side stays the owner: `UPDATE_GOLDEN=1 pnpm test`
+ * re-records. The file sits beside the fixtures, not in `normalised/`, which
+ * the Python normaliser test owns.
  */
-const GOLDEN = resolve(
-  __dirname,
-  '../../../tests/fixtures/agent_events/normalised/tool-cards.json',
-);
+const GOLDEN = resolve(__dirname, '../../../tests/fixtures/agent_events/tool-cards.json');
 
 const CASES: [string, Record<string, unknown>][] = [
   ['Bash', { description: 'List files', command: 'ls -la' }],

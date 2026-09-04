@@ -263,7 +263,7 @@ def test_tool_cards_match_the_typescript_reference():
     Nothing else ties the two together, so the golden is what catches a
     one-sided change. `UPDATE_GOLDEN=1 pnpm test` in `web/` re-records it.
     """
-    golden = json.loads((FIXTURES / "normalised" / "tool-cards.json").read_text())
+    golden = json.loads((FIXTURES / "tool-cards.json").read_text())
     for row in golden:
         item = {"type": "tool_call", "tool": row["tool"], "input": row["input"]}
         assert classify_tool_call(item) == row["kind"], row["tool"]

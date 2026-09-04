@@ -14,8 +14,9 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
-from aiohttp import web
+from aiohttp import WSMsgType, web
 
+from .hubs import Lagging
 from .protocol import document_row, task_row
 from .server import Orchestrator
 
@@ -27,6 +28,12 @@ MAX_CLIENT_MESSAGE = 1 << 20
 PING_SECS = 15.0
 #: How long a stop waits for open streams before it cancels them.
 SHUTDOWN_SECS = 1.0
+#: How often a transcript socket pings, so a proxy keeps it open.
+HEARTBEAT_SECS = 20.0
+
+#: Close codes a transcript socket uses; the browser reads them.
+CLOSE_UNKNOWN_ID = 4404
+CLOSE_LAGGING = 4409
 
 #: Where the app keeps the orchestrator it serves.
 ORCH = web.AppKey("orch", Orchestrator)
@@ -73,6 +80,8 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_get("/api/tasks/{project}/{id}", _task)
     app.router.add_get("/api/agents", _agents)
     app.router.add_get("/api/agents/{id}", _agent)
+    app.router.add_get("/api/agents/{id}/transcript", _transcript)
+    app.router.add_get("/api/agents/{id}/stream", _transcript_stream)
     app.router.add_get("/api/attention", _attention)
     app.router.add_get("/api/documents", _documents)
     app.router.add_get("/api/documents/{id}", _document)
@@ -392,6 +401,84 @@ async def _events(request: web.Request) -> web.StreamResponse:
                 continue
             for kind, ids in batch.items():
                 await response.write(_sse("change", {"kind": kind, "ids": sorted(ids)}))
+
+
+# -- transcripts --
+
+
+async def _transcript(request: web.Request) -> web.Response:
+    """One agent's transcript as it stands, with the seq a socket can resume from."""
+    orch = await _ready(request)
+    agent_id = request.match_info["id"]
+    if agent_id not in orch.world["agents"]:
+        return error_response("unknown_id", f"No agent {agent_id}")
+    return web.json_response(
+        {"agentId": agent_id, **orch.transcript_snapshot(agent_id)}
+    )
+
+
+async def _transcript_stream(request: web.Request) -> web.WebSocketResponse:
+    """One agent's transcript over a WebSocket: a snapshot or a replay, then live frames.
+
+    The subscribe and the snapshot are one synchronous step, so no frame lands
+    between them. A reader that falls a queue behind is closed ``4409`` and
+    comes back with ``from``.
+    """
+    orch = await _ready(request)
+    agent_id = request.match_info["id"]
+    ws = web.WebSocketResponse(heartbeat=HEARTBEAT_SECS)
+    await ws.prepare(request)
+    if agent_id not in orch.world["agents"]:
+        await ws.close(code=CLOSE_UNKNOWN_ID, message=b"unknown_id")
+        return ws
+    from_seq = _int_or_none(request.query.get("from"))
+    with orch.transcripts.subscribe(agent_id) as subscriber:
+        log = orch.transcript_log(agent_id)
+        replay = log.replay_from(from_seq) if from_seq is not None else None
+        if replay is None:
+            opening: dict[str, Any] = {"type": "transcript.snapshot", **log.snapshot()}
+        else:
+            opening = {"type": "transcript.replay", "seq": log.seq, "frames": replay}
+        await ws.send_json(opening)
+        closed = asyncio.create_task(_until_closed(ws))
+        try:
+            while not ws.closed:
+                nxt = asyncio.create_task(subscriber.next())
+                done, _ = await asyncio.wait(
+                    {nxt, closed}, return_when=asyncio.FIRST_COMPLETED
+                )
+                if nxt not in done:
+                    nxt.cancel()
+                    break
+                frame = nxt.result()
+                if isinstance(frame, Lagging):
+                    # The reader must be out of ``receive()`` first: a close
+                    # that races a receive drops the transport before the
+                    # client's acknowledgement, and the client sees 1006.
+                    closed.cancel()
+                    await asyncio.gather(closed, return_exceptions=True)
+                    await ws.close(code=CLOSE_LAGGING, message=b"lagging")
+                    break
+                await ws.send_json(frame)
+        finally:
+            closed.cancel()
+    return ws
+
+
+async def _until_closed(ws: web.WebSocketResponse) -> None:
+    """Read the socket until the client closes it. Nothing it sends means anything."""
+    async for message in ws:
+        if message.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.ERROR):
+            return
+
+
+def _int_or_none(raw: str | None) -> int | None:
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
 
 # -- the world socket --
