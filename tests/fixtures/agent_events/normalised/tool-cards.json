@@ -1,0 +1,91 @@
+[
+  {
+    "tool": "Bash",
+    "input": {
+      "description": "List files",
+      "command": "ls -la"
+    },
+    "kind": "bash",
+    "title": "List files"
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "ls -la"
+    },
+    "kind": "bash",
+    "title": "ls -la"
+  },
+  {
+    "tool": "Bash",
+    "input": {},
+    "kind": "bash",
+    "title": ""
+  },
+  {
+    "tool": "Edit",
+    "input": {
+      "file_path": "/tmp/a.py",
+      "old_string": "a",
+      "new_string": "b"
+    },
+    "kind": "edit",
+    "title": "/tmp/a.py"
+  },
+  {
+    "tool": "Write",
+    "input": {
+      "file_path": "/tmp/b.py",
+      "content": "x"
+    },
+    "kind": "write",
+    "title": "/tmp/b.py"
+  },
+  {
+    "tool": "Read",
+    "input": {
+      "file_path": "/tmp/c.py"
+    },
+    "kind": "read",
+    "title": "/tmp/c.py"
+  },
+  {
+    "tool": "WebFetch",
+    "input": {
+      "url": "https://example.com",
+      "prompt": "what is this"
+    },
+    "kind": "generic",
+    "title": "https://example.com"
+  },
+  {
+    "tool": "WebSearch",
+    "input": {
+      "query": "bicycles"
+    },
+    "kind": "generic",
+    "title": "bicycles"
+  },
+  {
+    "tool": "Task",
+    "input": {
+      "description": "go and look"
+    },
+    "kind": "generic",
+    "title": "go and look"
+  },
+  {
+    "tool": "ExitPlanMode",
+    "input": {},
+    "kind": "generic",
+    "title": ""
+  },
+  {
+    "tool": "AskUserQuestion",
+    "input": {
+      "questions": []
+    },
+    "kind": "generic",
+    "title": ""
+  }
+]
