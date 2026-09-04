@@ -1,0 +1,150 @@
+{
+  "world": {
+    "projects": {},
+    "worktrees": {},
+    "tasks": {},
+    "agents": {
+      "ag1": {
+        "id": "ag1",
+        "state": "idle",
+        "session": "aec4080c-4f19-49b3-9a30-8ed218f360d3",
+        "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
+        "model": "claude-opus-5",
+        "permissionMode": "auto",
+        "waitingOn": "",
+        "lastMessage": "The subagent finished. It found 8 files under `docs/dev` — `",
+        "costUsd": 0.33535875,
+        "taskId": "NORT-7",
+        "project": "northwind",
+        "worktreeId": "northwind-alpha",
+        "exitCode": null,
+        "pendingRequestId": null
+      }
+    },
+    "documents": {},
+    "comments": {},
+    "attention": {},
+    "desk": {}
+  },
+  "transcripts": {
+    "ag1": {
+      "agentId": "ag1",
+      "items": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "sessionId": "aec4080c-4f19-49b3-9a30-8ed218f360d3",
+          "model": "claude-opus-5",
+          "id": "ag1-1",
+          "ts": "2026-09-01T00:00:00Z"
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "I'll delegate this to a background subagent.",
+          "id": "ag1-2",
+          "ts": "2026-09-01T00:00:00Z"
+        },
+        {
+          "type": "tool_call",
+          "toolUseId": "toolu_01Psu3ew4jVXe96yarRAujE5",
+          "tool": "Agent",
+          "input": {
+            "description": "List and summarise docs/dev",
+            "prompt": "List the files under the `docs/dev` directory (relative to the current working directory). Then read enough of them to understand what they cover, and produce a ONE LINE summary of the contents of docs/dev.\n\nYour final report must contain exactly that one line (plus, if helpful, the file list). If docs/dev does not exist, say so in one line.",
+            "subagent_type": "Explore",
+            "run_in_background": true
+          },
+          "status": "done",
+          "id": "toolu_01Psu3ew4jVXe96yarRAujE5",
+          "ts": "2026-09-01T00:00:00Z",
+          "output": "Async agent launched successfully. (This tool result is internal metadata — never quote or paste any part of it, including the agentId below, into a user-facing reply.)\nagentId: a5f10515640d5228b (internal ID - do not mention to user. Use SendMessage with to: 'a5f10515640d5228b', summary: '<5-10 word recap>' to continue this agent.)\nThe agent is working in the background. You will be notified automatically when it completes. You know nothing about its results until that notification arrives — do not report, assume, or predict them; continue other work or respond to the user in the meantime.\nDo not duplicate this agent's work — avoid working with the same files or topics it is using.\noutput_file: /private/tmp/claude-501/-private-tmp-claude-501--Users-sminnee-Projects-maelstrom-maelstrom-alpha-68952423-52fc-4054-8d8a-edb6fa01c0a7-scratchpad-clean/aec4080c-4f19-49b3-9a30-8ed218f360d3/tasks/a5f10515640d5228b.output\nDo NOT Read or tail this file via the shell tool — it is the full subagent JSONL transcript and reading it will overflow your context. If the user asks for progress, say the agent is still running; you'll get a completion notification."
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "I'll look at the docs/dev directory.",
+          "id": "ag1-3",
+          "ts": "2026-09-01T00:00:00Z"
+        },
+        {
+          "type": "tool_call",
+          "toolUseId": "toolu_011VEfPJheXsGXqBUCn2b1R4",
+          "tool": "Bash",
+          "input": {
+            "command": "ls -la /private/tmp/claude-501/-Users-sminnee-Projects-maelstrom-maelstrom-alpha/68952423-52fc-4054-8d8a-edb6fa01c0a7/scratchpad/clean/docs/dev 2>&1; echo \"---\"; find /private/tmp/claude-501/-Users-sminnee-Projects-maelstrom-maelstrom-alpha/68952423-52fc-4054-8d8a-edb6fa01c0a7/scratchpad/clean/docs -maxdepth 2 2>&1 | head -50"
+          },
+          "status": "done",
+          "id": "toolu_011VEfPJheXsGXqBUCn2b1R4",
+          "ts": "2026-09-01T00:00:00Z",
+          "output": "total 224\ndrwxr-xr-x@ 10 sminnee  wheel    320  4 Sep 20:22 .\ndrwxr-xr-x@  3 sminnee  wheel     96  4 Sep 20:22 ..\n-rw-r--r--@  1 sminnee  wheel  30620  4 Sep 20:22 agent-daemon.md\n-rw-r--r--@  1 sminnee  wheel   7925  4 Sep 20:22 architecture-patterns.md\n-rw-r--r--@  1 sminnee  wheel   1443  4 Sep 20:22 cmux.md\n-rw-r--r--@  1 sminnee  wheel  20857  4 Sep 20:22 orchestrator-server.md\n-rw-r--r--@  1 sminnee  wheel  15195  4 Sep 20:22 orchestrator-ui.md\n-rw-r--r--@  1 sminnee  wheel   3179  4 Sep 20:22 scheduled-tasks.md\n-rw-r--r--@  1 sminnee  wheel  10095  4 Sep 20:22 stacking.md\n-rw-r--r--@  1 sminnee  wheel   8201  4 Sep 20:22 tasks.md\n---\n/private/tmp/claude-501/-Users-sminnee-Projects-maelstrom-maelstrom-alpha/68952423-52fc-4054-8d8a-edb6fa01c0a7/scratchpad/clean/docs\n/private/tmp/claude-501/-Users-sminnee-Projects-maelstrom-maelstrom-alpha/68952423-52fc-4054-8d8a-edb6fa01c0a7/scratchpad/clean/docs/dev\n/private/tmp/claude-501/-Users-sminnee-Projects-maelstrom-maelstrom-alpha/68952423-52fc-4054-8d8a-edb6fa01c0a7/scratchpad/clean/docs/dev/orchestrator-ui.md\n/private/tmp/claude-501/-Users-sminnee-Projects-maelstrom-maelstrom-alpha/68952423-52fc-4054-8d8a-edb6fa01c0a7/scratchpad/clean/docs/dev/architecture-patterns.md\n/private/tmp/claude-501/-Users-sminnee-Projects-maelstrom-maelstrom-alpha/68952423-52fc-4054-8d8a-edb6fa01c0a7/scratchpad/clean/docs/dev/cmux.md\n/private/tmp/claude-501/-Users-sminnee-Projects-maelstrom-maelstrom-alpha/68952423-52fc-4054-8d8a-edb6fa01c0a7/scratchpad/clean/docs/dev/agent-daemon.md\n/private/tmp/claude-501/-Users-sminnee-Projects-maelstrom-maelstrom-alpha/68952423-52fc-4054-8d8a-edb6fa01c0a7/scratchpad/clean/docs/dev/orchestrator-server.md\n/private/tmp/claude-501/-Users-sminnee-Projects-maelstrom-maelstrom-alpha/68952423-52fc-4054-8d8a-edb6fa01c0a7/scratchpad/clean/docs/dev/scheduled-tasks.md\n/private/tmp/claude-501/-Users-sminnee-Projects-maelstrom-maelstrom-alpha/68952423-52fc-4054-8d8a-edb6fa01c0a7/scratchpad/clean/docs/dev/stacking.md\n/private/tmp/claude-501/-Users-sminnee-Projects-maelstrom-maelstrom-alpha/68952423-52fc-4054-8d8a-edb6fa01c0a7/scratchpad/clean/docs/dev/tasks.md"
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "The subagent is running in the background — I'm waiting on it and haven't run anything myself. I'll report its one-line summary as soon as the completion notification arrives.",
+          "id": "ag1-4",
+          "ts": "2026-09-01T00:00:00Z"
+        },
+        {
+          "type": "turn_result",
+          "subtype": "success",
+          "costUsd": 0.24233475,
+          "durationMs": 36047,
+          "id": "ag1-5",
+          "ts": "2026-09-01T00:00:00Z"
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "Now let me read the headers and structure of each file.",
+          "id": "ag1-6",
+          "ts": "2026-09-01T00:00:00Z"
+        },
+        {
+          "type": "tool_call",
+          "toolUseId": "toolu_015penBXps91JNaUmB5hKzj3",
+          "tool": "Bash",
+          "input": {
+            "command": "cd /private/tmp/claude-501/-Users-sminnee-Projects-maelstrom-maelstrom-alpha/68952423-52fc-4054-8d8a-edb6fa01c0a7/scratchpad/clean/docs/dev && for f in *.md; do echo \"===== $f =====\"; head -20 \"$f\"; echo \"--- headings ---\"; grep -E '^#{1,2} ' \"$f\" | head -25; done"
+          },
+          "status": "done",
+          "id": "toolu_015penBXps91JNaUmB5hKzj3",
+          "ts": "2026-09-01T00:00:00Z",
+          "output": "===== agent-daemon.md =====\n# The agent daemon\n\nHow maelstrom drives a Claude Code agent from outside the terminal it runs in, and answers it\nwhile it waits.\n\nA session in a cmux pane has no way to receive an answer except through that pane. The agent\ndaemon adds that missing half. It runs each agent as a `claude` child on a bidirectional NDJSON\npipe, reads what the agent is doing from its event stream, and writes answers back on the child's\nstdin. `mael agent` is the client.\n\nThis path is additive. It runs beside the cmux launch path and does not replace it. An agent the\ndaemon drives has no cmux pane and no TTY. A session `mael task run` launches keeps its pane and\nits hooks. Whether the two converge is a later decision.\n\n## The mechanism\n\nEach agent is a normal `claude` process with different I/O plumbing:\n\n```\nclaude -p --input-format stream-json --output-format stream-json --verbose \\\n--- headings ---\n# The agent daemon\n## The mechanism\n## The event vocabulary\n## The layers\n## When an agent dies\n## Running it\n## The control socket protocol\n## What is persisted\n## Rejected alternatives\n===== architecture-patterns.md =====\n# Architecture Patterns\n\nConventions for the maelstrom Python core. New features should follow these; the\nexisting code is being converged onto them iteratively. The **task subsystem** is\nthe worked reference — when in doubt, copy how it is built.\n\nThis document covers *structure* (the layering view). For the task *domain model*\n— what `parent`, `follows`, and dotted ids mean — see [`tasks.md`](tasks.md). For\nPython style and Click rules (imports at top, `pathlib` over `os.path`,\n`click.ClickException` for user errors, docstrings, type hints), see\n[`.claude/review-guides/python.md`](../../.claude/review-guides/python.md).\n\n## The three layers\n\nEach feature is split into three files with one responsibility each:\n\n| Layer | File | Responsibility | Reference |\n|-------|------|----------------|-----------|\n| **Storage** | `*_store.py` | A `Protocol` plus an in-memory and a persistent backend. Hides *where* data lives. | [`task_store.py`](../../src/maelstrom/task_store.py) |\n| **Model** | `*.py` | Pure domain logic. The store is injected; no I/O, no printing. Raises typed domain errors. | [`task.py`](../../src/maelstrom/task.py) |\n--- headings ---\n# Architecture Patterns\n## The three layers\n## The six conventions\n## Applying this\n===== cmux.md =====\n# The cmux package\n\nHow maelstrom drives cmux from code. For the shell-level `cmux` CLI — opening a browser pane,\nsending a command to a terminal — use the `cmux` skill instead.\n\n`src/maelstrom/cmux/` follows the three layers in\n[architecture-patterns.md](architecture-patterns.md):\n\n- `client.py` — transport. The `CmuxClient` Protocol, the real `SubprocessCmuxClient`, the\n  fake `RecordingCmuxClient`, `CmuxResult` parsing, and `current_client` / `is_cmux_mode`.\n- `model.py` — `CmuxLayout`: pure cmux mechanics over a client.\n- `mael_layout.py` — policy. The only layer that knows the `{project}-{worktree}` workspace\n  name and the pane 0/1/2 convention. CLI call sites use these functions.\n\n## Partial and idempotent verbs\n\n`CmuxLayout`'s verbs leave everything they do not own alone. Each `ensure_*` asserts that *at\nleast one* of an entity exists, and creates it only if none does. It touches its own subset and\nleaves every other pane, tab, and browser the user opened undisturbed.\n\n--- headings ---\n# The cmux package\n## Partial and idempotent verbs\n## Outside cmux\n## The pane convention\n===== orchestrator-server.md =====\n# The orchestrator server\n\nThe server builds the world the orchestrator UI shows — tasks, worktrees, agents,\nattention — from the task notebook, `list-all` and the agent host, and serves it over HTTP:\nresources by REST, change notices on one stream, and one socket per open agent transcript.\n`mael orchestrator serve` runs it.\n\nThe server owns the business model. The agent host owns the agent processes. The server only\nreaches the host through the host's own client protocol, never by importing its internals, so a\nhost on another machine later is the same protocol over TCP.\n\n## The layers\n\n`src/maelstrom/orchestrator/` follows [architecture-patterns.md](architecture-patterns.md). The\nwire types are `TypedDict`s in the wire's own camelCase, so an entity is the dict the socket\ncarries and nothing maps between a dataclass and the wire.\n\n| File | Layer | Holds |\n|---|---|---|\n| `protocol.py` | pure | The wire types, `empty_world`, and `apply_event`, the one way the world changes |\n--- headings ---\n# The orchestrator server\n## The layers\n## The normaliser and its goldens\n## Keeping the world fresh\n## Launch\n## Task ids on the wire\n## Reading the world\n## Change notices\n## Transcript streams\n## Commands\n## Running it\n## Open risks\n===== orchestrator-ui.md =====\n# The orchestrator UI\n\nA web app that shows every agent as a node on one canvas and captures the user's checkpoints in\nthe tool. It lives under `web/`. It reads the world from the orchestrator server's REST routes,\nhears what changed on one change-notice stream, and follows each open agent's transcript on a\nsocket of its own.\n\nThe guiding metaphor is a real-time strategy game. Everything running is on one canvas, and a\nunit that needs orders shows it on the canvas itself.\n\n## The layers\n\n`web/src` is four layers. Each one imports only from the layers below it.\n\n| Layer | Directory | Holds | Imports |\n|---|---|---|---|\n| Protocol | `protocol/` | The entity and transcript types, `phase.ts`, `deskId.ts` | Nothing |\n| Backends | `api/`, `live/` | `api/`: the REST client, its query keys, the query cache, one hook per read and per command. `live/`: the change stream that keeps the cache fresh, and the per-agent transcript streams | Protocol |\n| State | `store/`, `selectors/` | The query cache holds the fetched world; one zustand store holds UI state, the connection state and the open transcripts; `selectors/` are pure functions over a `WorldView` | Protocol |\n| UI | `canvas/`, `tasklist/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, plus the `ui/`, `markdown/` and `styles/` they share, and `test/` for shared test helpers | React components and CSS | State, Protocol |\n--- headings ---\n# The orchestrator UI\n## The layers\n## The API\n## The canvas, the task list and the panel\n## How to run it\n## What the tests cover\n## Out of scope\n===== scheduled-tasks.md =====\n# Scheduled (template) tasks\n\nA *template* task is parked in `template/` status carrying a `schedule` cron\nexpression. Hourly, a launchd LaunchAgent runs `mael task add-scheduled\n--all-projects --run`, which consults `schedule.due_templates` and launches any\ntemplate whose most recent fire boundary is newer than its `last_run`\nwatermark.\n\n## The launchd agent is opt-in\n\nThe agent is **not** installed automatically — `ensure_schedule_agent()` (wired\ninto `mael install` / `mael self-update`) is gated on an opt-in marker\n(`~/.maelstrom/schedule.enabled`). Without the marker it is a deliberate no-op,\nso a background scheduler is never imposed on every checkout or CI box.\n\n```bash\nmael schedule install            # opt in: write marker + load the agent\nmael schedule uninstall          # opt out: remove marker, unload, clear old wake\nmael schedule status             # diagnose: marker / plist / loaded / log tail\n```\n--- headings ---\n# Scheduled (template) tasks\n## The launchd agent is opt-in\n## Firing behaviour\n===== stacking.md =====\n# Stacked branches\n\nMaelstrom runs several agents at once, one per worktree, each on its own branch. Stacking lets one\nbranch build on another instead of on `main`, so two agents working on related code do not fight\nover the same files.\n\n## One rebase, one target\n\n**Every rebase maelstrom runs targets the branch's base.** `main` is the base a branch has when it\nhas none of its own, so an unstacked branch behaves exactly as it always did.\n\nThat single rule is the whole mechanism. Maelstrom already rebases automatically — when a worktree\nopens, when `mael gh create-pr` pushes, and on every `/watch-pr` loop. Because each of those targets\nthe base, they maintain a stack for free: a parent's new work cascades into its children with no\nextra machinery.\n\nWork is stacked whether or not anyone says so. Merges here are rebases, so every branch is\nimplicitly based on whatever lands before it. Naming the base resolves that early, one rebase at a\ntime, instead of late — as one large reconciliation after the parent merges.\n\n--- headings ---\n# Stacked branches\n## One rebase, one target\n## What a base is\n## Why the base tip is stored\n## Collapse\n## The stack tip\n## GitHub: `gh stack link`, and nothing else\n## Merge order, and the escape hatches\n## `base` is not `parent`\n## Known limits\n## Where the code lives\n===== tasks.md =====\n# The task domain model\n\nThe mental model behind `mael task …`. This is the *conceptual* overview; the\nauthoritative mechanics live in the code docstrings (`task.py`, `task_cli.py`)\nthat assume it. For the layering view of the same subsystem see\n[`architecture-patterns.md`](architecture-patterns.md); for launchd scheduling\nmechanics see [`scheduled-tasks.md`](scheduled-tasks.md).\n\n## Tasks & status folders\n\nA task is a markdown file at `<project>/<status>/<id>.md` — YAML frontmatter\n(`id`, `title`, `parent`, `follows`, `branch`, …) over a free-text body. **Status\nis the folder**: `todo/`, `in-progress/`, `done/`, `template/`, etc. Moving a task\nbetween statuses moves its file; the id is stable across the move.\n\n## `parent` groups a linear chain = one PR\n\nA task's `parent` groups it into a **linear chain of sibling tasks that share one\nbranch and one pull request** (\"one PR per parent\"). It is *not* an arbitrary\ntree — siblings under a parent execute in `follows` order and merge as a single\n--- headings ---\n# The task domain model\n## Tasks & status folders\n## `parent` groups a linear chain = one PR\n## `parent` vs `base` — near-identical names, near-opposite meanings\n## Dotted ids express the fuller hierarchy\n## `follows` vs `parent`\n## `MAEL_TASK_PARENT` and chaining\n## Scheduled runs\n## Session discovery — one live session per task"
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "Files under `docs/dev` (8 total, all absolute paths under `/private/tmp/claude-501/-Users-sminnee-Projects-maelstrom-maelstrom-alpha/68952423-52fc-4054-8d8a-edb6fa01c0a7/scratchpad/clean/docs/dev/`):\n\n- `agent-daemon.md`\n- `architecture-patterns.md`\n- `cmux.md`\n- `orchestrator-server.md`\n- `orchestrator-ui.md`\n- `scheduled-tasks.md`\n- `stacking.md`\n- `tasks.md`\n\nOne line summary:\n\nInternal developer documentation for maelstrom, covering its three-layer Python architecture conventions, the task domain model and launchd-based scheduled tasks, stacked-branch rebasing, the cmux pane-layout package, the agent daemon that drives Claude Code over NDJSON pipes, and the orchestrator server and web UI built on top of them.",
+          "id": "ag1-7",
+          "ts": "2026-09-01T00:00:00Z"
+        },
+        {
+          "type": "system",
+          "subtype": "init",
+          "sessionId": "aec4080c-4f19-49b3-9a30-8ed218f360d3",
+          "model": "claude-opus-5",
+          "id": "ag1-8",
+          "ts": "2026-09-01T00:00:00Z"
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "The subagent finished. It found 8 files under `docs/dev` — `agent-daemon.md`, `architecture-patterns.md`, `cmux.md`, `orchestrator-server.md`, `orchestrator-ui.md`, `scheduled-tasks.md`, `stacking.md`, `tasks.md` — and its one-line summary:\n\n> Internal developer documentation for maelstrom, covering its three-layer Python architecture conventions, the task domain model and launchd-based scheduled tasks, stacked-branch rebasing, the cmux pane-layout package, the agent daemon that drives Claude Code over NDJSON pipes, and the orchestrator server and web UI built on top of them.",
+          "id": "ag1-9",
+          "ts": "2026-09-01T00:00:00Z"
+        },
+        {
+          "type": "turn_result",
+          "subtype": "success",
+          "costUsd": 0.33535875,
+          "durationMs": 13685,
+          "id": "ag1-10",
+          "ts": "2026-09-01T00:00:00Z"
+        }
+      ],
+      "truncatedBefore": false
+    }
+  }
+}
