@@ -25,7 +25,8 @@ carries and nothing maps between a dataclass and the wire.
 | `sources.py` | storage | `TaskSource` and `WorktreeSource`, over the notebook and `list_all.build_list_all_data` |
 | `daemon_bridge.py` | storage | `AsyncDaemonClient`: the socket client for the agent host, and a scripted fake |
 | `../desk_store.py` | storage | `DeskStore`: the desk as one JSON file at `~/.maelstrom/desk.json`, or in memory |
-| `server.py` | adapter | `Orchestrator`: the log, the pollers, one watch per agent, the commands, the socket |
+| `server.py` | service | `Orchestrator`: the log, the pollers, one watch per agent, the commands, and the clients it sends frames to |
+| `routes.py` | adapter | `build_app`: the aiohttp app that puts an `Orchestrator` on the network, and `serving` / `serve_app` to run it |
 | `../orchestrator_cli.py` | CLI | `mael orchestrator serve` |
 
 `task_launch.py` at the top level holds the launch plan and its two guards, shared with
@@ -280,10 +281,13 @@ sent. With it, reconnecting to a restarted server is one snapshot away from work
 ## Running it
 
 ```bash
-mael orchestrator serve                                # ws://127.0.0.1:8765
+mael orchestrator serve                                # http://127.0.0.1:8765
 mael orchestrator serve --port 3072 --socket /tmp/agent.sock
 mael env start                                         # in this repo: web and orchestrator together
 ```
+
+The server is one aiohttp app, built by `routes.build_app`. It binds the port first, so a port
+in use fails at once, then reads every source once, then serves. The world WebSocket is at `/`.
 
 The first command that needs the agent host starts one, as `mael agent` does.
 

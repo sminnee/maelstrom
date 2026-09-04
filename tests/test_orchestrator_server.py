@@ -7,14 +7,16 @@ it: hello, snapshot or replay, ready, frames, commands and replies.
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 
+import aiohttp
 import pytest
-from websockets.asyncio.client import connect
 
 from maelstrom import task as model
 from maelstrom.agent_model import PendingRequest, reply_for_approval
 from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
+from maelstrom.orchestrator.routes import build_app, serving
 from maelstrom.orchestrator.server import Orchestrator
 from maelstrom.orchestrator.sources import InMemoryWorktreeSource, NotebookTaskSource
 from maelstrom.worktree import WorktreeSetup
@@ -80,9 +82,21 @@ class Harness:
         model.create(self.store, project=project, title=title, id=task_id, **fields)
         self.version += 1
 
+    def serving(self):
+        """Serve the orchestrator on a free port for the length of the block."""
+        return serving(build_app(self.orch), "127.0.0.1", 0)
+
+
+@asynccontextmanager
+async def connect(url: str):
+    """One WebSocket client on ``url``, closed with the block."""
+    async with aiohttp.ClientSession() as session:
+        async with session.ws_connect(url) as ws:
+            yield ws
+
 
 async def recv(ws, timeout: float = 2.0) -> dict:
-    return json.loads(await asyncio.wait_for(ws.recv(), timeout))
+    return json.loads(await asyncio.wait_for(ws.receive_str(), timeout))
 
 
 async def say_hello(ws, resume_from: int | None = None) -> list[dict]:
@@ -90,7 +104,7 @@ async def say_hello(ws, resume_from: int | None = None) -> list[dict]:
     hello = {"type": "hello"}
     if resume_from is not None:
         hello["resumeFrom"] = resume_from
-    await ws.send(json.dumps(hello))
+    await ws.send_str(json.dumps(hello))
     received = []
     while True:
         message = await recv(ws)
@@ -100,7 +114,7 @@ async def say_hello(ws, resume_from: int | None = None) -> list[dict]:
 
 
 async def command(ws, cmd: dict, command_id: str = "c1") -> dict:
-    await ws.send(json.dumps({"id": command_id, "command": cmd}))
+    await ws.send_str(json.dumps({"id": command_id, "command": cmd}))
     while True:
         message = await recv(ws)
         if "reply" in message and message["reply"]["id"] == command_id:
@@ -127,8 +141,8 @@ async def frames_until(ws, predicate, timeout: float = 2.0) -> list[dict]:
             return frames
 
 
-def url(server) -> str:
-    return f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}"
+def url(port: int) -> str:
+    return f"ws://127.0.0.1:{port}"
 
 
 @pytest.fixture
@@ -144,7 +158,7 @@ def test_hello_gets_a_snapshot_of_the_world_then_ready(harness):
     harness.add_task("NORT-7", command="plan-task")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 received = await say_hello(ws)
         return received
@@ -163,7 +177,7 @@ def test_hello_gets_a_snapshot_of_the_world_then_ready(harness):
 
 def test_a_task_edit_arrives_as_an_upsert(harness):
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 harness.add_task("NORT-8", follows=["NORT-7"])
@@ -177,7 +191,7 @@ def test_a_task_edit_arrives_as_an_upsert(harness):
 
 def test_a_resume_inside_the_ring_replays_and_outside_it_snapshots(harness):
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as first:
                 ready = (await say_hello(first))[-1]["ready"]["seq"]
                 harness.add_task("NORT-9")
@@ -198,7 +212,7 @@ def test_a_resume_older_than_the_ring_gets_a_snapshot(store):
     harness = Harness(store, ring_size=2)
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as first:
                 ready = (await say_hello(first))[-1]["ready"]["seq"]
                 for n in range(3):
@@ -213,10 +227,10 @@ def test_a_resume_older_than_the_ring_gets_a_snapshot(store):
 
 def test_a_second_hello_is_refused_and_an_unknown_command_is_invalid(harness):
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
-                await ws.send(json.dumps({"type": "hello"}))
+                await ws.send_str(json.dumps({"type": "hello"}))
                 second = await recv(ws)
                 unsupported = await command(
                     ws, {"type": "shaping.start", "project": PROJECT, "brief": "x"}
@@ -234,7 +248,7 @@ def test_a_command_missing_a_field_is_refused_not_dropped(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 reply = await command(ws, {"type": "agent.say", "agentId": "ag1"})
@@ -251,9 +265,9 @@ def test_a_command_missing_a_field_is_refused_not_dropped(harness):
 
 def test_a_message_that_is_not_a_hello_first_is_refused(harness):
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
-                await ws.send(
+                await ws.send_str(
                     json.dumps(
                         {"id": "c1", "command": {"type": "agent.stop", "agentId": "x"}}
                     )
@@ -324,7 +338,7 @@ def test_the_snapshot_carries_the_world_and_the_backlog_is_relayed(harness):
     harness.daemon.pending["ag1"] = pending_from(backlog)
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 return (await say_hello(ws))[0]["event"], list(harness.daemon.attached)
 
@@ -356,7 +370,7 @@ def test_a_backlog_the_size_of_the_hosts_window_is_marked_truncated(harness):
     harness.daemon.backlog["ag1"] = padding + events
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)):
                 return published(harness, "transcript.truncated")
 
@@ -372,7 +386,7 @@ def test_a_backlog_one_short_of_the_window_is_not_marked_truncated(harness):
     harness.daemon.backlog["ag1"] = padding + events
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)):
                 return published(harness, "transcript.truncated")
 
@@ -392,7 +406,7 @@ def test_an_attach_the_host_refuses_is_retried_on_the_next_reconciliation(harnes
     harness.daemon.attach_failures.add("ag1")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 await wait_until(lambda: harness.daemon.attached == ["ag1"])
@@ -407,7 +421,7 @@ def test_a_live_event_arrives_as_a_transcript_append(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 for event in read_fixture("normal-turn.jsonl"):
@@ -438,7 +452,7 @@ def test_the_exit_marker_marks_the_agent_exited_and_raises_attention(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 harness.daemon.push("ag1", {"type": AGENT_EXITED, "exit_code": 2})
@@ -463,7 +477,7 @@ def test_the_exit_marker_marks_the_agent_exited_and_raises_attention(harness):
 
 def test_reconciliation_attaches_new_agents_and_retires_gone_ones(harness):
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 harness.daemon.rows["ag2"] = agent_row("ag2", cwd="/private/tmp")
@@ -500,7 +514,7 @@ def test_a_row_reporting_an_exit_the_stream_never_showed_is_applied(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 harness.daemon.rows["ag1"]["state"] = "exited(1)"
@@ -522,7 +536,7 @@ def test_an_agent_that_comes_back_under_its_old_id_is_revived(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 await wait_until(lambda: "ag1" in harness.daemon.attached)
@@ -562,7 +576,7 @@ def test_a_revived_agent_loses_the_attention_its_exit_raised(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 harness.daemon.rows["ag1"]["state"] = "exited(1)"
@@ -595,7 +609,7 @@ def test_a_revived_agent_links_to_the_task_that_arrived_while_it_was_gone(harnes
     harness.daemon.rows["ag1"] = agent_row(session=session)
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 harness.daemon.rows["ag1"]["state"] = "exited(1)"
@@ -654,7 +668,7 @@ def test_a_wait_older_than_the_hosts_window_is_raised_from_the_detail_frame(harn
     harness.daemon.pending["ag1"] = pending
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 return (await say_hello(ws))[0]["event"]
 
@@ -673,7 +687,7 @@ def test_a_wait_the_backlog_replays_is_raised_once(harness):
     backlog, _ = waiting_on(harness, "permission-request.jsonl")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 return (await say_hello(ws))[0]["event"]
 
@@ -702,7 +716,7 @@ def test_a_revive_publishes_each_transcript_item_once(harness):
     harness.daemon.backlog["ag1"] = events
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 first = published(harness, "transcript.append")
@@ -777,7 +791,7 @@ async def command_with_frames(
     the reply rather than precede it. ``until`` says which frame ends the
     wait; with none, only the frames before the reply are collected.
     """
-    await ws.send(json.dumps({"id": command_id, "command": cmd}))
+    await ws.send_str(json.dumps({"id": command_id, "command": cmd}))
     frames: list[dict] = []
     reply = None
     while True:
@@ -819,7 +833,7 @@ def test_approve_reaches_the_host_and_resolves_the_wait(harness):
     waiting_on(harness, "permission-request.jsonl")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 snapshot = (await say_hello(ws))[0]["event"]
                 return await command_with_frames(
@@ -847,7 +861,7 @@ def test_deny_sends_the_reason_and_records_it(harness):
     waiting_on(harness, "permission-request.jsonl")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 snapshot = (await say_hello(ws))[0]["event"]
                 return await command_with_frames(
@@ -879,7 +893,7 @@ def test_answer_sends_the_answers_map_and_files_it_on_the_question(harness):
     answers = {"Which colour do you prefer?": "Blue"}
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 snapshot = (await say_hello(ws))[0]["event"]
                 return await command_with_frames(
@@ -909,7 +923,7 @@ def test_say_reaches_the_host_and_the_childs_replay_shows_it(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 reply, frames = await command_with_frames(
@@ -957,7 +971,7 @@ def test_a_wait_answered_outside_the_server_clears_in_the_world(harness):
     pending = harness.daemon.pending["ag1"]
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 snapshot = (await say_hello(ws))[0]["event"]
                 assert pending_of(snapshot) == pending.request_id
@@ -982,7 +996,7 @@ def test_stop_reaches_the_host_and_marks_the_agent_exited_cleanly(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 return await command_with_frames(
@@ -1001,7 +1015,7 @@ def test_a_refused_command_replies_with_its_code_and_publishes_nothing(harness):
     waiting_on(harness, "question-unanswered.jsonl")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 ready = (await say_hello(ws))[-1]["ready"]["seq"]
                 unknown = await command(
@@ -1041,7 +1055,7 @@ def test_a_host_refusal_maps_to_the_matching_code(harness):
     harness.daemon.replies["approve"] = [{"error": "agent ag1 is not waiting"}]
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 snapshot = (await say_hello(ws))[0]["event"]
                 return await command(
@@ -1069,7 +1083,7 @@ def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
     session = model.session_id_for(PROJECT, "NORT-7")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 return await command_with_frames(
@@ -1106,7 +1120,7 @@ def test_a_launch_the_host_refuses_rolls_the_task_back_to_todo(harness):
     ]
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 return await command(
@@ -1133,7 +1147,7 @@ def test_a_launch_blocked_by_a_failed_sync_leaves_the_task_todo(store):
     )
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 return await command(
@@ -1156,7 +1170,7 @@ def test_two_projects_may_share_a_notebook_id(store):
     harness.add_task("2026-06-11.1", project="askastro")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 return await say_hello(ws)
 
@@ -1171,7 +1185,7 @@ def test_desk_add_publishes_an_upsert_then_replies(harness):
     harness.add_task("NORT-7")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 return await command_with_frames(
@@ -1189,7 +1203,7 @@ def test_set_status_moves_the_task_then_publishes_and_replies(harness):
     harness.add_task("NORT-7")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 return await command_with_frames(
@@ -1211,7 +1225,7 @@ def test_update_writes_only_the_fields_it_was_given(harness):
     harness.add_task("NORT-7", branch="feat/orders")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 return await command_with_frames(
@@ -1236,7 +1250,7 @@ def test_a_write_to_a_task_the_notebook_lost_is_unknown_id(harness):
     harness.add_task("NORT-7")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 model.delete(harness.store, PROJECT, "NORT-7")
@@ -1258,7 +1272,7 @@ def test_desk_remove_publishes_a_remove_then_replies(harness):
     harness.add_task("NORT-7")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 await command(ws, {"type": "desk.add", "id": "task:northwind/NORT-7"})
@@ -1282,7 +1296,7 @@ def test_a_second_desk_add_is_ok_and_publishes_nothing(harness):
     harness.add_task("NORT-7")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 await command(ws, {"type": "desk.add", "id": "task:northwind/NORT-7"})
@@ -1307,7 +1321,7 @@ def test_a_task_deleted_from_the_notebook_leaves_the_desk(harness):
     harness.add_task("NORT-8")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 await command(ws, {"type": "desk.add", "id": "task:northwind/NORT-7"})
@@ -1330,7 +1344,7 @@ def test_a_live_agent_joins_the_desk(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 return harness.orch.log.state["world"]["desk"]
@@ -1344,7 +1358,7 @@ def test_an_agent_with_a_task_joins_the_desk_under_its_task(harness):
     harness.daemon.rows["ag1"] = agent_row(session=session)
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 return harness.orch.log.state["world"]["desk"]
@@ -1357,7 +1371,7 @@ def test_the_desk_entry_outlives_the_agent(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 del harness.daemon.rows["ag1"]
@@ -1375,7 +1389,7 @@ def test_a_second_agent_poll_publishes_nothing(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 before = harness.orch.log.seq
@@ -1391,7 +1405,7 @@ def test_a_dismissed_entry_is_not_re_added_by_the_next_poll(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 await command(ws, {"type": "desk.remove", "id": "agent:ag1"})
@@ -1406,7 +1420,7 @@ def test_an_agent_already_exited_when_it_is_adopted_does_not_join_the_desk(harne
     harness.daemon.rows["ag1"] = agent_row(state="exited(1)")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 return harness.orch.log.state["world"]["desk"]
@@ -1429,7 +1443,7 @@ def test_a_free_agent_entry_the_host_has_forgotten_is_dropped_at_load(store):
     harness.add_task("NORT-7")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 return (await say_hello(ws))[0]["event"]["world"]["desk"]
 
@@ -1449,7 +1463,7 @@ def test_an_agent_adopted_at_start_keeps_its_entry_through_the_load(store):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 world = (await say_hello(ws))[0]["event"]["world"]
                 return world["desk"], list(world["tasks"])
@@ -1468,7 +1482,7 @@ def test_a_free_agent_entry_whose_agent_is_live_survives_the_load(store):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 return (await say_hello(ws))[0]["event"]["world"]["desk"]
 
@@ -1481,7 +1495,7 @@ def test_the_desk_survives_a_restart(store):
     desk = InMemoryDeskStore()
 
     async def scenario(harness):
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 await command(ws, {"type": "desk.add", "id": "task:northwind/NORT-7"})
@@ -1493,7 +1507,7 @@ def test_the_desk_survives_a_restart(store):
     second = Harness(store, desk=desk)
 
     async def read_back():
-        async with second.orch.serving("127.0.0.1", 0) as server:
+        async with second.serving() as server:
             async with connect(url(server)) as ws:
                 return (await say_hello(ws))[0]["event"]["world"]["desk"]
 
@@ -1507,7 +1521,7 @@ def test_a_project_the_scan_misses_keeps_its_desk_entries(store):
     harness.add_task("ASK-1", project="askastro")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 await command(ws, {"type": "desk.add", "id": "task:askastro/ASK-1"})
@@ -1525,7 +1539,7 @@ def test_resume_reaches_the_host_for_an_exited_agent(harness):
     harness.daemon.rows["ag1"] = agent_row(state="exited(1)")
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 return await command(ws, {"type": "agent.resume", "agentId": "ag1"})
@@ -1540,7 +1554,7 @@ def test_resume_of_an_agent_that_is_running_is_refused(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 return await command(ws, {"type": "agent.resume", "agentId": "ag1"})
@@ -1556,7 +1570,7 @@ def test_a_host_that_says_the_agent_is_running_refuses_the_resume(harness):
     harness.daemon.replies["resume"] = [{"error": "agent ag1 is running"}]
 
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 return await command(ws, {"type": "agent.resume", "agentId": "ag1"})
@@ -1569,7 +1583,7 @@ def test_a_host_that_says_the_agent_is_running_refuses_the_resume(harness):
 
 def test_resume_of_an_agent_the_world_does_not_know_is_refused(harness):
     async def scenario():
-        async with harness.orch.serving("127.0.0.1", 0) as server:
+        async with harness.serving() as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 return await command(ws, {"type": "agent.resume", "agentId": "nope"})

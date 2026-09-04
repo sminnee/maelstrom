@@ -1,9 +1,10 @@
-"""The orchestrator server: the world over one WebSocket.
+"""The orchestrator server: the world, its sources, and the clients watching it.
 
-The adapter layer, and the only asyncio orchestration in the package. It owns
+The service layer, and the only asyncio orchestration in the package. It owns
 the :class:`~maelstrom.orchestrator.event_log.EventLog`, polls the task and
 worktree sources, keeps one attach stream per agent against the agent host,
 answers commands, and serves every client the same seq-stamped frames.
+:mod:`~maelstrom.orchestrator.routes` puts it on the network.
 
 The wire format — hello, snapshot or replay, ready, commands and replies — is
 documented in ``docs/dev/orchestrator-server.md``.
@@ -12,13 +13,11 @@ documented in ``docs/dev/orchestrator-server.md``.
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from concurrent.futures import Executor
-from contextlib import asynccontextmanager
 from typing import Any
 
-from websockets.asyncio.server import Server, ServerConnection, serve
-from websockets.exceptions import ConnectionClosed
+from aiohttp import WSMsgType, web
 
 from ..agent_model import AGENT_DETAIL, AGENT_EXITED, BACKLOG_END, RECENT_LIMIT
 from ..desk_store import DeskStore, InMemoryDeskStore
@@ -107,7 +106,7 @@ class Orchestrator:
         self._task_poll = task_poll
         self._worktree_poll = worktree_poll
         self._agent_poll = agent_poll
-        self._clients: set[ServerConnection] = set()
+        self._clients: set[web.WebSocketResponse] = set()
         # Held while frames are appended and sent, and while a client is
         # handed its snapshot: a frame published between the two would reach
         # the client before the snapshot it is newer than, and be lost.
@@ -149,26 +148,6 @@ class Orchestrator:
         await asyncio.gather(*self._pollers, *watching, return_exceptions=True)
         self._pollers = []
 
-    async def serve(self, host: str, port: int) -> None:
-        """Serve until cancelled."""
-        async with self.serving(host, port):
-            await asyncio.Event().wait()
-
-    @asynccontextmanager
-    async def serving(self, host: str, port: int) -> AsyncIterator[Server]:
-        """Serve for the length of the block. ``port`` 0 picks a free port.
-
-        The socket binds first, so a port in use fails at once. A client that
-        connects before the first source reads finish waits for them, so its
-        snapshot holds the world rather than an empty one that fills in later.
-        """
-        async with serve(self.handle_connection, host, port) as server:
-            await self.start()
-            try:
-                yield server
-            finally:
-                await self.stop()
-
     async def _poll(self, interval: float, refresh: Callable[[], Any]) -> None:
         while True:
             await asyncio.sleep(interval)
@@ -206,9 +185,9 @@ class Orchestrator:
         texts = [json.dumps(frame) for frame in frames]
         clients = list(self._clients)
 
-        async def send_all_to(client: ServerConnection) -> None:
+        async def send_all_to(client: web.WebSocketResponse) -> None:
             for text in texts:
-                await client.send(text)
+                await client.send_str(text)
 
         results = await asyncio.gather(
             *(send_all_to(client) for client in clients), return_exceptions=True
@@ -708,15 +687,20 @@ class Orchestrator:
 
     # -- the socket --
 
-    async def handle_connection(self, ws: ServerConnection) -> None:
-        """One client: hello, then snapshot or replay, then ready, then commands."""
-        try:
-            first = await ws.recv()
-        except ConnectionClosed:
+    async def handle_connection(self, ws: web.WebSocketResponse) -> None:
+        """One client: hello, then snapshot or replay, then ready, then commands.
+
+        ``ws`` is prepared already; this runs until the client goes away. A
+        client that connects before the first source reads finish waits for
+        them, so its snapshot holds the world rather than an empty one that
+        fills in later.
+        """
+        first = await _next_text(ws)
+        if first is None:
             return
         hello = _parse(first)
         if hello.get("type") != "hello":
-            await ws.send(
+            await ws.send_str(
                 _reply(None, _refused("invalid", "The first message must be a hello"))
             )
             await ws.close()
@@ -724,16 +708,16 @@ class Orchestrator:
         await self._started.wait()
         await self._welcome(ws, hello.get("resumeFrom"))
         try:
-            async for raw in ws:
+            while (raw := await _next_text(ws)) is not None:
                 message = _parse(raw)
                 if message.get("type") == "hello":
-                    await ws.send(
+                    await ws.send_str(
                         _reply(None, _refused("invalid", "Already said hello"))
                     )
                     continue
                 command = message.get("command")
                 if not isinstance(command, dict):
-                    await ws.send(
+                    await ws.send_str(
                         _reply(
                             message.get("id"),
                             _refused("invalid", "No command in message"),
@@ -746,13 +730,13 @@ class Orchestrator:
                     # A field the validator did not check was missing or the
                     # wrong shape: the client's bug, answered as one.
                     reply = _refused("invalid", f"Malformed command: {exc!r}")
-                await ws.send(_reply(message.get("id"), reply))
-        except ConnectionClosed:
+                await ws.send_str(_reply(message.get("id"), reply))
+        except ConnectionResetError:
             pass
         finally:
             self._clients.discard(ws)
 
-    async def _welcome(self, ws: ServerConnection, resume_from: Any) -> None:
+    async def _welcome(self, ws: web.WebSocketResponse, resume_from: Any) -> None:
         async with self._lock:
             frames = None
             if isinstance(resume_from, int) and not isinstance(resume_from, bool):
@@ -760,8 +744,8 @@ class Orchestrator:
             if frames is None:
                 frames = [self.log.snapshot_frame(self.clock())]
             for frame in frames:
-                await ws.send(json.dumps(frame))
-            await ws.send(json.dumps({"ready": {"seq": self.log.seq}}))
+                await ws.send_str(json.dumps(frame))
+            await ws.send_str(json.dumps({"ready": {"seq": self.log.seq}}))
             self._clients.add(ws)
 
 
@@ -793,6 +777,18 @@ def _code_for(error: str) -> str:
     if "not waiting" in error:
         return "not_waiting"
     return "invalid"
+
+
+async def _next_text(ws: web.WebSocketResponse) -> str | None:
+    """The client's next text frame, or ``None`` once the socket has closed."""
+    while True:
+        message = await ws.receive()
+        if message.type == WSMsgType.TEXT:
+            return message.data
+        if message.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED):
+            return None
+        if message.type == WSMsgType.ERROR:
+            return None
 
 
 def _parse(raw: str | bytes) -> dict[str, Any]:

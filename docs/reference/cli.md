@@ -647,7 +647,7 @@ agents from the agent host, over one WebSocket. See
 | `mael orchestrator serve` | Run the orchestrator server in the foreground. `--host` (default `127.0.0.1`), `--port` (default `8765`), `--socket PATH` for the agent host's socket. |
 
 ```bash
-mael orchestrator serve                     # ws://127.0.0.1:8765
+mael orchestrator serve                     # http://127.0.0.1:8765, the world WebSocket at /
 mael orchestrator serve --port 3072         # what mael env start runs, on the worktree's port
 ```
 

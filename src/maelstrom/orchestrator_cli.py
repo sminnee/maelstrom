@@ -16,6 +16,7 @@ from .agent_transport import resolve_socket_path
 from .context import load_global_config
 from .desk_store import JsonDeskStore
 from .orchestrator.daemon_bridge import SocketAsyncDaemonClient
+from .orchestrator.routes import build_app, serve_app
 from .orchestrator.server import Orchestrator
 from .orchestrator.sources import ListAllWorktreeSource, NotebookTaskSource
 from .task import Task
@@ -72,7 +73,7 @@ def run_server(host: str, port: int, socket_path: str | None) -> None:
     """
     with ThreadPoolExecutor(max_workers=1) as executor:
         orchestrator = build_orchestrator(socket_path, executor=executor)
-        asyncio.run(orchestrator.serve(host, port))
+        asyncio.run(serve_app(build_app(orchestrator), host, port))
 
 
 @click.group()
@@ -90,7 +91,7 @@ def orchestrator() -> None:
 )
 def cmd_serve(host: str, port: int, socket_path: str | None) -> None:
     """Run the orchestrator server in the foreground."""
-    click.echo(f"Serving on ws://{host}:{port}", err=True)
+    click.echo(f"Serving on http://{host}:{port}", err=True)
     try:
         run_server(host, port, socket_path)
     except KeyboardInterrupt:
