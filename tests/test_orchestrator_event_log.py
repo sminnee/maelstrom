@@ -46,7 +46,12 @@ def test_replay_from_an_empty_log_is_a_snapshot():
     assert EventLog().replay_from(0) is None
 
 
-def test_snapshot_frame_carries_the_world_and_transcripts_at_the_current_seq():
+def test_snapshot_frame_carries_the_world_at_the_current_seq_and_no_transcripts():
+    """The server keeps no transcript, so a snapshot cannot carry one.
+
+    A transcript event still stamps a seq — it was published — but nothing
+    here accumulates it.
+    """
     log = EventLog()
     log.append(
         [
@@ -69,4 +74,4 @@ def test_snapshot_frame_carries_the_world_and_transcripts_at_the_current_seq():
     assert frame["seq"] == 2
     assert frame["event"]["type"] == "snapshot"
     assert "T-1" in frame["event"]["world"]["tasks"]
-    assert frame["event"]["transcripts"]["a1"]["items"][0]["markdown"] == "hi"
+    assert "transcripts" not in frame["event"]

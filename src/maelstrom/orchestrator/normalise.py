@@ -56,63 +56,47 @@ class Normalised:
     ctx: NormaliseContext
 
 
-def context_for_agent(state: ClientState, agent_id: str) -> NormaliseContext:
-    """A fresh context, or one rebuilt from what the world already holds.
+def context_for_agent(agent_id: str, seed: int = 0) -> NormaliseContext:
+    """A fresh context for one agent's stream.
 
-    ``denied_tool_uses`` is not rebuilt: the world does not record a denial
-    until its ``tool_result`` lands, so a context rebuilt between the two
-    marks that one call ``done``. The TypeScript context has the same window.
+    Nothing is rebuilt, because there is nothing to rebuild from: the server
+    keeps no transcript. What the agent is waiting on comes from the host's
+    own detail frame (:func:`apply_agent_detail`), which opens every attach.
+
+    ``seed`` starts the id counter past the ids a previous context handed out,
+    so a re-attach cannot mint an id an earlier item already has. The counter
+    is the only source of item ids; deriving one from a transcript's length
+    would not be unique across a rebuild.
     """
-    agent = state["world"]["agents"].get(agent_id)
-    transcript = state["transcripts"].get(agent_id)
-    items = transcript["items"] if transcript else []
-    open_calls: dict[str, str] = {}
-    last_text = ""
-    for item in items:
-        if item["type"] == "tool_call" and item["status"] in ("running", "pending"):
-            open_calls[item["toolUseId"]] = item["id"]
-        if item["type"] == "message" and item["role"] == "assistant":
-            last_text = item["markdown"]
-    pending = None
-    request_id = agent.get("pendingRequestId") if agent else None
-    if agent and request_id:
-        item = next(
-            (i for i in reversed(items) if i.get("requestId") == request_id), None
-        )
-        attention = next(
-            (
-                a
-                for a in state["world"]["attention"].values()
-                if a["clearedAt"] is None and a["requestId"] == request_id
-            ),
-            None,
-        )
-        if item is not None:
-            kind = item["type"]
-            if kind == "question":
-                tool, inp = QUESTION_TOOL, {"questions": item["questions"]}
-            elif kind == "plan_review":
-                tool, inp = PLAN_TOOL, {}
-            elif kind == "permission_request":
-                tool, inp = item["tool"], item["input"]
-            else:
-                tool, inp = "", {}
-            pending = PendingContext(
-                request_id=request_id,
-                tool_use_id="",
-                tool=tool,
-                input=inp,
-                item_id=item["id"],
-                attention_id=attention["id"] if attention else "",
-                document_id=item["documentId"] if kind == "plan_review" else None,
-            )
-    return NormaliseContext(
-        agent_id=agent_id,
-        next_id=len(items) + 1,
-        open_tool_calls=open_calls,
-        pending=pending,
-        last_assistant_text=last_text,
+    return NormaliseContext(agent_id=agent_id, next_id=seed + 1)
+
+
+def apply_agent_detail(
+    state: ClientState, ctx: NormaliseContext, detail: Dict, now: str
+) -> Normalised:
+    """The events for the host's opening detail frame.
+
+    A wait the world does not hold is raised here, so a wait whose
+    ``control_request`` fell out of the host's replay window is still
+    answerable. Applied after the backlog: a wait the backlog carried is
+    already held, and raising it again would duplicate the item and its
+    attention.
+    """
+    agent = state["world"]["agents"].get(ctx.agent_id)
+    if agent is None:
+        return Normalised([], ctx)
+    request_id = _str(detail.get("request_id"))
+    if not request_id or agent["pendingRequestId"] == request_id:
+        return Normalised([], ctx)
+    out = _Emitter(state, agent, ctx, now)
+    out.request(
+        request_id,
+        "",
+        _str(detail.get("waiting_tool")),
+        _dict(detail.get("waiting_input")),
+        _str(detail.get("waiting_on")),
     )
+    return out.done()
 
 
 def normalise_stream_event(

@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .agent_model import (
+    AGENT_DETAIL,
     AGENT_EXITED,
     AWAITING_QUESTION,
     BACKLOG_END,
@@ -578,7 +579,13 @@ class AgentDaemon:
     async def _attach(self, agent_id: str, writer: asyncio.StreamWriter) -> None:
         """Stream one agent's events to a client until it disconnects.
 
-        Replays the buffered ``recent`` events first, so a client that attaches
+        Opens with an :data:`~maelstrom.agent_model.AGENT_DETAIL` frame holding
+        :func:`~maelstrom.agent_model.build_agent_detail`. The host knows what
+        the agent is waiting on, so it says so, rather than leaving a client to
+        infer it from the replayed events. That is what makes a wait answerable
+        the moment a client attaches — including a re-attach after a resume.
+
+        Then replays the buffered ``recent`` events, so a client that attaches
         mid-turn sees the context it arrived into rather than starting blank. A
         :data:`~maelstrom.agent_model.BACKLOG_END` marker closes the replay, so
         ``mael agent tail`` knows where history stops without a timing guess.
@@ -599,6 +606,8 @@ class AgentDaemon:
         )
         agent.watchers.append(queue)
         try:
+            detail = {"type": AGENT_DETAIL, "agent": build_agent_detail(agent.state)}
+            writer.write((json.dumps(detail) + "\n").encode())
             for event in agent.state.recent:
                 writer.write((json.dumps(event) + "\n").encode())
             writer.write((json.dumps({"type": BACKLOG_END}) + "\n").encode())

@@ -47,35 +47,18 @@ def frame(seq, event):
     return {"seq": seq, "ts": NOW, "event": event}
 
 
-def snapshot(world=None, transcripts=None):
+def snapshot(world=None):
     return {
         "type": "snapshot",
         "world": world if world is not None else empty_world(),
-        "transcripts": transcripts or {},
     }
 
 
 def test_a_snapshot_replaces_the_world_and_records_its_seq():
     world = empty_world()
     world["tasks"]["NORT-7"] = make_task()
-    state = apply_server_event(
-        initial_client_state(),
-        frame(
-            1,
-            snapshot(
-                world,
-                {
-                    "agent-1": {
-                        "agentId": "agent-1",
-                        "items": [],
-                        "truncatedBefore": False,
-                    }
-                },
-            ),
-        ),
-    )
+    state = apply_server_event(initial_client_state(), frame(1, snapshot(world)))
     assert state["world"]["tasks"]["NORT-7"]["title"] == "Add order export"
-    assert state["transcripts"]["agent-1"]["items"] == []
     assert state["lastSeq"] == 1
 
 
@@ -132,48 +115,28 @@ def test_remove_deletes_by_kind_and_id():
     assert "NORT-7" in state["world"]["tasks"]
 
 
-def test_transcript_append_then_update_merges_the_patch():
+def test_the_transcript_events_pass_through_without_being_stored():
+    """The projection is relayed, not accumulated: the browser keeps the map.
+
+    The server produces these events and sends them on. Holding them here too
+    is what duplicated a revived agent's history, so nothing here holds them.
+    """
     state = apply_event(initial_client_state(), snapshot())
-    state = apply_event(
-        state,
+    for event in (
         {
             "type": "transcript.append",
             "agentId": "agent-1",
-            "item": {
-                "id": "toolu_1",
-                "ts": NOW,
-                "type": "tool_call",
-                "toolUseId": "toolu_1",
-                "tool": "Bash",
-                "input": {"command": "ls"},
-                "status": "running",
-            },
+            "item": {"id": "i1", "ts": NOW, "type": "message", "role": "assistant"},
         },
-    )
-    state = apply_event(
-        state,
         {
             "type": "transcript.update",
             "agentId": "agent-1",
-            "itemId": "toolu_1",
-            "patch": {"status": "done", "output": "a.txt\n"},
+            "itemId": "i1",
+            "patch": {"status": "done"},
         },
-    )
-    items = state["transcripts"]["agent-1"]["items"]
-    assert len(items) == 1
-    assert items[0]["status"] == "done"
-    assert items[0]["output"] == "a.txt\n"
-    assert state["transcripts"]["agent-1"]["truncatedBefore"] is False
-
-
-def test_transcript_truncated_marks_the_window_even_before_any_item():
-    state = apply_event(initial_client_state(), snapshot())
-    state = apply_event(state, {"type": "transcript.truncated", "agentId": "agent-1"})
-    assert state["transcripts"]["agent-1"] == {
-        "agentId": "agent-1",
-        "items": [],
-        "truncatedBefore": True,
-    }
+        {"type": "transcript.truncated", "agentId": "agent-1"},
+    ):
+        assert apply_event(state, event) == state
 
 
 def test_an_error_event_is_kept_with_its_seq():

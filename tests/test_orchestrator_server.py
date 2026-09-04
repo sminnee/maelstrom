@@ -299,12 +299,29 @@ def split_at_control_response(events: list[dict]) -> tuple[list[dict], list[dict
     return events, []
 
 
-def test_the_snapshot_carries_an_attached_agents_transcript_and_open_attention(harness):
+def published(harness, kind: str) -> list[dict]:
+    """Every event of ``kind`` the server has published so far."""
+    return [
+        f["event"]
+        for f in harness.orch.log.replay_from(0) or []
+        if f["event"]["type"] == kind
+    ]
+
+
+def test_the_snapshot_carries_the_world_and_the_backlog_is_relayed(harness):
+    """The snapshot holds the world; the transcript reaches clients as events.
+
+    The server keeps no transcript, so a client that connects after the
+    backlog was relayed gets the wait from the world and fills its scrollback
+    in from the events that follow. That is the accepted cost of the store
+    going away.
+    """
     harness.add_task("NORT-7")
     session = model.session_id_for(PROJECT, "NORT-7")
     backlog, _ = split_at_control_response(read_fixture("question-unanswered.jsonl"))
     harness.daemon.rows["ag1"] = agent_row(session=session, state="awaiting-question")
     harness.daemon.backlog["ag1"] = backlog
+    harness.daemon.pending["ag1"] = pending_from(backlog)
 
     async def scenario():
         async with harness.orch.serving("127.0.0.1", 0) as server:
@@ -313,15 +330,16 @@ def test_the_snapshot_carries_an_attached_agents_transcript_and_open_attention(h
 
     snapshot, attached = run(scenario())
     assert attached == ["ag1"]
+    assert "transcripts" not in snapshot
     agent = snapshot["world"]["agents"]["ag1"]
     assert agent["state"] == "awaiting-question"
     assert agent["taskId"] == "northwind/NORT-7"
     assert agent["project"] == PROJECT
     assert agent["worktreeId"] == "northwind-alpha"
     assert agent["pendingRequestId"] == "2ba1273d-d878-4923-ba21-31faa1067613"
-    items = snapshot["transcripts"]["ag1"]["items"]
-    assert [i["type"] for i in items][-1] == "question"
-    assert snapshot["transcripts"]["ag1"]["truncatedBefore"] is False
+    appended = published(harness, "transcript.append")
+    assert [e["item"]["type"] for e in appended][-1] == "question"
+    assert published(harness, "transcript.truncated") == []
     open_items = [
         a for a in snapshot["world"]["attention"].values() if a["clearedAt"] is None
     ]
@@ -339,11 +357,10 @@ def test_a_backlog_the_size_of_the_hosts_window_is_marked_truncated(harness):
 
     async def scenario():
         async with harness.orch.serving("127.0.0.1", 0) as server:
-            async with connect(url(server)) as ws:
-                return (await say_hello(ws))[0]["event"]
+            async with connect(url(server)):
+                return published(harness, "transcript.truncated")
 
-    snapshot = run(scenario())
-    assert snapshot["transcripts"]["ag1"]["truncatedBefore"] is True
+    assert [e["agentId"] for e in run(scenario())] == ["ag1"]
 
 
 def test_a_backlog_one_short_of_the_window_is_not_marked_truncated(harness):
@@ -356,11 +373,10 @@ def test_a_backlog_one_short_of_the_window_is_not_marked_truncated(harness):
 
     async def scenario():
         async with harness.orch.serving("127.0.0.1", 0) as server:
-            async with connect(url(server)) as ws:
-                return (await say_hello(ws))[0]["event"]
+            async with connect(url(server)):
+                return published(harness, "transcript.truncated")
 
-    snapshot = run(scenario())
-    assert snapshot["transcripts"]["ag1"]["truncatedBefore"] is False
+    assert run(scenario()) == []
 
 
 async def wait_until(predicate, timeout: float = 2.0) -> None:
@@ -625,6 +641,94 @@ def test_a_revived_agent_links_to_the_task_that_arrived_while_it_was_gone(harnes
     assert frames[0]["taskId"] == "northwind/NORT-7"
 
 
+def test_a_wait_older_than_the_hosts_window_is_raised_from_the_detail_frame(harness):
+    """The gap the detail frame fills: the request fell out of the backlog.
+
+    The host still knows what the agent waits on, so the wait is answerable
+    even though no ``control_request`` replays.
+    """
+    backlog, _ = split_at_control_response(read_fixture("permission-request.jsonl"))
+    pending = pending_from(backlog)
+    harness.daemon.rows["ag1"] = agent_row(state="awaiting-permission")
+    # The window rolled past the request: the host replays none of it.
+    harness.daemon.backlog["ag1"] = []
+    harness.daemon.pending["ag1"] = pending
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                return (await say_hello(ws))[0]["event"]
+
+    snapshot = run(scenario())
+    assert snapshot["world"]["agents"]["ag1"]["pendingRequestId"] == pending.request_id
+    items = [e["item"] for e in published(harness, "transcript.append")]
+    assert [i["type"] for i in items] == ["permission_request"]
+    open_items = [
+        a for a in snapshot["world"]["attention"].values() if a["clearedAt"] is None
+    ]
+    assert [a["requestId"] for a in open_items] == [pending.request_id]
+
+
+def test_a_wait_the_backlog_replays_is_raised_once(harness):
+    """The detail frame names the same wait the backlog carries; one item wins."""
+    backlog, _ = waiting_on(harness, "permission-request.jsonl")
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                return (await say_hello(ws))[0]["event"]
+
+    snapshot = run(scenario())
+    requests = [
+        e["item"]
+        for e in published(harness, "transcript.append")
+        if e["item"]["type"] == "permission_request"
+    ]
+    assert len(requests) == 1
+    open_items = [
+        a for a in snapshot["world"]["attention"].values() if a["clearedAt"] is None
+    ]
+    assert len(open_items) == 1
+
+
+def test_a_revive_publishes_each_transcript_item_once(harness):
+    """The defect the stored transcript caused: history doubled on revive.
+
+    A resume re-attaches, the host replays its window, and the server used to
+    append those events into a transcript that still held the same turns. It
+    holds none now, so the replay is relayed and the browser drops it by id.
+    """
+    events = read_fixture("normal-turn.jsonl")
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.backlog["ag1"] = events
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                first = published(harness, "transcript.append")
+                # The agent dies and is resumed under its own id: the host
+                # replays the same window to the re-attach.
+                harness.daemon.rows["ag1"]["state"] = "exited(1)"
+                await harness.orch.refresh_agents()
+                harness.daemon.rows["ag1"]["state"] = "idle"
+                await harness.orch.refresh_agents()
+                attaches = len(
+                    [c for c in harness.daemon.calls if c["cmd"] == "attach"]
+                )
+                return first, published(harness, "transcript.append"), attaches
+
+    first, after, attaches = run(scenario())
+    # The revive really did re-attach and replay, or this proves nothing.
+    assert attaches == 2
+    assert len(first) > 0
+    ids = [e["item"]["id"] for e in after]
+    assert len(ids) == len(set(ids)), "an item was published under two ids"
+    # The replay is relayed with the ids it already had, so a client that has
+    # them applies nothing new.
+    assert [e["item"]["id"] for e in first] == ids[: len(first)]
+
+
 # --- commands ----------------------------------------------------------------
 
 
@@ -698,10 +802,6 @@ def has_agent_state(state: str):
         return bool(agents) and agents[-1]["state"] == state
 
     return done
-
-
-def has_a_transcript_append(frames: list[dict]) -> bool:
-    return any(f["event"]["type"] == "transcript.append" for f in frames)
 
 
 def entities_of(frames: list[dict], kind: str) -> list[dict]:
@@ -800,29 +900,48 @@ def test_answer_sends_the_answers_map_and_files_it_on_the_question(harness):
     assert updates_of(frames)[0]["patch"] == {"answers": answers}
 
 
-def test_say_sends_the_text_and_shows_it_as_a_user_message(harness):
+def test_say_reaches_the_host_and_the_childs_replay_shows_it(harness):
+    """The host does not echo a user turn: the child replays it on its stdout.
+
+    Echoing it as well would put the turn on the stream twice, and the
+    normaliser mints a fresh item id per copy — so the message would render
+    twice. The server relays the command and waits for the replay.
+    """
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
         async with harness.orch.serving("127.0.0.1", 0) as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
-                return await command_with_frames(
+                reply, frames = await command_with_frames(
                     ws,
                     {"type": "agent.say", "agentId": "ag1", "text": "also the README"},
-                    until=has_a_transcript_append,
                 )
+                assert frames == []
+                # The child replays the turn, as every fixture records.
+                harness.daemon.push(
+                    "ag1",
+                    {
+                        "type": "user",
+                        "message": {
+                            "role": "user",
+                            "content": [{"type": "text", "text": "also the README"}],
+                        },
+                        "isReplay": True,
+                    },
+                )
+                frame = await next_frame(
+                    ws, lambda f: f["event"]["type"] == "transcript.append"
+                )
+                return reply, frame["event"]["item"]
 
-    reply, frames = run(scenario())
+    reply, item = run(scenario())
     assert reply["ok"] is True
     assert {
         "cmd": "say",
         "id": "ag1",
         "text": "also the README",
     } in harness.daemon.calls
-    item = next(
-        f["event"]["item"] for f in frames if f["event"]["type"] == "transcript.append"
-    )
     assert item["type"] == "message"
     assert item["role"] == "user"
     assert item["markdown"] == "also the README"

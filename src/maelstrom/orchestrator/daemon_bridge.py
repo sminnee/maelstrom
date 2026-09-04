@@ -12,16 +12,18 @@ socket client, and a scripted fake that records calls.
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 
 from ..agent_model import (
+    AGENT_DETAIL,
     BACKLOG_END,
+    AgentState,
     PendingRequest,
+    build_agent_detail,
     reply_for_answers,
     reply_for_approval,
     reply_for_denial,
-    user_message,
 )
 from ..agent_transport import ensure_daemon, request_over_socket, resolve_socket_path
 
@@ -56,11 +58,10 @@ class ScriptedAsyncDaemonClient:
     with none left, ``list`` answers from ``rows``, ``start`` adds a row,
     ``stop`` drops one, and every other command answers ``{"ok": True}``.
 
-    Like the real host, it echoes what it writes to the child: a command that
-    answers a wait or says something puts that message on every attached
-    stream. A client of this fake therefore learns of a reply the same way it
-    learns of one made elsewhere, which is what lets the server hold no
-    opinion about how a wait is answered.
+    Like the real host, it echoes the ``control_response`` it writes to the
+    child onto every attached stream, so a client learns of a reply the same
+    way it learns of one made elsewhere. A ``say`` is not echoed, because the
+    child replays a user turn itself.
     """
 
     rows: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -115,6 +116,7 @@ class ScriptedAsyncDaemonClient:
         queue: asyncio.Queue[Any] = asyncio.Queue()
         self._queues.setdefault(agent_id, []).append(queue)
         try:
+            yield {"type": AGENT_DETAIL, "agent": self._detail(agent_id)}
             for event in self.backlog.get(agent_id, []):
                 yield event
             yield {"type": BACKLOG_END}
@@ -136,18 +138,27 @@ class ScriptedAsyncDaemonClient:
         for queue in self._queues.get(agent_id, []):
             queue.put_nowait(_END)
 
-    def _echo_for(
-        self, payload: dict[str, Any], command: str
-    ) -> dict[str, Any] | None:
-        """The message the host would write to the child for ``payload``.
+    def _detail(self, agent_id: str) -> dict[str, Any]:
+        """The opening frame the real host builds from its own ``AgentState``.
+
+        Built from the same ``PendingRequest`` the echo uses, through the
+        daemon's own :func:`build_agent_detail`, so the fake cannot describe a
+        wait in a shape the host would not.
+        """
+        state = AgentState(agent_id=agent_id, cwd=self.rows[agent_id].get("cwd", ""))
+        pending = self.pending.get(agent_id)
+        if pending is not None:
+            state = replace(state, pending=pending, status=pending.wait_kind)
+        return build_agent_detail(state)
+
+    def _echo_for(self, payload: dict[str, Any], command: str) -> dict[str, Any] | None:
+        """The reply the host would echo onto the stream for ``payload``.
 
         The reply shapes are the daemon's own
         (:mod:`maelstrom.agent_model`), built against the request the agent is
-        waiting on. ``None`` for a command that writes nothing to the child.
+        waiting on. ``None`` for a command that echoes nothing.
         """
         agent_id = str(payload.get("id", ""))
-        if command == "say":
-            return user_message(str(payload.get("text", "")))
         pending = self.pending.get(agent_id)
         if pending is None:
             return None

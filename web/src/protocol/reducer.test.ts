@@ -131,6 +131,25 @@ describe('applyServerEvent', () => {
     });
   });
 
+  it('a snapshot without transcripts keeps the ones the client holds', () => {
+    // The real server stores no transcript: it relays the projection, so the
+    // client's own map is the only copy and a snapshot must not clear it.
+    let state = applyServerEvent(
+      initialClientState(),
+      frame(1, { type: 'snapshot', world: emptyWorld(), transcripts: {} }),
+    );
+    state = applyServerEvent(
+      state,
+      frame(2, {
+        type: 'transcript.append',
+        agentId: 'agent-1',
+        item: { id: 'i1', ts: '2026-09-01T00:00:00Z', type: 'message', role: 'assistant', markdown: 'hi' },
+      }),
+    );
+    state = applyServerEvent(state, frame(3, { type: 'snapshot', world: emptyWorld() }));
+    expect(state.transcripts['agent-1']?.items).toHaveLength(1);
+  });
+
   it('keeps the desk in its own table', () => {
     const entry = { id: 'task:askastro/2026-06-11.1', addedAt: '2026-09-04T09:00:00Z' };
     let state = applyServerEvent(
