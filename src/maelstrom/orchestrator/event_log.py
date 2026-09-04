@@ -63,8 +63,7 @@ class EventLog:
     def snapshot_frame(self, ts: str) -> EventFrame:
         """The world as it is now, stamped with the current seq.
 
-        Carries no transcripts: the server keeps none. A client that connects
-        mid-life fills its own in from the events relayed after it arrives.
+        Carries no transcripts: the server keeps none.
         """
         return {
             "seq": self._seq,
