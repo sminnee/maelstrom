@@ -189,6 +189,28 @@ describe('the session tab', () => {
     await user.click(screen.getByRole('button', { name: 'Send' }));
     expect(screen.getByText('Prefer the ICU collation.')).toBeInTheDocument();
   });
+
+  it('leaves one live prompt when the card and the session tab show the same wait', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('MAEL-52');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+    expect(screen.getAllByTestId('question-prompt')).toHaveLength(1);
+    expect(within(expanded()).getByTestId('question-prompt')).toBeInTheDocument();
+    expect(screen.getByTestId('deferred-wait')).toBeInTheDocument();
+  });
+
+  it('answers from the session tab when no card is expanded', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('MAEL-52');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+    await user.keyboard('{Escape}');
+    const prompt = screen.getByTestId('question-prompt');
+    await user.click(within(prompt).getAllByRole('radio')[0]!);
+    await user.click(within(prompt).getByRole('button', { name: 'Answer' }));
+    expect(nodeState('MAEL-52')).not.toBe('needs-attention');
+  });
 });
 
 describe('document tabs', () => {

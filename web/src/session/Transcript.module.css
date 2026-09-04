@@ -40,3 +40,22 @@
   color: var(--fg-muted);
   font-size: 12px;
 }
+.deferred {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  align-items: baseline;
+  padding: 6px 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+}
+.deferredAsk {
+  min-width: 0;
+  flex: 1;
+  color: var(--fg-muted);
+}
+.deferredWhere {
+  font-size: var(--text-sm);
+  color: var(--attention);
+  white-space: nowrap;
+}

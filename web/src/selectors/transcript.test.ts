@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TranscriptItem } from '../protocol/transcript';
-import { makeQuestionItem } from '../test/fixtures';
-import { contextBefore } from './transcript';
+import { answeredOnCanvas, contextBefore } from './transcript';
 
 const said = (id: string, role: 'user' | 'assistant', markdown: string): TranscriptItem => ({
   id,
@@ -27,33 +26,54 @@ const items: TranscriptItem[] = [
   said('m2', 'assistant', 'Two options are plausible.'),
   called('t2', 'Bash'),
   called('t3', 'AskUserQuestion'),
-  makeQuestionItem({ id: 'q1' }),
+  { id: 'q1', ts: '', type: 'question', requestId: 'req-1', questions: [] },
   said('m3', 'assistant', 'After the wait.'),
 ];
 
-describe('contextBefore', () => {
-  it('returns the last n assistant messages and tool calls before the wait, in order', () => {
-    expect(contextBefore(items, 'req-1', 2).map((i) => i.id)).toEqual(['m2', 't2']);
-    expect(contextBefore(items, 'req-1', 3).map((i) => i.id)).toEqual(['t1', 'm2', 't2']);
+describe('presenting a wait', () => {
+  describe('the context before it', () => {
+    it('returns the last n assistant messages and tool calls before the wait, in order', () => {
+      expect(contextBefore(items, 'req-1', 2).map((i) => i.id)).toEqual(['m2', 't2']);
+      expect(contextBefore(items, 'req-1', 3).map((i) => i.id)).toEqual(['t1', 'm2', 't2']);
+    });
+
+    it('skips the tool call that raised the wait and everything after it', () => {
+      const ids = contextBefore(items, 'req-1', 10).map((i) => i.id);
+      expect(ids).not.toContain('t3');
+      expect(ids).not.toContain('m3');
+      expect(ids).not.toContain('u1');
+    });
+
+    it('keeps a tool call before a wait that no tool call raised', () => {
+      const bare: TranscriptItem[] = [
+        said('m1', 'assistant', 'Reading the model.'),
+        called('t1', 'Read'),
+        { id: 'q2', ts: '', type: 'question', requestId: 'req-2', questions: [] },
+      ];
+      expect(contextBefore(bare, 'req-2').map((i) => i.id)).toEqual(['m1', 't1']);
+    });
+
+    it('is empty when the request is unknown', () => {
+      expect(contextBefore(items, 'req-9')).toEqual([]);
+    });
   });
 
-  it('skips the tool call that raised the wait and everything after it', () => {
-    const ids = contextBefore(items, 'req-1', 10).map((i) => i.id);
-    expect(ids).not.toContain('t3');
-    expect(ids).not.toContain('m3');
-    expect(ids).not.toContain('u1');
-  });
+  describe('which surface answers it', () => {
+    it('gives the wait to the expanded card when the card shows the waiting task', () => {
+      expect(answeredOnCanvas('MAEL-52', 'MAEL-52')).toBe(true);
+    });
 
-  it('keeps a tool call before a wait that no tool call raised', () => {
-    const bare: TranscriptItem[] = [
-      said('m1', 'assistant', 'Reading the model.'),
-      called('t1', 'Read'),
-      makeQuestionItem({ id: 'q2', requestId: 'req-2' }),
-    ];
-    expect(contextBefore(bare, 'req-2').map((i) => i.id)).toEqual(['m1', 't1']);
-  });
+    it('gives the wait to the panel when no card is expanded', () => {
+      expect(answeredOnCanvas(null, 'MAEL-52')).toBe(false);
+    });
 
-  it('is empty when the request is unknown', () => {
-    expect(contextBefore(items, 'req-9')).toEqual([]);
+    it('gives the wait to the panel when the card is expanded on another task', () => {
+      expect(answeredOnCanvas('NORT-7', 'MAEL-52')).toBe(false);
+    });
+
+    // A free agent has no task, so it draws under its own id on both sides.
+    it('gives the wait to the expanded card when the waiting agent has no task', () => {
+      expect(answeredOnCanvas('d9a4c7f1', 'd9a4c7f1')).toBe(true);
+    });
   });
 });

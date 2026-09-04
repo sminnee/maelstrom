@@ -18,24 +18,50 @@ export function Transcript({
   items,
   truncatedBefore,
   handlers = {},
+  deferredRequestId = null,
 }: {
   items: TranscriptItem[];
   truncatedBefore: boolean;
   handlers?: TranscriptHandlers;
+  /** The wait the expanded card answers. Shown here as an echo, without controls. */
+  deferredRequestId?: string | null;
 }) {
   return (
     <div className={styles.transcript}>
       {truncatedBefore && <div className={styles.note}>Earlier events were not kept.</div>}
-      {items.map((item) => (
-        <div
-          key={item.id}
-          className={styles.card}
-          data-testid="transcript-card"
-          data-item-type={item.type}
-        >
-          <Card item={item} handlers={handlers} />
-        </div>
-      ))}
+      {items.map((item) => {
+        const deferred =
+          deferredRequestId !== null && 'requestId' in item && item.requestId === deferredRequestId;
+        return (
+          <div
+            key={item.id}
+            className={styles.card}
+            data-testid="transcript-card"
+            data-item-type={item.type}
+          >
+            {deferred ? <DeferredWait item={item} /> : <Card item={item} handlers={handlers} />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * A wait the expanded card is answering. The panel reads, so this says what the
+ * agent asked and where the answer goes, and carries no controls of its own.
+ */
+function DeferredWait({ item }: { item: TranscriptItem }) {
+  const asked =
+    item.type === 'question'
+      ? (item.questions[0]?.question ?? 'A question')
+      : item.type === 'permission_request'
+        ? `Permission: ${item.tool}`
+        : 'A plan is ready for review';
+  return (
+    <div className={styles.deferred} data-testid="deferred-wait">
+      <span className={styles.deferredAsk}>{asked}</span>
+      <span className={styles.deferredWhere}>Answering on the canvas</span>
     </div>
   );
 }

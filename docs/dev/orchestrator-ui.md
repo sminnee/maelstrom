@@ -117,6 +117,17 @@ the document, so a stale plan review takes the document to the `stale` status to
 never works out which of the three applies: the backend marks the item stale and takes the request
 off the agent row.
 
+One request has one live prompt. The expanded node owns the prompt while it is open on the
+waiting agent, because the node is where the user makes small adjustments. The session tab then
+echoes the wait, showing what was asked and reading "Answering on the canvas", with no buttons.
+With no node expanded, or one expanded on another agent, the session tab owns the prompt and
+carries its controls. `selectors/transcript.ts` decides which surface owns the prompt.
+
+The call that raises a wait draws no card. `AskUserQuestion` and `ExitPlanMode` classify as the
+`wait` kind, and the transcript gives them no row: the wait item that follows renders the same
+prompt in full. `selectors/transcript.ts` skips the same call when it builds the context before a
+wait.
+
 The panel holds session and document tabs only. A panel link opens a session or a document as
 a tab; `shell/PanelLink.tsx` says why links, not buttons. Every tab carries a phase chip and
 its task id, so two agents' tabs are told apart.
