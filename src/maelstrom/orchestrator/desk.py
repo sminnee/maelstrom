@@ -1,4 +1,4 @@
-"""The desk: which tasks the user has put on the canvas.
+"""The desk: what the canvas draws, as tasks and free agents.
 
 Pure table maths over the desk table :mod:`maelstrom.desk_store` keeps. Every
 function returns a new table and never changes the one it is given, so the
@@ -43,26 +43,26 @@ def split_desk_id(desk_id: str) -> tuple[DeskKind, str]:
     return cast(DeskKind, kind), entity_id
 
 
-def add(table: DeskTable, task_id: str, now: str) -> DeskTable:
-    """The table with ``task_id`` on the desk.
+def add(table: DeskTable, desk_id: str, now: str) -> DeskTable:
+    """The table with ``desk_id`` on the desk.
 
-    Adding a task that is on the desk already keeps the time it first
+    Adding an entry that is on the desk already keeps the time it first
     arrived, so a second add changes nothing.
     """
-    if task_id in table:
+    if desk_id in table:
         return dict(table)
-    return {**table, task_id: {"id": task_id, "addedAt": now}}
+    return {**table, desk_id: {"id": desk_id, "addedAt": now}}
 
 
-def remove(table: DeskTable, task_id: str) -> DeskTable:
-    """The table with ``task_id`` off the desk.
+def remove(table: DeskTable, desk_id: str) -> DeskTable:
+    """The table with ``desk_id`` off the desk.
 
     Raises:
-        KeyError: If ``task_id`` is not on the desk.
+        KeyError: If ``desk_id`` is not on the desk.
     """
-    if task_id not in table:
-        raise KeyError(task_id)
-    return {k: v for k, v in table.items() if k != task_id}
+    if desk_id not in table:
+        raise KeyError(desk_id)
+    return {k: v for k, v in table.items() if k != desk_id}
 
 
 def prune(
@@ -75,9 +75,9 @@ def prune(
     entries are kept: project discovery is a filesystem scan, and a project
     that is briefly absent must not cost the user the desk they built for it.
 
-    An ``agent:`` entry is never pruned. Nothing removes an agent from the
-    world, so the entry always has an entity to draw, and dropping it would
-    defeat the sticky rule that keeps a stopped agent on the canvas.
+    An ``agent:`` entry is never pruned. An agent stays in the world once
+    seen, so the entry always has an entity to draw. See
+    :func:`drop_unknown_agents` for the rule that applies to a stored desk.
     """
     covered = set(projects)
     return {
@@ -85,6 +85,32 @@ def prune(
         for k, v in table.items()
         if _task_of(k) in task_ids or _project_of(k) not in covered
     }
+
+
+def drop_unknown_agents(table: DeskTable, agent_ids: Container[str]) -> DeskTable:
+    """The table with every ``agent:`` entry naming an unknown agent dropped.
+
+    Only for a desk read from storage. The world's agents do not persist, so a
+    stored entry can name an agent that no longer exists; it would draw
+    nothing and could never be dismissed. Within one run the opposite rule
+    applies — see :func:`prune`.
+    """
+    return {k: v for k, v in table.items() if _keeps_agent(k, agent_ids)}
+
+
+def _keeps_agent(desk_id: str, agent_ids: Container[str]) -> bool:
+    """Whether an entry survives the load: any non-agent, or a known agent."""
+    agent_id = _agent_of(desk_id)
+    return agent_id is None or agent_id in agent_ids
+
+
+def _agent_of(desk_id: str) -> str | None:
+    """The agent a desk id names, or ``None`` when it names no agent."""
+    try:
+        kind, entity_id = split_desk_id(desk_id)
+    except ValueError:
+        return None
+    return entity_id if kind == "agent" else None
 
 
 def _task_of(desk_id: str) -> str:
@@ -101,11 +127,7 @@ def _task_of(desk_id: str) -> str:
 
 
 def _project_of(desk_id: str) -> str:
-    """The project a desk id's task is in, or ``""`` when it names no task.
-
-    An id that names no task falls outside every covered project, so
-    :func:`prune` keeps it.
-    """
+    """The project a desk id's task is in, or ``""`` when it names no task."""
     task_id = _task_of(desk_id)
     if not task_id:
         return ""
