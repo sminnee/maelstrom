@@ -6,8 +6,9 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from maelstrom.doctor import CheckStatus, run_doctor
-from maelstrom.worktree import update_local_main
+from maelstrom.doctor import CheckStatus, _check_port_allocations, run_doctor
+from maelstrom.ports import load_port_allocations, record_port_allocation
+from maelstrom.worktree import WorktreeInfo, update_local_main
 from tests.git_helpers import create_commit, run_git, setup_git_repo
 
 
@@ -515,3 +516,66 @@ class TestCheckSecretFilePerms:
 
         assert _check_secret_file_perms(project_path).status == CheckStatus.FIXED
         assert _check_secret_file_perms(project_path).status == CheckStatus.OK
+
+
+class TestCheckPortAllocations:
+    """Orphan pruning must keep `_main`'s reserved allocation and `_shared`."""
+
+    def _run(self, tmp_path, monkeypatch, allocations, folders):
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+
+        for name, base in allocations.items():
+            record_port_allocation(project_path, name, base)
+
+        monkeypatch.setattr(
+            "maelstrom.doctor.list_worktrees",
+            lambda _p: [
+                WorktreeInfo(path=project_path / f, branch="main", commit="abc")
+                for f in folders
+            ],
+        )
+
+        result = _check_port_allocations(project_path)
+        remaining = load_port_allocations()[str(project_path.resolve())]
+        return result, remaining
+
+    def test_keeps_the_reserved_main_allocation(self, tmp_path, monkeypatch):
+        """`_main` is a real worktree, so its base is never an orphan."""
+        result, remaining = self._run(
+            tmp_path,
+            monkeypatch,
+            {"_main": 277, "alpha": 300},
+            ["_main", "myproject-alpha"],
+        )
+
+        assert result.status == CheckStatus.OK
+        assert remaining["_main"] == 277
+
+    def test_keeps_the_shared_allocation(self, tmp_path, monkeypatch):
+        """`_shared` is not a worktree at all, and is exempt by name."""
+        result, remaining = self._run(
+            tmp_path, monkeypatch, {"_shared": 400, "alpha": 300}, ["myproject-alpha"]
+        )
+
+        assert result.status == CheckStatus.OK
+        assert remaining["_shared"] == 400
+
+    def test_ignores_the_project_root_itself(self, tmp_path, monkeypatch):
+        """git lists the project root; it is not a worktree and prunes nothing."""
+        result, remaining = self._run(
+            tmp_path, monkeypatch, {"alpha": 300}, [".", "myproject-alpha"]
+        )
+
+        assert result.status == CheckStatus.OK
+        assert remaining["alpha"] == 300
+
+    def test_prunes_an_allocation_with_no_worktree(self, tmp_path, monkeypatch):
+        result, remaining = self._run(
+            tmp_path, monkeypatch, {"alpha": 300, "bravo": 301}, ["myproject-alpha"]
+        )
+
+        assert result.status == CheckStatus.FIXED
+        assert "bravo" in result.message
+        assert "bravo" not in remaining

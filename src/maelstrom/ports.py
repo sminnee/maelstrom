@@ -39,7 +39,7 @@ def check_ports_free(port_base: int, num_ports: int = 10) -> bool:
     """Check if all ports in the range are free.
 
     Args:
-        port_base: The 3-digit base (300-999). Ports will be port_base * 10 + suffix.
+        port_base: The port base. Ports will be port_base * 10 + suffix.
         num_ports: Number of ports to check (default 10, for suffixes 0-9).
 
     Returns:
@@ -158,6 +158,18 @@ def get_port_allocation(project_path: Path, worktree_name: str) -> int | None:
     return allocations.get(project_key, {}).get(worktree_name)
 
 
+# The floating pool `allocate_port_base` scans. Every NATO worktree gets a
+# floating base from here. A reserved base (`main_port_base:`) must sit outside
+# it, so the two can never collide.
+DYNAMIC_PORT_BASE_MIN = 300
+DYNAMIC_PORT_BASE_MAX = 999
+
+# Ports are `base * 10 + index`, and a worktree gets 10 of them, so the highest
+# usable base is the one whose last port is still a valid TCP port.
+MAX_PORT = 65535
+PORT_BASE_CEILING = (MAX_PORT - 9) // 10
+
+
 def allocate_port_base(project_path: Path, num_ports: int = 10) -> int:
     """Find the next available PORT_BASE where all ports in the range are free.
 
@@ -178,12 +190,15 @@ def allocate_port_base(project_path: Path, num_ports: int = 10) -> int:
     allocations = load_port_allocations()
     allocated_bases = get_allocated_port_bases(allocations)
 
-    for base in range(300, 1000):
+    for base in range(DYNAMIC_PORT_BASE_MIN, DYNAMIC_PORT_BASE_MAX + 1):
         if base in allocated_bases:
             continue
         if check_ports_free(base, num_ports):
             return base
-    raise RuntimeError("No available port ranges found (checked PORT_BASE 300-999)")
+    raise RuntimeError(
+        f"No available port ranges found (checked PORT_BASE "
+        f"{DYNAMIC_PORT_BASE_MIN}-{DYNAMIC_PORT_BASE_MAX})"
+    )
 
 
 WEB_PORT_NAMES = {"APP", "FRONTEND"}
@@ -267,7 +282,7 @@ def generate_port_env_vars(port_base: int, port_names: list[str]) -> dict[str, s
     """Generate environment variables for port assignments.
 
     Args:
-        port_base: The 3-digit base (300-999).
+        port_base: A floating base from the pool, or a reserved base outside it.
         port_names: List of port names (e.g., ["FRONTEND", "SERVER", "DB"]).
 
     Returns:

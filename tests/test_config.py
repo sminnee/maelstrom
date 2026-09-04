@@ -71,6 +71,46 @@ class TestMaelstromConfig:
         assert config.uptimerobot_monitors is None
 
 
+class TestMainPortBase:
+    """`main_port_base:` reserves a base for `_main`, the fixed environment."""
+
+    def test_absent_by_default(self):
+        """No key means `_main` keeps no ports — the opt-out path."""
+        assert MaelstromConfig.from_dict({}).main_port_base is None
+
+    def test_parsed_when_set(self):
+        config = MaelstromConfig.from_dict({"main_port_base": 277})
+        assert config.main_port_base == 277
+
+    @pytest.mark.parametrize("base", [300, 650, 999])
+    def test_rejects_a_base_inside_the_dynamic_range(self, base):
+        """A base the allocator scans is not reserved; the clash would be silent."""
+        with pytest.raises(ValueError, match="main_port_base"):
+            MaelstromConfig.from_dict({"main_port_base": base})
+
+    @pytest.mark.parametrize("base", [100, 299, 1000, 5000])
+    def test_accepts_a_base_outside_the_dynamic_range(self, base):
+        assert (
+            MaelstromConfig.from_dict({"main_port_base": base}).main_port_base == base
+        )
+
+    @pytest.mark.parametrize("base", [0, -1, 6554, 10000])
+    def test_rejects_a_base_whose_ports_would_not_bind(self, base):
+        """`base * 10 + index` must land in the port range, or nothing can bind."""
+        with pytest.raises(ValueError, match="main_port_base"):
+            MaelstromConfig.from_dict({"main_port_base": base})
+
+    def test_accepts_the_highest_base_whose_ports_still_fit(self):
+        """6553 * 10 + 9 is 65539, one over the limit, so 6552 is the ceiling."""
+        assert (
+            MaelstromConfig.from_dict({"main_port_base": 6552}).main_port_base == 6552
+        )
+
+    def test_rejects_a_non_integer(self):
+        with pytest.raises(ValueError, match="main_port_base"):
+            MaelstromConfig.from_dict({"main_port_base": "277"})
+
+
 class TestServicesConfig:
     """Tests for structured `services:` parsing and derived helpers."""
 

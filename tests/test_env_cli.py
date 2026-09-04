@@ -1352,3 +1352,35 @@ class TestEnvStopValidatesServiceNames:
         result = runner.invoke(cli, ["env", "stop", "ladle"])
         assert result.exit_code == 0
         mock_stop.assert_called_once_with(ANY, "proj", "bravo", services=["ladle"])
+
+
+class TestEnvTargetsMain:
+    """`_main` is a real env target: `-w <project>._main` resolves to `_main/`."""
+
+    @patch("maelstrom.env_cli.get_app_url", return_value=None)
+    @patch("maelstrom.env_cli.load_env_state")
+    @patch("maelstrom.env_cli.get_env_status", return_value=[])
+    @patch("maelstrom.env_cli.start_env")
+    @patch("maelstrom.context.load_global_config")
+    def test_start_resolves_the_main_folder(
+        self, mock_global, mock_start, mock_status, mock_load, mock_app, tmp_path
+    ):
+        projects_dir = tmp_path / "Projects"
+        main_path = projects_dir / "myproject" / "_main"
+        main_path.mkdir(parents=True)
+        mock_global.return_value = MagicMock(projects_dir=projects_dir)
+        mock_start.return_value = _make_state(project="myproject", worktree="_main")
+        mock_load.return_value = None
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "start", "-w", "myproject._main"])
+
+        assert result.exit_code == 0, result.output
+        mock_start.assert_called_once_with(
+            ANY,
+            "myproject",
+            "_main",
+            main_path,
+            skip_install=False,
+            services=None,
+        )
