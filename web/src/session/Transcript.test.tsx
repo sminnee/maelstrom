@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { Transcript } from './Transcript';
 import { classifyToolCall } from './toolCards';
 import { makePlanReview } from '../test/fixtures';
@@ -93,5 +93,19 @@ describe('Transcript', () => {
       .getAllByTestId('transcript-card')
       .find((c) => c.querySelector('[data-tool-kind="bash"]'))!;
     expect(within(card).getByText('denied')).toBeInTheDocument();
+  });
+});
+
+describe('tool cards', () => {
+  it('start closed, whatever the tool, and one opens on its summary', () => {
+    const items = goldenItems('subagent-turn.jsonl');
+    render(<Transcript items={items} truncatedBefore={false} />);
+    const cards = document.querySelectorAll('details');
+    expect(cards.length).toBeGreaterThan(0);
+    for (const card of cards) expect(card).not.toHaveAttribute('open');
+    const first = cards[0]!;
+    fireEvent.click(within(first).getByText('Agent'));
+    expect(first).toHaveAttribute('open');
+    expect(within(first).getByText(/"subagent_type"/)).toBeInTheDocument();
   });
 });

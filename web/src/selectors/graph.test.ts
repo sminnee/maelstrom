@@ -299,6 +299,23 @@ describe('free agents', () => {
     expect(deriveGraph(world, otherBranch).nodes).toHaveLength(0);
   });
 
+  it("a subagent is neither its task node's agent nor a free-agent node", () => {
+    const world = worldWith({
+      worktrees: [makeWorktree({ id: 'northwind-alpha', branch: 'feat/orders' })],
+      tasks: [makeTask({ id: 'northwind/NORT-7' })],
+      agents: [
+        makeAgent({ id: 'p1', taskId: 'northwind/NORT-7', state: 'idle' }),
+        makeAgent({ id: 'p1.1', parent: 'p1', description: 'Scan', taskId: 'northwind/NORT-7' }),
+        freeAgent(),
+        makeAgent({ id: 'free1.1', parent: 'free1', description: 'Scan', taskId: '' }),
+      ],
+      desk: onDesk([makeTask({ id: 'northwind/NORT-7' })]),
+    });
+    const graph = deriveGraph(world, byProject);
+    expect(graph.nodes.map((n) => n.id).sort()).toEqual(['free1', 'northwind/NORT-7']);
+    expect(graph.nodes.find((n) => n.id === 'northwind/NORT-7')?.agent?.id).toBe('p1');
+  });
+
   it('edges stay task-only: a free agent is never an endpoint', () => {
     const world = worldWith({
       tasks: [makeTask({ id: 'T1' }), makeTask({ id: 'T2', follows: ['T1'] })],
