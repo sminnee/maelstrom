@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ViewportPortal, useReactFlow } from '@xyflow/react';
+import { useTask } from '../api/tasks';
+import { useWorld } from '../api/useWorld';
 import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
 import { deskIdForAgent } from '../protocol/deskId';
@@ -39,7 +41,7 @@ export function NodeCard({
   open: boolean;
   onClosed: () => void;
 }) {
-  const world = useAppStore((s) => s.world);
+  const { world } = useWorld();
   const transcript = useAppStore((s) => s.transcripts[node.agent?.id ?? '']);
   const collapseNode = useAppStore((s) => s.collapseNode);
   const { send } = useCommand();
@@ -50,7 +52,9 @@ export function NodeCard({
   const [expandedContent, setExpandedContent] = useState(false);
   const [longContent, setLongContent] = useState(false);
   const { task, agent, worktree } = node;
-  const brief = task?.content.trim() ?? '';
+  // The list holds slim rows, so the brief comes from the task's detail.
+  const detail = useTask(task?.id ?? null);
+  const brief = detail.data?.content.trim() ?? '';
 
   // A card that runs past the canvas edge pans into view. It measures the
   // laid-out box (the grow animation only plays towards it), and again

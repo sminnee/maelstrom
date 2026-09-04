@@ -16,3 +16,13 @@
   border: none;
   background: transparent;
 }
+.frame {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  height: 100%;
+  color: var(--fg-muted);
+  font-size: var(--text-md);
+}

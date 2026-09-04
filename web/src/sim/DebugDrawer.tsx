@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { ForcedBeat } from '../protocol/backend';
 import { isDebugBackend } from '../protocol/backend';
 import { useBackend } from '../store/backendContext';
+import { useWorld } from '../api/useWorld';
 import { useAppStore } from '../store/store';
 import styles from './DebugDrawer.module.css';
 
@@ -15,8 +16,8 @@ const TICKS_TO_LAND = 5;
 export function DebugDrawer() {
   const backend = useBackend();
   const open = useAppStore((s) => s.ui.drawerOpen);
-  const agents = useAppStore((s) => s.world.agents);
-  const tasks = useAppStore((s) => s.world.tasks);
+  const { world } = useWorld();
+  const { agents, tasks } = world;
   const setDrawerOpen = useAppStore((s) => s.setDrawerOpen);
   const closeButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {

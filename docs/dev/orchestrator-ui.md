@@ -15,7 +15,7 @@ unit that needs orders shows it on the canvas itself.
 |---|---|---|---|
 | Protocol | `protocol/` | Entity types, events, commands, the `Backend` interface, and the pure reducers | Nothing |
 | Backends | `api/`, `live/`, `ws-backend/`, `fake-backend/` | `api/`: the REST client, its query keys and the query cache. `live/`: the change stream that keeps the cache fresh. `ws-backend/` and `fake-backend/`: the WebSocket client and the in-browser simulation, each implementing `Backend` | Protocol |
-| State | `store/`, `selectors/` | One zustand store — UI state and the connection state — and the pure functions that derive views from it | Protocol |
+| State | `store/`, `selectors/` | The query cache holds the fetched world; one zustand store holds UI state, the connection state and the open transcripts; `selectors/` are pure functions over a `WorldView` | Protocol |
 | UI | `canvas/`, `tasklist/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, `sim/`, plus the `ui/`, `markdown/` and `styles/` they share, and `test/` for shared test helpers | React components and CSS | State, Protocol |
 
 The protocol has no React and no I/O. That is what lets the fake backend and the client share
@@ -202,7 +202,19 @@ address. `pnpm build` produces a page with no proxy behind it: serving `web/dist
 orchestrator on the same origin, and nothing does that yet.
 
 `api/http.ts` is the client: every failure is an `ApiError` with a code — the server's, or
-`transport` and `timeout` for a request that got no answer. `api/queryClient.ts` sets the cache
+`transport` and `timeout` for a request that got no answer. One hook per resource
+(`api/tasks.ts`, `api/agents.ts`, …) wraps one GET; `api/useWorld.ts` composes the seven list
+queries into a `WorldView` (`selectors/world.ts`): the tables keyed by id, with tasks and
+documents as slim rows. A view that needs the prose fetches the detail: the editor fetches its
+task, the document tab its document, and a decision fetches the agent's detail, which carries
+the request it waits on.
+
+**Loading and errors.** `useWorld` is `loading` until the six tables the canvas draws from have
+data, so the canvas never draws nodes without lanes: it shows "Loading the world…" and the task
+list "Loading…", never "No task matches". A required table that fails makes it `error`, and
+both views show the message with a Retry. Once every table has data, a refetch that fails keeps
+the data on screen. TanStack's structural sharing keeps an unchanged table the same object, so
+a refetch that changed nothing re-renders nothing. `api/queryClient.ts` sets the cache
 so nothing goes stale on its own; `live/changeStream.ts` invalidates what each notice names, and
 a `reset` invalidates everything. Its connection state lives in the store, and
 `shell/ConnectionBanner.tsx` shows "Connecting…" before any data and "Reconnecting… showing the

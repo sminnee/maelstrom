@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { listTasks, noListFilters } from './taskList';
-import { agentForTask } from './graph';
 import { makeAgent, makeTask, onDesk, worldWith } from '../test/fixtures';
 
 const tasks = [
@@ -83,8 +82,6 @@ describe('listTasks', () => {
         r.agent?.id,
       ]),
     );
-    expect(picked['northwind/NORT-7']).toBe(agentForTask(withAgents, 'northwind/NORT-7')?.id);
-    expect(picked['northwind/NORT-9']).toBe(agentForTask(withAgents, 'northwind/NORT-9')?.id);
     expect(picked['northwind/NORT-7']).toBe('live');
     expect(picked['northwind/NORT-9']).toBe('gone');
   });

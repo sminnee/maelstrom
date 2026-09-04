@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
+import { useDocument } from '../api/documents';
+import { ApiError } from '../api/http';
+import { useWorld } from '../api/useWorld';
 import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
 import { phaseForCommand, phaseLabel } from '../protocol/phase';
@@ -10,15 +13,18 @@ import { useCommand } from '../store/useCommand';
 import { CommentMargin } from './comments/CommentMargin';
 import { applyHighlights } from './comments/highlights';
 import { useSelectionComment } from './comments/useSelectionComment';
+import { AppButton } from '../ui/AppButton';
 import { ReviewActions } from './ReviewActions';
 import styles from './DocumentTab.module.css';
 
 /** A rendered document, its comment margin, its review actions, and any question its agent asks. */
 export function DocumentTab({ documentId }: { documentId: string }) {
   const { send } = useCommand();
-  const doc = useAppStore((s) => s.world.documents[documentId]);
-  const task = useAppStore((s) => (doc ? s.world.tasks[doc.taskId] : undefined));
-  const agent = useAppStore((s) => (doc ? s.world.agents[doc.agentId] : undefined));
+  const { world } = useWorld();
+  const document = useDocument(documentId);
+  const doc = document.data;
+  const task = doc ? world.tasks[doc.taskId] : undefined;
+  const agent = doc ? world.agents[doc.agentId] : undefined;
   const allComments = useAppStore((s) => s.world.comments);
   const body = useRef<HTMLDivElement>(null);
   const { selection, pending, startComment, clear } = useSelectionComment(
@@ -45,7 +51,23 @@ export function DocumentTab({ documentId }: { documentId: string }) {
 
   const phase = task ? phaseForCommand(task.command) : null;
 
-  if (!doc) return <div className={styles.empty}>Document {documentId} is gone.</div>;
+  if (!doc) {
+    const gone = document.error instanceof ApiError && document.error.code === 'unknown_id';
+    return (
+      <div className={styles.empty} role={document.isError ? 'alert' : undefined}>
+        {gone ? (
+          `Document ${documentId} is gone.`
+        ) : document.isError ? (
+          <>
+            Could not load the document: {document.error.message}{' '}
+            <AppButton onClick={() => document.refetch()}>Retry</AppButton>
+          </>
+        ) : (
+          'Loading…'
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className={styles.document} data-phase={phase ?? undefined} data-testid="document-tab">

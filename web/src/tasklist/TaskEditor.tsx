@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTask } from '../api/tasks';
 import type { TaskEdit } from '../protocol/commands';
 import type { Task, TaskMode } from '../protocol/entities';
+import type { TaskId } from '../protocol/ids';
 import { KNOWN_COMMANDS } from '../protocol/phase';
 import { useAppStore } from '../store/store';
 import { useCommand } from '../store/useCommand';
@@ -11,8 +13,62 @@ const MODES: TaskMode[] = ['plan', 'auto', 'normal'];
 /** From `task.PRIORITIES`, highest first. */
 const PRIORITIES = ['critical', 'high', 'medium', 'low'];
 
-/** Edits one task's fields. Save writes only the fields the user changed. */
-export function TaskEditor({ task }: { task: Task }) {
+/**
+ * Edits one task's fields. The list holds slim rows, so the editor fetches
+ * the task's prose itself and opens once it has it.
+ */
+export function TaskEditor({ taskId }: { taskId: TaskId }) {
+  const task = useTask(taskId);
+  if (task.data) return <TaskForm key={task.data.id} task={task.data} />;
+  return (
+    <WaitShell
+      taskId={taskId}
+      error={task.isError ? task.error.message : null}
+      retry={() => void task.refetch()}
+    />
+  );
+}
+
+/** The editor before its task has arrived: a way out on Escape and a button, and a Retry on failure. */
+function WaitShell({
+  taskId,
+  error,
+  retry,
+}: {
+  taskId: TaskId;
+  error: string | null;
+  retry: () => void;
+}) {
+  const close = useAppStore((s) => s.setEditingTask);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close(null);
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [close]);
+  return (
+    <div className={styles.scrim} onMouseDown={() => close(null)}>
+      <div
+        className={styles.editor}
+        role="dialog"
+        aria-label={taskId}
+        data-testid="task-editor-wait"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <p role={error ? 'alert' : undefined}>
+          {error ? `Could not load ${taskId}: ${error}` : 'Loading…'}
+        </p>
+        <footer className={styles.footer}>
+          <button type="button" onClick={() => close(null)}>
+            Cancel
+          </button>
+          {error && <AppButton onClick={retry}>Retry</AppButton>}
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function TaskForm({ task }: { task: Task }) {
   const close = useAppStore((s) => s.setEditingTask);
   const { send } = useCommand();
   const [draft, setDraft] = useState(() => seed(task));

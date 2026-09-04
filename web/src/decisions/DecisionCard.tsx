@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import { useAgent } from '../api/agents';
 import { Markdown } from '../markdown/Markdown';
 import type { Agent } from '../protocol/entities';
-import type { PlanReviewItem, TranscriptItem } from '../protocol/transcript';
+import type { PlanReviewItem } from '../protocol/transcript';
 import { documentTab } from '../selectors/tabs';
 import { contextBefore } from '../selectors/transcript';
 import { PermissionPrompt } from '../session/cards/PermissionPrompt';
@@ -14,17 +15,19 @@ import { AppButton } from '../ui/AppButton';
 import cards from '../session/cards/cards.module.css';
 import styles from './DecisionCard.module.css';
 
-/** The decision block. Both the expanded node and the document tab render this. */
+/**
+ * The decision block. Both the expanded node and the document tab render
+ * this. The wait itself comes from the agent's detail, so it renders with no
+ * transcript open; the context before it comes from the transcript.
+ */
 export function DecisionCard({ agent }: { agent: Agent }) {
   const transcript = useAppStore((s) => s.transcripts[agent.id]);
+  const detail = useAgent(agent.id);
   const { send } = useCommand();
   const requestId = agent.pendingRequestId;
   const items = transcript?.items ?? [];
-  // The last match, as the normaliser reads it: a request id names one wait.
-  const wait = requestId
-    ? [...items].reverse().find((i): i is Waiting => 'requestId' in i && i.requestId === requestId)
-    : undefined;
-  if (!requestId || !wait) return null;
+  const wait = detail.data?.pendingRequest;
+  if (!requestId || !wait || wait.requestId !== requestId) return null;
   const before = contextBefore(items, requestId);
 
   return (
@@ -78,8 +81,6 @@ export function DecisionCard({ agent }: { agent: Agent }) {
     </section>
   );
 }
-
-type Waiting = Extract<TranscriptItem, { requestId: string }>;
 
 function PlanReview({
   item,

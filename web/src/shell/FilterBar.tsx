@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type { GroupBy } from '../selectors/filters';
 import { filterOptions } from '../selectors/filters';
+import { useWorld } from '../api/useWorld';
 import { useAppStore } from '../store/store';
 import styles from './FilterBar.module.css';
 
@@ -8,7 +9,7 @@ const GROUP_BY_OPTIONS: GroupBy[] = ['project', 'branch', 'none'];
 
 /** Project and branch filters plus the grouping toggle. All client state. */
 export function FilterBar() {
-  const world = useAppStore((s) => s.world);
+  const { world } = useWorld();
   const filters = useAppStore((s) => s.ui.filters);
   const groupBy = useAppStore((s) => s.ui.groupBy);
   const setFilters = useAppStore((s) => s.setFilters);

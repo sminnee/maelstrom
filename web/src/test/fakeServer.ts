@@ -36,9 +36,16 @@ export interface FakeServer {
   api: ApiClient;
   fetch: typeof fetch;
   eventSourceFactory: (url: string) => EventSourceLike;
+  /** What a GET of `path` answers right now, parsed. Throws on a refusal. */
+  read(path: string): unknown;
   /** Mutate the world, then send `notice` on every open stream. */
   change(notice: ChangeNotice, mutate?: (world: World) => void): void;
   refuse(route: RegExp, error: Refusal): void;
+  /** Forget every refusal. */
+  allow(): void;
+  /** Hold every request until `release`, so a test can see the loading state. */
+  hold(): void;
+  release(): void;
   /** Drop every open stream; `how` says whether the browser is still retrying. */
   dropStream(how?: 'connecting' | 'closed'): void;
   /** Open every stream that is not open yet, with `epoch`. */
@@ -54,8 +61,11 @@ export function createFakeServer(
   const requests: FakeRequest[] = [];
   const sources: FakeEventSource[] = [];
   const refusals: { route: RegExp; error: Refusal }[] = [];
+  let held: Promise<void> | null = null;
+  let release: (() => void) | null = null;
 
   const fetchImpl: typeof fetch = async (input, init) => {
+    if (held) await held;
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const method = init?.method ?? 'GET';
     const path = url.replace(/^https?:\/\/[^/]+/, '');
@@ -66,7 +76,8 @@ export function createFakeServer(
       const { status, code, message } = refusal.error;
       return json(status, { error: { code, message: message ?? code } });
     }
-    return route(method, path, world, transcripts);
+    const reply = route(method, path, server.world, server.transcripts);
+    return json(reply.status, reply.body);
   };
 
   const api = createApiClient({ fetch: fetchImpl });
@@ -78,6 +89,11 @@ export function createFakeServer(
     sources,
     api,
     fetch: fetchImpl,
+    read(path) {
+      const reply = route('GET', path, server.world, server.transcripts);
+      if (reply.status >= 400) throw new Error(`GET ${path}: ${reply.status}`);
+      return reply.body;
+    },
     eventSourceFactory: (url) => {
       const source = new FakeEventSource(url);
       sources.push(source);
@@ -93,6 +109,20 @@ export function createFakeServer(
     },
     refuse(route, error) {
       refusals.push({ route, error });
+    },
+    allow() {
+      refusals.length = 0;
+    },
+    hold() {
+      if (held) return;
+      held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    },
+    release() {
+      release?.();
+      held = null;
+      release = null;
     },
     dropStream(how = 'connecting') {
       for (const source of sources) {
@@ -121,9 +151,17 @@ function json(status: number, body: unknown): Response {
   });
 }
 
-function notFound(what: string): Response {
-  return json(404, { error: { code: 'unknown_id', message: `No ${what}` } });
+interface Reply {
+  status: number;
+  body: unknown;
 }
+
+const ok = (body: unknown): Reply => ({ status: 200, body });
+const error = (status: number, code: string, message: string): Reply => ({
+  status,
+  body: { error: { code, message } },
+});
+const notFound = (what: string): Reply => error(404, 'unknown_id', `No ${what}`);
 
 const NOT_IMPLEMENTED = [
   /^POST \/api\/documents\/[^/]+\/comments/,
@@ -138,32 +176,31 @@ function route(
   path: string,
   world: World,
   transcripts: Record<AgentId, Transcript>,
-): Response {
+): Reply {
   const [pathname, query = ''] = path.split('?') as [string, string?];
   const params = new URLSearchParams(query);
   const key = `${method} ${pathname}`;
   if (NOT_IMPLEMENTED.some((r) => r.test(key))) {
-    return json(501, {
-      error: { code: 'not_implemented', message: `${key} is not implemented yet` },
-    });
+    return error(501, 'not_implemented', `${key} is not implemented yet`);
   }
   if (method === 'GET') {
-    if (pathname === '/api/projects') return json(200, { projects: Object.values(world.projects) });
-    if (pathname === '/api/worktrees')
-      return json(200, { worktrees: Object.values(world.worktrees) });
+    if (pathname === '/api/projects') return ok({ projects: Object.values(world.projects) });
+    if (pathname === '/api/worktrees') return ok({ worktrees: Object.values(world.worktrees) });
     if (pathname === '/api/tasks') {
       const project = params.get('project');
       const tasks = Object.values(world.tasks)
         .filter((t) => !project || t.project === project)
         .map((task) => omit(task, 'content', 'log'));
-      return json(200, { tasks, version: 'fake' });
+      return ok({ tasks, version: 'fake' });
     }
-    let m = pathname.match(/^\/api\/tasks\/([^/]+)\/([^/]+)$/);
+    // The wire id is `<project>/<notebookId>`, two segments; the seed world's
+    // bare ids are one. Either way the rest of the path is the id.
+    let m = pathname.match(/^\/api\/tasks\/(.+)$/);
     if (m) {
-      const task = world.tasks[`${m[1]}/${m[2]}`];
-      return task ? json(200, task) : notFound(`task ${m[1]}/${m[2]}`);
+      const task = world.tasks[m[1]!];
+      return task ? ok(task) : notFound(`task ${m[1]}`);
     }
-    if (pathname === '/api/agents') return json(200, { agents: Object.values(world.agents) });
+    if (pathname === '/api/agents') return ok({ agents: Object.values(world.agents) });
     m = pathname.match(/^\/api\/agents\/([^/]+)$/);
     if (m) {
       const agent = world.agents[m[1]!];
@@ -173,23 +210,23 @@ function route(
             (i) => 'requestId' in i && i.requestId === agent.pendingRequestId,
           ) ?? null)
         : null;
-      return json(200, { ...agent, pendingRequest });
+      return ok({ ...agent, pendingRequest });
     }
     if (pathname === '/api/attention') {
       const open = params.get('open');
       const items = Object.values(world.attention).filter((a) => !open || a.clearedAt === null);
-      return json(200, { attention: items });
+      return ok({ attention: items });
     }
     if (pathname === '/api/documents') {
       const documents = Object.values(world.documents).map((doc) => omit(doc, 'markdown'));
-      return json(200, { documents });
+      return ok({ documents });
     }
     m = pathname.match(/^\/api\/documents\/([^/]+)$/);
     if (m) {
       const doc = world.documents[m[1]!];
-      return doc ? json(200, doc) : notFound(`document ${m[1]}`);
+      return doc ? ok(doc) : notFound(`document ${m[1]}`);
     }
-    if (pathname === '/api/desk') return json(200, { desk: Object.values(world.desk) });
+    if (pathname === '/api/desk') return ok({ desk: Object.values(world.desk) });
   }
-  return json(404, { error: { code: 'unknown_id', message: `No route ${key}` } });
+  return error(404, 'unknown_id', `No route ${key}`);
 }

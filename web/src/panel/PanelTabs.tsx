@@ -1,4 +1,5 @@
 import { tabAttribution } from '../selectors/tabs';
+import { useWorld } from '../api/useWorld';
 import { useAppStore } from '../store/store';
 import { TabChip } from './TabChip';
 import styles from './PanelTabs.module.css';
@@ -6,7 +7,7 @@ import styles from './PanelTabs.module.css';
 export const PANEL_BODY_ID = 'panel-body';
 
 export function PanelTabs() {
-  const world = useAppStore((s) => s.world);
+  const { world } = useWorld();
   const tabs = useAppStore((s) => s.ui.tabs);
   const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
   const activateTab = useAppStore((s) => s.activateTab);

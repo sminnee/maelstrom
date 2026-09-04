@@ -1,6 +1,11 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach } from 'vitest';
 import { cleanup } from '@testing-library/react';
+import { notifyManager } from '@tanstack/react-query';
+
+// The query cache batches its notifications on a timer. Synchronous ones let
+// a test read the screen right after the cache moved, inside the same act.
+notifyManager.setScheduler((callback) => callback());
 
 // React Flow measures nodes with ResizeObserver and reads transforms with
 // DOMMatrixReadOnly. jsdom has neither, so both are stubbed for tests.

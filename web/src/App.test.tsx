@@ -125,7 +125,8 @@ describe('the expanded node', () => {
   it('shows the task brief as markdown, collapsed', async () => {
     await renderApp();
     clickNode('NORT-7.1');
-    const brief = within(expanded()).getByTestId('task-content');
+    // The list holds slim rows, so the card fetches the brief.
+    const brief = await within(expanded()).findByTestId('task-content');
     // Markdown, not the raw source: the heading is a heading.
     expect(within(brief).getByRole('heading', { name: 'Seams under test' })).toBeInTheDocument();
     expect(brief).toHaveAttribute('data-expanded', 'false');
@@ -136,7 +137,8 @@ describe('the expanded node', () => {
     await renderApp();
     const before = chipCount();
     expect(clickNode('NORT-7')).toHaveAttribute('data-state', 'needs-attention');
-    await user.click(within(expanded()).getByRole('button', { name: 'Approve' }));
+    // The decision fetches the agent's detail, so the prompt follows the card.
+    await user.click(await within(expanded()).findByRole('button', { name: 'Approve' }));
     expect(nodeState('NORT-7')).not.toBe('needs-attention');
     expect(chipCount()).toBe(before - 1);
   });
@@ -146,9 +148,9 @@ describe('the expanded node', () => {
     await renderApp();
     clickNode('MAEL-52');
     const card = expanded();
+    const prompt = await within(card).findByTestId('question-prompt');
     expect(card).toHaveTextContent('Before this');
     expect(card).toHaveTextContent('Two grouping defaults are plausible');
-    const prompt = within(card).getByTestId('question-prompt');
     await user.click(within(prompt).getAllByRole('radio')[0]!);
     await user.click(within(prompt).getByRole('button', { name: 'Answer' }));
     expect(nodeState('MAEL-52')).not.toBe('needs-attention');
@@ -286,7 +288,7 @@ describe('review in a document tab', () => {
     backend.sim.force({ kind: 'plan', agentId: 'd9a4c7f1' });
     for (let i = 0; i < 8; i += 1) await stepSim(backend);
     clickNode('NORT-9');
-    await user.click(within(expanded()).getByRole('button', { name: 'Approve' }));
+    await user.click(await within(expanded()).findByRole('button', { name: 'Approve' }));
     backend.sim.force({ kind: 'ask', agentId: 'd9a4c7f1' });
     for (let i = 0; i < 6; i += 1) await stepSim(backend);
     expect(nodeState('NORT-9')).toBe('needs-attention');
@@ -295,7 +297,7 @@ describe('review in a document tab', () => {
     const tab = screen.getByTestId('document-tab');
     const inline = within(tab.querySelector('[data-testid="inline-decision"]') as HTMLElement);
     // The decision shows what the agent said before it asked.
-    expect(inline.getByText('Before this')).toBeInTheDocument();
+    expect(await inline.findByText('Before this')).toBeInTheDocument();
     await user.click(inline.getAllByRole('checkbox')[0]!);
     await user.click(inline.getByRole('button', { name: 'Next' }));
     await user.click(inline.getAllByRole('radio')[0]!);
@@ -499,7 +501,8 @@ describe('the task list', () => {
       within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
     );
 
-    const editor = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
+    // The editor fetches the task's prose, so the form follows the click.
+    const editor = await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' });
     const title = within(editor).getByLabelText('Title');
     expect(title).toHaveValue('Migrate to Postgres 16');
     await user.clear(title);
@@ -518,7 +521,7 @@ describe('the task list', () => {
       within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
     );
 
-    const editor = screen.getByRole('dialog');
+    const editor = await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' });
     expect(within(editor).queryByLabelText('Command')).not.toBeVisible();
     await user.click(within(editor).getByText('Advanced'));
     expect(within(editor).getByLabelText('Command')).toBeVisible();
@@ -532,7 +535,7 @@ describe('the task list', () => {
       within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
     );
 
-    const editor = screen.getByRole('dialog');
+    const editor = await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' });
     const title = within(editor).getByLabelText('Title');
     await user.clear(title);
     await user.type(title, 'Migrate to Postgres 17');
@@ -559,6 +562,7 @@ describe('the task list', () => {
     await user.click(
       within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
     );
+    await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' });
 
     await user.keyboard('{Escape}');
 
@@ -574,7 +578,9 @@ describe('the task list', () => {
       within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
     );
 
-    const title = within(screen.getByRole('dialog')).getByLabelText('Title');
+    const title = within(
+      await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' }),
+    ).getByLabelText('Title');
     await user.clear(title);
     await user.type(title, 'Never saved');
     await user.keyboard('{Escape}');
@@ -621,6 +627,30 @@ describe('the task list', () => {
     await user.click(screen.getByTestId('attention-chip'));
     expect(screen.getByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true');
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+});
+
+describe('loading', () => {
+  it('shows Loading, not "No task matches", before the tasks arrive', async () => {
+    const user = userEvent.setup();
+    await renderApp({ ready: false });
+    expect(screen.getByTestId('canvas-loading')).toHaveTextContent('Loading the world…');
+    await user.click(screen.getByRole('button', { name: 'Task list' }));
+    expect(screen.getByTestId('task-list')).toHaveTextContent('Loading…');
+    expect(screen.getByTestId('task-list')).not.toHaveTextContent('No task matches');
+  });
+
+  it('shows the error and retries when a list cannot be read', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp({ ready: false });
+    server.refuse(/GET \/api\/tasks$/, { status: 502, code: 'invalid', message: 'bad gateway' });
+    await act(async () => {
+      server.release();
+    });
+    expect(await screen.findByTestId('canvas-error')).toHaveTextContent('bad gateway');
+    server.allow();
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByTestId('canvas')).toBeInTheDocument();
   });
 });
 
