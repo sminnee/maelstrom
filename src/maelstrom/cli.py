@@ -9,6 +9,7 @@ import click
 from . import __version__, session_discovery
 from .admin_cli import cmd_install, cmd_self_env, cmd_self_update
 from .agent_cli import agent as agent_cli
+from .agent_stop import stop_agents_in_worktree
 from .base_store import GitConfigBaseStore
 from .cmux import mael_layout
 from .cmux.client import ensure_cmux_running, resolve_socket_path
@@ -87,7 +88,7 @@ from .worktree import (
     update_claude_local_md,
 )
 from .worktree_launcher import (
-    HARNESS_CLAUDE,
+    HARNESS_DAEMON,
     launch_claude_in_worktree,
     open_worktree,
 )
@@ -112,7 +113,7 @@ def _launch_claude_or_raise(
     worktree_path: Path,
     project: str | None,
     worktree: str | None,
-    harness: str = HARNESS_CLAUDE,
+    harness: str = HARNESS_DAEMON,
 ) -> None:
     """Launch a plain harness session inside cmux, or raise if placement fails.
 
@@ -120,12 +121,17 @@ def _launch_claude_or_raise(
     the app if it's down. There is no local fallback: if cmux can't be reached
     we error clearly rather than silently dropping a ``claude`` into the current
     shell. ``mael task run --here`` is the only path that runs Claude locally.
+
+    The launch names its own reason on the way out — a daemon that would not
+    answer, or a cmux that would not start — so this message points at both
+    rather than blaming cmux for a failure that was not its.
     """
     if not launch_claude_in_worktree(
         worktree_path, project=project, worktree=worktree, harness=harness
     ):
         raise click.ClickException(
-            "cmux is not running and could not be started; start cmux and retry"
+            "the session did not start; check the message above, "
+            "and that cmux is running"
         )
 
 
@@ -312,7 +318,9 @@ def cmd_create_project(ctx, name, public, description, projects_dir):
     help="Stack the new branch on BASE (default: the project's stack tip). "
     "Use 'main' to start unstacked.",
 )
-def cmd_add(branch, project, open, no_recycle, base, harness, opencode_flag):
+def cmd_add(
+    branch, project, open, no_recycle, base, harness, opencode_flag, claude_flag
+):
     """Add a new worktree for a branch.
 
     If BRANCH is provided:
@@ -325,7 +333,7 @@ def cmd_add(branch, project, open, no_recycle, base, harness, opencode_flag):
 
     Use --no-recycle to always create a new worktree even when closed ones exist.
     """
-    resolved_harness = resolve_harness_or_fail(harness, opencode_flag)
+    resolved_harness = resolve_harness_or_fail(harness, opencode_flag, claude_flag)
     try:
         ctx = resolve_context(
             project,
@@ -364,7 +372,7 @@ def cmd_add(branch, project, open, no_recycle, base, harness, opencode_flag):
             click.echo(f"App: {url}")
         run_install_cmd(worktree_path)
         if open:
-            if harness or opencode_flag:
+            if harness or opencode_flag or claude_flag:
                 # --open starts no session, so the harness flag is inert here.
                 click.echo(
                     "Warning: --open starts an editor, not a session; "
@@ -454,7 +462,7 @@ def cmd_add(branch, project, open, no_recycle, base, harness, opencode_flag):
     # pane on create, blocking in non-cmux), but the editor path has no launcher,
     # so run it blocking here.
     if open:
-        if harness or opencode_flag:
+        if harness or opencode_flag or claude_flag:
             # --open starts no session, so the harness flag is inert here.
             click.echo(
                 "Warning: --open starts an editor, not a session; "
@@ -783,7 +791,7 @@ def cmd_list_all():
 @cli.command("open")
 @_harness_flags()
 @click.argument("target", required=False, default=None)
-def cmd_open(target, harness: str | None, opencode_flag: bool):
+def cmd_open(target, harness: str | None, opencode_flag: bool, claude_flag: bool):
     """Start a Claude Code CLI session in a worktree."""
     try:
         ctx = resolve_context(
@@ -803,7 +811,7 @@ def cmd_open(target, harness: str | None, opencode_flag: bool):
         worktree_path,
         ctx.project,
         ctx.worktree,
-        harness=resolve_harness_or_fail(harness, opencode_flag),
+        harness=resolve_harness_or_fail(harness, opencode_flag, claude_flag),
     )
 
 
@@ -838,7 +846,7 @@ def cmd_ide(target):
 @cli.command("claude")
 @_harness_flags()
 @click.argument("target", required=False, default=None)
-def cmd_claude(target, harness: str | None, opencode_flag: bool):
+def cmd_claude(target, harness: str | None, opencode_flag: bool, claude_flag: bool):
     """Start a Claude Code CLI session in a worktree."""
     try:
         ctx = resolve_context(
@@ -858,7 +866,7 @@ def cmd_claude(target, harness: str | None, opencode_flag: bool):
         worktree_path,
         ctx.project,
         ctx.worktree,
-        harness=resolve_harness_or_fail(harness, opencode_flag),
+        harness=resolve_harness_or_fail(harness, opencode_flag, claude_flag),
     )
 
 
@@ -1292,6 +1300,11 @@ def cmd_close(targets, wait, timeout, interval, force):
             click.echo(f"Stopping environment for '{ctx.worktree}'...")
             for msg in stop_env(env_store, ctx.project, ctx.worktree):
                 click.echo(f"  {msg}")
+
+        # Ask the daemon to stop its own agents first. Signalling their pids
+        # instead would record a normal close as a crash — see agent_stop.
+        for msg in stop_agents_in_worktree(worktree_path):
+            click.echo(f"  {msg}")
 
         # Gracefully stop any live Claude sessions in this worktree before tearing
         # it down, so close doesn't orphan them. Best-effort: SIGINT (cancel any

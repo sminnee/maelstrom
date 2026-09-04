@@ -960,11 +960,12 @@ def _started_row(agent_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         "parent": "",
         "description": "",
         "state": "idle",
-        # A free agent pins no session, so the host mints its own and the
-        # next ``list`` carries it.
+        # ``start`` drops the fields the caller did not name, so a free agent
+        # pins no session and a launch that named no model carries none. The
+        # host fills both in, and the next ``list`` carries them.
         "session": payload.get("session", ""),
         "cwd": payload["cwd"],
-        "model": payload["model"] or "",
+        "model": payload.get("model", ""),
         # The child announces its mode in `system`/`init`, so a launched agent
         # has none until then. Naming the requested one here would show a mode
         # before anything confirmed it.

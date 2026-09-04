@@ -564,7 +564,7 @@ class TestRun:
         result = runner.invoke(task_cli.task, ["run", t.id])
         assert result.exit_code == 0, result.output
         assert model.load(store, "p", t.id).status == model.STATUS_TODO
-        assert "cmux unavailable" in result.output
+        assert f"Left {t.id} TODO" in result.output
         assert t.id in result.output
 
     def test_run_blocks_and_leaves_the_task_todo_when_the_sync_fails(
@@ -678,9 +678,39 @@ class TestRunHarness:
         assert result.exit_code == 0, result.output
         launch.session.assert_called_once()
 
-    def test_run_default_harness_is_claude(self, runner, store, launch):
+    def test_run_default_harness_is_the_daemon(self, runner, store, launch):
         t = model.create(store, project="p", title="Plan it")
         result = runner.invoke(task_cli.task, ["run", t.id])
+        assert result.exit_code == 0, result.output
+        assert launch.session.call_args.kwargs["harness"] == "daemon"
+
+    def test_run_daemon_passes_the_prompt_eagerly(self, runner, store, launch):
+        # The daemon takes the prompt as a string, so `_run_task` resolves it
+        # instead of leaving `mael task prompt` to produce it at launch time.
+        t = model.create(store, project="p", title="Plan it", content="the brief")
+        result = runner.invoke(task_cli.task, ["run", t.id])
+        assert result.exit_code == 0, result.output
+        assert "the brief" in launch.session.call_args.kwargs["prompt"]
+
+    def test_run_claude_shorthand_selects_the_legacy_runner(
+        self, runner, store, launch
+    ):
+        t = model.create(store, project="p", title="Plan it")
+        result = runner.invoke(task_cli.task, ["run", t.id, "--claude"])
+        assert result.exit_code == 0, result.output
+        assert launch.session.call_args.kwargs["harness"] == "claude"
+
+    def test_run_claude_shorthand_conflicts_with_harness_flag(self, runner, store):
+        t = model.create(store, project="p", title="Plan it")
+        result = runner.invoke(
+            task_cli.task, ["run", t.id, "--harness", "opencode", "--claude"]
+        )
+        assert result.exit_code != 0
+        assert "--claude" in result.output
+
+    def test_next_run_claude_threads_the_harness(self, runner, store, launch):
+        model.create(store, project="p", title="First")
+        result = runner.invoke(task_cli.task, ["next", "--run", "--claude"])
         assert result.exit_code == 0, result.output
         assert launch.session.call_args.kwargs["harness"] == "claude"
 
@@ -1209,6 +1239,35 @@ class TestRunHere:
         # exec_cmd is the exec path: calling it replaces this process.
         launch.exec.assert_called_once()
         assert f"Running {t.id} here (current shell)" in result.output
+
+    def test_run_here_says_it_dropped_an_explicit_daemon_harness(
+        self, runner, store, launch
+    ):
+        # Silently resolving two flags the user gave deliberately is how a
+        # misunderstanding survives; every other contradictory pair errors.
+        t = model.create(store, project="p", title="Here", mode="auto")
+        result = runner.invoke(
+            task_cli.task, ["run", t.id, "--here", "--harness", "daemon"]
+        )
+        assert result.exit_code == 0, result.output
+        assert "--here" in result.output
+        assert "claude" in result.output
+
+    def test_run_here_falls_back_to_the_legacy_runner(self, runner, store, launch):
+        # --here means "run in this shell". A daemon-driven agent runs in the
+        # daemon, so the default harness has no meaning here and the launch
+        # falls back to a plain `claude` pipeline.
+        t = model.create(store, project="p", title="Here", mode="auto")
+        result = runner.invoke(task_cli.task, ["run", t.id, "--here"])
+        assert result.exit_code == 0, result.output
+        assert "claude --permission-mode" in describe(launch.exec.call_args.args[0])
+
+    def test_add_run_here_execs_a_claude_line(self, runner, store, launch):
+        # `add --run --here` reaches `_run_task` without a harness, so the
+        # daemon default has to be downgraded there too.
+        result = runner.invoke(task_cli.task, ["add", "Here go", "--run", "--here"])
+        assert result.exit_code == 0, result.output
+        assert "claude --permission-mode" in describe(launch.exec.call_args.args[0])
 
     def test_add_run_here(self, runner, store, launch):
         result = runner.invoke(task_cli.task, ["add", "Here go", "--run", "--here"])

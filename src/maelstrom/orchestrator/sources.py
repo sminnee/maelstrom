@@ -15,6 +15,7 @@ from typing import Any, Protocol
 
 from .. import task as model
 from .. import task_actions
+from ..agent_model import build_start_payload
 from ..branch_name import TaskNames, infer_task_names
 from ..list_all import build_list_all_data
 from ..session_discovery import LiveSessionSet
@@ -184,17 +185,16 @@ class NotebookTaskSource:
         setup = self.open_worktree(task.project, plan.branch, task.base or "")
         check_synced(task.id, plan.branch, setup)
         self._move(task.project, task.id, model.STATUS_IN_PROGRESS)
-        payload = {
-            "cmd": "start",
-            "cwd": str(setup.path),
-            "prompt": plan.prompt,
-            "mode": plan.permission_mode,
-            "model": model_name or plan.model,
-            "session": plan.session_id,
-            "env": plan.env,
+        payload = build_start_payload(
+            setup.path,
+            prompt=plan.prompt,
+            permission_mode=plan.permission_mode,
+            model=model_name or plan.model,
+            session_id=plan.session_id,
+            env=plan.env,
             # A task that has run before already owns its session id.
-            "resume": self.has_transcript(setup.path, plan.session_id),
-        }
+            resume=self.has_transcript(setup.path, plan.session_id),
+        )
         return LaunchRequest(task.project, task.id, task.status, payload)
 
     def rollback(self, request: LaunchRequest) -> None:

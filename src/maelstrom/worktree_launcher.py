@@ -1,11 +1,10 @@
 """Worktree launcher — open an editor or launch Claude in a worktree.
 
 The placement/execution adapter for the worktree subsystem: it composes the
-launch command (a plain ``claude`` argv, or the ``mael task prompt <id> | claude``
-pipeline for a task) and places it **inside cmux** — always. ``mael`` starts a
-Claude session by driving the cmux socket; if the app is down it starts it, and
-if it can't be reached it fails rather than running Claude locally. The only path
-that runs Claude in the current terminal is the explicit ``--here`` choice, which
+launch command and places it **inside cmux** — always. ``mael`` starts a Claude
+session by driving the cmux socket; if the app is down it starts it, and if it
+can't be reached it fails rather than running Claude locally. The only path that
+runs Claude in the current terminal is the explicit ``--here`` choice, which
 bypasses this module entirely (``task_cli._run_task`` calls ``exec_cmd``
 directly). See memory ``project-launch-always-via-cmux-socket``.
 
@@ -28,6 +27,10 @@ import os
 import subprocess
 from pathlib import Path
 
+import click
+
+from .agent_model import build_start_payload
+from .agent_transport import client as daemon_client
 from .cmux import mael_layout
 from .cmux.client import ensure_cmux_running
 from .config import load_config_or_default
@@ -40,14 +43,18 @@ from .shell import (
     run_cmd,
 )
 
-# Harnesses mael can launch. ``claude`` is the default and behaves exactly as
-# it always has; ``opencode`` runs ``opencode2`` instead. OpenCode sessions
-# cannot be pinned to a known session id (ids are server-assigned), so the
-# session-id/resume machinery is claude-only.
+# Harnesses mael can launch. ``daemon`` is the default: the agent daemon runs
+# the ``claude`` child, and the cmux pane runs ``mael agent attach`` as a client
+# of it, so the orchestrator UI sees the session. ``claude`` is the legacy pane
+# runner — a bare ``claude`` in the pane, which nothing but the pane observes.
+# ``opencode`` runs ``opencode2`` instead. OpenCode sessions cannot be pinned to
+# a known session id (ids are server-assigned), so the session-id/resume
+# machinery is claude-only.
+HARNESS_DAEMON = "daemon"
 HARNESS_CLAUDE = "claude"
 HARNESS_OPENCODE = "opencode"
 
-HARNESSES = (HARNESS_CLAUDE, HARNESS_OPENCODE)
+HARNESSES = (HARNESS_DAEMON, HARNESS_CLAUDE, HARNESS_OPENCODE)
 
 
 def open_worktree(worktree_path: Path, command: str) -> None:
@@ -131,37 +138,39 @@ def build_harness_command(
 def _detect_harness_from_env() -> str | None:
     """The harness that launched the current shell, from its environment.
 
-    Claude Code exports ``CLAUDECODE=1`` to its shell processes (its session
-    also exports ``CLAUDE_CODE_SESSION_ID``, which session_cli already reads).
-    OpenCode exports ``OPENCODE_TERMINAL=1``. ``CLAUDECODE`` is the more
-    specific signal — it means "this process is Claude Code", while
-    ``OPENCODE_TERMINAL`` only means an opencode process is somewhere up the
-    tree — so it outranks the other when both are set (claude nested inside an
-    opencode terminal).
+    Only OpenCode is detected (``OPENCODE_TERMINAL=1``), so an OpenCode user's
+    ``mael task run`` stays in OpenCode. ``CLAUDECODE=1`` is not a signal: every
+    session mael launches sets it, so detecting it would send every nested
+    ``mael open`` back to the pane runner.
     """
-    if os.environ.get("CLAUDECODE"):
-        return HARNESS_CLAUDE
     if os.environ.get("OPENCODE_TERMINAL"):
         return HARNESS_OPENCODE
     return None
 
 
-def resolve_harness(harness: str | None, opencode: bool) -> str:
-    """Merge the ``--harness <name>`` flag with the ``--opencode`` shorthand.
+def resolve_harness(harness: str | None, opencode: bool, claude: bool) -> str:
+    """Merge ``--harness <name>`` with the ``--opencode`` / ``--claude`` shorthands.
 
     ``--harness`` is ``None`` when the flag was not given. Precedence, strongest
-    first: an explicit flag (``--harness`` or ``--opencode``), then the
-    environment the command runs in (a ``mael task run`` typed inside an
-    OpenCode session launches OpenCode; ``--harness claude`` overrides), then
-    claude. The shorthand loses to a *different* explicit ``--harness`` value,
-    which is a user error (``--harness claude --opencode``).
+    first: an explicit flag (``--harness``, ``--opencode`` or ``--claude``), then
+    the environment the command runs in (a ``mael task run`` typed inside an
+    OpenCode session launches OpenCode; ``--harness daemon`` overrides), then the
+    daemon. Two flags that name different harnesses are a user error, whether
+    they are two shorthands (``--claude --opencode``) or a shorthand and a
+    ``--harness`` value (``--harness claude --opencode``).
     """
+    if opencode and claude:
+        raise ValueError("--claude conflicts with --opencode")
     if opencode:
         if harness is not None and harness != HARNESS_OPENCODE:
             raise ValueError(f"--opencode conflicts with --harness {harness}")
         return HARNESS_OPENCODE
+    if claude:
+        if harness is not None and harness != HARNESS_CLAUDE:
+            raise ValueError(f"--claude conflicts with --harness {harness}")
+        return HARNESS_CLAUDE
     if harness is None:
-        return _detect_harness_from_env() or HARNESS_CLAUDE
+        return _detect_harness_from_env() or HARNESS_DAEMON
     if harness not in HARNESSES:
         raise ValueError(f"Unknown harness: {harness!r}")
     return harness
@@ -263,6 +272,70 @@ def open_claude_workspace(
     )
 
 
+def launch_agent_in_worktree(
+    worktree_path: Path,
+    project: str | None,
+    worktree: str | None,
+    permission_mode: str | None = None,
+    env: dict[str, str] | None = None,
+    session_id: str | None = None,
+    *,
+    resume: bool = False,
+    model: str | None = None,
+    prompt: str = "",
+) -> bool:
+    """Start a daemon-driven agent, then place a pane that attaches to it.
+
+    The daemon mints the agent id and the pane needs it, so this is two steps,
+    not one: a ``start`` over the daemon socket, then the existing cmux
+    placement with ``mael agent attach <id>`` as its command. Step 2 is still a
+    pure :class:`ShellExpr`, so the build/execute split this module describes
+    holds.
+
+    ``session_id`` also rides in the agent's env as ``MAEL_TASK_SESSION_ID``,
+    exactly as :func:`build_task_launch_line` does for the pipeline.
+
+    cmux is started between the two steps, not before them: a start that fails
+    must not leave the user with a cmux app they did not have running.
+
+    Returns False when the daemon cannot be reached or answers without an id,
+    after printing the daemon's own reason. The caller's message names cmux, so
+    without the reason here the user is sent to restart a cmux that is fine.
+    False also comes back when cmux cannot be started, and nothing is placed
+    either way — an empty pane would be worse. The agent survives that: it is
+    running, and ``mael agent attach`` reaches it.
+    """
+    agent_env = dict(env or {})
+    if session_id:
+        agent_env["MAEL_TASK_SESSION_ID"] = session_id
+    payload = build_start_payload(
+        worktree_path,
+        permission_mode=permission_mode,
+        env=agent_env,
+        session_id=session_id,
+        resume=resume,
+        model=model,
+        prompt=prompt,
+    )
+    reply = daemon_client().request(payload)
+    error = reply.get("error")
+    agent_id = reply.get("id")
+    if error or not agent_id:
+        click.echo(
+            f"Could not start the agent: {error or 'the daemon sent no agent id'}",
+            err=True,
+        )
+        return False
+    if not ensure_cmux_running():
+        return False
+    return open_claude_workspace(
+        project,
+        worktree,
+        worktree_path,
+        Command(["mael", "agent", "attach", str(agent_id)]),
+    )
+
+
 def launch_claude_in_worktree(
     worktree_path: Path,
     project: str | None,
@@ -274,7 +347,8 @@ def launch_claude_in_worktree(
     *,
     resume: bool = False,
     model: str | None = None,
-    harness: str = HARNESS_CLAUDE,
+    prompt: str = "",
+    harness: str = HARNESS_DAEMON,
 ) -> bool:
     """Launch Claude for a worktree inside cmux. True if placed, False otherwise.
 
@@ -285,13 +359,35 @@ def launch_claude_in_worktree(
     Returns False when cmux can't be started or the placement itself fails; the
     caller decides what to do (roll a task back to TODO, or raise).
 
-    With ``task_id`` (and ``project``) set, the command is the
-    ``mael task prompt <id> | claude`` pipeline; otherwise it's a plain ``claude``
-    that just opens the worktree. ``session_id`` pins the deterministic Claude
-    session id on the task path; ``resume`` reattaches an already-started session
-    (``--resume`` vs ``--session-id``). ``model`` pins the session's LLM
-    (``claude --model``). Either way env rides inside the ``ShellExpr``.
+    ``harness`` picks the runner; see ``HARNESSES``. The default ``daemon``
+    hands the whole launch to :func:`launch_agent_in_worktree`. ``prompt`` is
+    the opening prompt, which only the daemon path takes.
+
+    On the legacy paths, with ``task_id`` (and ``project``) set, the command is
+    the ``mael task prompt <id> | claude`` pipeline; otherwise it's a plain
+    ``claude`` that just opens the worktree. ``session_id`` pins the
+    deterministic Claude session id on the task path; ``resume`` reattaches an
+    already-started session (``--resume`` vs ``--session-id``). ``model`` pins
+    the session's LLM (``claude --model``). Either way env rides inside the
+    ``ShellExpr``.
     """
+    if harness == HARNESS_DAEMON:
+        # The agent start comes first. cmux is only needed for the pane, and
+        # starting the app before a launch that then fails would leave the user
+        # with a cmux they did not have running.
+        return launch_agent_in_worktree(
+            worktree_path,
+            project,
+            worktree,
+            permission_mode=permission_mode,
+            env=env,
+            session_id=session_id,
+            resume=resume,
+            model=model,
+            prompt=prompt,
+        )
+    if not ensure_cmux_running():
+        return False
     if task_id and project:
         command: ShellExpr = build_task_launch_line(
             project,
@@ -314,6 +410,4 @@ def launch_claude_in_worktree(
             ),
             env=dict(env or {}),
         )
-    if not ensure_cmux_running():
-        return False
     return open_claude_workspace(project, worktree, worktree_path, command)

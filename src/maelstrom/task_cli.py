@@ -35,6 +35,7 @@ from .worktree import (
 )
 from .worktree_launcher import (
     HARNESS_CLAUDE,
+    HARNESS_DAEMON,
     HARNESS_OPENCODE,
     HARNESSES,
     build_task_launch_line,
@@ -44,27 +45,48 @@ from .worktree_launcher import (
 from .worktree_model import WorktreeError, has_claude_transcript
 
 
-def resolve_harness_or_fail(harness: str | None, opencode: bool) -> str:
+def resolve_harness_or_fail(
+    harness: str | None, opencode: bool, claude: bool, *, here: bool = False
+) -> str:
     """The CLI face of :func:`resolve_harness`: errors become ClickExceptions.
 
     One line per call site instead of the four-line try/except each launch
     command would otherwise repeat.
+
+    ``here`` is ``--here``, which runs the session in the current shell and so
+    has no daemon to run it in. It downgrades the daemon to the legacy runner,
+    and says so when the user named the daemon rather than defaulting to it.
     """
     try:
-        return resolve_harness(harness, opencode)
+        resolved = resolve_harness(harness, opencode, claude)
     except ValueError as e:
         raise click.ClickException(str(e))
+    if here and resolved == HARNESS_DAEMON:
+        if harness is not None:
+            click.echo(
+                f"Warning: --here runs in this shell, so --harness {harness} "
+                "does not apply; launching claude.",
+                err=True,
+            )
+        return HARNESS_CLAUDE
+    return resolved
 
 
 def _harness_options():
-    """The ``--harness`` / ``--opencode`` flag pair shared by launch commands.
+    """The ``--harness`` / ``--opencode`` / ``--claude`` flags shared by launches.
 
     Applied as ``@_harness_options()``; the command body calls
-    :func:`resolve_harness` on the two params. Default (no flag) is the
-    harness the command runs in, claude otherwise.
+    :func:`resolve_harness_or_fail` on the three params. Default (no flag) is
+    the agent daemon, unless the command runs inside an OpenCode session.
     """
 
     def decorator(f):
+        f = click.option(
+            "--claude",
+            "claude_flag",
+            is_flag=True,
+            help="Shorthand for --harness claude (the legacy pane runner).",
+        )(f)
         f = click.option(
             "--opencode",
             "opencode_flag",
@@ -75,8 +97,8 @@ def _harness_options():
             "--harness",
             type=click.Choice(HARNESSES),
             default=None,
-            help="Agent harness to launch (default: the harness mael runs "
-            "inside, claude otherwise).",
+            help="Agent harness to launch (default: the agent daemon, or "
+            "opencode when mael runs inside an OpenCode session).",
         )(f)
 
     return decorator
@@ -171,7 +193,7 @@ def _run_task(
     *,
     here: bool = False,
     fresh: bool = False,
-    harness: str = HARNESS_CLAUDE,
+    harness: str = HARNESS_DAEMON,
 ) -> None:
     """Mark a task in-progress and launch its Claude session.
 
@@ -197,11 +219,11 @@ def _run_task(
     # the same way the orchestrator server does. Claude-only: opencode assigns
     # its own session ids, so there is nothing to pin, resume, or guard on.
     plan = plan_launch(project, task)
-    opencode = harness == HARNESS_OPENCODE
-    session_id = None if opencode else plan.session_id
+    has_session_id = harness != HARNESS_OPENCODE
+    session_id = plan.session_id if has_session_id else None
     # Refuse a second parallel launch *of this task*. A finished session leaves
     # nothing running, so a finished task stays re-runnable.
-    if not opencode:
+    if has_session_id:
         try:
             check_not_live(task.id, plan.session_id, session_discovery.LiveSessionSet())
         except LaunchBlocked as e:
@@ -214,17 +236,19 @@ def _run_task(
         key: value for key, value in plan.env.items() if key != "MAEL_TASK_SESSION_ID"
     }
     perm = plan.permission_mode
-    # The prompt is produced lazily by `mael task prompt` inside the launch
-    # pipeline, not passed here — keeps the launch command line short.
 
     if here:
+        # A daemon agent runs inside the daemon, not in this shell. The CLI
+        # downgrades it, but `add --run --here` and `load-many --here` reach
+        # here with the default still set.
+        harness = HARNESS_CLAUDE if harness == HARNESS_DAEMON else harness
         # No live session exists (the guard above ruled that out), so the only
         # question is whether this task's deterministic session was started before
         # and stopped: an on-disk transcript means `--session-id` would fail with
         # "already exists", so we resume it instead. `--here` runs in the cwd.
         # fresh ⇒ never resume; see docstring. opencode has no id to resume.
         resume = False
-        if not opencode and not fresh:
+        if has_session_id and not fresh:
             assert session_id is not None  # set above on the claude path
             resume = has_claude_transcript(Path.cwd(), session_id)
         task_actions.move_with_actions(
@@ -287,7 +311,7 @@ def _run_task(
     # its id: the worktree the session lives in is the one just set up.
     # fresh ⇒ never resume; see docstring. opencode has no id to resume.
     resume = False
-    if not opencode and not fresh:
+    if has_session_id and not fresh:
         assert session_id is not None  # set above on the claude path
         resume = has_claude_transcript(result.path, session_id)
     task_actions.move_with_actions(
@@ -307,23 +331,23 @@ def _run_task(
         session_id=session_id,
         resume=resume,
         model=task.model or None,
+        prompt=plan.prompt,
         harness=harness,
     )
     if not placed:
-        # cmux couldn't be reached, so no session opened. Roll the task back to
-        # TODO — a task that never launched must never be left in-progress. It
-        # stays re-runnable and the next hourly scheduler fire retries it. No
-        # execvp happens on this path now, so this write always runs. The
-        # rollback is best-effort: if the store write itself raises, the run
-        # aborts loudly (leaving the task in-progress) rather than silently — an
-        # acceptable failure mode, since a raised store error is already fatal.
+        # No session opened, so roll the task back to TODO — a task that never
+        # launched must never be left in-progress. It stays re-runnable and the
+        # next hourly scheduler fire retries it. No execvp happens on this path
+        # now, so this write always runs. The rollback is best-effort: if the
+        # store write itself raises, the run aborts loudly (leaving the task
+        # in-progress) rather than silently — an acceptable failure mode, since
+        # a raised store error is already fatal.
         task_actions.move_with_actions(
             store, project, task.id, model.STATUS_TODO, index=index
         )
         _restamp(store, index, was_fresh=was_fresh)
-        click.echo(
-            f"cmux unavailable; left {task.id} TODO (re-fires next run)", err=True
-        )
+        # The launcher already named the reason.
+        click.echo(f"Left {task.id} TODO (re-fires next run)", err=True)
 
 
 def _resolve_project(project: str | None) -> str:
@@ -1213,6 +1237,7 @@ def task_next(
     run: bool,
     harness: str | None,
     opencode_flag: bool,
+    claude_flag: bool,
     branch: str | None,
     here: bool,
 ) -> None:
@@ -1246,7 +1271,9 @@ def task_next(
             proj,
             nxt,
             here=here,
-            harness=resolve_harness_or_fail(harness, opencode_flag),
+            harness=resolve_harness_or_fail(
+                harness, opencode_flag, claude_flag, here=here
+            ),
         )
     else:
         click.echo(nxt.id)
@@ -1262,10 +1289,15 @@ def task_next(
     help="Launch in the current shell (no worktree, no new workspace).",
 )
 def task_run(
-    id: str, project: str | None, here: bool, harness: str | None, opencode_flag: bool
+    id: str,
+    project: str | None,
+    here: bool,
+    harness: str | None,
+    opencode_flag: bool,
+    claude_flag: bool,
 ) -> None:
     """Launch a task as a Claude session (ensures its worktree first)."""
-    resolved = resolve_harness_or_fail(harness, opencode_flag)
+    resolved = resolve_harness_or_fail(harness, opencode_flag, claude_flag, here=here)
     proj = _resolve_project(project)
     store = _store()
     try:

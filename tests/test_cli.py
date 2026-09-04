@@ -602,6 +602,47 @@ class TestCloseMultiTarget:
             mock_stop.assert_called_once_with(ANY, "myproject", "alpha")
             assert "Stopping environment" in result.output
 
+    def test_close_stops_daemon_agents_before_signalling_pids(self):
+        """The daemon stop comes first, so a close is not recorded as a crash."""
+        runner = CliRunner()
+        order = []
+
+        with patch("maelstrom.cli.resolve_context") as mock_resolve:
+            mock_ctx = MagicMock()
+            mock_ctx.worktree = "alpha"
+            mock_ctx.project = "myproject"
+            mock_ctx.worktree_path = MagicMock()
+            mock_ctx.worktree_path.exists.return_value = True
+            mock_resolve.return_value = mock_ctx
+
+            with (
+                patch(
+                    "maelstrom.cli.copy_back_new_env_vars",
+                    return_value=CopyBackResult(),
+                ),
+                patch("maelstrom.cli.close_worktree") as mock_close,
+                patch("maelstrom.cli.get_env_status", return_value=[]),
+                patch(
+                    "maelstrom.cli.stop_agents_in_worktree",
+                    side_effect=lambda p: (
+                        order.append("daemon") or ["agent a1: stopped"]
+                    ),
+                ) as mock_agents,
+                patch(
+                    "maelstrom.cli.stop_sessions",
+                    side_effect=lambda s: order.append("pids") or [],
+                ),
+                patch("maelstrom.cli.session_discovery.LiveSessionSet") as mock_live,
+            ):
+                mock_live.return_value.all_for.return_value = [MagicMock()]
+                mock_close.return_value = MagicMock(success=True, message="Closed")
+                result = runner.invoke(cli, ["close", "myproject.alpha"])
+
+            assert result.exit_code == 0, result.output
+            mock_agents.assert_called_once_with(mock_ctx.worktree_path)
+            assert order == ["daemon", "pids"]
+            assert "agent a1: stopped" in result.output
+
     def test_close_skips_stop_when_no_env(self):
         """Test that mael close does not call stop_env when no environment is running."""
         runner = CliRunner()
@@ -1138,7 +1179,7 @@ class TestCmdAddExistingBranch:
                 existing_wt,
                 project="proj",
                 worktree="bravo",
-                harness="claude",
+                harness="daemon",
             )
             mocks["create_worktree"].assert_not_called()
             # cmd_add no longer runs install itself; the launcher owns it.
@@ -1158,7 +1199,7 @@ class TestCmdAddExistingBranch:
                 existing_wt,
                 project="proj",
                 worktree="bravo",
-                harness="claude",
+                harness="daemon",
             )
             mocks["create_worktree"].assert_not_called()
 
@@ -1483,7 +1524,7 @@ class TestClaudePlacementFailure:
             )
             result = CliRunner().invoke(cli, ["claude", "proj.bravo"])
             assert result.exit_code != 0
-            assert "cmux is not running" in result.output
+            assert "the session did not start" in result.output
 
     def test_claude_succeeds_when_placed(self, tmp_path):
         from contextlib import ExitStack
@@ -2000,8 +2041,13 @@ class TestOpenHarness:
             result = CliRunner().invoke(cli, args)
         return result, launch
 
-    def test_open_default_harness_is_claude(self, tmp_path):
+    def test_open_default_harness_is_the_daemon(self, tmp_path):
         result, launch = self._invoke(["open", "p/alpha"], tmp_path)
+        assert result.exit_code == 0, result.output
+        assert launch.call_args.kwargs["harness"] == "daemon"
+
+    def test_open_claude_shorthand(self, tmp_path):
+        result, launch = self._invoke(["open", "p/alpha", "--claude"], tmp_path)
         assert result.exit_code == 0, result.output
         assert launch.call_args.kwargs["harness"] == "claude"
 
@@ -2023,6 +2069,13 @@ class TestOpenHarness:
         )
         assert result.exit_code != 0
         assert "--opencode" in result.output
+
+    def test_claude_shorthand_conflicts_with_harness_flag(self, tmp_path):
+        result, _ = self._invoke(
+            ["claude", "p/alpha", "--harness", "opencode", "--claude"], tmp_path
+        )
+        assert result.exit_code != 0
+        assert "--claude" in result.output
 
 
 class TestAddHarness:
@@ -2064,8 +2117,13 @@ class TestAddHarness:
         assert result.exit_code == 0, result.output
         assert launch.call_args.kwargs["harness"] == "opencode"
 
-    def test_add_default_harness_is_claude(self, tmp_path):
+    def test_add_default_harness_is_the_daemon(self, tmp_path):
         result, launch = self._invoke_add([], tmp_path)
+        assert result.exit_code == 0, result.output
+        assert launch.call_args.kwargs["harness"] == "daemon"
+
+    def test_add_claude_shorthand(self, tmp_path):
+        result, launch = self._invoke_add(["--claude"], tmp_path)
         assert result.exit_code == 0, result.output
         assert launch.call_args.kwargs["harness"] == "claude"
 

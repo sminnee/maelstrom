@@ -176,9 +176,10 @@ _Avoid_: Window, pane group
 ## Agents
 
 **Driven agent**:
-A `claude` process the agent daemon holds on a stream-json pipe. A driven agent has no cmux
-workspace and no TTY, so nothing observes or answers it except the daemon. Contrast a session,
-which runs in a workspace with its hooks.
+A `claude` process the agent daemon holds on a stream-json pipe. Every session maelstrom
+launches is a driven agent, so a driven agent normally has a workspace whose pane 0 runs
+`mael agent attach` as a client of the daemon. The daemon owns the pipe, not the pane: the
+agent runs whether a pane watches it or not.
 
 **Subagent**:
 A driven agent's child, spawned by its `Agent` tool and held by the agent daemon as a stream of
