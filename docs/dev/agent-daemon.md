@@ -296,7 +296,8 @@ either way, so a tail is read-only by construction rather than by redirecting st
 The daemon writes a `{"type": "mael_backlog_end"}` marker after the replayed history, which is how
 a tail without `-f` knows where to stop. An idle timeout would race a slow agent and flake. A
 30-second read timeout backstops a daemon that never sends the marker, so a tail errors rather
-than hangs — it is not what ends a normal tail.
+than hangs — it is not what ends a normal tail. A `mael_truncated` marker prints as "— N earlier
+events dropped".
 
 ### Teleport
 
@@ -354,7 +355,7 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 | `interrupt` | `id` | `{"ok": true}` |
 | `stop` | `id` | `{"ok": true}` |
 | `resume` | `id`; optional `text` | `{"ok": true, "id": "<agent id>"}` |
-| `attach` | `id` | A stream; see below |
+| `attach` | `id`; optional `from`, `epoch` | A stream; see below |
 
 `start` merges `env` over the daemon's own environment for that child, with no allowlist: a
 client of the socket can set any variable. The socket's file permissions are the trust boundary.
@@ -401,19 +402,32 @@ spawning — a bad `--model`, an expired login, a `--resume` Claude will not acc
 stream-json events, one per line:
 
 1. `{"type": "mael_agent_detail", "agent": {…}}`: `build_agent_detail` for the agent.
-2. The retained backlog: up to 200 events, oldest first.
-3. `{"type": "mael_backlog_end"}`.
-4. Live events, as the agent emits them.
-5. `{"type": "mael_agent_exited", "exit_code": N}`, then the stream ends.
+2. `{"type": "mael_truncated", "dropped": N}`, only when events the client should see are gone.
+3. The retained backlog: up to 200 events, oldest first.
+4. `{"type": "mael_backlog_end", "epoch": "9b2e7c41", "seq": 417}`.
+5. Live events, as the agent emits them.
+6. `{"type": "mael_agent_exited", "exit_code": N}`, then the stream ends.
 
-An attach to an agent that has already exited sends 1, 2, 3 and 5. An unknown id gets one
+An attach to an agent that has already exited sends 1 to 4 and 6. An unknown id gets one
 `{"error": "no such agent: <id>"}` line, and the stream ends.
+
+Every event the daemon records carries `mael_seq`: its position in the agent's stream, from 1,
+per life of the agent. A consumer dispatches on `type` and ignores the extra key, so the TUI and
+`tail` need no parsing change. The backlog marker carries the agent's `epoch` — a name for this
+life, minted per `start` and per `resume` — and the `seq` the replay reached.
+
+A client that comes back sends both: `{"cmd": "attach", "id": "…", "from": 350, "epoch":
+"9b2e7c41"}`. The daemon replays only the events after `from`, so nothing shows twice. A wrong or
+missing epoch means the cursor is from another life, and the replay starts from the beginning of
+this one. When the ring has rolled past the cursor, the `mael_truncated` marker says how many
+events are gone. The same marker lands mid-stream when a slow client's queue overflowed, so a gap
+is never silent.
 
 The opening detail frame says what the agent is waiting on, so a client does not infer it from
 the replayed events. Its `request_id` is what makes the wait answerable: a `list` row carries no
 request id, so a row alone never is.
 
-The three `mael_*` markers are the daemon's own, not the agent's. None reaches `apply_event`.
+The four `mael_*` markers are the daemon's own, not the agent's. None reaches `apply_event`.
 
 ### The daemon echoes what it writes
 
@@ -443,9 +457,9 @@ stream twice, and the orchestrator's normaliser mints a fresh item id per copy.
 
 | What | Kept |
 |---|---|
-| Raw events per agent | The last 200 |
+| Raw events per agent | The last 200, each with its `mael_seq` |
 | What the agent last said | One message, up to 8000 characters |
-| Events queued for one slow attached client | 1000; the oldest is dropped silently past that |
+| Events queued for one slow attached client | 1000; past that the oldest is dropped and the client gets a `mael_truncated` marker saying how many |
 | Agent state | Spawn record on disk; events and live state in memory |
 
 ## What is persisted

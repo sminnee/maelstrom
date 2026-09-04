@@ -21,6 +21,13 @@ release while that section is empty, and retitles it to the version it is releas
   `VITE_ORCHESTRATOR_URL` is no longer read: the web dev server proxies `/api` to
   `ORCHESTRATOR_URL` instead.
 
+- **The agent daemon's attach stream is gapless.** Every event it records carries a `mael_seq`,
+  the backlog marker names the agent's `epoch` and the seq it reached, and `attach` takes `from`
+  and `epoch` to replay only what a client missed. Events a client cannot see any more — a ring
+  that rolled past its cursor, a queue that overflowed — arrive as a `mael_truncated` marker with
+  the count, which the orchestrator shows as a gap in the transcript and `mael agent tail` prints
+  as a line. A daemon restart is a new epoch, so a cursor from before it is ignored.
+
 ### Added
 
 - **Driven agents survive a crash.** A driven agent writes a normal Claude session transcript, so

@@ -27,6 +27,7 @@ from .agent_model import (
     AWAITING_PLAN_REVIEW,
     AWAITING_QUESTION,
     BACKLOG_END,
+    TRUNCATED,
 )
 from .agent_server import AgentDaemon
 from .agent_transport import (
@@ -326,6 +327,9 @@ async def _tail(agent_id: str, follow: bool) -> None:
         if event.get("type") == AGENT_EXITED:
             click.echo(f"— agent exited ({event.get('exit_code')})")
             return
+        if event.get("type") == TRUNCATED:
+            click.echo(f"— {event.get('dropped')} earlier events dropped")
+            continue
         text = _render(event)
         if text:
             click.echo(text)

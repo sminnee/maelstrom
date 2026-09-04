@@ -77,6 +77,16 @@ describe('Transcript', () => {
     expect(screen.queryByText('awaiting review')).toBeNull();
   });
 
+  it('a gap says how many events the host dropped there', () => {
+    render(
+      <Transcript
+        truncatedBefore={false}
+        items={[{ id: 'g1', ts: '', type: 'gap', droppedEvents: 12 }]}
+      />,
+    );
+    expect(screen.getByTestId('gap')).toHaveTextContent('12 earlier events were dropped here.');
+  });
+
   it('a denied permission shows its decision', () => {
     render(<Transcript items={goldenItems('permission-denied.jsonl')} truncatedBefore={false} />);
     const card = screen

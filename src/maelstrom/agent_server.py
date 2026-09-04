@@ -35,8 +35,10 @@ from .agent_model import (
     EXITED,
     INTERRUPTED_REASON,
     INTERRUPTIBLE,
+    SEQ_KEY,
     SPEC_EXITED,
     SPEC_RUNNING,
+    TRUNCATED,
     AgentSpec,
     AgentState,
     apply_event,
@@ -67,7 +69,8 @@ def _offer(queue: "asyncio.Queue[dict[str, Any]]", event: dict[str, Any]) -> Non
 
     A client that stops reading — a paused pager, a suspended terminal — must
     not grow the daemon's memory without limit. Dropping the oldest event keeps
-    the live tail, which is what an attached viewer wants.
+    the live tail, which is what an attached viewer wants. The drop shows: the
+    attach loop sees the seq jump and writes a ``mael_truncated`` marker.
     """
     try:
         queue.put_nowait(event)
@@ -82,6 +85,11 @@ def _offer(queue: "asyncio.Queue[dict[str, Any]]", event: dict[str, Any]) -> Non
 def _exit_marker(exit_code: int | None) -> dict[str, Any]:
     """The last event of an attach stream: the agent's process has gone."""
     return {"type": AGENT_EXITED, "exit_code": exit_code}
+
+
+def _truncated(dropped: int) -> dict[str, Any]:
+    """The marker for events a client should have seen and cannot."""
+    return {"type": TRUNCATED, "dropped": dropped}
 
 
 def _unreachable(agent: "Agent") -> dict[str, Any]:
@@ -105,6 +113,9 @@ class Agent:
         on_exit: "Callable[[int | None], None] | None" = None,
     ):
         self.state = AgentState(agent_id=agent_id, cwd=cwd)
+        #: Names this life of the agent. A resume makes a new ``Agent``, so a
+        #: cursor from the old life is not honoured against the new one.
+        self.epoch = uuid.uuid4().hex[:8]
         self.proc = proc
         # Called once, with the exit code, when the child's stream ends. The
         # daemon uses it to record the exit, so a crash observed by a daemon
@@ -143,8 +154,10 @@ class Agent:
         per copy, so the user's own message would render twice.
         """
         self.state = apply_event(self.state, message)
+        # The stamped copy, so a watcher sees the seq the ring holds.
+        stamped = self.state.recent[-1]
         for queue in list(self.watchers):
-            _offer(queue, message)
+            _offer(queue, stamped)
 
     async def pump(self) -> None:
         """Read the child's stream to its end, then record that the child died.
@@ -568,7 +581,12 @@ class AgentDaemon:
                 except json.JSONDecodeError:
                     payload = {}
                 if payload.get("cmd") == "attach":
-                    await self._attach(payload.get("id", ""), writer)
+                    await self._attach(
+                        payload.get("id", ""),
+                        writer,
+                        from_seq=_int(payload.get("from")),
+                        epoch=str(payload.get("epoch") or ""),
+                    )
                     return
                 reply = await self.handle(payload)
                 writer.write((json.dumps(reply) + "\n").encode())
@@ -576,7 +594,14 @@ class AgentDaemon:
         finally:
             writer.close()
 
-    async def _attach(self, agent_id: str, writer: asyncio.StreamWriter) -> None:
+    async def _attach(
+        self,
+        agent_id: str,
+        writer: asyncio.StreamWriter,
+        *,
+        from_seq: int = 0,
+        epoch: str = "",
+    ) -> None:
         """Stream one agent's events to a client until it disconnects.
 
         Opens with an :data:`~maelstrom.agent_model.AGENT_DETAIL` frame holding
@@ -585,10 +610,21 @@ class AgentDaemon:
         infer it from the replayed events. That is what makes a wait answerable
         the moment a client attaches — including a re-attach after a resume.
 
-        Then replays the buffered ``recent`` events, so a client that attaches
-        mid-turn sees the context it arrived into rather than starting blank. A
-        :data:`~maelstrom.agent_model.BACKLOG_END` marker closes the replay, so
-        ``mael agent tail`` knows where history stops without a timing guess.
+        Then replays the retained events after ``from_seq``, so a client that
+        attaches mid-turn sees the context it arrived into, and one that comes
+        back with the cursor it left at gets only what it missed. A cursor from
+        another life of the agent — ``epoch`` not this one's — means nothing
+        here, so the replay starts from the beginning. When the ring has rolled
+        past the cursor, a :data:`~maelstrom.agent_model.TRUNCATED` marker says
+        how many events are gone. A :data:`~maelstrom.agent_model.BACKLOG_END`
+        marker closes the replay with the epoch and the seq it reached, so
+        ``mael agent tail`` knows where history stops and a client knows what
+        to come back with.
+
+        The live loop skips anything the replay already carried, so the two
+        cannot overlap, and writes a ``TRUNCATED`` marker when a seq jumps: a
+        client that fell a whole queue behind is told, not left with a gap it
+        cannot see.
 
         The stream ends with an :data:`~maelstrom.agent_model.AGENT_EXITED`
         marker when the agent's process goes — at once, for an agent that has
@@ -601,6 +637,8 @@ class AgentDaemon:
             )
             await writer.drain()
             return
+        if epoch != agent.epoch:
+            from_seq = 0
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(
             maxsize=WATCHER_QUEUE_LIMIT
         )
@@ -608,9 +646,16 @@ class AgentDaemon:
         try:
             detail = {"type": AGENT_DETAIL, "agent": build_agent_detail(agent.state)}
             writer.write((json.dumps(detail) + "\n").encode())
-            for event in agent.state.recent:
+            held = [e for e in agent.state.recent if e[SEQ_KEY] > from_seq]
+            first_held = held[0][SEQ_KEY] if held else agent.state.seq + 1
+            dropped = first_held - (from_seq + 1)
+            if dropped > 0:
+                writer.write((json.dumps(_truncated(dropped)) + "\n").encode())
+            for event in held:
                 writer.write((json.dumps(event) + "\n").encode())
-            writer.write((json.dumps({"type": BACKLOG_END}) + "\n").encode())
+            last = agent.state.seq
+            marker = {"type": BACKLOG_END, "epoch": agent.epoch, "seq": last}
+            writer.write((json.dumps(marker) + "\n").encode())
             await writer.drain()
             if agent.state.status == EXITED:
                 writer.write(
@@ -620,6 +665,14 @@ class AgentDaemon:
                 return
             while True:
                 event = await queue.get()
+                seq = event.get(SEQ_KEY)
+                if isinstance(seq, int):
+                    if seq <= last:
+                        continue  # the replay carried it already
+                    if seq > last + 1:
+                        gap = _truncated(seq - last - 1)
+                        writer.write((json.dumps(gap) + "\n").encode())
+                    last = seq
                 writer.write((json.dumps(event) + "\n").encode())
                 await writer.drain()
                 if event.get("type") == AGENT_EXITED:
@@ -629,3 +682,11 @@ class AgentDaemon:
         finally:
             if queue in agent.watchers:
                 agent.watchers.remove(queue)
+
+
+def _int(value: Any) -> int:
+    """A cursor from the wire, or 0 for anything that is not one."""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0

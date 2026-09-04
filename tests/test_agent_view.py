@@ -166,15 +166,21 @@ def test_plan_markdown_comes_from_the_request_or_falls_back_to_the_last_message(
     assert "Verification" in plan_markdown(bare, item)
 
 
-def test_a_full_backlog_is_marked_truncated():
-    from maelstrom.agent_model import RECENT_LIMIT
+def test_truncation_comes_from_the_daemons_marker_not_from_a_count():
+    """The daemon says what it dropped; a full window on its own says nothing."""
+    from maelstrom.agent_model import RECENT_LIMIT, TRUNCATED
 
     view = initial_view("a1")
     noise = {"type": "rate_limit_event"}
     for _ in range(RECENT_LIMIT):
         view, _ = apply_stream_event(view, noise, NOW)
     view, _ = apply_stream_event(view, {"type": BACKLOG_END}, NOW)
+    assert not view.truncated
+
+    view, events = apply_stream_event(view, {"type": TRUNCATED, "dropped": 12}, NOW)
     assert view.truncated
+    assert view.dropped == 12
+    assert events == []
 
 
 def test_the_footer_reads_cwd_model_and_tokens_from_the_stream():

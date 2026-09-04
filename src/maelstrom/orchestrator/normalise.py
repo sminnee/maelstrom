@@ -99,6 +99,23 @@ def apply_agent_detail(
     return out.done()
 
 
+def normalise_gap(
+    state: ClientState, ctx: NormaliseContext, dropped: int, now: str
+) -> Normalised:
+    """The item that stands where ``dropped`` events should be.
+
+    The host dropped them before this client could read them, so the
+    transcript shows a gap rather than pretending the turns ran into each
+    other.
+    """
+    agent = state["world"]["agents"].get(ctx.agent_id)
+    if agent is None:
+        return Normalised([], ctx)
+    out = _Emitter(state, agent, ctx, now)
+    out.append({"type": "gap", "droppedEvents": dropped})
+    return out.done()
+
+
 def normalise_stream_event(
     state: ClientState, ctx: NormaliseContext, raw: Dict, now: str
 ) -> Normalised:

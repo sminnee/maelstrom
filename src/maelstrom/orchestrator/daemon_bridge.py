@@ -18,6 +18,8 @@ from typing import Any, Protocol
 from ..agent_model import (
     AGENT_DETAIL,
     BACKLOG_END,
+    SEQ_KEY,
+    TRUNCATED,
     AgentState,
     PendingRequest,
     build_agent_detail,
@@ -25,7 +27,12 @@ from ..agent_model import (
     reply_for_approval,
     reply_for_denial,
 )
-from ..agent_transport import ensure_daemon, request_over_socket, resolve_socket_path
+from ..agent_transport import (
+    attach_command,
+    ensure_daemon,
+    request_over_socket,
+    resolve_socket_path,
+)
 
 
 class AsyncDaemonClient(Protocol):
@@ -35,11 +42,15 @@ class AsyncDaemonClient(Protocol):
         """Send ``payload`` and return the host's reply."""
         ...
 
-    def attach(self, agent_id: str) -> AsyncIterator[dict[str, Any]]:
+    def attach(
+        self, agent_id: str, from_seq: int = 0, epoch: str = ""
+    ) -> AsyncIterator[dict[str, Any]]:
         """Stream one agent's events: the backlog, the marker, then live events.
 
-        The stream ends when the host closes it — after the exit marker, or
-        because the host went away. An unknown agent yields one ``error`` dict.
+        With a cursor — ``from_seq`` and the ``epoch`` it belongs to — the
+        backlog holds only what came after it. The stream ends when the host
+        closes it — after the exit marker, or because the host went away. An
+        unknown agent yields one ``error`` dict.
         """
         ...
 
@@ -62,6 +73,11 @@ class ScriptedAsyncDaemonClient:
     child onto every attached stream, so a client learns of a reply the same
     way it learns of one made elsewhere. A ``say`` is not echoed, because the
     child replays a user turn itself.
+
+    Also like the host, it stamps every backlog and pushed event with a
+    ``mael_seq`` and closes the backlog with the agent's ``epoch``, honours a
+    cursor from that epoch, and writes ``mael_truncated`` first when
+    ``truncated`` names the agent.
     """
 
     rows: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -75,7 +91,12 @@ class ScriptedAsyncDaemonClient:
     #: builds it. Kept by the fake because the real host derives it from the
     #: stream it already reads.
     pending: dict[str, PendingRequest] = field(default_factory=dict)
+    #: Per agent, how many events the host says it dropped before the backlog.
+    truncated: dict[str, int] = field(default_factory=dict)
+    #: Per agent, the epoch its backlog marker carries.
+    epochs: dict[str, str] = field(default_factory=dict)
     _queues: dict[str, list[asyncio.Queue[Any]]] = field(default_factory=dict)
+    _seqs: dict[str, int] = field(default_factory=dict)
 
     async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.calls.append(payload)
@@ -104,8 +125,10 @@ class ScriptedAsyncDaemonClient:
             self.rows.pop(payload.get("id", ""), None)
         return {"ok": True}
 
-    async def attach(self, agent_id: str) -> AsyncIterator[dict[str, Any]]:
-        self.calls.append({"cmd": "attach", "id": agent_id})
+    async def attach(
+        self, agent_id: str, from_seq: int = 0, epoch: str = ""
+    ) -> AsyncIterator[dict[str, Any]]:
+        self.calls.append(attach_command(agent_id, from_seq, epoch))
         if agent_id in self.attach_failures:
             self.attach_failures.discard(agent_id)
             yield {"error": f"attach refused: {agent_id}"}
@@ -113,13 +136,27 @@ class ScriptedAsyncDaemonClient:
         if agent_id not in self.rows:
             yield {"error": f"no such agent: {agent_id}"}
             return
+        own_epoch = self.epochs.setdefault(agent_id, f"epoch-{agent_id}")
+        if epoch != own_epoch:
+            from_seq = 0
         queue: asyncio.Queue[Any] = asyncio.Queue()
         self._queues.setdefault(agent_id, []).append(queue)
         try:
             yield {"type": AGENT_DETAIL, "agent": self._detail(agent_id)}
-            for event in self.backlog.get(agent_id, []):
-                yield event
-            yield {"type": BACKLOG_END}
+            backlog = [
+                self._stamped(agent_id, e) for e in self.backlog.get(agent_id, [])
+            ]
+            self.backlog[agent_id] = backlog
+            if from_seq == 0 and self.truncated.get(agent_id):
+                yield {"type": TRUNCATED, "dropped": self.truncated[agent_id]}
+            for event in backlog:
+                if event[SEQ_KEY] > from_seq:
+                    yield event
+            yield {
+                "type": BACKLOG_END,
+                "epoch": own_epoch,
+                "seq": self._seqs.get(agent_id, 0),
+            }
             while True:
                 event = await queue.get()
                 if event is _END:
@@ -128,8 +165,22 @@ class ScriptedAsyncDaemonClient:
         finally:
             self._queues[agent_id].remove(queue)
 
+    def _stamped(self, agent_id: str, event: dict[str, Any]) -> dict[str, Any]:
+        """``event`` with the next seq for ``agent_id``, or as it is when it has one."""
+        if SEQ_KEY in event:
+            return event
+        seq = self._seqs.get(agent_id, 0) + 1
+        self._seqs[agent_id] = seq
+        return {**event, SEQ_KEY: seq}
+
     def push(self, agent_id: str, event: dict[str, Any]) -> None:
-        """Deliver one live event to every stream attached to ``agent_id``."""
+        """Deliver one live event to every stream attached to ``agent_id``.
+
+        A daemon marker travels as it is; anything else is stamped, as the
+        host stamps what it records.
+        """
+        if not str(event.get("type", "")).startswith("mael_"):
+            event = self._stamped(agent_id, event)
         for queue in self._queues.get(agent_id, []):
             queue.put_nowait(event)
 
@@ -195,16 +246,17 @@ class SocketAsyncDaemonClient:
             self.socket_path, payload, autostart=self.autostart
         )
 
-    async def attach(self, agent_id: str) -> AsyncIterator[dict[str, Any]]:
+    async def attach(
+        self, agent_id: str, from_seq: int = 0, epoch: str = ""
+    ) -> AsyncIterator[dict[str, Any]]:
         try:
             reader, writer = await self._connect()
         except (OSError, asyncio.TimeoutError) as exc:
             yield {"error": f"agent daemon not reachable at {self.socket_path}: {exc}"}
             return
         try:
-            writer.write(
-                (json.dumps({"cmd": "attach", "id": agent_id}) + "\n").encode()
-            )
+            command = attach_command(agent_id, from_seq, epoch)
+            writer.write((json.dumps(command) + "\n").encode())
             await writer.drain()
             while True:
                 line = await reader.readline()

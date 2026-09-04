@@ -95,6 +95,12 @@ export interface ErrorItem extends Base {
   message: string;
 }
 
+/** Events the agent host dropped before the server could read them stood here. */
+export interface GapItem extends Base {
+  type: 'gap';
+  droppedEvents: number;
+}
+
 export type TranscriptItem =
   | MessageItem
   | ToolCallItem
@@ -103,7 +109,8 @@ export type TranscriptItem =
   | PlanReviewItem
   | TurnResultItem
   | SystemItem
-  | ErrorItem;
+  | ErrorItem
+  | GapItem;
 
 export interface Transcript {
   agentId: AgentId;

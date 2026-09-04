@@ -25,7 +25,7 @@ from .agent_model import (
     BACKLOG_END,
     PLAN_TOOL,
     QUESTION_TOOL,
-    RECENT_LIMIT,
+    TRUNCATED,
 )
 from .orchestrator.normalise import NormaliseContext, normalise_stream_event
 from .orchestrator.normalise import mark_exited as normalise_exited
@@ -84,13 +84,14 @@ class AttachView:
     ctx: NormaliseContext = field(default_factory=lambda: NormaliseContext(""))
     usage: TokenUsage = TokenUsage()
     cwd: str = ""
-    #: How many events the replayed backlog held, and whether it has ended. A
-    #: wait resolved inside the backlog must not prompt, so nothing prompts
-    #: until the marker lands.
-    backlog_count: int = 0
+    #: Whether the replayed backlog has ended. A wait resolved inside the
+    #: backlog must not prompt, so nothing prompts until the marker lands.
     backlog_done: bool = False
-    #: The backlog filled the daemon's buffer, so older events were dropped.
+    #: The daemon said events this client should have seen are gone: the ring
+    #: rolled past them before the attach, or the queue overflowed mid-stream.
     truncated: bool = False
+    #: How many events the daemon said were dropped, in total.
+    dropped: int = 0
     exit_code: int | None = None
     exited: bool = False
     #: The stream stopped without an exit marker — the daemon or the socket
@@ -137,14 +138,11 @@ def apply_stream_event(
     kind = raw.get("type")
 
     if kind == BACKLOG_END:
-        return (
-            replace(
-                view,
-                backlog_done=True,
-                truncated=view.backlog_count >= RECENT_LIMIT,
-            ),
-            [],
-        )
+        return replace(view, backlog_done=True), []
+
+    if kind == TRUNCATED:
+        dropped = _int_or_none(raw.get("dropped")) or 0
+        return replace(view, truncated=True, dropped=view.dropped + dropped), []
 
     if kind == AGENT_EXITED:
         # Coerced once, so the view and the world cannot disagree about the
@@ -170,9 +168,6 @@ def apply_stream_event(
         # what the agent waits on; the backlog that follows usually replays the
         # request itself, so nothing is derived from it here.
         return view, []
-
-    if not view.backlog_done:
-        view = replace(view, backlog_count=view.backlog_count + 1)
 
     if kind == "system" and raw.get("subtype") == "init":
         cwd = raw.get("cwd")

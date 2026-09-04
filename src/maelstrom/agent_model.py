@@ -261,8 +261,11 @@ class AgentState:
     #: Exit code of the child, once it has gone. ``None`` while it is alive.
     exit_code: int | None = None
     #: The most recent events, for ``attach`` and ``list`` to render without
-    #: replaying the transcript from disk.
+    #: replaying the transcript from disk. Each carries the ``mael_seq`` it
+    #: was stamped with.
     recent: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    #: How many events this life has seen: the ``mael_seq`` of the last one.
+    seq: int = 0
     #: The last thing the agent said. A row shows one line of it, and a plan
     #: review with no plan in its input falls back to it. The conversation
     #: itself is Claude's session transcript on disk, not this field.
@@ -280,8 +283,20 @@ MESSAGE_SUMMARY_CHARS = 60
 
 #: Event type the daemon writes once the replayed backlog has all been sent.
 #: ``mael agent tail`` without ``-f`` stops there. A marker rather than an idle
-#: timeout, because a timeout would race a slow agent and flake.
+#: timeout, because a timeout would race a slow agent and flake. Carries the
+#: agent's ``epoch`` and the ``seq`` the replay reached, so a client can come
+#: back with a cursor.
 BACKLOG_END = "mael_backlog_end"
+
+#: Event type the daemon writes when events a client should have seen are
+#: gone: before the replay, when the ring rolled past the client's cursor, or
+#: mid-stream, when the client's queue overflowed. Carries ``dropped``.
+TRUNCATED = "mael_truncated"
+
+#: The key the daemon stamps every recorded event with: its position in the
+#: agent's stream, from 1, per life. In the ``mael_`` namespace so a consumer
+#: that dispatches on ``type`` never sees it as an event.
+SEQ_KEY = "mael_seq"
 
 #: Event type the daemon writes to every attached client once the agent's
 #: process has gone, carrying ``exit_code``. The last event of an attach
@@ -331,9 +346,13 @@ def apply_event(state: AgentState, event: dict[str, Any]) -> AgentState:
     An unrecognised event only lands in ``recent`` — the stream carries plenty
     the state machine has no opinion on (``rate_limit_event``, hook chatter),
     and none of it should disturb the derived status.
+
+    ``recent`` holds a stamped copy of the event, never the caller's dict: the
+    same dict is also written to the child, which must not see the stamp.
     """
-    recent = (state.recent + (event,))[-RECENT_LIMIT:]
-    state = replace(state, recent=recent)
+    seq = state.seq + 1
+    recent = (state.recent + ({**event, SEQ_KEY: seq},))[-RECENT_LIMIT:]
+    state = replace(state, recent=recent, seq=seq)
     kind = event.get("type")
 
     if kind == "system" and event.get("subtype") == "init":

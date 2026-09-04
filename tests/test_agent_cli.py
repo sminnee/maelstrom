@@ -288,3 +288,16 @@ def test_resume_of_a_running_agent_exits_non_zero():
     result, _ = run_cli(["resume", "a1"], [{"error": "agent a1 is running"}])
     assert result.exit_code == 1
     assert "is running" in result.output
+
+
+def test_tail_says_how_many_earlier_events_the_daemon_dropped(monkeypatch):
+    """A ring that rolled is reported as a line, not as a silent hole in history."""
+    from maelstrom import agent_model
+
+    monkeypatch.setattr(agent_model, "RECENT_LIMIT", 3)
+    state = replay("normal-turn.jsonl")
+    with _serving(state):
+        result = CliRunner().invoke(agent_cli.agent, ["tail", "a1"])
+    assert result.exit_code == 0
+    assert f"— {state.seq - 3} earlier events dropped" in result.output
+    assert "Hello there, friend" in result.output
