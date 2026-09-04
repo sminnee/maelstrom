@@ -3,9 +3,9 @@ import { deskIdForTask } from '../protocol/deskId';
 import { nextAttentionTask, openAttention } from '../selectors/attention';
 import { filteredTasks } from '../selectors/graph';
 import { focusedTaskId } from '../selectors/tabs';
+import { useAddToDesk } from '../api/desk';
 import { useWorld } from '../api/useWorld';
 import { useAppStore } from '../store/store';
-import { useCommand } from '../store/useCommand';
 import { AppButton } from '../ui/AppButton';
 import styles from './AttentionChip.module.css';
 
@@ -20,7 +20,7 @@ export function AttentionChip() {
   const view = useAppStore((s) => s.ui.view);
   const setView = useAppStore((s) => s.setView);
   const { fitView } = useReactFlow();
-  const { send } = useCommand();
+  const addToDesk = useAddToDesk();
   // Counted over every task the filters allow, not only the drawn ones: the
   // desk opens empty, and an agent blocked on a task the user has not put on
   // it still needs them.
@@ -33,7 +33,7 @@ export function AttentionChip() {
     if (!next) return;
     // The canvas draws the desk, so a task off it has no node to expand.
     if (!(deskIdForTask(next) in world.desk)) {
-      await send({ type: 'desk.add', id: deskIdForTask(next) });
+      await addToDesk.mutateAsync({ id: deskIdForTask(next) });
     }
     // From the task list, the canvas has to be showing before it can be
     // fitted, so the fit waits for the frame that draws it.

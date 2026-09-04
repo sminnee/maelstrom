@@ -23,7 +23,7 @@ const deps: AppDeps = url ? { api: createApiClient() } : fakeDeps(backend);
 
 /** The fake world behind the API too, fed from the fake backend's frames. */
 function fakeDeps(fake: Backend): AppDeps {
-  const server = createFakeServer();
+  const server = createFakeServer({ command: (cmd) => fake.command(cmd) });
   const queryClient = createQueryClient();
   bridgeToFakeServer(fake, server, queryClient);
   return { api: server.api, eventSourceFactory: server.eventSourceFactory, queryClient };

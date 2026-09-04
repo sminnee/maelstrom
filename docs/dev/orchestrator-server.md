@@ -199,6 +199,33 @@ There is no `id:` field and no `Last-Event-ID`. REST is the source of truth, so 
 "you may have missed notices" is the one `reset` a fresh connection gets. `epoch` is minted at
 server start, so a client can tell a restart from a reconnect.
 
+## Commands
+
+A command is one POST, PATCH or DELETE under `/api`. Each route builds the command dict the
+world socket carried and runs it through `handle_command`, so `validate_command` and the
+host-refusal mapping apply unchanged. The reply is the command's result as JSON, or the error
+shape above at the code's status. A body that is not JSON, and a field the validator did not
+check being missing, both answer 400 `invalid`.
+
+| Route | Body | Command | Returns |
+|---|---|---|---|
+| `POST /api/agents/{id}/approve` | `{requestId}` | `agent.approve` | `{}` |
+| `POST /api/agents/{id}/deny` | `{requestId, reason}` | `agent.deny` | `{}` |
+| `POST /api/agents/{id}/answer` | `{requestId, answers}` | `agent.answer` | `{}` |
+| `POST /api/agents/{id}/say` | `{text}` | `agent.say` | `{}` |
+| `POST /api/agents/{id}/stop` | | `agent.stop` | `{}` |
+| `POST /api/agents/{id}/resume` | `{text?}` | `agent.resume` | `{}` |
+| `POST /api/tasks/{project}/{id}/launch` | `{model?}` | `agent.launch` | `{agentId}` |
+| `POST /api/tasks/{project}/{id}/status` | `{status}` | `task.setStatus` | `{}` |
+| `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
+| `POST /api/desk` | `{id}`, a desk id | `desk.add` | `{}` |
+| `DELETE /api/desk/{deskId}` | the desk id, URL-encoded | `desk.remove` | `{}` |
+
+A command that changes the world answers after the change is in it, so a GET right after the
+reply is current, and the notice that follows is one more refetch. A refused command changes
+nothing and raises no notice. The launch reply waits for the host's start, as the socket command
+did; the client gives that one call a longer timeout.
+
 ## The wire protocol: UI ↔ orchestrator server
 
 JSON text frames on one WebSocket. A message's kind is the key it carries: `seq`, `reply` or

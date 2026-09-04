@@ -31,7 +31,7 @@ export async function renderApp(
   opts: { seed?: number; ready?: boolean } = {},
 ): Promise<RenderResult & { backend: DebugBackend; server: FakeServer; queryClient: QueryClient }> {
   const backend: DebugBackend = createFakeBackend({ seed: opts.seed ?? 1, autoplay: false });
-  const server = createFakeServer();
+  const server = createFakeServer({ command: (cmd) => backend.command(cmd) });
   // No retries: a refused request must fail the test now, not after backoff.
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: 0 } },
