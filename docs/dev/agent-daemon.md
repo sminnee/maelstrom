@@ -391,6 +391,7 @@ spawning — a bad `--model`, an expired login, a `--resume` Claude will not acc
 | `agent <id> is not waiting` | `approve`, `deny` or `answer` with no pending request |
 | `agent <id> is not waiting on a question — use approve or deny` | `answer` against a permission or plan review |
 | `no answers given` | `answer` with an empty `answers` map |
+| `could not reach agent <id>` | The child's stdin would not take the message: it is dying |
 | `could not start claude: …` | `start` when the child could not be spawned |
 | `unknown command: <cmd>` | Anything else |
 
@@ -410,12 +411,15 @@ An attach to an agent that has already exited sends 1, 2 and 4. An unknown id ge
 The two `mael_*` markers are the daemon's own, not the agent's. Neither reaches
 `apply_event`.
 
-Replies the daemon writes to the agent appear in the stream too, and in the backlog. The child
-never echoes what it is sent, so without this a client that did not send the reply would go on
-showing a wait that has already been answered. Every attached client therefore sees a wait
-resolve, whoever resolved it. The orchestrator server also synthesises its own copy of that
-`control_response`; the normaliser ignores a response for a request no longer pending, so the
-duplicate changes nothing.
+Replies the daemon writes to the agent appear in the stream too, and in the backlog: the child
+does not repeat a `control_response`, so without this a client that did not send the reply would
+go on showing a wait that has already been answered. Every attached client therefore sees a wait
+resolve, whoever resolved it, and the orchestrator server needs no copy of its own.
+
+A `user` turn from `say` is the exception. The child replays every user turn on its own stdout,
+marked `isReplay`, so the daemon does not record one — doing so would put a single turn on the
+stream twice, and the orchestrator's normaliser mints a fresh item id per copy.
+
 
 ### Retention
 

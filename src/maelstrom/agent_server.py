@@ -83,6 +83,11 @@ def _exit_marker(exit_code: int | None) -> dict[str, Any]:
     return {"type": AGENT_EXITED, "exit_code": exit_code}
 
 
+def _unreachable(agent: "Agent") -> dict[str, Any]:
+    """The refusal for a message the child's stdin would not take."""
+    return {"error": f"could not reach agent {agent.state.agent_id}"}
+
+
 class Agent:
     """One ``claude`` child process, its state, and the clients watching it.
 
@@ -110,19 +115,31 @@ class Agent:
         # while `mael agent list` still showed it running.
         self.pump_task: asyncio.Task[None] | None = None
 
-    async def send(self, message: dict[str, Any]) -> None:
-        """Write one NDJSON message to the child's stdin."""
+    async def send(self, message: dict[str, Any]) -> bool:
+        """Write one NDJSON message to the child's stdin.
+
+        Returns whether the message went out. A child dying has its stdin
+        closed before the stream ends, so a command can arrive after the exit
+        guard in :meth:`AgentDaemon.handle` and still reach nothing — the
+        caller must refuse rather than report a reply that never went.
+        """
         if self.proc.stdin is None or self.proc.stdin.is_closing():
-            return
+            return False
         self.proc.stdin.write((json.dumps(message) + "\n").encode())
         await self.proc.stdin.drain()
+        return True
 
     def record(self, message: dict[str, Any]) -> None:
         """Put one message into the agent's stream: reduce it, then fan it out.
 
-        Both directions go through here. The child never echoes what it is
-        sent, so every attached client would otherwise go on showing a wait
-        that has been answered.
+        Only what the child will not repeat goes through here — a
+        ``control_response`` the daemon wrote. Without it an attached client
+        goes on showing a wait that has been answered.
+
+        A ``user`` turn does not: the child replays every one on its own
+        stdout, marked ``isReplay``, so recording it here would put one turn on
+        the stream twice. The orchestrator's normaliser mints a fresh item id
+        per copy, so the user's own message would render twice.
         """
         self.state = apply_event(self.state, message)
         for queue in list(self.watchers):
@@ -146,6 +163,7 @@ class Agent:
                 except json.JSONDecodeError:
                     continue  # a non-JSON line is noise, not a state change
                 self.record(event)
+
         finally:
             exit_code = await self.proc.wait()
             self.state = mark_exited(self.state, exit_code)
@@ -405,9 +423,9 @@ class AgentDaemon:
             return {"agent": build_agent_detail(agent.state)}
 
         if command == "say":
-            message = user_message(payload["text"])
-            await agent.send(message)
-            agent.record(message)
+            # Not recorded: the child replays a user turn itself.
+            if not await agent.send(user_message(payload["text"])):
+                return _unreachable(agent)
             return {"ok": True}
 
         if command == "stop":
@@ -425,10 +443,12 @@ class AgentDaemon:
                 return {"error": f"agent {agent.state.agent_id} is not running a turn"}
             if pending is not None:
                 reply = reply_for_denial(pending, INTERRUPTED_REASON)
-                await agent.send(reply)
+                if not await agent.send(reply):
+                    return _unreachable(agent)
                 agent.record(reply)
             request = interrupt_request(str(uuid.uuid4()))
-            await agent.send(request)
+            if not await agent.send(request):
+                return _unreachable(agent)
             agent.record(request)
             return {"ok": True}
 
@@ -459,7 +479,8 @@ class AgentDaemon:
                 reply = reply_for_approval(pending)
             else:
                 reply = reply_for_denial(pending, payload.get("reason", ""))
-            await agent.send(reply)
+            if not await agent.send(reply):
+                return _unreachable(agent)
             agent.record(reply)
             return {"ok": True}
 
