@@ -121,14 +121,25 @@ describe('deriveGraph', () => {
     expect(graph.edges.map((e) => e.id)).toEqual(['T2->T3']);
   });
 
-  it('only tasks on the desk are drawn', () => {
+  it('a task off the desk with no live agent is not drawn', () => {
     const drawn = makeTask({ id: 'T3', status: 'todo' });
     const world = worldWith({
       tasks: [makeTask({ id: 'T1' }), makeTask({ id: 'T2' }), drawn],
       desk: onDesk([drawn]),
+      agents: [makeAgent({ id: 'a1', taskId: 'T1', state: 'exited', exitCode: 0 })],
     });
     const graph = deriveGraph(world, byProject);
     expect(graph.nodes.map((n) => n.id)).toEqual(['T3']);
+  });
+
+  it('a task off the desk is drawn while its agent is live', () => {
+    const world = worldWith({
+      tasks: [makeTask({ id: 'T1' }), makeTask({ id: 'T2' })],
+      desk: [],
+      agents: [makeAgent({ id: 'a1', taskId: 'T1', state: 'processing' })],
+    });
+    const graph = deriveGraph(world, byProject);
+    expect(graph.nodes.map((n) => n.id)).toEqual(['T1']);
   });
 
   it('the project filter keeps only that project and its group', () => {

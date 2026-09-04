@@ -331,17 +331,30 @@ describe('the task list', () => {
     expect(document.querySelector('[data-task-id="NORT-3"]')).toBeInTheDocument();
   });
 
-  it('removes a task from the desk, and it leaves the canvas', async () => {
+  it('removes a task with no agent from the desk, and it leaves the canvas', async () => {
     const user = userEvent.setup();
     await renderApp();
-    expect(document.querySelector('[data-task-id="NORT-9"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-task-id="NORT-9.1"]')).toBeInTheDocument();
+
+    await goToList(user);
+    await user.click(within(listRow('NORT-9.1') as HTMLElement).getByRole('button'));
+    expect(listRow('NORT-9.1')).toHaveAttribute('data-on-desk', 'false');
+
+    await user.click(screen.getByRole('button', { name: 'Canvas' }));
+    expect(document.querySelector('[data-task-id="NORT-9.1"]')).not.toBeInTheDocument();
+  });
+
+  it('a task removed while its agent runs stays on the canvas until it stops', async () => {
+    const user = userEvent.setup();
+    await renderApp();
 
     await goToList(user);
     await user.click(within(listRow('NORT-9') as HTMLElement).getByRole('button'));
     expect(listRow('NORT-9')).toHaveAttribute('data-on-desk', 'false');
 
+    // Running work is always drawn, so the remove is a dismiss that waits.
     await user.click(screen.getByRole('button', { name: 'Canvas' }));
-    expect(document.querySelector('[data-task-id="NORT-9"]')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-task-id="NORT-9"]')).toBeInTheDocument();
   });
 
   it('the attention chip still counts an agent blocked on an off-desk task', async () => {
