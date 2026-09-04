@@ -86,8 +86,16 @@ Every attach opens with the host's `mael_agent_detail` frame, which says what th
 waiting on. A wait it reports that the world does not already hold is raised here, so a wait that
 opened before this server attached is still answerable.
 
-Adoption waits for the host's replayed backlog to end. A backlog the size of the host's window
-(200 events) publishes a `transcript.truncated` event.
+Adoption waits for the host's replayed backlog to end. The server keeps a cursor per agent — the
+`mael_seq` of the last event it read, and the `epoch` the host's backlog marker named — and it
+outlives the watch. A re-attach after a dropped stream sends both, so the host replays only what
+the server missed and no item lands twice. A revive forgets the cursor: the resumed agent is a
+new life, and the host would not honour it anyway.
+
+A `mael_truncated` marker before any item publishes `transcript.truncated`: the transcript's
+start is not the agent's. Mid-stream it appends a `gap` item saying how many events are gone, and
+the next reconciliation checks the wait the world holds against the host's row: a wait the row
+no longer shows had its answer in the gap, and is ended as the child ends one it withdraws.
 
 The server normalises the host's stream into transcript events and keeps one `TranscriptLog`
 per agent: the items as they stand, a seq per frame, and a ring of the last 2000 frames. The
@@ -325,15 +333,16 @@ The first command that needs the agent host starts one, as `mael agent` does.
 
 - Blocking work runs on the worker thread. `setup_worktree_for_branch` can take tens of seconds,
   and the launch reply waits for it.
-- The host's watcher queue drops the oldest event silently at 1000. Reconciliation catches an
-  exit the stream missed, and nothing else.
+- The host's watcher queue drops the oldest event at 1000. The drop is marked, so the transcript
+  shows a gap and a lost answer is closed on the next reconciliation, but the dropped events
+  themselves are gone.
 - Agents started outside the server attach with a 200-event backlog, and link to a task only when
   started with the task's session id.
 - A client that connects after the server started gets the transcript the server has built since
   it attached, not the agent's whole history. Reading Claude's own session transcript back through
   the normaliser would fix that, and is not built.
-- A resume replays the host's window into a transcript that already holds it, so a revived agent
-  shows its last turns twice until the attach stream carries a cursor.
+- A resume is a new life of the agent, so the host replays the new child's own output — Claude's
+  replay of the conversation — into a transcript that already holds the last life's turns.
 - `stop` removes the agent from the host. The server marks it `exited(0)` on the ok reply.
 - `agent.resume` starts an exited agent again. No UI drives it yet, so a crashed agent is brought
   back with `mael agent resume <id>`.

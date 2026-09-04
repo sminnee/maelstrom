@@ -14,6 +14,7 @@ from maelstrom.agent_model import (
     EXITED,
     INTERRUPTED_REASON,
     PROCESSING,
+    TRUNCATED,
     AgentSpec,
     apply_event,
     mark_exited,
@@ -812,3 +813,163 @@ def test_interrupt_accepts_a_waiting_agent():
         "ok": True
     }
     assert sent
+
+
+# --- the attach cursor -------------------------------------------------------
+
+
+def _frames(writer: _RecordingWriter) -> list[dict]:
+    return [json.loads(line) for line in writer.lines]
+
+
+def _attach_briefly(daemon: AgentDaemon, agent_id: str, **cursor) -> list[dict]:
+    """Attach with ``cursor``, let the backlog flush, disconnect, return the frames."""
+    writer = _recording_writer()
+
+    async def attach_then_disconnect():
+        task = asyncio.create_task(daemon._attach(agent_id, writer, **cursor))
+        await asyncio.sleep(0)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(attach_then_disconnect())
+    return _frames(writer)
+
+
+def test_the_backlog_carries_a_seq_per_event_and_ends_with_the_epoch_and_seq():
+    from maelstrom.agent_model import SEQ_KEY
+
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    agent.state = replay("normal-turn.jsonl")
+    daemon.agents["a1"] = agent
+    frames = _attach_briefly(daemon, "a1")
+    replayed = [f for f in frames if SEQ_KEY in f]
+    assert [f[SEQ_KEY] for f in replayed] == list(range(1, len(replayed) + 1))
+    assert frames[-1] == {
+        "type": BACKLOG_END,
+        "epoch": agent.epoch,
+        "seq": agent.state.seq,
+    }
+
+
+def test_a_cursor_from_this_life_replays_only_what_came_after_it():
+    from maelstrom.agent_model import SEQ_KEY
+
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    agent.state = replay("normal-turn.jsonl")
+    daemon.agents["a1"] = agent
+    frames = _attach_briefly(daemon, "a1", from_seq=2, epoch=agent.epoch)
+    seqs = [f[SEQ_KEY] for f in frames if SEQ_KEY in f]
+    assert seqs == list(range(3, agent.state.seq + 1))
+    assert TRUNCATED not in [f.get("type") for f in frames]
+
+
+def test_a_cursor_from_another_life_is_ignored_and_the_whole_window_replays():
+    from maelstrom.agent_model import SEQ_KEY
+
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    agent.state = replay("normal-turn.jsonl")
+    daemon.agents["a1"] = agent
+    frames = _attach_briefly(daemon, "a1", from_seq=2, epoch="someone-else")
+    seqs = [f[SEQ_KEY] for f in frames if SEQ_KEY in f]
+    assert seqs[0] == 1
+
+
+def test_a_cursor_the_ring_has_rolled_past_gets_a_truncated_marker_first(monkeypatch):
+    """The client asked from seq 1; the ring starts later, so it is told how much is gone."""
+    from maelstrom import agent_model
+    from maelstrom.agent_model import SEQ_KEY
+
+    monkeypatch.setattr(agent_model, "RECENT_LIMIT", 3)
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    for _ in range(10):
+        agent.record({"type": "rate_limit_event"})
+    daemon.agents["a1"] = agent
+    frames = _attach_briefly(daemon, "a1", from_seq=1, epoch=agent.epoch)
+    kinds = [f.get("type") for f in frames]
+    assert kinds[:2] == [AGENT_DETAIL, TRUNCATED]
+    # Seqs 2..7 are gone: the ring holds 8, 9, 10.
+    assert frames[1]["dropped"] == 6
+    assert [f[SEQ_KEY] for f in frames if SEQ_KEY in f] == [8, 9, 10]
+
+
+def test_a_fresh_attach_to_a_rolled_ring_says_how_many_are_gone(monkeypatch):
+    from maelstrom import agent_model
+
+    monkeypatch.setattr(agent_model, "RECENT_LIMIT", 3)
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    for _ in range(5):
+        agent.record({"type": "rate_limit_event"})
+    daemon.agents["a1"] = agent
+    frames = _attach_briefly(daemon, "a1")
+    assert frames[1] == {"type": TRUNCATED, "dropped": 2}
+
+
+def test_two_watchers_on_one_agent_both_receive_a_recorded_event():
+    from maelstrom.agent_model import SEQ_KEY
+
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    daemon.agents["a1"] = agent
+    one, two = _recording_writer(), _recording_writer()
+
+    async def scenario():
+        tasks = [
+            asyncio.create_task(daemon._attach("a1", one)),
+            asyncio.create_task(daemon._attach("a1", two)),
+        ]
+        await asyncio.sleep(0)
+        agent.record({"type": "assistant", "message": {"content": []}})
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        for task in tasks:
+            task.cancel()
+
+    asyncio.run(scenario())
+    for writer in (one, two):
+        last = _frames(writer)[-1]
+        assert last["type"] == "assistant"
+        assert last[SEQ_KEY] == 1
+
+
+def test_a_watcher_that_falls_a_queue_behind_is_told_what_it_lost_once(monkeypatch):
+    """The overflow used to drop the oldest silently. Now the seq jump is marked."""
+    from maelstrom import agent_server
+    from maelstrom.agent_model import SEQ_KEY
+
+    monkeypatch.setattr(agent_server, "WATCHER_QUEUE_LIMIT", 2)
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    daemon.agents["a1"] = agent
+    writer = _recording_writer()
+
+    async def scenario():
+        task = asyncio.create_task(daemon._attach("a1", writer))
+        await asyncio.sleep(0)
+        # Five events land before the writer's loop runs again: the queue of
+        # two keeps the last two.
+        for _ in range(5):
+            agent.record({"type": "rate_limit_event"})
+        for _ in range(4):
+            await asyncio.sleep(0)
+        task.cancel()
+
+    asyncio.run(scenario())
+    frames = _frames(writer)
+    live = [
+        f
+        for f in frames
+        if f.get("type") != AGENT_DETAIL and f.get("type") != BACKLOG_END
+    ]
+    assert live[0] == {"type": TRUNCATED, "dropped": 3}
+    seqs = [f[SEQ_KEY] for f in live if SEQ_KEY in f]
+    assert seqs == [4, 5]
+    assert len(seqs) == len(set(seqs))

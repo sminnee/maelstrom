@@ -15,7 +15,7 @@ from collections.abc import Callable
 from concurrent.futures import Executor
 from typing import Any
 
-from ..agent_model import AGENT_DETAIL, AGENT_EXITED, BACKLOG_END, RECENT_LIMIT
+from ..agent_model import AGENT_DETAIL, AGENT_EXITED, BACKLOG_END, SEQ_KEY, TRUNCATED
 from ..desk_store import DeskStore, InMemoryDeskStore
 from ..task_launch import LaunchBlocked
 from ..util import now_iso
@@ -29,6 +29,7 @@ from .normalise import (
     apply_agent_detail,
     context_for_agent,
     mark_exited,
+    normalise_gap,
     normalise_stream_event,
     revive_agent,
 )
@@ -74,9 +75,19 @@ class AgentWatch:
         self.agent_id = agent_id
         self.ctx = ctx
         self.task: asyncio.Task[None] | None = None
-        self.backlog_count = 0
         #: Set once the backlog marker has arrived, or the stream ended first.
         self.caught_up = asyncio.Event()
+        #: The host dropped events mid-stream, so a wait the world holds may
+        #: have ended without this server seeing it.
+        self.gapped = False
+
+
+class Cursor:
+    """Where a watch got to on the host's stream: the seq, and the life it belongs to."""
+
+    def __init__(self) -> None:
+        self.seq = 0
+        self.epoch = ""
 
 
 class Orchestrator:
@@ -124,6 +135,10 @@ class Orchestrator:
         self._pollers: list[asyncio.Task[None]] = []
         self._started = asyncio.Event()
         self._watches: dict[str, AgentWatch] = {}
+        #: Per agent, the last seq and epoch a watch read. It outlives the
+        #: watch, so a re-attach after a dropped stream asks for what it
+        #: missed rather than the whole window again.
+        self._cursors: dict[str, Cursor] = {}
         #: Per agent, the highest transcript-item number handed out so far.
         #: Outlives the agent's exit: a resume reuses the agent id, so the
         #: mark has to survive it or the revived agent re-mints old ids.
@@ -386,9 +401,29 @@ class Orchestrator:
             if agent_id not in self._watches:
                 await self._attach(agent_id)
             await self._relink(row)
+            await self._close_wait_lost_in_a_gap(agent_id, state)
         for agent_id, agent in list(agents.items()):
             if agent_id not in rows and agent["state"] != "exited":
                 await self._exit(agent_id, 0)
+
+    async def _close_wait_lost_in_a_gap(self, agent_id: str, state: str) -> None:
+        """End a wait whose answer fell in a gap the host reported.
+
+        The world says the agent waits; the host's row says it does not. The
+        events between held the answer, and they are gone, so the wait is
+        ended the way the child ends one it withdraws.
+        """
+        watch = self._watches.get(agent_id)
+        if watch is None or not watch.gapped:
+            return
+        agent = self.world["agents"].get(agent_id)
+        request_id = agent["pendingRequestId"] if agent else None
+        if not request_id or state.startswith("awaiting-"):
+            return
+        watch.gapped = False
+        await self._normalise(
+            watch, {"type": "control_cancel_request", "request_id": request_id}
+        )
 
     async def _revive(self, row: dict[str, Any], state: str) -> None:
         """Bring an exited agent back: clear its exit, and follow it again.
@@ -403,6 +438,8 @@ class Orchestrator:
         watch = self._watches.pop(agent_id, None)
         if watch is not None and watch.task is not None:
             watch.task.cancel()
+        # A new life: the host will not honour the old cursor, and nor should we.
+        self._cursors.pop(agent_id, None)
         ctx = context_for_agent(agent_id, self._next_item_seed(agent_id))
         link = self._link(row)
         out = revive_agent(
@@ -439,7 +476,8 @@ class Orchestrator:
             agent_id, context_for_agent(agent_id, self._next_item_seed(agent_id))
         )
         self._watches[agent_id] = watch
-        watch.task = asyncio.create_task(self._follow(watch))
+        cursor = self._cursors.setdefault(agent_id, Cursor())
+        watch.task = asyncio.create_task(self._follow(watch, cursor))
         # A host that never sends the backlog marker only delays adoption; it
         # does not block the server.
         try:
@@ -469,17 +507,18 @@ class Orchestrator:
         if linked != agent:
             self._apply([{"type": "upsert", "kind": "agent", "entity": linked}])
 
-    async def _follow(self, watch: AgentWatch) -> None:
-        """Normalise one agent's attach stream into the log until it ends.
+    async def _follow(self, watch: AgentWatch, cursor: Cursor) -> None:
+        """Normalise one agent's attach stream into its transcript until it ends.
 
-        The watch is dropped when the stream ends, whatever ended it. An agent
-        still listed by the host is attached again on the next reconciliation.
+        The attach carries the cursor the last watch left, so the host replays
+        only what this server missed. The watch is dropped when the stream
+        ends, whatever ended it. An agent still listed by the host is attached
+        again on the next reconciliation.
         """
         agent_id = watch.agent_id
-        in_backlog = True
         detail: dict[str, Any] = {}
         try:
-            async for event in self.daemon.attach(agent_id):
+            async for event in self.daemon.attach(agent_id, cursor.seq, cursor.epoch):
                 if "error" in event and "type" not in event:
                     # The host would not give us the stream. The next
                     # reconciliation tries again.
@@ -496,7 +535,10 @@ class Orchestrator:
                     detail = event.get("agent") or {}
                     continue
                 if kind == BACKLOG_END:
-                    in_backlog = False
+                    cursor.epoch = str(event.get("epoch") or "")
+                    seq = event.get("seq")
+                    if isinstance(seq, int):
+                        cursor.seq = seq
                     # A wait the host named that the backlog did not replay:
                     # the request went out before the host's window, so only
                     # the detail frame knows about it.
@@ -504,20 +546,17 @@ class Orchestrator:
                         self.state.state, watch.ctx, detail, self.clock()
                     )
                     await self._emit(watch, out)
-                    # The host's ring holds RECENT_LIMIT events, so a backlog
-                    # that size may have lost older ones. It does not say
-                    # which, so a full backlog is marked either way.
-                    if watch.backlog_count >= RECENT_LIMIT:
-                        self._apply(
-                            [{"type": "transcript.truncated", "agentId": agent_id}]
-                        )
                     watch.caught_up.set()
+                    continue
+                if kind == TRUNCATED:
+                    await self._gap(watch, event)
                     continue
                 if kind == AGENT_EXITED:
                     await self._exit(agent_id, event.get("exit_code"), from_stream=True)
                     return
-                if in_backlog:
-                    watch.backlog_count += 1
+                seq = event.get(SEQ_KEY)
+                if isinstance(seq, int):
+                    cursor.seq = seq
                 await self._normalise(watch, event)
         except asyncio.CancelledError:
             raise
@@ -527,6 +566,24 @@ class Orchestrator:
             watch.caught_up.set()
             if self._watches.get(agent_id) is watch:
                 del self._watches[agent_id]
+
+    async def _gap(self, watch: AgentWatch, event: dict[str, Any]) -> None:
+        """Mark what the host dropped.
+
+        Before any item, the transcript is truncated: its start is not the
+        agent's start. Mid-stream, a ``gap`` item stands where the dropped
+        events were, and the next reconciliation checks the wait the world
+        holds, since its answer may be among them.
+        """
+        dropped = event.get("dropped")
+        dropped = dropped if isinstance(dropped, int) else 0
+        agent_id = watch.agent_id
+        if not self.transcript_log(agent_id).items:
+            self._apply([{"type": "transcript.truncated", "agentId": agent_id}])
+            return
+        watch.gapped = True
+        out = normalise_gap(self.state.state, watch.ctx, dropped, self.clock())
+        await self._emit(watch, out)
 
     async def _normalise(self, watch: AgentWatch, raw: dict[str, Any]) -> None:
         out = normalise_stream_event(self.state.state, watch.ctx, raw, self.clock())

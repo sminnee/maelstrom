@@ -479,3 +479,16 @@ def test_a_cancel_for_another_request_is_ignored():
         state, {"type": "control_cancel_request", "request_id": "other"}
     )
     assert state.pending is not None
+
+
+def test_apply_event_stamps_each_event_with_its_seq_and_leaves_the_input_alone():
+    """The stamp lives on the copy in ``recent``: the same dict goes to the child."""
+    from maelstrom.agent_model import SEQ_KEY
+
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    events = [{"type": "rate_limit_event"}, {"type": "assistant"}, {"type": "result"}]
+    for event in events:
+        state = apply_event(state, event)
+    assert [e[SEQ_KEY] for e in state.recent] == [1, 2, 3]
+    assert state.seq == 3
+    assert all(SEQ_KEY not in event for event in events)

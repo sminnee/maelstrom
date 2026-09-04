@@ -125,5 +125,11 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
       );
     case 'error':
       return <div className={styles.error}>{item.message}</div>;
+    case 'gap':
+      return (
+        <div className={styles.note} data-testid="gap">
+          {item.droppedEvents} earlier events were dropped here.
+        </div>
+      );
   }
 }

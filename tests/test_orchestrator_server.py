@@ -341,26 +341,26 @@ def test_the_world_carries_the_wait_and_the_transcript_holds_the_backlog(harness
     assert open_items[0]["taskId"] == "northwind/NORT-7"
 
 
-def test_a_backlog_the_size_of_the_hosts_window_is_marked_truncated(harness):
-    from maelstrom.agent_model import RECENT_LIMIT
-
-    events = read_fixture("normal-turn.jsonl")
-    padding = [{"type": "rate_limit_event"}] * (RECENT_LIMIT - len(events))
+def test_a_backlog_the_host_says_it_cut_is_marked_truncated(harness):
     harness.daemon.rows["ag1"] = agent_row()
-    harness.daemon.backlog["ag1"] = padding + events
+    harness.daemon.backlog["ag1"] = read_fixture("normal-turn.jsonl")
+    harness.daemon.truncated["ag1"] = 5
 
     async def scenario():
         async with harness.client() as api:
             return await transcript_of(api)
 
-    assert run(scenario())["truncatedBefore"] is True
+    transcript = run(scenario())
+    assert transcript["truncatedBefore"] is True
+    assert [i["type"] for i in transcript["items"]][0] == "system"
 
 
-def test_a_backlog_one_short_of_the_window_is_not_marked_truncated(harness):
+def test_a_backlog_the_size_of_the_hosts_window_is_not_truncated_on_its_own(harness):
+    """Only the host's marker says events are gone; a full window alone does not."""
     from maelstrom.agent_model import RECENT_LIMIT
 
     events = read_fixture("normal-turn.jsonl")
-    padding = [{"type": "rate_limit_event"}] * (RECENT_LIMIT - 1 - len(events))
+    padding = [{"type": "rate_limit_event"}] * (RECENT_LIMIT - len(events))
     harness.daemon.rows["ag1"] = agent_row()
     harness.daemon.backlog["ag1"] = padding + events
 
@@ -1811,3 +1811,89 @@ def test_an_unknown_agent_closes_the_socket_4404_and_the_get_is_404(harness):
     assert missing.status == 404
     assert kind == aiohttp.WSMsgType.CLOSE
     assert code == 4404
+
+
+# --- the attach cursor -------------------------------------------------------
+
+
+def test_a_re_attach_after_a_dropped_stream_asks_for_what_it_missed(harness):
+    """The host replays only what came after the cursor, so nothing shows twice."""
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.backlog["ag1"] = read_fixture("normal-turn.jsonl")
+
+    async def scenario():
+        async with harness.client() as api:
+            before = (await transcript_of(api))["items"]
+            harness.daemon.end_stream("ag1")
+            await wait_until(
+                lambda: (
+                    len([c for c in harness.daemon.calls if c["cmd"] == "attach"]) == 2
+                )
+            )
+            await wait_until(lambda: harness.daemon.attached == ["ag1"])
+            return before, (await transcript_of(api))["items"]
+
+    before, after = run(scenario())
+    attaches = [c for c in harness.daemon.calls if c["cmd"] == "attach"]
+    assert attaches[0] == {"cmd": "attach", "id": "ag1"}
+    seq = len(harness.daemon.backlog["ag1"])
+    assert attaches[1] == {
+        "cmd": "attach",
+        "id": "ag1",
+        "from": seq,
+        "epoch": "epoch-ag1",
+    }
+    assert after == before
+
+
+def test_events_dropped_mid_stream_show_as_a_gap_item(harness):
+    from maelstrom.agent_model import TRUNCATED
+
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.backlog["ag1"] = read_fixture("normal-turn.jsonl")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.transcript_stream("ag1") as ws:
+                await ws_next(ws, lambda m: m["type"] == "transcript.snapshot")
+                harness.daemon.push("ag1", {"type": TRUNCATED, "dropped": 7})
+                frame = await ws_next(ws, is_event("transcript.append"))
+            return frame["event"]["item"], await transcript_of(api)
+
+    item, transcript = run(scenario())
+    assert item["type"] == "gap"
+    assert item["droppedEvents"] == 7
+    assert transcript["items"][-1]["id"] == item["id"]
+    assert transcript["truncatedBefore"] is False
+
+
+def test_a_wait_whose_answer_fell_in_a_gap_is_closed_by_the_next_reconcile(harness):
+    """The world says waiting; the host's row says not. The gap ate the answer."""
+    from maelstrom.agent_model import TRUNCATED
+
+    waiting_on(harness, "permission-request.jsonl")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                assert (await api.get_json("/api/agents/ag1"))["pendingRequestId"]
+                harness.daemon.push("ag1", {"type": TRUNCATED, "dropped": 3})
+                # The host answered the wait inside the gap: its row moved on.
+                harness.daemon.rows["ag1"]["state"] = "processing"
+                harness.daemon.pending.pop("ag1", None)
+                agent = await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda a: a["pendingRequestId"] is None,
+                )
+                transcript = await transcript_of(api)
+                return agent, transcript["items"]
+
+    agent, items = run(scenario())
+    assert agent["state"] == "processing"
+    request = next(i for i in items if i["type"] == "permission_request")
+    assert request["stale"] is True
+    assert items[-1]["type"] == "gap"

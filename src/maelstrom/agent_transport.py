@@ -267,9 +267,25 @@ class AsyncDaemonClient(Protocol):
         """Send ``payload`` and return the daemon's reply."""
         ...
 
-    def attach(self, agent_id: str) -> AsyncIterator[dict[str, Any]]:
-        """Yield one agent's raw events until the stream ends."""
+    def attach(
+        self, agent_id: str, from_seq: int = 0, epoch: str = ""
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Yield one agent's raw events until the stream ends.
+
+        With ``from_seq`` and ``epoch``, the daemon replays only what came
+        after that cursor in that life of the agent.
+        """
         ...
+
+
+def attach_command(agent_id: str, from_seq: int = 0, epoch: str = "") -> dict[str, Any]:
+    """The ``attach`` request, carrying the cursor only when there is one."""
+    command: dict[str, Any] = {"cmd": "attach", "id": agent_id}
+    if from_seq > 0:
+        command["from"] = from_seq
+    if epoch:
+        command["epoch"] = epoch
+    return command
 
 
 @dataclass
@@ -289,12 +305,15 @@ class SocketAsyncDaemonClient:
             self.socket_path, payload, autostart=self.autostart
         )
 
-    async def attach(self, agent_id: str) -> AsyncIterator[dict[str, Any]]:
+    async def attach(
+        self, agent_id: str, from_seq: int = 0, epoch: str = ""
+    ) -> AsyncIterator[dict[str, Any]]:
         """Open an attach connection and yield every line the daemon sends.
 
         A malformed line is skipped rather than ending the stream: the daemon
         forwards the child's stdout, and a child can write a line that is not
-        JSON.
+        JSON. The cursor travels only when given, so an older daemon that knows
+        no cursor still answers.
         """
         try:
             if self.autostart:
@@ -305,7 +324,7 @@ class SocketAsyncDaemonClient:
             return
         try:
             writer.write(
-                (json.dumps({"cmd": "attach", "id": agent_id}) + "\n").encode()
+                (json.dumps(attach_command(agent_id, from_seq, epoch)) + "\n").encode()
             )
             await writer.drain()
             while True:

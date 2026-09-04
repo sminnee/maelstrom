@@ -73,3 +73,24 @@ def test_attach_streams_lines_until_the_server_closes():
         return [event async for event in client.attach("a1")]
 
     assert asyncio.run(_serve(handler, body)) == [{"type": "a"}, {"type": "b"}]
+
+
+def test_attach_sends_the_cursor_only_when_it_has_one():
+    """An older daemon knows no cursor, so a plain attach stays a plain attach."""
+    requests = []
+
+    async def handler(reader, writer):
+        requests.append(json.loads(await reader.readline()))
+        writer.close()
+
+    async def body(client):
+        async for _ in client.attach("a1"):
+            pass
+        async for _ in client.attach("a1", 350, "9b2e7c41"):
+            pass
+        return requests
+
+    assert asyncio.run(_serve(handler, body)) == [
+        {"cmd": "attach", "id": "a1"},
+        {"cmd": "attach", "id": "a1", "from": 350, "epoch": "9b2e7c41"},
+    ]
