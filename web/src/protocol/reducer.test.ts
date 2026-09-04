@@ -132,8 +132,6 @@ describe('applyServerEvent', () => {
   });
 
   it('a snapshot without transcripts keeps the ones the client holds', () => {
-    // The real server stores no transcript: it relays the projection, so the
-    // client's own map is the only copy and a snapshot must not clear it.
     let state = applyServerEvent(
       initialClientState(),
       frame(1, { type: 'snapshot', world: emptyWorld(), transcripts: {} }),

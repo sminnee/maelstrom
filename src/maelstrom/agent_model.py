@@ -289,9 +289,7 @@ BACKLOG_END = "mael_backlog_end"
 AGENT_EXITED = "mael_agent_exited"
 
 #: Event type of an attach stream's opening frame, carrying
-#: :func:`build_agent_detail` under ``agent``. The host says what the agent is
-#: waiting on rather than leaving a client to infer it from replayed events,
-#: which is what makes a revived agent's wait answerable at once.
+#: :func:`build_agent_detail` under ``agent``.
 AGENT_DETAIL = "mael_agent_detail"
 
 

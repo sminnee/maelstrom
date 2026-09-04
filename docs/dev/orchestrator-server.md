@@ -1,6 +1,6 @@
 # The orchestrator server
 
-The server builds the world the orchestrator UI shows — tasks, worktrees, agents, transcripts,
+The server builds the world the orchestrator UI shows — tasks, worktrees, agents,
 attention — from the task notebook, `list-all` and the agent host, and serves it to every
 browser over one WebSocket. `mael orchestrator serve` runs it.
 
@@ -184,7 +184,7 @@ Every event in the table below is the `event` value of such a frame.
 | `remove` | `kind` and `id` |
 | `transcript.append` | `agentId` and the `item` |
 | `transcript.update` | `agentId`, `itemId` and a `patch` |
-| `transcript.truncated` | `agentId`: older items were dropped by the host |
+| `transcript.truncated` | `agentId`: older items were dropped by the host. The client sets `truncatedBefore` |
 | `error` | `message`, and `agentId` when one agent is concerned |
 
 Every client receives every frame. Transcripts are not filtered per connection.
@@ -199,9 +199,10 @@ A command carries an id the reply echoes:
 {"reply": {"id": "c7", "ok": false, "error": {"code": "not_waiting", "message": "Agent 1761dcf6 is not waiting"}}}
 ```
 
-A refused command publishes nothing. A command the server relays to the host has its
-consequences published when the host's stream reports them, which can be after the reply. See
-"The host owns the control plane" below.
+A refused agent command publishes nothing; `agent.launch` is the exception, moving its task
+in-progress before it asks the host and rolling that back on a refusal. A command the server
+relays to the host has its consequences published when the host's stream reports them, which can
+be after the reply. See "The host owns the control plane" below.
 
 | Command | Reaches the host as | Result |
 |---|---|---|
@@ -240,6 +241,7 @@ reply of its own.
 This works because the host records the `control_response` it writes onto the child's event
 stream, so the wait resolves when that event arrives on the attach stream, like any other. A
 `say` is not recorded: the child replays a user turn itself.
+
 
 Two things follow. An answer made anywhere reaches the UI, `mael agent approve` included. And the
 server holds no opinion about how a wait is answered, so the reply shapes live in one place, the

@@ -199,7 +199,7 @@ _Avoid_: Abandoned, orphaned, expired
 **Agent message**:
 One thing a driven agent said, in its own words. Text blocks only — a `thinking` block is
 reasoning the agent did not choose to say, and a `tool_use` block is an action. The daemon keeps
-the last few messages, so `mael agent list` and `mael agent show` answer without reading a file.
+only the last message, so `mael agent list` and `mael agent show` answer without reading a file.
 
 **Spawn record**:
 What one driven agent takes to start again: its working directory, its session id, its permission

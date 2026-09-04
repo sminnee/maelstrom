@@ -75,11 +75,7 @@ export interface RemoveEvent {
 export interface SnapshotEvent {
   type: 'snapshot';
   world: World;
-  /**
-   * Only the fake backend sends these. The real server keeps no transcript:
-   * it relays the projection rather than accumulating it, so a snapshot
-   * carries the world alone and a client keeps the transcripts it has.
-   */
+  /** Only the fake backend sends these. The real server keeps no transcript. */
   transcripts?: Record<AgentId, Transcript>;
 }
 

@@ -134,6 +134,13 @@ TranscriptItem = dict[str, Any]
 
 
 class Transcript(TypedDict):
+    """The shape a client assembles from the server's transcript events.
+
+    Nothing here holds one — the server relays the events and keeps no
+    transcript. This documents what they add up to, next to the rest of the
+    wire types.
+    """
+
     agentId: str
     items: list[TranscriptItem]
     #: True when the agent host's event window dropped older items.
@@ -183,10 +190,8 @@ class World(TypedDict):
 class ClientState(TypedDict):
     """What the server holds: the world, and nothing per-agent.
 
-    No ``transcripts``. The server produces the render-ready projection and
-    relays it; it does not accumulate it. A transcript belongs next to the
-    thing that renders it, so the browser's reducer keeps that map — see
-    ``web/src/protocol/reducer.ts``.
+    No ``transcripts`` — see ``docs/dev/orchestrator-server.md``, "The server
+    keeps no transcript". The browser's reducer keeps that map.
     """
 
     world: World
@@ -283,8 +288,7 @@ def apply_event(state: ClientState, event: ServerEvent, seq: int = 0) -> ClientS
         table.pop(event["id"], None)
         return _with_world(state, cast(World, {**state["world"], key: table}))
     if kind in ("transcript.append", "transcript.update", "transcript.truncated"):
-        # Relayed, not accumulated: the server holds no transcript, so these
-        # change nothing here. The browser's reducer applies them.
+        # Relayed, not accumulated. The browser's reducer applies them.
         return state
     if kind == "error":
         entry = {

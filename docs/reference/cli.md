@@ -597,7 +597,7 @@ cmux pane and no TTY. See [agent-daemon.md](../dev/agent-daemon.md) for the prot
 | `mael agent daemon` | Run the agent daemon in the foreground. `--socket PATH` overrides the socket. |
 | `mael agent start [CWD]` | Start an agent in CWD (default `.`). Takes `--prompt`, `--mode`, `--model`, `--session-id`. |
 | `mael agent list` | Show every agent, what each waiting one waits on, and what each last said. `--json` emits rows as JSON. |
-| `mael agent show ID` | Show one agent in full: its messages, every question option, the plan, and the command that answers the wait. `--json` emits the detail as JSON. |
+| `mael agent show ID` | Show one agent in full: the last thing it said, every question option, the plan, and the command that answers the wait. `--json` emits the detail as JSON. |
 | `mael agent tail ID` | Print an agent's events and stop, without driving it. `-f` keeps streaming. The read-only half of `attach`. |
 | `mael agent say ID TEXT` | Send TEXT to an agent as a user message. |
 | `mael agent answer ID CHOICE` | Answer an agent's pending question. CHOICE answers every question the agent asked. |
