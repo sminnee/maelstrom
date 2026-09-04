@@ -38,6 +38,11 @@ golden replay per fixture to `tests/fixtures/agent_events/normalised/`. The Pyth
 the same fixtures into the same seed agent and must produce the same world. A change to one
 normaliser without the other fails that test rather than drifting.
 
+The tool-card port is held the same way. `classify_tool_call` and `tool_call_title` in
+`agent_view.py` are a hand port of `web/src/session/toolCards.ts`, and
+`normalised/tool-cards.json` records what the reference makes of each tool, so a one-sided
+change fails rather than drifting.
+
 ## Keeping the world fresh
 
 The server holds one `EventLog`. Every change to the world is an event appended to it, applied
