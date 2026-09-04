@@ -26,7 +26,7 @@ from ..task_launch import LaunchBlocked
 from ..util import now_iso
 from . import desk as desk_model
 from .daemon_bridge import AsyncDaemonClient
-from .desk import DeskTable, desk_id_for_task
+from .desk import DeskTable, desk_id_for_agent, desk_id_for_task
 from .event_log import RING_SIZE, EventLog
 from .normalise import (
     NormaliseContext,
@@ -126,6 +126,7 @@ class Orchestrator:
         await self._load_desk()
         await self.refresh_worktrees()
         await self.refresh_agents()
+        await self._drop_dead_agent_entries()
         self._started.set()
         self._pollers = [
             asyncio.create_task(self._poll(self._task_poll, self.refresh_tasks)),
@@ -239,9 +240,28 @@ class Orchestrator:
     # -- the desk --
 
     async def _load_desk(self) -> None:
-        """Put the stored desk in the world, less any task the notebook lost."""
+        """Put the stored desk in the world, less any task the notebook lost.
+
+        This runs before the first agent read, because the read saves the
+        desk as it joins agents to it and would overwrite the stored file.
+        :meth:`_drop_dead_agent_entries` finishes the job once the agents are
+        known.
+        """
         stored = await self._run(self.desk.load)
         await self._set_desk(self._pruned(stored))
+
+    async def _drop_dead_agent_entries(self) -> None:
+        """Drop a stored ``agent:`` entry for an agent the host no longer has.
+
+        The world's agents are rebuilt from the host on every start, so such
+        an entry would draw nothing and could never be dismissed. This runs
+        once, after the first agent read. During a run the opposite rule
+        applies: an agent stays in the world once seen, which is what keeps a
+        stopped agent on the canvas.
+        """
+        world = self.log.state["world"]
+        kept = desk_model.drop_unknown_agents(world["desk"], world["agents"])
+        await self._set_desk(kept)
 
     async def _prune_desk(self) -> None:
         """Drop desk entries for tasks that are no longer in the notebook."""
@@ -273,6 +293,19 @@ class Orchestrator:
         table = self.log.state["world"]["desk"]
         await self._set_desk(desk_model.add(table, desk_id, self.clock()))
 
+    async def _join_desk(self, agent_id: str) -> None:
+        """Put a newly adopted live agent on the desk, under its task or itself.
+
+        An agent already exited when the server first sees it does not join:
+        only running work puts itself on the canvas.
+        """
+        agent = self.log.state["world"]["agents"].get(agent_id)
+        if agent is None or agent["state"] == "exited":
+            return
+        task_id = agent["taskId"]
+        desk_id = desk_id_for_task(task_id) if task_id else desk_id_for_agent(agent_id)
+        await self._add_to_desk(desk_id)
+
     async def _desk_remove(self, command: dict[str, Any]) -> dict[str, Any]:
         table = self.log.state["world"]["desk"]
         await self._set_desk(desk_model.remove(table, command["id"]))
@@ -289,6 +322,12 @@ class Orchestrator:
         live agent whose stream ended without an exit is attached again. And a
         live agent's links are re-resolved, so a task or worktree that arrived
         after the agent still finds it.
+
+        A newly adopted live agent joins the desk, under its task when it has
+        one and under itself when it does not. The canvas draws running work
+        either way; the entry is what keeps it drawn once the agent stops. The
+        join happens once, at adoption: a later poll must not re-add an entry
+        the user has dismissed.
         """
         reply = await self.daemon.request({"cmd": "list"})
         if "error" in reply:
@@ -299,6 +338,7 @@ class Orchestrator:
         for agent_id, row in rows.items():
             if agent_id not in agents:
                 await self._adopt(row)
+                await self._join_desk(agent_id)
                 continue
             state, exit_code = parse_agent_state(row.get("state", ""))
             if agents[agent_id]["state"] == "exited":

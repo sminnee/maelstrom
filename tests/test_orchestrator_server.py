@@ -1056,6 +1056,156 @@ def test_a_task_deleted_from_the_notebook_leaves_the_desk(harness):
     assert run(scenario()) == {}
 
 
+def test_a_live_agent_joins_the_desk(harness):
+    """Running work is always drawn, so the server puts it on the desk itself."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                return harness.orch.log.state["world"]["desk"]
+
+    assert list(run(scenario())) == ["agent:ag1"]
+
+
+def test_an_agent_with_a_task_joins_the_desk_under_its_task(harness):
+    harness.add_task("NORT-7")
+    session = model.session_id_for(PROJECT, "NORT-7")
+    harness.daemon.rows["ag1"] = agent_row(session=session)
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                return harness.orch.log.state["world"]["desk"]
+
+    assert list(run(scenario())) == ["task:northwind/NORT-7"]
+
+
+def test_the_desk_entry_outlives_the_agent(harness):
+    """Only a dismiss clears an entry, so a stopped agent stays on the canvas."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                del harness.daemon.rows["ag1"]
+                await harness.orch.refresh_agents()
+                world = harness.orch.log.state["world"]
+                return world["desk"], world["agents"]["ag1"]["state"]
+
+    desk, state = run(scenario())
+    assert state == "exited"
+    assert list(desk) == ["agent:ag1"]
+
+
+def test_a_second_agent_poll_publishes_nothing(harness):
+    """The 2s poll must not thrash the desk file, nor the clients."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                before = harness.orch.log.seq
+                await harness.orch.refresh_agents()
+                return before, harness.orch.log.seq
+
+    before, after = run(scenario())
+    assert after == before
+
+
+def test_a_dismissed_entry_is_not_re_added_by_the_next_poll(harness):
+    """A dismiss is the user's decision, so the poll must not undo it."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                await command(ws, {"type": "desk.remove", "id": "agent:ag1"})
+                await harness.orch.refresh_agents()
+                return harness.orch.log.state["world"]["desk"]
+
+    assert run(scenario()) == {}
+
+
+def test_an_agent_already_exited_when_it_is_adopted_does_not_join_the_desk(harness):
+    """Only running work joins by itself; a dead agent needs the user to ask."""
+    harness.daemon.rows["ag1"] = agent_row(state="exited(1)")
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                await say_hello(ws)
+                return harness.orch.log.state["world"]["desk"]
+
+    assert run(scenario()) == {}
+
+
+def test_a_free_agent_entry_the_host_has_forgotten_is_dropped_at_load(store):
+    """A restart rebuilds the agents, so an entry naming none can never draw."""
+    from maelstrom.desk_store import InMemoryDeskStore
+
+    desk = InMemoryDeskStore()
+    desk.save(
+        {
+            "agent:gone": {"id": "agent:gone", "addedAt": NOW},
+            "task:northwind/NORT-7": {"id": "task:northwind/NORT-7", "addedAt": NOW},
+        }
+    )
+    harness = Harness(store, desk=desk)
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                return (await say_hello(ws))[0]["event"]["world"]["desk"]
+
+    assert list(run(scenario())) == ["task:northwind/NORT-7"]
+
+
+def test_an_agent_adopted_at_start_keeps_its_entry_through_the_load(store):
+    """The load merges onto the world, so the join that ran first is not lost."""
+    from maelstrom.desk_store import InMemoryDeskStore
+
+    desk = InMemoryDeskStore()
+    desk.save(
+        {"task:northwind/NORT-7": {"id": "task:northwind/NORT-7", "addedAt": NOW}}
+    )
+    harness = Harness(store, desk=desk)
+    harness.add_task("NORT-7")
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                world = (await say_hello(ws))[0]["event"]["world"]
+                return world["desk"], list(world["tasks"])
+
+    desk, tasks = run(scenario())
+    assert tasks == ["northwind/NORT-7"]
+    assert sorted(desk) == ["agent:ag1", "task:northwind/NORT-7"]
+
+
+def test_a_free_agent_entry_whose_agent_is_live_survives_the_load(store):
+    from maelstrom.desk_store import InMemoryDeskStore
+
+    desk = InMemoryDeskStore()
+    desk.save({"agent:ag1": {"id": "agent:ag1", "addedAt": NOW}})
+    harness = Harness(store, desk=desk)
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                return (await say_hello(ws))[0]["event"]["world"]["desk"]
+
+    assert list(run(scenario())) == ["agent:ag1"]
+
+
 def test_the_desk_survives_a_restart(store):
     from maelstrom.desk_store import InMemoryDeskStore
 
