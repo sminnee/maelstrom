@@ -888,11 +888,9 @@ class Orchestrator:
         ``docs/dev/orchestrator-server.md``. The worktree is opened first, so
         a branch with none gets one provisioned.
         """
-        if self.tasks.open_worktree is None:
-            return _refused("invalid", "This server cannot open worktrees")
         try:
             setup = await self._run(
-                self.tasks.open_worktree, command["project"], command["branch"], ""
+                self.tasks.worktree_for, command["project"], command["branch"]
             )
         except LaunchBlocked as exc:
             # The source's own refusal, as the launch path treats it.

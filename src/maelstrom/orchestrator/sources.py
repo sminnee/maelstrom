@@ -15,10 +15,10 @@ from typing import Any, Protocol
 
 from .. import task as model
 from .. import task_actions
+from ..branch_name import TaskNames, infer_task_names
 from ..list_all import build_list_all_data
 from ..session_discovery import LiveSessionSet
 from ..task_index import TaskIndex
-from ..branch_name import TaskNames, infer_task_names
 from ..task_launch import LaunchBlocked, check_not_live, check_synced, plan_launch
 from ..task_store import TaskStore
 from ..worktree import WorktreeSetup
@@ -28,8 +28,8 @@ from .validate import EDITABLE
 from .world_build import (
     project_entity,
     split_task_key,
-    task_key,
     task_entity,
+    task_key,
     worktree_entity,
 )
 
@@ -109,6 +109,17 @@ class TaskSource(Protocol):
 
         Raises:
             ValueError: If a field holds a value the notebook refuses.
+        """
+        ...
+
+    def worktree_for(self, project: str, branch: str) -> WorktreeSetup:
+        """Open the worktree a branch runs in, provisioning one when it has none.
+
+        The path a free agent starts in. A task's launch opens its own
+        worktree on the way, so this is only reached for work with no task.
+
+        Raises:
+            LaunchBlocked: If this source cannot open worktrees.
         """
         ...
 
@@ -206,6 +217,12 @@ class NotebookTaskSource:
 
     def infer(self, draft: str) -> TaskNames:
         return infer_task_names(draft)
+
+    def worktree_for(self, project: str, branch: str) -> WorktreeSetup:
+        if self.open_worktree is None:
+            raise LaunchBlocked("This server cannot open worktrees")
+        # No base to seed: work with no task has no base to carry.
+        return self.open_worktree(project, branch, "")
 
     def create(self, project: str, fields: dict[str, Any]) -> str:
         """Write a new task and return its wire id.

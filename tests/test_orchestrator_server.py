@@ -2306,8 +2306,10 @@ def test_create_writes_the_task_with_the_fields_it_was_given_and_files_it(harnes
                     "priority": "high",
                 },
             )
-            return reply, await api.get_json("/api/desk"), await api.get_json(
-                "/api/tasks"
+            return (
+                reply,
+                await api.get_json("/api/desk"),
+                await api.get_json("/api/tasks"),
             )
 
     reply, desk, tasks = run(scenario())
@@ -2427,8 +2429,10 @@ def test_a_free_agent_starts_in_the_branch_worktree_with_no_session_and_no_env(h
                     "model": "claude-opus-5",
                 },
             )
-            return reply, await api.get_json("/api/desk"), await api.get_json(
-                "/api/tasks"
+            return (
+                reply,
+                await api.get_json("/api/desk"),
+                await api.get_json("/api/tasks"),
             )
 
     reply, desk, tasks = run(scenario())
