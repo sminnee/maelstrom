@@ -13,6 +13,7 @@ import pytest
 from websockets.asyncio.client import connect
 
 from maelstrom import task as model
+from maelstrom.agent_model import PendingRequest, reply_for_approval
 from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
 from maelstrom.orchestrator.server import Orchestrator
 from maelstrom.orchestrator.sources import InMemoryWorktreeSource, NotebookTaskSource
@@ -628,11 +629,35 @@ def test_a_revived_agent_links_to_the_task_that_arrived_while_it_was_gone(harnes
 
 
 def waiting_on(harness, fixture: str, **row) -> tuple[list[dict], list[dict]]:
-    """Park ``ag1`` in the wait ``fixture`` records, and return the cut."""
+    """Park ``ag1`` in the wait ``fixture`` records, and return the cut.
+
+    The host knows what the agent waits on, so the fake is told too: that is
+    what it builds its echoed reply from, as the real daemon builds one from
+    its own ``PendingRequest``.
+    """
     backlog, rest = split_at_control_response(read_fixture(fixture))
     harness.daemon.rows["ag1"] = agent_row(**row)
     harness.daemon.backlog["ag1"] = backlog
+    harness.daemon.pending["ag1"] = pending_from(backlog)
     return backlog, rest
+
+
+def pending_from(events: list[dict]) -> PendingRequest:
+    """The request the last ``can_use_tool`` in ``events`` is waiting on."""
+    asks = [
+        e
+        for e in events
+        if e["type"] == "control_request"
+        and (e.get("request") or {}).get("subtype") == "can_use_tool"
+    ]
+    ask = asks[-1]
+    request = ask["request"]
+    return PendingRequest(
+        request_id=ask.get("request_id", ""),
+        tool_name=request.get("tool_name", ""),
+        input=request.get("input") or {},
+        description=request.get("description", "") or "",
+    )
 
 
 def pending_of(snapshot: dict) -> str:
@@ -640,21 +665,43 @@ def pending_of(snapshot: dict) -> str:
 
 
 async def command_with_frames(
-    ws, cmd: dict, command_id: str = "c1"
+    ws, cmd: dict, command_id: str = "c1", *, until=None
 ) -> tuple[dict, list[dict]]:
-    """Send a command; return its reply and the event frames that preceded it.
+    """Send a command; return its reply and the frames it caused.
 
-    A command's consequences are published before its reply, as the fake
-    backend does, so those frames are what the command caused.
+    A command that writes to the child is a pure relay: the host echoes what
+    it wrote, so the consequences arrive on the attach stream and may follow
+    the reply rather than precede it. ``until`` says which frame ends the
+    wait; with none, only the frames before the reply are collected.
     """
     await ws.send(json.dumps({"id": command_id, "command": cmd}))
-    frames = []
+    frames: list[dict] = []
+    reply = None
     while True:
         message = await recv(ws)
         if "reply" in message and message["reply"]["id"] == command_id:
-            return message["reply"], frames
+            reply = message["reply"]
+            if until is None or not reply["ok"]:
+                return reply, frames
+            continue
         if "seq" in message:
             frames.append(message)
+            if reply is not None and until(frames):
+                return reply, frames
+
+
+def has_agent_state(state: str):
+    """``until`` for a command that leaves the agent in ``state``."""
+
+    def done(frames: list[dict]) -> bool:
+        agents = entities_of(frames, "agent")
+        return bool(agents) and agents[-1]["state"] == state
+
+    return done
+
+
+def has_a_transcript_append(frames: list[dict]) -> bool:
+    return any(f["event"]["type"] == "transcript.append" for f in frames)
 
 
 def entities_of(frames: list[dict], kind: str) -> list[dict]:
@@ -683,6 +730,7 @@ def test_approve_reaches_the_host_and_resolves_the_wait(harness):
                         "agentId": "ag1",
                         "requestId": pending_of(snapshot),
                     },
+                    until=has_agent_state("processing"),
                 )
 
     reply, frames = run(scenario())
@@ -711,6 +759,7 @@ def test_deny_sends_the_reason_and_records_it(harness):
                         "requestId": pending_of(snapshot),
                         "reason": "not on this network",
                     },
+                    until=has_agent_state("processing"),
                 )
 
     reply, frames = run(scenario())
@@ -742,6 +791,7 @@ def test_answer_sends_the_answers_map_and_files_it_on_the_question(harness):
                         "requestId": pending_of(snapshot),
                         "answers": answers,
                     },
+                    until=has_agent_state("processing"),
                 )
 
     reply, frames = run(scenario())
@@ -760,6 +810,7 @@ def test_say_sends_the_text_and_shows_it_as_a_user_message(harness):
                 return await command_with_frames(
                     ws,
                     {"type": "agent.say", "agentId": "ag1", "text": "also the README"},
+                    until=has_a_transcript_append,
                 )
 
     reply, frames = run(scenario())
@@ -775,6 +826,38 @@ def test_say_sends_the_text_and_shows_it_as_a_user_message(harness):
     assert item["type"] == "message"
     assert item["role"] == "user"
     assert item["markdown"] == "also the README"
+
+
+def test_a_wait_answered_outside_the_server_clears_in_the_world(harness):
+    """The case the old design could not handle: it only learned of its own answers.
+
+    ``mael agent approve`` writes the reply, and the host echoes it onto the
+    stream. The server holds no opinion about how a wait is answered, so the
+    UI clears either way.
+    """
+    backlog, _ = waiting_on(harness, "permission-request.jsonl")
+    pending = harness.daemon.pending["ag1"]
+
+    async def scenario():
+        async with harness.orch.serving("127.0.0.1", 0) as server:
+            async with connect(url(server)) as ws:
+                snapshot = (await say_hello(ws))[0]["event"]
+                assert pending_of(snapshot) == pending.request_id
+                # Nobody asked this server; the answer was made elsewhere.
+                harness.daemon.push("ag1", reply_for_approval(pending))
+                frame = await next_frame(
+                    ws,
+                    lambda f: (
+                        f["event"]["type"] == "upsert"
+                        and f["event"]["kind"] == "agent"
+                        and f["event"]["entity"]["state"] == "processing"
+                    ),
+                )
+                return frame["event"]["entity"]
+
+    agent = run(scenario())
+    assert agent["pendingRequestId"] is None
+    assert agent["waitingOn"] == ""
 
 
 def test_stop_reaches_the_host_and_marks_the_agent_exited_cleanly(harness):

@@ -15,7 +15,14 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from ..agent_model import BACKLOG_END
+from ..agent_model import (
+    BACKLOG_END,
+    PendingRequest,
+    reply_for_answers,
+    reply_for_approval,
+    reply_for_denial,
+    user_message,
+)
 from ..agent_transport import ensure_daemon, request_over_socket, resolve_socket_path
 
 
@@ -48,6 +55,12 @@ class ScriptedAsyncDaemonClient:
     host would. ``replies`` scripts answers per command, consumed in order;
     with none left, ``list`` answers from ``rows``, ``start`` adds a row,
     ``stop`` drops one, and every other command answers ``{"ok": True}``.
+
+    Like the real host, it echoes what it writes to the child: a command that
+    answers a wait or says something puts that message on every attached
+    stream. A client of this fake therefore learns of a reply the same way it
+    learns of one made elsewhere, which is what lets the server hold no
+    opinion about how a wait is answered.
     """
 
     rows: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -57,6 +70,10 @@ class ScriptedAsyncDaemonClient:
     next_start_id: str = "new1"
     #: Agent ids whose next attach answers with an error instead of a stream.
     attach_failures: set[str] = field(default_factory=set)
+    #: What each agent is waiting on, so an answer can be echoed as the host
+    #: builds it. Kept by the fake because the real host derives it from the
+    #: stream it already reads.
+    pending: dict[str, PendingRequest] = field(default_factory=dict)
     _queues: dict[str, list[asyncio.Queue[Any]]] = field(default_factory=dict)
 
     async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -66,6 +83,9 @@ class ScriptedAsyncDaemonClient:
             return self.replies[command].pop(0)
         if command == "list":
             return {"agents": list(self.rows.values())}
+        echo = self._echo_for(payload, command)
+        if echo is not None:
+            self.push(str(payload.get("id", "")), echo)
         if command == "start":
             agent_id = self.next_start_id
             self.rows[agent_id] = {
@@ -115,6 +135,29 @@ class ScriptedAsyncDaemonClient:
         """Close every stream attached to ``agent_id``, as the host would on exit."""
         for queue in self._queues.get(agent_id, []):
             queue.put_nowait(_END)
+
+    def _echo_for(
+        self, payload: dict[str, Any], command: str
+    ) -> dict[str, Any] | None:
+        """The message the host would write to the child for ``payload``.
+
+        The reply shapes are the daemon's own
+        (:mod:`maelstrom.agent_model`), built against the request the agent is
+        waiting on. ``None`` for a command that writes nothing to the child.
+        """
+        agent_id = str(payload.get("id", ""))
+        if command == "say":
+            return user_message(str(payload.get("text", "")))
+        pending = self.pending.get(agent_id)
+        if pending is None:
+            return None
+        if command == "approve":
+            return reply_for_approval(pending)
+        if command == "deny":
+            return reply_for_denial(pending, str(payload.get("reason", "")))
+        if command == "answer":
+            return reply_for_answers(pending, dict(payload.get("answers") or {}))
+        return None
 
     @property
     def attached(self) -> list[str]:
