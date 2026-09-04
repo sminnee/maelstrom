@@ -332,6 +332,33 @@ def test_a_plan_review_shows_the_plan_and_approves():
     drive(body)
 
 
+def test_a_warning_on_approval_is_shown_and_the_prompt_still_closes():
+    """The plan was approved; only the mode change the daemon asked for failed.
+
+    Treating that as an error would reopen a prompt the agent is no longer
+    waiting on, so the warning shows and the prompt stays closed.
+    """
+    from maelstrom.agent_tui import PlanScreen
+
+    raw = events("plan-review-with-plan.jsonl", stop_before_control=True)
+    app, _ = make_app(
+        raw, replies={"approve": {"ok": True, "warning": "agent a1 refused auto"}}
+    )
+    seen: list[str] = []
+
+    async def body():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            app.notify = lambda message, **kw: seen.append(str(message))  # type: ignore[method-assign]
+            await pilot.press("y")
+            await pilot.pause()
+            assert any("refused auto" in line for line in seen)
+            assert not isinstance(app.screen, PlanScreen)
+
+    drive(body)
+
+
 def test_a_response_from_another_client_dismisses_the_prompt():
     from maelstrom.agent_tui import PermissionScreen
 

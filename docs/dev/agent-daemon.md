@@ -397,7 +397,7 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 | `list` | optional `scope` (`running`, `stopped` or `all`; default `running`), optional `cwd` | `{"agents": [<row>, …]}`, each row as `mael agent list --json` prints |
 | `show` | `id` | `{"agent": <detail>}`, as `mael agent show --json` prints |
 | `say` | `id`, `text` | `{"ok": true}` |
-| `approve` | `id` | `{"ok": true}` |
+| `approve` | `id` | `{"ok": true}`, plus `"mode": "auto"` or `"warning": "<why not>"` for a plan review |
 | `deny` | `id`; optional `reason` | `{"ok": true}` |
 | `answer` | `id`; `answers` (a map keyed by question text) or `choice` | `{"ok": true}` |
 | `interrupt` | `id` | `{"ok": true}` |
@@ -417,6 +417,11 @@ all.
 `start` with `resume: true` continues the session `session` names instead of claiming it. A task
 that has run before already owns its session id, and claiming it again is refused, so the
 orchestrator sets this from the transcript on disk.
+
+`approve` on a plan review also moves the agent to `auto`. The mode request follows the allow, because
+the child is waiting on that reply. A child that refuses the mode does not undo the approval: the
+reply still says `ok`, and names the refusal under `warning`. `mael agent` prints a warning and
+still exits 0, because the command did what was asked.
 
 `interrupt` abandons the turn the agent is running and leaves the agent alive.
 

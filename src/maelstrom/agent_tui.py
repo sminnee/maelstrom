@@ -644,6 +644,10 @@ class AttachApp(App[None]):
             self.notify(str(reply["error"]), severity="error")
             # The wait is still pending, so reconciliation re-opens the prompt.
             await self._sync_prompt()
+        elif reply.get("warning"):
+            # The wait resolved; something alongside it did not. Reopening the
+            # prompt would ask again about a wait the agent has moved past.
+            self.notify(str(reply["warning"]), severity="warning")
 
     # -- what the user does --
 

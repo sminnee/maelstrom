@@ -881,6 +881,70 @@ def test_a_reply_the_daemon_writes_reaches_every_watcher():
     assert json.loads(writer.lines[-1])["type"] == "control_response"
 
 
+def test_approving_a_plan_puts_the_agent_into_auto():
+    """An approved plan is one to carry out, not one to re-ask about."""
+    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
+    agent, sent = _answering_agent()
+    agent.state = replay("plan-review-with-plan.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+
+    reply = asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+
+    # The reply names the mode, so a caller can see what the approval did.
+    assert reply == {"ok": True, "mode": "auto"}
+    # The allow goes first: the mode request must not overtake the reply the
+    # child is still waiting on.
+    assert sent[0]["response"]["response"]["behavior"] == "allow"
+    assert sent[1]["request"] == {"subtype": "set_permission_mode", "mode": "auto"}
+
+
+def test_approving_a_plan_records_auto_on_the_spawn_record():
+    """A mode that misses the spawn record is reverted by the next daemon start."""
+    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
+    agent, _ = _answering_agent()
+    agent.state = replay("plan-review-with-plan.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+
+    asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+
+    spec = daemon.specs.read("a1")
+    assert spec is not None
+    assert spec.permission_mode == "auto"
+
+
+def test_a_refused_mode_does_not_undo_the_approval():
+    """The allow already went out, so the plan is accepted either way."""
+    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
+    agent, _ = _answering_agent(subtype="error")
+    agent.state = replay("plan-review-with-plan.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+
+    reply = asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+
+    assert reply["ok"] is True
+    assert "bad mode" in reply["warning"]
+    # Nothing may report the mode as changed when the child refused it.
+    spec = daemon.specs.read("a1")
+    assert spec is not None
+    assert spec.permission_mode is None
+
+
+def test_approving_an_ordinary_permission_leaves_the_mode_alone():
+    """Only a plan review carries the operator's "go and do it"."""
+    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
+    agent, sent = _answering_agent()
+    agent.state = replay("permission-request.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+
+    asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+
+    assert [m.get("request", {}).get("subtype") for m in sent] == [None]
+
+
 def test_answering_clears_the_wait_at_once():
     """Without the echo the daemon's own state still advertises the wait."""
     daemon = AgentDaemon("/tmp/x.sock")
