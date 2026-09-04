@@ -1,8 +1,11 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { deskIdForTask } from '../protocol/deskId';
+import type { Task, TaskStatus } from '../protocol/entities';
+import type { TaskId } from '../protocol/ids';
 import { filterOptions } from '../selectors/filters';
 import { describeState } from '../selectors/status';
-import { LIST_STATUSES, listTasks } from '../selectors/taskList';
+import { TASK_STATUSES } from '../protocol/validate';
+import { listTasks } from '../selectors/taskList';
 import { useAppStore } from '../store/store';
 import { useCommand } from '../store/useCommand';
 import styles from './TaskList.module.css';
@@ -12,13 +15,16 @@ export function TaskList() {
   const world = useAppStore((s) => s.world);
   const filters = useAppStore((s) => s.ui.listFilters);
   const setFilters = useAppStore((s) => s.setListFilters);
+  const editTask = useAppStore((s) => s.setEditingTask);
   const { send, error } = useCommand();
+  // Which row's status is being picked.
+  const [picking, setPicking] = useState<TaskId | null>(null);
   const options = filterOptions(world, filters);
   // Re-derived only when the world or the filters move, not on every frame
   // the server publishes.
   const rows = useMemo(() => listTasks(world, filters), [world, filters]);
 
-  const toggleStatus = (status: (typeof LIST_STATUSES)[number]) =>
+  const toggleStatus = (status: TaskStatus) =>
     setFilters({
       statuses: filters.statuses.includes(status)
         ? filters.statuses.filter((s) => s !== status)
@@ -28,7 +34,7 @@ export function TaskList() {
   return (
     <div className={styles.view} data-testid="task-list">
       <div className={styles.filters}>
-        {LIST_STATUSES.map((status) => (
+        {TASK_STATUSES.map((status) => (
           <label key={status} className={styles.check}>
             <input
               type="checkbox"
@@ -103,12 +109,26 @@ export function TaskList() {
                 >
                   {onDesk ? 'Remove from desk' : 'Add to desk'}
                 </button>
+                <button type="button" onClick={() => editTask(task.id)}>
+                  Edit
+                </button>
               </td>
               <td className={styles.mono}>{task.id}</td>
               <td>{task.title}</td>
               <td>{task.project}</td>
               <td className={styles.mono}>{task.branch}</td>
-              <td>{task.status}</td>
+              <td>
+                <StatusCell
+                  task={task}
+                  picking={picking === task.id}
+                  onPick={() => setPicking(task.id)}
+                  onDone={() => setPicking(null)}
+                  onChange={(status) => {
+                    setPicking(null);
+                    void send({ type: 'task.setStatus', taskId: task.id, status });
+                  }}
+                />
+              </td>
               <td>{describeState(task, agent)}</td>
             </tr>
           ))}
@@ -122,5 +142,49 @@ export function TaskList() {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * The status, as text until it is clicked, then a native select.
+ *
+ * Native, not a popover: the view scrolls under `overflow: auto`.
+ */
+function StatusCell({
+  task,
+  picking,
+  onPick,
+  onDone,
+  onChange,
+}: {
+  task: Task;
+  picking: boolean;
+  onPick: () => void;
+  onDone: () => void;
+  onChange: (status: TaskStatus) => void;
+}) {
+  if (!picking) {
+    return (
+      <button type="button" className={styles.status} onClick={onPick}>
+        {task.status}
+      </button>
+    );
+  }
+  return (
+    <select
+      className={styles.statusPicker}
+      aria-label={`Status of ${task.title}`}
+      autoFocus
+      value={task.status}
+      onChange={(e) => onChange(e.target.value as TaskStatus)}
+      onKeyDown={(e) => e.key === 'Escape' && onDone()}
+      onBlur={onDone}
+    >
+      {TASK_STATUSES.map((status) => (
+        <option key={status} value={status}>
+          {status}
+        </option>
+      ))}
+    </select>
   );
 }

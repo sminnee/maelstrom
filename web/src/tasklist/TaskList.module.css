@@ -60,3 +60,23 @@
 .empty {
   color: var(--fg-faint);
 }
+.status {
+  font: inherit;
+  color: var(--fg);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 0 var(--space-1);
+  cursor: pointer;
+}
+.status:hover {
+  border-color: var(--border);
+}
+.statusPicker {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 0 var(--space-1);
+}

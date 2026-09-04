@@ -1,7 +1,34 @@
-import type { Command, CommandError } from './commands';
+import type { Command, CommandError, TaskEdit } from './commands';
 import { splitDeskId } from './deskId';
-import type { AgentState } from './entities';
+import type { AgentState, TaskMode, TaskStatus } from './entities';
 import type { World } from './events';
+
+/** The six folders a task can sit in, in the order the UI shows them. */
+export const TASK_STATUSES = [
+  'todo',
+  'in-progress',
+  'blocked',
+  'done',
+  'cancelled',
+  'template',
+] as const satisfies readonly TaskStatus[];
+
+/** The keys `task.update` writes. Anything else in `fields` is not an edit. */
+export const EDITABLE = [
+  'title',
+  'content',
+  'branch',
+  'command',
+  'mode',
+  'priority',
+  'model',
+] as const satisfies readonly (keyof TaskEdit)[];
+
+/** The three permission modes a task launches under. */
+const MODES: readonly string[] = ['plan', 'auto', 'normal'] satisfies TaskMode[];
+
+/** The notebook's four priorities, from `task.PRIORITIES`. */
+const PRIORITIES: readonly string[] = ['critical', 'high', 'medium', 'low'];
 
 const WAIT_FOR_COMMAND: Partial<Record<Command['type'], AgentState[]>> = {
   'agent.approve': ['awaiting-permission', 'awaiting-plan-review'],
@@ -99,6 +126,30 @@ export function validateCommand(world: World, cmd: Command): CommandError | null
       const comment = world.comments[cmd.commentId];
       if (!comment) return err('unknown_id', `No comment ${cmd.commentId}`);
       if (comment.resolved) return err('invalid', `Comment ${cmd.commentId} is resolved already`);
+      return null;
+    }
+    case 'task.setStatus': {
+      if (!world.tasks[cmd.taskId]) return err('unknown_id', `No task ${cmd.taskId}`);
+      if (!(TASK_STATUSES as readonly string[]).includes(cmd.status)) {
+        return err('invalid', `No status ${cmd.status}`);
+      }
+      return null;
+    }
+    case 'task.update': {
+      if (!world.tasks[cmd.taskId]) return err('unknown_id', `No task ${cmd.taskId}`);
+      // `!= null` catches JSON null too: the server treats a null as no edit,
+      // and the two validators must refuse the same commands.
+      const edited = EDITABLE.filter((key) => cmd.fields[key] != null);
+      if (edited.length === 0) return err('invalid', 'Nothing to change');
+      const { title, mode, priority } = cmd.fields;
+      if (title != null && !title.trim()) return err('invalid', 'A title is required');
+      // Neither reaches the notebook's own check: `model.update` validates
+      // priority and nothing validates mode, so a bad mode would only fail
+      // later, at launch.
+      if (mode != null && !MODES.includes(mode)) return err('invalid', `No mode ${mode}`);
+      if (priority != null && !PRIORITIES.includes(priority)) {
+        return err('invalid', `No priority ${priority}`);
+      }
       return null;
     }
     case 'task.create':

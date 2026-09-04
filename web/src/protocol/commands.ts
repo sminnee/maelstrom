@@ -1,5 +1,22 @@
 import type { Anchor } from './documents';
+import type { TaskMode, TaskStatus } from './entities';
 import type { AgentId, CommentId, DeskId, DocumentId, ProjectId, RequestId, TaskId } from './ids';
+
+/**
+ * The fields of a task the UI may edit, all optional. Only the keys present
+ * are written: this is `task.update`'s partial, matching the notebook's own
+ * "an omitted field is left as-is" contract. Status is folder-derived, so it
+ * moves through `task.setStatus` instead.
+ */
+export interface TaskEdit {
+  title?: string;
+  content?: string;
+  branch?: string;
+  command?: string;
+  mode?: TaskMode;
+  priority?: string;
+  model?: string;
+}
 
 export type Command =
   | {
@@ -26,6 +43,8 @@ export type Command =
   | { type: 'comment.add'; documentId: DocumentId; version: number; anchor: Anchor; body: string }
   | { type: 'comment.resolve'; commentId: CommentId }
   | { type: 'task.create'; project: ProjectId; draft: string }
+  | { type: 'task.setStatus'; taskId: TaskId; status: TaskStatus }
+  | { type: 'task.update'; taskId: TaskId; fields: TaskEdit }
   | { type: 'shaping.start'; project: ProjectId; brief: string };
 
 export type CommandType = Command['type'];
@@ -46,6 +65,8 @@ export interface ResultMap {
   'comment.add': { commentId: CommentId };
   'comment.resolve': Record<string, never>;
   'task.create': { taskId: TaskId };
+  'task.setStatus': Record<string, never>;
+  'task.update': Record<string, never>;
   'shaping.start': { agentId: AgentId; taskId: TaskId };
 }
 

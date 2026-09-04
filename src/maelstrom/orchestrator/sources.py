@@ -7,7 +7,8 @@ socket. Both return wire entities built by :mod:`.world_build`, so the server
 holds one shape of the world and diffs readings of it.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -22,6 +23,7 @@ from ..task_store import TaskStore
 from ..worktree import WorktreeSetup
 from ..worktree_model import has_claude_transcript
 from .protocol import Project, Task, Worktree
+from .validate import EDITABLE
 from .world_build import (
     project_entity,
     split_task_key,
@@ -71,6 +73,23 @@ class TaskSource(Protocol):
 
     def rollback(self, request: LaunchRequest) -> None:
         """Move a task the host refused to start back to where it was."""
+        ...
+
+    def set_status(self, task_id: str, status: str) -> None:
+        """Move a task to ``status``, running its status actions.
+
+        Raises:
+            KeyError: If no task has ``task_id``.
+        """
+        ...
+
+    def update(self, task_id: str, fields: dict[str, Any]) -> None:
+        """Write the named fields of a task.
+
+        Raises:
+            KeyError: If no task has ``task_id``.
+            ValueError: If a field holds a value the notebook refuses.
+        """
         ...
 
 
@@ -150,13 +169,38 @@ class NotebookTaskSource:
     def rollback(self, request: LaunchRequest) -> None:
         self._move(request.project, request.task_id, request.previous_status)
 
+    def set_status(self, task_id: str, status: str) -> None:
+        project, notebook_id = split_task_key(task_id)
+        self._move(project, notebook_id, status)
+
+    def update(self, task_id: str, fields: dict[str, Any]) -> None:
+        """Write a task's fields.
+
+        Only the keys in :data:`~maelstrom.orchestrator.validate.EDITABLE` are
+        written, so a client cannot reach a field the wire does not offer.
+        """
+        project, notebook_id = split_task_key(task_id)
+        wanted = {k: v for k, v in fields.items() if k in EDITABLE}
+        with self._stamped() as index:
+            model.update(self.store, project, notebook_id, index=index, **wanted)
+
     def _move(self, project: str, task_id: str, status: str) -> None:
-        """Move a task, keeping the index's head stamp honest, as the CLI does."""
+        with self._stamped() as index:
+            task_actions.move_with_actions(
+                self.store, project, task_id, status, index=index
+            )
+
+    @contextmanager
+    def _stamped(self) -> Iterator[TaskIndex | None]:
+        """Wrap a notebook write, keeping the index's head stamp honest.
+
+        The store's HEAD moves under the write, so the freshness has to be read
+        before it and the stamp written after. Every write here goes through
+        this, as the CLI's own writes do.
+        """
         index = self.index
         was_fresh = index is not None and task_actions.index_is_fresh(self.store, index)
-        task_actions.move_with_actions(
-            self.store, project, task_id, status, index=index
-        )
+        yield index
         if index is not None:
             task_actions.restamp(self.store, index, was_fresh=was_fresh)
 

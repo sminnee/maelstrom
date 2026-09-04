@@ -207,12 +207,20 @@ A command's consequences are published as frames before its reply arrives.
 | `agent.launch` | `start`, after the launch steps above | `{"agentId": "…"}` |
 | `desk.add` | nothing | `{}` |
 | `desk.remove` | nothing | `{}` |
+| `task.setStatus` | nothing | `{}` |
+| `task.update` | nothing | `{}` |
 
-Both desk commands carry `id`: a desk id, not a bare task id. They reach the host as nothing,
-because the desk is the server's own table. `agent.launch` also adds its task to the desk. A
-second `desk.add` for an entry already on the desk answers `ok` and publishes nothing. A
-`desk.remove` for a running agent is accepted, but the canvas keeps drawing the node until the
-agent stops.
+The desk commands and the task commands never reach the host. Both desk commands carry `id`: a
+desk id, not a bare task id, and the desk is the server's own table. A task write goes to the
+notebook: `task.setStatus` moves the task through `move_with_actions`, so the status actions fire
+as `mael task status` fires them, and `task.update` writes the fields it is given.
+
+Both task commands force a task refresh, as `agent.launch` does, so the upsert reaches the client
+before the reply.
+
+`agent.launch` also adds its task to the desk. A second `desk.add` for an entry already on the
+desk answers `ok` and publishes nothing. A `desk.remove` for a running agent is accepted, but the
+canvas keeps drawing the node until the agent stops.
 
 `document.*`, `comment.*`, `task.create` and `shaping.start` answer `invalid`. `updatedInput` on
 `agent.approve` is ignored: the host approves a call with its input as proposed.

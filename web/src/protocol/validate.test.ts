@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { TaskMode, TaskStatus } from './entities';
 import { validateCommand } from './validate';
 import { makeAgent, makeDeskEntry, makeDocument, makeTask, worldWith } from '../test/fixtures';
 
@@ -167,5 +168,93 @@ describe('validateCommand', () => {
     expect(
       validateCommand(world, { type: 'agent.approve', agentId: 'agent-1', requestId: 'req-1' }),
     ).toBeNull();
+  });
+
+  it('accepts a status move of a task it knows', () => {
+    const world = worldWith({ tasks: [makeTask()] });
+    expect(
+      validateCommand(world, { type: 'task.setStatus', taskId: 'NORT-7', status: 'done' }),
+    ).toBeNull();
+  });
+
+  it('reports unknown_id for a status move of a task not in the world', () => {
+    expect(
+      validateCommand(worldWith({}), { type: 'task.setStatus', taskId: 'NORT-7', status: 'done' }),
+    ).toMatchObject({ code: 'unknown_id' });
+  });
+
+  it('reports invalid for a status the notebook has no folder for', () => {
+    const world = worldWith({ tasks: [makeTask()] });
+    expect(
+      validateCommand(world, {
+        type: 'task.setStatus',
+        taskId: 'NORT-7',
+        status: 'finished' as TaskStatus,
+      }),
+    ).toMatchObject({ code: 'invalid' });
+  });
+
+  it('accepts an update that changes one field', () => {
+    const world = worldWith({ tasks: [makeTask()] });
+    expect(
+      validateCommand(world, { type: 'task.update', taskId: 'NORT-7', fields: { branch: 'x' } }),
+    ).toBeNull();
+  });
+
+  it('reports unknown_id for an update of a task not in the world', () => {
+    expect(
+      validateCommand(worldWith({}), {
+        type: 'task.update',
+        taskId: 'NORT-7',
+        fields: { title: 'x' },
+      }),
+    ).toMatchObject({ code: 'unknown_id' });
+  });
+
+  it('reports invalid for an update that changes nothing', () => {
+    const world = worldWith({ tasks: [makeTask()] });
+    expect(
+      validateCommand(world, { type: 'task.update', taskId: 'NORT-7', fields: {} }),
+    ).toMatchObject({ code: 'invalid' });
+  });
+
+  it('reports invalid for a mode the notebook cannot launch', () => {
+    const world = worldWith({ tasks: [makeTask()] });
+    expect(
+      validateCommand(world, {
+        type: 'task.update',
+        taskId: 'NORT-7',
+        fields: { mode: 'turbo' as TaskMode },
+      }),
+    ).toMatchObject({ code: 'invalid' });
+  });
+
+  it('reports invalid for a priority the notebook has no rank for', () => {
+    const world = worldWith({ tasks: [makeTask()] });
+    expect(
+      validateCommand(world, {
+        type: 'task.update',
+        taskId: 'NORT-7',
+        fields: { priority: 'urgent' },
+      }),
+    ).toMatchObject({ code: 'invalid' });
+  });
+
+  it('treats a null field as no edit, as the server does', () => {
+    const world = worldWith({ tasks: [makeTask()] });
+    expect(
+      validateCommand(world, {
+        type: 'task.update',
+        taskId: 'NORT-7',
+        fields: { branch: null as unknown as string },
+      }),
+    ).toMatchObject({ code: 'invalid' });
+  });
+
+  it('reports invalid for an update that blanks the title', () => {
+    const world = worldWith({ tasks: [makeTask()] });
+    expect(
+      validateCommand(world, { type: 'task.update', taskId: 'NORT-7', fields: { title: '  ' } }),
+    ).toMatchObject({ code: 'invalid' });
   });
 });

@@ -74,7 +74,7 @@ function task(spec: TaskSpec): Task {
     branch: spec.branch,
     parent: spec.parent ?? '',
     follows: spec.follows ?? [],
-    priority: 'normal',
+    priority: 'medium',
     model: '',
     base: '',
     content: spec.content ?? `# ${spec.title}\n\n${spec.title} for ${spec.project}.\n`,
