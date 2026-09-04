@@ -21,8 +21,10 @@ from .orchestrator.server import Orchestrator
 from .orchestrator.sources import ListAllWorktreeSource, NotebookTaskSource
 from .task import Task
 from .task_cli import open_index
+from .task_launch import LaunchBlocked
 from .task_store import GitFileStore
 from .worktree import WorktreeSetup, find_all_projects, setup_worktree_for_branch
+from .worktree_model import WorktreeError
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -43,14 +45,21 @@ def build_orchestrator(
     def open_worktree(project: str, task: Task, branch: str) -> WorktreeSetup:
         # The launcher owns install; ``task.base`` seeds the branch's stored
         # base the first time, as ``mael task run`` does.
-        return setup_worktree_for_branch(
-            projects_dir / project,
-            project,
-            branch,
-            run_install=False,
-            base=task.base or None,
-            announce=lambda line: click.echo(line, err=True),
-        )
+        #
+        # A worktree that cannot be opened is a refused launch, not a crashed
+        # server: LaunchBlocked is the wire's word for "this task could not
+        # start, and here is why", so the domain errors are converted to it.
+        try:
+            return setup_worktree_for_branch(
+                projects_dir / project,
+                project,
+                branch,
+                run_install=False,
+                base=task.base or None,
+                announce=lambda line: click.echo(line, err=True),
+            )
+        except (ValueError, WorktreeError) as exc:
+            raise LaunchBlocked(str(exc)) from exc
 
     tasks = NotebookTaskSource(
         store,

@@ -40,6 +40,26 @@ def read_content_file(content_file: str | None) -> str:
     return path.read_text()
 
 
+def error_text(exc: Exception) -> str:
+    """The message *exc* carries, ready to show a user.
+
+    ``str()`` on a ``KeyError`` renders its argument with ``repr``, so a domain
+    error raised as ``KeyError("No such task")`` prints with quotes around it.
+    Every layer that turns a domain error into a ``ClickException`` or an echo
+    needs the bare message, so it comes from here rather than from a workaround
+    repeated at each call site.
+
+    Args:
+        exc: The exception to describe.
+
+    Returns:
+        The message. A ``KeyError`` with no argument yields an empty string.
+    """
+    if isinstance(exc, KeyError):
+        return str(exc.args[0]) if exc.args else ""
+    return str(exc)
+
+
 def abbreviate_home(path: Path, home: Path | None = None) -> str:
     """Render a path with the home directory shown as ``~``.
 

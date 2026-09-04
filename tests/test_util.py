@@ -11,6 +11,7 @@ import pytest
 from maelstrom.util import (
     abbreviate_home,
     atomic_write_json,
+    error_text,
     harden_path,
     locked_file,
     now_iso,
@@ -198,3 +199,23 @@ class TestLockedFile:
         with locked_file(path, mode=0o640) as txn:
             txn.text = "A=1\n"
         assert _mode(path) == 0o640
+
+
+class TestErrorText:
+    """The message a domain error carries, without KeyError's quotes."""
+
+    def test_a_key_error_loses_its_quotes(self):
+        """`str(KeyError("no such thing"))` is `"'no such thing'"`."""
+        assert error_text(KeyError("No worktree found for branch: x")) == (
+            "No worktree found for branch: x"
+        )
+
+    def test_any_other_error_reads_as_str(self):
+        assert error_text(ValueError("bad input")) == "bad input"
+
+    def test_a_bare_key_error_does_not_raise(self):
+        """A KeyError with no args must still yield something printable."""
+        assert error_text(KeyError()) == ""
+
+    def test_a_non_string_key_error_arg_is_rendered(self):
+        assert error_text(KeyError(42)) == "42"

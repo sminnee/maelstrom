@@ -5,19 +5,31 @@ from pathlib import Path
 import pytest
 
 from maelstrom.worktree_model import (
+    SYNC_CLOSE_DELETE_BRANCH,
+    SYNC_CLOSE_KEEP_BRANCH,
+    SYNC_PUSH,
     WORKTREE_NAMES,
     WORKTREE_SHORTCODES,
     BaseRef,
     StackTip,
+    UnclosableWorktreeError,
+    WorktreeError,
+    WorktreeNamesExhaustedError,
+    WorktreeSetupError,
+    apply_preserved_values,
     claude_transcript_path,
+    describe_branch_deletion,
     extract_project_name,
     extract_worktree_name_from_folder,
+    fetch_prunes,
     get_worktree_folder_name,
     has_claude_transcript,
     is_worktree_closable,
     order_by_stack,
     parse_env_text,
     plan_rebase,
+    plan_squash_rebase,
+    plan_sync_after_rebase,
     resolve_stack_tip,
     resolve_worktree_shortcode,
     sanitise_path_for_claude,
@@ -464,3 +476,185 @@ class TestOrderByStack:
     def test_siblings_on_one_base_keep_their_relative_order(self):
         bases = {"x": "base", "y": "base"}
         assert order_by_stack(["base", "x", "y"], bases) == ["base", "x", "y"]
+
+
+class TestWorktreeErrors:
+    """The worktree domain errors share one base, so one `except` catches them."""
+
+    def test_every_worktree_error_is_a_worktree_error(self):
+        for error in (
+            UnclosableWorktreeError,
+            WorktreeNamesExhaustedError,
+            WorktreeSetupError,
+        ):
+            assert issubclass(error, WorktreeError)
+
+    def test_the_base_is_not_a_builtin_the_cli_already_catches(self):
+        """A caller narrowing on ValueError must not sweep these up by accident."""
+        assert not issubclass(WorktreeError, (ValueError, KeyError))
+
+    def test_one_except_catches_any_of_them(self):
+        with pytest.raises(WorktreeError):
+            raise WorktreeNamesExhaustedError("full")
+
+
+class TestApplyPreservedValues:
+    """Re-asserting the values a worktree owns, as pure text work."""
+
+    def test_no_preserved_keys_leaves_the_text_alone(self):
+        text = "A=1\nB=2\n"
+        assert apply_preserved_values(text, {}) == text
+
+    def test_a_missing_key_is_appended(self):
+        """The common path: the template dropped the blank sentinel line."""
+        out = apply_preserved_values("A=1\n", {"SECRET": "s3cret"})
+        assert out == "A=1\nSECRET=s3cret\n"
+
+    def test_an_existing_key_is_rewritten_in_place(self):
+        """A legacy `.env` still holding `KEY=` must not gain a duplicate."""
+        out = apply_preserved_values("A=1\nSECRET=\nB=2\n", {"SECRET": "s3cret"})
+        assert out == "A=1\nSECRET=s3cret\nB=2\n"
+
+    def test_a_key_inside_a_comment_is_not_rewritten(self):
+        out = apply_preserved_values("# SECRET=old\n", {"SECRET": "s3cret"})
+        assert out == "# SECRET=old\nSECRET=s3cret\n"
+
+    def test_several_keys_are_all_applied(self):
+        out = apply_preserved_values("A=\n", {"A": "1", "B": "2"})
+        assert out == "A=1\nB=2\n"
+
+    def test_the_result_is_newline_terminated(self):
+        assert apply_preserved_values("A=1", {"B": "2"}).endswith("\n")
+
+    def test_a_key_appearing_twice_is_rewritten_at_both_lines(self):
+        """Every assignment of the key must carry the preserved value.
+
+        Leaving a later stale line would let a dotenv reader take it: the last
+        assignment wins.
+        """
+        out = apply_preserved_values("S=old\nA=1\nS=older\n", {"S": "new"})
+        assert out == "S=new\nA=1\nS=new\n"
+
+
+class TestPlanSquashRebase:
+    """The rebase argv, decided without touching git."""
+
+    def test_the_default_base_builds_the_pre_stacking_argv(self):
+        """An unstacked worktree must not notice that stacking exists."""
+        cmd = plan_squash_rebase(plan_rebase(BaseRef(), True), squash=False)
+        assert cmd.argv == ["git", "rebase", "--autostash", "origin/main"]
+        assert cmd.env is None
+
+    def test_a_stacked_plan_replays_only_this_branch(self):
+        plan = plan_rebase(BaseRef(branch="feat/parent", tip="abc123"), True)
+        cmd = plan_squash_rebase(plan, squash=False)
+        assert cmd.argv == [
+            "git",
+            "rebase",
+            "--autostash",
+            "--onto",
+            "origin/feat/parent",
+            "abc123",
+        ]
+
+    def test_squash_adds_autosquash_and_stubs_both_editors(self):
+        """--autosquash goes interactive; the stubbed editors keep it unattended."""
+        cmd = plan_squash_rebase(plan_rebase(BaseRef(), True), squash=True)
+        assert cmd.argv == [
+            "git",
+            "rebase",
+            "--autosquash",
+            "--autostash",
+            "origin/main",
+        ]
+        assert cmd.env == {"GIT_SEQUENCE_EDITOR": "true", "GIT_EDITOR": "true"}
+
+    def test_squash_on_a_stacked_plan_keeps_the_onto_form(self):
+        plan = plan_rebase(BaseRef(branch="feat/parent", tip="abc123"), True)
+        cmd = plan_squash_rebase(plan, squash=True)
+        assert cmd.argv == [
+            "git",
+            "rebase",
+            "--autosquash",
+            "--autostash",
+            "--onto",
+            "origin/feat/parent",
+            "abc123",
+        ]
+
+    def test_the_returned_env_is_the_caller_s_own_copy(self):
+        """Mutating one command's env must not reach the next one."""
+        first = plan_squash_rebase(plan_rebase(BaseRef(), True), squash=True)
+        assert first.env is not None
+        first.env["GIT_EDITOR"] = "vim"
+        second = plan_squash_rebase(plan_rebase(BaseRef(), True), squash=True)
+        assert second.env == {"GIT_SEQUENCE_EDITOR": "true", "GIT_EDITOR": "true"}
+
+
+class TestFetchPrunes:
+    """Only a stacked branch pays for --prune."""
+
+    def test_the_default_base_does_not_prune(self):
+        assert fetch_prunes(BaseRef()) is False
+
+    def test_a_stacked_branch_prunes(self):
+        assert fetch_prunes(BaseRef(branch="feat/parent")) is True
+
+    def test_a_recorded_tip_on_main_still_prunes(self):
+        """A tip means a real stacked rebase happened; treat it as stacked."""
+        assert fetch_prunes(BaseRef(tip="abc123")) is True
+
+
+class TestPlanSyncAfterRebase:
+    """What follows a landed rebase."""
+
+    def test_without_close_if_empty_it_always_pushes(self):
+        decision = plan_sync_after_rebase(
+            "main", close_if_empty=False, is_empty=True, is_a_base=True
+        )
+        assert decision.action == SYNC_PUSH
+
+    def test_a_non_empty_branch_pushes(self):
+        decision = plan_sync_after_rebase(
+            "main", close_if_empty=True, is_empty=False, is_a_base=False
+        )
+        assert decision.action == SYNC_PUSH
+
+    def test_an_empty_branch_is_closed_and_deleted(self):
+        decision = plan_sync_after_rebase(
+            "main", close_if_empty=True, is_empty=True, is_a_base=False
+        )
+        assert decision.action == SYNC_CLOSE_DELETE_BRANCH
+
+    def test_an_empty_branch_others_stack_on_keeps_its_branch(self):
+        """Deleting it would strand its children on a ref that does not resolve."""
+        decision = plan_sync_after_rebase(
+            "main", close_if_empty=True, is_empty=True, is_a_base=True
+        )
+        assert decision.action == SYNC_CLOSE_KEEP_BRANCH
+
+    def test_the_label_names_the_resolved_base_not_main(self):
+        decision = plan_sync_after_rebase(
+            "feat/parent", close_if_empty=True, is_empty=True, is_a_base=False
+        )
+        assert decision.base_label == "origin/feat/parent"
+
+
+class TestDescribeBranchDeletion:
+    """The message a deleted empty branch reports."""
+
+    def test_a_local_only_delete_says_so(self):
+        assert describe_branch_deletion(
+            "feat/x", "origin/main", remote_deleted=False
+        ) == (
+            "feat/x is empty (merged into origin/main); "
+            "deleted branch (local) and closed worktree."
+        )
+
+    def test_a_remote_delete_is_named_too(self):
+        assert describe_branch_deletion(
+            "feat/x", "origin/main", remote_deleted=True
+        ) == (
+            "feat/x is empty (merged into origin/main); "
+            "deleted branch (local + remote) and closed worktree."
+        )

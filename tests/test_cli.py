@@ -15,7 +15,11 @@ from maelstrom.cli import cli
 from maelstrom.list_all import resolve_pr
 from maelstrom.project_scaffold import scaffold_files
 from maelstrom.worktree import SyncResult, WorktreeInfo, WorktreeSetup
-from maelstrom.worktree_model import CopyBackResult
+from maelstrom.worktree_model import (
+    CopyBackResult,
+    UnclosableWorktreeError,
+    WorktreeNamesExhaustedError,
+)
 
 
 class TestResolvePr:
@@ -2107,3 +2111,77 @@ class TestAddHarness:
             )
         assert result.exit_code == 0, result.output
         assert "--open" in result.output and "harness" in result.output
+
+
+class TestWorktreeDomainErrorsAtTheCli:
+    """The CLI turns worktree domain errors into a message and an exit code.
+
+    These raises used to be bare ``RuntimeError`` reaching Click unguarded, so a
+    full project or a request to remove ``_main`` printed a stack trace. Each
+    case must now print its reason and exit non-zero.
+    """
+
+    def test_names_exhausted_on_add_is_a_clean_failure(self, tmp_path):
+        """A project with all 26 names taken fails `mael add` with a message."""
+        project_path = tmp_path / "proj"
+        project_path.mkdir()
+        ctx = MagicMock(
+            project="proj",
+            project_path=project_path,
+            worktree=None,
+            worktree_path=None,
+        )
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch("maelstrom.cli.resolve_context", return_value=ctx)
+            )
+            stack.enter_context(
+                patch(
+                    "maelstrom.cli.setup_worktree_for_branch",
+                    side_effect=WorktreeNamesExhaustedError(
+                        "All worktree names are in use (max 26)"
+                    ),
+                )
+            )
+            result = CliRunner().invoke(cli, ["add", "feat-x"])
+
+        assert result.exit_code != 0
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert "All worktree names are in use" in result.output
+
+    def test_removing_main_is_a_clean_failure(self, tmp_path):
+        """`mael rm _main` refuses with a message, not a traceback."""
+        project_path = tmp_path / "proj"
+        project_path.mkdir()
+        (project_path / "_main").mkdir()
+        ctx = MagicMock(
+            project="proj",
+            project_path=project_path,
+            worktree="_main",
+            worktree_path=project_path / "_main",
+        )
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch("maelstrom.cli.resolve_context", return_value=ctx)
+            )
+            stack.enter_context(
+                patch("maelstrom.cli.get_worktree_dirty_files", return_value=[])
+            )
+            stack.enter_context(
+                patch("maelstrom.cli.get_env_status", return_value=None)
+            )
+            stack.enter_context(
+                patch(
+                    "maelstrom.cli.remove_worktree_by_path",
+                    side_effect=UnclosableWorktreeError(
+                        "_main cannot be removed: it holds the main checkout"
+                    ),
+                )
+            )
+            result = CliRunner().invoke(cli, ["rm", "proj._main"])
+
+        assert result.exit_code != 0
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert "it holds the main checkout" in result.output

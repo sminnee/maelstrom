@@ -1,5 +1,6 @@
 """Tests for maelstrom.worktree module."""
 
+import os
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -36,6 +37,7 @@ from maelstrom.worktree import (
     recycle_worktree,
     remove_worktree,
     remove_worktree_by_path,
+    run_git,
     run_install_cmd,
     setup_claude_memory_symlink,
     setup_worktree_for_branch,
@@ -50,6 +52,8 @@ from maelstrom.worktree_model import (
     MAIN_BRANCH,
     MAIN_WORKTREE_FOLDER,
     WORKTREE_NAMES,
+    UnclosableWorktreeError,
+    WorktreeSetupError,
     is_worktree_closable,
     parse_env_text,
 )
@@ -660,7 +664,7 @@ class TestWorktreeIntegration:
 
     def test_remove_nonexistent_worktree(self, git_repo):
         """Test removing a worktree that doesn't exist."""
-        with pytest.raises(RuntimeError, match="No worktree found for branch"):
+        with pytest.raises(KeyError, match="No worktree found for branch"):
             remove_worktree(git_repo, "nonexistent-branch")
 
     def test_find_worktree_by_branch_accepts_an_unresolved_project_path(self, git_repo):
@@ -2299,6 +2303,41 @@ class TestRegenerateEnvFile:
 
         assert "SECRET" not in read_env_file(worktree_path)
 
+    def test_a_preserved_sentinel_keeps_the_env_locked_down(self, tmp_path):
+        """The restore must not reopen `.env` outside ``write_env_file``'s lock.
+
+        ``.env`` holds secrets, so ``write_env_file`` writes it under
+        ``locked_file`` at ``0o600``. A second, unlocked ``write_text`` to
+        re-add preserved values recreated the file under the process umask —
+        loosening the mode and racing the lock a few lines away in the same
+        call path.
+        """
+        from maelstrom.worktree import regenerate_env_file
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        worktree_path = project_path / "project-bravo"
+        worktree_path.mkdir()
+
+        (project_path / ".env").write_text("YAY=\n")
+        _write_worktree_env(
+            worktree_path,
+            {"WORKTREE": "bravo", "WORKTREE_NUM": "1"},
+            user_lines="YAY=install_secret",
+        )
+
+        # A permissive umask is what exposes the hole: `write_text` recreates
+        # the file under it, while `locked_file` fchmods regardless.
+        previous = os.umask(0o022)
+        try:
+            regenerate_env_file(project_path, worktree_path, "bravo")
+        finally:
+            os.umask(previous)
+
+        env_file = worktree_path / ".env"
+        assert read_env_file(worktree_path)["YAY"] == "install_secret"
+        assert env_file.stat().st_mode & 0o777 == 0o600
+
 
 class TestStaleWorktreeHandling:
     """Tests for handling worktrees whose directories no longer exist."""
@@ -2883,7 +2922,7 @@ class TestAddProjectLayout:
 
     def test_remove_refuses_main(self, project):
         """`remove_worktree_by_path` must not delete the main checkout."""
-        with pytest.raises(RuntimeError, match="_main"):
+        with pytest.raises(UnclosableWorktreeError, match="_main"):
             remove_worktree_by_path(project, "_main")
 
         assert (project / "_main").exists()
@@ -2972,3 +3011,53 @@ class TestAddProjectLayout:
             check=True,
         )
         assert result.stdout.strip() == "origin/main"
+
+
+class TestCreateWorktreeFailure:
+    """A git refusal on `worktree add` is a domain error, not a traceback.
+
+    This is the most likely real failure of `mael add`. It must reach the CLI as
+    something the handler catches, or the user gets a stack trace.
+    """
+
+    def test_a_refused_worktree_add_raises_a_domain_error(self, tmp_path):
+        project = tmp_path / "proj"
+        project.mkdir()
+        subprocess.run(
+            ["git", "init", "-q", "--bare", str(project / ".git")], check=True
+        )
+
+        with pytest.raises(WorktreeSetupError):
+            create_worktree(project, "feat/x")
+
+
+class TestRunGitCheck:
+    """``run_git`` can run a git command that is allowed to fail.
+
+    Without ``check``, every non-raising git read had to bypass ``run_git`` and
+    call ``run_cmd`` with its own ``["git", ...]`` prefix. The parameter closes
+    that split.
+    """
+
+    @pytest.fixture
+    def repo(self, tmp_path):
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        return tmp_path
+
+    def test_a_failing_command_raises_by_default(self, repo):
+        with pytest.raises(subprocess.CalledProcessError):
+            run_git(["rev-parse", "--verify", "no/such/ref"], cwd=repo, quiet=True)
+
+    def test_check_false_returns_the_failure(self, repo):
+        result = run_git(
+            ["rev-parse", "--verify", "no/such/ref"],
+            cwd=repo,
+            quiet=True,
+            check=False,
+        )
+        assert result.returncode != 0
+
+    def test_check_false_still_returns_stdout_on_success(self, repo):
+        result = run_git(["rev-parse", "--git-dir"], cwd=repo, quiet=True, check=False)
+        assert result.returncode == 0
+        assert result.stdout.strip()
