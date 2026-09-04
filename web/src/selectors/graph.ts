@@ -82,13 +82,14 @@ export function isLive(agent: Agent | undefined): boolean {
 /**
  * One agent per task: the live one, else the last that ran. Built once for
  * every task at a time, so a pass over the world is O(tasks + agents), not
- * O(tasks × agents).
+ * O(tasks × agents). A subagent carries its parent's task and is never the
+ * pick: the parent's tab lists it.
  */
 export function agentsByTask(world: WorldView): Map<TaskId, Agent> {
   const live = new Map<TaskId, Agent>();
   const last = new Map<TaskId, Agent>();
   for (const agent of Object.values(world.agents)) {
-    if (!agent.taskId) continue;
+    if (!agent.taskId || agent.parent) continue;
     last.set(agent.taskId, agent);
     if (agent.state !== 'exited' && !live.has(agent.taskId)) live.set(agent.taskId, agent);
   }
@@ -185,9 +186,10 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
   }
 
   // An agent with no task draws in its own right. One linked to a task drew
-  // above, so nothing appears twice.
+  // above, so nothing appears twice. A subagent never draws: it is reached
+  // through its parent's session tab.
   for (const agent of Object.values(world.agents)) {
-    if (agent.taskId) continue;
+    if (agent.taskId || agent.parent) continue;
     if (!isLive(agent) && !(deskIdForAgent(agent.id) in world.desk)) continue;
     const worktree = world.worktrees[agent.worktreeId];
     if (!allowsAgent(opts.filters, agent, worktree)) continue;

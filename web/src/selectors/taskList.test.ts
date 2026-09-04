@@ -95,6 +95,20 @@ describe('listTasks', () => {
     expect(row?.agent?.id).toBe('a1');
   });
 
+  it("never picks a subagent as the row's agent, live or not", () => {
+    const withChild = worldWith({
+      tasks,
+      agents: [
+        makeAgent({ id: 'p1', taskId: 'northwind/NORT-7', state: 'exited' }),
+        makeAgent({ id: 'p1.1', parent: 'p1', taskId: 'northwind/NORT-7', state: 'processing' }),
+      ],
+    });
+    const row = listTasks(withChild, { ...noListFilters(), statuses: [] }).find(
+      (r) => r.task.id === 'northwind/NORT-7',
+    );
+    expect(row?.agent?.id).toBe('p1');
+  });
+
   it('gives a free agent no row: the task list lists tasks', () => {
     const world = worldWith({
       tasks: [makeTask({ id: 'T1' })],
