@@ -219,3 +219,144 @@ class TestDefaultBranchGeneration:
 
     def test_non_linear_dotted_parent_unchanged(self):
         assert model.default_branch("x", "linear.foo") == "task/linear.foo"
+
+
+# --- infer_task_names ---
+
+
+class TestInferTaskNames:
+    def test_three_line_output_is_parsed(self):
+        result = branch_name.infer_task_names(
+            "The port allocator hands out the same port twice when two "
+            "worktrees open at once.",
+            runner=lambda _p: (
+                "Fix duplicate port allocation\nfix/duplicate-port-allocation\n"
+            ),
+        )
+        assert result.title == "Fix duplicate port allocation"
+        assert result.branch == "fix/duplicate-port-allocation"
+        assert result.command == ""
+
+    def test_command_line_is_kept_when_known(self):
+        result = branch_name.infer_task_names(
+            "Work out how to split the transcript store into its own module.",
+            runner=lambda _p: (
+                "Split the transcript store\nrefactor/split-transcript-store\nplan-task"
+            ),
+        )
+        assert result.command == "plan-task"
+
+    def test_unknown_command_falls_back_to_empty(self):
+        result = branch_name.infer_task_names(
+            "Fix the duplicate port allocation bug",
+            runner=lambda _p: (
+                "Fix duplicate port allocation\nfix/duplicate-port-allocation\ndeploy"
+            ),
+        )
+        assert result.command == ""
+
+    def test_json_output_is_parsed(self):
+        result = branch_name.infer_task_names(
+            "The port allocator hands out the same port twice.",
+            runner=lambda _p: (
+                '{"title": "Fix duplicate port allocation", '
+                '"branch": "fix/duplicate-port-allocation", "command": ""}'
+            ),
+        )
+        assert result.title == "Fix duplicate port allocation"
+        assert result.branch == "fix/duplicate-port-allocation"
+
+    def test_bad_branch_in_json_keeps_the_good_title(self):
+        # Per-field validation: a malformed branch does not throw away the
+        # title. JSON is the form this holds in — it identifies itself, so a
+        # bad branch inside it is a bad field, not a sign the reply is prose.
+        result = branch_name.infer_task_names(
+            "The port allocator hands out the same port twice.",
+            runner=lambda _p: (
+                '{"title": "Fix duplicate port allocation", '
+                '"branch": "not a branch name", "command": ""}'
+            ),
+        )
+        assert result.title == "Fix duplicate port allocation"
+        assert result.branch == "feat/fix-duplicate-port-allocation"
+
+    def test_a_json_field_that_is_not_a_string_is_no_field(self):
+        # Without this, a number or an object lands its Python repr in a field.
+        result = branch_name.infer_task_names(
+            "Fix the duplicate port allocation",
+            runner=lambda _p: '{"title": {"a": 1}, "branch": null, "command": 5}',
+        )
+        assert result.title == "Fix the duplicate port allocation"
+        assert result.branch == "feat/fix-duplicate-port-allocation"
+        assert result.command == ""
+
+    def test_unrelated_branch_is_rejected(self):
+        result = branch_name.infer_task_names(
+            "The port allocator hands out the same port twice.",
+            runner=lambda _p: (
+                "Fix duplicate port allocation\nfix/totally-unrelated-words\n"
+            ),
+        )
+        assert result.branch == "feat/fix-duplicate-port-allocation"
+
+    def test_junk_output_falls_back_to_the_drafts_first_line(self):
+        result = branch_name.infer_task_names(
+            "Fix the duplicate port allocation\n\nMore detail here.",
+            runner=lambda _p: "I'm sorry, I can't help with that.",
+        )
+        assert result.title == "Fix the duplicate port allocation"
+        assert result.branch == "feat/fix-duplicate-port-allocation"
+        assert result.command == ""
+
+    def test_multi_line_refusal_is_not_a_title(self):
+        # A refusal runs to more than one line as often as one, so line count
+        # cannot be what tells a reply from prose.
+        result = branch_name.infer_task_names(
+            "Fix the duplicate port allocation",
+            runner=lambda _p: (
+                "I cannot help with that request.\nPlease rephrase your question."
+            ),
+        )
+        assert result.title == "Fix the duplicate port allocation"
+        assert result.branch == "feat/fix-duplicate-port-allocation"
+
+    def test_raising_runner_falls_back(self):
+        def _boom(_p: str) -> str:
+            raise FileNotFoundError("claude")
+
+        result = branch_name.infer_task_names("Fix the port bug", runner=_boom)
+        assert result.title == "Fix the port bug"
+        assert result.branch == "feat/fix-port-bug"
+
+    def test_retry_after_junk_uses_second_attempt(self):
+        calls: list[str] = []
+
+        def _runner(prompt: str) -> str:
+            calls.append(prompt)
+            if len(calls) == 1:
+                return "I cannot help with that.\nPlease rephrase your question."
+            return "Fix duplicate port allocation\nfix/duplicate-port-allocation\n"
+
+        result = branch_name.infer_task_names(
+            "The port allocator duplicates a port", runner=_runner
+        )
+        assert len(calls) == 2
+        assert result.branch == "fix/duplicate-port-allocation"
+
+    def test_empty_draft_skips_the_model(self):
+        calls: list[str] = []
+
+        def _runner(prompt: str) -> str:
+            calls.append(prompt)
+            return "Title\nfeat/x\n"
+
+        result = branch_name.infer_task_names("   ", runner=_runner)
+        assert calls == []
+        assert result.title == ""
+        assert result.branch == "feat/task"
+        assert result.command == ""
+
+    def test_long_first_line_is_trimmed_for_the_fallback_title(self):
+        draft = "word " * 40
+        result = branch_name.infer_task_names(draft, runner=lambda _p: "junk")
+        assert len(result.title) <= branch_name.MAX_TITLE

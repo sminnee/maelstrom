@@ -21,10 +21,12 @@ through an injectable ``runner`` so the model stays exercisable against an
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import tempfile
 from collections.abc import Callable
+from dataclasses import dataclass
 
 TYPES = ("fix", "feat", "chore", "refactor")
 
@@ -94,7 +96,7 @@ def slugify(text: str, *, max_words: int = 4) -> str:
     return "-".join(kept[:max_words])
 
 
-def _run_claude(prompt: str) -> str:
+def _run_claude(prompt: str, system: str = _SYSTEM_PROMPT) -> str:
     """Invoke ``claude -p <prompt>`` and return its stdout (stripped).
 
     Raises on any failure (missing binary, non-zero exit, timeout) — the caller
@@ -112,7 +114,7 @@ def _run_claude(prompt: str) -> str:
                 "-p",
                 "--strict-mcp-config",
                 "--system-prompt",
-                _SYSTEM_PROMPT,
+                system,
                 prompt,
             ],
             capture_output=True,
@@ -221,3 +223,158 @@ def generate_branch_name(
         return _compose(type_, prefix, desc)
 
     return fallback
+
+
+# --- inferring a whole task from prose ---
+
+#: The task ``command`` values inference may propose, plus ``""`` for an
+#: execute task. Each names a skill in ``shared/skills/``; anything else the
+#: model invents falls back to ``""``.
+#:
+#: Deliberately narrower than the web app's ``KNOWN_COMMANDS``
+#: (``web/src/protocol/phase.ts``): ``shape`` names no skill, and ``watch-pr``
+#: follows a pushed PR rather than starting new work. Neither suits a task the
+#: user has only just described; both stay typeable in the task editor.
+KNOWN_COMMANDS = ("plan-task", "plan-next-step")
+
+#: The longest title inference will hand back. Long enough for a real sentence,
+#: short enough to read in the task list's one line.
+MAX_TITLE = 80
+
+# The naming call's system prompt, in the same spirit as _SYSTEM_PROMPT: strip
+# the model of any workflow framing so it names the work instead of doing it.
+_INFER_SYSTEM_PROMPT = (
+    "You name software tasks. Your only job is to emit the requested three "
+    "lines. Do not explain, do not ask questions, do not run tools — output "
+    "the lines and nothing else."
+)
+
+
+@dataclass(frozen=True)
+class TaskNames:
+    """What inference reads off a draft: the fields a task needs naming."""
+
+    title: str
+    branch: str
+    command: str
+
+
+def _build_infer_prompt(draft: str) -> str:
+    """The instruction handed to ``claude -p`` to name a task from its prose."""
+    commands = ", ".join(f"`{c}`" for c in KNOWN_COMMANDS)
+    return (
+        "You name a software task from the description below. Reply with "
+        "EXACTLY THREE LINES and nothing else:\n"
+        f"- Line 1: a short imperative title, at most {MAX_TITLE} characters, "
+        "no trailing full stop.\n"
+        "- Line 2: a git branch name `<type>/<desc>` where <type> is one of: "
+        "fix, feat, chore, refactor, and <desc> is a 2-4 word kebab-case "
+        "summary (lowercase a-z0-9 and hyphens only).\n"
+        f"- Line 3: the skill the task runs, one of {commands}, or an empty "
+        "line when the task is ready to execute as written.\n"
+        "Example:\n"
+        "Fix flaky port allocation\n"
+        "fix/flaky-port-test\n"
+        "\n\n"
+        f"Description:\n{draft.strip()[:2000]}"
+    )
+
+
+def _field(value: object) -> str:
+    """A JSON field as a stripped string, or ``""`` for anything but a string.
+
+    A number or an object would otherwise land its Python repr in a field.
+    """
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _parse_infer(raw: str) -> tuple[str, str, str] | None:
+    """Split a reply into ``(title, branch, command)``, or ``None`` for prose.
+
+    Accepts either the three-line form the prompt asks for or a JSON object,
+    because a model that ignores "three lines" most often answers with JSON.
+
+    In the line form a well-formed branch on line 2 is the only reliable tell.
+    Line count cannot serve: a refusal runs to two lines as readily as one,
+    and an answer whose command is empty loses its blank third line to
+    ``strip``, so both arrive as two lines and an apology would land as the
+    title. A JSON object needs no such test — it is self-identifying, and its
+    branch is checked by the caller like every other field.
+
+    Beyond that nothing is validated here. A branch that is well-formed but
+    unrelated to the draft still reaches the caller, which rejects it there
+    and keeps the title.
+    """
+    text = raw.strip()
+    if text.startswith("{"):
+        try:
+            parsed = json.loads(text)
+        except ValueError:
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        # A JSON object is self-identifying: no line count applies.
+        return (
+            _field(parsed.get("title")),
+            _field(parsed.get("branch")),
+            _field(parsed.get("command")),
+        )
+    lines = [line.strip() for line in text.splitlines()]
+    title, branch, command = (lines[i] if i < len(lines) else "" for i in range(3))
+    return (title, branch, command) if _OUTPUT_RE.match(branch) else None
+
+
+def _first_line(draft: str) -> str:
+    """The draft's first non-empty line, trimmed to :data:`MAX_TITLE`."""
+    for line in draft.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped[:MAX_TITLE].rstrip()
+    return ""
+
+
+def infer_task_names(
+    draft: str, *, runner: Callable[[str], str] | None = None
+) -> TaskNames:
+    """Read a title, a branch and a command off a draft's prose.
+
+    The machinery :func:`generate_branch_name` uses, over a wider output
+    contract. The draft is never rewritten: it becomes the task's content
+    verbatim, and this only names it.
+
+    Each field is validated on its own, so a malformed branch keeps a good
+    title. A branch is kept when it matches :data:`_OUTPUT_RE` and shares a
+    token with the draft; a command is kept when it is in
+    :data:`KNOWN_COMMANDS`. Whatever the model does not supply falls back to
+    the draft's own first line and ``f"feat/{slugify(title)}"``.
+    """
+    run = runner or _run_claude
+
+    fallback_title = _first_line(draft)
+    fallback_branch = f"feat/{slugify(fallback_title) or 'task'}"
+    if not draft.strip():
+        return TaskNames(title="", branch=fallback_branch, command="")
+
+    prompt = _build_infer_prompt(draft)
+    title = branch = command = ""
+    # Two attempts, as the branch-only path takes: a first draw that ignores
+    # the contract is usually refusal-shaped, and a fresh draw names the work
+    # fine.
+    for _ in range(2):
+        try:
+            raw = run(prompt)
+        except Exception:
+            continue
+        parsed = _parse_infer(raw)
+        if parsed is not None:
+            title, branch, command = parsed
+            break
+
+    title = title[:MAX_TITLE].rstrip() or fallback_title
+    if not _OUTPUT_RE.match(branch) or not _shares_token(
+        branch.split("/", 1)[1], title, draft
+    ):
+        branch = f"feat/{slugify(title) or 'task'}"
+    if command not in KNOWN_COMMANDS:
+        command = ""
+    return TaskNames(title=title, branch=branch, command=command)
