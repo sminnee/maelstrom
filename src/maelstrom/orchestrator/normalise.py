@@ -599,7 +599,22 @@ class _Emitter:
 
 
 def _blocks(raw: Dict) -> list[Dict]:
+    """The content blocks of one message, whichever shape it takes.
+
+    A turn the agent replays carries a list of blocks, but one the harness
+    injects — a task notification, the echo of a slash command — carries its
+    text as a plain string. Reading it as a text block keeps both on the
+    transcript, so a turn the agent acted on is never shown as nothing.
+
+    An ``isMeta`` turn stays on the transcript, unlike in
+    ``transcript_store._first_prompt``, which skips one. The two answer
+    different questions: this builds the transcript, which shows what the
+    agent was given, and that one picks a session label, which should say
+    what the session was for.
+    """
     content = _dict(raw.get("message")).get("content")
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}] if content else []
     if not isinstance(content, list):
         return []
     return [b for b in content if isinstance(b, dict)]
