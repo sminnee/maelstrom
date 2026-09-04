@@ -18,6 +18,7 @@ from .. import task_actions
 from ..list_all import build_list_all_data
 from ..session_discovery import LiveSessionSet
 from ..task_index import TaskIndex
+from ..branch_name import TaskNames, infer_task_names
 from ..task_launch import LaunchBlocked, check_not_live, check_synced, plan_launch
 from ..task_store import TaskStore
 from ..worktree import WorktreeSetup
@@ -27,6 +28,7 @@ from .validate import EDITABLE
 from .world_build import (
     project_entity,
     split_task_key,
+    task_key,
     task_entity,
     worktree_entity,
 )
@@ -91,6 +93,21 @@ class TaskSource(Protocol):
 
         Raises:
             KeyError: If no task has ``task_id``.
+            ValueError: If a field holds a value the notebook refuses.
+        """
+        ...
+
+    def infer(self, draft: str) -> TaskNames:
+        """Read a title, a branch and a command off a draft's prose.
+
+        Blocking: it shells out to ``claude -p``.
+        """
+        ...
+
+    def create(self, project: str, fields: dict[str, Any]) -> str:
+        """Write a new ``todo`` task and return its wire id.
+
+        Raises:
             ValueError: If a field holds a value the notebook refuses.
         """
         ...
@@ -186,6 +203,21 @@ class NotebookTaskSource:
         wanted = {k: v for k, v in fields.items() if k in EDITABLE}
         with self._stamped() as index:
             model.update(self.store, project, notebook_id, index=index, **wanted)
+
+    def infer(self, draft: str) -> TaskNames:
+        return infer_task_names(draft)
+
+    def create(self, project: str, fields: dict[str, Any]) -> str:
+        """Write a new task and return its wire id.
+
+        Only the keys in :data:`~maelstrom.orchestrator.validate.EDITABLE` are
+        written, as ``update`` does. ``branch`` is one of them, so an explicit
+        branch skips ``model.create``'s own generation.
+        """
+        wanted = {k: v for k, v in fields.items() if k in EDITABLE}
+        with self._stamped() as index:
+            task = model.create(self.store, project=project, index=index, **wanted)
+        return task_key(project, task.id)
 
     def _move(self, project: str, task_id: str, status: str) -> None:
         with self._stamped() as index:

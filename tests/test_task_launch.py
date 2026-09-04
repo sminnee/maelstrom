@@ -73,7 +73,8 @@ def test_check_synced_refuses_a_failed_sync_and_passes_a_reused_worktree():
     check_synced("NORT-7", "b", WorktreeSetup(path=None, name="alpha", action="reused"))  # type: ignore[arg-type]
 
 
-def test_a_task_source_with_no_worktree_opener_refuses_to_launch(store):
+def test_a_task_source_with_no_worktree_opener_refuses_to_open_one(store):
+    """Both ways in refuse: a task's launch, and a free agent's start."""
     from maelstrom.orchestrator.sources import NotebookTaskSource
 
     model.create(store, project="p", title="x", id="T-1")
@@ -81,6 +82,8 @@ def test_a_task_source_with_no_worktree_opener_refuses_to_launch(store):
     with pytest.raises(LaunchBlocked, match="cannot open worktrees"):
         source.launch("T-1", None)
     assert model.load(store, "p", "T-1").status == "todo"
+    with pytest.raises(LaunchBlocked, match="cannot open worktrees"):
+        source.worktree_for("p", "feat/x")
 
 
 def _source_that_launches(store, *, has_transcript):

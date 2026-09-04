@@ -205,13 +205,46 @@ def validate_command(world: World, cmd: dict[str, Any]) -> dict[str, str] | None
             return _err("invalid", f"No priority {priority}")
         return None
 
-    if kind in ("task.create", "shaping.start"):
+    if kind in ("task.infer", "shaping.start"):
         project = cmd.get("project", "")
         if project not in world["projects"]:
             return _err("unknown_id", f"No project {project}")
-        text = cmd.get("draft" if kind == "task.create" else "brief", "")
+        text = cmd.get("draft" if kind == "task.infer" else "brief", "")
         if not str(text).strip():
             return _err("invalid", "Nothing to create")
+        return None
+
+    if kind == "task.create":
+        project = cmd.get("project", "")
+        if project not in world["projects"]:
+            return _err("unknown_id", f"No project {project}")
+        # The same field discipline ``task.update`` applies, over the fields a
+        # new task carries. A field left out takes the notebook's own default,
+        # so only what was sent is checked. A null is not "left out": it
+        # reaches the notebook, which writes strings, and breaks the write.
+        if any(cmd.get(key, "") is None for key in EDITABLE):
+            return _err("invalid", "A field is null")
+        if not str(cmd.get("title", "")).strip():
+            return _err("invalid", "A title is required")
+        mode = cmd.get("mode")
+        if mode is not None and mode not in MODES:
+            return _err("invalid", f"No mode {mode}")
+        priority = cmd.get("priority")
+        if priority is not None and priority not in PRIORITIES:
+            return _err("invalid", f"No priority {priority}")
+        return None
+
+    if kind == "agent.start":
+        project = cmd.get("project", "")
+        if project not in world["projects"]:
+            return _err("unknown_id", f"No project {project}")
+        if not str(cmd.get("branch", "")).strip():
+            return _err("invalid", "A branch is required")
+        if not str(cmd.get("prompt", "")).strip():
+            return _err("invalid", "A prompt is required")
+        mode = cmd.get("mode")
+        if mode is not None and mode not in MODES:
+            return _err("invalid", f"No mode {mode}")
         return None
 
     return _err("invalid", f"Unknown command: {kind}")
