@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { contextForAgent, normaliseStreamEvent, type RawStreamEvent } from '../protocol/normalise';
 import { applyEvent, initialClientState, type ClientState } from '../protocol/reducer';
@@ -7,7 +7,7 @@ import { makeAgent, worldWith } from './fixtures';
 // vitest runs from web/, and the recorded daemon streams live beside the Python tests.
 export const FIXTURES = resolve(process.cwd(), '../tests/fixtures/agent_events');
 
-/** Where the golden replays live. The Python normaliser is held to these. */
+/** Where the golden replays live. The Python normaliser owns them; this side is held to them. */
 export const GOLDEN = resolve(FIXTURES, 'normalised');
 
 /** The clock every replay runs at, so ids and timestamps are stable. */
@@ -51,17 +51,6 @@ export function goldenOf(state: ClientState): {
 
 export function goldenPath(name: string): string {
   return resolve(GOLDEN, name.replace(/\.jsonl$/, '.json'));
-}
-
-/**
- * Write the golden for one fixture. Only runs under `UPDATE_GOLDEN=1`, so a
- * normaliser change is a deliberate re-record, never a silent drift.
- */
-export function writeGolden(name: string): void {
-  if (process.env.UPDATE_GOLDEN !== '1') return;
-  mkdirSync(GOLDEN, { recursive: true });
-  const text = JSON.stringify(goldenOf(replayFixture(name)), null, 2) + '\n';
-  writeFileSync(goldenPath(name), text);
 }
 
 export function readGolden(name: string): unknown {

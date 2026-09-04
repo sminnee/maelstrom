@@ -28,7 +28,7 @@ from . import desk as desk_model
 from .daemon_bridge import AsyncDaemonClient
 from .desk import DeskTable, desk_id_for_agent, desk_id_for_task
 from .event_log import RING_SIZE, EventLog
-from .hubs import COALESCE_SECS, NoticeHub
+from .hubs import COALESCE_SECS, WS_QUEUE_LIMIT, NoticeHub, TranscriptHub
 from .normalise import (
     NormaliseContext,
     Normalised,
@@ -41,6 +41,12 @@ from .normalise import (
 from .notices import notices_for
 from .protocol import Agent, EventFrame, ServerEvent, TranscriptItem
 from .sources import TaskSource, WorktreeSource
+from .transcript_log import (
+    TRANSCRIPT_RING,
+    TranscriptFrame,
+    TranscriptLog,
+    TranscriptSnapshot,
+)
 from .validate import validate_command
 from .world_build import (
     AgentLink,
@@ -99,6 +105,8 @@ class Orchestrator:
         worktree_poll: float = WORKTREE_POLL_SECS,
         agent_poll: float = AGENT_POLL_SECS,
         notice_coalesce: float = COALESCE_SECS,
+        transcript_ring: int = TRANSCRIPT_RING,
+        ws_queue_limit: int = WS_QUEUE_LIMIT,
     ) -> None:
         self.tasks = tasks
         self.worktrees = worktrees
@@ -112,11 +120,12 @@ class Orchestrator:
         self.notices = NoticeHub(notice_coalesce)
         #: Bumped on every task change published; the task list's ETag.
         self.task_revision = 0
-        #: Per agent, the transcript item of the request it waits on, kept
-        #: current with the patches the stream applies to it. The server holds
-        #: no transcript, so this is the one item it keeps: the one a decision
-        #: needs when no transcript stream is open.
-        self._pending_items: dict[str, TranscriptItem] = {}
+        #: One transcript per agent seen, fed by the normaliser and served to
+        #: the transcript sockets. It outlives the agent's exit: a resume keeps
+        #: the agent id and its history.
+        self._transcripts: dict[str, TranscriptLog] = {}
+        self._transcript_ring = transcript_ring
+        self.transcripts = TranscriptHub(ws_queue_limit)
         self._task_poll = task_poll
         self._worktree_poll = worktree_poll
         self._agent_poll = agent_poll
@@ -186,7 +195,7 @@ class Orchestrator:
             return []
         async with self._lock:
             frames = self.log.append(events, self.clock())
-            self._track_pending_items(events)
+            self._record_transcripts(events)
             notices = notices_for(events)
             if "task" in notices:
                 self.task_revision += 1
@@ -194,18 +203,31 @@ class Orchestrator:
             await self._send_all(frames)
         return frames
 
-    def _track_pending_items(self, events: list[ServerEvent]) -> None:
-        """Keep each agent's waiting item current as the transcript events pass."""
+    def _record_transcripts(self, events: list[ServerEvent]) -> None:
+        """Append each transcript event to its agent's log, and push the frame out.
+
+        Synchronous on the loop, like ``subscribe_transcript``: no frame can
+        land between a socket's subscribe and its snapshot.
+        """
+        stamped: dict[str, list[TranscriptFrame]] = {}
         for event in events:
-            kind = event.get("type")
-            if kind == "transcript.append":
-                item = event["item"]
-                if "requestId" in item:
-                    self._pending_items[event["agentId"]] = item
-            elif kind == "transcript.update":
-                item = self._pending_items.get(event["agentId"])
-                if item is not None and item["id"] == event["itemId"]:
-                    self._pending_items[event["agentId"]] = {**item, **event["patch"]}
+            if not str(event.get("type", "")).startswith("transcript."):
+                continue
+            agent_id = event["agentId"]
+            frame = self.transcript_log(agent_id).append(event)
+            stamped.setdefault(agent_id, []).append(frame)
+        for agent_id, frames in stamped.items():
+            self.transcripts.push(agent_id, frames)
+
+    def transcript_log(self, agent_id: str) -> TranscriptLog:
+        """The agent's transcript, made on first use."""
+        log = self._transcripts.get(agent_id)
+        if log is None:
+            log = self._transcripts[agent_id] = TranscriptLog(self._transcript_ring)
+        return log
+
+    def transcript_snapshot(self, agent_id: str) -> TranscriptSnapshot:
+        return self.transcript_log(agent_id).snapshot()
 
     @property
     def world(self) -> Any:
@@ -224,16 +246,16 @@ class Orchestrator:
     def pending_request(self, agent_id: str) -> TranscriptItem | None:
         """The item an agent waits on: its question, permission request or plan review.
 
-        ``None`` when the agent waits on nothing, or when its wait predates this
-        server and no item for it was ever built.
+        ``None`` when the agent waits on nothing. The request id names one
+        wait, so the last item carrying it is the one.
         """
         agent = self.world["agents"].get(agent_id)
         if agent is None or not agent["pendingRequestId"]:
             return None
-        item = self._pending_items.get(agent_id)
-        if item is None or item.get("requestId") != agent["pendingRequestId"]:
-            return None
-        return item
+        request_id = agent["pendingRequestId"]
+        return self.transcript_log(agent_id).find(
+            lambda item: item.get("requestId") == request_id
+        )
 
     async def _send_all(self, frames: list[EventFrame]) -> None:
         """Send ``frames`` in order to every client; drop a client a send fails on.

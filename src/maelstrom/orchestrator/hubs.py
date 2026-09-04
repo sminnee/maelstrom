@@ -3,6 +3,9 @@
 Adapter layer, asyncio only. :class:`NoticeHub` carries change notices to
 every open notice stream; each subscriber holds a pending set per kind, so a
 slow reader costs memory bounded by the number of entities, never by a queue.
+:class:`TranscriptHub` carries one agent's transcript frames to every socket
+open on it; a reader that falls a queue behind is told so and closed, and
+resumes from its seq.
 """
 
 import asyncio
@@ -10,6 +13,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 
 from .notices import Notices, merge_notices
+from .transcript_log import TranscriptFrame
 
 #: How long a notice waits for company before it is flushed.
 COALESCE_SECS = 0.05
@@ -68,3 +72,67 @@ class NoticeHub:
             yield subscriber
         finally:
             self._subscribers.discard(subscriber)
+
+
+#: How many frames a transcript socket may fall behind before it is closed.
+WS_QUEUE_LIMIT = 500
+
+
+class Lagging:
+    """Put on a lagging subscriber's queue in place of the frames it lost."""
+
+
+#: The one instance; a reader checks with ``isinstance``.
+LAGGING = Lagging()
+
+
+class TranscriptSubscriber:
+    """One socket's unread frames for one agent."""
+
+    def __init__(self, limit: int) -> None:
+        self.queue: asyncio.Queue[TranscriptFrame | Lagging] = asyncio.Queue(
+            maxsize=limit
+        )
+        self.lagging = False
+
+    def push(self, frame: TranscriptFrame) -> None:
+        if self.lagging:
+            return
+        try:
+            self.queue.put_nowait(frame)
+        except asyncio.QueueFull:
+            # The reader is behind by a whole queue. It resumes from its seq,
+            # so nothing is lost by dropping the rest and saying so.
+            self.lagging = True
+            while not self.queue.empty():
+                self.queue.get_nowait()
+            self.queue.put_nowait(LAGGING)
+
+    async def next(self) -> TranscriptFrame | Lagging:
+        return await self.queue.get()
+
+
+class TranscriptHub:
+    """Every open transcript socket, per agent."""
+
+    def __init__(self, queue_limit: int = WS_QUEUE_LIMIT) -> None:
+        self._limit = queue_limit
+        self._subscribers: dict[str, set[TranscriptSubscriber]] = {}
+
+    def push(self, agent_id: str, frames: list[TranscriptFrame]) -> None:
+        for subscriber in self._subscribers.get(agent_id, ()):
+            for frame in frames:
+                subscriber.push(frame)
+
+    @contextmanager
+    def subscribe(self, agent_id: str) -> Iterator[TranscriptSubscriber]:
+        """A subscriber that hears every frame pushed for ``agent_id`` inside the block."""
+        subscriber = TranscriptSubscriber(self._limit)
+        self._subscribers.setdefault(agent_id, set()).add(subscriber)
+        try:
+            yield subscriber
+        finally:
+            self._subscribers[agent_id].discard(subscriber)
+
+    def count(self, agent_id: str) -> int:
+        return len(self._subscribers.get(agent_id, ()))

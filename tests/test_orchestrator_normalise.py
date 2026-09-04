@@ -1,14 +1,15 @@
-"""The Python normaliser matches the TypeScript one, fixture for fixture.
+"""The normaliser, replayed over the recorded daemon streams, against its goldens.
 
-``web/src/protocol/normalise.ts`` turns the agent host's raw stream-json into
-transcript items, agent upserts, documents and attention items. The server does
-the same in Python, so the wire never carries raw stream-json. The goldens under
-``tests/fixtures/agent_events/normalised/`` are written by the TS side
-(``UPDATE_GOLDEN=1 pnpm test``); every fixture must replay to the same world
-here. The remaining cases port ``normalise.test.ts``.
+The normaliser turns the agent host's raw stream-json into transcript items,
+agent upserts, documents and attention items, so the wire never carries raw
+stream-json. The goldens under ``tests/fixtures/agent_events/normalised/``
+record what each fixture replays to; this file owns them, and
+``UPDATE_GOLDEN=1 uv run pytest tests/test_orchestrator_normalise.py``
+re-records. The TypeScript normaliser is held to the same files until it goes.
 """
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -168,13 +169,14 @@ FIXTURE_NAMES = sorted(p.name for p in FIXTURES.glob("*.jsonl"))
 
 
 @pytest.mark.parametrize("name", FIXTURE_NAMES)
-def test_every_fixture_replays_to_the_golden_the_ts_normaliser_wrote(name):
-    golden = json.loads((GOLDEN / name.replace(".jsonl", ".json")).read_text())
+def test_every_fixture_replays_to_its_golden(name):
+    """A normaliser change is a deliberate re-record, never a silent drift."""
     replayed = replay(name)
-    assert {
-        "world": replayed.state["world"],
-        "transcripts": replayed.transcripts,
-    } == golden
+    actual = {"world": replayed.state["world"], "transcripts": replayed.transcripts}
+    path = GOLDEN / name.replace(".jsonl", ".json")
+    if os.environ.get("UPDATE_GOLDEN") == "1":
+        path.write_text(json.dumps(actual, indent=2, ensure_ascii=False) + "\n")
+    assert actual == json.loads(path.read_text())
 
 
 def test_a_completed_turn_ends_idle_with_the_cost_and_one_result_line():
