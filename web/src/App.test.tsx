@@ -891,7 +891,10 @@ describe('the transcript stream', () => {
     clickNode('NORT-9');
     await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
     const panel = screen.getByRole('tabpanel');
-    await within(panel).findByText('Rewriting the migration for the new collation.');
+    // The first open of a heavier tab on a cold runner has blown the default 1 s budget.
+    await within(panel).findByText('Rewriting the migration for the new collation.', undefined, {
+      timeout: 3000,
+    });
     const before = within(panel).getAllByTestId('transcript-card').length;
 
     await act(async () => {
