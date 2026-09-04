@@ -28,14 +28,16 @@ from .agent_model import (
     AWAITING_QUESTION,
     BACKLOG_END,
     MODES,
+    STOPPED_COLUMNS,
     TRUNCATED,
 )
-from .agent_server import AgentDaemon
+from .agent_server import SCOPE_ALL, SCOPE_RUNNING, SCOPE_STOPPED, AgentDaemon
 from .agent_transport import (
     DaemonClient,
     SocketAsyncDaemonClient,
     SocketDaemonClient,
 )
+from .context import resolve_context
 from .table import draw_table
 
 #: Columns ``mael agent list`` prints, in order.
@@ -123,16 +125,109 @@ def cmd_start(
 
 @agent.command("list")
 @click.option("--json", "as_json", is_flag=True, help="Emit rows as JSON.")
-def cmd_list(as_json: bool) -> None:
-    """Show every agent, and what each waiting one is waiting on."""
-    rows = _send({"cmd": "list"}).get("agents", [])
+@click.option(
+    "--stopped",
+    is_flag=True,
+    help="Show sessions that have stopped and can be resumed, not running agents.",
+)
+@click.option("--all", "show_all", is_flag=True, help="Show both.")
+@click.option(
+    "-w",
+    "--worktree",
+    "worktree_opt",
+    help="Only sessions from this worktree (project.worktree).",
+)
+@click.option("--project", help="Only sessions from this project.")
+def cmd_list(
+    as_json: bool,
+    stopped: bool,
+    show_all: bool,
+    worktree_opt: str | None,
+    project: str | None,
+) -> None:
+    """Show every agent, and what each waiting one is waiting on.
+
+    ``--stopped`` shows what has stopped instead: every session with a
+    transcript on disk that is not running, which is every session
+    ``mael agent resume`` can bring back. A session maelstrom started keeps its
+    spawn record too, so its row also names the model it ran under.
+    """
+    if stopped and show_all:
+        raise click.ClickException("--stopped and --all cannot be used together")
+    cwd = _filter_cwd(worktree_opt, project)
+    payload: dict[str, Any] = {"cmd": "list"}
+    if show_all:
+        payload["scope"] = SCOPE_ALL
+    # A filter only means anything against stopped sessions, so it implies the scope.
+    elif stopped or cwd:
+        payload["scope"] = SCOPE_STOPPED
+    if cwd:
+        payload["cwd"] = cwd
+    rows = _send(payload).get("agents", [])
     if as_json:
         click.echo(json.dumps(rows, indent=2))
         return
+    scope = payload.get("scope", SCOPE_RUNNING)
     if not rows:
-        click.echo("No agents running.")
+        click.echo(_NOTHING_FOUND[scope])
         return
-    draw_table(rows, LIST_COLUMNS)
+    _draw_rows(rows, scope)
+
+
+#: What an empty listing says, per scope. Each names what was looked for, so a
+#: user reading "No stopped sessions." knows the running ones were not checked.
+_NOTHING_FOUND = {
+    SCOPE_RUNNING: "No agents running.",
+    SCOPE_STOPPED: "No stopped sessions.",
+    SCOPE_ALL: "No agents running or stopped.",
+}
+
+
+def _draw_rows(rows: list[dict[str, Any]], scope: str) -> None:
+    """Draw ``rows`` under the columns their scope calls for.
+
+    A running row and a stopped row share almost no fields, so ``--all`` draws
+    two tables rather than one. Under a single column set each row would render
+    the other kind's columns as blank cells, and the stopped rows would lose the
+    very fields that make them worth listing.
+    """
+    if scope != SCOPE_ALL:
+        columns = STOPPED_COLUMNS if scope == SCOPE_STOPPED else LIST_COLUMNS
+        draw_table(rows, columns)
+        return
+    running = [row for row in rows if "state" in row]
+    stopped = [row for row in rows if "state" not in row]
+    if running:
+        draw_table(running, LIST_COLUMNS)
+    if stopped:
+        if running:
+            click.echo()
+        click.echo("Stopped, resumable:")
+        draw_table(stopped, STOPPED_COLUMNS)
+
+
+def _filter_cwd(worktree_opt: str | None, project: str | None) -> str:
+    """The path a ``-w``/``--project`` filter means, or ``""``.
+
+    Resolved here and sent as a plain path: mapping ``foo.alpha`` to a directory
+    reads config and walks the filesystem, which is CLI-layer work. The daemon
+    never learns what a project is.
+    """
+    if not worktree_opt and not project:
+        return ""
+    try:
+        context = resolve_context(
+            worktree_opt or project,
+            require_worktree=bool(worktree_opt),
+            require_project=bool(project),
+            arg_is_project=bool(project) and not worktree_opt,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    path = context.worktree_path if worktree_opt else context.project_path
+    if path is None:
+        raise click.ClickException(f"could not resolve {worktree_opt or project}")
+    return str(path)
 
 
 @agent.command("show")

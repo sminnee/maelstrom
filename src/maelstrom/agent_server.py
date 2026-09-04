@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 import uuid
 from dataclasses import replace
 from pathlib import Path
@@ -39,14 +40,17 @@ from .agent_model import (
     SEQ_KEY,
     SPEC_EXITED,
     SPEC_RUNNING,
+    SPEC_STOPPED,
     TRUNCATED,
     AgentSpec,
     AgentState,
+    TranscriptMeta,
     apply_event,
     build_agent_argv,
     build_agent_detail,
     build_agent_env,
     build_agent_row,
+    build_stopped_rows,
     interrupt_request,
     mark_exited,
     reply_for_answer,
@@ -57,7 +61,10 @@ from .agent_model import (
     user_message,
 )
 from .agent_spec_store import AgentSpecStore, JsonAgentSpecStore
-from .agent_transport import resolve_socket_path, resolve_spec_dir
+from .agent_transport import STREAM_LIMIT, resolve_socket_path, resolve_spec_dir
+from .session_discovery import LiveSessionSet
+from .session_view import TaskLookup
+from .transcript_store import ClaudeTranscriptStore, TranscriptStore
 from .worktree_model import has_claude_transcript
 
 log = logging.getLogger(__name__)
@@ -282,6 +289,26 @@ class _DeadProcess:
         return self.returncode
 
 
+#: What ``list`` may be asked for. ``running`` is the default and is what the
+#: orchestrator reads: live and exited-this-daemon agents, and nothing else.
+SCOPE_RUNNING = "running"
+SCOPE_STOPPED = "stopped"
+SCOPE_ALL = "all"
+SCOPES = (SCOPE_RUNNING, SCOPE_STOPPED, SCOPE_ALL)
+
+
+def _open_task_index() -> TaskLookup:
+    """The task index, opened once per listing.
+
+    Imported where it is used: :func:`~maelstrom.task_cli.open_index` opens a
+    SQLite database, and a daemon never asked for a stopped listing must not.
+    """
+    from .task_cli import open_index
+    from .task_store import GitFileStore
+
+    return open_index(GitFileStore())
+
+
 #: One shared instance: it is stateless, and every restored agent wants the same.
 _DEAD_PROC: Any = _DeadProcess()
 
@@ -295,11 +322,66 @@ class AgentDaemon:
         specs: AgentSpecStore | None = None,
         *,
         has_transcript: Callable[[Path, str], bool] = has_claude_transcript,
+        transcripts: TranscriptStore | None = None,
+        live: LiveSessionSet | None = None,
+        open_task_index: Callable[[], TaskLookup] = _open_task_index,
     ):
         self.socket_path = socket_path or resolve_socket_path()
         self.specs = specs or JsonAgentSpecStore(Path(resolve_spec_dir()))
         self.has_transcript = has_transcript
+        self._transcripts = transcripts
+        self._live = live
+        self._open_task_index = open_task_index
         self.agents: dict[str, Agent] = {}
+
+    @property
+    def transcripts(self) -> TranscriptStore:
+        """Claude's session transcripts. Built on first use, not at construction.
+
+        A daemon that is never asked for a stopped listing must not pay for the
+        store, and the default one resolves ``~`` when it is built.
+        """
+        if self._transcripts is None:
+            self._transcripts = ClaudeTranscriptStore()
+        return self._transcripts
+
+    def stopped_rows(self, cwd: str | None) -> list[dict[str, Any]]:
+        """Every session that can be resumed, optionally under ``cwd``.
+
+        The three sources are merged in the model layer: Claude's transcripts
+        say which sessions exist, the spawn records say how the daemon ran the
+        ones it started, and the task index names what each ran for. A session
+        that is still live is subtracted, because ``resume`` refuses one.
+        """
+        cwds = [Path(cwd)] if cwd else None
+        metas = self.transcripts.list(cwds)
+        specs = {spec.session_id: spec for spec in self.specs.list()}
+        live = self._live if self._live is not None else LiveSessionSet()
+        return build_stopped_rows(
+            metas, specs, self._task_ids(metas), live, now=time.time()
+        )
+
+    def _task_ids(self, metas: list[TranscriptMeta]) -> dict[str, str]:
+        """The task each session ran for, keyed by session id.
+
+        The index is opened once for the whole listing, as
+        ``session_view.build_session_row`` does — a per-session open would run
+        ``ensure_excludes`` and build a connection hundreds of times.
+
+        A listing is worth more than its task column, so a failure blanks the
+        column rather than failing the command. Logged once, because a silent
+        blank column gives a user nothing to debug.
+        """
+        try:
+            index = self._open_task_index()
+            return {
+                meta.session_id: (found.id if found else "")
+                for meta in metas
+                for found in [index.find_by_session_id(meta.session_id)]
+            }
+        except Exception:  # noqa: BLE001
+            log.exception("could not read the task index; task column left blank")
+            return {}
 
     # -- lifecycle --
 
@@ -379,8 +461,8 @@ class AgentDaemon:
 
         def record(exit_code: int | None) -> None:
             spec = self.specs.read(agent_id)
-            if spec is None:
-                return  # `stop` deleted it; a deliberate stop is not a crash
+            if spec is None or spec.status == SPEC_STOPPED:
+                return  # a deliberate stop is not a crash
             self.specs.write(replace(spec, status=SPEC_EXITED, exit_code=exit_code))
 
         return record
@@ -434,7 +516,7 @@ class AgentDaemon:
                     # resume is worth attempting on one.
                     log.exception("could not resume agent %s", spec.agent_id)
                     self.specs.write(replace(spec, status=SPEC_EXITED))
-            else:
+            elif spec.status != SPEC_STOPPED:
                 self.agents[spec.agent_id] = _exited_agent(spec)
 
     # -- the command surface the CLI drives --
@@ -462,10 +544,34 @@ class AgentDaemon:
             return {"ok": True, "id": agent_id}
 
         if command == "list":
-            return {"agents": [build_agent_row(a.state) for a in self.agents.values()]}
+            # Default scope unchanged: the orchestrator never asks for another.
+            scope = payload.get("scope", SCOPE_RUNNING)
+            if scope not in SCOPES:
+                return {"error": f"unknown scope: {scope}"}
+            rows = []
+            if scope in (SCOPE_RUNNING, SCOPE_ALL):
+                rows += [build_agent_row(a.state) for a in self.agents.values()]
+            if scope in (SCOPE_STOPPED, SCOPE_ALL):
+                rows += self.stopped_rows(payload.get("cwd") or None)
+            return {"agents": rows}
 
         agent = self.agents.get(payload.get("id", ""))
         if agent is None:
+            # A stopped agent is deliberately out of `self.agents`, so a resume
+            # of one has only its record to go on. Every other command needs a
+            # live agent and still refuses.
+            spec = self.specs.read(payload.get("id", ""))
+            if command == "resume" and spec is not None:
+                if spec.status not in (SPEC_EXITED, SPEC_STOPPED):
+                    # A record still `running` belongs to a live child — one
+                    # this daemon lost, or one another daemon holds. Same
+                    # refusal as the in-memory path, for the same reason.
+                    return {"error": f"agent {spec.agent_id} is running"}
+                try:
+                    await self._resume(spec, payload.get("text") or None)
+                except OSError as exc:
+                    return {"error": f"could not start claude: {exc}"}
+                return {"ok": True, "id": spec.agent_id}
             return {"error": f"no such agent: {payload.get('id', '')}"}
 
         if command == "resume":
@@ -500,10 +606,14 @@ class AgentDaemon:
             return {"ok": True}
 
         if command == "stop":
-            # Deleted first: a stop is deliberate, so no later daemon start
-            # should read the record and bring the agent back.
-            self.specs.delete(agent.state.agent_id)
+            # Marked before the stop: the child ending fires `_record_exit`,
+            # which would overwrite a still-`running` record as `exited`.
+            spec = self.specs.read(agent.state.agent_id)
+            if spec is not None:
+                self.specs.write(replace(spec, status=SPEC_STOPPED))
             await agent.stop()
+            # Popped all the same: the orchestrator reads an id's absence from
+            # `list` as an exit. See docs/dev/agent-daemon.md.
             self.agents.pop(agent.state.agent_id, None)
             return {"ok": True}
 
@@ -606,7 +716,9 @@ class AgentDaemon:
         # Before listening, so the first client to connect sees the restored
         # agents rather than an empty list it would read as "nothing running".
         await self.restore()
-        server = await asyncio.start_unix_server(self._on_client, str(path))
+        server = await asyncio.start_unix_server(
+            self._on_client, str(path), limit=STREAM_LIMIT
+        )
         try:
             async with server:
                 await server.serve_forever()

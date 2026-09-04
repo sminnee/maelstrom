@@ -12,7 +12,11 @@ protocol; read it before changing a shape.
 """
 
 from dataclasses import dataclass, field, replace
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # a runtime import would pull a module that shells out to `pgrep`
+    from .session_discovery import LiveSessionSet
 
 #: Tools whose ``can_use_tool`` request is a question rather than a permission ask.
 QUESTION_TOOL = "AskUserQuestion"
@@ -152,9 +156,11 @@ def build_agent_env(
     return env
 
 
-#: A spawn record's two states. ``stop`` deletes the record instead.
+#: A spawn record's three states. ``stopped`` is the deliberate one, and only
+#: ``mael agent list --stopped`` shows it. See ``docs/dev/agent-daemon.md``.
 SPEC_RUNNING = "running"
 SPEC_EXITED = "exited"
+SPEC_STOPPED = "stopped"
 
 
 @dataclass(frozen=True)
@@ -220,6 +226,38 @@ def spec_from_dict(data: dict[str, Any]) -> AgentSpec:
         status=data.get("status", SPEC_RUNNING),
         exit_code=data.get("exit_code"),
     )
+
+
+#: Which of the two things started a session, read from a transcript's
+#: ``entrypoint``. A ``mael`` one was driven by the daemon over its stdio pipe;
+#: a ``cli`` one is a person at a terminal. Both resume the same way.
+KIND_MAEL = "mael"
+KIND_CLI = "cli"
+
+#: The ``entrypoint`` a daemon-driven agent writes. Anything else is a person.
+DRIVEN_ENTRYPOINT = "sdk-cli"
+
+
+@dataclass(frozen=True)
+class TranscriptMeta:
+    """The head of one Claude session transcript, as a listing needs it.
+
+    Claude writes the transcript, not maelstrom, so this is what survives a stop
+    that leaves no spawn record: enough to name a session, place it, and resume
+    it. The conversation itself is not read.
+
+    ``lines_read`` says how far into the file the reader went, so a test can
+    hold the bounded read to its promise.
+    """
+
+    session_id: str
+    cwd: Path
+    branch: str = ""
+    kind: str = KIND_CLI
+    label: str = ""
+    modified_at: float = 0.0
+    size: int = 0
+    lines_read: int = field(default=0, compare=False)
 
 
 @dataclass(frozen=True)
@@ -495,6 +533,93 @@ def build_agent_row(state: AgentState) -> dict[str, Any]:
         "last_message": _one_line(state.last_message),
         "cost": f"{state.total_cost_usd:.4f}" if state.total_cost_usd else "",
     }
+
+
+#: Columns a stopped row carries, in the order ``mael agent list --stopped``
+#: prints them.
+STOPPED_COLUMNS = ["id", "kind", "age", "task", "branch", "label", "cwd"]
+
+
+def format_age(seconds: float) -> str:
+    """``seconds`` as the one short unit a table cell holds.
+
+    Rounds down, so "2h" means at least two hours. Anything under a minute is
+    "now" — a listing of stopped sessions never needs second precision.
+    """
+    if seconds < 60:
+        return "now"
+    for size, unit in ((86400, "d"), (3600, "h"), (60, "m")):
+        if seconds >= size:
+            return f"{int(seconds // size)}{unit}"
+    return "now"
+
+
+def build_stopped_row(
+    meta: TranscriptMeta,
+    spec: AgentSpec | None,
+    task_id: str,
+    *,
+    now: float,
+) -> dict[str, Any]:
+    """One resumable session, as ``mael agent list --stopped`` shows it.
+
+    ``id`` is what a resume takes: the agent id where maelstrom kept a record,
+    the session id otherwise. ``session`` always holds the session id, which is
+    what ``claude --resume`` replays.
+
+    ``model`` and ``mode`` come only from the record, so a session with no
+    record leaves them blank rather than guessing.
+
+    Every key is always present, on the same contract as
+    :func:`build_agent_row`, so ``--json`` can emit it as-is.
+    """
+    return {
+        "id": spec.agent_id if spec else meta.session_id,
+        "session": meta.session_id,
+        "kind": meta.kind,
+        "age": format_age(max(now - meta.modified_at, 0.0)),
+        "task": task_id,
+        "branch": meta.branch,
+        "label": _one_line(meta.label, STOPPED_LABEL_CHARS),
+        "cwd": str(meta.cwd),
+        "model": spec.model or "" if spec else "",
+        "mode": spec.permission_mode or "" if spec else "",
+        "modified_at": meta.modified_at,
+    }
+
+
+#: How much of a transcript's label a table cell holds.
+STOPPED_LABEL_CHARS = 80
+
+
+def build_stopped_rows(
+    metas: list[TranscriptMeta],
+    specs: dict[str, AgentSpec],
+    tasks: dict[str, str],
+    live: "LiveSessionSet",
+    *,
+    now: float,
+) -> list[dict[str, Any]]:
+    """Every session that can be resumed, newest first.
+
+    ``specs`` and ``tasks`` are keyed by session id, so a record and a
+    transcript for one session merge into one row.
+
+    A session still running is subtracted, on two keys. Its session id is the
+    precise one, but a ``claude`` started by hand reports none — for those the
+    working directory is all there is, so a transcript is dropped when a live
+    session with no id runs in the same place.
+    """
+    id_free_cwds = {s.cwd.resolve() for s in live.sessions if not s.session_id}
+    rows = [
+        build_stopped_row(
+            meta, specs.get(meta.session_id), tasks.get(meta.session_id, ""), now=now
+        )
+        for meta in metas
+        if live.for_session_id(meta.session_id) is None
+        and meta.cwd.resolve() not in id_free_cwds
+    ]
+    return sorted(rows, key=lambda row: row["modified_at"], reverse=True)
 
 
 def build_agent_detail(state: AgentState) -> dict[str, Any]:

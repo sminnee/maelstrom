@@ -14,13 +14,18 @@ from maelstrom.agent_model import (
     EXITED,
     INTERRUPTED_REASON,
     PROCESSING,
+    SPEC_STOPPED,
     TRUNCATED,
     AgentSpec,
+    TranscriptMeta,
     apply_event,
     mark_exited,
 )
 from maelstrom.agent_server import Agent, AgentDaemon
 from maelstrom.agent_spec_store import InMemoryAgentSpecStore
+from maelstrom.session_discovery import LiveSessionSet
+from maelstrom.task_index import TaskMeta
+from maelstrom.transcript_store import InMemoryTranscriptStore
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
 
@@ -331,13 +336,107 @@ def _daemon_with_specs(*, has_transcript: bool = True):
     return daemon, specs
 
 
-def _spawning(daemon, payloads, *, proc=None):
-    """Run ``payloads`` through ``handle`` with a stubbed spawn; return the mock."""
+class _FakeTaskIndex:
+    """A ``TaskLookup`` that counts how many times the listing opened it."""
+
+    opened = 0
+
+    def __init__(self, tasks: dict[str, str]):
+        self._tasks = tasks
+
+    def find_by_session_id(self, session_id: str):
+        task_id = self._tasks.get(session_id)
+        return TaskMeta(project="p", id=task_id, status="done") if task_id else None
+
+
+def _stopped_daemon(metas, *, live=None, tasks=None):
+    """A daemon whose stopped listing reads injected transcripts, not the disk."""
+    transcripts = InMemoryTranscriptStore()
+    for meta in metas:
+        transcripts.add_meta(meta)
+    specs = InMemoryAgentSpecStore()
+    opens = []
+
+    def open_index():
+        opens.append(1)
+        return _FakeTaskIndex(tasks or {})
+
+    daemon = AgentDaemon(
+        "/tmp/x.sock",
+        specs=specs,
+        has_transcript=lambda path, sid: True,
+        transcripts=transcripts,
+        live=LiveSessionSet(sessions=live or []),
+        open_task_index=open_index,
+    )
+    daemon._test_opens = opens
+    return daemon, specs
+
+
+def _meta(session_id="s1", cwd="/tmp/x", **kw):
+    fields = {"session_id": session_id, "cwd": Path(cwd), "modified_at": 1.0}
+    fields.update(kw)
+    return TranscriptMeta(**fields)
+
+
+def test_the_stopped_scope_lists_a_transcript_the_default_scope_hides():
+    daemon, _ = _stopped_daemon([_meta("s1")])
+    assert asyncio.run(_handle(daemon, {"cmd": "list"}))["agents"] == []
+    rows = asyncio.run(_handle(daemon, {"cmd": "list", "scope": "stopped"}))["agents"]
+    assert [row["id"] for row in rows] == ["s1"]
+
+
+def test_the_all_scope_lists_the_running_agents_and_the_stopped_ones():
+    daemon, _ = _stopped_daemon([_meta("s1")])
+    _spawning(daemon, [{"cmd": "start", "cwd": "/tmp/x"}])
+    running = next(iter(daemon.agents))
+    rows = asyncio.run(_handle(daemon, {"cmd": "list", "scope": "all"}))["agents"]
+    assert {row["id"] for row in rows} == {running, "s1"}
+
+
+def test_an_unknown_scope_is_refused_rather_than_silently_read_as_running():
+    """A typo must not quietly return the default listing."""
+    daemon, _ = _stopped_daemon([])
+    reply = asyncio.run(_handle(daemon, {"cmd": "list", "scope": "stoped"}))
+    assert "scope" in reply["error"]
+
+
+def test_the_stopped_scope_filters_on_the_cwd_the_client_sends():
+    """The CLI resolves a worktree to a path; the daemon never learns of projects."""
+    daemon, _ = _stopped_daemon(
+        [_meta("s1", cwd="/w/alpha"), _meta("s2", cwd="/w/bravo")]
+    )
+    rows = asyncio.run(
+        _handle(daemon, {"cmd": "list", "scope": "stopped", "cwd": "/w/alpha"})
+    )["agents"]
+    assert [row["id"] for row in rows] == ["s1"]
+
+
+def test_the_stopped_scope_carries_the_record_of_an_agent_that_was_stopped():
+    """The end-to-end point of slice 1: a stop keeps what the resume needs."""
+    daemon, specs = _stopped_daemon([_meta("sid-1", cwd="/tmp/x")])
+    _spawning(
+        daemon,
+        [{"cmd": "start", "cwd": "/tmp/x", "model": "opus", "session": "sid-1"}],
+    )
+    agent_id = next(iter(daemon.agents))
+    asyncio.run(_handle(daemon, {"cmd": "stop", "id": agent_id}))
+    (row,) = asyncio.run(_handle(daemon, {"cmd": "list", "scope": "stopped"}))["agents"]
+    assert row["model"] == "opus"
+
+
+def _spawning(daemon, payloads, *, proc=None, returning=False):
+    """Run ``payloads`` through ``handle`` with a stubbed spawn.
+
+    Returns the spawn mock, or the last reply when ``returning`` is set.
+    """
     child = proc if proc is not None else _spawn_stub()
+
+    replies = []
 
     async def run():
         for payload in payloads:
-            await daemon.handle(payload)
+            replies.append(await daemon.handle(payload))
         # The pump task marks the agent exited; let it finish before asserting.
         await asyncio.gather(
             *(a.pump_task for a in daemon.agents.values() if a.pump_task),
@@ -348,7 +447,7 @@ def _spawning(daemon, payloads, *, proc=None):
         agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=child)
     ) as spawn:
         asyncio.run(run())
-    return spawn
+    return replies[-1] if returning else spawn
 
 
 def test_start_writes_a_record_with_a_session_id_it_minted():
@@ -397,13 +496,53 @@ def test_a_child_that_ends_leaves_an_exited_record():
     assert spec.exit_code == -9
 
 
-def test_stop_deletes_the_record_so_it_is_not_resumed():
-    """A deliberate stop is not a crash; the next daemon must leave it alone."""
+def test_stop_keeps_the_record_and_marks_it_stopped():
+    """A stopped agent stays resumable, so its record must survive the stop.
+
+    The record is the only thing that knows the model, the permission mode and
+    the env the resume needs; a transcript knows none of them.
+    """
     daemon, specs = _daemon_with_specs()
+    _spawning(daemon, [{"cmd": "start", "cwd": "/tmp/x", "model": "opus"}])
+    agent_id = next(iter(daemon.agents))
+    asyncio.run(_handle(daemon, {"cmd": "stop", "id": agent_id}))
+    (spec,) = specs.list()
+    assert spec.status == SPEC_STOPPED
+    assert spec.model == "opus"
+
+
+def test_a_stopped_agent_is_absent_from_the_default_list():
+    """The orchestrator infers an exit from absence, and must keep doing so.
+
+    ``docs/dev/orchestrator-server.md``: an id that is gone has exited. A stopped
+    agent appearing in the default list would sit on the canvas for ever, and
+    ``mael agent list`` would grow without bound.
+    """
+    daemon, _ = _daemon_with_specs()
     _spawning(daemon, [{"cmd": "start", "cwd": "/tmp/x"}])
     agent_id = next(iter(daemon.agents))
     asyncio.run(_handle(daemon, {"cmd": "stop", "id": agent_id}))
-    assert specs.list() == []
+    reply = asyncio.run(_handle(daemon, {"cmd": "list"}))
+    assert reply["agents"] == []
+
+
+def test_restore_leaves_a_stopped_record_out_of_the_listing():
+    """A stop is deliberate, so a later daemon must neither respawn nor show it."""
+    daemon, specs = _daemon_with_specs()
+    specs.write(
+        AgentSpec(
+            agent_id="gone",
+            cwd="/tmp/x",
+            session_id="s1",
+            status=SPEC_STOPPED,
+        )
+    )
+    with patch.object(
+        agent_server.asyncio, "create_subprocess_exec", AsyncMock()
+    ) as spawn:
+        asyncio.run(daemon.restore())
+    assert spawn.call_count == 0
+    assert daemon.agents == {}
 
 
 def test_resume_replays_the_session_and_keeps_the_agent_id():
@@ -1148,3 +1287,70 @@ def test_set_mode_refuses_an_exited_agent():
     )
     assert "has exited" in reply["error"]
     assert sent == []
+
+
+def test_resume_brings_back_an_agent_that_was_stopped():
+    """The point of keeping the record: a stop is undoable.
+
+    A stopped agent is deliberately absent from ``self.agents``, so ``resume``
+    has to reach the record store rather than the live agents.
+    """
+    daemon, specs = _daemon_with_specs()
+    _spawning(daemon, [{"cmd": "start", "cwd": "/tmp/x", "model": "opus"}])
+    agent_id = next(iter(daemon.agents))
+    asyncio.run(_handle(daemon, {"cmd": "stop", "id": agent_id}))
+    reply = _spawning(daemon, [{"cmd": "resume", "id": agent_id}], returning=True)
+    assert reply == {"ok": True, "id": agent_id}
+    # Back under its own id, and no longer marked stopped: the stub child ends
+    # at once, so the record the pump leaves behind reads `exited`.
+    assert agent_id in daemon.agents
+    assert specs.read(agent_id).status != SPEC_STOPPED
+
+
+def test_a_stopped_row_names_the_agent_id_that_resumes_it():
+    """A listing whose whole purpose is a resume must print what resume takes."""
+    daemon, _ = _stopped_daemon([_meta("sid-1", cwd="/tmp/x")])
+    _spawning(daemon, [{"cmd": "start", "cwd": "/tmp/x", "session": "sid-1"}])
+    agent_id = next(iter(daemon.agents))
+    asyncio.run(_handle(daemon, {"cmd": "stop", "id": agent_id}))
+    (row,) = asyncio.run(_handle(daemon, {"cmd": "list", "scope": "stopped"}))["agents"]
+    assert row["id"] == agent_id
+    assert row["session"] == "sid-1"
+
+
+def test_a_transcript_only_row_falls_back_to_the_session_id():
+    """A hand-started session has no agent id, and the session id resumes it."""
+    daemon, _ = _stopped_daemon([_meta("sid-1", cwd="/tmp/x")])
+    (row,) = asyncio.run(_handle(daemon, {"cmd": "list", "scope": "stopped"}))["agents"]
+    assert row["id"] == "sid-1"
+    assert row["session"] == "sid-1"
+
+
+def test_the_record_fallback_refuses_to_resume_a_record_still_running():
+    """The in-memory path refuses a running agent; the fallback must too.
+
+    A record left ``running`` by a daemon that is still alive would otherwise
+    put a second child on one session id, which is the transcript contention
+    ``resume`` exists to prevent.
+    """
+    daemon, specs = _daemon_with_specs()
+    specs.write(
+        AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1", status="running")
+    )
+    reply = asyncio.run(_handle(daemon, {"cmd": "resume", "id": "a1"}))
+    assert reply["error"] == "agent a1 is running"
+    assert daemon.agents == {}
+
+
+def test_a_listing_opens_the_task_index_once_not_once_per_session():
+    """~800 transcripts must not mean ~800 SQLite connections.
+
+    Each open runs `ensure_excludes()`, a `PRAGMA journal_mode=WAL` and a
+    `CREATE TABLE IF NOT EXISTS` before its one-row SELECT, which is what
+    `session_view` avoids by taking the index as a collaborator.
+    """
+    metas = [_meta(f"s{i}", cwd="/tmp/x") for i in range(20)]
+    daemon, _ = _stopped_daemon(metas)
+    rows = asyncio.run(_handle(daemon, {"cmd": "list", "scope": "stopped"}))["agents"]
+    assert len(rows) == 20
+    assert len(daemon._test_opens) == 1

@@ -169,6 +169,14 @@ def _reason(offset: int) -> str:
 #: How long a request waits for the daemon's reply line before giving up.
 REPLY_TIMEOUT = 30.0
 
+#: How long a single NDJSON line may be, in bytes.
+#:
+#: ``asyncio``'s default is 64 KiB, and one reply is one line. A stopped
+#: listing carries every resumable session on the machine — hundreds of rows —
+#: which overruns that and kills the read with ``LimitOverrunError``. 16 MiB
+#: leaves ample headroom and still bounds a runaway line.
+STREAM_LIMIT = 16 * 1024 * 1024
+
 
 async def request_over_socket(
     socket_path: str, payload: dict[str, Any], *, autostart: bool = True
@@ -185,7 +193,9 @@ async def request_over_socket(
     try:
         if autostart:
             await ensure_daemon(socket_path)
-        reader, writer = await asyncio.open_unix_connection(socket_path)
+        reader, writer = await asyncio.open_unix_connection(
+            socket_path, limit=STREAM_LIMIT
+        )
     except (OSError, asyncio.TimeoutError) as exc:
         return {"error": f"agent daemon not reachable at {socket_path}: {exc}"}
     try:
@@ -318,7 +328,9 @@ class SocketAsyncDaemonClient:
         try:
             if self.autostart:
                 await ensure_daemon(self.socket_path)
-            reader, writer = await asyncio.open_unix_connection(self.socket_path)
+            reader, writer = await asyncio.open_unix_connection(
+                self.socket_path, limit=STREAM_LIMIT
+            )
         except (OSError, asyncio.TimeoutError) as exc:
             yield {"error": f"agent daemon not reachable at {self.socket_path}: {exc}"}
             return

@@ -596,7 +596,7 @@ cmux pane and no TTY. See [agent-daemon.md](../dev/agent-daemon.md) for the prot
 |---|---|
 | `mael agent daemon` | Run the agent daemon in the foreground. `--socket PATH` overrides the socket. |
 | `mael agent start [CWD]` | Start an agent in CWD (default `.`). Takes `--prompt`, `--mode`, `--model`, `--session-id`. |
-| `mael agent list` | Show every agent, what each waiting one waits on, and what each last said. `--json` emits rows as JSON. |
+| `mael agent list` | Show every agent, what each waiting one waits on, and what each last said. `--stopped` shows sessions that have stopped and can be resumed; `--all` shows both. `-w PROJECT.WORKTREE` and `--project NAME` narrow the stopped half of the listing, and imply `--stopped` on their own. `--json` emits rows as JSON. |
 | `mael agent show ID` | Show one agent in full: the last thing it said, every question option, the plan, and the command that answers the wait. `--json` emits the detail as JSON. |
 | `mael agent tail ID` | Print an agent's events and stop, without driving it. `-f` keeps streaming. The read-only half of `attach`. |
 | `mael agent say ID TEXT` | Send TEXT to an agent as a user message. |
@@ -606,13 +606,16 @@ cmux pane and no TTY. See [agent-daemon.md](../dev/agent-daemon.md) for the prot
 | `mael agent attach ID` | Teleport into an agent as a terminal UI. Esc interrupts the turn; Shift-Tab changes the mode; Ctrl-C detaches. Needs a terminal. |
 | `mael agent interrupt ID` | Abandon the turn an agent is running, leaving the agent alive. Denies a pending wait first. |
 | `mael agent set-mode ID MODE` | Change a running agent's permission mode: `plan`, `normal` or `auto`. Takes effect on the running turn, and the spawn record keeps it. |
-| `mael agent stop ID` | Stop an agent, and forget it. A stopped agent is not brought back. |
+| `mael agent stop ID` | Stop an agent. No daemon start brings a stopped agent back, but its spawn record is kept, so `mael agent resume ID` still works. |
 | `mael agent resume ID` | Start an exited agent again, keeping its id and its conversation. `--text TEXT` replaces the default first turn. |
 
 ```bash
 mael agent start . --prompt "run the tests"     # starts the daemon too; prints the agent id
 mael agent start /tmp --mode auto               # unattended
 mael agent list                                 # who is waiting, on what, and what each said
+mael agent list --stopped                       # what has stopped, and can be resumed
+mael agent list --stopped -w maelstrom.alpha    # ...in one worktree only
+mael agent list --all --json                    # running and stopped, as JSON
 mael agent show 1761dcf6                        # every option, with descriptions
 mael agent answer 1761dcf6 "Green"              # answer a question
 mael agent approve 0b2f5f5b                     # approve a plan or a tool call
@@ -637,6 +640,15 @@ A crashed child shows as `exited(N)` in `mael agent list`, and `mael agent resum
 with the conversation it had. A daemon start resumes every agent that was running, under the same
 ids. Claude keeps the conversation in its own session transcript; the daemon keeps one spawn
 record per agent under `~/.maelstrom/agents/`.
+
+`mael agent list --stopped` reads Claude's transcripts rather than the daemon, so it names every
+session that can be resumed — including a session you started by hand in a terminal. A `kind`
+column says which: `mael` for a session the daemon drove, `cli` for one a person started. The
+listing subtracts the sessions that are still running, because a resume of one is refused.
+
+A stopped session keeps its spawn record, so its row names the model it ran under. A session that
+never had a record resumes all the same, and takes your own Claude Code defaults for the model and
+the permission mode.
 
 ## Orchestrator
 
