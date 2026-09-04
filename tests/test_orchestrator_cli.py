@@ -76,8 +76,7 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(tm
         ) as open_wt,
     ):
         orchestrator = build_orchestrator("/tmp/a.sock")
-        task = SimpleNamespace(base="feat/base")
-        opened = orchestrator.tasks.open_worktree("northwind", task, "feat/x")
+        opened = orchestrator.tasks.open_worktree("northwind", "feat/x", "feat/base")
     assert isinstance(orchestrator.tasks, NotebookTaskSource)
     assert orchestrator.tasks.projects() == ["northwind"]
     assert orchestrator.tasks.store is store.return_value

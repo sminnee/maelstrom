@@ -42,9 +42,9 @@ def build_orchestrator(
     projects_dir = load_global_config().projects_dir
     store = GitFileStore()
 
-    def open_worktree(project: str, task: Task, branch: str) -> WorktreeSetup:
-        # The launcher owns install; ``task.base`` seeds the branch's stored
-        # base the first time, as ``mael task run`` does.
+    def open_worktree(project: str, branch: str, base: str) -> WorktreeSetup:
+        # The launcher owns install; ``base`` seeds the branch's stored base
+        # the first time, as ``mael task run`` does.
         #
         # A worktree that cannot be opened is a refused launch, not a crashed
         # server: LaunchBlocked is the wire's word for "this task could not
@@ -55,7 +55,7 @@ def build_orchestrator(
                 project,
                 branch,
                 run_install=False,
-                base=task.base or None,
+                base=base or None,
                 announce=lambda line: click.echo(line, err=True),
             )
         except (ValueError, WorktreeError) as exc:

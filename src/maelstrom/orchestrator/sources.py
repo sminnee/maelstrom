@@ -31,8 +31,11 @@ from .world_build import (
     worktree_entity,
 )
 
-#: Opens the worktree a task runs in: ``(project, task, branch) -> WorktreeSetup``.
-OpenWorktree = Callable[[str, model.Task, str], WorktreeSetup]
+#: Opens a worktree on a branch: ``(project, branch, base) -> WorktreeSetup``.
+#: ``base`` is what seeds the branch's stored base the first time; ``""`` leaves
+#: it to the launcher. Named without a task, so work that has none — a free
+#: agent — opens a worktree through the same injected collaborator.
+OpenWorktree = Callable[[str, str, str], WorktreeSetup]
 
 
 @dataclass(frozen=True)
@@ -150,7 +153,7 @@ class NotebookTaskSource:
         task = model.load(self.store, project, notebook_id)
         plan = plan_launch(task.project, task)
         check_not_live(task.id, plan.session_id, self.live_sessions())
-        setup = self.open_worktree(task.project, task, plan.branch)
+        setup = self.open_worktree(task.project, plan.branch, task.base or "")
         check_synced(task.id, plan.branch, setup)
         self._move(task.project, task.id, model.STATUS_IN_PROGRESS)
         payload = {
