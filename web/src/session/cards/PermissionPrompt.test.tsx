@@ -1,20 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import type { PermissionRequestItem } from '../../protocol/transcript';
+import { makePermissionRequest as item } from '../../test/fixtures';
 import { PermissionPrompt } from './PermissionPrompt';
-
-function item(over: Partial<PermissionRequestItem> = {}): PermissionRequestItem {
-  return {
-    id: 'p1',
-    ts: '',
-    type: 'permission_request',
-    requestId: 'req-1',
-    tool: 'Write',
-    input: { file_path: '/tmp/hello.txt' },
-    description: 'Write hello.txt',
-    ...over,
-  };
-}
 
 describe('PermissionPrompt', () => {
   it('offers Approve and Deny while the request is open', () => {

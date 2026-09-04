@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TranscriptItem } from '../protocol/transcript';
+import { makeQuestionItem } from '../test/fixtures';
 import { contextBefore } from './transcript';
 
 const said = (id: string, role: 'user' | 'assistant', markdown: string): TranscriptItem => ({
@@ -26,7 +27,7 @@ const items: TranscriptItem[] = [
   said('m2', 'assistant', 'Two options are plausible.'),
   called('t2', 'Bash'),
   called('t3', 'AskUserQuestion'),
-  { id: 'q1', ts: '', type: 'question', requestId: 'req-1', questions: [] },
+  makeQuestionItem({ id: 'q1' }),
   said('m3', 'assistant', 'After the wait.'),
 ];
 
@@ -47,7 +48,7 @@ describe('contextBefore', () => {
     const bare: TranscriptItem[] = [
       said('m1', 'assistant', 'Reading the model.'),
       called('t1', 'Read'),
-      { id: 'q2', ts: '', type: 'question', requestId: 'req-2', questions: [] },
+      makeQuestionItem({ id: 'q2', requestId: 'req-2' }),
     ];
     expect(contextBefore(bare, 'req-2').map((i) => i.id)).toEqual(['m1', 't1']);
   });
