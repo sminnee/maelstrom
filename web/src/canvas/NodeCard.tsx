@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ViewportPortal, useReactFlow } from '@xyflow/react';
 import { useStop } from '../api/agents';
 import { useRemoveFromDesk } from '../api/desk';
-import { useLaunch, useTask } from '../api/tasks';
+import { useLaunch, useSetStatus, useTask } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
 import { useAgentStream } from '../live/useAgentStream';
 import { DecisionCard } from '../decisions/DecisionCard';
@@ -10,13 +10,14 @@ import { Markdown } from '../markdown/Markdown';
 import { deskIdForAgent } from '../protocol/deskId';
 import type { GraphNode } from '../selectors/graph';
 import { nodeTitle } from '../selectors/graph';
-import { describeDocumentStatus, describeState } from '../selectors/status';
+import { describeDocumentStatus, describeState, stateRestatesStatus } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { toolCallTitle } from '../session/toolCards';
 import { PanelLink } from '../shell/PanelLink';
 import { useAppStore } from '../store/store';
 import { phaseLabel } from '../protocol/phase';
 import { AppButton } from '../ui/AppButton';
+import { StatusPicker } from '../ui/StatusPicker';
 import { NODE } from './layout';
 import styles from './NodeCard.module.css';
 
@@ -48,6 +49,7 @@ export function NodeCard({
   const collapseNode = useAppStore((s) => s.collapseNode);
   const launch = useLaunch();
   const stop = useStop();
+  const setStatus = useSetStatus();
   const removeFromDesk = useRemoveFromDesk();
   const { getViewport, setViewport } = useReactFlow();
   const card = useRef<HTMLDivElement>(null);
@@ -55,6 +57,7 @@ export function NodeCard({
   const briefBox = useRef<HTMLDivElement>(null);
   const [expandedContent, setExpandedContent] = useState(false);
   const [longContent, setLongContent] = useState(false);
+  const [picking, setPicking] = useState(false);
   const { task, agent, worktree } = node;
   // The list holds slim rows, so the brief comes from the task's detail.
   const detail = useTask(task?.id ?? null);
@@ -214,9 +217,32 @@ export function NodeCard({
           </header>
 
           <div className={styles.status} data-state={node.state}>
-            <span className={styles.dot} aria-hidden="true" />
-            <span className={styles.stateText}>{describeState(task, agent)}</span>
+            {/*
+             * The status control at the right says it already when the words
+             * would only echo it. The dot goes with them: it reads the state,
+             * so alone it says nothing.
+             */}
+            {!stateRestatesStatus(task, agent) && (
+              <>
+                <span className={styles.dot} aria-hidden="true" />
+                <span className={styles.stateText}>{describeState(task, agent)}</span>
+              </>
+            )}
             {!deciding && node.reason && <span className={styles.reason}>{node.reason}</span>}
+            {task && (
+              <StatusPicker
+                task={task}
+                className={styles.taskStatus}
+                label={`Status of ${task.title}`}
+                picking={picking}
+                onPick={() => setPicking(true)}
+                onDone={() => setPicking(false)}
+                onChange={(status) => {
+                  setPicking(false);
+                  return setStatus.mutateAsync({ taskId: task.id, status });
+                }}
+              />
+            )}
           </div>
 
           {brief && (

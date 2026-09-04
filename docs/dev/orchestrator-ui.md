@@ -68,9 +68,10 @@ Every control that sends a command is an `AppButton` (`ui/AppButton.tsx`), and t
 what happens next. A handler that returns a promise puts the button in `processing`: disabled,
 busy, with a spinner. A rejection puts it in `error`: it reads "Failed", the message is its
 `title`, and a click retries. It is ready again after three seconds. So a refusal shows on the
-button that asked, and no view keeps an error of its own. The task list's status select is the
-one control that is not a button; it shows its refusal in its cell. The comment and review
-controls call their mutations, get the server's 501, and read "Not implemented yet".
+button that asked, and no view keeps an error of its own. The status picker
+(`ui/StatusPicker.tsx`) is the one control that is not a button; it shows its own refusal. The
+comment and review controls call their mutations, get the server's 501, and read
+"Not implemented yet".
 
 **Loading and errors.** `useWorld` is `loading` until the six tables the canvas draws from have
 data, so the canvas never draws nodes without lanes: it shows "Loading the world…" and the task
@@ -102,8 +103,10 @@ near-empty. Ticking `done`, `cancelled` or `template` brings that work back; unt
 status shows every task.
 
 The task list also writes. A row's status is a button until it is clicked, then a native select
-of the six statuses — native because the view scrolls under `overflow: auto`, which would clip a
-popover. Choosing a status posts the new one, and a refusal shows in the cell. The Edit button
+of the six statuses. The expanded card carries the same control, at the right end of its state
+strip, so a decision taken on the canvas does not need the list. Both use `ui/StatusPicker.tsx`,
+which says why the select is native. Choosing a status posts the new one, and a refusal shows
+beside the control. The Edit button
 opens the task editor, which holds title, content and branch, with command, mode, priority and
 model under a folded "Advanced". Save patches the changed fields only. The editor renders from
 `AppShell`, above both views, and its open task lives in the store, so the canvas can open the
@@ -124,8 +127,13 @@ shows the head of its agent id, having no notebook id. A panel tab shows the qua
 because a tab exists to tell two projects' tasks apart.
 
 Clicking a task node expands it in place, showing the state in words ("Needs you · plan
-review", never a raw agent state). Esc, the close button and a click on the canvas collapse
-it. The attention chip expands the next node that needs the user.
+review", never a raw agent state). The state strip also carries the task's notebook status, which
+the user can set from there. Where the words would only restate the status — `done`, `cancelled`,
+and `blocked` with no agent — the card drops them and the status stands alone. The collapsed node
+keeps them: it has no status control, so there the words are the only reading. A free agent has
+no task, so its card has no status control. Esc, the close button and a click on the canvas
+collapse it — but with the status picker open, Esc closes the picker only. The attention chip
+expands the next node that needs the user.
 
 The session tab head carries a mode chip naming the agent's permission mode. A click moves the
 agent to the next mode: plan, then auto, then normal. The chip shows the mode the child last

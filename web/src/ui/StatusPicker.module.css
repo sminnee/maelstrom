@@ -1,0 +1,32 @@
+.status {
+  font: inherit;
+  color: var(--fg);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 0 var(--space-1);
+  cursor: pointer;
+}
+.status:hover {
+  border-color: var(--border);
+}
+.statusPicker {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 0 var(--space-1);
+}
+/*
+ * The refusal sits beside the control, so it takes no padding of its own. It
+ * shrinks before the controls do; it still wraps rather than truncate, because
+ * a refusal the user cannot read is no better than none.
+ */
+.error {
+  margin: 0;
+  min-width: 0;
+  flex-shrink: 1;
+  color: var(--attention);
+  font-size: var(--text-sm);
+}

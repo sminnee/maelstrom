@@ -4,6 +4,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import type { Attention } from './protocol/attention';
+import { TASK_STATUSES } from './protocol/entities';
 import type { Document } from './protocol/documents';
 import type { FakeServer } from './test/fakeServer';
 import { clickNode, pressKey, renderApp, selectText } from './test/renderApp';
@@ -250,6 +251,103 @@ describe('the expanded node', () => {
     await user.click(within(prompt).getAllByRole('radio')[0]!);
     await user.click(within(prompt).getByRole('button', { name: 'Answer' }));
     await waitFor(() => expect(nodeState('MAEL-52')).not.toBe('needs-attention'));
+  });
+
+  it("shows the task's notebook status", async () => {
+    await renderApp();
+    clickNode('NORT-9.1');
+    expect(
+      within(expanded()).getByRole('button', { name: 'Status of Watch the migration PR, todo' }),
+    ).toBeInTheDocument();
+  });
+
+  it('moves the task when a status is picked, and the card follows', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('NORT-9.1');
+
+    await user.click(
+      within(expanded()).getByRole('button', { name: 'Status of Watch the migration PR, todo' }),
+    );
+    await user.selectOptions(within(expanded()).getByRole('combobox'), 'blocked');
+
+    expect(
+      await within(expanded()).findByRole('button', {
+        name: 'Status of Watch the migration PR, blocked',
+      }),
+    ).toBeInTheDocument();
+    expect(within(expanded()).queryByRole('combobox')).toBeNull();
+  });
+
+  it('closes the status picker on Escape and leaves the card open', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('NORT-9.1');
+
+    await user.click(
+      within(expanded()).getByRole('button', { name: 'Status of Watch the migration PR, todo' }),
+    );
+    await user.keyboard('{Escape}');
+
+    expect(within(expanded()).queryByRole('combobox')).toBeNull();
+    expect(
+      within(expanded()).getByRole('button', { name: 'Status of Watch the migration PR, todo' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('shows a refused move in the card, and keeps the card open', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.refuse(/\/status$/, {
+      status: 409,
+      code: 'not_actionable',
+      message: 'That task cannot move yet',
+    });
+    clickNode('NORT-9.1');
+
+    await user.click(
+      within(expanded()).getByRole('button', { name: 'Status of Watch the migration PR, todo' }),
+    );
+    await user.selectOptions(within(expanded()).getByRole('combobox'), 'blocked');
+
+    expect(await within(expanded()).findByRole('alert')).toHaveTextContent(
+      'That task cannot move yet',
+    );
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('says the state once when the derived words only restate the status', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('NORT-9.1');
+    // Queued is a reading the status alone does not give, so both are shown.
+    expect(within(expanded()).getByText('Queued')).toBeInTheDocument();
+
+    await user.click(
+      within(expanded()).getByRole('button', { name: 'Status of Watch the migration PR, todo' }),
+    );
+    await user.selectOptions(within(expanded()).getByRole('combobox'), 'blocked');
+
+    // "Blocked" is just `blocked` in words, so the strip does not say it twice.
+    expect(
+      await within(expanded()).findByRole('button', {
+        name: 'Status of Watch the migration PR, blocked',
+      }),
+    ).toBeInTheDocument();
+    expect(within(expanded()).queryByText('Blocked')).toBeNull();
+  });
+
+  it('a free agent has no status to set, because it has no task', async () => {
+    await renderApp();
+    clickNode('f2c6a9d4');
+    // The picker only appears once clicked, so its absence is the absence of
+    // the button that opens it: no button on the card names a task status.
+    const statuses = new Set<string>(TASK_STATUSES);
+    const opener = within(expanded())
+      .getAllByRole('button')
+      .find((b) => statuses.has(b.textContent ?? ''));
+    expect(opener).toBeUndefined();
   });
 });
 

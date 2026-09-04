@@ -7,6 +7,17 @@ export function describeDocumentStatus(status: string): string {
 }
 
 /**
+ * Whether `describeState` would only restate the task's status. True for the
+ * three statuses it reads straight off the task, so a view that already shows
+ * the status can drop the words rather than say the same thing twice.
+ */
+export function stateRestatesStatus(task: TaskRow | undefined, agent: Agent | undefined): boolean {
+  if (!task) return false;
+  if (task.status === 'done' || task.status === 'cancelled') return true;
+  return task.status === 'blocked' && !agent;
+}
+
+/**
  * A task's state in words, for the node and the expanded node. Raw agent
  * states such as `awaiting-question` never reach the screen.
  */
