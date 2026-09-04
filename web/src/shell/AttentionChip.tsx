@@ -5,6 +5,7 @@ import { filteredTasks } from '../selectors/graph';
 import { focusedTaskId } from '../selectors/tabs';
 import { useAppStore } from '../store/store';
 import { useCommand } from '../store/useCommand';
+import { AppButton } from '../ui/AppButton';
 import styles from './AttentionChip.module.css';
 
 /** `⚠N` in the top bar. Clicking expands the next node that needs the user and fits the view to it. */
@@ -43,16 +44,15 @@ export function AttentionChip() {
   };
 
   return (
-    <button
-      type="button"
+    <AppButton
       className={styles.chip}
       data-testid="attention-chip"
       data-count={count}
       aria-label={`${count} items need attention`}
-      onClick={() => void go()}
+      onClick={go}
       disabled={count === 0}
     >
       ⚠ {count}
-    </button>
+    </AppButton>
   );
 }

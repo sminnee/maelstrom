@@ -9,7 +9,7 @@ import styles from './SessionTab.module.css';
 
 /** The rich transcript plus an input. VS-Code-extension-like, not a terminal. */
 export function SessionTab({ agentId }: { agentId: string }) {
-  const { send, error } = useCommand();
+  const { send } = useCommand();
   const agent = useAppStore((s) => s.world.agents[agentId]);
   const task = useAppStore((s) => (agent ? s.world.tasks[agent.taskId] : undefined));
   const transcript = useAppStore((s) => s.transcripts[agentId]);
@@ -41,9 +41,9 @@ export function SessionTab({ agentId }: { agentId: string }) {
           deferredRequestId={deferred ? agent.pendingRequestId : null}
           handlers={{
             onAnswer: (requestId, answers) =>
-              void send({ type: 'agent.answer', agentId, requestId, answers }),
+              send({ type: 'agent.answer', agentId, requestId, answers }),
             onDecide: (requestId, decision, reason) =>
-              void send(
+              send(
                 decision === 'approve'
                   ? { type: 'agent.approve', agentId, requestId }
                   : {
@@ -57,11 +57,6 @@ export function SessionTab({ agentId }: { agentId: string }) {
         />
         <div ref={bottom} />
       </div>
-      {error && (
-        <div className={styles.error} role="alert">
-          {error}
-        </div>
-      )}
       <MessageInput
         disabled={agent.state === 'exited'}
         onSend={(text) => send({ type: 'agent.say', agentId, text })}

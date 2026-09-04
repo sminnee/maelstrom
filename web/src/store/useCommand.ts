@@ -1,33 +1,39 @@
-import { useCallback, useState } from 'react';
-import type { Command } from '../protocol/commands';
+import { useCallback } from 'react';
+import type { Command, ErrorCode, ResultFor } from '../protocol/commands';
 import { useBackend } from './backendContext';
 
+/** A refusal, or a transport failure, as one error the control that sent the command shows. */
+export class CommandError extends Error {
+  readonly code: ErrorCode | 'transport';
+  constructor(code: ErrorCode | 'transport', message: string) {
+    super(message);
+    this.name = 'CommandError';
+    this.code = code;
+  }
+}
+
 /**
- * Send a command and keep its last refusal for the UI to show. Every panel
- * that sends commands goes through this, so a refusal reads the same
- * everywhere.
+ * Send a command. The promise resolves with the result, or rejects with a
+ * `CommandError`: a refusal carries the server's code, a dropped or
+ * reconnecting socket the code `transport`. The control that sent it owns
+ * the pending and error states, so nothing here keeps them.
  */
 export function useCommand(): {
-  send: (cmd: Command) => Promise<boolean>;
-  error: string | null;
+  send: <C extends Command>(cmd: C) => Promise<ResultFor<C>>;
 } {
   const backend = useBackend();
-  const [error, setError] = useState<string | null>(null);
   const send = useCallback(
-    async (cmd: Command) => {
-      setError(null);
+    async <C extends Command>(cmd: C): Promise<ResultFor<C>> => {
+      let reply;
       try {
-        const reply = await backend.command(cmd);
-        if (!reply.ok) setError(`${reply.error.code}: ${reply.error.message}`);
-        return reply.ok;
+        reply = await backend.command(cmd);
       } catch (err) {
-        // The transport failed: the socket dropped mid-command, or it is
-        // reconnecting. Shown where a refusal would be, so nothing is silent.
-        setError(`transport: ${err instanceof Error ? err.message : String(err)}`);
-        return false;
+        throw new CommandError('transport', err instanceof Error ? err.message : String(err));
       }
+      if (!reply.ok) throw new CommandError(reply.error.code, reply.error.message);
+      return reply.result;
     },
     [backend],
   );
-  return { send, error };
+  return { send };
 }

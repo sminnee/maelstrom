@@ -16,7 +16,7 @@ unit that needs orders shows it on the canvas itself.
 | Protocol | `protocol/` | Entity types, events, commands, the `Backend` interface, and the pure reducers | Nothing |
 | Backends | `ws-backend/`, `fake-backend/` | The WebSocket client and the in-browser simulation, each implementing `Backend` | Protocol |
 | State | `store/`, `selectors/` | One zustand store and the pure functions that derive views from it | Protocol |
-| UI | `canvas/`, `tasklist/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, `sim/`, plus the `markdown/` and `styles/` they share, and `test/` for shared test helpers | React components and CSS | State, Protocol |
+| UI | `canvas/`, `tasklist/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, `sim/`, plus the `ui/`, `markdown/` and `styles/` they share, and `test/` for shared test helpers | React components and CSS | State, Protocol |
 
 The protocol has no React and no I/O. That is what lets the fake backend and the client share
 one reducer, and what lets the orchestrator server apply the same reducer in Python.
@@ -41,6 +41,14 @@ The events are `snapshot`, `upsert`, `remove`, `transcript.append`,
 `transcript.update`, `transcript.truncated` and `error`. An upsert carries the whole entity, so the client never merges.
 Each command is acked with `ok: true` or an error code mirroring the daemon's own refusals.
 `protocol/commands.ts` lists every command and every code.
+
+`store/useCommand.ts` sends one. Its promise resolves with the result, or rejects with a
+`CommandError` carrying the code: the server's on a refusal, `transport` when the socket dropped.
+Every control that sends a command is an `AppButton` (`ui/AppButton.tsx`), and the button owns
+what happens next. A handler that returns a promise puts the button in `processing`: disabled,
+busy, with a spinner. A rejection puts it in `error`: it reads "Failed", the message is its
+`title`, and a click retries. It is ready again after three seconds. So a refusal shows on the
+button that asked, and no view keeps an error of its own.
 
 On reconnect the client sends the last `seq` it applied. The server replays from its ring buffer
 when it can, else it sends a fresh snapshot.

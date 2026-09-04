@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Anchor, Comment } from '../../protocol/documents';
+import { AppButton } from '../../ui/AppButton';
 import type { Placed } from './useSelectionComment';
 import styles from './CommentMargin.module.css';
 
@@ -21,24 +22,19 @@ export function CommentMargin({
   selection: Placed | null;
   pending: Placed | null;
   onStart: () => void;
-  /** Resolves true when the comment was taken; false keeps the draft for a retry. */
-  onAdd: (anchor: Anchor, body: string) => Promise<boolean>;
+  /** Resolves once the comment was taken; a rejection keeps the draft for a retry. */
+  onAdd: (anchor: Anchor, body: string) => void | Promise<unknown>;
   onCancel: () => void;
-  onResolve: (commentId: string) => void;
+  onResolve: (commentId: string) => void | Promise<unknown>;
 }) {
   const [body, setBody] = useState('');
+  const add = async () => {
+    if (!pending || !body.trim()) return;
+    await onAdd(pending.anchor, body.trim());
+    setBody('');
+  };
   const composer = pending && (
-    <form
-      key="composer"
-      className={styles.composer}
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!body.trim()) return;
-        void onAdd(pending.anchor, body.trim()).then((ok) => {
-          if (ok) setBody('');
-        });
-      }}
-    >
+    <div key="composer" className={styles.composer}>
       <blockquote className={styles.quote}>{pending.anchor.quote}</blockquote>
       <textarea
         aria-label="Comment"
@@ -49,14 +45,14 @@ export function CommentMargin({
         placeholder="What should change here?"
       />
       <div className={styles.row}>
-        <button type="submit" className={styles.primary} disabled={!body.trim()}>
+        <AppButton variant="primary" disabled={!body.trim()} onClick={add}>
           Add comment
-        </button>
+        </AppButton>
         <button type="button" className={styles.quiet} onClick={onCancel}>
           Cancel
         </button>
       </div>
-    </form>
+    </div>
   );
   const rows = comments.map((c) => (
     <div key={c.id} className={styles.comment} data-resolved={c.resolved || undefined}>
@@ -66,9 +62,9 @@ export function CommentMargin({
         {c.author} · v{c.version}
         {c.resolved ? ' · resolved' : ''}
         {!c.resolved && (
-          <button type="button" className={styles.resolve} onClick={() => onResolve(c.id)}>
+          <AppButton className={styles.resolve} onClick={() => onResolve(c.id)}>
             Resolve
-          </button>
+          </AppButton>
         )}
       </div>
     </div>

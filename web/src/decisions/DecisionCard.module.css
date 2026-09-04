@@ -31,7 +31,3 @@
 .tool {
   font-weight: 600;
 }
-.error {
-  color: var(--danger);
-  font-size: var(--text-sm);
-}

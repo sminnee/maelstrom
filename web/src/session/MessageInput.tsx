@@ -1,35 +1,27 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { AppButton } from '../ui/AppButton';
 import styles from './MessageInput.module.css';
 
 export function MessageInput({
   onSend,
   disabled,
 }: {
-  /** Resolves true when the agent took the message; false keeps the text for a retry. */
-  onSend: (text: string) => Promise<boolean>;
+  /** Resolves once the agent took the message; a rejection keeps the text for a retry. */
+  onSend: (text: string) => void | Promise<unknown>;
   disabled?: boolean;
 }) {
   const [text, setText] = useState('');
-  const [sending, setSending] = useState(false);
+  const sendButton = useRef<HTMLButtonElement>(null);
+  const trimmed = text.trim();
+  // The button owns the send: pending, failed, retried. Enter presses it, so
+  // both paths share one state.
   const send = async () => {
-    const trimmed = text.trim();
-    if (!trimmed || sending) return;
-    setSending(true);
-    try {
-      if (await onSend(trimmed)) setText('');
-    } finally {
-      setSending(false);
-    }
+    if (!trimmed) return;
+    await onSend(trimmed);
+    setText('');
   };
-  const blocked = disabled || sending;
   return (
-    <form
-      className={styles.form}
-      onSubmit={(e) => {
-        e.preventDefault();
-        void send();
-      }}
-    >
+    <div className={styles.form}>
       <textarea
         className={styles.input}
         aria-label="Message to agent"
@@ -37,19 +29,19 @@ export function MessageInput({
           disabled ? 'The agent has exited.' : 'Say something to the agent… (Enter to send)'
         }
         value={text}
-        disabled={blocked}
+        disabled={disabled}
         rows={2}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            void send();
+            sendButton.current?.click();
           }
         }}
       />
-      <button type="submit" disabled={blocked || !text.trim()}>
+      <AppButton ref={sendButton} disabled={disabled || !trimmed} onClick={send}>
         Send
-      </button>
-    </form>
+      </AppButton>
+    </div>
   );
 }

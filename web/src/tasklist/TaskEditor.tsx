@@ -4,6 +4,7 @@ import type { Task, TaskMode } from '../protocol/entities';
 import { KNOWN_COMMANDS } from '../protocol/phase';
 import { useAppStore } from '../store/store';
 import { useCommand } from '../store/useCommand';
+import { AppButton } from '../ui/AppButton';
 import styles from './TaskEditor.module.css';
 
 const MODES: TaskMode[] = ['plan', 'auto', 'normal'];
@@ -13,7 +14,7 @@ const PRIORITIES = ['critical', 'high', 'medium', 'low'];
 /** Edits one task's fields. Save writes only the fields the user changed. */
 export function TaskEditor({ task }: { task: Task }) {
   const close = useAppStore((s) => s.setEditingTask);
-  const { send, error } = useCommand();
+  const { send } = useCommand();
   const [draft, setDraft] = useState(() => seed(task));
   const [confirming, setConfirming] = useState(false);
   // Frozen: the store's copy moves as the server publishes, and diffing
@@ -52,7 +53,8 @@ export function TaskEditor({ task }: { task: Task }) {
     const fields = changed(opened.current, draft);
     // Nothing moved: the same close as Cancel, rather than a refused command.
     if (Object.keys(fields).length === 0) return close(null);
-    if (await send({ type: 'task.update', taskId: task.id, fields })) close(null);
+    await send({ type: 'task.update', taskId: task.id, fields });
+    close(null);
   };
 
   return (
@@ -134,7 +136,6 @@ export function TaskEditor({ task }: { task: Task }) {
           </label>
         </details>
 
-        {error && <p className={styles.error}>{error}</p>}
         {confirming && (
           <p className={styles.confirm} role="alert">
             <span>Throw away your changes?</span>
@@ -150,9 +151,9 @@ export function TaskEditor({ task }: { task: Task }) {
           <button type="button" onClick={leave}>
             Cancel
           </button>
-          <button type="button" className={styles.primary} onClick={() => void save()}>
+          <AppButton variant="primary" onClick={save}>
             Save
-          </button>
+          </AppButton>
         </footer>
       </div>
     </div>

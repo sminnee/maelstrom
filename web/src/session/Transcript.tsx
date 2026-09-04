@@ -10,8 +10,12 @@ import { classifyToolCall } from './toolCards';
 import styles from './Transcript.module.css';
 
 export interface TranscriptHandlers {
-  onAnswer?: (requestId: string, answers: Record<string, string>) => void;
-  onDecide?: (requestId: string, decision: 'approve' | 'deny', reason: string) => void;
+  onAnswer?: (requestId: string, answers: Record<string, string>) => void | Promise<unknown>;
+  onDecide?: (
+    requestId: string,
+    decision: 'approve' | 'deny',
+    reason: string,
+  ) => void | Promise<unknown>;
 }
 
 /** The rich transcript: one card per item, in order. */

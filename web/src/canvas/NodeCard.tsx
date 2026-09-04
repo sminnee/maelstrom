@@ -12,6 +12,7 @@ import { PanelLink } from '../shell/PanelLink';
 import { useAppStore } from '../store/store';
 import { useCommand } from '../store/useCommand';
 import { phaseLabel } from '../protocol/phase';
+import { AppButton } from '../ui/AppButton';
 import { NODE } from './layout';
 import styles from './NodeCard.module.css';
 
@@ -41,7 +42,7 @@ export function NodeCard({
   const world = useAppStore((s) => s.world);
   const transcript = useAppStore((s) => s.transcripts[node.agent?.id ?? '']);
   const collapseNode = useAppStore((s) => s.collapseNode);
-  const { send, error } = useCommand();
+  const { send } = useCommand();
   const { getViewport, setViewport } = useReactFlow();
   const card = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
@@ -261,45 +262,38 @@ export function NodeCard({
             </div>
             <div className={styles.commands}>
               {!agent && task?.actionable && (
-                <button
-                  type="button"
-                  className={styles.primary}
-                  onClick={() => void send({ type: 'agent.launch', taskId: task.id })}
+                <AppButton
+                  variant="primary"
+                  processingChildren="Launching"
+                  onClick={() => send({ type: 'agent.launch', taskId: task.id })}
                 >
                   Launch
-                </button>
+                </AppButton>
               )}
               {node.kind === 'freeAgent' && agent && (
-                <button
-                  type="button"
-                  className={styles.quiet}
+                <AppButton
+                  variant="quiet"
                   // Disabled while live: the node draws regardless, so a
                   // dismiss now would do nothing.
                   disabled={agent.state !== 'exited'}
-                  onClick={() => {
+                  onClick={async () => {
+                    await send({ type: 'desk.remove', id: deskIdForAgent(agent.id) });
                     collapseNode();
-                    void send({ type: 'desk.remove', id: deskIdForAgent(agent.id) });
                   }}
                 >
                   Dismiss
-                </button>
+                </AppButton>
               )}
               {agent && agent.state !== 'exited' && (
-                <button
-                  type="button"
-                  className={styles.quiet}
-                  onClick={() => void send({ type: 'agent.stop', agentId: agent.id })}
+                <AppButton
+                  variant="quiet"
+                  onClick={() => send({ type: 'agent.stop', agentId: agent.id })}
                 >
                   Stop
-                </button>
+                </AppButton>
               )}
             </div>
           </footer>
-          {error && (
-            <div className={styles.error} role="alert">
-              {error}
-            </div>
-          )}
         </div>
       </div>
     </ViewportPortal>
