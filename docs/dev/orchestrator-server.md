@@ -70,15 +70,19 @@ applied as-is.
 
 An exited id that comes back live is the same agent again, not a new one: a resume keeps the
 agent id. The server clears the exit code, clears the attention item the exit raised, and attaches
-a second time. The re-attached backlog re-normalises into the same transcript, which still holds
-the turns from before the exit.
+a second time. The re-attached backlog is relayed with the ids it already had, so a client that
+holds those items applies nothing new.
 
-Adoption waits for the host's replayed backlog to end, so the next snapshot already holds the
-agent's transcript and the wait it is in. A backlog the size of the host's window (200 events)
-marks the transcript `truncatedBefore` through a `transcript.truncated` event.
+Every attach opens with the host's `mael_agent_detail` frame, which says what the agent is
+waiting on. A wait it reports that the world does not already hold is raised here, so a wait that
+opened before this server attached is still answerable.
 
-The server keeps the full transcript from the moment it attaches. The host keeps only 200 raw
-events, so a server restart loses what came before those.
+Adoption waits for the host's replayed backlog to end. A backlog the size of the host's window
+(200 events) publishes a `transcript.truncated` event.
+
+**The server keeps no transcript.** It normalises the host's stream into transcript events and
+relays them; it does not accumulate them. The projection belongs next to the thing that renders
+it, so the browser's reducer keeps that map.
 
 ### Links
 
@@ -175,7 +179,7 @@ Every event in the table below is the `event` value of such a frame.
 
 | Event | Carries |
 |---|---|
-| `snapshot` | `world` and `transcripts`, whole |
+| `snapshot` | `world`, whole. No transcripts: the server holds none |
 | `upsert` | `kind` and the whole `entity` |
 | `remove` | `kind` and `id` |
 | `transcript.append` | `agentId` and the `item` |
@@ -290,8 +294,9 @@ The first command that needs the agent host starts one, as `mael agent` does.
   exit the stream missed, and nothing else.
 - Agents started outside the server attach with a 200-event backlog, and link to a task only when
   started with the task's session id.
-- A server restart loses every transcript beyond the host's 200 events. Claude's own session
-  transcript holds the whole conversation, but nothing reads it back yet.
+- A client that connects mid-life gets no scrollback, and an open wait renders with an empty
+  "Before this" block. It fills in from the events relayed after it arrives. Reading Claude's own
+  session transcript back through the normaliser would fix both, and is not built.
 - The snapshot carries every task in every project, content included. A large notebook makes a
   large snapshot; a client library with a receive limit must raise it.
 - `stop` removes the agent from the host. The server marks it `exited(0)` on the ok reply.
