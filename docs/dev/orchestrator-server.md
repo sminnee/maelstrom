@@ -195,7 +195,9 @@ A command carries an id the reply echoes:
 {"reply": {"id": "c7", "ok": false, "error": {"code": "not_waiting", "message": "Agent 1761dcf6 is not waiting"}}}
 ```
 
-A command's consequences are published as frames before its reply arrives.
+A refused command publishes nothing. A command the server relays to the host has its
+consequences published when the host's stream reports them, which can be after the reply. See
+"The host owns the control plane" below.
 
 | Command | Reaches the host as | Result |
 |---|---|---|
@@ -225,10 +227,19 @@ canvas keeps drawing the node until the agent stops.
 `document.*`, `comment.*`, `task.create` and `shaping.start` answer `invalid`. `updatedInput` on
 `agent.approve` is ignored: the host approves a call with its input as proposed.
 
-The server applies the `control_response` or `user` turn the host wrote through the normaliser,
-so the world shows the answer at once. The host echoes its own replies into the stream as well,
-so both copies arrive. The duplicate is harmless: the normaliser ignores a response for a request
-no longer pending.
+### The host owns the control plane
+
+The four commands that write to the child — `agent.approve`, `agent.deny`, `agent.answer` and
+`agent.say` — are pure relays. The server validates, asks the host, and returns. It builds no
+reply of its own.
+
+This works because the host records the `control_response` it writes onto the child's event
+stream, so the wait resolves when that event arrives on the attach stream, like any other. A
+`say` is not recorded: the child replays a user turn itself.
+
+Two things follow. An answer made anywhere reaches the UI, `mael agent approve` included. And the
+server holds no opinion about how a wait is answered, so the reply shapes live in one place, the
+daemon.
 
 A wait can also end with no answer at all — see `CONTEXT.md`, "Stale prompt". A turn's `result`,
 a `control_cancel_request` and an agent exit all end the wait, and the normaliser marks the

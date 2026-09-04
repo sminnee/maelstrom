@@ -510,14 +510,12 @@ class Orchestrator:
 
         Every command is validated against the world first, so the host is
         only asked things it can do. The agent commands then become one host
-        request each; the world change comes back as events, either from the
-        host's stream or synthesised here as the reply shape the host itself
-        would have written (a ``control_response``, a ``user`` turn), which the
-        normaliser handles like any other stream event. The desk and task
-        commands reach the host not at all: the desk is the server's own table,
-        and a task write goes to the notebook. Everything but those eleven
-        answers ``invalid``: documents, comments, task creation and shaping are
-        out of scope for this server.
+        request each, and nothing more: the world change comes back on the
+        host's own stream, because the host records what it writes to the
+        child. The desk and task commands reach the host not at all: the desk
+        is the server's own table, and a task write goes to the notebook.
+        Everything but those eleven answers ``invalid``: documents, comments,
+        task creation and shaping are out of scope for this server.
         """
         kind = str(command.get("type"))
         handlers = {
@@ -548,95 +546,40 @@ class Orchestrator:
             return _refused(_code_for(reply["error"]), reply["error"])
         return None
 
-    async def _resolve(
-        self, agent_id: str, request_id: str, response: dict[str, Any]
-    ) -> None:
-        """Apply the reply the host wrote, as the stream would show it.
-
-        The host does not echo its own ``control_response`` into the stream,
-        so the wait would otherwise stay open in the world. If a later host
-        does echo it, the normaliser ignores a response for a request no
-        longer pending, so nothing is applied twice.
-        """
-        watch = self._watches.get(agent_id)
-        if watch is None:
-            log.warning("agent %s answered, but its stream is not attached", agent_id)
-            return
-        raw = {
-            "type": "control_response",
-            "response": {
-                "subtype": "success",
-                "request_id": request_id,
-                "response": response,
-            },
-        }
-        await self._normalise(watch, raw)
-
-    def _pending_input(self, agent_id: str) -> dict[str, Any]:
-        watch = self._watches.get(agent_id)
-        pending = watch.ctx.pending if watch else None
-        return dict(pending.input) if pending else {}
-
     async def _approve(self, command: dict[str, Any]) -> dict[str, Any]:
-        agent_id = command["agentId"]
-        refused = await self._ask_host({"cmd": "approve", "id": agent_id})
-        if refused:
-            return refused
-        await self._resolve(
-            agent_id,
-            command["requestId"],
-            {"behavior": "allow", "updatedInput": self._pending_input(agent_id)},
-        )
-        return {"ok": True, "result": {}}
+        return await self._relay({"cmd": "approve", "id": command["agentId"]})
 
     async def _deny(self, command: dict[str, Any]) -> dict[str, Any]:
-        agent_id = command["agentId"]
-        reason = command["reason"]
-        refused = await self._ask_host(
-            {"cmd": "deny", "id": agent_id, "reason": reason}
+        return await self._relay(
+            {"cmd": "deny", "id": command["agentId"], "reason": command["reason"]}
         )
-        if refused:
-            return refused
-        await self._resolve(
-            agent_id, command["requestId"], {"behavior": "deny", "message": reason}
-        )
-        return {"ok": True, "result": {}}
 
     async def _answer(self, command: dict[str, Any]) -> dict[str, Any]:
-        agent_id = command["agentId"]
-        answers = dict(command["answers"])
-        refused = await self._ask_host(
-            {"cmd": "answer", "id": agent_id, "answers": answers}
-        )
-        if refused:
-            return refused
-        await self._resolve(
-            agent_id,
-            command["requestId"],
+        return await self._relay(
             {
-                "behavior": "allow",
-                "updatedInput": {**self._pending_input(agent_id), "answers": answers},
-            },
+                "cmd": "answer",
+                "id": command["agentId"],
+                "answers": dict(command["answers"]),
+            }
         )
-        return {"ok": True, "result": {}}
 
     async def _say(self, command: dict[str, Any]) -> dict[str, Any]:
-        agent_id = command["agentId"]
-        text = command["text"]
-        refused = await self._ask_host({"cmd": "say", "id": agent_id, "text": text})
+        return await self._relay(
+            {"cmd": "say", "id": command["agentId"], "text": command["text"]}
+        )
+
+    async def _relay(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Ask the host, and let its stream say what happened.
+
+        The four commands that write to the child are pure relays: the host
+        echoes what it writes, so the wait resolves and the turn appears when
+        that event arrives on the attach stream, like any other. The server
+        holds no opinion about how a wait is answered — which is also why an
+        answer made from ``mael agent approve`` reaches the UI.
+        """
+        refused = await self._ask_host(payload)
         if refused:
             return refused
-        watch = self._watches.get(agent_id)
-        if watch is not None:
-            # The host does not echo a user turn either; show what was said.
-            raw = {
-                "type": "user",
-                "message": {
-                    "role": "user",
-                    "content": [{"type": "text", "text": text}],
-                },
-            }
-            await self._normalise(watch, raw)
         return {"ok": True, "result": {}}
 
     async def _stop(self, command: dict[str, Any]) -> dict[str, Any]:
