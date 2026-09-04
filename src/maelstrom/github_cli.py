@@ -1,5 +1,6 @@
 """CLI commands for GitHub operations."""
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from .github import (
     wait_for_checks,
     wait_for_review,
 )
+from .github_model import GitHubError, SyncFailed
 
 
 @click.group("gh")
@@ -35,7 +37,7 @@ def _handle_wait_for_review(cwd: Path) -> None:
     except TimeoutError as e:
         click.echo(str(e), err=True)
         sys.exit(2)
-    except RuntimeError as e:
+    except GitHubError as e:
         raise click.ClickException(str(e))
 
     location = ""
@@ -125,7 +127,11 @@ def gh_create_pr(
         else:
             click.echo(f"Pushed to existing PR: {url}")
         _open_pr_in_cmux(url)
-    except Exception as e:
+    except (GitHubError, SyncFailed, subprocess.CalledProcessError) as e:
+        # CalledProcessError is the belt to `create_pr`'s braces: it converts the
+        # git calls it makes directly, but `sync_worktree` and `update_local_main`
+        # are not bounded to GitHubError yet. A git failure must read as a
+        # message, not a traceback.
         raise click.ClickException(str(e))
 
     # If issue_id provided, update Linear task status
@@ -202,7 +208,7 @@ def gh_create_pr(
         except TimeoutError as e:
             click.echo(str(e), err=True)
             sys.exit(2)
-        except RuntimeError as e:
+        except GitHubError as e:
             raise click.ClickException(str(e))
 
     if wait_for_review_flag:
@@ -243,7 +249,7 @@ def gh_wait_for_pr(target, timeout, interval):
     except TimeoutError as e:
         click.echo(str(e), err=True)
         sys.exit(2)
-    except RuntimeError as e:
+    except GitHubError as e:
         raise click.ClickException(str(e))
 
 
@@ -417,7 +423,7 @@ def gh_read_pr(target, wait, wait_for_review_flag, all_comments):
 
     try:
         pr_info = read_pr(cwd=cwd)
-    except RuntimeError as e:
+    except GitHubError as e:
         raise click.ClickException(str(e))
 
     # Print header
@@ -501,7 +507,7 @@ def gh_read_pr(target, wait, wait_for_review_flag, all_comments):
         except TimeoutError as e:
             click.echo(str(e), err=True)
             sys.exit(2)
-        except RuntimeError as e:
+        except GitHubError as e:
             raise click.ClickException(str(e))
 
     if wait_for_review_flag:
@@ -526,7 +532,7 @@ def gh_download_artifact(run_id, artifact_name):
                 click.echo(f"  {f}")
         else:
             click.echo("\nNo files found in artifact.")
-    except RuntimeError as e:
+    except GitHubError as e:
         raise click.ClickException(str(e))
 
 
@@ -542,7 +548,7 @@ def gh_check_log(run_id, failed_only):
             failed_only=failed_only,
         )
         click.echo(logs)
-    except RuntimeError as e:
+    except GitHubError as e:
         raise click.ClickException(str(e))
 
 
@@ -563,10 +569,9 @@ def gh_show_code(target, committed, uncommitted):
     else:
         cwd = Path.cwd()
 
-    try:
-        commits_output, uncommitted_output = get_worktree_code(cwd)
-    except RuntimeError as e:
-        raise click.ClickException(str(e))
+    # No try: `get_worktree_code` never raises — either half reads as empty
+    # when git cannot produce it.
+    commits_output, uncommitted_output = get_worktree_code(cwd)
 
     # Determine what to show based on flags
     show_committed = not uncommitted

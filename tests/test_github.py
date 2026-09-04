@@ -1,5 +1,6 @@
 """Tests for GitHub polling helpers."""
 
+import contextlib
 import json
 import subprocess
 from pathlib import Path
@@ -10,14 +11,25 @@ import pytest
 
 from maelstrom.base_store import InMemoryBaseStore
 from maelstrom.github import (
-    CheckRun,
-    PRInfo,
     create_pr,
     create_project_repo,
     get_open_prs,
+    get_pr_checks,
+    get_pr_comments,
+    get_repo_info,
+    get_run_artifacts,
     get_worktree_code,
-    stack_chain,
+    read_pr,
     wait_for_merge,
+)
+from maelstrom.github_model import (
+    CheckRun,
+    GitHubCliMissing,
+    GitHubCommandFailed,
+    GitHubError,
+    PRInfo,
+    PullRequestNotMergeable,
+    SyncFailed,
 )
 from maelstrom.worktree import SyncResult
 from maelstrom.worktree_model import BaseRef
@@ -67,7 +79,7 @@ class TestWaitForMerge:
             patch("maelstrom.github.get_pr_info", return_value=_pr(state="CLOSED")),
             patch("maelstrom.github.get_pr_checks", return_value=[]),
         ):
-            with pytest.raises(RuntimeError, match="closed without merging"):
+            with pytest.raises(PullRequestNotMergeable, match="closed without merging"):
                 wait_for_merge(Path("."), timeout=10, poll_interval=0)
 
     def test_terminal_failed_check_raises(self):
@@ -78,7 +90,7 @@ class TestWaitForMerge:
                 return_value=[_check("lint", "SUCCESS"), _check("test", "FAILURE")],
             ),
         ):
-            with pytest.raises(RuntimeError, match="failing checks: test"):
+            with pytest.raises(PullRequestNotMergeable, match="failing checks: test"):
                 wait_for_merge(Path("."), timeout=10, poll_interval=0)
 
     def test_pending_checks_do_not_raise(self):
@@ -217,17 +229,17 @@ class TestCreateProjectRepo:
         _, seen = self._run_create("proj")
         assert ["git", "remote", "get-url", "origin"] not in [cmd for cmd, _ in seen]
 
-    def test_called_process_error_becomes_runtime_error(self):
+    def test_called_process_error_becomes_a_typed_command_failure(self):
         err = subprocess.CalledProcessError(1, ["gh"], stderr="name already exists")
         with patch("maelstrom.github.run_cmd", side_effect=err):
             with pytest.raises(
-                RuntimeError, match="Failed to create GitHub repository"
+                GitHubCommandFailed, match="Failed to create GitHub repository"
             ):
                 create_project_repo("proj")
 
-    def test_missing_gh_becomes_runtime_error(self):
+    def test_missing_gh_becomes_a_typed_missing_cli_error(self):
         with patch("maelstrom.github.run_cmd", side_effect=FileNotFoundError()):
-            with pytest.raises(RuntimeError, match="gh.*not installed"):
+            with pytest.raises(GitHubCliMissing, match="gh.*not installed"):
                 create_project_repo("proj")
 
 
@@ -334,7 +346,7 @@ class TestCreatePrAutorepair:
         with patch(
             "maelstrom.github.sync_worktree_with_autorepair", return_value=stranded
         ):
-            with pytest.raises(RuntimeError, match="git rebase --continue"):
+            with pytest.raises(SyncFailed, match="git rebase --continue"):
                 create_pr(cwd=tmp_path, autorepair=True)
 
 
@@ -674,32 +686,86 @@ class TestGetWorktreeCodeUsesTheBase:
         assert merge_bases == [["merge-base", "HEAD", "origin/main"]]
 
 
-class TestStackChain:
-    """`stack_chain` — the bottom-to-top branch list `gh stack link` wants."""
+class TestReadersDegradeOnUnparseableOutput:
+    """gh printing something that is not JSON must not crash the reader.
 
-    def test_an_unstacked_branch_is_a_chain_of_one(self):
-        assert stack_chain("feat/solo", {}) == ["feat/solo"]
+    The parsers own ``json.loads`` now, so the transport layer has to keep
+    catching ``JSONDecodeError`` around the parse call rather than only around
+    ``run_cmd``. Nothing pinned that before this split.
+    """
 
-    def test_a_two_branch_stack_reads_bottom_to_top(self):
-        assert stack_chain("feat/b", {"feat/b": "feat/a"}) == ["feat/a", "feat/b"]
+    def test_pr_comments_read_as_empty(self):
+        with patch(
+            "maelstrom.github.run_cmd",
+            return_value=SimpleNamespace(returncode=0, stdout="not json", stderr=""),
+        ):
+            assert get_pr_comments(Path("."), "o", "r", 7) == ([], None)
 
-    def test_a_deep_stack_reads_bottom_to_top(self):
-        bases = {"feat/c": "feat/b", "feat/b": "feat/a"}
-        assert stack_chain("feat/c", bases) == ["feat/a", "feat/b", "feat/c"]
+    def test_pr_checks_read_as_empty(self):
+        with patch(
+            "maelstrom.github.run_cmd",
+            return_value=SimpleNamespace(returncode=0, stdout="not json", stderr=""),
+        ):
+            assert get_pr_checks(Path(".")) == []
 
-    def test_the_walk_stops_at_main(self):
-        assert stack_chain("feat/b", {"feat/b": "feat/a", "feat/a": "main"}) == [
-            "feat/a",
-            "feat/b",
-        ]
+    def test_run_artifacts_read_as_empty(self):
+        with patch(
+            "maelstrom.github.run_cmd",
+            return_value=SimpleNamespace(returncode=0, stdout="not json", stderr=""),
+        ):
+            assert get_run_artifacts(Path("."), "12345") == []
 
-    def test_unrelated_bases_do_not_join_the_chain(self):
-        bases = {"feat/b": "feat/a", "feat/x": "feat/y"}
-        assert stack_chain("feat/b", bases) == ["feat/a", "feat/b"]
 
-    def test_a_cycle_terminates_rather_than_hanging(self):
-        """Cycles are rejected at set time; this is the belt-and-braces stop."""
-        assert stack_chain("feat/a", {"feat/a": "feat/b", "feat/b": "feat/a"}) == [
-            "feat/b",
-            "feat/a",
-        ]
+class TestReadPrRepoInfoFailure:
+    """`read_pr` degrades on a repo lookup that failed, but not on a broken gh.
+
+    Without repo owner/name there is no GraphQL query to run, so the PR renders
+    with no comments. That is the right answer for a repo gh could not read, and
+    the wrong one for a gh that is not installed — an empty comment list would
+    hide the real fault.
+    """
+
+    @staticmethod
+    def _patches(repo_info_error):
+        return (
+            patch("maelstrom.github.get_pr_info", return_value=_pr()),
+            patch("maelstrom.github.get_repo_info", side_effect=repo_info_error),
+            patch("maelstrom.github.get_pr_checks", return_value=[]),
+        )
+
+    def test_a_failed_repo_lookup_leaves_the_comments_empty(self):
+        err = GitHubCommandFailed("get repo info", "not a git repository")
+        with contextlib.ExitStack() as stack:
+            for p in self._patches(err):
+                stack.enter_context(p)
+            info = read_pr(Path("."))
+        assert info.comments == []
+
+    def test_a_missing_gh_propagates_rather_than_reading_as_no_comments(self):
+        with contextlib.ExitStack() as stack:
+            for p in self._patches(GitHubCliMissing("gh")):
+                stack.enter_context(p)
+            with pytest.raises(GitHubCliMissing):
+                read_pr(Path("."))
+
+
+class TestGetRepoInfoUnexpectedFormat:
+    """gh answering in a shape we cannot read is not a command failure."""
+
+    def test_it_keeps_the_message_it_always_had(self):
+        with patch(
+            "maelstrom.github.run_cmd",
+            return_value=SimpleNamespace(returncode=0, stdout="justaname", stderr=""),
+        ):
+            with pytest.raises(GitHubError, match="Unexpected repo format: justaname"):
+                get_repo_info(Path("."))
+
+    def test_it_is_not_reported_as_a_failed_command(self):
+        """Nothing errored, so `.stderr` would be a string no subprocess wrote."""
+        with patch(
+            "maelstrom.github.run_cmd",
+            return_value=SimpleNamespace(returncode=0, stdout="justaname", stderr=""),
+        ):
+            with pytest.raises(GitHubError) as excinfo:
+                get_repo_info(Path("."))
+        assert not isinstance(excinfo.value, GitHubCommandFailed)

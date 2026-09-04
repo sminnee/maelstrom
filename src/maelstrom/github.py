@@ -1,15 +1,45 @@
-"""GitHub integration for maelstrom projects."""
+"""GitHub transport for maelstrom projects — the adapter over ``gh`` and ``git``.
+
+Every function here shells out through ``run_cmd`` or ``run_git``, hands the raw
+output to a parser in ``github_model``, and turns a failure into a typed
+``GitHubError``. The domain logic — the dataclasses, the parsers, the stack walk,
+the errors — lives in ``github_model`` and needs no subprocess to exercise.
+
+``run_cmd`` is the mock seam these functions are tested through; nothing wraps it,
+so a test can patch this module's attribute directly.
+"""
 
 import json
 import os
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, TypeVar
 
 from .base_store import GitConfigBaseStore
+from .github_model import (
+    PASSING_STATES,
+    TERMINAL_STATES,
+    Artifact,
+    CheckRun,
+    GitHubCliMissing,
+    GitHubCommandFailed,
+    GitHubError,
+    NoChecksFound,
+    NoPullRequest,
+    PRComment,
+    PRInfo,
+    PullRequestNotMergeable,
+    SyncFailed,
+    is_missing_pr_error,
+    parse_artifacts,
+    parse_check_runs,
+    parse_open_prs_page,
+    parse_pr_comments,
+    parse_pr_info,
+    stack_chain,
+)
 from .project_scaffold import scaffold_files
 from .shell import run_cmd
 from .worktree import (
@@ -22,55 +52,6 @@ from .worktree import (
 from .worktree_model import MAIN_BRANCH, REPAIRED_MESSAGE, print_flushed
 
 
-@dataclass
-class PRComment:
-    """A flat comment on a PR (inline thread reply, top-level issue comment, or review summary)."""
-
-    author: str
-    body: str
-    created_at: str
-    kind: str  # "thread" | "issue" | "review"
-    path: str | None = None
-    line: int | None = None
-    thread_id: str | None = None
-
-
-@dataclass
-class CheckRun:
-    """A CI check run."""
-
-    name: str
-    state: str  # "SUCCESS", "FAILURE", "PENDING", etc.
-    run_id: str | None
-    link: str
-
-
-@dataclass
-class Artifact:
-    """A workflow run artifact."""
-
-    name: str
-    size: int  # bytes
-
-
-@dataclass
-class PRInfo:
-    """Information about a pull request."""
-
-    number: int
-    title: str
-    url: str
-    state: str  # "OPEN", "MERGED", "CLOSED"
-    merged: bool
-    head_ref: str
-    comments: list[PRComment] = field(default_factory=list)
-    last_push_at: str | None = None
-    checks: list[CheckRun] = field(default_factory=list)
-    artifacts: dict[str, list[Artifact]] = field(
-        default_factory=dict
-    )  # run_id -> artifacts
-
-
 def get_repo_info(cwd: Path) -> tuple[str, str]:
     """Get the owner and repo name from the git remote.
 
@@ -81,7 +62,8 @@ def get_repo_info(cwd: Path) -> tuple[str, str]:
         Tuple of (owner, repo).
 
     Raises:
-        RuntimeError: If unable to determine repo info.
+        GitHubCommandFailed: If gh cannot read the repo.
+        GitHubCliMissing: If gh is not installed.
     """
     try:
         result = run_cmd(
@@ -100,12 +82,13 @@ def get_repo_info(cwd: Path) -> tuple[str, str]:
         )
         parts = result.stdout.strip().split("/")
         if len(parts) != 2:
-            raise RuntimeError(f"Unexpected repo format: {result.stdout.strip()}")
+            # No command failed here — gh answered, in a shape we cannot read.
+            raise GitHubError(f"Unexpected repo format: {result.stdout.strip()}")
         return parts[0], parts[1]
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Failed to get repo info: {e.stderr}")
+        raise GitHubCommandFailed("get repo info", e.stderr)
     except FileNotFoundError:
-        raise RuntimeError("GitHub CLI (gh) is not installed")
+        raise GitHubCliMissing("gh")
 
 
 def create_project_repo(
@@ -126,7 +109,8 @@ def create_project_repo(
         The HTTPS clone URL of the new repository.
 
     Raises:
-        RuntimeError: If the repository cannot be created.
+        GitHubCommandFailed: If gh cannot create the repository.
+        GitHubCliMissing: If gh is not installed.
     """
     local_name = name.split("/")[-1]
 
@@ -168,9 +152,9 @@ def create_project_repo(
             )
             return result.stdout.strip()
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Failed to create GitHub repository: {e.stderr}")
+        raise GitHubCommandFailed("create GitHub repository", e.stderr)
     except FileNotFoundError:
-        raise RuntimeError("GitHub CLI (gh) is not installed")
+        raise GitHubCliMissing("gh")
 
 
 def get_pr_number_for_branch(cwd: Path, branch: str) -> int | None:
@@ -308,25 +292,11 @@ def get_open_prs(cwd: Path) -> dict[str, tuple[int, int]] | None:
             if result.returncode != 0 or not result.stdout.strip():
                 return None
 
-            payload = json.loads(result.stdout.strip())
-            # gh exits 0 on a GraphQL error payload (rate limit, bad scope), so
-            # the return code alone does not prove the data is there.
-            if payload.get("errors"):
-                return None
-            connection = payload["data"]["repository"]["pullRequests"]
-
-            for node in connection["nodes"]:
-                prs[node["headRefName"]] = (
-                    int(node["number"]),
-                    int(node["commits"]["totalCount"]),
-                )
-
-            page_info = connection.get("pageInfo") or {}
-            if not page_info.get("hasNextPage"):
+            page = parse_open_prs_page(result.stdout.strip())
+            prs.update(page.prs)
+            if not page.has_next or not page.cursor:
                 return prs
-            cursor = page_info.get("endCursor")
-            if not cursor:
-                return prs
+            cursor = page.cursor
         # Ran out of pages before the cursor did. Report failure rather than a
         # truncated map that would silently blank the overflow branches.
         return None
@@ -344,7 +314,9 @@ def get_pr_url(cwd: Path) -> str:
         The PR URL.
 
     Raises:
-        RuntimeError: If no PR exists or gh command fails.
+        NoPullRequest: If the branch has no PR.
+        GitHubCommandFailed: If gh fails for any other reason.
+        GitHubCliMissing: If gh is not installed.
     """
     try:
         result = run_cmd(
@@ -355,14 +327,14 @@ def get_pr_url(cwd: Path) -> str:
         )
         url = result.stdout.strip()
         if not url:
-            raise RuntimeError("No pull request found for current branch")
+            raise NoPullRequest()
         return url
     except subprocess.CalledProcessError as e:
-        if "no pull requests found" in e.stderr.lower():
-            raise RuntimeError("No pull request found for current branch")
-        raise RuntimeError(f"Failed to get PR URL: {e.stderr}")
+        if is_missing_pr_error(e.stderr):
+            raise NoPullRequest()
+        raise GitHubCommandFailed("get PR URL", e.stderr)
     except FileNotFoundError:
-        raise RuntimeError("GitHub CLI (gh) is not installed")
+        raise GitHubCliMissing("gh")
 
 
 def create_pr(
@@ -396,7 +368,9 @@ def create_pr(
         Tuple of (PR URL, created) where created is True if new PR was created.
 
     Raises:
-        RuntimeError: If sync fails (conflicts) or PR creation/push fails.
+        SyncFailed: If the pre-push rebase fails.
+        GitHubCommandFailed: If the push or the PR creation fails.
+        GitHubCliMissing: If gh or git is not installed.
     """
     if cwd is None:
         cwd = Path.cwd()
@@ -413,14 +387,14 @@ def create_pr(
         # name a rebase that is no longer there. A repair that failed without
         # aborting — one that landed on the wrong branch — still needs them.
         if sync_result.had_conflicts and not sync_result.aborted:
-            raise RuntimeError(
+            raise SyncFailed(
                 "Sync failed due to conflicts. Resolve them first:\n"
                 "  git status\n"
                 "  # resolve conflicts\n"
                 "  git add <files>\n"
                 "  git rebase --continue"
             )
-        raise RuntimeError(f"Sync failed: {sync_result.message}")
+        raise SyncFailed(f"Sync failed: {sync_result.message}")
 
     # The push publishes commits the session rewrote, so say so before it lands
     # in a PR.
@@ -445,7 +419,7 @@ def create_pr(
                     pr_exists = True
                     existing_url = url
     except FileNotFoundError:
-        raise RuntimeError("GitHub CLI (gh) is not installed")
+        raise GitHubCliMissing("gh")
 
     # Fetch current branch's remote tracking ref for --force-with-lease
     run_cmd(["git", "fetch", "origin"], cwd=cwd, check=False, quiet=True)
@@ -461,14 +435,20 @@ def create_pr(
             check=False,
         )
         if result.returncode != 0:
-            raise RuntimeError(f"Failed to push branch: {result.stderr}")
+            raise GitHubCommandFailed("push branch", result.stderr)
         # Print push output for visibility
         if result.stderr:
             print(result.stderr.strip())
     except FileNotFoundError:
-        raise RuntimeError("git is not installed")
+        raise GitHubCliMissing("git")
 
-    branch_name = get_current_branch(cwd)
+    # `get_current_branch` goes through `run_git` with check=True, so a
+    # detached HEAD raises CalledProcessError. Convert it: this function
+    # promises typed errors, and the CLI catches those rather than a traceback.
+    try:
+        branch_name = get_current_branch(cwd)
+    except subprocess.CalledProcessError as e:
+        raise GitHubCommandFailed("read the current branch", e.stderr)
 
     # If PR exists, just return the URL. Registration still runs: the stack may
     # have grown or collapsed since the PR was opened, and `link` is how GitHub
@@ -497,7 +477,7 @@ def create_pr(
     result = run_cmd(cmd, cwd=cwd, check=False)
 
     if result.returncode != 0:
-        raise RuntimeError(f"Failed to create PR: {result.stderr}")
+        raise GitHubCommandFailed("create PR", result.stderr)
 
     new_url = result.stdout.strip()
     _register_stack(cwd, branch_name, announce=announce)
@@ -528,28 +508,6 @@ def _resolve_base_branch(cwd: Path) -> str:
         return GitConfigBaseStore(cwd).read(get_current_branch(cwd)).branch
     except Exception:
         return MAIN_BRANCH
-
-
-def stack_chain(branch: str, bases: dict[str, str]) -> list[str]:
-    """The branches from the bottom of ``branch``'s stack up to ``branch`` itself.
-
-    Walks the stored bases down to ``main`` and returns the result bottom-to-top,
-    which is the order ``gh stack link`` wants. A branch with no base returns just
-    itself, so callers can test the length to decide whether there is a stack at
-    all.
-
-    ``bases`` is validated against cycles when it is written, so the walk
-    terminates; the visited set is a belt-and-braces stop rather than the guard.
-    """
-    chain = [branch]
-    seen = {branch}
-    current = bases.get(branch)
-    while current and current != MAIN_BRANCH and current not in seen:
-        chain.append(current)
-        seen.add(current)
-        current = bases.get(current)
-    chain.reverse()
-    return chain
 
 
 def _register_stack(
@@ -595,7 +553,9 @@ def get_pr_info(cwd: Path) -> PRInfo:
         PRInfo with basic fields populated.
 
     Raises:
-        RuntimeError: If no PR exists or gh command fails.
+        NoPullRequest: If the branch has no PR.
+        GitHubCommandFailed: If gh fails for any other reason.
+        GitHubCliMissing: If gh is not installed.
     """
     try:
         result = run_cmd(
@@ -610,21 +570,13 @@ def get_pr_info(cwd: Path) -> PRInfo:
             quiet=True,
             check=True,
         )
-        data = json.loads(result.stdout)
-        return PRInfo(
-            number=data["number"],
-            title=data["title"],
-            url=data["url"],
-            state=data["state"],
-            merged=data.get("mergedAt") is not None,
-            head_ref=data["headRefName"],
-        )
+        return parse_pr_info(result.stdout)
     except subprocess.CalledProcessError as e:
-        if "no pull requests found" in e.stderr.lower():
-            raise RuntimeError("No pull request found for current branch")
-        raise RuntimeError(f"Failed to get PR info: {e.stderr}")
+        if is_missing_pr_error(e.stderr):
+            raise NoPullRequest()
+        raise GitHubCommandFailed("get PR info", e.stderr)
     except FileNotFoundError:
-        raise RuntimeError("GitHub CLI (gh) is not installed")
+        raise GitHubCliMissing("gh")
 
 
 def get_pr_comments(
@@ -713,65 +665,7 @@ def get_pr_comments(
             quiet=True,
             check=True,
         )
-        data = json.loads(result.stdout)
-        pr = data.get("data", {}).get("repository", {}).get("pullRequest", {}) or {}
-
-        comments: list[PRComment] = []
-
-        for node in pr.get("reviewThreads", {}).get("nodes", []) or []:
-            if node.get("isResolved"):
-                continue
-            thread_id = node.get("id", "")
-            path = node.get("path", "")
-            line = node.get("line")
-            for c in node.get("comments", {}).get("nodes", []) or []:
-                author = c.get("author") or {}
-                comments.append(
-                    PRComment(
-                        author=author.get("login", "unknown") if author else "unknown",
-                        body=c.get("body", ""),
-                        created_at=c.get("createdAt", ""),
-                        kind="thread",
-                        path=path,
-                        line=line,
-                        thread_id=thread_id,
-                    )
-                )
-
-        for c in pr.get("comments", {}).get("nodes", []) or []:
-            author = c.get("author") or {}
-            comments.append(
-                PRComment(
-                    author=author.get("login", "unknown") if author else "unknown",
-                    body=c.get("body", ""),
-                    created_at=c.get("createdAt", ""),
-                    kind="issue",
-                )
-            )
-
-        for r in pr.get("reviews", {}).get("nodes", []) or []:
-            body = r.get("body", "") or ""
-            if not body.strip():
-                continue
-            author = r.get("author") or {}
-            comments.append(
-                PRComment(
-                    author=author.get("login", "unknown") if author else "unknown",
-                    body=body,
-                    created_at=r.get("submittedAt", "") or "",
-                    kind="review",
-                )
-            )
-
-        last_push_at: str | None = None
-        commit_nodes = pr.get("commits", {}).get("nodes", []) or []
-        if commit_nodes:
-            commit = commit_nodes[0].get("commit") or {}
-            last_push_at = (
-                commit.get("pushedDate") or commit.get("committedDate") or None
-            )
-
-        return comments, last_push_at
+        return parse_pr_comments(result.stdout)
     except subprocess.CalledProcessError:
         return [], None
     except (json.JSONDecodeError, KeyError):
@@ -797,26 +691,7 @@ def get_pr_checks(cwd: Path) -> list[CheckRun]:
         if result.returncode != 0:
             return []
 
-        data = json.loads(result.stdout)
-        checks = []
-        for check in data:
-            # Extract run ID from link (e.g., https://github.com/owner/repo/actions/runs/12345678/job/...)
-            link = check.get("link", "")
-            run_id = None
-            if "/runs/" in link:
-                parts = link.split("/runs/")
-                if len(parts) > 1:
-                    run_id = parts[1].split("/")[0]
-
-            checks.append(
-                CheckRun(
-                    name=check.get("name", ""),
-                    state=check.get("state", ""),
-                    run_id=run_id,
-                    link=link,
-                )
-            )
-        return checks
+        return parse_check_runs(result.stdout)
     except (subprocess.CalledProcessError, json.JSONDecodeError):
         return []
 
@@ -848,16 +723,7 @@ def get_run_artifacts(cwd: Path, run_id: str) -> list[Artifact]:
         if result.returncode != 0:
             return []
 
-        data = json.loads(result.stdout)
-        artifacts = []
-        for artifact in data:
-            artifacts.append(
-                Artifact(
-                    name=artifact.get("name", ""),
-                    size=artifact.get("size_in_bytes", 0),
-                )
-            )
-        return artifacts
+        return parse_artifacts(result.stdout)
     except (subprocess.CalledProcessError, json.JSONDecodeError):
         return []
 
@@ -903,7 +769,8 @@ def get_full_check_log(cwd: Path, run_id: str, failed_only: bool = False) -> str
         Full log output string.
 
     Raises:
-        RuntimeError: If unable to fetch logs.
+        GitHubCommandFailed: If gh cannot fetch the logs.
+        GitHubCliMissing: If gh is not installed.
     """
     try:
         cmd = ["gh", "run", "view", run_id]
@@ -915,9 +782,9 @@ def get_full_check_log(cwd: Path, run_id: str, failed_only: bool = False) -> str
         result = run_cmd(cmd, cwd=cwd, quiet=True, check=True)
         return result.stdout
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Failed to get logs for run {run_id}: {e.stderr}")
+        raise GitHubCommandFailed(f"get logs for run {run_id}", e.stderr)
     except FileNotFoundError:
-        raise RuntimeError("GitHub CLI (gh) is not installed")
+        raise GitHubCliMissing("gh")
 
 
 def download_artifact(
@@ -934,7 +801,8 @@ def download_artifact(
         Tuple of (output directory path, list of relative file paths).
 
     Raises:
-        RuntimeError: If download fails.
+        GitHubCommandFailed: If the download fails.
+        GitHubCliMissing: If gh is not installed.
     """
     tmp_base = Path(os.environ.get("TMPDIR", tempfile.gettempdir()))
     output_dir = tmp_base / artifact_name
@@ -969,9 +837,9 @@ def download_artifact(
 
         return output_dir, files
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Failed to download artifact '{artifact_name}': {e.stderr}")
+        raise GitHubCommandFailed(f"download artifact '{artifact_name}'", e.stderr)
     except FileNotFoundError:
-        raise RuntimeError("GitHub CLI (gh) is not installed")
+        raise GitHubCliMissing("gh")
 
 
 def read_pr(cwd: Path | None = None) -> PRInfo:
@@ -981,10 +849,15 @@ def read_pr(cwd: Path | None = None) -> PRInfo:
         cwd: Working directory (default: actual cwd).
 
     Returns:
-        PRInfo with all fields populated.
+        PRInfo with comments, checks and artifacts populated. A merged PR
+        returns early with all three left empty: there is nothing left to act
+        on, so the extra round trips would buy nothing.
 
     Raises:
-        RuntimeError: If no PR exists or gh command fails.
+        NoPullRequest: If the branch has no PR.
+        GitHubCommandFailed: If reading the PR itself fails. A failed *repo*
+            lookup is not fatal — the PR renders with no comments.
+        GitHubCliMissing: If gh is not installed.
     """
     if cwd is None:
         cwd = Path.cwd()
@@ -999,8 +872,13 @@ def read_pr(cwd: Path | None = None) -> PRInfo:
     # Get repo info for GraphQL queries
     try:
         owner, repo = get_repo_info(cwd)
-    except RuntimeError:
-        # If we can't get repo info, continue without review threads
+    except GitHubCommandFailed:
+        # A repo gh could not read has no comments to fetch, so render the PR
+        # without them. Only a failed command degrades this way — anything else
+        # propagates rather than reading as a PR with nothing said on it. In
+        # practice `get_pr_info` above would already have raised on a missing
+        # gh; this narrowing is defence in depth, so the degrade path cannot
+        # widen as this function grows.
         owner, repo = None, None
 
     # Get PR comments (inline threads + top-level + review summaries) and last push time
@@ -1026,20 +904,6 @@ def read_pr(cwd: Path | None = None) -> PRInfo:
     return pr_info
 
 
-TERMINAL_STATES = {
-    "SUCCESS",
-    "FAILURE",
-    "STARTUP_FAILURE",
-    "CANCELLED",
-    "SKIPPED",
-    "NEUTRAL",
-    "TIMED_OUT",
-    "STALE",
-    "ACTION_REQUIRED",
-}
-PASSING_STATES = {"SUCCESS", "SKIPPED", "NEUTRAL"}
-
-
 _T = TypeVar("_T")
 
 
@@ -1056,8 +920,8 @@ def _poll_until(
     Shared base for the ``wait_for_*`` helpers. Each iteration calls ``check``:
     a non-``None`` return is the result and ends the loop. A ``None`` return
     means "keep waiting" — ``progress()`` is printed and we sleep for
-    ``poll_interval`` before retrying. ``check`` may raise ``RuntimeError`` to
-    abort early (e.g. a terminal failure state).
+    ``poll_interval`` before retrying. Any exception raised by ``check``
+    propagates, which is how a probe aborts early on a terminal failure.
 
     Args:
         check: Probe run each iteration; returns the result or ``None`` to wait.
@@ -1071,7 +935,6 @@ def _poll_until(
 
     Raises:
         TimeoutError: If ``timeout`` elapses before ``check`` yields a result.
-        RuntimeError: Propagated from ``check`` on a terminal failure.
     """
     start = time.monotonic()
 
@@ -1083,7 +946,7 @@ def _poll_until(
         if time.monotonic() - start >= timeout:
             raise TimeoutError(timeout_message())
 
-        print(progress())
+        print_flushed(progress())
         time.sleep(poll_interval)
 
 
@@ -1105,7 +968,7 @@ def wait_for_checks(
 
     Raises:
         TimeoutError: If timeout exceeded before all checks complete.
-        RuntimeError: If no PR or checks found.
+        NoChecksFound: If the PR has no checks.
     """
     start = time.monotonic()
     progress = {"complete": 0, "total": 0}
@@ -1113,7 +976,7 @@ def wait_for_checks(
     def check() -> tuple[bool, list[CheckRun]] | None:
         checks = get_pr_checks(cwd)
         if not checks and time.monotonic() - start > poll_interval * 2:
-            raise RuntimeError("No checks found for this PR")
+            raise NoChecksFound()
 
         progress["complete"] = sum(1 for c in checks if c.state in TERMINAL_STATES)
         progress["total"] = len(checks)
@@ -1153,8 +1016,8 @@ def wait_for_merge(
         The merged PRInfo.
 
     Raises:
-        RuntimeError: If the PR is closed without merging or its CI reaches a
-            terminal failed state.
+        PullRequestNotMergeable: If the PR is closed without merging or its CI
+            reaches a terminal failed state.
         TimeoutError: If timeout exceeded before the PR merges.
     """
     pr_number: int | None = None
@@ -1167,7 +1030,7 @@ def wait_for_merge(
         if pr.merged:
             return pr
         if pr.state == "CLOSED":
-            raise RuntimeError(f"PR #{pr.number} was closed without merging")
+            raise PullRequestNotMergeable(f"PR #{pr.number} was closed without merging")
 
         failed = [
             c.name
@@ -1175,7 +1038,7 @@ def wait_for_merge(
             if c.state in TERMINAL_STATES and c.state not in PASSING_STATES
         ]
         if failed:
-            raise RuntimeError(
+            raise PullRequestNotMergeable(
                 f"PR #{pr.number} has failing checks: {', '.join(failed)}"
             )
         return None
@@ -1212,7 +1075,9 @@ def wait_for_review(
 
     Raises:
         TimeoutError: If timeout exceeded before a review arrives.
-        RuntimeError: If PR/repo info is unavailable.
+        NoPullRequest: If the branch has no PR.
+        GitHubCommandFailed: If the repo or PR lookup fails.
+        GitHubCliMissing: If gh is not installed.
     """
     owner, repo = get_repo_info(cwd)
     pr_number = get_pr_info(cwd).number
@@ -1252,10 +1117,9 @@ def get_worktree_code(cwd: Path) -> tuple[str, str]:
     Returns:
         Tuple of (commits_output, uncommitted_output).
         commits_output: Combined log and diff of commits since diverging from main.
-        uncommitted_output: Diff of uncommitted changes.
-
-    Raises:
-        RuntimeError: If git commands fail.
+        uncommitted_output: Diff of uncommitted changes. Either half reads as
+        empty when git cannot produce it — a worktree with no commits, or one
+        not on a branch, is not an error here.
     """
     # Get commits since diverging from this branch's base. For a stacked branch
     # that is its parent, not main: diffing against main would present the

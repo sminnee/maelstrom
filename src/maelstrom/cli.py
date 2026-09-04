@@ -36,6 +36,7 @@ from .github import (
     wait_for_merge,
 )
 from .github_cli import gh as gh_cli
+from .github_model import GitHubError
 from .integrations.linear import linear
 from .integrations.sentry import sentry
 from .integrations.slack import slack
@@ -237,7 +238,7 @@ def cmd_create_project(ctx, name, public, description, projects_dir):
     click.echo(f"Creating GitHub repository {name}...")
     try:
         git_url = create_project_repo(name, private=not public, description=description)
-    except RuntimeError as e:
+    except GitHubError as e:
         raise click.ClickException(str(e))
     click.echo(f"Repository created: {git_url}")
 
@@ -371,6 +372,9 @@ def cmd_add(branch, project, open, no_recycle, base, harness, opencode_flag):
             global_config = load_global_config()
             try:
                 open_worktree(worktree_path, global_config.open_command)
+            # Broad on purpose: `open_worktree` and worktree setup still raise bare
+            # RuntimeError. Narrowing waits on the worktree/env typed-error
+            # increment (architecture-patterns.md §3).
             except RuntimeError as e:
                 click.echo(f"Warning: Could not open worktree: {e}", err=True)
         else:
@@ -412,6 +416,9 @@ def cmd_add(branch, project, open, no_recycle, base, harness, opencode_flag):
                 project_path,
                 worktree_path,
             )
+        # Broad on purpose: `open_worktree` and worktree setup still raise bare
+        # RuntimeError. Narrowing waits on the worktree/env typed-error
+        # increment (architecture-patterns.md §3).
         except RuntimeError as e:
             raise click.ClickException(str(e))
 
@@ -456,6 +463,9 @@ def cmd_add(branch, project, open, no_recycle, base, harness, opencode_flag):
         global_config = load_global_config()
         try:
             open_worktree(worktree_path, global_config.open_command)
+        # Broad on purpose: `open_worktree` and worktree setup still raise bare
+        # RuntimeError. Narrowing waits on the worktree/env typed-error
+        # increment (architecture-patterns.md §3).
         except RuntimeError as e:
             click.echo(f"Warning: Could not open worktree: {e}", err=True)
     else:
@@ -814,6 +824,9 @@ def cmd_ide(target):
     global_config = load_global_config()
     try:
         open_worktree(worktree_path, global_config.open_command)
+    # Broad on purpose: `open_worktree` and worktree setup still raise bare
+    # RuntimeError. Narrowing waits on the worktree/env typed-error
+    # increment (architecture-patterns.md §3).
     except RuntimeError as e:
         raise click.ClickException(str(e))
 
@@ -1263,7 +1276,7 @@ def cmd_close(targets, wait, timeout, interval, force):
                 click.echo(str(e), err=True)
                 errors.append(target)
                 continue
-            except RuntimeError as e:
+            except GitHubError as e:
                 click.echo(f"Error: {e}", err=True)
                 errors.append(target)
                 continue
