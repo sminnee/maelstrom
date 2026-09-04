@@ -180,6 +180,14 @@ A `claude` process the agent daemon holds on a stream-json pipe. A driven agent 
 workspace and no TTY, so nothing observes or answers it except the daemon. Contrast a session,
 which runs in a workspace with its hooks.
 
+**Subagent**:
+A driven agent's child, spawned by its `Agent` tool and held by the agent daemon as a stream of
+its own under a dotted id: agent `X` has subagents `X.1` and `X.2`, and `X.1.1` is a subagent of
+`X.1`. A subagent is read, never driven: it has no process of its own, and its asks are the
+parent's waits. `mael agent list` shows it under its parent, `show` and `tail` take its id, and
+the orchestrator UI opens it from the parent's session tab.
+_Avoid_: Sidechain, child session, sub-agent
+
 **Agent daemon**:
 The one process per machine that holds every driven agent and serves the control socket
 `mael agent` talks to. A driven agent's live state dies with the daemon, but its spawn record

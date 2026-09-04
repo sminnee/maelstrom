@@ -102,6 +102,24 @@ per agent: the items as they stand, a seq per frame, and a ring of the last 2000
 log outlives the agent's exit, because a resume keeps the agent id. "Transcript streams" below
 says how a client reads it.
 
+A subagent is an agent of its own in the world. The host lists one under a dotted id with
+`parent` naming the agent it runs inside and `description` naming what it was asked to do; a
+top-level agent carries `parent: ""`. The row carries the parent's session and cwd, so the links
+resolve to the parent's task and worktree. A subagent joins no desk entry, and the canvas draws
+none: the parent's session tab is the way to it.
+
+A subagent is not attached at adoption. `ensure_attached` attaches it when a transcript route is
+read, and waits for the backlog, so the snapshot holds it. When the last transcript socket on a
+subagent closes, the watch is dropped 5 seconds later. The cursor outlives the watch, so the next
+attach asks the host for what was missed, and what the host's ring dropped meanwhile lands as a
+`gap` item, as for a parent. A subagent that exits raises no attention: the parent gets the
+notification and reports it. A subagent whose row comes back live is revived without an attach.
+
+On a subagent's stream the normaliser changes nothing about the agent but `lastMessage`, ignores
+a `control_request`, and writes no document. On a parent's stream it drops any event carrying a
+`parent_tool_use_id`, so a host that had not split the streams would still yield a parent-only
+transcript.
+
 ### Links
 
 | Field | From |
@@ -235,8 +253,10 @@ synchronous step on the loop, so no frame lands between them.
 
 Agent state, attention and documents never travel on this socket: they change through an
 upsert, a notice, and a GET. The socket stays open across an exit and a revive. An unknown agent
-closes it `4404`. A reader that falls 500 frames behind is closed `4409 lagging` and comes back
-with `from`; nothing is lost, because the ring holds what it missed. The socket pings every 20 s.
+closes it `4404`. Opening the transcript of a subagent, by GET or by socket, is what makes the
+server attach to it; see "Agents" above. A reader that falls 500 frames behind is closed
+`4409 lagging` and comes back with `from`; nothing is lost, because the ring holds what it
+missed. The socket pings every 20 s.
 
 ## Commands
 
@@ -314,7 +334,7 @@ The world is validated before the host is asked.
 | `stale_request` | The request id is not the pending one |
 | `wrong_wait_kind` | An answer to a permission, or an approve of a question |
 | `stale_version` | The document version is not current |
-| `invalid` | Anything else: an empty reason, a task that is not actionable, an out-of-scope command |
+| `invalid` | Anything else: an empty reason, a task that is not actionable, an out-of-scope command, or a driving command on a subagent (`X.1 is a subagent of X; drive X`) |
 
 The host's own refusals map to the same codes: "no such agent" to `unknown_id`, "has exited" to
 `agent_exited`, "not waiting" to `not_waiting`, "not waiting on a question" to `wrong_wait_kind`,

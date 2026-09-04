@@ -115,7 +115,9 @@ same editor later.
 A node is one of two kinds. A **task** node stands for a notebook task, with or without an
 agent. A **freeAgent** node stands for an agent with no task, and takes its title, branch and
 lane from the worktree it runs in. An agent linked to a task draws as that task's node, so
-nothing appears twice. Edges come from `task.follows`, so a free agent is never an endpoint.
+nothing appears twice. Edges come from `task.follows`, so a free agent is never an endpoint. A
+subagent, an agent with a `parent`, is never a node's agent and never a node: it is reached
+through its parent's session tab.
 
 The task list lists tasks only. A free agent has no row, and is dismissed from its own expanded
 card instead. That control is disabled while the agent runs, because a live agent is drawn
@@ -138,6 +140,17 @@ expands the next node that needs the user.
 The session tab head carries a mode chip naming the agent's permission mode. A click moves the
 agent to the next mode: plan, then auto, then normal. The chip shows the mode the child last
 announced, so a refused change leaves it where it was.
+
+A session tab on an agent with subagents draws a strip under the transcript: one link per
+subagent, with a state dot that pulses while it runs, its description, and its summary once it
+has ended. The link opens the subagent as a session tab of its own, `session:X.1`. That tab is
+the same component, read-only: it heads with the id and the description, and has no message
+input, no mode chip and no decision handlers, because a subagent's asks are the parent's waits.
+Opening the tab opens the transcript socket, which is what makes the server attach to the
+subagent; closing it releases the socket after the usual 5-second grace, and the server detaches.
+
+Every tool card starts folded. The summary line names the tool, its title and its status, and a
+click opens the body. An agent that makes hundreds of calls is a list, not a wall of text.
 
 A decision shows the last three things the agent said or did, then the prompt. A question
 follows AskUserQuestion's shape; `session/cards/QuestionPrompt.tsx` says why every answer
