@@ -64,7 +64,7 @@ class Harness:
             ],
         )
         self.daemon = ScriptedAsyncDaemonClient()
-        self.tasks.open_worktree = lambda project, task, branch: WorktreeSetup(
+        self.tasks.open_worktree = lambda project, branch, base: WorktreeSetup(
             path=Path(WORKTREE_PATH), name="alpha", action="reused"
         )
         options = {"task_poll": 0.02, "worktree_poll": 0.02, "agent_poll": 0.02}
@@ -1074,7 +1074,7 @@ def test_a_launch_blocked_by_a_failed_sync_leaves_the_task_todo(store):
 
     harness = Harness(store)
     harness.add_task("NORT-7")
-    harness.tasks.open_worktree = lambda project, task, branch: WorktreeSetup(
+    harness.tasks.open_worktree = lambda project, branch, base: WorktreeSetup(
         path=Path(WORKTREE_PATH),
         name="alpha",
         action="recycled",

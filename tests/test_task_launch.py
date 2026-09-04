@@ -93,7 +93,7 @@ def _source_that_launches(store, *, has_transcript):
         live_sessions=lambda: LiveSessionSet([]),
         has_transcript=has_transcript,
     )
-    source.open_worktree = lambda project, task, branch: WorktreeSetup(
+    source.open_worktree = lambda project, branch, base: WorktreeSetup(
         path=Path("/w/alpha"), name="alpha", action="reused"
     )
     return source
