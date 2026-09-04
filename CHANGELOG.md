@@ -10,7 +10,19 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+### Added
+
+- **A subagent is an agent of its own.** The agent daemon keeps each subagent's events apart
+  from its parent's, under a dotted id (`X.1`, `X.1.1` for a nested one). `mael agent list`
+  shows subagents under their parent with `parent` and `description` columns; `show` and `tail`
+  take a dotted id, and `show` on a parent ends with a `Subagents:` table. In the orchestrator
+  UI a parent's session tab lists its subagents, each opening as a read-only tab of its own,
+  and the parent's transcript shows one `Agent` call and none of the chatter under it.
+
 ### Changed
+
+- **Tool cards start folded.** Every tool call in a session tab is a one-line summary until
+  clicked, whatever the tool.
 
 - **The orchestrator UI reads the world over REST.** The server serves every table under `/api`,
   sends change notices on one stream, and streams each open agent's transcript on a socket of its

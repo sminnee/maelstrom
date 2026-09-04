@@ -596,9 +596,9 @@ cmux pane and no TTY. See [agent-daemon.md](../dev/agent-daemon.md) for the prot
 |---|---|
 | `mael agent daemon` | Run the agent daemon in the foreground. `--socket PATH` overrides the socket. |
 | `mael agent start [CWD]` | Start an agent in CWD (default `.`). Takes `--prompt`, `--mode`, `--model`, `--session-id`. |
-| `mael agent list` | Show every agent, what each waiting one waits on, and what each last said. `--stopped` shows sessions that have stopped and can be resumed; `--all` shows both. `-w PROJECT.WORKTREE` and `--project NAME` narrow the stopped half of the listing, and imply `--stopped` on their own. `--json` emits rows as JSON. |
-| `mael agent show ID` | Show one agent in full: the last thing it said, every question option, the plan, and the command that answers the wait. `--json` emits the detail as JSON. |
-| `mael agent tail ID` | Print an agent's events and stop, without driving it. `-f` keeps streaming. The read-only half of `attach`. |
+| `mael agent list` | Show every agent, what each waiting one waits on, and what each last said. A subagent follows its parent under a dotted id (`ID.1`), with `parent` and `description` columns. `--stopped` shows sessions that have stopped and can be resumed; `--all` shows both. `-w PROJECT.WORKTREE` and `--project NAME` narrow the stopped half of the listing, and imply `--stopped` on their own. `--json` emits rows as JSON. |
+| `mael agent show ID` | Show one agent in full: the last thing it said, every question option, the plan, and the command that answers the wait. On a parent it ends with a `Subagents:` table; on a dotted id it shows that subagent. `--json` emits the detail as JSON. |
+| `mael agent tail ID` | Print an agent's events and stop, without driving it. `-f` keeps streaming. A dotted id tails one subagent's stream; a parent's tail shows none of its subagents. The read-only half of `attach`. |
 | `mael agent say ID TEXT` | Send TEXT to an agent as a user message. |
 | `mael agent answer ID CHOICE` | Answer an agent's pending question. CHOICE answers every question the agent asked. |
 | `mael agent approve ID` | Approve an agent's pending plan or tool call. |
@@ -616,7 +616,9 @@ mael agent list                                 # who is waiting, on what, and w
 mael agent list --stopped                       # what has stopped, and can be resumed
 mael agent list --stopped -w maelstrom.alpha    # ...in one worktree only
 mael agent list --all --json                    # running and stopped, as JSON
-mael agent show 1761dcf6                        # every option, with descriptions
+mael agent show 1761dcf6                        # every option, with descriptions; Subagents: at the end
+mael agent show 1761dcf6.1                      # one subagent
+mael agent tail 1761dcf6.1                      # one subagent's stream
 mael agent answer 1761dcf6 "Green"              # answer a question
 mael agent approve 0b2f5f5b                     # approve a plan or a tool call
 mael agent deny 0b2f5f5b --reason "not now"

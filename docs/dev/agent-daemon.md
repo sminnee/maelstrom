@@ -18,13 +18,13 @@ Each agent is a normal `claude` process with different I/O plumbing:
 
 ```
 claude -p --input-format stream-json --output-format stream-json --verbose \
-       --permission-prompt-tool stdio [--permission-mode auto]
+       --permission-prompt-tool stdio --forward-subagent-text [--permission-mode auto]
 ```
 
 Because it is the same binary, skills, `CLAUDE.md`, settings, sub-agents, MCP servers, hooks and
 `--permission-mode auto` all behave as they do today.
 
-Four flags matter, and one of them is easy to miss:
+Five flags matter, and one of them is easy to miss:
 
 | Flag | Why it is needed |
 |---|---|
@@ -32,6 +32,7 @@ Four flags matter, and one of them is easy to miss:
 | `--input-format stream-json` | Makes stdin a live message channel, not a one-shot prompt. |
 | `--output-format stream-json --verbose` | Emits the event stream. `--verbose` is required with this output format. |
 | `--permission-prompt-tool stdio` | **Load-bearing.** Tells the CLI that permission prompts reach the host over the pipe. |
+| `--forward-subagent-text` | Puts a subagent's text and thinking blocks on the stream beside its tool calls. Without it a subagent's stream shows what it did and never what it said. |
 
 Without `--permission-prompt-tool stdio` a headless agent has nobody to ask. Every "ask" decision
 resolves itself, the agent never pauses, and no wait is ever observable. The flag does not appear
@@ -318,11 +319,17 @@ the only case where the message buffer stands in for the plan.
 `show` works on an exited agent. Reading why an agent died is the main reason to run it, and
 `show` sends the agent nothing.
 
+`show` on a parent ends with a `Subagents:` table, one row per subagent with its dotted id, its
+state, its description and its last message. `show` on a dotted id prints that subagent. A wait a
+subagent raised prints as `Waiting on: WebFetch (from a1b2c3d4.1)`, and the answer hint names the
+parent, because the parent is what takes the answer. See "Subagents" below.
+
 ### Tailing
 
 `mael agent tail <id>` renders an agent's event stream without driving it. It prints the buffered
 history and stops. `mael agent tail -f <id>` keeps streaming. Nothing typed reaches the agent
-either way, so a tail is read-only by construction rather than by redirecting stdin.
+either way, so a tail is read-only by construction rather than by redirecting stdin. A tail of a
+parent prints the parent alone; `mael agent tail a1b2c3d4.1` prints one subagent's stream.
 
 The daemon writes a `{"type": "mael_backlog_end"}` marker after the replayed history, which is how
 a tail without `-f` knows where to stop. An idle timeout would race a slow agent and flake. A
@@ -438,7 +445,8 @@ spawning — a bad `--model`, an expired login, a `--resume` Claude will not acc
 
 | Refusal | When |
 |---|---|
-| `no such agent: <id>` | No agent has that id |
+| `no such agent: <id>` | No agent has that id, or a dotted id names a subagent the daemon has not seen |
+| `<id>.N is a subagent of <id>; drive <id>` | Any command except `show` and `attach` against a dotted id |
 | `agent <id> has exited` | Any command except `show`, `stop` and `resume` against an exited agent |
 | `agent <id> is running` | `resume` against an agent that has not exited |
 | `agent <id> has no spawn record` | `resume` against an agent whose record is missing |
@@ -485,6 +493,42 @@ request id, so a row alone never is.
 
 The four `mael_*` markers are the daemon's own, not the agent's. None reaches `apply_event`.
 
+### Subagents
+
+Claude Code stamps every event a subagent produces with `parent_tool_use_id`, the id of the
+`Agent` call that spawned it. The daemon keeps those events apart from the parent's. Each
+subagent is a stream of its own under a dotted id: agent `a1b2c3d4` has subagents `a1b2c3d4.1`,
+`a1b2c3d4.2`, and a subagent of `a1b2c3d4.1` is `a1b2c3d4.1.1`. The parent's ring, seq, last
+message, status and pending request never see a subagent's event.
+
+The level comes from the ring that holds the spawning call, never from the tool name: a call in
+the parent's ring opens `X.n`, and a call in `X.1`'s ring opens `X.1.n`. The ordinal is one past
+the highest handed out at that level, and an ordinal is never reused.
+
+A subagent opens on `system`/`task_started` with `task_type: local_agent`, or on the first
+parented event for an id the daemon has not seen. A background `Bash` inside a subagent raises
+`task_started` too, keyed by the `Bash` call and typed `local_bash`, so the type is the gate. A
+subagent ends on `system`/`task_notification`, which carries its `status` (`completed`, `failed`
+or `stopped`) and a `summary`. The parent's own `tool_result` for the `Agent` call ends nothing:
+a backgrounded subagent gets that result at launch and runs on. A subagent that speaks after its
+notification is running again.
+
+A `control_request` carries no `parent_tool_use_id`. Its `request.tool_use_id` names the
+subagent's own tool call, so the wait is the parent's, answered through the parent, and the
+detail names the subagent under `waiting_subagent`.
+
+On the socket a dotted id works where a read does:
+
+| `cmd` | On a dotted id |
+|---|---|
+| `list` | Every subagent follows its parent's row, in the same shape: `parent` names the parent, `description` is what the parent asked for, `state` is `processing` while it runs, `exited(0)` once completed, `exited(1)` once failed or stopped. `session`, `cwd`, `model` and `mode` are the parent's; `waiting_on` and `cost` are empty; `last_message` is the summary once ended, else the last text. A top-level row carries `parent: ""` |
+| `show` | The subagent's row plus `message` in full. `show` on a parent adds `subagents`, the child rows, and `waiting_subagent` |
+| `attach` | The subagent's stream: its own `mael_agent_detail`, its ring under its own `mael_seq`, `mael_backlog_end` with its seq, live events, then `mael_agent_exited` with `0` for completed and `1` otherwise, or the parent's code when the parent's process goes. `from` and `epoch` work against the subagent's seq and the parent's epoch |
+| anything else | Refused: `<id>.1 is a subagent of <id>; drive <id>` |
+
+An `attach` to a dotted id the daemon has not opened is `no such agent`. A `list` is how a client
+learns which exist. "Retention" below gives the subagent limit.
+
 ### The daemon echoes what it writes
 
 Every message the daemon writes to a child also goes on that child's event stream: a `user` turn
@@ -514,6 +558,8 @@ stream twice, and the orchestrator's normaliser mints a fresh item id per copy.
 | What | Kept |
 |---|---|
 | Raw events per agent | The last 200, each with its `mael_seq` |
+| Raw events per subagent | The last 200, under the subagent's own `mael_seq` |
+| Subagents per agent | 50; past that the oldest that is not running goes, and its dotted id stays reserved |
 | What the agent last said | One message, up to 8000 characters |
 | Events queued for one slow attached client | 1000; past that the oldest is dropped and the client gets a `mael_truncated` marker saying how many |
 | Agent state | Spawn record on disk; events and live state in memory |
