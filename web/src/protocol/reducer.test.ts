@@ -143,7 +143,13 @@ describe('applyServerEvent', () => {
       frame(2, {
         type: 'transcript.append',
         agentId: 'agent-1',
-        item: { id: 'i1', ts: '2026-09-01T00:00:00Z', type: 'message', role: 'assistant', markdown: 'hi' },
+        item: {
+          id: 'i1',
+          ts: '2026-09-01T00:00:00Z',
+          type: 'message',
+          role: 'assistant',
+          markdown: 'hi',
+        },
       }),
     );
     state = applyServerEvent(state, frame(3, { type: 'snapshot', world: emptyWorld() }));

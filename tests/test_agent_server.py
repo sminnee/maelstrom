@@ -136,7 +136,7 @@ def test_show_works_on_an_exited_agent():
     daemon.agents["a1"] = agent
     reply = asyncio.run(_handle(daemon, {"cmd": "show", "id": "a1"}))
     assert reply["agent"]["state"] == "exited(1)"
-    assert reply["agent"]["messages"] == ["Hello there, friend"]
+    assert reply["agent"]["message"] == "Hello there, friend"
 
 
 def test_show_rejects_an_unknown_agent():
@@ -670,6 +670,7 @@ def test_interrupt_denies_the_pending_wait_first_with_the_interrupted_reason():
 
 
 def test_interrupt_refuses_an_exited_agent():
+
     daemon = AgentDaemon("/tmp/x.sock")
     agent, sent = _sending_agent()
     agent.state = mark_exited(agent.state, 1)
@@ -705,22 +706,19 @@ def test_answering_clears_the_wait_at_once():
     agent.state = replay("permission-request.jsonl", stop_before_control=True)
     daemon.agents["a1"] = agent
     asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+
     assert agent.state.pending is None
 
 
 # --- the detail frame: what the agent waits on, said on attach ---------------
 
 
-def test_attach_opens_with_the_agents_detail():
-    """A client must know what the agent waits on without inferring it."""
-    daemon = AgentDaemon("/tmp/x.sock")
-    agent = _stub_agent()
-    agent.state = replay("question-unanswered.jsonl", stop_before_control=True)
-    daemon.agents["a1"] = agent
+def attach_frames(daemon: AgentDaemon, agent_id: str) -> list[dict]:
+    """Attach, let the backlog flush, disconnect, and return what was written."""
     writer = _recording_writer()
 
     async def attach_then_disconnect():
-        task = asyncio.create_task(daemon._attach("a1", writer))
+        task = asyncio.create_task(daemon._attach(agent_id, writer))
         await asyncio.sleep(0)
         task.cancel()
         try:
@@ -729,7 +727,16 @@ def test_attach_opens_with_the_agents_detail():
             pass
 
     asyncio.run(attach_then_disconnect())
-    first = json.loads(writer.lines[0])
+    return [json.loads(line) for line in writer.lines]
+
+
+def test_attach_opens_with_the_agents_detail():
+    """A client must know what the agent waits on without inferring it."""
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    agent.state = replay("question-unanswered.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+    first = attach_frames(daemon, "a1")[0]
     assert first["type"] == AGENT_DETAIL
     assert first["agent"]["waiting_kind"] == "awaiting-question"
     assert first["agent"]["questions"][0]["options"][0]["label"] == "Red"
@@ -741,19 +748,7 @@ def test_the_detail_frame_names_the_request_a_wait_can_be_answered_with():
     agent = _stub_agent()
     agent.state = replay("permission-request.jsonl", stop_before_control=True)
     daemon.agents["a1"] = agent
-    writer = _recording_writer()
-
-    async def attach_then_disconnect():
-        task = asyncio.create_task(daemon._attach("a1", writer))
-        await asyncio.sleep(0)
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-
-    asyncio.run(attach_then_disconnect())
-    first = json.loads(writer.lines[0])
+    first = attach_frames(daemon, "a1")[0]
     assert first["agent"]["request_id"] == agent.state.pending.request_id
 
 

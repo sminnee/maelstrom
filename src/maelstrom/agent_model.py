@@ -263,19 +263,17 @@ class AgentState:
     #: The most recent events, for ``attach`` and ``list`` to render without
     #: replaying the transcript from disk.
     recent: tuple[dict[str, Any], ...] = field(default_factory=tuple)
-    #: What the agent last said, most recent last. A driven agent writes no
-    #: session transcript, so this buffer is the only record of its words —
-    #: see ``docs/dev/agent-daemon.md``, "What is not persisted".
-    messages: tuple[str, ...] = field(default_factory=tuple)
+    #: The last thing the agent said. A row shows one line of it, and a plan
+    #: review with no plan in its input falls back to it. The conversation
+    #: itself is Claude's session transcript on disk, not this field.
+    last_message: str = ""
 
 
 #: How many events to keep per agent for ``attach`` to render on connect.
 RECENT_LIMIT = 200
 
-#: How many of the agent's own messages to keep. ``show`` renders the last few.
-MESSAGE_LIMIT = 5
-#: How much of one message to keep, so a whole plan survives without the buffer
-#: growing without bound.
+#: How much of the last message to keep, so a whole plan survives the fallback
+#: in :func:`_plan_details` without the field growing without bound.
 MESSAGE_CHARS = 8000
 #: How much of the last message a table cell holds.
 MESSAGE_SUMMARY_CHARS = 60
@@ -312,12 +310,12 @@ def _message_texts(event: dict[str, Any]) -> list[str]:
     ]
 
 
-def _with_messages(state: AgentState, event: dict[str, Any]) -> AgentState:
-    """``state`` with any text in ``event`` appended to its message buffer."""
-    texts = [text[:MESSAGE_CHARS] for text in _message_texts(event)]
+def _with_last_message(state: AgentState, event: dict[str, Any]) -> AgentState:
+    """``state`` with the last text in ``event`` as what the agent last said."""
+    texts = _message_texts(event)
     if not texts:
         return state
-    return replace(state, messages=(state.messages + tuple(texts))[-MESSAGE_LIMIT:])
+    return replace(state, last_message=texts[-1][:MESSAGE_CHARS])
 
 
 def _one_line(text: str, limit: int = MESSAGE_SUMMARY_CHARS) -> str:
@@ -381,7 +379,7 @@ def apply_event(state: AgentState, event: dict[str, Any]) -> AgentState:
     if kind == "assistant":
         # Capture above the guard: the guard protects the status, not the words,
         # and a plan review needs the text the agent wrote just before it asked.
-        state = _with_messages(state, event)
+        state = _with_last_message(state, event)
         # A pending wait outranks assistant output. Streaming partials and
         # parallel tool blocks can arrive after a request opens, and letting one
         # set PROCESSING would render a row saying "processing" that still names
@@ -431,13 +429,9 @@ def build_agent_row(state: AgentState) -> dict[str, Any]:
         "cwd": state.cwd,
         "model": state.model,
         "waiting_on": state.pending.summary if state.pending else "",
-        "last_message": _one_line(state.messages[-1]) if state.messages else "",
+        "last_message": _one_line(state.last_message),
         "cost": f"{state.total_cost_usd:.4f}" if state.total_cost_usd else "",
     }
-
-
-#: How many of the retained messages ``show`` renders.
-DETAIL_MESSAGES = 3
 
 
 def build_agent_detail(state: AgentState) -> dict[str, Any]:
@@ -447,17 +441,19 @@ def build_agent_detail(state: AgentState) -> dict[str, Any]:
     commands can never disagree about the same agent. Every key is always
     present, on the same contract as the row.
 
-    Three keys carry what a row cannot. ``request_id`` is what a reply must
-    echo back, so a wait is answerable from the detail alone — a row carries no
-    request id, so a row alone never is. ``questions`` holds each option and
-    its description, which is what a user needs to answer well. ``plan`` holds
-    the plan text, and ``plan_file`` the file the agent wrote it to.
+    Four keys carry what a row cannot. ``message`` is the last thing the agent
+    said in full, where the row holds one line of it. ``request_id`` is what a
+    reply must echo back, so a wait is answerable from the detail alone — a row
+    carries no request id, so a row alone never is. ``questions`` holds each
+    option and its description, which is what a user needs to answer well.
+    ``plan`` holds the plan text, and ``plan_file`` the file the agent wrote it
+    to.
     """
     pending = state.pending
-    plan, plan_file = _plan_details(pending, state.messages)
+    plan, plan_file = _plan_details(pending, state.last_message)
     return {
         **build_agent_row(state),
-        "messages": list(state.messages[-DETAIL_MESSAGES:]),
+        "message": state.last_message,
         "request_id": pending.request_id if pending else "",
         "waiting_kind": pending.wait_kind if pending else "",
         "waiting_tool": pending.tool_name if pending else "",
@@ -468,9 +464,7 @@ def build_agent_detail(state: AgentState) -> dict[str, Any]:
     }
 
 
-def _plan_details(
-    pending: PendingRequest | None, messages: tuple[str, ...]
-) -> tuple[str, str]:
+def _plan_details(pending: PendingRequest | None, last_message: str) -> tuple[str, str]:
     """The plan under review and the file holding it, else two empty strings.
 
     ``ExitPlanMode`` carries the plan in its own ``input``, under ``plan``, with
@@ -487,7 +481,7 @@ def _plan_details(
     plan = pending.input.get("plan") or ""
     if plan:
         return plan, pending.input.get("planFilePath") or ""
-    return (messages[-1] if messages else ""), ""
+    return last_message, ""
 
 
 def _question_details(pending: PendingRequest | None) -> list[dict[str, Any]]:
