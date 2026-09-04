@@ -355,7 +355,7 @@ class AgentDaemon:
         """
         cwds = [Path(cwd)] if cwd else None
         metas = self.transcripts.list(cwds)
-        specs = {spec.session_id: spec for spec in self.specs.list()}
+        specs = _specs_by_session(self.specs.list())
         live = self._live if self._live is not None else LiveSessionSet()
         return build_stopped_rows(
             metas, specs, self._task_ids(metas), live, now=time.time()
@@ -888,3 +888,25 @@ def _int(value: Any) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _specs_by_session(specs: list[AgentSpec]) -> dict[str, AgentSpec]:
+    """Records keyed by session id, one per session.
+
+    Records are stored per agent id, but a session id can carry several. A task
+    keeps its task session id for life, so every relaunch of one task writes
+    another record against it.
+
+    A ``stopped`` record wins, because a stop is deliberate and an ``exited``
+    one is a crash. Without a rule the winner would be whatever the store
+    listed last, and the two backends list in different orders — so the same
+    session would resume a different run on disk than in memory.
+    """
+    best: dict[str, AgentSpec] = {}
+    for spec in specs:
+        held = best.get(spec.session_id)
+        if held is None or (
+            spec.status == SPEC_STOPPED and held.status != SPEC_STOPPED
+        ):
+            best[spec.session_id] = spec
+    return best

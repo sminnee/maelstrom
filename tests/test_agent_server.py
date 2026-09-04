@@ -14,6 +14,7 @@ from maelstrom.agent_model import (
     EXITED,
     INTERRUPTED_REASON,
     PROCESSING,
+    SPEC_EXITED,
     SPEC_STOPPED,
     TRUNCATED,
     AgentSpec,
@@ -349,12 +350,25 @@ class _FakeTaskIndex:
         return TaskMeta(project="p", id=task_id, status="done") if task_id else None
 
 
-def _stopped_daemon(metas, *, live=None, tasks=None):
-    """A daemon whose stopped listing reads injected transcripts, not the disk."""
+def _stopped_daemon(metas, *, live=None, tasks=None, records=True):
+    """A daemon whose stopped listing reads injected transcripts, not the disk.
+
+    Each transcript gets a spawn record by default, because only a session with
+    one is listed. ``records=False`` leaves them off, to test that.
+    """
     transcripts = InMemoryTranscriptStore()
+    specs = InMemoryAgentSpecStore()
     for meta in metas:
         transcripts.add_meta(meta)
-    specs = InMemoryAgentSpecStore()
+        if records:
+            specs.write(
+                AgentSpec(
+                    agent_id=f"rec-{meta.session_id}",
+                    cwd=str(meta.cwd),
+                    session_id=meta.session_id,
+                    status=SPEC_STOPPED,
+                )
+            )
     opens = []
 
     def open_index():
@@ -383,7 +397,7 @@ def test_the_stopped_scope_lists_a_transcript_the_default_scope_hides():
     daemon, _ = _stopped_daemon([_meta("s1")])
     assert asyncio.run(_handle(daemon, {"cmd": "list"}))["agents"] == []
     rows = asyncio.run(_handle(daemon, {"cmd": "list", "scope": "stopped"}))["agents"]
-    assert [row["id"] for row in rows] == ["s1"]
+    assert [row["session"] for row in rows] == ["s1"]
 
 
 def test_the_all_scope_lists_the_running_agents_and_the_stopped_ones():
@@ -391,7 +405,9 @@ def test_the_all_scope_lists_the_running_agents_and_the_stopped_ones():
     _spawning(daemon, [{"cmd": "start", "cwd": "/tmp/x"}])
     running = next(iter(daemon.agents))
     rows = asyncio.run(_handle(daemon, {"cmd": "list", "scope": "all"}))["agents"]
-    assert {row["id"] for row in rows} == {running, "s1"}
+    # A running row is keyed by agent id; a stopped one names its session too.
+    assert {row["id"] for row in rows if "state" in row} == {running}
+    assert {row["session"] for row in rows if "state" not in row} == {"s1"}
 
 
 def test_an_unknown_scope_is_refused_rather_than_silently_read_as_running():
@@ -409,12 +425,12 @@ def test_the_stopped_scope_filters_on_the_cwd_the_client_sends():
     rows = asyncio.run(
         _handle(daemon, {"cmd": "list", "scope": "stopped", "cwd": "/w/alpha"})
     )["agents"]
-    assert [row["id"] for row in rows] == ["s1"]
+    assert [row["session"] for row in rows] == ["s1"]
 
 
 def test_the_stopped_scope_carries_the_record_of_an_agent_that_was_stopped():
     """The end-to-end point of slice 1: a stop keeps what the resume needs."""
-    daemon, specs = _stopped_daemon([_meta("sid-1", cwd="/tmp/x")])
+    daemon, specs = _stopped_daemon([_meta("sid-1", cwd="/tmp/x")], records=False)
     _spawning(
         daemon,
         [{"cmd": "start", "cwd": "/tmp/x", "model": "opus", "session": "sid-1"}],
@@ -1309,7 +1325,7 @@ def test_resume_brings_back_an_agent_that_was_stopped():
 
 def test_a_stopped_row_names_the_agent_id_that_resumes_it():
     """A listing whose whole purpose is a resume must print what resume takes."""
-    daemon, _ = _stopped_daemon([_meta("sid-1", cwd="/tmp/x")])
+    daemon, _ = _stopped_daemon([_meta("sid-1", cwd="/tmp/x")], records=False)
     _spawning(daemon, [{"cmd": "start", "cwd": "/tmp/x", "session": "sid-1"}])
     agent_id = next(iter(daemon.agents))
     asyncio.run(_handle(daemon, {"cmd": "stop", "id": agent_id}))
@@ -1318,12 +1334,16 @@ def test_a_stopped_row_names_the_agent_id_that_resumes_it():
     assert row["session"] == "sid-1"
 
 
-def test_a_transcript_only_row_falls_back_to_the_session_id():
-    """A hand-started session has no agent id, and the session id resumes it."""
-    daemon, _ = _stopped_daemon([_meta("sid-1", cwd="/tmp/x")])
-    (row,) = asyncio.run(_handle(daemon, {"cmd": "list", "scope": "stopped"}))["agents"]
-    assert row["id"] == "sid-1"
-    assert row["session"] == "sid-1"
+def test_a_transcript_with_no_record_is_not_listed():
+    """A hand-started session cannot be resumed, so offering it only fails.
+
+    ``_resume`` reads the model, permission mode and env from the record. A
+    transcript alone gives the daemon nothing to spawn from, and the resume
+    would come back ``no such agent``.
+    """
+    daemon, _ = _stopped_daemon([_meta("sid-1", cwd="/tmp/x")], records=False)
+    rows = asyncio.run(_handle(daemon, {"cmd": "list", "scope": "stopped"}))["agents"]
+    assert rows == []
 
 
 def test_the_record_fallback_refuses_to_resume_a_record_still_running():
@@ -1354,3 +1374,40 @@ def test_a_listing_opens_the_task_index_once_not_once_per_session():
     rows = asyncio.run(_handle(daemon, {"cmd": "list", "scope": "stopped"}))["agents"]
     assert len(rows) == 20
     assert len(daemon._test_opens) == 1
+
+
+def test_the_listing_prefers_a_stopped_record_over_an_exited_one():
+    """A task relaunched under its own session id leaves a record per run.
+
+    The task session id never changes, so every launch of one task writes
+    another record against it. The listing keys its records by session id, so
+    the several collapse to one. A ``stopped`` record wins, because a stop is
+    deliberate and an ``exited`` one is a crash.
+
+    The winner must come from the records themselves, not from the store: the
+    two backends list in different orders. Written in both orders here, because
+    a rule that holds for only one of them is the bug rather than the fix.
+    """
+    stopped = AgentSpec(
+        agent_id="aaa",
+        cwd="/tmp/x",
+        session_id="s1",
+        model="opus",
+        status=SPEC_STOPPED,
+    )
+    exited = AgentSpec(
+        agent_id="zzz",
+        cwd="/tmp/x",
+        session_id="s1",
+        model="sonnet",
+        status=SPEC_EXITED,
+    )
+    for order in ([stopped, exited], [exited, stopped]):
+        daemon, specs = _stopped_daemon([_meta("s1", cwd="/tmp/x")], records=False)
+        for spec in order:
+            specs.write(spec)
+        (row,) = asyncio.run(_handle(daemon, {"cmd": "list", "scope": "stopped"}))[
+            "agents"
+        ]
+        assert row["id"] == "aaa"
+        assert row["model"] == "opus"

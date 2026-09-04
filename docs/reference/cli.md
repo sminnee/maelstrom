@@ -641,14 +641,12 @@ with the conversation it had. A daemon start resumes every agent that was runnin
 ids. Claude keeps the conversation in its own session transcript; the daemon keeps one spawn
 record per agent under `~/.maelstrom/agents/`.
 
-`mael agent list --stopped` reads Claude's transcripts rather than the daemon, so it names every
-session that can be resumed — including a session you started by hand in a terminal. A `kind`
-column says which: `mael` for a session the daemon drove, `cli` for one a person started. The
-listing subtracts the sessions that are still running, because a resume of one is refused.
+`mael agent list --stopped` names every session `mael agent resume` can bring back. It reads
+Claude's transcripts for what each session was doing, and each session's spawn record for how to
+start it again. Both are needed, so the listing names only sessions the daemon started. A session
+you started by hand in a terminal has no record, and `claude --resume` brings that one back.
 
-A stopped session keeps its spawn record, so its row names the model it ran under. A session that
-never had a record resumes all the same, and takes your own Claude Code defaults for the model and
-the permission mode.
+The listing subtracts the sessions that are still running, because a resume of one is refused.
 
 ## Orchestrator
 

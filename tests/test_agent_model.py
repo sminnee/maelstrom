@@ -18,8 +18,6 @@ import pytest
 from maelstrom.agent_model import (
     EXITED,
     IDLE,
-    KIND_CLI,
-    KIND_MAEL,
     MESSAGE_CHARS,
     MESSAGE_SUMMARY_CHARS,
     PROCESSING,
@@ -559,7 +557,6 @@ def _meta(**kw) -> TranscriptMeta:
         "session_id": "s1",
         "cwd": Path("/w/alpha"),
         "branch": "feat/x",
-        "kind": KIND_CLI,
         "label": "Improve plan mode",
         "modified_at": 1_000.0,
     }
@@ -567,21 +564,30 @@ def _meta(**kw) -> TranscriptMeta:
     return TranscriptMeta(**fields)
 
 
-def test_a_stopped_row_names_the_session_it_would_resume():
+def _spec(session_id: str, **kw) -> AgentSpec:
+    fields = {
+        "agent_id": session_id,
+        "cwd": "/w/alpha",
+        "session_id": session_id,
+        "status": SPEC_STOPPED,
+    }
+    fields.update(kw)
+    return AgentSpec(**fields)
+
+
+def _specs(*session_ids: str) -> dict[str, AgentSpec]:
+    """A record per session, which is what makes each one resumable."""
+    return {session_id: _spec(session_id) for session_id in session_ids}
+
+
+def test_a_stopped_row_names_the_agent_it_would_resume():
     """The id is the whole point: ``mael agent resume`` cannot be typed without it."""
-    row = build_stopped_row(_meta(), None, "", now=1_060.0)
-    assert row["id"] == "s1"
+    row = build_stopped_row(_meta(), _spec("s1", agent_id="a1"), "", now=1_060.0)
+    assert row["id"] == "a1"
+    assert row["session"] == "s1"
     assert row["cwd"] == "/w/alpha"
     assert row["branch"] == "feat/x"
     assert row["label"] == "Improve plan mode"
-
-
-def test_a_transcript_only_row_leaves_the_record_fields_blank():
-    """A hand-started session has no spawn record, and never had one."""
-    row = build_stopped_row(_meta(), None, "", now=1_000.0)
-    assert row["kind"] == KIND_CLI
-    assert row["model"] == ""
-    assert row["mode"] == ""
 
 
 def test_a_record_supplies_the_model_and_permission_mode():
@@ -594,19 +600,20 @@ def test_a_record_supplies_the_model_and_permission_mode():
         permission_mode="auto",
         status=SPEC_STOPPED,
     )
-    row = build_stopped_row(_meta(kind=KIND_MAEL), spec, "", now=1_000.0)
+    row = build_stopped_row(_meta(), spec, "", now=1_000.0)
     assert row["model"] == "opus"
     assert row["mode"] == "auto"
-    assert row["kind"] == KIND_MAEL
 
 
 def test_a_stopped_row_names_the_task_the_session_ran_for():
-    row = build_stopped_row(_meta(), None, "2026-09-04.2", now=1_000.0)
+    row = build_stopped_row(_meta(), _spec("s1"), "2026-09-04.2", now=1_000.0)
     assert row["task"] == "2026-09-04.2"
 
 
 def test_a_stopped_row_reports_how_long_ago_the_session_last_wrote():
-    row = build_stopped_row(_meta(modified_at=1_000.0), None, "", now=1_000.0 + 7200)
+    row = build_stopped_row(
+        _meta(modified_at=1_000.0), _spec("s1"), "", now=1_000.0 + 7200
+    )
     assert row["age"] == "2h"
 
 
@@ -616,7 +623,11 @@ def test_stopped_rows_drop_a_session_that_is_still_live():
         sessions=[LiveSession(pid=1, cwd=Path("/w/alpha"), session_id="s1")]
     )
     rows = build_stopped_rows(
-        [_meta(session_id="s1"), _meta(session_id="s2")], {}, {}, live, now=1_000.0
+        [_meta(session_id="s1"), _meta(session_id="s2")],
+        _specs("s1", "s2"),
+        {},
+        live,
+        now=1_000.0,
     )
     assert [row["id"] for row in rows] == ["s2"]
 
@@ -626,7 +637,9 @@ def test_stopped_rows_keep_a_session_that_only_shares_a_worktree():
     live = LiveSessionSet(
         sessions=[LiveSession(pid=1, cwd=Path("/w/alpha"), session_id="other")]
     )
-    rows = build_stopped_rows([_meta(session_id="s1")], {}, {}, live, now=1_000.0)
+    rows = build_stopped_rows(
+        [_meta(session_id="s1")], _specs("s1"), {}, live, now=1_000.0
+    )
     assert [row["id"] for row in rows] == ["s1"]
 
 
@@ -641,7 +654,7 @@ def test_stopped_rows_drop_a_hand_started_session_running_in_the_same_cwd():
     )
     rows = build_stopped_rows(
         [_meta(session_id="s1"), _meta(session_id="s2", cwd=Path("/w/bravo"))],
-        {},
+        _specs("s1", "s2"),
         {},
         live,
         now=1_000.0,
@@ -677,9 +690,26 @@ def test_stopped_rows_are_newest_first():
             _meta(session_id="old", modified_at=1.0),
             _meta(session_id="new", modified_at=9.0),
         ],
-        {},
+        _specs("old", "new"),
         {},
         LiveSessionSet(sessions=[]),
         now=10.0,
     )
     assert [row["id"] for row in rows] == ["new", "old"]
+
+
+def test_stopped_rows_drop_a_session_with_no_record():
+    """A resume reads the record, so a session without one cannot be resumed.
+
+    Its transcript is on disk and ``claude --resume`` would replay it, but
+    ``_resume`` needs the model, permission mode and env the record holds.
+    Listing one offers a resume that can only fail with ``no such agent``.
+    """
+    rows = build_stopped_rows(
+        [_meta(session_id="kept"), _meta(session_id="orphan")],
+        _specs("kept"),
+        {},
+        LiveSessionSet(sessions=[]),
+        now=1_000.0,
+    )
+    assert [row["id"] for row in rows] == ["kept"]

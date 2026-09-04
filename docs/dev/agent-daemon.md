@@ -416,10 +416,11 @@ restart keeps the new mode.
 does not name it, and no later daemon start brings it back. The record itself is kept, so
 `mael agent resume` still has the model, permission mode and environment the agent ran with.
 
-`list` with `scope: "stopped"` returns the sessions that can be resumed instead: every Claude
-session transcript on disk whose session is not running. Those rows come from the transcripts, not
-from the daemon's own agents, so they include sessions a person started by hand. `cwd` narrows the
-read to one working directory, which is one transcript directory rather than all of them. The CLI
+`list` with `scope: "stopped"` returns the sessions that can be resumed instead. A row is built
+from two sources: the spawn record, which `resume` reads to start the agent again, and Claude's
+session transcript, which says what the session was doing. A session with no record is left out,
+because nothing could resume it. A session still running is left out too. `cwd` narrows the read
+to one working directory, which is one transcript directory rather than all of them. The CLI
 resolves a worktree or a project to that path — the daemon knows nothing about either.
 
 The default scope is unchanged on purpose. The orchestrator server infers an agent's exit from its
@@ -570,8 +571,8 @@ tightens a record it finds loose.
   respawns it. That is also the loop guard: a resumed child that dies again is recorded `exited`,
   so the next daemon start leaves it alone.
 - **A `stopped` record is neither respawned nor loaded.** A stop is deliberate, so the agent stays
-  out of `list` entirely. `mael agent list --stopped` finds it through its transcript, and
-  `mael agent resume` still reads its record.
+  out of `list` entirely. `mael agent list --stopped` finds it through its record, and reads its
+  transcript for what it was doing. `mael agent resume` reads the record.
 - **A daemon shutdown stops every child but leaves the records `running`.** So the next daemon
   start resumes them. Restarting the daemon to pick up new code costs nothing.
 - **A resumed agent gets a turn saying why it came back.** A print-mode session sits idle until a

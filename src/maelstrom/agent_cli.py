@@ -147,10 +147,11 @@ def cmd_list(
 ) -> None:
     """Show every agent, and what each waiting one is waiting on.
 
-    ``--stopped`` shows what has stopped instead: every session with a
-    transcript on disk that is not running, which is every session
-    ``mael agent resume`` can bring back. A session maelstrom started keeps its
-    spawn record too, so its row also names the model it ran under.
+    ``--stopped`` shows what has stopped instead: every session
+    ``mael agent resume`` can bring back. A session is listed only when the
+    daemon started it, because a resume reads the daemon's spawn record. A
+    session you started by hand has no record, and ``claude --resume`` brings
+    that one back.
     """
     if stopped and show_all:
         raise click.ClickException("--stopped and --all cannot be used together")

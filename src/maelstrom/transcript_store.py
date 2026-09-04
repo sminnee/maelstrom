@@ -1,11 +1,10 @@
 """Storage layer for Claude's own session transcripts.
 
-A session that has stopped leaves no maelstrom record of its own beyond its
-spawn record, and a session a person started by hand leaves none at all. What
-does survive is Claude's transcript at
-``~/.claude/projects/<slug>/<session-id>.jsonl``. That file is also what makes
-``claude --resume`` work, so it is the right thing to enumerate when asking
-which sessions can be brought back.
+A spawn record says how to start an agent again, but nothing about what it was
+doing. That lives in Claude's transcript at
+``~/.claude/projects/<slug>/<session-id>.jsonl`` — the branch, the working
+directory, and a label for the work. ``mael agent list --stopped`` reads both,
+so a row names the session as well as identifying it.
 
 Follows the storage-layer shape in ``docs/dev/architecture-patterns.md``: a
 Protocol, an in-memory backend for tests, and a real backend whose root is

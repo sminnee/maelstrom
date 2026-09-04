@@ -332,7 +332,6 @@ def test_tail_says_how_many_earlier_events_the_daemon_dropped(monkeypatch):
 def stopped_row(**kw) -> dict:
     row = {
         "id": "s1",
-        "kind": "cli",
         "age": "2h",
         "task": "2026-09-04.2",
         "branch": "feat/x",
@@ -433,7 +432,7 @@ def test_a_filter_without_a_scope_still_asks_for_the_stopped_one(monkeypatch, tm
     assert client.calls[0]["scope"] == "stopped"
 
 
-def test_the_all_listing_renders_both_kinds_of_row_legibly():
+def test_the_all_listing_renders_both_shapes_of_row_legibly():
     """``--all`` mixes two row shapes, and neither may render as blank cells.
 
     A stopped row carries no ``state`` or ``cost``, and a running row carries no
@@ -454,3 +453,16 @@ def test_an_empty_all_listing_names_both_things_it_looked_for():
     """``--all`` found neither, so naming only one of them would mislead."""
     result, _ = run_cli(["list", "--all"], [{"agents": []}])
     assert "No agents running or stopped." in result.output
+
+
+def test_the_stopped_listing_prints_its_columns_in_order():
+    """The columns are what a user reads, and nothing else pins them.
+
+    There is no ``kind`` column: a session is listed only when it has a spawn
+    record, and only the daemon writes one, so the column would read ``mael``
+    on every row.
+    """
+    result, _ = run_cli(["list", "--stopped"], [{"agents": [stopped_row()]}])
+    assert result.exit_code == 0
+    header = result.output.splitlines()[0].split()
+    assert header == ["id", "age", "task", "branch", "label", "cwd"]
