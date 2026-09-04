@@ -450,10 +450,23 @@ def test_the_detail_frame_does_not_re_raise_a_wait_the_world_already_holds():
     assert out.events == []
 
 
-def test_the_detail_frame_of_an_agent_that_waits_on_nothing_says_nothing():
+def test_the_detail_frame_agrees_with_a_world_that_holds_no_wait():
     state = seed([make_agent(id="ag1", state="idle")])
     out = apply_agent_detail(state, context_for_agent("ag1"), {"request_id": ""}, NOW)
     assert out.events == []
+
+
+def test_the_detail_frame_of_an_idle_host_ends_the_wait_the_world_still_holds():
+    """The frame is the host's whole fold, so an empty request id is a value.
+
+    The wait ended while this server was not reading the stream, and it holds
+    no event that says so. The re-attach is where it finds out.
+    """
+    state = seed([make_agent(id="ag1", state="idle", pendingRequestId="req-9")])
+    replayed = Replayed(state)
+    out = apply_agent_detail(state, context_for_agent("ag1"), {"request_id": ""}, NOW)
+    replayed.take(out.events)
+    assert agent_of(replayed)["pendingRequestId"] is None
 
 
 def test_mark_exited_clears_the_wait_and_raises_attention_on_a_bad_exit():
@@ -573,3 +586,43 @@ def test_a_subagent_that_exits_non_zero_raises_no_attention():
     assert agent_of(state)["state"] == "exited"
     assert agent_of(state)["exitCode"] == 1
     assert open_attention(state) == []
+
+
+def test_the_detail_frame_of_a_new_wait_retires_the_one_the_world_held():
+    """The host moved on to a second wait, and the first one is over.
+
+    Overwriting the wait without ending it would leave the first item live
+    and its attention item on the desk with nothing left to retire it.
+    """
+    state = seed([make_agent(id="ag1", state="awaiting-question")])
+    replayed = Replayed(state)
+    first = apply_agent_detail(
+        state,
+        context_for_agent("ag1"),
+        {
+            "request_id": "req-9",
+            "waiting_tool": "AskUserQuestion",
+            "waiting_input": {"questions": [{"question": "Which?", "options": []}]},
+            "waiting_on": "Which?",
+        },
+        NOW,
+    )
+    replayed.take(first.events)
+    second = apply_agent_detail(
+        replayed.state,
+        first.ctx,
+        {
+            "request_id": "req-10",
+            "waiting_tool": "AskUserQuestion",
+            "waiting_input": {"questions": [{"question": "And now?", "options": []}]},
+            "waiting_on": "And now?",
+        },
+        NOW,
+    )
+    replayed.take(second.events)
+    assert agent_of(replayed)["pendingRequestId"] == "req-10"
+    assert [i.get("stale", False) for i in items_of(replayed, "question")] == [
+        True,
+        False,
+    ]
+    assert [a["requestId"] for a in open_attention(replayed)] == ["req-10"]

@@ -82,9 +82,21 @@ agent id. The server clears the exit code, clears the attention item the exit ra
 a second time. The re-attached backlog is relayed with the ids it already had, so a client that
 holds those items applies nothing new.
 
-Every attach opens with the host's `mael_agent_detail` frame, which says what the agent is
-waiting on. A wait it reports that the world does not already hold is raised here, so a wait that
-opened before this server attached is still answerable.
+What an agent waits on is not stored. Both the host and the server derive it by running the same
+function over the same events: a `control_request` opens the wait, and a `control_response`, a
+`control_cancel_request` or a `result` ends it. The host reads those events with no stream in
+between, so the host is never behind the server. Where the host disagrees with the world, the
+server takes the host's answer.
+
+Every attach opens with the host's `mael_agent_detail` frame. The frame always carries
+`request_id`, empty when the agent waits on nothing, so the frame reports the whole of what the
+host derived, not only the waits it can raise. The server reads it that way:
+
+| The frame says | The world holds | The server does |
+|---|---|---|
+| a request | no wait | raises the wait, so a request older than the replay window is still answerable |
+| a request | the same request | nothing — the backlog replayed it, and a second item would duplicate the decision |
+| no request | a wait | ends the wait, and marks its transcript item stale |
 
 Adoption waits for the host's replayed backlog to end. The server keeps a cursor per agent — the
 `mael_seq` of the last event it read, and the `epoch` the host's backlog marker named — and it
@@ -93,9 +105,14 @@ the server missed and no item lands twice. A revive forgets the cursor: the resu
 new life, and the host would not honour it anyway.
 
 A `mael_truncated` marker before any item publishes `transcript.truncated`: the transcript's
-start is not the agent's. Mid-stream it appends a `gap` item saying how many events are gone, and
-the next reconciliation checks the wait the world holds against the host's row: a wait the row
-no longer shows had its answer in the gap, and is ended as the child ends one it withdraws.
+start is not the agent's. Mid-stream the marker appends a `gap` item saying how many events are
+gone.
+
+Every reconciliation of a live agent compares the wait the world holds against the host's row.
+A row still reporting `awaiting-` holds its wait, so only a row that has moved on ends one. A
+wait the row no longer shows is over, and the server ends it as the child ends one it withdraws.
+The check needs no marker, because it never asks how the events went missing. A gap ate them,
+the cursor is past them, or a daemon restart took them. The row settles it either way.
 
 The server normalises the host's stream into transcript events and keeps one `TranscriptLog`
 per agent: the items as they stand, a seq per frame, and a ring of the last 2000 frames. The
@@ -359,8 +376,8 @@ The first command that needs the agent host starts one, as `mael agent` does.
 - Blocking work runs on the worker thread. `setup_worktree_for_branch` can take tens of seconds,
   and the launch reply waits for it.
 - The host's watcher queue drops the oldest event at 1000. The drop is marked, so the transcript
-  shows a gap and a lost answer is closed on the next reconciliation, but the dropped events
-  themselves are gone.
+  shows a gap, but the dropped events themselves are gone. A lost answer is closed on the next
+  reconciliation, whether or not the marker arrives.
 - Agents started outside the server attach with a 200-event backlog, and link to a task only when
   started with the task's session id.
 - A client that connects after the server started gets the transcript the server has built since
