@@ -33,6 +33,9 @@ A single letter is a shortcode for the NATO name: `a` → alpha, `b` → bravo, 
 Inside a worktree, maelstrom detects the project and worktree from the current directory,
 so the target is optional.
 
+`_main` is a target like any other: `mael env status myproject._main`. It resolves to the
+project's `_main` folder.
+
 `mael env start`, `mael env stop`, `mael env restart` and `mael env logs` are the exception:
 their argument names a **service**, and the worktree comes from `--worktree` or the current
 directory.
@@ -685,6 +688,17 @@ mael env reset                     # regenerate .env after changing ports
 | `env logs` | `-n INTEGER` | Number of lines to show. Default: 100. |
 | `env logs` | `-f`, `--follow` | Follow log output. |
 
+### The fixed environment
+
+A project that sets `main_port_base:` in `.maelstrom.yaml` makes `_main` an env target on ports
+that never change. See [the fixed environment](../guide/worktrees.md#the-fixed-environment).
+
+```bash
+mael env reset myproject._main       # write _main/.env off the reserved base
+mael env start -w myproject._main    # start it
+mael env status myproject._main
+```
+
 ---
 
 ## GitHub
@@ -931,12 +945,16 @@ None of these take options beyond `--help`.
 | `mael doctor [PROJECT]` | Check project health and fix issues automatically. |
 | `mael install` | Install maelstrom's Claude Code skills and hooks into `~/.claude/`. |
 | `mael self-update` | Update maelstrom to the latest version from git. |
+| `mael self-env <VERB>` | `mael env <VERB>` aimed at maelstrom's own `_main`. |
 | `mael session-channel` | Launch the Bun-based session-tracking MCP channel. Invoked by Claude Code, not by humans. |
 
 ```bash
 mael install                 # skills and hooks into ~/.claude/
 mael doctor myproject        # check project health, and fix what it can
 mael self-update
+mael self-env start          # maelstrom's own orchestrator and web UI
+mael self-env status
+mael self-env stop
 ```
 
 **`mael install`**

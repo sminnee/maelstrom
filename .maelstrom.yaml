@@ -1,3 +1,6 @@
+# `_main` is maelstrom's fixed environment — see docs/guide/worktrees.md.
+main_port_base: 277
+
 linear:
   team_id: 3201e7ca-cceb-4079-b8ef-51ffbde14db7
   product_label: Maelstrom

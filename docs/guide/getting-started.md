@@ -92,7 +92,7 @@ creates the first worktree, **alpha**:
 ~/Projects/repo/
 ├── .git/            # shared bare git directory
 ├── .mael            # marker: this is a maelstrom project
-├── _main/           # main branch: the reference checkout, not a worktree
+├── _main/           # the worktree that holds the main branch
 └── repo-alpha/      # first feature worktree
 ```
 

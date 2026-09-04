@@ -12,8 +12,11 @@ declare services once; maelstrom allocates, starts, tracks and stops them per wo
 
 ## Ports
 
-Each worktree gets a `PORT_BASE`: a 3-digit number in the range **300-999**. Every named
-port is `PORT_BASE * 10 + index`.
+Each NATO worktree gets a `PORT_BASE`: a **floating base**, a 3-digit number the allocator
+picks from the range **300-999**. Every named port is `PORT_BASE * 10 + index`.
+
+The `_main` worktree is the exception. It takes a **reserved base**, declared by
+`main_port_base:` — see [the fixed environment](worktrees.md#the-fixed-environment).
 
 With `PORT_BASE=300` and ports `[FRONTEND, SERVER, DB]`:
 
