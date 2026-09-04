@@ -42,4 +42,17 @@ if (!('getBBox' in SVGElement.prototype)) {
   });
 }
 
+// jsdom has no EventSource. The app injects one; this keeps an un-injected
+// import from throwing before the test can say what it wants.
+if (!('EventSource' in globalThis)) {
+  class EventSourceStub {
+    readyState = 0;
+    onopen = null;
+    onerror = null;
+    addEventListener() {}
+    close() {}
+  }
+  Object.defineProperty(globalThis, 'EventSource', { writable: true, value: EventSourceStub });
+}
+
 afterEach(() => cleanup());

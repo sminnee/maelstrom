@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { ConnectionState } from '../live/changeStream';
 import type { EventFrame } from '../protocol/events';
 import type { ClientState } from '../protocol/reducer';
 import { applyServerEvent, initialClientState } from '../protocol/reducer';
@@ -11,6 +12,9 @@ import { closeTab as closeTabIn, openOrFocusTab } from '../selectors/tabs';
 
 export interface AppStore extends ClientState {
   ui: UiState;
+  /** What the change stream is doing. */
+  connection: ConnectionState;
+  setConnection(state: ConnectionState): void;
   applyFrame(frame: EventFrame): void;
   reset(): void;
   setView(view: View): void;
@@ -33,6 +37,8 @@ export interface AppStore extends ClientState {
 export const useAppStore = create<AppStore>()((set) => ({
   ...initialClientState(),
   ui: initialUiState(),
+  connection: 'connecting',
+  setConnection: (connection) => set({ connection }),
   applyFrame: (frame) => set((s) => applyServerEvent(s, frame)),
   reset: () => set({ ...initialClientState(), ui: initialUiState() }),
   setView: (view) => set((s) => ({ ui: { ...s.ui, view } })),

@@ -1,19 +1,37 @@
 import { fireEvent, render, type RenderResult } from '@testing-library/react';
+import { QueryClient } from '@tanstack/react-query';
 import { act } from 'react';
 import { App } from '../App';
 import { createFakeBackend } from '../fake-backend/createFakeBackend';
 import type { DebugBackend } from '../protocol/backend';
+import { createFakeServer, type FakeServer } from './fakeServer';
 
-/** Mount the app on a paused fake backend. Advance the world with `backend.sim.step()`. */
+/**
+ * Mount the app on a paused fake backend, with a fake server behind the API
+ * and the change stream. Advance the world with `backend.sim.step()`.
+ */
 export async function renderApp(
   opts: { seed?: number } = {},
-): Promise<RenderResult & { backend: DebugBackend }> {
+): Promise<RenderResult & { backend: DebugBackend; server: FakeServer }> {
   const backend: DebugBackend = createFakeBackend({ seed: opts.seed ?? 1, autoplay: false });
-  const utils = render(<App backend={backend} />);
+  const server = createFakeServer();
+  // No retries: a refused request must fail the test now, not after backoff.
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: 0 } },
+  });
+  const deps = { api: server.api, eventSourceFactory: server.eventSourceFactory, queryClient };
+  const utils = render(<App backend={backend} deps={deps} />);
   await act(async () => {
     await backend.connect();
   });
-  return { backend, ...utils };
+  return { backend, server, ...utils };
+}
+
+/** Drop the fake change stream, as the browser reports a drop, and let the app react. */
+export async function dropStream(server: FakeServer, how: 'connecting' | 'closed' = 'connecting') {
+  await act(async () => {
+    server.dropStream(how);
+  });
 }
 
 /** Run `n` simulation ticks inside React's act so the resulting renders flush. */
