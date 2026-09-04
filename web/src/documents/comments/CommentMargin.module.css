@@ -63,11 +63,6 @@
   display: flex;
   gap: 6px;
 }
-.primary {
-  border-color: var(--accent);
-  color: var(--accent);
-  font-weight: 600;
-}
 .quiet {
   color: var(--fg-muted);
 }

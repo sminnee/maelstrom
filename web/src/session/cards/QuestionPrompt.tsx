@@ -1,5 +1,6 @@
 import { useId, useState } from 'react';
 import type { Question, QuestionItem } from '../../protocol/transcript';
+import { AppButton } from '../../ui/AppButton';
 import styles from './cards.module.css';
 
 const OTHER = '__other__';
@@ -31,7 +32,7 @@ export function QuestionPrompt({
   onAnswer,
 }: {
   item: QuestionItem;
-  onAnswer?: (answers: Record<string, string>) => void;
+  onAnswer?: (answers: Record<string, string>) => void | Promise<unknown>;
 }) {
   const [draft, setDraft] = useState<Draft>({ chosen: {}, other: {} });
   const [step, setStep] = useState(0);
@@ -76,7 +77,7 @@ export function QuestionPrompt({
       setStep(step + 1);
       return;
     }
-    onAnswer?.(Object.fromEntries(questions.map((q) => [q.question, answerFor(draft, q)])));
+    return onAnswer?.(Object.fromEntries(questions.map((q) => [q.question, answerFor(draft, q)])));
   };
 
   // Digit keys pick an option, except while the Other text takes the typing.
@@ -192,14 +193,9 @@ export function QuestionPrompt({
             Back
           </button>
         )}
-        <button
-          type="button"
-          className={styles.primary}
-          disabled={!onAnswer || !complete}
-          onClick={submit}
-        >
+        <AppButton variant="primary" disabled={!onAnswer || !complete} onClick={submit}>
           {last ? 'Answer' : 'Next'}
-        </button>
+        </AppButton>
       </div>
     </div>
   );

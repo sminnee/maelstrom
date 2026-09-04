@@ -10,13 +10,14 @@ import { toolCallTitle } from '../session/toolCards';
 import { PanelLink } from '../shell/PanelLink';
 import { useAppStore } from '../store/store';
 import { useCommand } from '../store/useCommand';
+import { AppButton } from '../ui/AppButton';
 import cards from '../session/cards/cards.module.css';
 import styles from './DecisionCard.module.css';
 
 /** The decision block. Both the expanded node and the document tab render this. */
 export function DecisionCard({ agent }: { agent: Agent }) {
   const transcript = useAppStore((s) => s.transcripts[agent.id]);
-  const { send, error } = useCommand();
+  const { send } = useCommand();
   const requestId = agent.pendingRequestId;
   const items = transcript?.items ?? [];
   // The last match, as the normaliser reads it: a request id names one wait.
@@ -46,7 +47,7 @@ export function DecisionCard({ agent }: { agent: Agent }) {
         <QuestionPrompt
           item={wait}
           onAnswer={(answers) =>
-            void send({ type: 'agent.answer', agentId: agent.id, requestId, answers })
+            send({ type: 'agent.answer', agentId: agent.id, requestId, answers })
           }
         />
       )}
@@ -54,7 +55,7 @@ export function DecisionCard({ agent }: { agent: Agent }) {
         <PermissionPrompt
           item={wait}
           onDecide={(decision, reason) =>
-            void send(
+            send(
               decision === 'approve'
                 ? { type: 'agent.approve', agentId: agent.id, requestId }
                 : { type: 'agent.deny', agentId: agent.id, requestId, reason },
@@ -66,18 +67,13 @@ export function DecisionCard({ agent }: { agent: Agent }) {
         <PlanReview
           item={wait}
           onDecide={(decision, reason) =>
-            void send(
+            send(
               decision === 'approve'
                 ? { type: 'agent.approve', agentId: agent.id, requestId }
                 : { type: 'agent.deny', agentId: agent.id, requestId, reason },
             )
           }
         />
-      )}
-      {error && (
-        <div className={styles.error} role="alert">
-          {error}
-        </div>
       )}
     </section>
   );
@@ -90,7 +86,7 @@ function PlanReview({
   onDecide,
 }: {
   item: PlanReviewItem;
-  onDecide: (decision: 'approve' | 'deny', reason: string) => void;
+  onDecide: (decision: 'approve' | 'deny', reason: string) => void | Promise<unknown>;
 }) {
   const [reason, setReason] = useState('');
   return (
@@ -101,9 +97,9 @@ function PlanReview({
         {item.documentId && <PanelLink tab={documentTab(item.documentId)}>Read the plan</PanelLink>}
       </div>
       <div className={cards.options}>
-        <button type="button" className={cards.primary} onClick={() => onDecide('approve', '')}>
+        <AppButton variant="primary" onClick={() => onDecide('approve', '')}>
           Approve
-        </button>
+        </AppButton>
         <input
           className={cards.reasonInput}
           aria-label="Deny reason"
@@ -111,13 +107,9 @@ function PlanReview({
           value={reason}
           onChange={(e) => setReason(e.target.value)}
         />
-        <button
-          type="button"
-          disabled={!reason.trim()}
-          onClick={() => onDecide('deny', reason.trim())}
-        >
+        <AppButton disabled={!reason.trim()} onClick={() => onDecide('deny', reason.trim())}>
           Deny
-        </button>
+        </AppButton>
       </div>
     </div>
   );

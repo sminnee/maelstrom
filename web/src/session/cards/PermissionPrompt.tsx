@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { PermissionRequestItem } from '../../protocol/transcript';
+import { AppButton } from '../../ui/AppButton';
 import { ToolInput } from './ToolCallCard';
 import styles from './cards.module.css';
 
@@ -9,7 +10,7 @@ export function PermissionPrompt({
 }: {
   item: PermissionRequestItem;
   /** A deny carries the reason the agent gets as its tool result. */
-  onDecide?: (decision: 'approve' | 'deny', reason: string) => void;
+  onDecide?: (decision: 'approve' | 'deny', reason: string) => void | Promise<unknown>;
 }) {
   const [reason, setReason] = useState('');
   return (
@@ -30,14 +31,13 @@ export function PermissionPrompt({
         <div className={styles.answer}>no longer pending</div>
       ) : (
         <div className={styles.options}>
-          <button
-            type="button"
-            className={styles.primary}
+          <AppButton
+            variant="primary"
             disabled={!onDecide}
             onClick={() => onDecide?.('approve', '')}
           >
             Approve
-          </button>
+          </AppButton>
           <input
             className={styles.reasonInput}
             aria-label="Deny reason"
@@ -45,13 +45,12 @@ export function PermissionPrompt({
             value={reason}
             onChange={(e) => setReason(e.target.value)}
           />
-          <button
-            type="button"
+          <AppButton
             disabled={!onDecide || !reason.trim()}
             onClick={() => onDecide?.('deny', reason.trim())}
           >
             Deny
-          </button>
+          </AppButton>
         </div>
       )}
     </div>

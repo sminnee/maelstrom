@@ -8,6 +8,7 @@ import { TASK_STATUSES } from '../protocol/validate';
 import { listTasks } from '../selectors/taskList';
 import { useAppStore } from '../store/store';
 import { useCommand } from '../store/useCommand';
+import { AppButton } from '../ui/AppButton';
 import styles from './TaskList.module.css';
 
 /** Every task in the world, and the one place the desk is edited. */
@@ -16,7 +17,7 @@ export function TaskList() {
   const filters = useAppStore((s) => s.ui.listFilters);
   const setFilters = useAppStore((s) => s.setListFilters);
   const editTask = useAppStore((s) => s.setEditingTask);
-  const { send, error } = useCommand();
+  const { send } = useCommand();
   // Which row's status is being picked.
   const [picking, setPicking] = useState<TaskId | null>(null);
   const options = filterOptions(world, filters);
@@ -81,7 +82,6 @@ export function TaskList() {
           />
         </label>
       </div>
-      {error && <p className={styles.error}>{error}</p>}
       <table className={styles.table}>
         <thead>
           <tr>
@@ -98,17 +98,16 @@ export function TaskList() {
           {rows.map(({ task, onDesk, agent }) => (
             <tr key={task.id} data-task-id={task.id} data-on-desk={onDesk}>
               <td>
-                <button
-                  type="button"
+                <AppButton
                   onClick={() =>
-                    void send({
+                    send({
                       type: onDesk ? 'desk.remove' : 'desk.add',
                       id: deskIdForTask(task.id),
                     })
                   }
                 >
                   {onDesk ? 'Remove from desk' : 'Add to desk'}
-                </button>
+                </AppButton>
                 <button type="button" onClick={() => editTask(task.id)}>
                   Edit
                 </button>
@@ -125,7 +124,7 @@ export function TaskList() {
                   onDone={() => setPicking(null)}
                   onChange={(status) => {
                     setPicking(null);
-                    void send({ type: 'task.setStatus', taskId: task.id, status });
+                    return send({ type: 'task.setStatus', taskId: task.id, status });
                   }}
                 />
               </td>
@@ -146,7 +145,8 @@ export function TaskList() {
 }
 
 /**
- * The status, as text until it is clicked, then a native select.
+ * The status, as text until it is clicked, then a native select. A move the
+ * server refuses shows its message in the cell.
  *
  * Native, not a popover: the view scrolls under `overflow: auto`.
  */
@@ -161,13 +161,29 @@ function StatusCell({
   picking: boolean;
   onPick: () => void;
   onDone: () => void;
-  onChange: (status: TaskStatus) => void;
+  onChange: (status: TaskStatus) => void | Promise<unknown>;
 }) {
+  const [error, setError] = useState<string | null>(null);
+  const pick = async (status: TaskStatus) => {
+    setError(null);
+    try {
+      await onChange(status);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
   if (!picking) {
     return (
-      <button type="button" className={styles.status} onClick={onPick}>
-        {task.status}
-      </button>
+      <>
+        <button type="button" className={styles.status} onClick={onPick}>
+          {task.status}
+        </button>
+        {error && (
+          <span className={styles.error} role="alert">
+            {error}
+          </span>
+        )}
+      </>
     );
   }
   return (
@@ -176,7 +192,7 @@ function StatusCell({
       aria-label={`Status of ${task.title}`}
       autoFocus
       value={task.status}
-      onChange={(e) => onChange(e.target.value as TaskStatus)}
+      onChange={(e) => void pick(e.target.value as TaskStatus)}
       onKeyDown={(e) => e.key === 'Escape' && onDone()}
       onBlur={onDone}
     >

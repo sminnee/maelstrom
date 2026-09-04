@@ -83,11 +83,6 @@
 .advanced summary {
   cursor: pointer;
 }
-.error {
-  margin: 0;
-  color: var(--attention);
-  font-size: var(--text-sm);
-}
 .footer {
   display: flex;
   justify-content: flex-end;
@@ -102,11 +97,6 @@
   border-radius: var(--radius);
   padding: var(--space-1) var(--space-3);
   cursor: pointer;
-}
-.primary {
-  color: var(--fg-on-hue);
-  background: var(--accent);
-  border-color: var(--accent);
 }
 .confirm {
   display: flex;

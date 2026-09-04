@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Document } from '../protocol/documents';
+import { AppButton } from '../ui/AppButton';
 import styles from './ReviewActions.module.css';
 
 export function ReviewActions({
@@ -10,8 +11,8 @@ export function ReviewActions({
 }: {
   doc: Document;
   unresolved: number;
-  onApprove: () => void;
-  onRequestChanges: (summary: string) => void;
+  onApprove: () => void | Promise<unknown>;
+  onRequestChanges: (summary: string) => void | Promise<unknown>;
 }) {
   const [summary, setSummary] = useState('');
   if (doc.status !== 'awaiting-review') {
@@ -27,16 +28,15 @@ export function ReviewActions({
         value={summary}
         onChange={(e) => setSummary(e.target.value)}
       />
-      <button
-        type="button"
+      <AppButton
         disabled={!summary.trim() && unresolved === 0}
         onClick={() => onRequestChanges(summary.trim())}
       >
         Request changes
-      </button>
-      <button type="button" className={styles.approve} onClick={onApprove}>
+      </AppButton>
+      <AppButton className={styles.approve} onClick={() => onApprove()}>
         Approve
-      </button>
+      </AppButton>
     </div>
   );
 }

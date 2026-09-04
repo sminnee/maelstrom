@@ -15,7 +15,7 @@ import styles from './DocumentTab.module.css';
 
 /** A rendered document, its comment margin, its review actions, and any question its agent asks. */
 export function DocumentTab({ documentId }: { documentId: string }) {
-  const { send, error } = useCommand();
+  const { send } = useCommand();
   const doc = useAppStore((s) => s.world.documents[documentId]);
   const task = useAppStore((s) => (doc ? s.world.tasks[doc.taskId] : undefined));
   const agent = useAppStore((s) => (doc ? s.world.agents[doc.agentId] : undefined));
@@ -85,30 +85,24 @@ export function DocumentTab({ documentId }: { documentId: string }) {
           onStart={startComment}
           onCancel={clear}
           onAdd={async (anchor, text) => {
-            const ok = await send({
+            await send({
               type: 'comment.add',
               documentId,
               version: doc.version,
               anchor,
               body: text,
             });
-            if (ok) clear();
-            return ok;
+            clear();
           }}
-          onResolve={(commentId) => void send({ type: 'comment.resolve', commentId })}
+          onResolve={(commentId) => send({ type: 'comment.resolve', commentId })}
         />
       </div>
-      {error && (
-        <div className={styles.error} role="alert">
-          {error}
-        </div>
-      )}
       <ReviewActions
         doc={doc}
         unresolved={unresolved}
-        onApprove={() => void send({ type: 'document.approve', documentId, version: doc.version })}
+        onApprove={() => send({ type: 'document.approve', documentId, version: doc.version })}
         onRequestChanges={(summary) =>
-          void send({ type: 'document.requestChanges', documentId, version: doc.version, summary })
+          send({ type: 'document.requestChanges', documentId, version: doc.version, summary })
         }
       />
     </div>

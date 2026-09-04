@@ -42,11 +42,6 @@
   min-height: 0;
   overflow: auto;
 }
-.error {
-  color: var(--danger);
-  padding: 4px 12px;
-  font-size: 12px;
-}
 .empty {
   padding: 24px;
   color: var(--fg-faint);

@@ -1,0 +1,25 @@
+/*
+ * The base look comes from `base.css`'s button rule. This adds the two
+ * variants the app uses and the state colours. A caller's own class still
+ * applies on top.
+ */
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.primary {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.quiet {
+  color: var(--fg-muted);
+}
+.button[data-state='processing'] {
+  opacity: 0.7;
+}
+.button[data-state='error'] {
+  border-color: var(--danger);
+  color: var(--danger);
+}
