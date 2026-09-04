@@ -51,7 +51,10 @@ export function applyServerEvent(state: ClientState, frame: EventFrame): ClientS
 export function applyEvent(state: ClientState, event: ServerEvent, seq: Seq = 0): ClientState {
   switch (event.type) {
     case 'snapshot':
-      return { ...state, world: event.world, transcripts: event.transcripts };
+      // A snapshot without transcripts leaves the ones this client holds. The
+      // real server sends none: it relays transcript events rather than
+      // storing them, so the client's own map is the only copy.
+      return { ...state, world: event.world, transcripts: event.transcripts ?? state.transcripts };
     case 'upsert': {
       assertKnownKind(event.kind);
       const key = WORLD_KEY[event.kind];

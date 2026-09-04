@@ -61,13 +61,13 @@ class EventLog:
         return [frame for frame in self._log if frame["seq"] > from_seq]
 
     def snapshot_frame(self, ts: str) -> EventFrame:
-        """The world as it is now, stamped with the current seq."""
+        """The world as it is now, stamped with the current seq.
+
+        Carries no transcripts: the server keeps none. A client that connects
+        mid-life fills its own in from the events relayed after it arrives.
+        """
         return {
             "seq": self._seq,
             "ts": ts,
-            "event": {
-                "type": "snapshot",
-                "world": self._state["world"],
-                "transcripts": self._state["transcripts"],
-            },
+            "event": {"type": "snapshot", "world": self._state["world"]},
         }

@@ -15,11 +15,11 @@ directory, the two ``mael_*`` stream markers, and whether the stream ended
 because the agent did or because the connection went.
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import PurePosixPath
 from typing import Any
 
-from .agent_model import AGENT_EXITED, BACKLOG_END, RECENT_LIMIT
+from .agent_model import AGENT_DETAIL, AGENT_EXITED, BACKLOG_END, RECENT_LIMIT
 from .orchestrator.normalise import NormaliseContext, normalise_stream_event
 from .orchestrator.normalise import mark_exited as normalise_exited
 from .orchestrator.protocol import (
@@ -67,10 +67,14 @@ class AttachView:
     """Everything one attached client knows, derived from the stream it reads."""
 
     agent_id: str
-    #: One agent in ``world.agents`` and one transcript, reduced by the
-    #: orchestrator protocol so the TUI and the web UI show the same items.
+    #: One agent in ``world.agents``, reduced by the orchestrator protocol so
+    #: the TUI and the web UI show the same items.
     client: ClientState
-    ctx: NormaliseContext
+    #: The items this client has built from the transcript events it read.
+    #: The server keeps none — the projection is relayed, not stored — so a
+    #: client accumulates its own, next to the thing that renders it.
+    items: tuple[TranscriptItem, ...] = ()
+    ctx: NormaliseContext = field(default_factory=lambda: NormaliseContext(""))
     usage: TokenUsage = TokenUsage()
     cwd: str = ""
     #: How many events the replayed backlog held, and whether it has ended. A
@@ -142,12 +146,24 @@ def apply_stream_event(
         exit_code = _int_or_none(raw.get("exit_code"))
         result = normalise_exited(view.client, view.ctx, exit_code, now)
         client = _reduce(view.client, result.events)
+        items = _with_items(view.items, result.events)
         return (
             replace(
-                view, client=client, ctx=result.ctx, exit_code=exit_code, exited=True
+                view,
+                client=client,
+                items=items,
+                ctx=result.ctx,
+                exit_code=exit_code,
+                exited=True,
             ),
             result.events,
         )
+
+    if kind == AGENT_DETAIL:
+        # The host's opening frame, not one of the agent's own events. It says
+        # what the agent waits on; the backlog that follows usually replays the
+        # request itself, so nothing is derived from it here.
+        return view, []
 
     if not view.backlog_done:
         view = replace(view, backlog_count=view.backlog_count + 1)
@@ -162,7 +178,8 @@ def apply_stream_event(
 
     result = normalise_stream_event(view.client, view.ctx, raw, now)
     client = _reduce(view.client, result.events)
-    return replace(view, client=client, ctx=result.ctx), result.events
+    items = _with_items(view.items, result.events)
+    return replace(view, client=client, items=items, ctx=result.ctx), result.events
 
 
 def mark_stream_ended(view: AttachView) -> AttachView:
@@ -181,6 +198,28 @@ def _reduce(client: ClientState, events: list[ServerEvent]) -> ClientState:
     for event in events:
         client = apply_event(client, event)
     return client
+
+
+def _with_items(
+    items: tuple[TranscriptItem, ...], events: list[ServerEvent]
+) -> tuple[TranscriptItem, ...]:
+    """``items`` after the transcript events in ``events``.
+
+    The same reduction ``web/src/protocol/reducer.ts`` runs. The server relays
+    these events rather than storing what they add up to, so every client
+    keeps its own copy.
+    """
+    out = list(items)
+    for event in events:
+        kind = event.get("type")
+        if kind == "transcript.append":
+            out.append(event["item"])
+        elif kind == "transcript.update":
+            out = [
+                {**i, **event["patch"]} if i["id"] == event["itemId"] else i
+                for i in out
+            ]
+    return tuple(out)
 
 
 def _usage_of(raw: dict[str, Any]) -> TokenUsage:
@@ -208,8 +247,7 @@ def _int_or_none(value: Any) -> int | None:
 
 def transcript_items(view: AttachView) -> list[TranscriptItem]:
     """Every item of the agent's transcript, oldest first."""
-    transcript = view.client["transcripts"].get(view.agent_id)
-    return list(transcript["items"]) if transcript else []
+    return list(view.items)
 
 
 def agent_status(view: AttachView) -> str:

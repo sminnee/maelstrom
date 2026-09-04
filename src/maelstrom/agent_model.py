@@ -290,6 +290,12 @@ BACKLOG_END = "mael_backlog_end"
 #: stream, so a client knows the agent ended it, not a dropped connection.
 AGENT_EXITED = "mael_agent_exited"
 
+#: Event type of an attach stream's opening frame, carrying
+#: :func:`build_agent_detail` under ``agent``. The host says what the agent is
+#: waiting on rather than leaving a client to infer it from replayed events,
+#: which is what makes a revived agent's wait answerable at once.
+AGENT_DETAIL = "mael_agent_detail"
+
 
 def _message_texts(event: dict[str, Any]) -> list[str]:
     """The text the agent chose to say in one ``assistant`` event.
@@ -441,15 +447,18 @@ def build_agent_detail(state: AgentState) -> dict[str, Any]:
     commands can never disagree about the same agent. Every key is always
     present, on the same contract as the row.
 
-    Two keys carry what a row cannot. ``questions`` holds each option and its
-    description, which is what a user needs to answer well. ``plan`` holds the
-    plan text, and ``plan_file`` the file the agent wrote it to.
+    Three keys carry what a row cannot. ``request_id`` is what a reply must
+    echo back, so a wait is answerable from the detail alone — a row carries no
+    request id, so a row alone never is. ``questions`` holds each option and
+    its description, which is what a user needs to answer well. ``plan`` holds
+    the plan text, and ``plan_file`` the file the agent wrote it to.
     """
     pending = state.pending
     plan, plan_file = _plan_details(pending, state.messages)
     return {
         **build_agent_row(state),
         "messages": list(state.messages[-DETAIL_MESSAGES:]),
+        "request_id": pending.request_id if pending else "",
         "waiting_kind": pending.wait_kind if pending else "",
         "waiting_tool": pending.tool_name if pending else "",
         "waiting_input": dict(pending.input) if pending else {},

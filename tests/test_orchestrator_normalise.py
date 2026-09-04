@@ -15,6 +15,7 @@ import pytest
 
 from maelstrom.orchestrator.normalise import (
     NormaliseContext,
+    apply_agent_detail,
     context_for_agent,
     mark_exited,
     normalise_stream_event,
@@ -80,14 +81,59 @@ def seed(agents: list[dict], documents: list[dict] = ()) -> ClientState:
         world["agents"][agent["id"]] = agent
     for doc in documents:
         world["documents"][doc["id"]] = doc
-    return apply_event(
-        initial_client_state(), {"type": "snapshot", "world": world, "transcripts": {}}
-    )
+    return apply_event(initial_client_state(), {"type": "snapshot", "world": world})
 
 
-def replay(name: str, *, stop_before_control_response: bool = False) -> ClientState:
-    state = seed([make_agent(id="ag1", state="idle")])
-    ctx = context_for_agent(state, "ag1")
+class Replayed:
+    """A world plus the transcripts a client would have built from the events.
+
+    The server keeps no transcript, so these tests accumulate one the way the
+    browser's reducer does. That is what the goldens hold, and holding it here
+    rather than in ``ClientState`` is the point: the projection is relayed,
+    not stored.
+    """
+
+    def __init__(self, state: ClientState) -> None:
+        self.state = state
+        self.transcripts: dict[str, dict] = {}
+
+    def take(self, events: list[dict]) -> None:
+        for event in events:
+            self.state = apply_event(self.state, event)
+            self._transcribe(event)
+
+    def _transcribe(self, event: dict) -> None:
+        kind = event.get("type")
+        if not str(kind).startswith("transcript."):
+            return
+        agent_id = event["agentId"]
+        current = self.transcripts.setdefault(
+            agent_id, {"agentId": agent_id, "items": [], "truncatedBefore": False}
+        )
+        if kind == "transcript.append":
+            current["items"].append(event["item"])
+        elif kind == "transcript.update":
+            current["items"] = [
+                {**i, **event["patch"]} if i["id"] == event["itemId"] else i
+                for i in current["items"]
+            ]
+        else:
+            current["truncatedBefore"] = True
+
+    @property
+    def items(self) -> list[dict]:
+        return self.transcripts.get("ag1", {"items": []})["items"]
+
+    def __getitem__(self, key: str):
+        """``world`` and ``transcripts``, so assertions read as a client's state."""
+        if key == "transcripts":
+            return self.transcripts
+        return self.state[key]
+
+
+def replay(name: str, *, stop_before_control_response: bool = False) -> Replayed:
+    out_state = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = context_for_agent("ag1")
     for raw in read_fixture(name):
         if (
             stop_before_control_response
@@ -95,29 +141,28 @@ def replay(name: str, *, stop_before_control_response: bool = False) -> ClientSt
             and ctx.pending is not None
         ):
             break
-        out = normalise_stream_event(state, ctx, raw, NOW)
+        out = normalise_stream_event(out_state.state, ctx, raw, NOW)
         ctx = out.ctx
-        for event in out.events:
-            state = apply_event(state, event)
-    return state
+        out_state.take(out.events)
+    out_state.ctx = ctx
+    return out_state
 
 
-def types(state: ClientState) -> list[str]:
-    return [
-        item["type"] for item in state["transcripts"].get("ag1", {"items": []})["items"]
-    ]
+def types(replayed: Replayed) -> list[str]:
+    return [item["type"] for item in replayed.items]
 
 
-def agent_of(state: ClientState) -> dict:
-    return state["world"]["agents"]["ag1"]
+def agent_of(replayed: Replayed) -> dict:
+    return replayed.state["world"]["agents"]["ag1"]
 
 
-def open_attention(state: ClientState) -> list[dict]:
-    return [a for a in state["world"]["attention"].values() if a["clearedAt"] is None]
+def open_attention(replayed: Replayed) -> list[dict]:
+    world = replayed.state["world"]
+    return [a for a in world["attention"].values() if a["clearedAt"] is None]
 
 
-def items_of(state: ClientState, kind: str) -> list[dict]:
-    return [i for i in state["transcripts"]["ag1"]["items"] if i["type"] == kind]
+def items_of(replayed: Replayed, kind: str) -> list[dict]:
+    return [i for i in replayed.items if i["type"] == kind]
 
 
 FIXTURE_NAMES = sorted(p.name for p in FIXTURES.glob("*.jsonl"))
@@ -126,8 +171,11 @@ FIXTURE_NAMES = sorted(p.name for p in FIXTURES.glob("*.jsonl"))
 @pytest.mark.parametrize("name", FIXTURE_NAMES)
 def test_every_fixture_replays_to_the_golden_the_ts_normaliser_wrote(name):
     golden = json.loads((GOLDEN / name.replace(".jsonl", ".json")).read_text())
-    state = replay(name)
-    assert {"world": state["world"], "transcripts": state["transcripts"]} == golden
+    replayed = replay(name)
+    assert {
+        "world": replayed.state["world"],
+        "transcripts": replayed.transcripts,
+    } == golden
 
 
 def test_a_completed_turn_ends_idle_with_the_cost_and_one_result_line():
@@ -215,13 +263,13 @@ RESULT = {
 
 def ended_mid_wait(
     name: str, *, stop_before_control_response: bool = False
-) -> ClientState:
+) -> "Replayed":
     """Replay ``name`` up to its pending request, then end the turn on it."""
-    state = replay(name, stop_before_control_response=stop_before_control_response)
-    out = normalise_stream_event(state, context_for_agent(state, "ag1"), RESULT, NOW)
-    for event in out.events:
-        state = apply_event(state, event)
-    return state
+    replayed = replay(name, stop_before_control_response=stop_before_control_response)
+    out = normalise_stream_event(replayed.state, replayed.ctx, RESULT, NOW)
+    replayed.take(out.events)
+    replayed.ctx = out.ctx
+    return replayed
 
 
 def test_a_turn_that_ends_mid_permission_marks_the_request_stale_and_clears_the_row():
@@ -296,7 +344,7 @@ def test_a_plan_sent_back_comes_around_as_the_next_version_of_the_same_document(
         id="doc-1", agentId="ag1", version=1, status="changes-requested"
     )
     state = seed([make_agent(id="ag1", state="processing")], [doc])
-    ctx = context_for_agent(state, "ag1")
+    ctx = context_for_agent("ag1")
     out = normalise_stream_event(
         state,
         ctx,
@@ -322,38 +370,76 @@ def test_a_plan_sent_back_comes_around_as_the_next_version_of_the_same_document(
     assert docs[0]["markdown"] == "# Revised"
 
 
-def test_context_for_agent_rebuilds_the_pending_request_from_the_world():
-    """A server that resumes an agent mid-wait must still answer it."""
-    waiting = replay("question-unanswered.jsonl", stop_before_control_response=True)
-    ctx = context_for_agent(waiting, "ag1")
-    assert ctx.pending is not None
-    assert ctx.pending.request_id == "2ba1273d-d878-4923-ba21-31faa1067613"
-    assert ctx.pending.tool == "AskUserQuestion"
-    assert ctx.pending.attention_id == open_attention(waiting)[0]["id"]
-    assert ctx.next_id == len(waiting["transcripts"]["ag1"]["items"]) + 1
+def test_a_fresh_context_seeds_its_ids_past_the_ones_already_handed_out():
+    """A re-attach must not mint an id an earlier item already has.
+
+    The counter is the only source of item ids. Nothing on the server holds
+    the items, so the high-water mark is carried rather than derived.
+    """
+    ctx = context_for_agent("ag1", seed=7)
+    assert ctx.next_id == 8
+    assert ctx.pending is None
+
+
+def test_the_hosts_detail_frame_raises_a_wait_the_world_does_not_hold():
+    """A client that attached after the request went out must still answer it."""
+    state = seed([make_agent(id="ag1", state="awaiting-question")])
+    replayed = Replayed(state)
+    out = apply_agent_detail(
+        state,
+        context_for_agent("ag1"),
+        {
+            "request_id": "req-9",
+            "waiting_tool": "AskUserQuestion",
+            "waiting_input": {"questions": [{"question": "Which?", "options": []}]},
+            "waiting_on": "Which?",
+        },
+        NOW,
+    )
+    replayed.take(out.events)
+    assert agent_of(replayed)["pendingRequestId"] == "req-9"
+    assert types(replayed) == ["question"]
+    assert open_attention(replayed)[0]["requestId"] == "req-9"
+
+
+def test_the_detail_frame_does_not_re_raise_a_wait_the_world_already_holds():
+    """The request id names one wait; raising it twice would duplicate it."""
+    state = seed(
+        [make_agent(id="ag1", state="awaiting-question", pendingRequestId="req-9")]
+    )
+    out = apply_agent_detail(
+        state,
+        context_for_agent("ag1"),
+        {"request_id": "req-9", "waiting_tool": "AskUserQuestion"},
+        NOW,
+    )
+    assert out.events == []
+
+
+def test_the_detail_frame_of_an_agent_that_waits_on_nothing_says_nothing():
+    state = seed([make_agent(id="ag1", state="idle")])
+    out = apply_agent_detail(state, context_for_agent("ag1"), {"request_id": ""}, NOW)
+    assert out.events == []
 
 
 def test_mark_exited_clears_the_wait_and_raises_attention_on_a_bad_exit():
     waiting = replay("question-unanswered.jsonl", stop_before_control_response=True)
-    ctx = context_for_agent(waiting, "ag1")
-    out = mark_exited(waiting, ctx, 1, NOW)
-    state = waiting
-    for event in out.events:
-        state = apply_event(state, event)
-    agent = agent_of(state)
+    ctx = waiting.ctx
+    out = mark_exited(waiting.state, ctx, 1, NOW)
+    waiting.take(out.events)
+    agent = agent_of(waiting)
     assert agent["state"] == "exited"
     assert agent["exitCode"] == 1
     assert agent["pendingRequestId"] is None
-    assert items_of(state, "question")[0]["stale"] is True
-    kinds = sorted(a["kind"] for a in open_attention(state))
+    assert items_of(waiting, "question")[0]["stale"] is True
+    kinds = sorted(a["kind"] for a in open_attention(waiting))
     assert kinds == ["agent_exited"]
 
 
 def test_mark_exited_with_a_clean_exit_raises_nothing():
     state = replay("normal-turn.jsonl")
-    out = mark_exited(state, context_for_agent(state, "ag1"), 0, NOW)
-    for event in out.events:
-        state = apply_event(state, event)
+    out = mark_exited(state.state, state.ctx, 0, NOW)
+    state.take(out.events)
     assert agent_of(state)["state"] == "exited"
     assert open_attention(state) == []
 

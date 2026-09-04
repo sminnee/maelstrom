@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from maelstrom import agent_server
 from maelstrom.agent_model import (
+    AGENT_DETAIL,
     BACKLOG_END,
     DEFAULT_RESUME_PROMPT,
     EXITED,
@@ -15,7 +16,6 @@ from maelstrom.agent_model import (
     PROCESSING,
     AgentSpec,
     apply_event,
-    build_agent_row,
     mark_exited,
 )
 from maelstrom.agent_server import Agent, AgentDaemon
@@ -185,7 +185,10 @@ def test_attach_still_marks_the_end_for_an_agent_that_said_nothing():
             pass
 
     asyncio.run(attach_then_disconnect())
-    assert [json.loads(line).get("type") for line in writer.lines] == [BACKLOG_END]
+    assert [json.loads(line).get("type") for line in writer.lines] == [
+        AGENT_DETAIL,
+        BACKLOG_END,
+    ]
 
 
 # --- the three additions the orchestrator server relies on --------------------
@@ -705,8 +708,70 @@ def test_answering_clears_the_wait_at_once():
     assert agent.state.pending is None
 
 
+# --- the detail frame: what the agent waits on, said on attach ---------------
+
+
+def test_attach_opens_with_the_agents_detail():
+    """A client must know what the agent waits on without inferring it."""
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    agent.state = replay("question-unanswered.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+    writer = _recording_writer()
+
+    async def attach_then_disconnect():
+        task = asyncio.create_task(daemon._attach("a1", writer))
+        await asyncio.sleep(0)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(attach_then_disconnect())
+    first = json.loads(writer.lines[0])
+    assert first["type"] == AGENT_DETAIL
+    assert first["agent"]["waiting_kind"] == "awaiting-question"
+    assert first["agent"]["questions"][0]["options"][0]["label"] == "Red"
+
+
+def test_the_detail_frame_names_the_request_a_wait_can_be_answered_with():
+    """A row alone can never make a wait answerable: it carries no request id."""
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    agent.state = replay("permission-request.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+    writer = _recording_writer()
+
+    async def attach_then_disconnect():
+        task = asyncio.create_task(daemon._attach("a1", writer))
+        await asyncio.sleep(0)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(attach_then_disconnect())
+    first = json.loads(writer.lines[0])
+    assert first["agent"]["request_id"] == agent.state.pending.request_id
+
+
+def test_the_detail_frame_comes_before_the_backlog():
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    agent.state = mark_exited(replay("normal-turn.jsonl"), 0)
+    daemon.agents["a1"] = agent
+    writer = _recording_writer()
+    asyncio.run(asyncio.wait_for(daemon._attach("a1", writer), timeout=2))
+    kinds = [json.loads(line).get("type") for line in writer.lines]
+    assert kinds[0] == AGENT_DETAIL
+    assert kinds.index(AGENT_DETAIL) < kinds.index(BACKLOG_END)
+
+
 def test_a_message_the_user_sends_is_not_recorded():
     """The child replays every user turn itself, marked ``isReplay``.
+
 
     Recording it here would put one turn on the stream twice, and the
     orchestrator's normaliser mints a fresh item id per copy — so the user's
@@ -726,7 +791,10 @@ def test_a_message_the_user_sends_is_not_recorded():
 
     asyncio.run(attach_then_say())
     assert sent[-1]["message"]["content"][0]["text"] == "carry on"
-    assert [json.loads(line).get("type") for line in writer.lines] == [BACKLOG_END]
+    assert [json.loads(line).get("type") for line in writer.lines] == [
+        AGENT_DETAIL,
+        BACKLOG_END,
+    ]
 
 
 def test_interrupt_refuses_an_idle_agent():

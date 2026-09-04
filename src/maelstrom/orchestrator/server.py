@@ -20,7 +20,7 @@ from typing import Any
 from websockets.asyncio.server import Server, ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
-from ..agent_model import AGENT_EXITED, BACKLOG_END, RECENT_LIMIT
+from ..agent_model import AGENT_DETAIL, AGENT_EXITED, BACKLOG_END, RECENT_LIMIT
 from ..desk_store import DeskStore, InMemoryDeskStore
 from ..task_launch import LaunchBlocked
 from ..util import now_iso
@@ -30,6 +30,8 @@ from .desk import DeskTable, desk_id_for_agent, desk_id_for_task
 from .event_log import RING_SIZE, EventLog
 from .normalise import (
     NormaliseContext,
+    Normalised,
+    apply_agent_detail,
     context_for_agent,
     mark_exited,
     normalise_stream_event,
@@ -115,6 +117,10 @@ class Orchestrator:
         self._pollers: list[asyncio.Task[None]] = []
         self._started = asyncio.Event()
         self._watches: dict[str, AgentWatch] = {}
+        #: Per agent, the highest transcript-item number handed out so far.
+        #: Outlives the agent's exit: a resume reuses the agent id, so the
+        #: mark has to survive it or the revived agent re-mints old ids.
+        self._item_seeds: dict[str, int] = {}
         #: Tasks whose launch is under way, so a second launch is refused.
         self._launching: set[str] = set()
 
@@ -360,9 +366,9 @@ class Orchestrator:
     async def _revive(self, row: dict[str, Any], state: str) -> None:
         """Bring an exited agent back: clear its exit, and follow it again.
 
-        The re-attached backlog re-normalises into the same transcript, which
-        still holds the turns from before the exit, so nothing is lost and
-        nothing is duplicated. The links are resolved again in the same pass: a
+        The re-attached backlog is relayed with the ids the items already had,
+        so a client holding them applies nothing new. The links are resolved
+        again in the same pass: a
         task or worktree that arrived while the agent was gone would otherwise
         be missing from it until some later poll took the live-agent branch.
         """
@@ -370,7 +376,7 @@ class Orchestrator:
         watch = self._watches.pop(agent_id, None)
         if watch is not None and watch.task is not None:
             watch.task.cancel()
-        ctx = context_for_agent(self.log.state, agent_id)
+        ctx = context_for_agent(agent_id, self._next_item_seed(agent_id))
         link = self._link(row)
         out = revive_agent(
             self.log.state,
@@ -404,7 +410,9 @@ class Orchestrator:
 
     async def _attach(self, agent_id: str) -> None:
         """Follow an agent's stream, and wait for its replayed backlog to end."""
-        watch = AgentWatch(agent_id, context_for_agent(self.log.state, agent_id))
+        watch = AgentWatch(
+            agent_id, context_for_agent(agent_id, self._next_item_seed(agent_id))
+        )
         self._watches[agent_id] = watch
         watch.task = asyncio.create_task(self._follow(watch))
         # A host that never sends the backlog marker only delays adoption; it
@@ -415,6 +423,14 @@ class Orchestrator:
             log.warning(
                 "agent %s: no backlog marker within %ss", agent_id, BACKLOG_TIMEOUT_SECS
             )
+
+    def _next_item_seed(self, agent_id: str) -> int:
+        """Where a new context's id counter starts, so it mints no id twice.
+
+        A re-attach gets a fresh context, and the ids it hands out must not
+        collide with the ones the previous context already sent to clients.
+        """
+        return self._item_seeds.get(agent_id, 0)
 
     async def _relink(self, row: dict[str, Any]) -> None:
         agent = self.log.state["world"]["agents"][row["id"]]
@@ -437,6 +453,7 @@ class Orchestrator:
         """
         agent_id = watch.agent_id
         in_backlog = True
+        detail: dict[str, Any] = {}
         try:
             async for event in self.daemon.attach(agent_id):
                 if "error" in event and "type" not in event:
@@ -451,8 +468,24 @@ class Orchestrator:
                     )
                     return
                 kind = event.get("type")
+                if kind == AGENT_DETAIL:
+                    # The host's opening frame: what the agent waits on. Held,
+                    # not applied yet — the backlog that follows usually
+                    # replays the ``control_request`` that opened the wait, and
+                    # raising it from both would duplicate the item and its
+                    # attention. It is applied at BACKLOG_END, and only for a
+                    # wait the backlog did not carry.
+                    detail = event.get("agent") or {}
+                    continue
                 if kind == BACKLOG_END:
                     in_backlog = False
+                    # A wait the host named that the backlog did not replay:
+                    # the request went out before the host's window, so only
+                    # the detail frame knows about it.
+                    out = apply_agent_detail(
+                        self.log.state, watch.ctx, detail, self.clock()
+                    )
+                    await self._emit(watch, out)
                     # The host's ring holds RECENT_LIMIT events, so a backlog
                     # that size may have lost older ones. It does not say
                     # which, so a full backlog is marked either way.
@@ -479,7 +512,12 @@ class Orchestrator:
 
     async def _normalise(self, watch: AgentWatch, raw: dict[str, Any]) -> None:
         out = normalise_stream_event(self.log.state, watch.ctx, raw, self.clock())
+        await self._emit(watch, out)
+
+    async def _emit(self, watch: AgentWatch, out: Normalised) -> None:
+        """Take a normaliser's output: keep its context, and publish its events."""
         watch.ctx = out.ctx
+        self._item_seeds[watch.agent_id] = out.ctx.next_id - 1
         await self.publish(out.events)
 
     async def _exit(
@@ -495,7 +533,7 @@ class Orchestrator:
         if agent is None or agent["state"] == "exited":
             return
         watch = self._watches.get(agent_id)
-        ctx = watch.ctx if watch else context_for_agent(self.log.state, agent_id)
+        ctx = watch.ctx if watch else context_for_agent(agent_id)
         out = mark_exited(self.log.state, ctx, exit_code, self.clock())
         if watch:
             watch.ctx = out.ctx
@@ -571,11 +609,10 @@ class Orchestrator:
     async def _relay(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Ask the host, and let its stream say what happened.
 
-        The four commands that write to the child are pure relays: the host
-        echoes what it writes, so the wait resolves and the turn appears when
-        that event arrives on the attach stream, like any other. The server
-        holds no opinion about how a wait is answered — which is also why an
-        answer made from ``mael agent approve`` reaches the UI.
+        The four commands that write to the child are pure relays: the wait
+        resolves when the host's echoed reply arrives on the attach stream.
+        See ``docs/dev/orchestrator-server.md``, "The host owns the control
+        plane".
         """
         refused = await self._ask_host(payload)
         if refused:

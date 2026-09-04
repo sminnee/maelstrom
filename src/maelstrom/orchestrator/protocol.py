@@ -181,8 +181,15 @@ class World(TypedDict):
 
 
 class ClientState(TypedDict):
+    """What the server holds: the world, and nothing per-agent.
+
+    No ``transcripts``. The server produces the render-ready projection and
+    relays it; it does not accumulate it. A transcript belongs next to the
+    thing that renders it, so the browser's reducer keeps that map — see
+    ``web/src/protocol/reducer.ts``.
+    """
+
     world: World
-    transcripts: dict[str, Transcript]
     lastSeq: int
     errors: list[dict[str, Any]]
 
@@ -238,7 +245,7 @@ def empty_world() -> World:
 
 
 def initial_client_state() -> ClientState:
-    return {"world": empty_world(), "transcripts": {}, "lastSeq": 0, "errors": []}
+    return {"world": empty_world(), "lastSeq": 0, "errors": []}
 
 
 def apply_server_event(state: ClientState, frame: EventFrame) -> ClientState:
@@ -264,7 +271,7 @@ def apply_event(state: ClientState, event: ServerEvent, seq: int = 0) -> ClientS
     """
     kind = event.get("type")
     if kind == "snapshot":
-        return {**state, "world": event["world"], "transcripts": event["transcripts"]}
+        return {**state, "world": event["world"]}
     if kind == "upsert":
         key = _world_key(event["kind"])
         entity = event["entity"]
@@ -275,39 +282,10 @@ def apply_event(state: ClientState, event: ServerEvent, seq: int = 0) -> ClientS
         table = dict(state["world"][key])
         table.pop(event["id"], None)
         return _with_world(state, cast(World, {**state["world"], key: table}))
-    if kind == "transcript.append":
-        agent_id = event["agentId"]
-        current = state["transcripts"].get(agent_id) or {
-            "agentId": agent_id,
-            "items": [],
-            "truncatedBefore": False,
-        }
-        transcript = cast(
-            Transcript, {**current, "items": [*current["items"], event["item"]]}
-        )
-        return _with_transcript(state, agent_id, transcript)
-    if kind == "transcript.update":
-        agent_id = event["agentId"]
-        current = state["transcripts"].get(agent_id)
-        if current is None:
-            return state
-        items = [
-            {**item, **event["patch"]} if item["id"] == event["itemId"] else item
-            for item in current["items"]
-        ]
-        return _with_transcript(
-            state, agent_id, cast(Transcript, {**current, "items": items})
-        )
-    if kind == "transcript.truncated":
-        agent_id = event["agentId"]
-        current = state["transcripts"].get(agent_id) or {
-            "agentId": agent_id,
-            "items": [],
-            "truncatedBefore": False,
-        }
-        return _with_transcript(
-            state, agent_id, cast(Transcript, {**current, "truncatedBefore": True})
-        )
+    if kind in ("transcript.append", "transcript.update", "transcript.truncated"):
+        # Relayed, not accumulated: the server holds no transcript, so these
+        # change nothing here. The browser's reducer applies them.
+        return state
     if kind == "error":
         entry = {
             "seq": seq,
@@ -320,12 +298,6 @@ def apply_event(state: ClientState, event: ServerEvent, seq: int = 0) -> ClientS
 
 def _with_world(state: ClientState, world: World) -> ClientState:
     return {**state, "world": world}
-
-
-def _with_transcript(
-    state: ClientState, agent_id: str, transcript: Transcript
-) -> ClientState:
-    return {**state, "transcripts": {**state["transcripts"], agent_id: transcript}}
 
 
 def _world_key(kind: str) -> str:
