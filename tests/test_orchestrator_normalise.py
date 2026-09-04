@@ -498,6 +498,30 @@ def test_an_unknown_agent_normalises_to_nothing():
     assert out.events == []
 
 
+def test_a_user_turn_whose_content_is_a_plain_string_still_shows():
+    """A user turn carries its text as a list of blocks or as a plain string.
+
+    A turn the agent replays uses the block form, but one the harness injects
+    — a task notification, the echo of a slash command — uses the string form.
+    Both are on the transcript, so reading only the block form shows a turn the
+    agent acted on as nothing at all. The turn also starts the agent working,
+    so an unread one leaves the view idle as though nothing was sent.
+    """
+    state = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = context_for_agent("ag1")
+    out = normalise_stream_event(
+        state.state,
+        ctx,
+        {"type": "user", "message": {"role": "user", "content": "Present the plan"}},
+        NOW,
+    )
+    state.take(out.events)
+    assert [(i["role"], i["markdown"]) for i in items_of(state, "message")] == [
+        ("user", "Present the plan")
+    ]
+    assert agent_of(state)["state"] == "processing"
+
+
 # --- subagents ----------------------------------------------------------------
 
 AGENT_CALL = "toolu_01GYXSgBQ1wcW9LA8SSvM5uJ"
