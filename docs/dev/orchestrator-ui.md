@@ -17,7 +17,7 @@ unit that needs orders shows it on the canvas itself.
 | Protocol | `protocol/` | The entity and transcript types, `phase.ts`, `deskId.ts` | Nothing |
 | Backends | `api/`, `live/` | `api/`: the REST client, its query keys, the query cache, one hook per read and per command. `live/`: the change stream that keeps the cache fresh, and the per-agent transcript streams | Protocol |
 | State | `store/`, `selectors/` | The query cache holds the fetched world; one zustand store holds UI state, the connection state and the open transcripts; `selectors/` are pure functions over a `WorldView` | Protocol |
-| UI | `canvas/`, `tasklist/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, plus the `ui/`, `markdown/` and `styles/` they share, and `test/` for shared test helpers | React components and CSS | State, Protocol |
+| UI | `canvas/`, `tasklist/`, `newwork/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, plus the `ui/`, `markdown/` and `styles/` they share, and `test/` for shared test helpers | React components and CSS | State, Protocol |
 
 The protocol has no React and no I/O. `protocol/phase.ts` reads a task's phase from its
 `command`, decides whether a task is actionable, and decides how a node draws (`queued`, `ready`,
@@ -190,6 +190,31 @@ level with the selection. Clicking it paints the selection in a stronger highlig
 composer with the textarea focused. The server does not serve comments yet, so the margin holds
 none and the button says so.
 
+## Starting new work
+
+The top bar's "New" control opens `newwork/NewWork.tsx`, in both views so the affordance never
+moves. The form is two steps in one dialog.
+
+- **Step 1** takes a project, a kind — task or free agent — and the prose that says what the work
+  is. The prose is the only field a task needs. A free agent also names a branch, and may name a
+  model.
+- **Step 2, tasks only.** "Next" calls `useInferTask`; the step shows the inferred title, branch
+  and command, every one editable. The prose becomes the task's content unchanged. "Save" writes
+  the task as `todo`; "Start" writes it and launches it. Both put it on the desk. "Back" returns
+  to step 1 with the prose intact.
+- **Free agents skip step 2.** The branch combobox offers the branches of open worktrees in the
+  chosen project and keeps anything else typed, so a branch with no worktree gets one provisioned.
+  A free agent runs in `normal` mode. "Start" runs `useStartAgent`.
+
+`ui/Dialog.tsx` and `tasklist/TaskFields.tsx` are shared with the task editor, so the two
+surfaces cannot drift on what a task's fields are.
+
+Inference and a launch can each take tens of seconds, so all three hooks take
+`SLOW_CALL_TIMEOUT_MS`. A refusal shows in the form, which stays open holding what was typed —
+the one place besides the task list's status select where a view keeps an error of its own,
+because a dialog outlives the button's three-second window. A create whose launch failed says so
+and stops offering to write the task again.
+
 Colour comes from `styles/tokens.css`, which holds both the primitive and the semantic layer
 and documents the rule: no file outside it names a hex colour. One `[data-phase]` rule in
 `styles/base.css` sets `--phase` from a phase attribute.
@@ -243,9 +268,9 @@ Canvas nodes are clicked with `fireEvent.click`, not user-event — see `clickNo
 
 ## Out of scope
 
-Against the server, documents can be read but not reviewed: comments, review actions, task
-creation and shaping answer `not_implemented`, and the controls say so. The server drives
-agents, edits the desk, and writes a task's status and fields. It does nothing else to the
+Against the server, documents can be read but not reviewed: comments, review actions and
+shaping answer `not_implemented`, and the controls say so. The server drives agents, edits the
+desk, and writes a task's status, its fields and new tasks. It does nothing else to the
 notebook.
 
 The desk is the exception to persistence: it lives on the server and survives a restart. The

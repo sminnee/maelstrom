@@ -176,6 +176,27 @@ from the host, so `_load_desk` drops a stored `agent:` entry naming an agent the
 lists — it would draw nothing, and the user could never dismiss it. That is why the desk loads
 after the first agent read.
 
+## Creating work
+
+Three commands write new work.
+
+- **`task.infer`** names a task from its prose, through `infer_task_names` in `branch_name.py`.
+  It shells out to `claude -p` and falls back to a deterministic name. The call blocks for up to
+  40 seconds — two 20-second attempts — so it runs on the executor and the UI shows a wait.
+  `mode` comes from the inferred command through `task.mode_for_command`. Inference writes
+  nothing.
+- **`task.create`** writes the task the user edited. It is a separate call so the UI can show the
+  inferred fields first. An explicit branch makes `model.create` skip generation, so no second
+  `claude -p` call runs behind the user's edit. With `launch` set it runs the launch path
+  unchanged, as `mael task add --run` does. A launch that fails leaves the task written and on
+  the desk, so the refusal names it — without that the client cannot tell the case from "nothing
+  was written", and a retry writes the task twice.
+- **`agent.start`** starts an agent tied to no task. `TaskSource.worktree_for` opens the branch's
+  worktree through the same collaborator a launch uses, so a branch with no worktree gets one
+  provisioned. The `start` payload carries no `session` and no `env`: the host mints its own
+  session id, and nothing exports `MAEL_TASK_*`. Those two absences are the whole definition of
+  a free agent.
+
 Not built: the opencode harness, and the cmux placement the CLI does.
 
 ## Task ids on the wire
@@ -220,8 +241,8 @@ memory, and a server-side filter would fragment the client's cache.
 Every error is `{"error": {"code", "message"}}`. The codes are the command codes below plus
 `not_implemented`, and each has one status: `unknown_id` 404, `invalid` 400, the five conflict
 codes 409, `not_implemented` 501. A route that does not exist is 404 `unknown_id`; a body that
-is not JSON is 400 `invalid`. The document comment and review routes, task creation and shaping
-answer 501: the UI keeps its controls, and the button shows the refusal.
+is not JSON is 400 `invalid`. The document comment and review routes and shaping answer 501: the
+UI keeps its controls, and the button shows the refusal.
 
 ## Change notices
 
@@ -293,6 +314,9 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/agents/{id}/stop` | | `agent.stop` | `{}` |
 | `POST /api/agents/{id}/resume` | `{text?}` | `agent.resume` | `{}` |
 | `POST /api/tasks/{project}/{id}/launch` | `{model?}` | `agent.launch` | `{agentId}` |
+| `POST /api/tasks/infer` | `{project, draft}` | `task.infer` | `{title, branch, command, mode}` |
+| `POST /api/tasks` | `{project, title, content?, branch?, command?, mode?, priority?, model?, launch?}` | `task.create` | `{taskId, agentId?}` |
+| `POST /api/agents` | `{project, branch, prompt, mode, model?}` | `agent.start` | `{agentId}` |
 | `POST /api/tasks/{project}/{id}/status` | `{status}` | `task.setStatus` | `{}` |
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
 | `POST /api/desk` | `{id}`, a desk id | `desk.add` | `{}` |
@@ -314,9 +338,11 @@ notebook: a status change moves the task through `move_with_actions`, so the sta
 as `mael task status` fires them, and a patch writes the fields it is given. Both force a task
 refresh, as a launch does, so the change is in the world before the reply.
 
-A launch also adds its task to the desk. A second `POST /api/desk` for an entry already on the
-desk answers `{}` and raises no notice. A `DELETE` for a running agent's entry is accepted, but
-the canvas keeps drawing the node until the agent stops.
+A create adds its task to the desk whether or not it launches: work the user has just ordered
+belongs on the canvas either way. A launch adds its task to the desk too. A second
+`POST /api/desk` for an entry already on the desk answers `{}` and raises no notice. A `DELETE`
+for a running agent's entry is accepted, but the canvas keeps drawing the node until the agent
+stops.
 
 ### The host owns the control plane
 

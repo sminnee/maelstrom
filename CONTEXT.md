@@ -374,10 +374,11 @@ task stays on the desk whatever its status. There is one desk today, and one per
 _Avoid_: Workspace, board, pinned
 
 **Free agent**:
-An agent with no task. A launch pins a task session id on the agent, so an agent started by hand
-in a worktree matches no task. A free agent takes its name, branch and lane from the worktree it
-runs in; an agent whose worktree the world has not read yet falls back to its own project and a
-generic name. A free agent is dismissed from its own node.
+An agent with no task. A launch pins a task session id on the agent, so an agent that carries
+none matches no task. A free agent is started by hand in a worktree, or from the orchestrator
+UI's new-work form. A free agent takes its name, branch and lane from the worktree it runs in;
+an agent whose worktree the world has not read yet falls back to its own project and a generic
+name. A free agent is dismissed from its own node.
 _Avoid_: Orphan agent, loose agent, unlinked agent
 
 **Canvas**:

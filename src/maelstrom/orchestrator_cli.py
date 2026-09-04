@@ -19,7 +19,6 @@ from .orchestrator.daemon_bridge import SocketAsyncDaemonClient
 from .orchestrator.routes import build_app, serve_app
 from .orchestrator.server import Orchestrator
 from .orchestrator.sources import ListAllWorktreeSource, NotebookTaskSource
-from .task import Task
 from .task_cli import open_index
 from .task_launch import LaunchBlocked
 from .task_store import GitFileStore

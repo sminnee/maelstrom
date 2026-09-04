@@ -83,8 +83,8 @@ Constraints:
   importing only from below: protocol → backends → state → UI.
 - One WebSocket to the orchestrator server, or a fake backend that simulates the world in the
   browser. The fake backend is a design surface, not throwaway.
-- Against the real server, documents, comments, task creation and shaping answer `invalid`.
-  The server serves agents only.
+- Against the real server, documents, comments and shaping answer `invalid`. The server serves
+  agents, the desk, and the notebook writes: a task's status, its fields, and new tasks.
 - The desk persists on the server. Open tabs, filters and the expanded node do not.
 - No embedded terminal, no auth, no global keyboard shortcut layer today.
 
