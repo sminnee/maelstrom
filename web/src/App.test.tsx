@@ -409,6 +409,42 @@ describe('the session tab', () => {
     expect(nodeState('MAEL-52')).not.toBe('needs-attention');
   });
 
+  it('lists the subagents under the transcript, and opens one as a read-only tab of its own', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('NORT-9');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+    const strip = screen.getByTestId('subagent-strip');
+    const link = within(strip).getByRole('link', { name: /Find every collation-sensitive query/ });
+    expect(within(strip).getAllByRole('link')).toHaveLength(1);
+    expect(link.querySelector('[data-state]')).toHaveAttribute('data-state', 'processing');
+    // The parent's own transcript shows the call, folded, and none of the chatter under it.
+    const parentPanel = screen.getByRole('tabpanel');
+    expect(within(parentPanel).queryByText('Grep for ORDER BY name.')).not.toBeInTheDocument();
+
+    await user.click(link);
+    const keys = [...document.querySelectorAll('[role="tab"]')].map((t) =>
+      t.getAttribute('data-tab-key'),
+    );
+    expect(keys).toEqual(['session:d9a4c7f1', 'session:d9a4c7f1.1']);
+    const panel = screen.getByRole('tabpanel');
+    await within(panel).findByText('Three queries order by name without a collation.');
+    expect(within(panel).getByText('Grep for ORDER BY name.')).toBeInTheDocument();
+    expect(panel).toHaveTextContent('d9a4c7f1.1 · Find every collation-sensitive query');
+    expect(within(panel).queryByRole('textbox', { name: 'Message to agent' })).toBeNull();
+    expect(within(panel).queryByRole('button', { name: 'normal' })).toBeNull();
+    expect(within(panel).queryByTestId('subagent-strip')).toBeNull();
+    expect(server.sockets.filter((s) => s.agentId === 'd9a4c7f1.1')).toHaveLength(1);
+  });
+
+  it('draws no subagent strip for an agent that has none', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('NORT-7');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+    expect(screen.queryByTestId('subagent-strip')).toBeNull();
+  });
+
   it('cycles the permission mode from the chip in the head', async () => {
     const user = userEvent.setup();
     await renderApp();

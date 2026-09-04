@@ -374,6 +374,13 @@ body rather than the query builder.
       lastMessage: 'CI is red on the integration job; reading the log.',
       costUsd: 0.66,
     }),
+    // A subagent of NORT-9's agent.
+    agent('d9a4c7f1.1', nort9, 'northwind-bravo', {
+      parent: 'd9a4c7f1',
+      description: 'Find every collation-sensitive query',
+      lastMessage: 'Three queries order by name without a collation.',
+      costUsd: 0,
+    }),
     freeAgent('f2c6a9d4', 'maelstrom', 'maelstrom-bravo', {
       lastMessage: 'Reading the index reader before I touch it.',
       costUsd: 0.19,
@@ -497,7 +504,19 @@ body rather than the query builder.
     d9a4c7f1: transcript('d9a4c7f1', [
       init('d9a4c7f1', 120),
       message('d9a4c7f1', 'user', 'Migrate to Postgres 16.', 119),
+      tool(
+        'd9a4c7f1',
+        'Agent',
+        { description: 'Find every collation-sensitive query', prompt: 'Grep for ORDER BY name.' },
+        'Three queries order by name without a collation.',
+        3,
+      ),
       message('d9a4c7f1', 'assistant', 'Rewriting the migration for the new collation.', 2),
+    ]),
+    'd9a4c7f1.1': transcript('d9a4c7f1.1', [
+      message('d9a4c7f1.1', 'user', 'Grep for ORDER BY name.', 4),
+      tool('d9a4c7f1.1', 'Bash', { command: 'grep -rn "ORDER BY name" app/' }, 'app/q.py:12', 4),
+      message('d9a4c7f1.1', 'assistant', 'Three queries order by name without a collation.', 3),
     ]),
     e5b1d8c3: transcript('e5b1d8c3', [
       init('e5b1d8c3', 15),
