@@ -1,7 +1,12 @@
+/*
+ * Three registers, read top to bottom: what it is, whether it needs you, which
+ * one it is. The meta row is pushed to the bottom by `justify-content`, so the
+ * gap above it separates identity from the decision the operator is making.
+ */
 .node {
   width: 220px;
   height: 76px;
-  padding: var(--space-2) 10px;
+  padding: 7px 10px;
   border-radius: var(--radius);
   background: var(--bg-raised);
   border: 1px solid var(--border);
@@ -9,7 +14,9 @@
   color: var(--fg);
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  justify-content: space-between;
+  gap: var(--space-1);
+  overflow: hidden;
   transition:
     box-shadow 0.2s,
     opacity 0.2s;
@@ -37,7 +44,8 @@
   border-style: dashed;
   opacity: 0.65;
 }
-.node[data-state='done'] {
+.node[data-state='done'],
+.node[data-state='cancelled'] {
   opacity: 0.5;
 }
 .node[data-state='exited'] {
@@ -48,7 +56,17 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* 1. What it is. The title leads and takes every pixel the badge leaves. */
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  min-width: 0;
+}
 .title {
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -56,27 +74,109 @@
   font-weight: 500;
   line-height: 1.25;
 }
-.line {
+
+/* 2. Whether it needs you. Sits tight under the title: one decision, one pair. */
+.status {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--text-xs);
-  color: var(--fg-muted);
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--fg);
 }
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--fg-faint);
+  flex-shrink: 0;
+}
+.node[data-state='working'] .dot {
+  background: var(--phase);
+}
+.node[data-state='needs-attention'] .dot {
+  background: var(--attention);
+}
+/* Hollow means the work has not started; filled means it is running. Both take
+   the phase hue, so shape alone carries the difference. */
+.node[data-state='ready'] .dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--phase);
+}
+.node[data-state='done'] .dot {
+  background: var(--ok);
+}
+.node[data-state='cancelled'] .dot {
+  background: var(--fg-faint);
+}
+.node[data-state='exited'] .dot {
+  background: var(--danger);
+}
+.state,
+.reason {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reason {
+  color: var(--attention);
+}
+
+/*
+ * 3. Which one it is. Faint, so it never competes with the two rows above, and
+ * strictly one line: a wrapped id is what pushed the title off this card.
+ */
+.meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+  line-height: 1.2;
+}
+.project,
 .id {
   font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The project yields first: the id is the thing the operator matches on. */
+.project {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.project::after {
+  content: '/';
+  color: var(--fg-faint);
+}
+.id {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* Where the agent runs: what tells two runs of one task apart on the board. */
+.worktree {
+  flex: none;
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+.worktree::before {
+  content: '·';
+  margin-right: 6px;
 }
 .phase {
+  flex: none;
+  margin-left: auto;
+  padding-left: 6px;
   color: var(--phase);
-  text-transform: uppercase;
-  font-size: 9px;
+  font-size: var(--text-xs);
   letter-spacing: 0.06em;
 }
-.spacer {
-  flex: 1;
-}
-/* `.line .badge` outranks PanelLink's `.link`, whatever order the stylesheets load in. */
-.line .badge {
+
+/* `.head .badge` outranks PanelLink's `.link`, whatever order the stylesheets load in. */
+.head .badge {
+  flex: none;
   border: none;
   padding: 0;
   cursor: pointer;
@@ -92,48 +192,14 @@
   font-size: var(--text-xs);
   text-decoration: none;
 }
-.line .badge:hover {
+.head .badge:hover {
   text-decoration: none;
   filter: brightness(1.1);
 }
 .tick {
+  flex: none;
   color: var(--ok);
-}
-.foot {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--text-xs);
-  color: var(--fg-muted);
-  white-space: nowrap;
-  overflow: hidden;
-}
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--fg-faint);
-  flex-shrink: 0;
-}
-.node[data-state='working'] .dot {
-  background: var(--phase);
-}
-.node[data-state='needs-attention'] .dot {
-  background: var(--attention);
-}
-.node[data-state='done'] .dot {
-  background: var(--ok);
-}
-.node[data-state='exited'] .dot {
-  background: var(--danger);
-}
-.state,
-.reason {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.reason {
-  color: var(--attention);
+  font-size: var(--text-sm);
 }
 .handle {
   opacity: 0;

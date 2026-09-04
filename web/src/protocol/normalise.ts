@@ -264,7 +264,7 @@ export function reviveAgent(
   ctx: NormaliseContext,
   rowState: Agent['state'],
   now: string,
-  links: Pick<Agent, 'taskId' | 'project' | 'worktreeId' | 'phase'> | null = null,
+  links: Pick<Agent, 'taskId' | 'project' | 'worktreeId'> | null = null,
 ): Normalised {
   const agent = state.world.agents[ctx.agentId];
   if (!agent) return { events: [], ctx };

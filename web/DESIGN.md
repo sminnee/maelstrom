@@ -2,91 +2,91 @@
 name: Maelstrom Orchestrator
 description: Mission Control for a room full of agents — one lit surface where every unit reports and the one that needs orders says so.
 colors:
-  console-slate: "#0f1115"
-  console-slate-raised: "#171a21"
-  console-slate-sunken: "#0a0c10"
-  hairline: "#2a2f3a"
-  hairline-strong: "#3d4454"
-  readout: "#e6e8ee"
-  readout-muted: "#9aa3b5"
-  readout-faint: "#5f6878"
-  signal-blue: "#7aa2f7"
-  alert-amber: "#ff9f43"
-  fault-rose: "#f7768e"
-  clear-green: "#9ece6a"
-  phase-shaping: "#b58cf6"
-  phase-planning: "#6ea8fe"
-  phase-executing: "#2fc4b2"
-  phase-finalising: "#f0b35a"
+  console-slate: '#0f1115'
+  console-slate-raised: '#171a21'
+  console-slate-sunken: '#0a0c10'
+  hairline: '#2a2f3a'
+  hairline-strong: '#3d4454'
+  readout: '#e6e8ee'
+  readout-muted: '#9aa3b5'
+  readout-faint: '#5f6878'
+  signal-blue: '#7aa2f7'
+  alert-amber: '#ff9f43'
+  fault-rose: '#f7768e'
+  clear-green: '#9ece6a'
+  phase-shape: '#b58cf6'
+  phase-plan: '#6ea8fe'
+  phase-build: '#2fc4b2'
+  phase-land: '#f0b35a'
 typography:
   title:
     fontFamily: "Inter, system-ui, -apple-system, 'Segoe UI', sans-serif"
-    fontSize: "16px"
+    fontSize: '16px'
     fontWeight: 600
     lineHeight: 1.3
   body:
     fontFamily: "Inter, system-ui, -apple-system, 'Segoe UI', sans-serif"
-    fontSize: "14px"
+    fontSize: '14px'
     fontWeight: 400
     lineHeight: 1.4
   label:
     fontFamily: "Inter, system-ui, -apple-system, 'Segoe UI', sans-serif"
-    fontSize: "12px"
+    fontSize: '12px'
     fontWeight: 500
     lineHeight: 1.35
   micro:
     fontFamily: "Inter, system-ui, -apple-system, 'Segoe UI', sans-serif"
-    fontSize: "12px"
+    fontSize: '12px'
     fontWeight: 500
-    letterSpacing: "0.06em"
+    letterSpacing: '0.06em'
   mono:
     fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
-    fontSize: "12px"
+    fontSize: '12px'
     fontWeight: 400
 rounded:
-  sm: "6px"
-  lg: "10px"
-  pill: "999px"
+  sm: '6px'
+  lg: '10px'
+  pill: '999px'
 spacing:
-  "1": "4px"
-  "2": "8px"
-  "3": "12px"
-  "4": "16px"
+  '1': '4px'
+  '2': '8px'
+  '3': '12px'
+  '4': '16px'
 components:
   task-node:
-    backgroundColor: "{colors.console-slate-raised}"
-    textColor: "{colors.readout}"
-    rounded: "{rounded.sm}"
-    padding: "8px 10px"
-    width: "220px"
-    height: "76px"
+    backgroundColor: '{colors.console-slate-raised}'
+    textColor: '{colors.readout}'
+    rounded: '{rounded.sm}'
+    padding: '8px 10px'
+    width: '220px'
+    height: '76px'
   node-card:
-    backgroundColor: "{colors.console-slate-raised}"
-    textColor: "{colors.readout}"
-    rounded: "{rounded.lg}"
-    padding: "12px 16px"
-    width: "440px"
+    backgroundColor: '{colors.console-slate-raised}'
+    textColor: '{colors.readout}'
+    rounded: '{rounded.lg}'
+    padding: '12px 16px'
+    width: '440px'
   button:
-    backgroundColor: "{colors.console-slate-raised}"
-    textColor: "{colors.readout}"
-    rounded: "{rounded.sm}"
-    padding: "2px 8px"
+    backgroundColor: '{colors.console-slate-raised}'
+    textColor: '{colors.readout}'
+    rounded: '{rounded.sm}'
+    padding: '2px 8px'
   button-primary:
-    backgroundColor: "{colors.console-slate-raised}"
-    textColor: "{colors.signal-blue}"
-    rounded: "{rounded.sm}"
-    padding: "2px 8px"
+    backgroundColor: '{colors.console-slate-raised}'
+    textColor: '{colors.signal-blue}'
+    rounded: '{rounded.sm}'
+    padding: '2px 8px'
   attention-badge:
-    backgroundColor: "{colors.alert-amber}"
-    textColor: "{colors.console-slate-sunken}"
-    rounded: "{rounded.pill}"
-    size: "16px"
+    backgroundColor: '{colors.alert-amber}'
+    textColor: '{colors.console-slate-sunken}'
+    rounded: '{rounded.pill}'
+    size: '16px'
   panel-tab:
-    backgroundColor: "{colors.console-slate}"
-    textColor: "{colors.readout}"
-    rounded: "0"
-    padding: "0 8px"
-    height: "32px"
+    backgroundColor: '{colors.console-slate}'
+    textColor: '{colors.readout}'
+    rounded: '0'
+    padding: '0 8px'
+    height: '32px'
 ---
 
 # Design System: Maelstrom Orchestrator
@@ -138,17 +138,24 @@ The state channel. These four never decorate; each one means one thing.
   the operator, the attention chip, the count badge, comment highlights.
 - **Fault Rose** (`--danger`): an agent that exited or a failed command. Fault, not warning.
 - **Clear Green** (`--ok`): finished and correct. Deliberately quiet — done work should recede.
+  A cancelled task never takes it: cancelled work is terminal but not a success, so it draws
+  the faint neutral dot instead.
 - **Console amber and rose are never paired for emphasis.** Two loud channels at once is
   the operator failing to know which to deal with.
 
 ### Tertiary
 
-The phase channel, set by `[data-phase]` and read everywhere as `--phase`.
+The phase channel, set by `[data-phase]` and read everywhere as `--phase`. A phase name is an
+imperative — the work to do — so it never reads as a state the agent is in.
 
-- **Shaping Violet** (`--phase-shaping`): exploring a brief until tasks are agreed.
-- **Planning Blue** (`--phase-planning`): producing a plan for one task.
-- **Executing Teal** (`--phase-executing`): building, reviewing, opening the PR.
-- **Finalising Amber** (`--phase-finalising`): answering CI and review on an open PR.
+A node without a phase draws neither: the bar falls back to the faint neutral and no label shows.
+Two things have no phase — an agent with no task, and a task whose `command` nobody recognises.
+Guessing a phase for either would state something the notebook never said.
+
+- **Shape Violet** (`--phase-shape`): exploring a brief until tasks are agreed.
+- **Plan Blue** (`--phase-plan`): producing a plan for one task.
+- **Build Teal** (`--phase-build`): building, reviewing, opening the PR.
+- **Land Amber** (`--phase-land`): answering CI and review on an open PR.
 
 ### Neutral
 
@@ -292,14 +299,28 @@ means attention or fault.
 ### Task Node
 
 The unit on the board. A fixed 220×76 raised surface, 6px radius, hairline bordered, with the
-4px phase bar down its left edge. Inside: title (14px, 500) over an id-and-phase line, then a
-footer with a status dot and the state in words.
+4px phase bar down its left edge. Three registers, read top to bottom: the title, then a status
+dot and the state in words, then a footer of identity — the id, and the phase at the right edge.
+The footer is pushed to the bottom, so the gap above it separates identity from the decision.
+
+Every field on the node holds one line and truncates with an ellipsis. A field that wraps costs
+the node its fixed height and pushes the title out of view.
+
+The node names its project only when nothing else on screen does. The lane header names it when
+the board groups by project, and the filter bar names it when the operator filters to one.
+
+The footer names the worktree while an agent runs, as its NATO name. Two agents on one board are
+told apart by where they run, so the worktree sits beside the id rather than only on the card.
 
 - **Rest:** hairline border, full opacity.
 - **Working:** border takes the phase hue and a 2.4s box-shadow pulse breathes outward. Under
   `prefers-reduced-motion` the pulse becomes a static 2px phase ring.
 - **Needs attention:** Alert Amber border, a 1px ring and a 14px amber glow. The one loud state.
-- **Idle:** 0.8 opacity. **Queued:** dashed border, 0.65 opacity. **Done:** 0.5 opacity.
+- **Ready:** a hollow dot in the phase hue. Hollow means the work has not started and filled
+  means it runs, so the shape tells ready from working even though both take the phase hue.
+- **Idle:** 0.8 opacity. **Queued:** dashed border, 0.65 opacity.
+- **Done:** 0.5 opacity, Clear Green dot. **Cancelled:** 0.5 opacity, faint dot — terminal, but
+  not a success.
 - **Exited:** Fault Rose border and ring.
 - **Focused:** 2px Signal Blue outline, 2px offset — the same ring as `:focus-visible`.
 - **Expanded:** children fade to 0 over 120ms while the card grows in its place.
@@ -310,9 +331,16 @@ and neither alone is load-bearing.
 ### Node Card (expanded node)
 
 The board unit opened in place: 440px wide, 10px radius, strong hairline, phase bar retained,
-lifted on `--shadow-card`, capped at 70vh with internal scroll. Title at 16px/600, then a
-mono meta line, a status line, the decision block, and a footer of panel links and commands
-separated by a hairline. The close button is a bare glyph that lifts from faint to full on hover.
+lifted on `--shadow-card`, capped at 70vh with internal scroll. Title at 16px/600, then the
+identity block — id, phase, and a mono line of branch, worktree, model and cost — then a status
+line, the brief, the decision block, and a footer of panel links and commands. A hairline opens
+each band from the one above. The close button is a bare glyph that lifts from faint to full on
+hover.
+
+The brief is the task's own content, rendered as markdown at card scale. It clamps to about four
+lines and fades out at the cut, with a More control that opens it in place. A brief of four lines
+or fewer shows whole and offers no control. The card measures itself when its size changes, so
+opening a long brief pans the card back into view.
 
 When the node needs attention the card's border takes Alert Amber — but the left edge stays
 the phase hue. Two channels, two edges, no conflict.

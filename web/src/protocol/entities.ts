@@ -1,7 +1,10 @@
 import type { AgentId, DeskId, ProjectId, RequestId, TaskId, WorktreeId } from './ids';
 
-/** Which of the four stages a task's work is in. Derived from the task's `command`. */
-export type Phase = 'shaping' | 'planning' | 'executing' | 'finalising';
+/**
+ * Which of the four stages a task's work is in, named as the imperative of the
+ * work itself. Read from the task's `command`; never sent on the wire.
+ */
+export type Phase = 'shape' | 'plan' | 'build' | 'land';
 
 /** The folder a task sits in. Mirrors the notebook's six statuses. */
 export type TaskStatus = 'todo' | 'in-progress' | 'blocked' | 'done' | 'cancelled' | 'template';
@@ -67,8 +70,6 @@ export interface Task {
   log: TaskLogEntry[];
   created: string;
   updated: string;
-  /** Derived by the backend from `command`. */
-  phase: Phase;
   /** Derived by the backend: may maelstrom launch it now. */
   actionable: boolean;
 }
@@ -95,7 +96,6 @@ export interface Agent {
   taskId: TaskId;
   project: ProjectId;
   worktreeId: WorktreeId;
-  phase: Phase;
   exitCode: number | null;
   pendingRequestId: RequestId | null;
 }

@@ -49,17 +49,17 @@ pre {
 }
 
 /* The one place a phase becomes a colour. Anything under a phased element reads `--phase`. */
-[data-phase='shaping'] {
-  --phase: var(--phase-shaping);
+[data-phase='shape'] {
+  --phase: var(--phase-shape);
 }
-[data-phase='planning'] {
-  --phase: var(--phase-planning);
+[data-phase='plan'] {
+  --phase: var(--phase-plan);
 }
-[data-phase='executing'] {
-  --phase: var(--phase-executing);
+[data-phase='build'] {
+  --phase: var(--phase-build);
 }
-[data-phase='finalising'] {
-  --phase: var(--phase-finalising);
+[data-phase='land'] {
+  --phase: var(--phase-land);
 }
 
 ::highlight(document-comments) {

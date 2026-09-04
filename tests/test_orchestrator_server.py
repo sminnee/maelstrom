@@ -154,7 +154,7 @@ def test_hello_gets_a_snapshot_of_the_world_then_ready(harness):
     snapshot = received[0]
     assert snapshot["event"]["type"] == "snapshot"
     world = snapshot["event"]["world"]
-    assert world["tasks"]["northwind/NORT-7"]["phase"] == "planning"
+    assert world["tasks"]["northwind/NORT-7"]["command"] == "plan-task"
     assert world["tasks"]["northwind/NORT-7"]["actionable"] is True
     assert world["projects"][PROJECT]["stackTip"] == "main"
     assert world["worktrees"]["northwind-alpha"]["path"] == WORKTREE_PATH
@@ -492,7 +492,6 @@ def test_reconciliation_attaches_new_agents_and_retires_gone_ones(harness):
     appeared, attached, gone = run(scenario())
     assert appeared["event"]["entity"]["taskId"] == ""
     assert appeared["event"]["entity"]["worktreeId"] == ""
-    assert appeared["event"]["entity"]["phase"] == "executing"
     assert attached == ["ag2"]
     assert gone["event"]["entity"]["exitCode"] == 0
 
@@ -1096,7 +1095,6 @@ def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
     assert agent["id"] == "new1"
     assert agent["taskId"] == "northwind/NORT-7"
     assert agent["worktreeId"] == "northwind-alpha"
-    assert agent["phase"] == "planning"
     # A task launched from the UI joins the desk.
     assert entities_of(frames, "desk")[-1]["id"] == "task:northwind/NORT-7"
 

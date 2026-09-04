@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ViewportPortal, useReactFlow } from '@xyflow/react';
 import { DecisionCard } from '../decisions/DecisionCard';
+import { Markdown } from '../markdown/Markdown';
 import { deskIdForAgent } from '../protocol/deskId';
 import type { GraphNode } from '../selectors/graph';
 import { nodeTitle } from '../selectors/graph';
@@ -10,6 +11,7 @@ import { toolCallTitle } from '../session/toolCards';
 import { PanelLink } from '../shell/PanelLink';
 import { useAppStore } from '../store/store';
 import { useCommand } from '../store/useCommand';
+import { phaseLabel } from '../protocol/phase';
 import { NODE } from './layout';
 import styles from './NodeCard.module.css';
 
@@ -43,7 +45,11 @@ export function NodeCard({
   const { getViewport, setViewport } = useReactFlow();
   const card = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
+  const briefBox = useRef<HTMLDivElement>(null);
+  const [expandedContent, setExpandedContent] = useState(false);
+  const [longContent, setLongContent] = useState(false);
   const { task, agent, worktree } = node;
+  const brief = task?.content.trim() ?? '';
 
   // A card that runs past the canvas edge pans into view. It measures the
   // laid-out box (the grow animation only plays towards it), and again
@@ -69,6 +75,20 @@ export function NodeCard({
     observer.observe(el);
     return () => observer.disconnect();
   }, [getViewport, setViewport]);
+
+  // The clamp is a rendered height, so only the rendered brief says whether it
+  // overflows. Counting source lines misses a long line that wraps, and offers
+  // a toggle on short lines that already fit.
+  useLayoutEffect(() => {
+    const el = briefBox.current;
+    if (!el) return;
+    const measure = () => setLongContent(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver !== 'function') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [brief, expandedContent]);
 
   // Grow from the node's size to the card's measured size; the content fades in after.
   useLayoutEffect(() => {
@@ -158,7 +178,7 @@ export function NodeCard({
         role="dialog"
         aria-label={title}
         tabIndex={-1}
-        data-phase={node.phase}
+        data-phase={node.phase ?? undefined}
         data-state={node.state}
         style={{ transform: `translate(${position.x}px, ${position.y}px)` }}
       >
@@ -167,9 +187,9 @@ export function NodeCard({
             <div className={styles.titleBlock}>
               <h2 className={styles.title}>{title}</h2>
               <div className={styles.idLine}>
-                {/* The lane names the project, so the bare id is enough. */}
+                {node.showProject && task && <span className={styles.project}>{task.project}</span>}
                 <span className={styles.id}>{task ? task.notebookId : node.id.slice(0, 8)}</span>
-                <span className={styles.phase}>{node.phase}</span>
+                {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
               </div>
               {meta.length > 0 && <div className={styles.meta}>{meta.join(' · ')}</div>}
             </div>
@@ -188,6 +208,29 @@ export function NodeCard({
             <span className={styles.stateText}>{describeState(task, agent)}</span>
             {!deciding && node.reason && <span className={styles.reason}>{node.reason}</span>}
           </div>
+
+          {brief && (
+            <div
+              className={styles.content}
+              data-testid="task-content"
+              data-expanded={expandedContent}
+            >
+              <div ref={briefBox} className={styles.briefBox} id={`brief-${node.id}`}>
+                <Markdown source={brief} className={styles.brief} />
+              </div>
+              {(longContent || expandedContent) && (
+                <button
+                  type="button"
+                  className={styles.more}
+                  aria-expanded={expandedContent}
+                  aria-controls={`brief-${node.id}`}
+                  onClick={() => setExpandedContent((open) => !open)}
+                >
+                  {expandedContent ? 'Less' : 'More'}
+                </button>
+              )}
+            </div>
+          )}
 
           {deciding && agent ? (
             <DecisionCard agent={agent} />

@@ -90,7 +90,6 @@ it, so the browser's reducer keeps that map.
 |---|---|
 | `worktreeId` | The worktree whose path is the agent's `cwd`. The project follows from it |
 | `taskId` | The task whose task session id the agent reports as its session |
-| `phase` | The task's phase; `executing` when there is no task |
 
 A launch pins `session_id_for(project, task.id)` on the agent, so the task lookup is exact. An
 agent started outside the server links to a task only if it was started with that session id.

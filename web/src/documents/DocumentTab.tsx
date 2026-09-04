@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
+import { phaseForCommand, phaseLabel } from '../protocol/phase';
 import { describeDocumentStatus } from '../selectors/status';
 import { sessionTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
@@ -42,14 +43,16 @@ export function DocumentTab({ documentId }: { documentId: string }) {
     // Re-run when the comment set, the pending anchor or the rendered text changes.
   }, [comments, pendingAnchor, doc?.markdown]);
 
+  const phase = task ? phaseForCommand(task.command) : null;
+
   if (!doc) return <div className={styles.empty}>Document {documentId} is gone.</div>;
 
   return (
-    <div className={styles.document} data-phase={task?.phase} data-testid="document-tab">
+    <div className={styles.document} data-phase={phase ?? undefined} data-testid="document-tab">
       <header className={styles.header}>
         <div className={styles.line}>
           <span className={styles.task}>{doc.taskId}</span>
-          {task && <span className={styles.phase}>{task.phase}</span>}
+          {phase && <span className={styles.phase}>{phaseLabel(phase)}</span>}
           <span className={styles.title}>{doc.title}</span>
           <span className={styles.version}>v{doc.version}</span>
           <span className={styles.status} data-status={doc.status}>

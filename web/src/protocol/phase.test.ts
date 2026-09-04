@@ -4,14 +4,20 @@ import { makeAgent, makeAttention, makeTask } from '../test/fixtures';
 
 describe('phaseForCommand', () => {
   it.each([
-    ['shape', 'shaping'],
-    ['plan-task', 'planning'],
-    ['plan-next-step', 'planning'],
-    ['', 'executing'],
-    ['some-other-skill', 'executing'],
-    ['watch-pr', 'finalising'],
+    ['shape', 'shape'],
+    ['plan-task', 'plan'],
+    ['plan-next-step', 'plan'],
+    ['watch-pr', 'land'],
+    // An execute task runs no skill, so an empty command is the ordinary build case.
+    ['', 'build'],
   ])('%j → %s', (command, phase) => {
     expect(phaseForCommand(command)).toBe(phase);
+  });
+
+  // A command nobody recognises is not a build task: it is a task whose phase
+  // is unknown, and the node draws no phase rather than claiming a wrong one.
+  it.each(['some-other-skill', 'watch-prs', 'comand'])('%j has no phase', (command) => {
+    expect(phaseForCommand(command)).toBeNull();
   });
 });
 
@@ -36,8 +42,20 @@ describe('isActionable', () => {
 });
 
 describe('nodeState', () => {
-  it('is queued for a task with no agent', () => {
-    expect(nodeState(makeTask({ status: 'todo' }), undefined, [])).toBe('queued');
+  it('is ready for an actionable task with no agent', () => {
+    expect(nodeState(makeTask({ status: 'todo', actionable: true }), undefined, [])).toBe('ready');
+  });
+
+  it('is queued for a task whose turn has not come', () => {
+    expect(nodeState(makeTask({ status: 'todo', actionable: false }), undefined, [])).toBe(
+      'queued',
+    );
+  });
+
+  // Cancelled is neither a success nor a fault: it is work that stopped.
+  it('is cancelled for a cancelled task, apart from done', () => {
+    expect(nodeState(makeTask({ status: 'cancelled' }), undefined, [])).toBe('cancelled');
+    expect(nodeState(makeTask({ status: 'done' }), undefined, [])).toBe('done');
   });
 
   it('is working while the agent is processing', () => {

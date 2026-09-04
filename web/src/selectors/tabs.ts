@@ -1,6 +1,7 @@
-import type { Phase } from '../protocol/entities';
+import type { Phase, Task } from '../protocol/entities';
 import type { World } from '../protocol/events';
 import type { AgentId, TaskId } from '../protocol/ids';
+import { phaseForCommand } from '../protocol/phase';
 import type { PanelTab } from '../store/uiSlice';
 
 /** Add `tab` unless a tab with its key is open already. Either way it is the one to focus. */
@@ -42,24 +43,32 @@ export interface TabAttribution {
   title: string;
 }
 
+/** A tab can outlive its task, and a phase it cannot read is drawn as none. */
+const phaseOf = (task: Task | undefined): Phase | null =>
+  task ? phaseForCommand(task.command) : null;
+
 /** Which task (and phase) a tab belongs to, so two tabs from two agents are told apart. */
 export function tabAttribution(world: World, tab: PanelTab): TabAttribution {
   switch (tab.kind) {
     case 'session': {
       const agent = world.agents[tab.agentId];
+      const task = agent ? world.tasks[agent.taskId] : undefined;
       return {
         taskId: agent?.taskId ?? '',
-        phase: agent?.phase ?? null,
+        phase: phaseOf(task),
         agentId: tab.agentId,
         title: 'session',
       };
     }
     case 'document': {
       const doc = world.documents[tab.documentId];
-      const task = doc ? world.tasks[doc.taskId] : undefined;
+      const agent = world.agents[doc?.agentId ?? ''];
+      // A document can outlive its task. The id and the phase then both fall
+      // back to the agent's task, so the chip never names one and colour the other.
+      const task = world.tasks[doc?.taskId ?? ''] ?? world.tasks[agent?.taskId ?? ''];
       return {
-        taskId: doc?.taskId ?? '',
-        phase: task?.phase ?? world.agents[doc?.agentId ?? '']?.phase ?? null,
+        taskId: task?.id ?? doc?.taskId ?? '',
+        phase: phaseOf(task),
         agentId: doc?.agentId ?? null,
         title: doc?.title ?? 'document',
       };

@@ -36,8 +36,8 @@ describe('closeTab', () => {
 
 describe('tabAttribution', () => {
   const world = worldWith({
-    tasks: [makeTask({ id: 'NORT-7', phase: 'planning' })],
-    agents: [makeAgent({ id: 'agent-1', taskId: 'NORT-7', phase: 'planning' })],
+    tasks: [makeTask({ id: 'NORT-7', command: 'plan-task' })],
+    agents: [makeAgent({ id: 'agent-1', taskId: 'NORT-7' })],
     documents: [makeDocument({ id: 'doc-1', agentId: 'agent-1', taskId: 'NORT-7' })],
   });
 
@@ -45,16 +45,30 @@ describe('tabAttribution', () => {
     expect(tabAttribution(world, sessionTab('gone'))).toMatchObject({ taskId: '', phase: null });
   });
 
+  // The id and the phase must name the same task: a chip showing a phase colour
+  // beside an empty id says two different things about one tab.
+  it("falls back to the agent's task for a document whose own task has gone", () => {
+    const orphaned = worldWith({
+      tasks: [makeTask({ id: 'NORT-7', command: 'plan-task' })],
+      agents: [makeAgent({ id: 'agent-1', taskId: 'NORT-7' })],
+      documents: [makeDocument({ id: 'doc-1', agentId: 'agent-1', taskId: 'gone' })],
+    });
+    expect(tabAttribution(orphaned, documentTab('doc-1'))).toMatchObject({
+      taskId: 'NORT-7',
+      phase: 'plan',
+    });
+  });
+
   it('names the task and phase for each tab kind', () => {
     expect(tabAttribution(world, sessionTab('agent-1'))).toEqual({
       taskId: 'NORT-7',
-      phase: 'planning',
+      phase: 'plan',
       agentId: 'agent-1',
       title: 'session',
     });
     expect(tabAttribution(world, documentTab('doc-1'))).toEqual({
       taskId: 'NORT-7',
-      phase: 'planning',
+      phase: 'plan',
       agentId: 'agent-1',
       title: 'plan.md',
     });

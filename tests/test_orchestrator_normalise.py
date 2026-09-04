@@ -46,7 +46,6 @@ def make_agent(**over) -> dict:
         "taskId": "NORT-7",
         "project": "northwind",
         "worktreeId": "northwind-alpha",
-        "phase": "executing",
         "exitCode": None,
         "pendingRequestId": None,
     }

@@ -23,20 +23,6 @@ from .protocol import (
     Worktree,
 )
 
-#: The phase each task ``command`` puts its work in. ``web/src/protocol/phase.ts``
-#: holds the same table; a command missing from it is executing.
-PHASE_FOR_COMMAND = {
-    "shape": "shaping",
-    "plan-task": "planning",
-    "plan-next-step": "planning",
-    "watch-pr": "finalising",
-}
-
-
-def phase_for_command(command: str) -> str:
-    return PHASE_FOR_COMMAND.get(command, "executing")
-
-
 _STEP_RE = re.compile(r"^\s*[-*]\s+\[([ xX])\]\s*(.*)$")
 _LOG_RE = re.compile(r"^\s*[-*]\s+(\S+)\s+(.*)$")
 
@@ -125,7 +111,6 @@ def task_entity(task: model.Task, *, actionable: bool) -> Task:
         "log": parse_log(task.log),
         "created": task.created,
         "updated": task.updated,
-        "phase": phase_for_command(task.command),
         "actionable": actionable,
     }
 
@@ -176,7 +161,6 @@ def agent_entity(
     task_id: str,
     project: str,
     worktree_id: str,
-    phase: str,
     pending_request_id: str | None = None,
 ) -> Agent:
     """The wire agent for one agent-host row plus its links into the world.
@@ -199,7 +183,6 @@ def agent_entity(
         "taskId": task_id,
         "project": project,
         "worktreeId": worktree_id,
-        "phase": phase,
         "exitCode": exit_code,
         "pendingRequestId": pending_request_id,
     }
@@ -212,7 +195,6 @@ class AgentLink:
     task_id: str
     project: str
     worktree_id: str
-    phase: str
 
 
 def link_agent(
@@ -223,8 +205,7 @@ def link_agent(
     The worktree is the one whose path is the agent's ``cwd``, and the project
     follows from it. The task is the one whose task session id the agent
     reports as its session: a launch pins ``session_id_for(project, task.id)``
-    on the agent, so the reverse lookup is exact. No match leaves the id empty
-    and the phase ``executing``.
+    on the agent, so the reverse lookup is exact. No match leaves the ids empty.
     """
     cwd = row.get("cwd") or ""
     session = row.get("session") or ""
@@ -245,7 +226,6 @@ def link_agent(
         task_id=task["id"] if task else "",
         project=project,
         worktree_id=worktree["id"] if worktree else "",
-        phase=task["phase"] if task else "executing",
     )
 
 

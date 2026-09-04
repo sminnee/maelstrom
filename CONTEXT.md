@@ -289,21 +289,24 @@ _Avoid_: Gate, approval step
 ## Orchestrator UI
 
 **Phase**:
-Which of four stages a task's work is in: shaping, planning, executing, finalising. Derived from
-the task's `command`; an agent inherits its task's phase.
-_Avoid_: Stage, step
+Which of four stages a task's work is in: shape, plan, build, land. A phase is named as the
+imperative of the work, which is what keeps it apart from the agent's state — a task is in build
+whether or not an agent runs on it now. Read from the task's `command`, and never stored: an
+agent shows the phase of its task. A command nobody recognises has no phase, and neither does an
+agent with no task.
+_Avoid_: Stage, step, shaping, planning, executing, finalising
 
-**Shaping**:
+**Shape**:
 Exploring a brief until a set of tasks is agreed and created. Ends at a user checkpoint. May be
 skipped.
 
-**Planning**:
+**Plan**:
 Producing an agreed plan for one task. Ends at the plan-review checkpoint.
 
-**Executing**:
+**Build**:
 Building the code, running its own review, opening the PR. Ends when the PR first ships.
 
-**Finalising**:
+**Land**:
 Answering CI failures and review feedback on an open PR. Ends when it merges.
 
 **Document**:

@@ -49,9 +49,11 @@ epoch rule.
 
 Two pure modules carry the rules a real backend must apply:
 
-- `protocol/phase.ts` derives a task's phase from its `command`, decides whether a task is
-  actionable, and decides how a node draws (`queued`, `working`, `needs-attention`, `idle`,
-  `done`, `exited`).
+- `protocol/phase.ts` reads a task's phase from its `command`, decides whether a task is
+  actionable, and decides how a node draws (`queued`, `ready`, `working`, `needs-attention`,
+  `idle`, `done`, `cancelled`, `exited`). The phase is never sent on the wire, so this is the
+  one place the reading happens. An unrecognised command reads as no phase, so a typo in a task's
+  frontmatter shows as a node with no phase rather than one claiming a phase it never had.
 - `protocol/normalise.ts` turns the daemon's raw stream-json into transcript items, agent
   upserts, documents and attention items. It follows `agent_model.apply_event` and is tested by
   replaying every fixture under `tests/fixtures/agent_events/`. It is the reference for the
@@ -151,7 +153,7 @@ The real backend is `ws-backend/wsBackend.ts` in front of the orchestrator serve
 `VITE_ORCHESTRATOR_URL` is set, and the fake otherwise. The FAKE chip feature-detects the fake,
 so its absence says the real server is behind the page.
 
-The server applies the same phase rule and the same normalisation, in Python. It bridges three
+The server applies the same normalisation, in Python. It bridges three
 sources: the task notebook for tasks, `list-all` for projects and worktrees, and the agent host
 for agents, transcripts and waits. [orchestrator-server.md](orchestrator-server.md) describes it.
 

@@ -335,7 +335,6 @@ function newTask(
     log: [],
     created: now,
     updated: now,
-    phase: command === 'shape' ? 'shaping' : 'executing',
     actionable: true,
   };
   return { task, sim: { ...sim, counter } };
@@ -362,12 +361,6 @@ function promoteTasks(state: ClientState, doc: Document, now: string): ServerEve
       content: `# ${spec.title}\n\nFrom ${doc.title} of ${parent.id}.\n`,
       created: now,
       updated: now,
-      phase:
-        spec.command === 'plan-task'
-          ? 'planning'
-          : spec.command === 'watch-pr'
-            ? 'finalising'
-            : 'executing',
       actionable: false,
     };
     tasks = { ...tasks, [id]: task };

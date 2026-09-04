@@ -16,7 +16,6 @@
         "taskId": "NORT-7",
         "project": "northwind",
         "worktreeId": "northwind-alpha",
-        "phase": "executing",
         "exitCode": null,
         "pendingRequestId": "9df2f603-da86-44cf-ac99-4e102c7f7add"
       }
