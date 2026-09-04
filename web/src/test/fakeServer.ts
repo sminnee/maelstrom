@@ -2,14 +2,17 @@ import type { ApiClient } from '../api/http';
 import { createApiClient } from '../api/http';
 import type { ChangeNotice } from '../api/types';
 import type { EventSourceLike } from '../live/changeStream';
+import type { SocketLike } from '../live/socketLike';
+import type { TranscriptEvent } from '../live/transcriptReducer';
 import type { Command, Reply as CommandReply } from '../protocol/commands';
 import type { TaskEdit } from '../api/types';
 import type { TaskStatus } from '../protocol/entities';
 import { emptyWorld } from '../protocol/reducer';
 import type { World } from '../protocol/events';
 import type { AgentId } from '../protocol/ids';
-import type { Transcript } from '../protocol/transcript';
+import type { Transcript, TranscriptItem } from '../protocol/transcript';
 import { FakeEventSource } from './fakeEventSource';
+import { FakeSocket } from './fakeSocket';
 
 export interface Refusal {
   status: number;
@@ -36,9 +39,21 @@ export interface FakeServer {
   transcripts: Record<AgentId, Transcript>;
   requests: FakeRequest[];
   sources: FakeEventSource[];
+  /** Every transcript socket opened so far, closed ones included. */
+  sockets: FakeSocket[];
   api: ApiClient;
   fetch: typeof fetch;
   eventSourceFactory: (url: string) => EventSourceLike;
+  /** Opens a transcript socket that sends its snapshot at once. */
+  webSocketFactory: (path: string) => SocketLike;
+  /** Add an item to an agent's transcript and send the frame on its open sockets. */
+  append(agentId: AgentId, item: TranscriptItem): void;
+  /** Patch an item and send the frame. */
+  patch(agentId: AgentId, itemId: string, patch: Partial<TranscriptItem>): void;
+  /** Send a transcript event on the open sockets without changing the transcript. */
+  emitTranscript(event: TranscriptEvent): void;
+  /** Drop every open socket on `agentId` (every agent with none), as a network drop would. */
+  dropSockets(agentId?: AgentId): void;
   /** What a GET of `path` answers right now, parsed. Throws on a refusal. */
   read(path: string): unknown;
   /** Mutate the world, then send `notice` on every open stream. */
@@ -73,7 +88,14 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
   const autoOpen = opts.autoOpen ?? true;
   const requests: FakeRequest[] = [];
   const sources: FakeEventSource[] = [];
+  const sockets: FakeSocket[] = [];
+  const seqs: Record<AgentId, number> = {};
   const refusals: { route: RegExp; error: Refusal }[] = [];
+
+  const openSockets = (agentId: AgentId) =>
+    sockets.filter((socket) => socket.agentId === agentId && !socket.closed && socket.opened);
+  const transcriptOf = (agentId: AgentId): Transcript =>
+    server.transcripts[agentId] ?? { agentId, items: [], truncatedBefore: false };
   let held: Promise<void> | null = null;
   let release: (() => void) | null = null;
 
@@ -104,6 +126,7 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
     transcripts,
     requests,
     sources,
+    sockets,
     api,
     fetch: fetchImpl,
     read(path) {
@@ -117,6 +140,55 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
       // Deferred: the stream assigns its handlers after it has the source.
       if (autoOpen) queueMicrotask(() => source.readyState === 0 && source.open());
       return source;
+    },
+    webSocketFactory: (path) => {
+      const socket = new FakeSocket(path);
+      sockets.push(socket);
+      // Deferred: the stream assigns its handlers after it has the socket.
+      queueMicrotask(() => {
+        if (socket.closed) return;
+        const agentId = socket.agentId;
+        if (!server.world.agents[agentId]) {
+          socket.serverClose(4404);
+          return;
+        }
+        socket.opened = true;
+        socket.open();
+        const transcript = transcriptOf(agentId);
+        socket.receive({
+          type: 'transcript.snapshot',
+          seq: seqs[agentId] ?? 0,
+          items: transcript.items,
+          truncatedBefore: transcript.truncatedBefore,
+        });
+      });
+      return socket;
+    },
+    append(agentId, item) {
+      const transcript = transcriptOf(agentId);
+      server.transcripts[agentId] = { ...transcript, items: [...transcript.items, item] };
+      server.emitTranscript({ type: 'transcript.append', agentId, item });
+    },
+    patch(agentId, itemId, patch) {
+      const transcript = transcriptOf(agentId);
+      server.transcripts[agentId] = {
+        ...transcript,
+        items: transcript.items.map((i) =>
+          i.id === itemId ? ({ ...i, ...patch } as TranscriptItem) : i,
+        ),
+      };
+      server.emitTranscript({ type: 'transcript.update', agentId, itemId, patch });
+    },
+    emitTranscript(event) {
+      const seq = (seqs[event.agentId] = (seqs[event.agentId] ?? 0) + 1);
+      for (const socket of openSockets(event.agentId)) socket.receive({ seq, event });
+    },
+    dropSockets(agentId) {
+      for (const socket of sockets) {
+        if (!socket.closed && (agentId === undefined || socket.agentId === agentId)) {
+          socket.serverClose(1006);
+        }
+      }
     },
     change(notice, mutate) {
       mutate?.(world);

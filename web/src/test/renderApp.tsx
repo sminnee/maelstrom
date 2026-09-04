@@ -37,7 +37,14 @@ export async function renderApp(
     defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: 0 } },
   });
   bridgeToFakeServer(backend, server, queryClient);
-  const deps = { api: server.api, eventSourceFactory: server.eventSourceFactory, queryClient };
+  const deps = {
+    api: server.api,
+    eventSourceFactory: server.eventSourceFactory,
+    webSocketFactory: server.webSocketFactory,
+    // A real backoff would cost every reconnect test a second of wall clock.
+    streamReconnectMs: 10,
+    queryClient,
+  };
   if (opts.ready === false) server.hold();
   const utils = render(<App backend={backend} deps={deps} />);
   if (opts.ready === false) return { backend, server, queryClient, ...utils };

@@ -4,6 +4,7 @@ import { useStop } from '../api/agents';
 import { useRemoveFromDesk } from '../api/desk';
 import { useLaunch, useTask } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
+import { useAgentStream } from '../live/useAgentStream';
 import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
 import { deskIdForAgent } from '../protocol/deskId';
@@ -43,7 +44,7 @@ export function NodeCard({
   onClosed: () => void;
 }) {
   const { world } = useWorld();
-  const transcript = useAppStore((s) => s.transcripts[node.agent?.id ?? '']);
+  const transcript = useAgentStream(node.agent?.id ?? null);
   const collapseNode = useAppStore((s) => s.collapseNode);
   const launch = useLaunch();
   const stop = useStop();
@@ -173,7 +174,7 @@ export function NodeCard({
   ].filter(Boolean);
   const title = nodeTitle(node);
   const deciding = !!agent && agent.state.startsWith('awaiting-') && !!agent.pendingRequestId;
-  const running = [...(transcript?.items ?? [])]
+  const running = [...transcript.items]
     .reverse()
     .find((i) => i.type === 'tool_call' && i.status === 'running');
   const now = agent?.lastMessage ?? '';

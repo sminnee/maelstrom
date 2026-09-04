@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAgent, useAnswer, useApprove, useDeny } from '../api/agents';
+import { useAgentStream } from '../live/useAgentStream';
 import { Markdown } from '../markdown/Markdown';
 import type { Agent } from '../protocol/entities';
 import type { PlanReviewItem } from '../protocol/transcript';
@@ -9,7 +10,6 @@ import { PermissionPrompt } from '../session/cards/PermissionPrompt';
 import { QuestionPrompt } from '../session/cards/QuestionPrompt';
 import { toolCallTitle } from '../session/toolCards';
 import { PanelLink } from '../shell/PanelLink';
-import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
 import cards from '../session/cards/cards.module.css';
 import styles from './DecisionCard.module.css';
@@ -20,13 +20,13 @@ import styles from './DecisionCard.module.css';
  * transcript open; the context before it comes from the transcript.
  */
 export function DecisionCard({ agent }: { agent: Agent }) {
-  const transcript = useAppStore((s) => s.transcripts[agent.id]);
+  const transcript = useAgentStream(agent.id);
   const detail = useAgent(agent.id);
   const approve = useApprove();
   const deny = useDeny();
   const answer = useAnswer();
   const requestId = agent.pendingRequestId;
-  const items = transcript?.items ?? [];
+  const items = transcript.items;
   const wait = detail.data?.pendingRequest;
   if (!requestId || !wait || wait.requestId !== requestId) return null;
   const before = contextBefore(items, requestId);
