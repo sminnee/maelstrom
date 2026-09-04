@@ -1,7 +1,7 @@
 """Storage layer for the desk.
 
-The desk is the set of tasks the user has put on the canvas. It is one table
-keyed by wire task id, so unlike :mod:`maelstrom.env_store` there is no key
+The desk is what the canvas draws: tasks, and agents with no task. It is one
+table keyed by desk id, so unlike :mod:`maelstrom.env_store` there is no key
 space: :meth:`load` and :meth:`save` move the whole table.
 
 Two backends are provided:
@@ -25,9 +25,12 @@ from .util import atomic_write_json
 
 log = logging.getLogger(__name__)
 
-#: The stored desk: wire task id to that task's entry. The entry's own shape is
-#: the wire's, which this layer neither reads nor names.
+#: The stored desk: desk id to that entry. The entry's own shape is the wire's,
+#: which this layer neither reads nor names.
 DeskTable = dict[str, Any]
+
+#: The kinds a desk id can name, duplicated to keep this layer below the model.
+_KIND_PREFIXES = ("task:", "agent:")
 
 
 def get_desk_path() -> Path:
@@ -96,10 +99,28 @@ class JsonDeskStore:
             return {}
         # The file is state a user can edit, so an entry the wire would refuse
         # is dropped here rather than published to every client.
-        return {k: v for k, v in table.items() if _is_entry(v)}
+        return {
+            k: v for k, v in (_migrated(k, v) for k, v in table.items()) if _is_entry(v)
+        }
 
     def save(self, table: DeskTable) -> None:
         atomic_write_json(self.path, table)
+
+
+def _migrated(key: str, value: Any) -> tuple[str, Any]:
+    """``key`` and its entry, with a desk written before ids carried a kind fixed.
+
+    A desk from that time held bare task ids. Left alone they would match no
+    task and the user would lose their canvas, so the key and the entry's own
+    id both gain the ``task:`` prefix. An id that already carries a kind is
+    left as it is, so the two shapes need no version field to tell apart.
+    """
+    if not isinstance(key, str) or key.startswith(_KIND_PREFIXES):
+        return key, value
+    migrated = f"task:{key}"
+    if isinstance(value, dict) and isinstance(value.get("id"), str):
+        return migrated, {**value, "id": migrated}
+    return migrated, value
 
 
 def _is_entry(value: Any) -> bool:

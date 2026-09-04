@@ -1,3 +1,4 @@
+import { deskIdForTask } from '../protocol/deskId';
 import type { Agent, DeskEntry, Project, Task, Worktree } from '../protocol/entities';
 import type { Attention } from '../protocol/attention';
 import type { Document } from '../protocol/documents';
@@ -104,12 +105,12 @@ export function makeAttention(over: Partial<Attention> = {}): Attention {
 }
 
 export function makeDeskEntry(over: Partial<DeskEntry> = {}): DeskEntry {
-  return { id: 'NORT-7', addedAt: '2026-09-01T00:00:00Z', ...over };
+  return { id: deskIdForTask('NORT-7'), addedAt: '2026-09-01T00:00:00Z', ...over };
 }
 
 /** Desk entries for every one of `tasks`, for a world drawn whole. */
 export function onDesk(tasks: Task[]): DeskEntry[] {
-  return tasks.map((t) => makeDeskEntry({ id: t.id }));
+  return tasks.map((t) => makeDeskEntry({ id: deskIdForTask(t.id) }));
 }
 
 /** A world holding the given entities, keyed by id. */

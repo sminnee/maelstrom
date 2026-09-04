@@ -1,4 +1,5 @@
 import { useReactFlow } from '@xyflow/react';
+import { deskIdForTask } from '../protocol/deskId';
 import { nextAttentionTask, openAttention } from '../selectors/attention';
 import { filteredTasks } from '../selectors/graph';
 import { focusedTaskId } from '../selectors/tabs';
@@ -29,7 +30,9 @@ export function AttentionChip() {
     const next = nextAttentionTask(world, current, visible);
     if (!next) return;
     // The canvas draws the desk, so a task off it has no node to expand.
-    if (!(next in world.desk)) await send({ type: 'desk.add', taskId: next });
+    if (!(deskIdForTask(next) in world.desk)) {
+      await send({ type: 'desk.add', id: deskIdForTask(next) });
+    }
     // From the task list, the canvas has to be showing before it can be
     // fitted, so the fit waits for the frame that draws it.
     if (view !== 'canvas') setView('canvas');

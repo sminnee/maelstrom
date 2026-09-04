@@ -1,3 +1,4 @@
+import { deskIdForTask } from '../protocol/deskId';
 import type { Agent, Task, TaskStatus } from '../protocol/entities';
 import type { World } from '../protocol/events';
 import type { TaskId } from '../protocol/ids';
@@ -46,7 +47,7 @@ export function listTasks(world: World, filters: ListFilters): ListRow[] {
     .sort((a, b) => a.project.localeCompare(b.project) || a.id.localeCompare(b.id))
     .map((task) => ({
       task,
-      onDesk: task.id in world.desk,
+      onDesk: deskIdForTask(task.id) in world.desk,
       agent: agents.get(task.id),
     }));
 }

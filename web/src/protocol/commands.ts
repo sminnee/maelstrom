@@ -1,5 +1,5 @@
 import type { Anchor } from './documents';
-import type { AgentId, CommentId, DocumentId, ProjectId, RequestId, TaskId } from './ids';
+import type { AgentId, CommentId, DeskId, DocumentId, ProjectId, RequestId, TaskId } from './ids';
 
 export type Command =
   | {
@@ -19,8 +19,8 @@ export type Command =
   | { type: 'agent.launch'; taskId: TaskId; model?: string }
   | { type: 'agent.stop'; agentId: AgentId }
   | { type: 'agent.resume'; agentId: AgentId; text?: string }
-  | { type: 'desk.add'; taskId: TaskId }
-  | { type: 'desk.remove'; taskId: TaskId }
+  | { type: 'desk.add'; id: DeskId }
+  | { type: 'desk.remove'; id: DeskId }
   | { type: 'document.approve'; documentId: DocumentId; version: number }
   | { type: 'document.requestChanges'; documentId: DocumentId; version: number; summary: string }
   | { type: 'comment.add'; documentId: DocumentId; version: number; anchor: Anchor; body: string }

@@ -1,4 +1,5 @@
 import type { Command, CommandError } from './commands';
+import { splitDeskId } from './deskId';
 import type { AgentState } from './entities';
 import type { World } from './events';
 
@@ -62,12 +63,15 @@ export function validateCommand(world: World, cmd: Command): CommandError | null
       return null;
     }
     case 'desk.add': {
-      if (!world.tasks[cmd.taskId]) return err('unknown_id', `No task ${cmd.taskId}`);
+      const target = splitDeskId(cmd.id);
+      if (!target) return err('unknown_id', `Not a desk id: ${cmd.id}`);
+      const table = target.kind === 'task' ? world.tasks : world.agents;
+      if (!table[target.id]) return err('unknown_id', `No ${target.kind} ${target.id}`);
       return null;
     }
     case 'desk.remove': {
-      if (!world.desk[cmd.taskId]) {
-        return err('unknown_id', `Task ${cmd.taskId} is not on the desk`);
+      if (!world.desk[cmd.id]) {
+        return err('unknown_id', `${cmd.id} is not on the desk`);
       }
       return null;
     }

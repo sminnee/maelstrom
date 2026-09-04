@@ -127,21 +127,39 @@ describe('validateCommand', () => {
   });
 
   it('reports unknown_id for adding a task that is not in the world to the desk', () => {
-    expect(validateCommand(worldWith({}), { type: 'desk.add', taskId: 'NORT-7' })).toMatchObject({
+    expect(validateCommand(worldWith({}), { type: 'desk.add', id: 'task:NORT-7' })).toMatchObject({
+      code: 'unknown_id',
+    });
+  });
+
+  it('reports unknown_id for adding an agent that is not in the world to the desk', () => {
+    expect(validateCommand(worldWith({}), { type: 'desk.add', id: 'agent:ghost' })).toMatchObject({
+      code: 'unknown_id',
+    });
+  });
+
+  it('reports unknown_id for adding an id that carries no kind', () => {
+    const world = worldWith({ tasks: [makeTask()] });
+    expect(validateCommand(world, { type: 'desk.add', id: 'NORT-7' })).toMatchObject({
       code: 'unknown_id',
     });
   });
 
   it('reports unknown_id for removing a task that is not on the desk', () => {
     const world = worldWith({ tasks: [makeTask()] });
-    expect(validateCommand(world, { type: 'desk.remove', taskId: 'NORT-7' })).toMatchObject({
+    expect(validateCommand(world, { type: 'desk.remove', id: 'task:NORT-7' })).toMatchObject({
       code: 'unknown_id',
     });
   });
 
   it('accepts adding a task that is on the desk already', () => {
     const world = worldWith({ tasks: [makeTask()], desk: [makeDeskEntry()] });
-    expect(validateCommand(world, { type: 'desk.add', taskId: 'NORT-7' })).toBeNull();
+    expect(validateCommand(world, { type: 'desk.add', id: 'task:NORT-7' })).toBeNull();
+  });
+
+  it('accepts adding a free agent to the desk', () => {
+    const world = worldWith({ agents: [makeAgent({ id: 'agent-1' })] });
+    expect(validateCommand(world, { type: 'desk.add', id: 'agent:agent-1' })).toBeNull();
   });
 
   it('accepts a well-formed approve of the pending request', () => {

@@ -7,6 +7,7 @@ host is touched.
 
 from typing import Any
 
+from .desk import split_desk_id
 from .protocol import World
 
 WAIT_FOR_COMMAND = {
@@ -82,15 +83,20 @@ def validate_command(world: World, cmd: dict[str, Any]) -> dict[str, str] | None
         return None
 
     if kind == "desk.add":
-        task_id = cmd.get("taskId", "")
-        if task_id not in world["tasks"]:
-            return _err("unknown_id", f"No task {task_id}")
+        desk_id = cmd.get("id", "")
+        try:
+            entity_kind, entity_id = split_desk_id(desk_id)
+        except ValueError:
+            return _err("unknown_id", f"Not a desk id: {desk_id}")
+        table = "tasks" if entity_kind == "task" else "agents"
+        if entity_id not in world[table]:
+            return _err("unknown_id", f"No {entity_kind} {entity_id}")
         return None
 
     if kind == "desk.remove":
-        task_id = cmd.get("taskId", "")
-        if task_id not in world["desk"]:
-            return _err("unknown_id", f"Task {task_id} is not on the desk")
+        desk_id = cmd.get("id", "")
+        if desk_id not in world["desk"]:
+            return _err("unknown_id", f"{desk_id} is not on the desk")
         return None
 
     if kind in ("document.approve", "document.requestChanges", "comment.add"):

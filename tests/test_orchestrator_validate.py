@@ -172,23 +172,40 @@ def test_accepts_a_launch_of_an_actionable_task():
 
 
 def test_unknown_id_for_adding_a_task_not_in_the_world_to_the_desk():
-    cmd = {"type": "desk.add", "taskId": "northwind/NORT-7"}
+    cmd = {"type": "desk.add", "id": "task:northwind/NORT-7"}
     assert code(validate_command(empty_world(), cmd)) == "unknown_id"
+
+
+def test_unknown_id_for_adding_an_agent_not_in_the_world_to_the_desk():
+    cmd = {"type": "desk.add", "id": "agent:ghost"}
+    assert code(validate_command(empty_world(), cmd)) == "unknown_id"
+
+
+def test_unknown_id_for_adding_an_id_that_carries_no_kind():
+    world = world_with(tasks=[make_task()])
+    cmd = {"type": "desk.add", "id": "northwind/NORT-7"}
+    assert code(validate_command(world, cmd)) == "unknown_id"
 
 
 def test_unknown_id_for_removing_a_task_that_is_not_on_the_desk():
     world = world_with(tasks=[make_task()])
-    cmd = {"type": "desk.remove", "taskId": "northwind/NORT-7"}
+    cmd = {"type": "desk.remove", "id": "task:northwind/NORT-7"}
     assert code(validate_command(world, cmd)) == "unknown_id"
 
 
 def test_accepts_adding_a_task_that_is_on_the_desk_already():
-    world = world_with(tasks=[make_task()], desk=["northwind/NORT-7"])
-    cmd = {"type": "desk.add", "taskId": "northwind/NORT-7"}
+    world = world_with(tasks=[make_task()], desk=["task:northwind/NORT-7"])
+    cmd = {"type": "desk.add", "id": "task:northwind/NORT-7"}
+    assert validate_command(world, cmd) is None
+
+
+def test_accepts_adding_a_free_agent_to_the_desk():
+    world = world_with(agents=[make_agent(id="agent-1")])
+    cmd = {"type": "desk.add", "id": "agent:agent-1"}
     assert validate_command(world, cmd) is None
 
 
 def test_accepts_removing_a_task_that_is_on_the_desk():
-    world = world_with(tasks=[make_task()], desk=["northwind/NORT-7"])
-    cmd = {"type": "desk.remove", "taskId": "northwind/NORT-7"}
+    world = world_with(tasks=[make_task()], desk=["task:northwind/NORT-7"])
+    cmd = {"type": "desk.remove", "id": "task:northwind/NORT-7"}
     assert validate_command(world, cmd) is None

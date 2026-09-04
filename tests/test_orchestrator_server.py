@@ -896,7 +896,7 @@ def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
     assert agent["worktreeId"] == "northwind-alpha"
     assert agent["phase"] == "planning"
     # A task launched from the UI joins the desk.
-    assert entities_of(frames, "desk")[-1]["id"] == "northwind/NORT-7"
+    assert entities_of(frames, "desk")[-1]["id"] == "task:northwind/NORT-7"
 
 
 def test_a_launch_the_host_refuses_rolls_the_task_back_to_todo(harness):
@@ -975,13 +975,13 @@ def test_desk_add_publishes_an_upsert_then_replies(harness):
             async with connect(url(server)) as ws:
                 await say_hello(ws)
                 return await command_with_frames(
-                    ws, {"type": "desk.add", "taskId": "northwind/NORT-7"}
+                    ws, {"type": "desk.add", "id": "task:northwind/NORT-7"}
                 )
 
     reply, frames = run(scenario())
     assert reply == {"id": "c1", "ok": True, "result": {}}
     entry = entities_of(frames, "desk")[-1]
-    assert entry["id"] == "northwind/NORT-7"
+    assert entry["id"] == "task:northwind/NORT-7"
     assert entry["addedAt"] == NOW
 
 
@@ -992,10 +992,10 @@ def test_desk_remove_publishes_a_remove_then_replies(harness):
         async with harness.orch.serving("127.0.0.1", 0) as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
-                await command(ws, {"type": "desk.add", "taskId": "northwind/NORT-7"})
+                await command(ws, {"type": "desk.add", "id": "task:northwind/NORT-7"})
                 return await command_with_frames(
                     ws,
-                    {"type": "desk.remove", "taskId": "northwind/NORT-7"},
+                    {"type": "desk.remove", "id": "task:northwind/NORT-7"},
                     command_id="c2",
                 )
 
@@ -1005,7 +1005,7 @@ def test_desk_remove_publishes_a_remove_then_replies(harness):
     assert removes[-1] == {
         "type": "remove",
         "kind": "desk",
-        "id": "northwind/NORT-7",
+        "id": "task:northwind/NORT-7",
     }
 
 
@@ -1016,11 +1016,11 @@ def test_a_second_desk_add_is_ok_and_publishes_nothing(harness):
         async with harness.orch.serving("127.0.0.1", 0) as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
-                await command(ws, {"type": "desk.add", "taskId": "northwind/NORT-7"})
+                await command(ws, {"type": "desk.add", "id": "task:northwind/NORT-7"})
                 before = harness.orch.log.seq
                 reply = await command(
                     ws,
-                    {"type": "desk.add", "taskId": "northwind/NORT-7"},
+                    {"type": "desk.add", "id": "task:northwind/NORT-7"},
                     command_id="c2",
                 )
                 return reply, before, harness.orch.log.seq
@@ -1041,7 +1041,7 @@ def test_a_task_deleted_from_the_notebook_leaves_the_desk(harness):
         async with harness.orch.serving("127.0.0.1", 0) as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
-                await command(ws, {"type": "desk.add", "taskId": "northwind/NORT-7"})
+                await command(ws, {"type": "desk.add", "id": "task:northwind/NORT-7"})
                 model.delete(harness.store, PROJECT, "NORT-7")
                 harness.version += 1
                 await next_frame(
@@ -1065,7 +1065,7 @@ def test_the_desk_survives_a_restart(store):
         async with harness.orch.serving("127.0.0.1", 0) as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
-                await command(ws, {"type": "desk.add", "taskId": "northwind/NORT-7"})
+                await command(ws, {"type": "desk.add", "id": "task:northwind/NORT-7"})
 
     first = Harness(store, desk=desk)
     first.add_task("NORT-7")
@@ -1078,7 +1078,7 @@ def test_the_desk_survives_a_restart(store):
             async with connect(url(server)) as ws:
                 return (await say_hello(ws))[0]["event"]["world"]["desk"]
 
-    assert list(run(read_back())) == ["northwind/NORT-7"]
+    assert list(run(read_back())) == ["task:northwind/NORT-7"]
 
 
 def test_a_project_the_scan_misses_keeps_its_desk_entries(store):
@@ -1091,7 +1091,7 @@ def test_a_project_the_scan_misses_keeps_its_desk_entries(store):
         async with harness.orch.serving("127.0.0.1", 0) as server:
             async with connect(url(server)) as ws:
                 await say_hello(ws)
-                await command(ws, {"type": "desk.add", "taskId": "askastro/ASK-1"})
+                await command(ws, {"type": "desk.add", "id": "task:askastro/ASK-1"})
                 # The project disappears from the scan, as an unmounted volume
                 # or a renamed directory would make it.
                 harness.projects = ["northwind"]
@@ -1099,7 +1099,7 @@ def test_a_project_the_scan_misses_keeps_its_desk_entries(store):
                 await harness.orch.refresh_tasks()
                 return harness.orch.log.state["world"]["desk"]
 
-    assert list(run(scenario())) == ["askastro/ASK-1"]
+    assert list(run(scenario())) == ["task:askastro/ASK-1"]
 
 
 def test_resume_reaches_the_host_for_an_exited_agent(harness):

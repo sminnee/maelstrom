@@ -5,6 +5,7 @@ import type {
   AgentId,
   AttentionId,
   CommentId,
+  DeskId,
   DocumentId,
   ProjectId,
   Seq,
@@ -22,7 +23,7 @@ export interface World {
   documents: Record<DocumentId, Document>;
   comments: Record<CommentId, Comment>;
   attention: Record<AttentionId, Attention>;
-  desk: Record<TaskId, DeskEntry>;
+  desk: Record<DeskId, DeskEntry>;
 }
 
 export type EntityKind = keyof EntityMap;

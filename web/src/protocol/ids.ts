@@ -7,6 +7,8 @@ export type AgentId = string;
 export type DocumentId = string;
 export type CommentId = string;
 export type AttentionId = string;
+/** `task:<task id>` or `agent:<agent id>`. `protocol/deskId` builds and splits one. */
+export type DeskId = string;
 export type RequestId = string;
 export type TranscriptItemId = string;
 export type CommandId = string;

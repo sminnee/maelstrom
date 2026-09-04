@@ -7,8 +7,8 @@ import pytest
 from maelstrom.desk_store import InMemoryDeskStore, JsonDeskStore
 
 TABLE = {
-    "askastro/2026-06-11.1": {
-        "id": "askastro/2026-06-11.1",
+    "task:askastro/2026-06-11.1": {
+        "id": "task:askastro/2026-06-11.1",
         "addedAt": "2026-09-04T09:00:00Z",
     }
 }
@@ -40,14 +40,14 @@ class TestDeskStoreContract:
     def test_load_does_not_share_a_mutable_reference(self, store):
         store.save(TABLE)
         loaded = store.load()
-        loaded["askastro/2026-06-11.1"]["addedAt"] = "changed"
+        loaded["task:askastro/2026-06-11.1"]["addedAt"] = "changed"
         assert store.load() == TABLE
 
     def test_save_does_not_keep_the_caller_s_reference(self, store):
-        table = {"a/b": {"id": "a/b", "addedAt": "t"}}
+        table = {"task:a/b": {"id": "task:a/b", "addedAt": "t"}}
         store.save(table)
-        table["c/d"] = {"id": "c/d", "addedAt": "t"}
-        assert store.load() == {"a/b": {"id": "a/b", "addedAt": "t"}}
+        table["task:c/d"] = {"id": "task:c/d", "addedAt": "t"}
+        assert store.load() == {"task:a/b": {"id": "task:a/b", "addedAt": "t"}}
 
 
 class TestJsonDeskStore:
@@ -73,13 +73,23 @@ class TestJsonDeskStore:
         path.write_text(
             json.dumps(
                 {
-                    "a/1": {"id": "a/1", "addedAt": "t"},
-                    "a/2": "not an entry",
-                    "a/3": {"id": "a/3"},
+                    "task:a/1": {"id": "task:a/1", "addedAt": "t"},
+                    "task:a/2": "not an entry",
+                    "task:a/3": {"id": "task:a/3"},
                 }
             )
         )
-        assert JsonDeskStore(path=path).load() == {"a/1": {"id": "a/1", "addedAt": "t"}}
+        assert JsonDeskStore(path=path).load() == {
+            "task:a/1": {"id": "task:a/1", "addedAt": "t"}
+        }
+
+    def test_an_unprefixed_entry_is_migrated_to_a_task_id(self, tmp_path):
+        """A desk written before desk ids carried a kind held bare task ids."""
+        path = tmp_path / "desk.json"
+        path.write_text(json.dumps({"a/1": {"id": "a/1", "addedAt": "t"}}))
+        assert JsonDeskStore(path=path).load() == {
+            "task:a/1": {"id": "task:a/1", "addedAt": "t"}
+        }
 
     def test_path_defaults_to_the_maelstrom_dir(self, tmp_path, monkeypatch):
         """A path-less store resolves its path lazily via get_maelstrom_dir."""

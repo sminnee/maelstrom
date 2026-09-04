@@ -1,8 +1,9 @@
 import type { Command, CommandError, ResultMap } from '../../protocol/commands';
+import { deskIdForTask } from '../../protocol/deskId';
 import type { Document } from '../../protocol/documents';
 import type { Task } from '../../protocol/entities';
+import type { DeskId } from '../../protocol/ids';
 import type { ServerEvent } from '../../protocol/events';
-import type { TaskId } from '../../protocol/ids';
 import type { RawStreamEvent } from '../../protocol/normalise';
 import { PLAN_TOOL, QUESTION_TOOL } from '../../protocol/normalise';
 import { isActionable } from '../../protocol/phase';
@@ -96,21 +97,21 @@ export function applyCommand(
     case 'agent.launch': {
       const task = world.tasks[cmd.taskId]!;
       const launched = launchAgent(state, sim, task, now, cmd.model);
-      const events = world.desk[task.id]
+      const events = world.desk[deskIdForTask(task.id)]
         ? launched.events
-        : [...launched.events, deskUpsert(task.id, now)];
+        : [...launched.events, deskUpsert(deskIdForTask(task.id), now)];
       return { events, sim: launched.sim, result: { agentId: launched.agentId } };
     }
     case 'desk.add': {
       return {
-        events: world.desk[cmd.taskId] ? [] : [deskUpsert(cmd.taskId, now)],
+        events: world.desk[cmd.id] ? [] : [deskUpsert(cmd.id, now)],
         sim,
         result: {},
       };
     }
     case 'desk.remove': {
       return {
-        events: [{ type: 'remove', kind: 'desk', id: cmd.taskId }],
+        events: [{ type: 'remove', kind: 'desk', id: cmd.id }],
         sim,
         result: {},
       };
@@ -238,9 +239,9 @@ export function applyCommand(
   }
 }
 
-/** The upsert that puts one task on the desk. */
-function deskUpsert(taskId: TaskId, now: string): ServerEvent {
-  return { type: 'upsert', kind: 'desk', entity: { id: taskId, addedAt: now } };
+/** The upsert that puts one entry on the desk. */
+function deskUpsert(deskId: DeskId, now: string): ServerEvent {
+  return { type: 'upsert', kind: 'desk', entity: { id: deskId, addedAt: now } };
 }
 
 function toolResult(toolUseId: string, content: string, isError: boolean): RawStreamEvent {
