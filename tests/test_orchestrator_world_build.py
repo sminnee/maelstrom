@@ -255,3 +255,26 @@ def test_task_key_round_trips_a_project_and_a_notebook_id():
 def test_split_task_key_rejects_a_bare_id():
     with pytest.raises(ValueError):
         split_task_key("NORT-7.2")
+
+
+def test_agent_entity_of_a_top_level_row_has_no_parent():
+    row = build_agent_row(replay("normal-turn.jsonl"))
+    entity = agent_entity(row, task_id="", project="", worktree_id="")
+    assert entity["parent"] == ""
+    assert entity["description"] == ""
+
+
+def test_agent_entity_of_a_subagent_row_names_its_parent_and_description():
+    from maelstrom.agent_model import build_subagent_rows
+
+    [row] = build_subagent_rows(replay("subagent-turn.jsonl"))
+    entity = agent_entity(row, task_id="NORT-7", project="northwind", worktree_id="w")
+    keys = ("id", "parent", "description", "state", "exitCode", "taskId")
+    assert {k: entity[k] for k in keys} == {
+        "id": "a1.1",
+        "parent": "a1",
+        "description": "List and summarise docs/dev",
+        "state": "exited",
+        "exitCode": 0,
+        "taskId": "NORT-7",
+    }

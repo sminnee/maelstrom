@@ -89,6 +89,8 @@ function task(spec: TaskSpec): Task {
 function agent(id: string, t: Task, worktreeId: string, over: Partial<Agent> = {}): Agent {
   return {
     id,
+    parent: '',
+    description: '',
     state: 'processing',
     session: `sess-${id}`,
     cwd: `/Users/dev/Projects/${t.project}/${worktreeId}`,
@@ -115,6 +117,8 @@ function freeAgent(
 ): Agent {
   return {
     id,
+    parent: '',
+    description: '',
     state: 'processing',
     session: `sess-${id}`,
     cwd: `/Users/dev/Projects/${project}/${worktreeId}`,

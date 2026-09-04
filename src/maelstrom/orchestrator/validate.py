@@ -23,6 +23,18 @@ MODES = AGENT_MODES
 #: The notebook's four priorities, from :data:`maelstrom.task.PRIORITIES`.
 PRIORITIES = ("critical", "high", "medium", "low")
 
+#: The commands that drive one agent: write to it, end it, or bring it back.
+#: A subagent takes none; its parent does. Same wording as the host's refusal.
+DRIVING_COMMANDS = (
+    "agent.approve",
+    "agent.deny",
+    "agent.answer",
+    "agent.say",
+    "agent.stop",
+    "agent.setMode",
+    "agent.resume",
+)
+
 WAIT_FOR_COMMAND = {
     "agent.approve": ("awaiting-permission", "awaiting-plan-review"),
     "agent.deny": ("awaiting-permission", "awaiting-plan-review"),
@@ -37,6 +49,17 @@ def _err(code: str, message: str) -> dict[str, str]:
 def validate_command(world: World, cmd: dict[str, Any]) -> dict[str, str] | None:
     """The refusal for ``cmd`` against ``world``, or ``None`` when it may run."""
     kind = cmd.get("type")
+
+    if kind in DRIVING_COMMANDS:
+        # Checked before anything else, so the refusal a user sees is the one
+        # that names what to drive.
+        agent_id = cmd.get("agentId", "")
+        agent = world["agents"].get(agent_id)
+        if agent is not None and agent.get("parent"):
+            parent = agent["parent"]
+            return _err(
+                "invalid", f"{agent_id} is a subagent of {parent}; drive {parent}"
+            )
 
     if kind in ("agent.approve", "agent.deny", "agent.answer"):
         agent_id = cmd.get("agentId", "")

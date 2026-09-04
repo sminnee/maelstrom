@@ -173,6 +173,8 @@ def agent_entity(
     cost = row.get("cost") or 0
     return {
         "id": row["id"],
+        "parent": row.get("parent") or "",
+        "description": row.get("description") or "",
         "state": state,
         "session": row.get("session") or "",
         "cwd": row.get("cwd") or "",

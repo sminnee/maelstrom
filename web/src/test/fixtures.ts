@@ -56,6 +56,8 @@ export function makeTask(over: Partial<Task> = {}): Task {
 export function makeAgent(over: Partial<Agent> = {}): Agent {
   return {
     id: 'agent-1',
+    parent: '',
+    description: '',
     state: 'processing',
     session: 'sess-1',
     cwd: '/Users/dev/Projects/northwind/northwind-alpha',

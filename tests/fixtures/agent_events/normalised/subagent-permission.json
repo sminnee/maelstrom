@@ -6,6 +6,8 @@
     "agents": {
       "ag1": {
         "id": "ag1",
+        "parent": "",
+        "description": "",
         "state": "idle",
         "session": "a82cbb22-d3ac-48a4-a9b2-58a45624e64a",
         "cwd": "/Users/dev/Projects/northwind/northwind-alpha",

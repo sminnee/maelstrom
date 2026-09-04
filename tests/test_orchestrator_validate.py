@@ -307,3 +307,51 @@ def test_a_null_field_is_no_edit():
         "fields": {"branch": None},
     }
     assert code(validate_command(world, cmd)) == "invalid"
+
+
+# --- subagents are read, never driven ---------------------------------------
+
+
+SUBAGENT = make_agent(
+    id="agent-1.1", parent="agent-1", description="Scan the docs", state="processing"
+)
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        {"type": "agent.say", "agentId": "agent-1.1", "text": "hi"},
+        {"type": "agent.stop", "agentId": "agent-1.1"},
+        {"type": "agent.setMode", "agentId": "agent-1.1", "mode": "auto"},
+        {"type": "agent.approve", "agentId": "agent-1.1", "requestId": "req-1"},
+        {
+            "type": "agent.deny",
+            "agentId": "agent-1.1",
+            "requestId": "req-1",
+            "reason": "no",
+        },
+        {
+            "type": "agent.answer",
+            "agentId": "agent-1.1",
+            "requestId": "req-1",
+            "answers": {"q": "a"},
+        },
+        {"type": "agent.resume", "agentId": "agent-1.1"},
+    ],
+)
+def test_every_agent_command_on_a_subagent_is_invalid(cmd):
+    world = world_with(agents=[make_agent(), SUBAGENT])
+    error = validate_command(world, cmd)
+    assert code(error) == "invalid"
+    assert error["message"] == "agent-1.1 is a subagent of agent-1; drive agent-1"
+
+
+def test_an_exited_subagent_is_still_refused_as_a_subagent_not_as_exited():
+    """The refusal a user can act on is the one naming the parent."""
+    exited = {**SUBAGENT, "state": "exited", "exitCode": 0}
+    world = world_with(agents=[make_agent(), exited])
+    cmd = {"type": "agent.resume", "agentId": "agent-1.1"}
+    assert (
+        validate_command(world, cmd)["message"]
+        == "agent-1.1 is a subagent of agent-1; drive agent-1"
+    )

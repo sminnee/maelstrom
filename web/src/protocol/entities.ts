@@ -96,6 +96,10 @@ export type AgentState =
 /** Mirrors `build_agent_row` plus what links the agent to the rest of the world. */
 export interface Agent {
   id: AgentId;
+  /** The parent's id for a subagent (whose own id is dotted, `X.1`); `''` for a top-level agent. */
+  parent: AgentId | '';
+  /** What the parent asked a subagent to do; `''` for a top-level agent. */
+  description: string;
   state: AgentState;
   session: string;
   cwd: string;
