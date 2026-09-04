@@ -10,6 +10,7 @@
         "session": "c6145231-548e-4919-8507-37b263af9176",
         "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
         "model": "claude-opus-5[1m]",
+        "permissionMode": "normal",
         "waitingOn": "",
         "lastMessage": "You chose **Green**.",
         "costUsd": 0.0606145,

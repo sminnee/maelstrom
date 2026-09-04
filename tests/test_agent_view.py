@@ -190,6 +190,8 @@ def test_the_footer_reads_cwd_model_and_tokens_from_the_stream():
     assert fields["model"] == "claude-opus-5"
     assert fields["branch"] == "main"
     assert fields["state"] == "idle"
+    # `default` on the wire is the mode maelstrom calls `normal`.
+    assert fields["mode"] == "normal"
     assert view.usage.output > 0
     assert fields["tokens"]
 

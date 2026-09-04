@@ -1,3 +1,4 @@
+import type { PermissionMode } from './modes';
 import type { AgentId, DeskId, ProjectId, RequestId, TaskId, WorktreeId } from './ids';
 
 /**
@@ -18,7 +19,7 @@ export const TASK_STATUSES = [
   'template',
 ] as const satisfies readonly TaskStatus[];
 
-export type TaskMode = 'plan' | 'auto' | 'normal';
+export type TaskMode = PermissionMode;
 
 export interface Project {
   id: ProjectId;
@@ -99,6 +100,8 @@ export interface Agent {
   session: string;
   cwd: string;
   model: string;
+  /** The mode the child last announced; `''` until its `system`/`init` arrives. */
+  permissionMode: PermissionMode | '';
   waitingOn: string;
   lastMessage: string;
   costUsd: number;

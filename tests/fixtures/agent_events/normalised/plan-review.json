@@ -10,6 +10,7 @@
         "session": "a0e9ec48-6947-4fdf-b6de-d0a8ea0270a5",
         "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
         "model": "claude-opus-5[1m]",
+        "permissionMode": "normal",
         "waitingOn": "",
         "lastMessage": "Created `/private/tmp/claude-501/clean/hello.txt` containing",
         "costUsd": 0.20636900000000002,

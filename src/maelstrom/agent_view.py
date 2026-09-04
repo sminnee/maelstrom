@@ -107,6 +107,7 @@ def _blank_agent(agent_id: str) -> Agent:
         "session": "",
         "cwd": "",
         "model": "",
+        "permissionMode": "",
         "waitingOn": "",
         "lastMessage": "",
         "costUsd": 0.0,
@@ -341,6 +342,7 @@ def footer_fields(view: AttachView, branch: str) -> dict[str, str]:
         "tokens": _tokens(view.usage),
         "branch": branch,
         "state": agent_status(view),
+        "mode": agent["permissionMode"] if agent else "",
     }
 
 

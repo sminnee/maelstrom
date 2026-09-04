@@ -445,6 +445,21 @@ def test_the_footer_names_the_branch_model_and_wait_kind():
             assert "main" in text
             assert "claude-opus-5" in text
             assert "awaiting-permission" in text
+            assert "normal" in text
+
+    drive(body)
+
+
+def test_shift_tab_cycles_the_permission_mode():
+    """The footer is not touched here: the child's own status event moves it."""
+    app, client = make_app(events("normal-turn.jsonl"))
+
+    async def body():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("shift+tab")
+            await pilot.pause()
+            assert {"cmd": "set-mode", "id": "a1", "mode": "plan"} in client.calls
 
     drive(body)
 

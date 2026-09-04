@@ -252,6 +252,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/agents/{id}/deny` | `{requestId, reason}` | `agent.deny` | `{}` |
 | `POST /api/agents/{id}/answer` | `{requestId, answers}` | `agent.answer` | `{}` |
 | `POST /api/agents/{id}/say` | `{text}` | `agent.say` | `{}` |
+| `POST /api/agents/{id}/set-mode` | `{mode}` | `agent.setMode` | `{}` |
 | `POST /api/agents/{id}/stop` | | `agent.stop` | `{}` |
 | `POST /api/agents/{id}/resume` | `{text?}` | `agent.resume` | `{}` |
 | `POST /api/tasks/{project}/{id}/launch` | `{model?}` | `agent.launch` | `{agentId}` |
@@ -259,6 +260,10 @@ check being missing, both answer 400 `invalid`.
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
 | `POST /api/desk` | `{id}`, a desk id | `desk.add` | `{}` |
 | `DELETE /api/desk/{deskId}` | the desk id, URL-encoded | `desk.remove` | `{}` |
+
+`agent.setMode` is a pure relay. The child announces its new mode in its own `system`/`status`
+event, so the world changes when that arrives, and a mode the child refuses never reaches the
+world at all.
 
 A command that changes the world answers after the change is in it, so a GET right after the
 reply is current, and the notice that follows is one more refetch. A refused command changes

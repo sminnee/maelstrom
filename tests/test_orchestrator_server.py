@@ -868,6 +868,22 @@ def test_say_reaches_the_host_and_the_childs_replay_shows_it(harness):
     assert item["markdown"] == "also the README"
 
 
+def test_set_mode_reaches_the_host_and_the_childs_status_shows_it(harness):
+    """The child announces the new mode itself, so nothing is synthesised here."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                reply = await api.post("/api/agents/ag1/set-mode", {"mode": "auto"})
+                return reply
+
+    reply = run(scenario())
+    assert reply.status == 200
+    assert {"cmd": "set-mode", "id": "ag1", "mode": "auto"} in harness.daemon.calls
+
+
 def test_a_wait_answered_outside_the_server_clears_in_the_world(harness):
     """The case the old design could not handle: it only learned of its own answers.
 

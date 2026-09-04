@@ -178,6 +178,16 @@ The one process per machine that holds every driven agent and serves the control
 `mael agent` talks to. A driven agent's live state dies with the daemon, but its spawn record
 does not, so a later daemon can start the agent again.
 
+**Permission mode**:
+How much a driven agent may do without asking: `plan`, `normal` or `auto`. A task launches under
+one mode, and a running agent can be moved between them — by `mael agent set-mode`, by shift+tab
+in teleport, by the mode chip in the orchestrator UI, or by the agent itself when a plan review
+is approved. The three words are the same ones a task carries, so one word means one thing.
+Claude spells `normal` as `default` on the pipe; nothing outside `agent_model.py` uses that word.
+The mode is read off the agent's own event stream, never from what was asked for, so no surface
+can show a mode the agent refused.
+_Avoid_: Permission level, autonomy, trust level
+
 **Wait kind**:
 Which of three things a driven agent is blocked on: `awaiting-question`, `awaiting-plan-review`,
 or `awaiting-permission`. All three arrive as the same `can_use_tool` event, so the wait kind

@@ -2,6 +2,7 @@ import type { ApiClient } from '../api/http';
 import { createApiClient } from '../api/http';
 import type { ChangeNotice, TaskEdit } from '../api/types';
 import type { EventSourceLike } from '../live/changeStream';
+import { MODES } from '../protocol/modes';
 import type { SocketLike } from '../live/socketLike';
 import type { TranscriptEvent } from '../live/transcriptReducer';
 import type { Attention } from '../protocol/attention';
@@ -366,7 +367,9 @@ function command(
   const { world } = server;
   const now = () => new Date().toISOString();
 
-  let m = pathname.match(/^\/api\/agents\/([^/]+)\/(approve|deny|answer|say|stop|resume)$/);
+  let m = pathname.match(
+    /^\/api\/agents\/([^/]+)\/(approve|deny|answer|say|stop|resume|set-mode)$/,
+  );
   if (m && method === 'POST') {
     const agentId = m[1]!;
     const agent = world.agents[agentId];
@@ -389,6 +392,14 @@ function command(
         role: 'user',
         markdown: text,
       });
+      return ok({});
+    }
+    if (action === 'set-mode') {
+      const mode = MODES.find((m) => m === str('mode'));
+      if (!mode) return error(400, 'invalid', `Unknown mode: ${str('mode') ?? ''}`);
+      // The real child announces the new mode itself; the fake does it here.
+      world.agents[agentId] = { ...agent, permissionMode: mode };
+      server.change({ kind: 'agent', ids: [agentId] });
       return ok({});
     }
     if (action === 'stop') {
@@ -460,6 +471,7 @@ function command(
       session: `sess-${agentId}`,
       cwd: '',
       model: str('model') ?? '',
+      permissionMode: '',
       waitingOn: '',
       lastMessage: '',
       costUsd: 0,

@@ -27,6 +27,7 @@ from .agent_model import (
     AWAITING_PLAN_REVIEW,
     AWAITING_QUESTION,
     BACKLOG_END,
+    MODES,
     TRUNCATED,
 )
 from .agent_server import AgentDaemon
@@ -38,7 +39,16 @@ from .agent_transport import (
 from .table import draw_table
 
 #: Columns ``mael agent list`` prints, in order.
-LIST_COLUMNS = ["id", "state", "waiting_on", "last_message", "cwd", "model", "cost"]
+LIST_COLUMNS = [
+    "id",
+    "state",
+    "mode",
+    "waiting_on",
+    "last_message",
+    "cwd",
+    "model",
+    "cost",
+]
 
 
 #: Overridden by tests to drive commands through ``RecordingDaemonClient``.
@@ -231,6 +241,14 @@ def cmd_interrupt(agent_id: str) -> None:
     ends an agent.
     """
     _send({"cmd": "interrupt", "id": agent_id})
+
+
+@agent.command("set-mode")
+@click.argument("agent_id")
+@click.argument("mode", type=click.Choice(MODES))
+def cmd_set_mode(agent_id: str, mode: str) -> None:
+    """Change the permission mode of a running agent."""
+    _send({"cmd": "set-mode", "id": agent_id, "mode": mode})
 
 
 @agent.command("stop")
