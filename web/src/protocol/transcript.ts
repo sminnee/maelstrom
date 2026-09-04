@@ -1,7 +1,11 @@
 import type { AgentId, DocumentId, RequestId, TranscriptItemId } from './ids';
 
-// Render-ready items. The wire never carries raw stream-json; the backend
-// (or `normalise.ts` in front of the fake) turns the daemon's events into these.
+// Render-ready items. The wire never carries raw stream-json: the server's
+// normaliser turns the daemon's events into these.
+
+/** The tools whose `tool_use` raises a question and a plan review. */
+export const QUESTION_TOOL = 'AskUserQuestion';
+export const PLAN_TOOL = 'ExitPlanMode';
 
 interface Base {
   id: TranscriptItemId;

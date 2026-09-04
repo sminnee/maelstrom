@@ -1,4 +1,3 @@
-import { SimControls } from '../sim/SimControls';
 import { useAppStore } from '../store/store';
 import type { View } from '../store/uiSlice';
 import { AttentionChip } from './AttentionChip';
@@ -32,7 +31,6 @@ export function TopBar() {
       {view === 'canvas' && <FilterBar />}
       <div className={styles.spacer} />
       <AttentionChip />
-      <SimControls />
     </header>
   );
 }

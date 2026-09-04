@@ -1,24 +1,19 @@
 """The orchestrator server: the world, its sources, and the clients watching it.
 
 The service layer, and the only asyncio orchestration in the package. It owns
-the :class:`~maelstrom.orchestrator.event_log.EventLog`, polls the task and
+the :class:`~maelstrom.orchestrator.world.WorldState`, polls the task and
 worktree sources, keeps one attach stream per agent against the agent host,
-answers commands, and serves every client the same seq-stamped frames.
-:mod:`~maelstrom.orchestrator.routes` puts it on the network.
-
-The wire format — hello, snapshot or replay, ready, commands and replies — is
-documented in ``docs/dev/orchestrator-server.md``.
+answers commands, and tells the notice and transcript hubs what changed.
+:mod:`~maelstrom.orchestrator.routes` puts it on the network; what the routes
+serve is documented in ``docs/dev/orchestrator-server.md``.
 """
 
 import asyncio
-import json
 import logging
 import uuid
 from collections.abc import Callable
 from concurrent.futures import Executor
 from typing import Any
-
-from aiohttp import WSMsgType, web
 
 from ..agent_model import AGENT_DETAIL, AGENT_EXITED, BACKLOG_END, RECENT_LIMIT
 from ..desk_store import DeskStore, InMemoryDeskStore
@@ -27,7 +22,6 @@ from ..util import now_iso
 from . import desk as desk_model
 from .daemon_bridge import AsyncDaemonClient
 from .desk import DeskTable, desk_id_for_agent, desk_id_for_task
-from .event_log import RING_SIZE, EventLog
 from .hubs import COALESCE_SECS, WS_QUEUE_LIMIT, NoticeHub, TranscriptHub
 from .normalise import (
     NormaliseContext,
@@ -39,7 +33,7 @@ from .normalise import (
     revive_agent,
 )
 from .notices import notices_for
-from .protocol import Agent, EventFrame, ServerEvent, TranscriptItem
+from .protocol import Agent, ServerEvent, TranscriptItem, World
 from .sources import TaskSource, WorktreeSource
 from .transcript_log import (
     TRANSCRIPT_RING,
@@ -48,6 +42,7 @@ from .transcript_log import (
     TranscriptSnapshot,
 )
 from .validate import validate_command
+from .world import WorldState
 from .world_build import (
     AgentLink,
     agent_entity,
@@ -66,10 +61,6 @@ WORKTREE_POLL_SECS = 15.0
 AGENT_POLL_SECS = 2.0
 #: How long adopting an agent waits for its replayed backlog to end.
 BACKLOG_TIMEOUT_SECS = 5.0
-
-
-def _reply(command_id: Any, reply: dict[str, Any]) -> str:
-    return json.dumps({"reply": {"id": command_id, **reply}})
 
 
 def _refused(code: str, message: str) -> dict[str, Any]:
@@ -100,7 +91,6 @@ class Orchestrator:
         desk: DeskStore | None = None,
         clock: Callable[[], str] = now_iso,
         executor: Executor | None = None,
-        ring_size: int = RING_SIZE,
         task_poll: float = TASK_POLL_SECS,
         worktree_poll: float = WORKTREE_POLL_SECS,
         agent_poll: float = AGENT_POLL_SECS,
@@ -114,7 +104,7 @@ class Orchestrator:
         self.desk = desk if desk is not None else InMemoryDeskStore()
         self.clock = clock
         self.executor = executor
-        self.log = EventLog(ring_size)
+        self.state = WorldState()
         #: Minted per server life, so a client can tell a restart from a reconnect.
         self.epoch = uuid.uuid4().hex[:8]
         self.notices = NoticeHub(notice_coalesce)
@@ -129,11 +119,6 @@ class Orchestrator:
         self._task_poll = task_poll
         self._worktree_poll = worktree_poll
         self._agent_poll = agent_poll
-        self._clients: set[web.WebSocketResponse] = set()
-        # Held while frames are appended and sent, and while a client is
-        # handed its snapshot: a frame published between the two would reach
-        # the client before the snapshot it is newer than, and be lost.
-        self._lock = asyncio.Lock()
         self._task_version: Any = _NEVER
         self._worktree_read = asyncio.Lock()
         self._pollers: list[asyncio.Task[None]] = []
@@ -189,19 +174,21 @@ class Orchestrator:
 
     # -- keeping the world fresh --
 
-    async def publish(self, events: list[ServerEvent]) -> list[EventFrame]:
-        """Append ``events`` to the log, tell the notice streams, and send the frames."""
+    def _apply(self, events: list[ServerEvent]) -> None:
+        """Apply ``events`` to the world, then tell the hubs what changed.
+
+        Synchronous on the loop, and so is a transcript socket's subscribe
+        plus snapshot, so no client can see a world that is half-applied or
+        miss a frame between its snapshot and its first live one.
+        """
         if not events:
-            return []
-        async with self._lock:
-            frames = self.log.append(events, self.clock())
-            self._record_transcripts(events)
-            notices = notices_for(events)
-            if "task" in notices:
-                self.task_revision += 1
-            self.notices.notify(notices)
-            await self._send_all(frames)
-        return frames
+            return
+        self.state.apply(events)
+        self._record_transcripts(events)
+        notices = notices_for(events)
+        if "task" in notices:
+            self.task_revision += 1
+        self.notices.notify(notices)
 
     def _record_transcripts(self, events: list[ServerEvent]) -> None:
         """Append each transcript event to its agent's log, and push the frame out.
@@ -230,8 +217,8 @@ class Orchestrator:
         return self.transcript_log(agent_id).snapshot()
 
     @property
-    def world(self) -> Any:
-        return self.log.state["world"]
+    def world(self) -> World:
+        return self.state.world
 
     @property
     def task_version(self) -> str | None:
@@ -257,27 +244,6 @@ class Orchestrator:
             lambda item: item.get("requestId") == request_id
         )
 
-    async def _send_all(self, frames: list[EventFrame]) -> None:
-        """Send ``frames`` in order to every client; drop a client a send fails on.
-
-        The client set is captured once: ``_welcome`` adds to it at await
-        points, so pairing results against a second listing could evict the
-        wrong client.
-        """
-        texts = [json.dumps(frame) for frame in frames]
-        clients = list(self._clients)
-
-        async def send_all_to(client: web.WebSocketResponse) -> None:
-            for text in texts:
-                await client.send_str(text)
-
-        results = await asyncio.gather(
-            *(send_all_to(client) for client in clients), return_exceptions=True
-        )
-        for client, result in zip(clients, results, strict=True):
-            if isinstance(result, Exception):
-                self._clients.discard(client)
-
     async def refresh_tasks(self, *, force: bool = False) -> None:
         """Re-read the notebook when its version moved, and publish the difference."""
         version = await self._run(self.tasks.version)
@@ -288,7 +254,7 @@ class Orchestrator:
         self._task_version = version
         entities = await self._run(self.tasks.read)
         new = {task["id"]: task for task in entities}
-        await self.publish(diff_kind("task", self.log.state["world"]["tasks"], new))
+        self._apply(diff_kind("task", self.world["tasks"], new))
         await self._prune_desk()
 
     async def refresh_worktrees(self) -> None:
@@ -297,12 +263,12 @@ class Orchestrator:
             return
         async with self._worktree_read:
             projects, worktrees = await self._run(self.worktrees.read)
-        world = self.log.state["world"]
+        world = self.world
         events = diff_kind("project", world["projects"], {p["id"]: p for p in projects})
         events += diff_kind(
             "worktree", world["worktrees"], {w["id"]: w for w in worktrees}
         )
-        await self.publish(events)
+        self._apply(events)
 
     # -- the desk --
 
@@ -326,18 +292,18 @@ class Orchestrator:
         applies: an agent stays in the world once seen, which is what keeps a
         stopped agent on the canvas.
         """
-        world = self.log.state["world"]
+        world = self.world
         kept = desk_model.drop_unknown_agents(world["desk"], world["agents"])
         await self._set_desk(kept)
 
     async def _prune_desk(self) -> None:
         """Drop desk entries for tasks that are no longer in the notebook."""
-        pruned = self._pruned(self.log.state["world"]["desk"])
+        pruned = self._pruned(self.world["desk"])
         await self._set_desk(pruned)
 
     def _pruned(self, table: DeskTable) -> DeskTable:
         """``table`` pruned against the projects the last task read covered."""
-        tasks = self.log.state["world"]["tasks"]
+        tasks = self.world["tasks"]
         return desk_model.prune(table, tasks, {t["project"] for t in tasks.values()})
 
     async def _set_desk(self, table: DeskTable) -> None:
@@ -346,18 +312,18 @@ class Orchestrator:
         Saving first is what makes a restart show the desk the last client
         saw, rather than one change behind it.
         """
-        old = self.log.state["world"]["desk"]
+        old = self.world["desk"]
         if table == old:
             return
         await self._run(self.desk.save, table)
-        await self.publish(diff_kind("desk", old, table))
+        self._apply(diff_kind("desk", old, table))
 
     async def _desk_add(self, command: dict[str, Any]) -> dict[str, Any]:
         await self._add_to_desk(command["id"])
         return {"ok": True, "result": {}}
 
     async def _add_to_desk(self, desk_id: str) -> None:
-        table = self.log.state["world"]["desk"]
+        table = self.world["desk"]
         await self._set_desk(desk_model.add(table, desk_id, self.clock()))
 
     async def _join_desk(self, agent_id: str) -> None:
@@ -366,7 +332,7 @@ class Orchestrator:
         An agent already exited when the server first sees it does not join:
         only running work puts itself on the canvas.
         """
-        agent = self.log.state["world"]["agents"].get(agent_id)
+        agent = self.world["agents"].get(agent_id)
         if agent is None or agent["state"] == "exited":
             return
         task_id = agent["taskId"]
@@ -374,7 +340,7 @@ class Orchestrator:
         await self._add_to_desk(desk_id)
 
     async def _desk_remove(self, command: dict[str, Any]) -> dict[str, Any]:
-        table = self.log.state["world"]["desk"]
+        table = self.world["desk"]
         await self._set_desk(desk_model.remove(table, command["id"]))
         return {"ok": True, "result": {}}
 
@@ -401,7 +367,7 @@ class Orchestrator:
             log.warning("agent host: %s", reply["error"])
             return
         rows = {row["id"]: row for row in reply.get("agents", [])}
-        agents = self.log.state["world"]["agents"]
+        agents = self.world["agents"]
         for agent_id, row in rows.items():
             if agent_id not in agents:
                 await self._adopt(row)
@@ -440,7 +406,7 @@ class Orchestrator:
         ctx = context_for_agent(agent_id, self._next_item_seed(agent_id))
         link = self._link(row)
         out = revive_agent(
-            self.log.state,
+            self.state.state,
             ctx,
             state,
             self.clock(),
@@ -448,11 +414,11 @@ class Orchestrator:
             project=link.project,
             worktree_id=link.worktree_id,
         )
-        await self.publish(out.events)
+        self._apply(out.events)
         await self._attach(agent_id)
 
     def _link(self, row: dict[str, Any]) -> AgentLink:
-        world = self.log.state["world"]
+        world = self.world
         return link_agent(row, worktrees=world["worktrees"], tasks=world["tasks"])
 
     async def _adopt(self, row: dict[str, Any]) -> None:
@@ -464,7 +430,7 @@ class Orchestrator:
             project=link.project,
             worktree_id=link.worktree_id,
         )
-        await self.publish([{"type": "upsert", "kind": "agent", "entity": entity}])
+        self._apply([{"type": "upsert", "kind": "agent", "entity": entity}])
         await self._attach(entity["id"])
 
     async def _attach(self, agent_id: str) -> None:
@@ -492,7 +458,7 @@ class Orchestrator:
         return self._item_seeds.get(agent_id, 0)
 
     async def _relink(self, row: dict[str, Any]) -> None:
-        agent = self.log.state["world"]["agents"][row["id"]]
+        agent = self.world["agents"][row["id"]]
         link = self._link(row)
         linked: Agent = {
             **agent,
@@ -501,7 +467,7 @@ class Orchestrator:
             "worktreeId": link.worktree_id,
         }
         if linked != agent:
-            await self.publish([{"type": "upsert", "kind": "agent", "entity": linked}])
+            self._apply([{"type": "upsert", "kind": "agent", "entity": linked}])
 
     async def _follow(self, watch: AgentWatch) -> None:
         """Normalise one agent's attach stream into the log until it ends.
@@ -515,15 +481,9 @@ class Orchestrator:
         try:
             async for event in self.daemon.attach(agent_id):
                 if "error" in event and "type" not in event:
-                    await self.publish(
-                        [
-                            {
-                                "type": "error",
-                                "message": event["error"],
-                                "agentId": agent_id,
-                            }
-                        ]
-                    )
+                    # The host would not give us the stream. The next
+                    # reconciliation tries again.
+                    log.warning("agent %s: %s", agent_id, event["error"])
                     return
                 kind = event.get("type")
                 if kind == AGENT_DETAIL:
@@ -541,14 +501,14 @@ class Orchestrator:
                     # the request went out before the host's window, so only
                     # the detail frame knows about it.
                     out = apply_agent_detail(
-                        self.log.state, watch.ctx, detail, self.clock()
+                        self.state.state, watch.ctx, detail, self.clock()
                     )
                     await self._emit(watch, out)
                     # The host's ring holds RECENT_LIMIT events, so a backlog
                     # that size may have lost older ones. It does not say
                     # which, so a full backlog is marked either way.
                     if watch.backlog_count >= RECENT_LIMIT:
-                        await self.publish(
+                        self._apply(
                             [{"type": "transcript.truncated", "agentId": agent_id}]
                         )
                     watch.caught_up.set()
@@ -569,14 +529,14 @@ class Orchestrator:
                 del self._watches[agent_id]
 
     async def _normalise(self, watch: AgentWatch, raw: dict[str, Any]) -> None:
-        out = normalise_stream_event(self.log.state, watch.ctx, raw, self.clock())
+        out = normalise_stream_event(self.state.state, watch.ctx, raw, self.clock())
         await self._emit(watch, out)
 
     async def _emit(self, watch: AgentWatch, out: Normalised) -> None:
         """Take a normaliser's output: keep its context, and publish its events."""
         watch.ctx = out.ctx
         self._item_seeds[watch.agent_id] = out.ctx.next_id - 1
-        await self.publish(out.events)
+        self._apply(out.events)
 
     async def _exit(
         self, agent_id: str, exit_code: int | None, *, from_stream: bool = False
@@ -587,15 +547,15 @@ class Orchestrator:
         that stream: a host that dropped the connection would otherwise leave
         the watch waiting forever.
         """
-        agent = self.log.state["world"]["agents"].get(agent_id)
+        agent = self.world["agents"].get(agent_id)
         if agent is None or agent["state"] == "exited":
             return
         watch = self._watches.get(agent_id)
         ctx = watch.ctx if watch else context_for_agent(agent_id)
-        out = mark_exited(self.log.state, ctx, exit_code, self.clock())
+        out = mark_exited(self.state.state, ctx, exit_code, self.clock())
         if watch:
             watch.ctx = out.ctx
-        await self.publish(out.events)
+        self._apply(out.events)
         if watch and watch.task and not from_stream:
             watch.task.cancel()
 
@@ -630,7 +590,7 @@ class Orchestrator:
         handler = handlers.get(kind)
         if handler is None:
             return _refused("invalid", f"Unsupported command: {kind}")
-        error = validate_command(self.log.state["world"], command)
+        error = validate_command(self.world, command)
         if error:
             return {"ok": False, "error": error}
         return await handler(command)
@@ -767,69 +727,6 @@ class Orchestrator:
         await self.refresh_tasks(force=True)
         return {"ok": True, "result": {}}
 
-    # -- the socket --
-
-    async def handle_connection(self, ws: web.WebSocketResponse) -> None:
-        """One client: hello, then snapshot or replay, then ready, then commands.
-
-        ``ws`` is prepared already; this runs until the client goes away. A
-        client that connects before the first source reads finish waits for
-        them, so its snapshot holds the world rather than an empty one that
-        fills in later.
-        """
-        first = await _next_text(ws)
-        if first is None:
-            return
-        hello = _parse(first)
-        if hello.get("type") != "hello":
-            await ws.send_str(
-                _reply(None, _refused("invalid", "The first message must be a hello"))
-            )
-            await ws.close()
-            return
-        await self._started.wait()
-        await self._welcome(ws, hello.get("resumeFrom"))
-        try:
-            while (raw := await _next_text(ws)) is not None:
-                message = _parse(raw)
-                if message.get("type") == "hello":
-                    await ws.send_str(
-                        _reply(None, _refused("invalid", "Already said hello"))
-                    )
-                    continue
-                command = message.get("command")
-                if not isinstance(command, dict):
-                    await ws.send_str(
-                        _reply(
-                            message.get("id"),
-                            _refused("invalid", "No command in message"),
-                        )
-                    )
-                    continue
-                try:
-                    reply = await self.handle_command(command)
-                except (KeyError, TypeError, AttributeError) as exc:
-                    # A field the validator did not check was missing or the
-                    # wrong shape: the client's bug, answered as one.
-                    reply = _refused("invalid", f"Malformed command: {exc!r}")
-                await ws.send_str(_reply(message.get("id"), reply))
-        except ConnectionResetError:
-            pass
-        finally:
-            self._clients.discard(ws)
-
-    async def _welcome(self, ws: web.WebSocketResponse, resume_from: Any) -> None:
-        async with self._lock:
-            frames = None
-            if isinstance(resume_from, int) and not isinstance(resume_from, bool):
-                frames = self.log.replay_from(resume_from)
-            if frames is None:
-                frames = [self.log.snapshot_frame(self.clock())]
-            for frame in frames:
-                await ws.send_str(json.dumps(frame))
-            await ws.send_str(json.dumps({"ready": {"seq": self.log.seq}}))
-            self._clients.add(ws)
-
 
 _NEVER = object()
 
@@ -859,23 +756,3 @@ def _code_for(error: str) -> str:
     if "not waiting" in error:
         return "not_waiting"
     return "invalid"
-
-
-async def _next_text(ws: web.WebSocketResponse) -> str | None:
-    """The client's next text frame, or ``None`` once the socket has closed."""
-    while True:
-        message = await ws.receive()
-        if message.type == WSMsgType.TEXT:
-            return message.data
-        if message.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED):
-            return None
-        if message.type == WSMsgType.ERROR:
-            return None
-
-
-def _parse(raw: str | bytes) -> dict[str, Any]:
-    try:
-        message = json.loads(raw)
-    except json.JSONDecodeError:
-        return {}
-    return message if isinstance(message, dict) else {}

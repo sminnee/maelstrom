@@ -1,18 +1,42 @@
 import type { ApiClient } from '../api/http';
 import { createApiClient } from '../api/http';
-import type { ChangeNotice } from '../api/types';
+import type { ChangeNotice, TaskEdit } from '../api/types';
 import type { EventSourceLike } from '../live/changeStream';
 import type { SocketLike } from '../live/socketLike';
 import type { TranscriptEvent } from '../live/transcriptReducer';
-import type { Command, Reply as CommandReply } from '../protocol/commands';
-import type { TaskEdit } from '../api/types';
-import type { TaskStatus } from '../protocol/entities';
-import { emptyWorld } from '../protocol/reducer';
-import type { World } from '../protocol/events';
+import type { Attention } from '../protocol/attention';
+import type { Document } from '../protocol/documents';
+import type { Agent, DeskEntry, Project, Task, TaskStatus, Worktree } from '../protocol/entities';
 import type { AgentId } from '../protocol/ids';
 import type { Transcript, TranscriptItem } from '../protocol/transcript';
 import { FakeEventSource } from './fakeEventSource';
 import { FakeSocket } from './fakeSocket';
+
+/**
+ * The world the fake serves: the seven tables, keyed by id, with tasks and
+ * documents whole so the detail routes have their prose.
+ */
+export interface FakeWorld {
+  projects: Record<string, Project>;
+  worktrees: Record<string, Worktree>;
+  tasks: Record<string, Task>;
+  agents: Record<AgentId, Agent>;
+  documents: Record<string, Document>;
+  attention: Record<string, Attention>;
+  desk: Record<string, DeskEntry>;
+}
+
+export function emptyFakeWorld(): FakeWorld {
+  return {
+    projects: {},
+    worktrees: {},
+    tasks: {},
+    agents: {},
+    documents: {},
+    attention: {},
+    desk: {},
+  };
+}
 
 export interface Refusal {
   status: number;
@@ -28,14 +52,15 @@ export interface FakeRequest {
 
 /**
  * The orchestrator server, faked at the wire: a `fetch` that answers the
- * GET routes from `world`, and an `EventSource` factory whose sources open at
- * once. The test moves the world with `change`, which also sends the notice
- * the real server would; `refuse` makes a route fail; `dropStream` drops the
- * notice stream the way the browser reports a drop.
+ * routes from `world`, an `EventSource` factory whose sources open at once,
+ * and a `WebSocket` factory whose sockets open with a transcript snapshot.
+ * A command changes the world the way the server would and sends the
+ * notices; the test moves the world itself with `change`, `append` and
+ * `patch`; `refuse` makes a route fail; `dropStream` and `dropSockets` drop
+ * connections the way the browser reports a drop.
  */
 export interface FakeServer {
-  world: World;
-  /** What each agent's transcript stream would carry; the agent detail reads its wait from here. */
+  world: FakeWorld;
   transcripts: Record<AgentId, Transcript>;
   requests: FakeRequest[];
   sources: FakeEventSource[];
@@ -44,20 +69,15 @@ export interface FakeServer {
   api: ApiClient;
   fetch: typeof fetch;
   eventSourceFactory: (url: string) => EventSourceLike;
-  /** Opens a transcript socket that sends its snapshot at once. */
   webSocketFactory: (path: string) => SocketLike;
+  /** What a GET of `path` answers right now, parsed. Throws on a refusal. */
+  read(path: string): unknown;
+  /** Mutate the world, then send `notice` on every open stream. */
+  change(notice: ChangeNotice, mutate?: (world: FakeWorld) => void): void;
   /** Add an item to an agent's transcript and send the frame on its open sockets. */
   append(agentId: AgentId, item: TranscriptItem): void;
   /** Patch an item and send the frame. */
   patch(agentId: AgentId, itemId: string, patch: Partial<TranscriptItem>): void;
-  /** Send a transcript event on the open sockets without changing the transcript. */
-  emitTranscript(event: TranscriptEvent): void;
-  /** Drop every open socket on `agentId` (every agent with none), as a network drop would. */
-  dropSockets(agentId?: AgentId): void;
-  /** What a GET of `path` answers right now, parsed. Throws on a refusal. */
-  read(path: string): unknown;
-  /** Mutate the world, then send `notice` on every open stream. */
-  change(notice: ChangeNotice, mutate?: (world: World) => void): void;
   refuse(route: RegExp, error: Refusal): void;
   /** Forget every refusal. */
   allow(): void;
@@ -68,36 +88,33 @@ export interface FakeServer {
   dropStream(how?: 'connecting' | 'closed'): void;
   /** Open every stream that is not open yet, with `epoch`. */
   openStreams(epoch?: string): void;
+  /** Drop every open socket on `agentId` (every agent with none), as a network drop would. */
+  dropSockets(agentId?: AgentId): void;
 }
 
 export interface FakeServerOptions {
-  world?: World;
+  world?: FakeWorld;
   transcripts?: Record<AgentId, Transcript>;
   autoOpen?: boolean;
-  /**
-   * Runs the command a POST amounts to. While the fake backend owns the world
-   * this is its `command`, so the consequences arrive as its frames; without
-   * one the fake applies a plain change to its own world and sends the notice.
-   */
-  command?: (cmd: Command) => Promise<CommandReply<Command>>;
 }
 
 export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
-  const world = opts.world ?? emptyWorld();
-  const transcripts = opts.transcripts ?? {};
   const autoOpen = opts.autoOpen ?? true;
   const requests: FakeRequest[] = [];
   const sources: FakeEventSource[] = [];
   const sockets: FakeSocket[] = [];
   const seqs: Record<AgentId, number> = {};
+  /** Every frame sent per agent, so a socket that comes back with a cursor gets a replay. */
+  const frames: Record<AgentId, { seq: number; event: TranscriptEvent }[]> = {};
   const refusals: { route: RegExp; error: Refusal }[] = [];
+  let held: Promise<void> | null = null;
+  let release: (() => void) | null = null;
+  let nextId = 1;
 
   const openSockets = (agentId: AgentId) =>
     sockets.filter((socket) => socket.agentId === agentId && !socket.closed && socket.opened);
   const transcriptOf = (agentId: AgentId): Transcript =>
     server.transcripts[agentId] ?? { agentId, items: [], truncatedBefore: false };
-  let held: Promise<void> | null = null;
-  let release: (() => void) | null = null;
 
   const fetchImpl: typeof fetch = async (input, init) => {
     if (held) await held;
@@ -111,26 +128,27 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
       const { status, code, message } = refusal.error;
       return json(status, { error: { code, message: message ?? code } });
     }
-    if (method === 'GET') {
-      const reply = route(method, path, server.world, server.transcripts);
-      return json(reply.status, reply.body);
-    }
-    const reply = await command(method, path, body, server, opts.command);
+    const reply =
+      method === 'GET' ? read(path, server) : command(method, path, body, server, () => nextId++);
     return json(reply.status, reply.body);
   };
 
-  const api = createApiClient({ fetch: fetchImpl });
+  const emitTranscript = (event: TranscriptEvent) => {
+    const seq = (seqs[event.agentId] = (seqs[event.agentId] ?? 0) + 1);
+    (frames[event.agentId] ??= []).push({ seq, event });
+    for (const socket of openSockets(event.agentId)) socket.receive({ seq, event });
+  };
 
   const server: FakeServer = {
-    world,
-    transcripts,
+    world: opts.world ?? emptyFakeWorld(),
+    transcripts: opts.transcripts ?? {},
     requests,
     sources,
     sockets,
-    api,
+    api: createApiClient({ fetch: fetchImpl }),
     fetch: fetchImpl,
     read(path) {
-      const reply = route('GET', path, server.world, server.transcripts);
+      const reply = read(path, server);
       if (reply.status >= 400) throw new Error(`GET ${path}: ${reply.status}`);
       return reply.body;
     },
@@ -138,13 +156,14 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
       const source = new FakeEventSource(url);
       sources.push(source);
       // Deferred: the stream assigns its handlers after it has the source.
-      if (autoOpen) queueMicrotask(() => source.readyState === 0 && source.open());
+      if (autoOpen) {
+        queueMicrotask(() => source.readyState === FakeEventSource.CONNECTING && source.open());
+      }
       return source;
     },
     webSocketFactory: (path) => {
       const socket = new FakeSocket(path);
       sockets.push(socket);
-      // Deferred: the stream assigns its handlers after it has the socket.
       queueMicrotask(() => {
         if (socket.closed) return;
         const agentId = socket.agentId;
@@ -154,20 +173,38 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
         }
         socket.opened = true;
         socket.open();
+        const seq = seqs[agentId] ?? 0;
+        const from = socket.from;
+        // As the server does: a cursor inside what was sent replays the rest,
+        // anything else gets the snapshot.
+        if (from !== null && from <= seq) {
+          socket.receive({
+            type: 'transcript.replay',
+            seq,
+            frames: (frames[agentId] ?? []).filter((f) => f.seq > from),
+          });
+          return;
+        }
         const transcript = transcriptOf(agentId);
         socket.receive({
           type: 'transcript.snapshot',
-          seq: seqs[agentId] ?? 0,
+          seq,
           items: transcript.items,
           truncatedBefore: transcript.truncatedBefore,
         });
       });
       return socket;
     },
+    change(notice, mutate) {
+      mutate?.(server.world);
+      for (const source of sources) {
+        if (source.readyState === FakeEventSource.OPEN) source.emit('change', notice);
+      }
+    },
     append(agentId, item) {
       const transcript = transcriptOf(agentId);
       server.transcripts[agentId] = { ...transcript, items: [...transcript.items, item] };
-      server.emitTranscript({ type: 'transcript.append', agentId, item });
+      emitTranscript({ type: 'transcript.append', agentId, item });
     },
     patch(agentId, itemId, patch) {
       const transcript = transcriptOf(agentId);
@@ -177,24 +214,7 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
           i.id === itemId ? ({ ...i, ...patch } as TranscriptItem) : i,
         ),
       };
-      server.emitTranscript({ type: 'transcript.update', agentId, itemId, patch });
-    },
-    emitTranscript(event) {
-      const seq = (seqs[event.agentId] = (seqs[event.agentId] ?? 0) + 1);
-      for (const socket of openSockets(event.agentId)) socket.receive({ seq, event });
-    },
-    dropSockets(agentId) {
-      for (const socket of sockets) {
-        if (!socket.closed && (agentId === undefined || socket.agentId === agentId)) {
-          socket.serverClose(1006);
-        }
-      }
-    },
-    change(notice, mutate) {
-      mutate?.(world);
-      for (const source of sources) {
-        if (source.readyState === FakeEventSource.OPEN) source.emit('change', notice);
-      }
+      emitTranscript({ type: 'transcript.update', agentId, itemId, patch });
     },
     refuse(route, error) {
       refusals.push({ route, error });
@@ -223,22 +243,18 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
         if (source.readyState !== FakeEventSource.OPEN) source.open(epoch);
       }
     },
+    dropSockets(agentId) {
+      for (const socket of sockets) {
+        if (!socket.closed && (agentId === undefined || socket.agentId === agentId)) {
+          socket.serverClose(1006);
+        }
+      }
+    },
   };
   return server;
 }
 
-function omit<T extends object>(value: T, ...names: (keyof T)[]): Partial<T> {
-  const copy: Partial<T> = { ...value };
-  for (const name of names) delete copy[name];
-  return copy;
-}
-
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
+// -- replies --
 
 interface Reply {
   status: number;
@@ -252,6 +268,76 @@ const error = (status: number, code: string, message: string): Reply => ({
 });
 const notFound = (what: string): Reply => error(404, 'unknown_id', `No ${what}`);
 
+function json(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function omit<T extends object>(value: T, ...names: (keyof T)[]): Partial<T> {
+  const copy: Partial<T> = { ...value };
+  for (const name of names) delete copy[name];
+  return copy;
+}
+
+// -- reads --
+
+function read(path: string, server: FakeServer): Reply {
+  const { world, transcripts } = server;
+  const [pathname, query = ''] = path.split('?') as [string, string?];
+  const params = new URLSearchParams(query);
+  if (pathname === '/api/projects') return ok({ projects: Object.values(world.projects) });
+  if (pathname === '/api/worktrees') return ok({ worktrees: Object.values(world.worktrees) });
+  if (pathname === '/api/tasks') {
+    const tasks = Object.values(world.tasks).map((task) => omit(task, 'content', 'log'));
+    return ok({ tasks, version: 'fake' });
+  }
+  // The wire id is `<project>/<notebookId>`, two segments; the seed world's
+  // bare ids are one. Either way the rest of the path is the id.
+  let m = pathname.match(/^\/api\/tasks\/(.+)$/);
+  if (m) {
+    const task = world.tasks[m[1]!];
+    return task ? ok(task) : notFound(`task ${m[1]}`);
+  }
+  if (pathname === '/api/agents') return ok({ agents: Object.values(world.agents) });
+  m = pathname.match(/^\/api\/agents\/([^/]+)\/transcript$/);
+  if (m) {
+    const agentId = m[1]!;
+    if (!world.agents[agentId]) return notFound(`agent ${agentId}`);
+    const transcript = transcripts[agentId] ?? { items: [], truncatedBefore: false };
+    return ok({ agentId, items: transcript.items, truncatedBefore: transcript.truncatedBefore });
+  }
+  m = pathname.match(/^\/api\/agents\/([^/]+)$/);
+  if (m) {
+    const agent = world.agents[m[1]!];
+    if (!agent) return notFound(`agent ${m[1]}`);
+    const pendingRequest = agent.pendingRequestId
+      ? (transcripts[agent.id]?.items.find(
+          (i) => 'requestId' in i && i.requestId === agent.pendingRequestId,
+        ) ?? null)
+      : null;
+    return ok({ ...agent, pendingRequest });
+  }
+  if (pathname === '/api/attention') {
+    const open = params.get('open');
+    const items = Object.values(world.attention).filter((a) => !open || a.clearedAt === null);
+    return ok({ attention: items });
+  }
+  if (pathname === '/api/documents') {
+    return ok({ documents: Object.values(world.documents).map((doc) => omit(doc, 'markdown')) });
+  }
+  m = pathname.match(/^\/api\/documents\/([^/]+)$/);
+  if (m) {
+    const doc = world.documents[m[1]!];
+    return doc ? ok(doc) : notFound(`document ${m[1]}`);
+  }
+  if (pathname === '/api/desk') return ok({ desk: Object.values(world.desk) });
+  return error(404, 'unknown_id', `No route GET ${pathname}`);
+}
+
+// -- commands --
+
 const NOT_IMPLEMENTED = [
   /^POST \/api\/documents\/[^/]+\/comments/,
   /^POST \/api\/documents\/[^/]+\/(approve|request-changes)$/,
@@ -259,183 +345,168 @@ const NOT_IMPLEMENTED = [
   /^POST \/api\/shaping$/,
 ];
 
-/** The HTTP status for each error code, as the server maps them. */
-const STATUS_FOR_CODE: Record<string, number> = {
-  unknown_id: 404,
-  invalid: 400,
-  agent_exited: 409,
-  not_waiting: 409,
-  stale_request: 409,
-  wrong_wait_kind: 409,
-  stale_version: 409,
-  not_implemented: 501,
-};
-
-/** The command a POST, PATCH or DELETE amounts to, or null for no such route. */
-function commandFor(method: string, path: string, body: unknown): Command | null {
-  const b = (body ?? {}) as Record<string, unknown>;
-  const str = (name: string) => (b[name] === undefined ? undefined : String(b[name]));
-  let m = path.match(/^\/api\/agents\/([^/]+)\/(approve|deny|answer|say|stop|resume)$/);
-  if (m && method === 'POST') {
-    const agentId = m[1]!;
-    switch (m[2]) {
-      case 'approve':
-        return { type: 'agent.approve', agentId, requestId: str('requestId') ?? '' };
-      case 'deny':
-        return {
-          type: 'agent.deny',
-          agentId,
-          requestId: str('requestId') ?? '',
-          reason: str('reason') ?? '',
-        };
-      case 'answer':
-        return {
-          type: 'agent.answer',
-          agentId,
-          requestId: str('requestId') ?? '',
-          answers: (b.answers ?? {}) as Record<string, string>,
-        };
-      case 'say':
-        return { type: 'agent.say', agentId, text: str('text') ?? '' };
-      case 'stop':
-        return { type: 'agent.stop', agentId };
-      default:
-        return { type: 'agent.resume', agentId, text: str('text') };
-    }
-  }
-  m = path.match(/^\/api\/tasks\/(.+)\/launch$/);
-  if (m && method === 'POST') return { type: 'agent.launch', taskId: m[1]!, model: str('model') };
-  m = path.match(/^\/api\/tasks\/(.+)\/status$/);
-  if (m && method === 'POST') {
-    return { type: 'task.setStatus', taskId: m[1]!, status: str('status') as TaskStatus };
-  }
-  m = path.match(/^\/api\/tasks\/(.+)$/);
-  if (m && method === 'PATCH') return { type: 'task.update', taskId: m[1]!, fields: b as TaskEdit };
-  if (path === '/api/desk' && method === 'POST') return { type: 'desk.add', id: str('id') ?? '' };
-  m = path.match(/^\/api\/desk\/(.+)$/);
-  if (m && method === 'DELETE') return { type: 'desk.remove', id: decodeURIComponent(m[1]!) };
-  return null;
-}
-
-/** A command route: refused, delegated, or applied to the fake world. */
-async function command(
+/**
+ * A command route, with the consequences the real server's world would
+ * show: the notices it raises, the agent it moves, the item it patches.
+ */
+function command(
   method: string,
   path: string,
   body: unknown,
   server: FakeServer,
-  run: FakeServerOptions['command'],
-): Promise<Reply> {
+  mint: () => number,
+): Reply {
   const [pathname] = path.split('?') as [string];
   const key = `${method} ${pathname}`;
   if (NOT_IMPLEMENTED.some((r) => r.test(key))) {
     return error(501, 'not_implemented', `${key} is not implemented yet`);
   }
-  const cmd = commandFor(method, pathname, body);
-  if (!cmd) return error(404, 'unknown_id', `No route ${key}`);
-  if (run) {
-    const reply = await run(cmd);
-    if (reply.ok) return ok(reply.result);
-    return error(STATUS_FOR_CODE[reply.error.code] ?? 400, reply.error.code, reply.error.message);
-  }
-  return applyToWorld(cmd, server);
-}
-
-/** The plain change a command makes to the fake world, and the notice it raises. */
-function applyToWorld(cmd: Command, server: FakeServer): Reply {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const str = (name: string) => (b[name] === undefined ? undefined : String(b[name]));
   const { world } = server;
-  switch (cmd.type) {
-    case 'desk.add': {
-      world.desk[cmd.id] = { id: cmd.id, addedAt: new Date().toISOString() };
-      server.change({ kind: 'desk', ids: [cmd.id] });
-      return ok({});
-    }
-    case 'desk.remove': {
-      if (!(cmd.id in world.desk)) return error(404, 'unknown_id', `${cmd.id} is not on the desk`);
-      delete world.desk[cmd.id];
-      server.change({ kind: 'desk', ids: [cmd.id] });
-      return ok({});
-    }
-    case 'task.setStatus':
-    case 'task.update': {
-      const task = world.tasks[cmd.taskId];
-      if (!task) return error(404, 'unknown_id', `No task ${cmd.taskId}`);
-      world.tasks[cmd.taskId] =
-        cmd.type === 'task.setStatus'
-          ? { ...task, status: cmd.status }
-          : { ...task, ...cmd.fields };
-      server.change({ kind: 'task', ids: [cmd.taskId] });
-      return ok({});
-    }
-    case 'agent.launch': {
-      if (!world.tasks[cmd.taskId]) return error(404, 'unknown_id', `No task ${cmd.taskId}`);
-      return ok({ agentId: 'new1' });
-    }
-    default: {
-      if ('agentId' in cmd && !world.agents[cmd.agentId]) {
-        return error(404, 'unknown_id', `No agent ${cmd.agentId}`);
-      }
-      return ok({});
-    }
-  }
-}
+  const now = () => new Date().toISOString();
 
-/** The server's routes, over the fake world. */
-function route(
-  method: string,
-  path: string,
-  world: World,
-  transcripts: Record<AgentId, Transcript>,
-): Reply {
-  const [pathname, query = ''] = path.split('?') as [string, string?];
-  const params = new URLSearchParams(query);
-  const key = `${method} ${pathname}`;
-  if (NOT_IMPLEMENTED.some((r) => r.test(key))) {
-    return error(501, 'not_implemented', `${key} is not implemented yet`);
+  let m = pathname.match(/^\/api\/agents\/([^/]+)\/(approve|deny|answer|say|stop|resume)$/);
+  if (m && method === 'POST') {
+    const agentId = m[1]!;
+    const agent = world.agents[agentId];
+    if (!agent) return notFound(`agent ${agentId}`);
+    const action = m[2]!;
+    if (action === 'resume') {
+      if (agent.state !== 'exited') return error(400, 'invalid', `Agent ${agentId} is running`);
+      world.agents[agentId] = { ...agent, state: 'idle', exitCode: null };
+      server.change({ kind: 'agent', ids: [agentId] });
+      return ok({});
+    }
+    if (agent.state === 'exited') return error(409, 'agent_exited', `Agent ${agentId} has exited`);
+    if (action === 'say') {
+      const text = str('text')?.trim() ?? '';
+      if (!text) return error(400, 'invalid', 'Message is empty');
+      server.append(agentId, {
+        id: `m${mint()}`,
+        ts: now(),
+        type: 'message',
+        role: 'user',
+        markdown: text,
+      });
+      return ok({});
+    }
+    if (action === 'stop') {
+      world.agents[agentId] = { ...agent, state: 'exited', exitCode: 0, pendingRequestId: null };
+      server.change({ kind: 'agent', ids: [agentId] });
+      return ok({});
+    }
+    // approve, deny, answer: one wait, answered.
+    const requestId = str('requestId');
+    if (!agent.pendingRequestId)
+      return error(409, 'not_waiting', `Agent ${agentId} is not waiting`);
+    if (requestId !== agent.pendingRequestId) {
+      return error(409, 'stale_request', `Request ${requestId} is no longer pending`);
+    }
+    if (action === 'deny' && !str('reason')?.trim()) {
+      return error(400, 'invalid', 'A reason is required');
+    }
+    const wait = server.transcripts[agentId]?.items.find(
+      (i) => 'requestId' in i && i.requestId === requestId,
+    );
+    if (wait) {
+      const patch: Partial<TranscriptItem> =
+        action === 'answer'
+          ? { answers: (b.answers ?? {}) as Record<string, string> }
+          : action === 'approve'
+            ? wait.type === 'permission_request'
+              ? { decision: 'allow' }
+              : { decision: 'approve' }
+            : { decision: 'deny', reason: str('reason') };
+      server.patch(agentId, wait.id, patch);
+    }
+    world.agents[agentId] = {
+      ...agent,
+      state: 'processing',
+      pendingRequestId: null,
+      waitingOn: '',
+    };
+    const cleared: string[] = [];
+    for (const item of Object.values(world.attention)) {
+      if (item.requestId === requestId && item.clearedAt === null) {
+        world.attention[item.id] = { ...item, clearedAt: now() };
+        cleared.push(item.id);
+      }
+    }
+    for (const doc of Object.values(world.documents)) {
+      if (doc.source.type === 'plan_review' && doc.source.requestId === requestId) {
+        world.documents[doc.id] = {
+          ...doc,
+          status: action === 'approve' ? 'approved' : 'changes-requested',
+        };
+        server.change({ kind: 'document', ids: [doc.id] });
+      }
+    }
+    server.change({ kind: 'agent', ids: [agentId] });
+    if (cleared.length) server.change({ kind: 'attention', ids: cleared });
+    return ok({});
   }
-  if (method === 'GET') {
-    if (pathname === '/api/projects') return ok({ projects: Object.values(world.projects) });
-    if (pathname === '/api/worktrees') return ok({ worktrees: Object.values(world.worktrees) });
-    if (pathname === '/api/tasks') {
-      const project = params.get('project');
-      const tasks = Object.values(world.tasks)
-        .filter((t) => !project || t.project === project)
-        .map((task) => omit(task, 'content', 'log'));
-      return ok({ tasks, version: 'fake' });
-    }
-    // The wire id is `<project>/<notebookId>`, two segments; the seed world's
-    // bare ids are one. Either way the rest of the path is the id.
-    let m = pathname.match(/^\/api\/tasks\/(.+)$/);
-    if (m) {
-      const task = world.tasks[m[1]!];
-      return task ? ok(task) : notFound(`task ${m[1]}`);
-    }
-    if (pathname === '/api/agents') return ok({ agents: Object.values(world.agents) });
-    m = pathname.match(/^\/api\/agents\/([^/]+)$/);
-    if (m) {
-      const agent = world.agents[m[1]!];
-      if (!agent) return notFound(`agent ${m[1]}`);
-      const pendingRequest = agent.pendingRequestId
-        ? (transcripts[agent.id]?.items.find(
-            (i) => 'requestId' in i && i.requestId === agent.pendingRequestId,
-          ) ?? null)
-        : null;
-      return ok({ ...agent, pendingRequest });
-    }
-    if (pathname === '/api/attention') {
-      const open = params.get('open');
-      const items = Object.values(world.attention).filter((a) => !open || a.clearedAt === null);
-      return ok({ attention: items });
-    }
-    if (pathname === '/api/documents') {
-      const documents = Object.values(world.documents).map((doc) => omit(doc, 'markdown'));
-      return ok({ documents });
-    }
-    m = pathname.match(/^\/api\/documents\/([^/]+)$/);
-    if (m) {
-      const doc = world.documents[m[1]!];
-      return doc ? ok(doc) : notFound(`document ${m[1]}`);
-    }
-    if (pathname === '/api/desk') return ok({ desk: Object.values(world.desk) });
+
+  m = pathname.match(/^\/api\/tasks\/(.+)\/launch$/);
+  if (m && method === 'POST') {
+    const task = world.tasks[m[1]!];
+    if (!task) return notFound(`task ${m[1]}`);
+    if (!task.actionable) return error(400, 'invalid', `Task ${task.id} is not actionable`);
+    const agentId = `new${mint()}`;
+    world.tasks[task.id] = { ...task, status: 'in-progress' };
+    world.agents[agentId] = {
+      id: agentId,
+      state: 'idle',
+      session: `sess-${agentId}`,
+      cwd: '',
+      model: str('model') ?? '',
+      waitingOn: '',
+      lastMessage: '',
+      costUsd: 0,
+      taskId: task.id,
+      project: task.project,
+      worktreeId: '',
+      exitCode: null,
+      pendingRequestId: null,
+    };
+    world.desk[`task:${task.id}`] = { id: `task:${task.id}`, addedAt: now() };
+    server.change({ kind: 'task', ids: [task.id] });
+    server.change({ kind: 'agent', ids: [agentId] });
+    server.change({ kind: 'desk', ids: [`task:${task.id}`] });
+    return ok({ agentId });
+  }
+
+  m = pathname.match(/^\/api\/tasks\/(.+)\/status$/);
+  if (m && method === 'POST') {
+    const task = world.tasks[m[1]!];
+    if (!task) return notFound(`task ${m[1]}`);
+    world.tasks[task.id] = { ...task, status: str('status') as TaskStatus };
+    server.change({ kind: 'task', ids: [task.id] });
+    return ok({});
+  }
+
+  m = pathname.match(/^\/api\/tasks\/(.+)$/);
+  if (m && method === 'PATCH') {
+    const task = world.tasks[m[1]!];
+    if (!task) return notFound(`task ${m[1]}`);
+    world.tasks[task.id] = { ...task, ...(b as TaskEdit) };
+    server.change({ kind: 'task', ids: [task.id] });
+    return ok({});
+  }
+
+  if (pathname === '/api/desk' && method === 'POST') {
+    const id = str('id') ?? '';
+    world.desk[id] = { id, addedAt: now() };
+    server.change({ kind: 'desk', ids: [id] });
+    return ok({});
+  }
+  m = pathname.match(/^\/api\/desk\/(.+)$/);
+  if (m && method === 'DELETE') {
+    const id = decodeURIComponent(m[1]!);
+    if (!(id in world.desk)) return error(404, 'unknown_id', `${id} is not on the desk`);
+    delete world.desk[id];
+    server.change({ kind: 'desk', ids: [id] });
+    return ok({});
   }
   return error(404, 'unknown_id', `No route ${key}`);
 }

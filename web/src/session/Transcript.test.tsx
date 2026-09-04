@@ -3,16 +3,15 @@ import { render, screen, within } from '@testing-library/react';
 import { Transcript } from './Transcript';
 import { classifyToolCall } from './toolCards';
 import { makePlanReview } from '../test/fixtures';
-import { replayFixture } from '../test/replayFixture';
+import { goldenItems } from '../test/goldens';
 import type { TranscriptItem } from '../protocol/transcript';
 
 const raisesAWait = (item: TranscriptItem) =>
   item.type === 'tool_call' && classifyToolCall(item) === 'wait';
 
 describe('Transcript', () => {
-  it('renders one card per item of a replayed fixture, in order and typed by item', () => {
-    const state = replayFixture('plan-review.jsonl');
-    const items = state.transcripts['ag1']!.items;
+  it('renders one card per item of a normalised fixture, in order and typed by item', () => {
+    const items = goldenItems('plan-review.jsonl');
     render(<Transcript items={items} truncatedBefore={false} />);
     const kinds = screen
       .getAllByTestId('transcript-card')
@@ -25,8 +24,7 @@ describe('Transcript', () => {
   });
 
   it('leaves no empty row where the call that raised a wait would have drawn', () => {
-    const state = replayFixture('plan-review.jsonl');
-    const items = state.transcripts['ag1']!.items;
+    const items = goldenItems('plan-review.jsonl');
     expect(items.some(raisesAWait)).toBe(true);
     render(<Transcript items={items} truncatedBefore={false} />);
     // An empty wrapper still takes a gap slot, so the hole is as visible as the dump was.
@@ -36,8 +34,7 @@ describe('Transcript', () => {
   });
 
   it('shows a Bash command with its output and a Write as its content', () => {
-    const state = replayFixture('plan-review.jsonl');
-    render(<Transcript items={state.transcripts['ag1']!.items} truncatedBefore={false} />);
+    render(<Transcript items={goldenItems('plan-review.jsonl')} truncatedBefore={false} />);
     const cards = screen.getAllByTestId('transcript-card');
     const bash = cards.find((c) => c.querySelector('[data-tool-kind="bash"]'))!;
     expect(
@@ -81,8 +78,7 @@ describe('Transcript', () => {
   });
 
   it('a denied permission shows its decision', () => {
-    const state = replayFixture('permission-denied.jsonl');
-    render(<Transcript items={state.transcripts['ag1']!.items} truncatedBefore={false} />);
+    render(<Transcript items={goldenItems('permission-denied.jsonl')} truncatedBefore={false} />);
     const card = screen
       .getAllByTestId('transcript-card')
       .find((c) => c.querySelector('[data-tool-kind="bash"]'))!;

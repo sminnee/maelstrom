@@ -24,7 +24,6 @@ export interface UiState {
   expandedNodeId: string | null;
   /** The task the editor is open on. */
   editingTaskId: TaskId | null;
-  drawerOpen: boolean;
   panelWidth: number;
 }
 
@@ -38,7 +37,6 @@ export function initialUiState(): UiState {
     activeTabKey: null,
     expandedNodeId: null,
     editingTaskId: null,
-    drawerOpen: false,
     panelWidth: 460,
   };
 }

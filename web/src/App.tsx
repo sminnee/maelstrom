@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useState } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 import { ApiProvider } from './api/ApiProvider';
 import type { ApiClient } from './api/http';
@@ -6,9 +6,7 @@ import { createQueryClient } from './api/queryClient';
 import type { EventSourceLike } from './live/changeStream';
 import { LiveProvider } from './live/LiveProvider';
 import type { SocketLike } from './live/socketLike';
-import type { Backend } from './protocol/backend';
 import { AppShell } from './shell/AppShell';
-import { BackendProvider } from './store/BackendProvider';
 
 /** What the app reaches the server through. A test injects fakes for each. */
 export interface AppDeps {
@@ -24,16 +22,9 @@ export interface AppDeps {
 /** Where the change stream is. Same-origin: the dev proxy carries it to the server. */
 export const EVENTS_URL = '/api/events';
 
-export function App({
-  backend,
-  autoConnect = false,
-  deps,
-}: {
-  backend: Backend;
-  autoConnect?: boolean;
-  deps: AppDeps;
-}) {
-  const queryClient = useMemo(() => deps.queryClient ?? createQueryClient(), [deps.queryClient]);
+export function App({ deps }: { deps: AppDeps }) {
+  // One client for the life of the app: useMemo may recompute, useState never does.
+  const [queryClient] = useState(() => deps.queryClient ?? createQueryClient());
   return (
     <ApiProvider api={deps.api} queryClient={queryClient}>
       <LiveProvider
@@ -42,9 +33,7 @@ export function App({
         socketFactory={deps.webSocketFactory}
         reconnectMs={deps.streamReconnectMs}
       >
-        <BackendProvider backend={backend} autoConnect={autoConnect}>
-          <AppShell />
-        </BackendProvider>
+        <AppShell />
       </LiveProvider>
     </ApiProvider>
   );

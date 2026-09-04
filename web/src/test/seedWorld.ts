@@ -1,17 +1,17 @@
-import { deskIdForAgent, deskIdForTask } from '../../protocol/deskId';
-import type { Attention } from '../../protocol/attention';
-import type { Document } from '../../protocol/documents';
-import type { Agent, Project, Task, Worktree } from '../../protocol/entities';
-import type { World } from '../../protocol/events';
-import type { AgentId } from '../../protocol/ids';
-import { isActionable } from '../../protocol/phase';
-import type { Transcript, TranscriptItem } from '../../protocol/transcript';
+import type { Attention } from '../protocol/attention';
+import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
+import type { Document } from '../protocol/documents';
+import type { Agent, Project, Task, Worktree } from '../protocol/entities';
+import type { AgentId } from '../protocol/ids';
+import { isActionable } from '../protocol/phase';
+import type { Transcript, TranscriptItem } from '../protocol/transcript';
+import type { FakeWorld } from './fakeServer';
 
-/** The simulated clock starts here. Everything seeded is stamped before it. */
+/** The seed is stamped before this moment. */
 export const SEED_TIME = '2026-09-02T09:00:00.000Z';
 
 export interface Seed {
-  world: World;
+  world: FakeWorld;
   transcripts: Record<AgentId, Transcript>;
 }
 
@@ -63,8 +63,8 @@ function task(spec: TaskSpec): Task {
   const created = T(spec.createdMinutesAgo ?? 120);
   return {
     id: spec.id,
-    // The fake runs one project space, so a notebook id is already unique;
-    // the server qualifies its own with the project.
+    // One project space, so a notebook id is already unique here; the real
+    // server qualifies its own with the project.
     notebookId: spec.id,
     project: spec.project,
     title: spec.title,
@@ -149,6 +149,11 @@ column the export needs, so this is a read path plus a download endpoint.
 - The endpoint, with a client fixture: status, content type, first row.
 `;
 
+/**
+ * The world the app tests run against: two projects, a plan awaiting review,
+ * a question being asked, working agents, a free agent, history and a blocked
+ * task. Every id the app tests name lives here.
+ */
 export function seedWorld(): Seed {
   seq = 0;
   const projects = [project('maelstrom', 'main'), project('northwind', 'feat/db-migrate')];
@@ -175,7 +180,6 @@ export function seedWorld(): Seed {
   ];
 
   const tasks: Task[] = [
-    // maelstrom: a done chain head, a working follower, a queued finaliser
     task({
       id: 'MAEL-40',
       project: 'maelstrom',
@@ -206,7 +210,6 @@ export function seedWorld(): Seed {
       follows: ['MAEL-40.1'],
       createdMinutesAgo: 380,
     }),
-    // maelstrom: shaping that is asking a question right now
     task({
       id: 'MAEL-52',
       project: 'maelstrom',
@@ -238,7 +241,6 @@ export function seedWorld(): Seed {
       follows: ['MAEL-52.1'],
       createdMinutesAgo: 85,
     }),
-    // northwind: a plan awaiting review right now
     task({
       id: 'NORT-7',
       project: 'northwind',
@@ -271,7 +273,6 @@ body rather than the query builder.
 - Stream the rows so a large export holds memory flat.
 `,
     }),
-    // northwind: executing, then a finaliser waiting on it
     task({
       id: 'NORT-9',
       project: 'northwind',
@@ -292,7 +293,6 @@ body rather than the query builder.
       follows: ['NORT-9'],
       createdMinutesAgo: 200,
     }),
-    // northwind: finalising an open PR
     task({
       id: 'NORT-12',
       project: 'northwind',
@@ -303,7 +303,6 @@ body rather than the query builder.
       parent: 'linear.NORT-12',
       createdMinutesAgo: 300,
     }),
-    // northwind: history and a blocked task
     task({
       id: 'NORT-3',
       project: 'northwind',
@@ -417,17 +416,16 @@ body rather than the query builder.
     },
   ];
 
-  const world: World = {
+  const world: FakeWorld = {
     projects: keyed(projects),
     worktrees: keyed(worktrees),
     tasks: byId,
     agents: keyed(agents),
     documents: keyed(documents),
-    comments: {},
     attention: keyed(attention),
-    // The seed desk holds every task still in play, so the canvas opens with
-    // work on it. Done and cancelled tasks live in the task list only. A free
-    // agent joins the desk the way the server's auto-join would put it there.
+    // The desk holds every task still in play, so the canvas opens with work
+    // on it. Done and cancelled tasks live in the task list only. The free
+    // agent is on the desk as the server's auto-join would put it there.
     desk: keyed([
       ...Object.values(byId)
         .filter((t) => t.status !== 'done' && t.status !== 'cancelled')

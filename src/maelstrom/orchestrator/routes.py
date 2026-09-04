@@ -21,9 +21,6 @@ from .protocol import document_row, task_row
 from .server import Orchestrator
 
 log = logging.getLogger(__name__)
-
-#: The largest frame a client may send. Commands are small; this is a guard.
-MAX_CLIENT_MESSAGE = 1 << 20
 #: How often an idle notice stream sends a comment, so a proxy keeps it open.
 PING_SECS = 15.0
 #: How long a stop waits for open streams before it cancels them.
@@ -73,7 +70,6 @@ def build_app(orch: Orchestrator) -> web.Application:
 
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)
-    app.router.add_get("/", _world_socket)
     app.router.add_get("/api/projects", _projects)
     app.router.add_get("/api/worktrees", _worktrees)
     app.router.add_get("/api/tasks", _tasks)
@@ -479,18 +475,6 @@ def _int_or_none(raw: str | None) -> int | None:
         return int(raw)
     except ValueError:
         return None
-
-
-# -- the world socket --
-
-
-async def _world_socket(request: web.Request) -> web.WebSocketResponse:
-    """The world over one WebSocket: hello, snapshot or replay, ready, commands."""
-    ws = web.WebSocketResponse(max_msg_size=MAX_CLIENT_MESSAGE)
-    await ws.prepare(request)
-    orch = request.app[ORCH]
-    await orch.handle_connection(ws)
-    return ws
 
 
 # -- running --

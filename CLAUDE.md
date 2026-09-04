@@ -32,10 +32,10 @@ See `docs/dev/` for architecture and design docs:
   `ensure_*` verbs, and the pane 0/1/2 convention.
 - `docs/dev/agent-daemon.md` — driving agents over a stream-json pipe: the flags, the event
   vocabulary, the reply shapes, and teleport.
-- `docs/dev/orchestrator-ui.md` — the `web/` canvas app: its four layers, the event and
-  command protocol, how the fake backend and a real one relate, and how to run it.
+- `docs/dev/orchestrator-ui.md` — the `web/` canvas app: its four layers, how it reads the world,
+  hears changes and follows transcripts, and how to run it.
 - `docs/dev/orchestrator-server.md` — the server behind that app: its layers, how it keeps the
-  world fresh, launch, and the UI ↔ server wire protocol.
+  world fresh, launch, and the routes it serves the UI.
 
 `CONTEXT.md` at the repo root is the domain glossary. Read it before you write prose or name
 anything, and reuse its terms verbatim, including each term's `_Avoid_` list. Add new domain

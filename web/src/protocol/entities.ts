@@ -9,6 +9,15 @@ export type Phase = 'shape' | 'plan' | 'build' | 'land';
 /** The folder a task sits in. Mirrors the notebook's six statuses. */
 export type TaskStatus = 'todo' | 'in-progress' | 'blocked' | 'done' | 'cancelled' | 'template';
 
+export const TASK_STATUSES = [
+  'todo',
+  'in-progress',
+  'blocked',
+  'done',
+  'cancelled',
+  'template',
+] as const satisfies readonly TaskStatus[];
+
 export type TaskMode = 'plan' | 'auto' | 'normal';
 
 export interface Project {

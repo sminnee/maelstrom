@@ -2,9 +2,8 @@ import { deskIdForTask } from '../protocol/deskId';
 import type { Agent, DeskEntry, Project, Task, Worktree } from '../protocol/entities';
 import type { Attention } from '../protocol/attention';
 import type { Document } from '../protocol/documents';
-import type { World } from '../protocol/events';
 import type { PermissionRequestItem, PlanReviewItem, QuestionItem } from '../protocol/transcript';
-import { emptyWorld } from '../protocol/reducer';
+import { emptyFakeWorld, type FakeWorld } from './fakeServer';
 
 export function makeProject(over: Partial<Project> = {}): Project {
   return { id: 'northwind', name: 'northwind', stackTip: 'main', ...over };
@@ -135,7 +134,7 @@ export function onDesk(tasks: Task[]): DeskEntry[] {
   return tasks.map((t) => makeDeskEntry({ id: deskIdForTask(t.id) }));
 }
 
-/** A world holding the given entities, keyed by id. */
+/** A world holding the given entities, keyed by id. A `WorldView` reads it as-is. */
 export function worldWith(parts: {
   projects?: Project[];
   worktrees?: Worktree[];
@@ -144,8 +143,8 @@ export function worldWith(parts: {
   documents?: Document[];
   attention?: Attention[];
   desk?: DeskEntry[];
-}): World {
-  const world = emptyWorld();
+}): FakeWorld {
+  const world = emptyFakeWorld();
   for (const p of parts.projects ?? []) world.projects[p.id] = p;
   for (const w of parts.worktrees ?? []) world.worktrees[w.id] = w;
   for (const t of parts.tasks ?? []) world.tasks[t.id] = t;

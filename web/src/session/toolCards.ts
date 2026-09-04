@@ -1,4 +1,4 @@
-import { PLAN_TOOL, QUESTION_TOOL } from '../protocol/normalise';
+import { PLAN_TOOL, QUESTION_TOOL } from '../protocol/transcript';
 import type { ToolCallItem } from '../protocol/transcript';
 
 export type ToolCardKind = 'bash' | 'edit' | 'write' | 'read' | 'wait' | 'generic';

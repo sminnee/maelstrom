@@ -639,15 +639,15 @@ record per agent under `~/.maelstrom/agents/`.
 ## Orchestrator
 
 Serve the world to the orchestrator UI: tasks from the notebook, worktrees from `list-all`, and
-agents from the agent host, over one WebSocket. See
-[orchestrator-server.md](../dev/orchestrator-server.md) for the protocol.
+agents from the agent host, over HTTP. See
+[orchestrator-server.md](../dev/orchestrator-server.md) for the routes.
 
 | Command | Description |
 |---|---|
 | `mael orchestrator serve` | Run the orchestrator server in the foreground. `--host` (default `127.0.0.1`), `--port` (default `8765`), `--socket PATH` for the agent host's socket. |
 
 ```bash
-mael orchestrator serve                     # http://127.0.0.1:8765, the world WebSocket at /
+mael orchestrator serve                     # http://127.0.0.1:8765
 mael orchestrator serve --port 3072         # what mael env start runs, on the worktree's port
 ```
 
