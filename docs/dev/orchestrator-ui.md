@@ -31,9 +31,11 @@ One duplex channel carries two kinds of frame, kept apart:
   a frame whose `seq` is not newer than the last one it applied, so replay is idempotent.
 - **Replies** answer one command. A reply never enters the event log.
 
-The `desk` entity kind is the desk itself: one entry per task on it, carrying the wire task id
-and when the user put it there. `desk.add` and `desk.remove` are the two commands that edit it.
-A task launched from the UI joins the desk as well.
+The `desk` entity kind is the desk itself: one entry per task and per free agent on it, carrying
+the entry's id and when it arrived. An id names its kind — see `CONTEXT.md`, "Desk" — and
+`protocol/deskId.ts` builds and splits one. `desk.add` and `desk.remove`
+are the two commands that edit it. The server adds an entry for every agent it sees running, so
+a task launched from the UI joins the desk as well.
 
 The events are `snapshot`, `upsert`, `remove`, `transcript.append`,
 `transcript.update`, `transcript.truncated` and `error`. An upsert carries the whole entity, so the client never merges.
@@ -60,14 +62,27 @@ Two pure modules carry the rules a real backend must apply:
 The canvas is where the user decides. The panel is where the user reads. The task list is where
 the user chooses what the canvas draws.
 
-The canvas draws the desk: the tasks the user has put on it, and nothing else. It opens empty
-against the real server, because the world holds about 700 tasks across every project and most
-of them are finished. The task list lists every task with filters for status, project, branch
-and text, and each row toggles that task on or off the desk. The top bar switches between the
-two views; the canvas filter bar shows on the canvas only, since the task list carries its own.
+The canvas draws a node when it is on the desk, or it has a live agent. The liveness half is
+what makes running work always visible: an agent shows the moment it starts, before the server's
+own desk entry arrives. It opens near-empty against the real server, because the world holds
+about 700 tasks across every project and most of them are finished. The task list lists every
+task with filters for status, project, branch and text, and each row toggles that task on or off
+the desk. The top bar switches between the two views; the canvas filter bar shows on the canvas
+only, since the task list carries its own.
 
-A node shows the bare notebook id, because its lane already names the project. A panel tab shows
-the qualified id, because a tab exists to tell two projects' tasks apart.
+A node is one of two kinds. A **task** node stands for a notebook task, with or without an
+agent. A **freeAgent** node stands for an agent with no task, and takes its title, branch and
+lane from the worktree it runs in. An agent linked to a task draws as that task's node, so
+nothing appears twice. Edges come from `task.follows`, so a free agent is never an endpoint.
+
+The task list lists tasks only. A free agent has no row, and is dismissed from its own expanded
+card instead. That control is disabled while the agent runs, because a live agent is drawn
+whatever the desk says; a remove that arrives anyway is accepted and takes effect once the agent
+stops.
+
+A node shows the bare notebook id, because its lane already names the project. A free agent
+shows the head of its agent id, having no notebook id. A panel tab shows the qualified id,
+because a tab exists to tell two projects' tasks apart.
 
 Clicking a task node expands it in place, showing the state in words ("Needs you · plan
 review", never a raw agent state). Esc, the close button and a click on the canvas collapse

@@ -312,23 +312,35 @@ and cleared by the backend, never inferred by the UI.
 The free-text starting point for shaping.
 
 **Desk**:
-The set of tasks the user has put on the canvas. The desk is tracked apart from the notebook and
-is not a status, so a task stays on the desk whatever its status. There is one desk today, and
-one per user later.
+The sticky record of what the canvas draws: tasks, and free agents. The server adds an entry for
+every agent it sees start, and the entry outlives the agent, so stopped work stays on the
+canvas until the user dismisses it. A restart rebuilds the agents, so an entry naming an agent
+that is gone is dropped as the desk loads. Each entry names its kind — `task:<project>/<notebook id>`
+or `agent:<agent id>`. The desk is tracked apart from the notebook and is not a status, so a
+task stays on the desk whatever its status. There is one desk today, and one per user later.
 _Avoid_: Workspace, board, pinned
 
+**Free agent**:
+An agent with no task. A launch pins a task session id on the agent, so an agent started by hand
+in a worktree matches no task. A free agent takes its name, branch and lane from the worktree it
+runs in; an agent whose worktree the world has not read yet falls back to its own project and a
+generic name. A free agent is dismissed from its own node.
+_Avoid_: Orphan agent, loose agent, unlinked agent
+
 **Canvas**:
-The view that draws the desk as swimlanes of task nodes.
+The view that draws swimlanes of nodes: one per task, one per free agent. A node is drawn when
+it is on the desk, or it has a live agent, so running work is always visible.
 _Avoid_: Graph view, board
 
 **Task list**:
 The full-width view that lists every task the server knows, with filters for status, project,
-branch and text. The task list is where a task joins the desk or leaves it.
+branch and text. The task list is where a task joins the desk or leaves it. It lists tasks only:
+a free agent has no row, and is dismissed from its node on the canvas.
 _Avoid_: Table view, index
 
 **Expanded node**:
-A task node grown in place into a card that shows its status, the decision it waits on, and
-links into the panel. One node is expanded at a time.
+A node grown in place into a card that shows its status, the decision it waits on, and links
+into the panel. One node is expanded at a time.
 _Avoid_: Popup, detail panel, summary tab, dialog
 
 **Decision**:

@@ -19,10 +19,16 @@ release while that section is empty, and retitles it to the version it is releas
   `mael agent stop ID` now forgets the agent: a stopped agent is not brought back. The daemon keeps
   one spawn record per agent under `~/.maelstrom/agents/`, overridable with `MAEL_AGENT_SPEC_DIR`.
 
-- **The desk.** The orchestrator canvas draws the tasks you have put on your desk, not every task
-  in the world. A new task list view lists every task, with filters for status, project, branch
-  and text, and each row adds its task to the desk or takes it off. Launching a task from the UI
-  puts it on the desk. The desk is kept at `~/.maelstrom/desk.json`, so it survives a restart.
+- **The desk.** The orchestrator canvas draws the work on your desk, not every task in the world.
+  A new task list view lists every task, with filters for status, project, branch and text, and
+  each row adds its task to the desk or takes it off. Launching a task from the UI puts it on
+  the desk. The desk is kept at `~/.maelstrom/desk.json`, so it survives a restart.
+
+- **Every running agent is on the canvas.** Anything running is drawn whether or not you put it
+  there, and joins the desk by itself. An agent you started by hand in a worktree, with no task
+  behind it, draws as its own node named after the worktree it runs in. The desk entry outlives
+  the agent, so stopped work stays on the canvas until you dismiss it from its card. The task
+  list still lists tasks only.
 
 - **`mael agent show ID`.** Prints one agent in full: what it last said, every option of a
   question with its description, the plan text of a plan review, and the command that answers
