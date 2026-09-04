@@ -15,6 +15,7 @@ from maelstrom.agent_model import (
     PROCESSING,
     AgentSpec,
     apply_event,
+    build_agent_row,
     mark_exited,
 )
 from maelstrom.agent_server import Agent, AgentDaemon
@@ -263,8 +264,9 @@ def test_answer_accepts_a_map_of_answers_keyed_by_question():
     agent.state = replay("question-unanswered.jsonl", stop_before_control=True)
     sent: list[dict] = []
 
-    async def record(message: dict) -> None:
+    async def record(message: dict) -> bool:
         sent.append(message)
+        return True
 
     agent.send = record  # type: ignore[method-assign]
     daemon.agents["a1"] = agent
@@ -632,8 +634,9 @@ def _sending_agent(agent_id: str = "a1") -> tuple[Agent, list[dict]]:
     agent = _stub_agent(agent_id)
     sent: list[dict] = []
 
-    async def record(message: dict) -> None:
+    async def record(message: dict) -> bool:
         sent.append(message)
+        return True
 
     agent.send = record  # type: ignore[method-assign]
     return agent, sent
@@ -702,10 +705,15 @@ def test_answering_clears_the_wait_at_once():
     assert agent.state.pending is None
 
 
-def test_a_message_the_user_sends_reaches_every_watcher():
-    """The child does not echo a user turn either, so `say` must record too."""
+def test_a_message_the_user_sends_is_not_recorded():
+    """The child replays every user turn itself, marked ``isReplay``.
+
+    Recording it here would put one turn on the stream twice, and the
+    orchestrator's normaliser mints a fresh item id per copy — so the user's
+    own message would render twice.
+    """
     daemon = AgentDaemon("/tmp/x.sock")
-    agent, _ = _sending_agent()
+    agent, sent = _sending_agent()
     daemon.agents["a1"] = agent
     writer = _recording_writer()
 
@@ -717,9 +725,8 @@ def test_a_message_the_user_sends_reaches_every_watcher():
         task.cancel()
 
     asyncio.run(attach_then_say())
-    last = json.loads(writer.lines[-1])
-    assert last["type"] == "user"
-    assert last["message"]["content"][0]["text"] == "carry on"
+    assert sent[-1]["message"]["content"][0]["text"] == "carry on"
+    assert [json.loads(line).get("type") for line in writer.lines] == [BACKLOG_END]
 
 
 def test_interrupt_refuses_an_idle_agent():
