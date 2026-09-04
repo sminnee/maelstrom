@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ViewportPortal, useReactFlow } from '@xyflow/react';
-import { useTask } from '../api/tasks';
+import { useStop } from '../api/agents';
+import { useRemoveFromDesk } from '../api/desk';
+import { useLaunch, useTask } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
 import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
@@ -12,7 +14,6 @@ import { documentTab, sessionTab } from '../selectors/tabs';
 import { toolCallTitle } from '../session/toolCards';
 import { PanelLink } from '../shell/PanelLink';
 import { useAppStore } from '../store/store';
-import { useCommand } from '../store/useCommand';
 import { phaseLabel } from '../protocol/phase';
 import { AppButton } from '../ui/AppButton';
 import { NODE } from './layout';
@@ -44,7 +45,9 @@ export function NodeCard({
   const { world } = useWorld();
   const transcript = useAppStore((s) => s.transcripts[node.agent?.id ?? '']);
   const collapseNode = useAppStore((s) => s.collapseNode);
-  const { send } = useCommand();
+  const launch = useLaunch();
+  const stop = useStop();
+  const removeFromDesk = useRemoveFromDesk();
   const { getViewport, setViewport } = useReactFlow();
   const card = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
@@ -269,7 +272,7 @@ export function NodeCard({
                 <AppButton
                   variant="primary"
                   processingChildren="Launching"
-                  onClick={() => send({ type: 'agent.launch', taskId: task.id })}
+                  onClick={() => launch.mutateAsync({ taskId: task.id })}
                 >
                   Launch
                 </AppButton>
@@ -281,7 +284,7 @@ export function NodeCard({
                   // dismiss now would do nothing.
                   disabled={agent.state !== 'exited'}
                   onClick={async () => {
-                    await send({ type: 'desk.remove', id: deskIdForAgent(agent.id) });
+                    await removeFromDesk.mutateAsync({ id: deskIdForAgent(agent.id) });
                     collapseNode();
                   }}
                 >
@@ -289,10 +292,7 @@ export function NodeCard({
                 </AppButton>
               )}
               {agent && agent.state !== 'exited' && (
-                <AppButton
-                  variant="quiet"
-                  onClick={() => send({ type: 'agent.stop', agentId: agent.id })}
-                >
+                <AppButton variant="quiet" onClick={() => stop.mutateAsync({ agentId: agent.id })}>
                   Stop
                 </AppButton>
               )}

@@ -101,3 +101,13 @@ export function createApiClient(opts: ApiClientOptions = {}): ApiClient {
     delete: (path, opts = {}) => request('DELETE', path, undefined, opts),
   };
 }
+
+/**
+ * What a button says after a failed request. A route this server does not
+ * serve says so; anything else says it failed, and the message is the title.
+ */
+export function describeError(err: unknown): string {
+  return err instanceof ApiError && err.code === 'not_implemented'
+    ? 'Not implemented yet'
+    : 'Failed';
+}

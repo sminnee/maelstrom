@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Anchor, Comment } from '../../protocol/documents';
+import { describeError } from '../../api/http';
 import { AppButton } from '../../ui/AppButton';
 import type { Placed } from './useSelectionComment';
 import styles from './CommentMargin.module.css';
@@ -45,7 +46,12 @@ export function CommentMargin({
         placeholder="What should change here?"
       />
       <div className={styles.row}>
-        <AppButton variant="primary" disabled={!body.trim()} onClick={add}>
+        <AppButton
+          variant="primary"
+          errorChildren={describeError}
+          disabled={!body.trim()}
+          onClick={add}
+        >
           Add comment
         </AppButton>
         <button type="button" className={styles.quiet} onClick={onCancel}>
@@ -62,7 +68,11 @@ export function CommentMargin({
         {c.author} · v{c.version}
         {c.resolved ? ' · resolved' : ''}
         {!c.resolved && (
-          <AppButton className={styles.resolve} onClick={() => onResolve(c.id)}>
+          <AppButton
+            className={styles.resolve}
+            errorChildren={describeError}
+            onClick={() => onResolve(c.id)}
+          >
             Resolve
           </AppButton>
         )}

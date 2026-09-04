@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { useDocument } from '../api/documents';
+import {
+  useAddComment,
+  useApproveDocument,
+  useDocument,
+  useRequestChanges,
+  useResolveComment,
+} from '../api/documents';
 import { ApiError } from '../api/http';
 import { useWorld } from '../api/useWorld';
 import { DecisionCard } from '../decisions/DecisionCard';
@@ -9,7 +15,6 @@ import { describeDocumentStatus } from '../selectors/status';
 import { sessionTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
 import { useAppStore } from '../store/store';
-import { useCommand } from '../store/useCommand';
 import { CommentMargin } from './comments/CommentMargin';
 import { applyHighlights } from './comments/highlights';
 import { useSelectionComment } from './comments/useSelectionComment';
@@ -19,7 +24,10 @@ import styles from './DocumentTab.module.css';
 
 /** A rendered document, its comment margin, its review actions, and any question its agent asks. */
 export function DocumentTab({ documentId }: { documentId: string }) {
-  const { send } = useCommand();
+  const addComment = useAddComment();
+  const resolveComment = useResolveComment();
+  const approveDocument = useApproveDocument();
+  const requestChanges = useRequestChanges();
   const { world } = useWorld();
   const document = useDocument(documentId);
   const doc = document.data;
@@ -107,24 +115,18 @@ export function DocumentTab({ documentId }: { documentId: string }) {
           onStart={startComment}
           onCancel={clear}
           onAdd={async (anchor, text) => {
-            await send({
-              type: 'comment.add',
-              documentId,
-              version: doc.version,
-              anchor,
-              body: text,
-            });
+            await addComment.mutateAsync({ documentId, version: doc.version, anchor, body: text });
             clear();
           }}
-          onResolve={(commentId) => send({ type: 'comment.resolve', commentId })}
+          onResolve={(commentId) => resolveComment.mutateAsync({ documentId, commentId })}
         />
       </div>
       <ReviewActions
         doc={doc}
         unresolved={unresolved}
-        onApprove={() => send({ type: 'document.approve', documentId, version: doc.version })}
+        onApprove={() => approveDocument.mutateAsync({ documentId, version: doc.version })}
         onRequestChanges={(summary) =>
-          send({ type: 'document.requestChanges', documentId, version: doc.version, summary })
+          requestChanges.mutateAsync({ documentId, version: doc.version, summary })
         }
       />
     </div>

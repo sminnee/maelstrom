@@ -16,13 +16,14 @@ export interface AppButtonProps extends Omit<
   /** Shown beside the spinner while the handler is pending. Defaults to `children`. */
   processingChildren?: ReactNode;
   /** Shown after the handler rejects. Defaults to "Failed"; the message goes in `title`. */
-  errorChildren?: ReactNode;
+  errorChildren?: ReactNode | ((err: unknown) => ReactNode);
   /** How long the error shows before the button is ready again. `0` holds it until the next click. */
   errorResetMs?: number;
   onError?: (err: unknown) => void;
 }
 
-type State = { kind: 'ready' } | { kind: 'processing' } | { kind: 'error'; message: string };
+type State =
+  { kind: 'ready' } | { kind: 'processing' } | { kind: 'error'; message: string; error: unknown };
 
 const READY: State = { kind: 'ready' };
 
@@ -94,7 +95,7 @@ export function AppButton({
   const fail = (err: unknown) => {
     onError?.(err);
     if (!mounted.current) return;
-    setState({ kind: 'error', message: messageOf(err) });
+    setState({ kind: 'error', message: messageOf(err), error: err });
     if (errorResetMs > 0) {
       reset.current = setTimeout(() => {
         reset.current = null;
@@ -121,7 +122,9 @@ export function AppButton({
           {processingChildren ?? children}
         </>
       ) : state.kind === 'error' ? (
-        <span role="alert">{errorChildren}</span>
+        <span role="alert">
+          {typeof errorChildren === 'function' ? errorChildren(state.error) : errorChildren}
+        </span>
       ) : (
         children
       )}

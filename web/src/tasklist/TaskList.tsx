@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { TaskRow } from '../api/types';
+import { useAddToDesk, useRemoveFromDesk } from '../api/desk';
+import { useSetStatus } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
 import { deskIdForTask } from '../protocol/deskId';
 import type { TaskStatus } from '../protocol/entities';
@@ -9,7 +11,6 @@ import { describeState } from '../selectors/status';
 import { TASK_STATUSES } from '../protocol/validate';
 import { listTasks } from '../selectors/taskList';
 import { useAppStore } from '../store/store';
-import { useCommand } from '../store/useCommand';
 import { AppButton } from '../ui/AppButton';
 import styles from './TaskList.module.css';
 
@@ -19,7 +20,9 @@ export function TaskList() {
   const filters = useAppStore((s) => s.ui.listFilters);
   const setFilters = useAppStore((s) => s.setListFilters);
   const editTask = useAppStore((s) => s.setEditingTask);
-  const { send } = useCommand();
+  const addToDesk = useAddToDesk();
+  const removeFromDesk = useRemoveFromDesk();
+  const setStatus = useSetStatus();
   // Which row's status is being picked.
   const [picking, setPicking] = useState<TaskId | null>(null);
   const options = filterOptions(world, filters);
@@ -102,8 +105,7 @@ export function TaskList() {
               <td>
                 <AppButton
                   onClick={() =>
-                    send({
-                      type: onDesk ? 'desk.remove' : 'desk.add',
+                    (onDesk ? removeFromDesk : addToDesk).mutateAsync({
                       id: deskIdForTask(task.id),
                     })
                   }
@@ -126,7 +128,7 @@ export function TaskList() {
                   onDone={() => setPicking(null)}
                   onChange={(status) => {
                     setPicking(null);
-                    return send({ type: 'task.setStatus', taskId: task.id, status });
+                    return setStatus.mutateAsync({ taskId: task.id, status });
                   }}
                 />
               </td>

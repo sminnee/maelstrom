@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useTask } from '../api/tasks';
-import type { TaskEdit } from '../protocol/commands';
+import { useTask, useUpdateTask } from '../api/tasks';
+import type { TaskEdit } from '../api/types';
 import type { Task, TaskMode } from '../protocol/entities';
 import type { TaskId } from '../protocol/ids';
 import { KNOWN_COMMANDS } from '../protocol/phase';
 import { useAppStore } from '../store/store';
-import { useCommand } from '../store/useCommand';
 import { AppButton } from '../ui/AppButton';
 import styles from './TaskEditor.module.css';
 
@@ -70,7 +69,7 @@ function WaitShell({
 
 function TaskForm({ task }: { task: Task }) {
   const close = useAppStore((s) => s.setEditingTask);
-  const { send } = useCommand();
+  const update = useUpdateTask();
   const [draft, setDraft] = useState(() => seed(task));
   const [confirming, setConfirming] = useState(false);
   // Frozen: the store's copy moves as the server publishes, and diffing
@@ -109,7 +108,7 @@ function TaskForm({ task }: { task: Task }) {
     const fields = changed(opened.current, draft);
     // Nothing moved: the same close as Cancel, rather than a refused command.
     if (Object.keys(fields).length === 0) return close(null);
-    await send({ type: 'task.update', taskId: task.id, fields });
+    await update.mutateAsync({ taskId: task.id, fields });
     close(null);
   };
 

@@ -8,6 +8,7 @@ nothing about the world beyond which table each route reads.
 
 import asyncio
 import json
+import logging
 import socket
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -17,6 +18,8 @@ from aiohttp import web
 
 from .protocol import document_row, task_row
 from .server import Orchestrator
+
+log = logging.getLogger(__name__)
 
 #: The largest frame a client may send. Commands are small; this is a guard.
 MAX_CLIENT_MESSAGE = 1 << 20
@@ -75,6 +78,12 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_get("/api/documents/{id}", _document)
     app.router.add_get("/api/desk", _desk)
     app.router.add_get("/api/events", _events)
+    app.router.add_post("/api/agents/{id}/{action}", _agent_command)
+    app.router.add_post("/api/tasks/{project}/{id}/launch", _launch)
+    app.router.add_post("/api/tasks/{project}/{id}/status", _set_status)
+    app.router.add_patch("/api/tasks/{project}/{id}", _update_task)
+    app.router.add_post("/api/desk", _desk_add)
+    app.router.add_delete("/api/desk/{desk_id:.+}", _desk_remove)
     for method, path in _NOT_IMPLEMENTED:
         app.router.add_route(method, path, _not_implemented)
     return app
@@ -211,6 +220,143 @@ async def _document(request: web.Request) -> web.Response:
 async def _desk(request: web.Request) -> web.Response:
     orch = await _ready(request)
     return web.json_response({"desk": list(orch.world["desk"].values())})
+
+
+# -- commands --
+
+
+class _BadBody(Exception):
+    pass
+
+
+async def _body(request: web.Request) -> dict[str, Any]:
+    """The JSON object a command carries; an empty body is an empty object."""
+    if not request.can_read_body:
+        return {}
+    try:
+        body = await request.json()
+    except json.JSONDecodeError as exc:
+        raise _BadBody("Body is not JSON") from exc
+    if body is None:
+        return {}
+    if not isinstance(body, dict):
+        raise _BadBody("Body must be a JSON object")
+    return body
+
+
+async def _command(request: web.Request, build: Callable[[dict[str, Any]], dict]):
+    """Run the command ``build`` makes of the body, and answer its reply.
+
+    The command dict is what the world socket carried, so ``validate_command``
+    and the host-refusal mapping apply unchanged. A refusal answers the code's
+    status; a field the validator did not check being missing is the client's
+    bug, answered as ``invalid``.
+    """
+    orch = await _ready(request)
+    try:
+        command = build(await _body(request))
+    except _BadBody as exc:
+        return error_response("invalid", str(exc))
+    try:
+        reply = await orch.handle_command(command)
+    except (KeyError, TypeError, AttributeError, ValueError) as exc:
+        # A field of the wrong shape past the validator, or a server fault:
+        # the client hears the former, the log keeps the latter.
+        log.exception("command %s failed", command.get("type"))
+        return error_response("invalid", f"Malformed command: {exc!r}")
+    if not reply["ok"]:
+        return error_response(reply["error"]["code"], reply["error"]["message"])
+    return web.json_response(reply["result"])
+
+
+#: Each agent action: the command it makes, from the agent id and the body.
+_AGENT_ACTIONS: dict[str, Callable[[str, dict[str, Any]], dict[str, Any]]] = {
+    "approve": lambda agent_id, body: {
+        "type": "agent.approve",
+        "agentId": agent_id,
+        "requestId": body.get("requestId"),
+    },
+    "deny": lambda agent_id, body: {
+        "type": "agent.deny",
+        "agentId": agent_id,
+        "requestId": body.get("requestId"),
+        **({"reason": body["reason"]} if "reason" in body else {}),
+    },
+    "answer": lambda agent_id, body: {
+        "type": "agent.answer",
+        "agentId": agent_id,
+        "requestId": body.get("requestId"),
+        **({"answers": body["answers"]} if "answers" in body else {}),
+    },
+    "say": lambda agent_id, body: {
+        "type": "agent.say",
+        "agentId": agent_id,
+        **({"text": body["text"]} if "text" in body else {}),
+    },
+    "stop": lambda agent_id, body: {"type": "agent.stop", "agentId": agent_id},
+    "resume": lambda agent_id, body: {
+        "type": "agent.resume",
+        "agentId": agent_id,
+        **({"text": body["text"]} if "text" in body else {}),
+    },
+}
+
+
+async def _agent_command(request: web.Request) -> web.StreamResponse:
+    action = _AGENT_ACTIONS.get(request.match_info["action"])
+    if action is None:
+        raise web.HTTPNotFound(reason=f"No agent action {request.match_info['action']}")
+    agent_id = request.match_info["id"]
+    return await _command(request, lambda body: action(agent_id, body))
+
+
+def _task_id(request: web.Request) -> str:
+    return f"{request.match_info['project']}/{request.match_info['id']}"
+
+
+async def _launch(request: web.Request) -> web.StreamResponse:
+    """Launch waits for the host's reply, as the socket command did."""
+    task_id = _task_id(request)
+    return await _command(
+        request,
+        lambda body: {
+            "type": "agent.launch",
+            "taskId": task_id,
+            **({"model": body["model"]} if body.get("model") else {}),
+        },
+    )
+
+
+async def _set_status(request: web.Request) -> web.StreamResponse:
+    task_id = _task_id(request)
+    return await _command(
+        request,
+        lambda body: {
+            "type": "task.setStatus",
+            "taskId": task_id,
+            "status": body.get("status"),
+        },
+    )
+
+
+async def _update_task(request: web.Request) -> web.StreamResponse:
+    task_id = _task_id(request)
+    return await _command(
+        request,
+        lambda body: {"type": "task.update", "taskId": task_id, "fields": body},
+    )
+
+
+async def _desk_add(request: web.Request) -> web.StreamResponse:
+    return await _command(
+        request, lambda body: {"type": "desk.add", "id": body.get("id")}
+    )
+
+
+async def _desk_remove(request: web.Request) -> web.StreamResponse:
+    # aiohttp has already decoded the match: a desk id arrives URL-encoded and lands plain.
+    desk_id = request.match_info["desk_id"]
+    return await _command(request, lambda body: {"type": "desk.remove", "id": desk_id})
 
 
 # -- the notice stream --

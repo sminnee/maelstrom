@@ -305,7 +305,7 @@ describe('review in a document tab', () => {
     expect(nodeState('NORT-9')).not.toBe('needs-attention');
   });
 
-  it('one drag offers a comment; the composer opens on click, and request changes sends it to the agent', async () => {
+  it('one drag offers a comment; adding it and requesting changes say the server does not do that yet', async () => {
     const user = userEvent.setup();
     await renderApp();
     clickNode('NORT-7');
@@ -321,15 +321,36 @@ describe('review in a document tab', () => {
     expect(screen.getByTestId('comment-margin')).toHaveTextContent('Cap the export');
     await user.type(screen.getByRole('textbox', { name: 'Comment' }), 'Make the cap configurable.');
     await user.click(screen.getByRole('button', { name: 'Add comment' }));
-    const margin = screen.getByTestId('comment-margin');
-    expect(margin).toHaveTextContent('Cap the export');
-    expect(margin).toHaveTextContent('Make the cap configurable.');
+    // The server answers 501: the button says so, and the draft stays for a retry.
+    const add = await screen.findByRole('button', { name: 'Not implemented yet' });
+    expect(add).toHaveAttribute('title', expect.stringContaining('not implemented'));
+    expect(screen.getByRole('textbox', { name: 'Comment' })).toHaveValue(
+      'Make the cap configurable.',
+    );
 
+    await user.type(
+      screen.getByRole('textbox', { name: 'Summary of requested changes' }),
+      'Tighten it.',
+    );
     await user.click(screen.getByRole('button', { name: 'Request changes' }));
-    expect(screen.getByTestId('document-tab')).toHaveTextContent('changes requested');
-    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
-    expect(screen.getByRole('tabpanel')).toHaveTextContent('Make the cap configurable.');
-  }, 15_000);
+    expect(await screen.findAllByRole('button', { name: 'Not implemented yet' })).toHaveLength(2);
+    expect(screen.getByTestId('document-tab')).toHaveTextContent('awaiting review');
+  });
+
+  it('a refused approve shows Failed on the button and leaves the node needing attention', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.refuse(/POST \/api\/agents\/[^/]+\/approve$/, {
+      status: 409,
+      code: 'stale_request',
+      message: 'Request is no longer pending',
+    });
+    expect(clickNode('NORT-7')).toHaveAttribute('data-state', 'needs-attention');
+    await user.click(await within(expanded()).findByRole('button', { name: 'Approve' }));
+    const failed = await within(expanded()).findByRole('button', { name: 'Failed' });
+    expect(failed).toHaveAttribute('title', 'Request is no longer pending');
+    expect(nodeState('NORT-7')).toBe('needs-attention');
+  });
 });
 
 describe('the debug drawer', () => {

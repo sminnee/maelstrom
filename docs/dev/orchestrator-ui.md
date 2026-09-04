@@ -42,13 +42,18 @@ The events are `snapshot`, `upsert`, `remove`, `transcript.append`,
 Each command is acked with `ok: true` or an error code mirroring the daemon's own refusals.
 `protocol/commands.ts` lists every command and every code.
 
-`store/useCommand.ts` sends one. Its promise resolves with the result, or rejects with a
-`CommandError` carrying the code: the server's on a refusal, `transport` when the socket dropped.
-Every control that sends a command is an `AppButton` (`ui/AppButton.tsx`), and the button owns
-what happens next. A handler that returns a promise puts the button in `processing`: disabled,
+A command is one mutation hook in `api/` — `useApprove`, `useLaunch`, `useSetStatus`,
+`useAddToDesk`, … — over one POST, PATCH or DELETE. Its `mutateAsync` resolves with the result,
+or rejects with an `ApiError` carrying the code: the server's on a refusal, `transport` or
+`timeout` when no reply came. On success the hook invalidates the keys the command touched; the
+change notice invalidates them again a moment later, so the screen is right while the stream
+reconnects too. The launch call waits two minutes: the server opens the worktree first. Every
+control that sends a command is an `AppButton` (`ui/AppButton.tsx`), and the button owns what
+happens next. A handler that returns a promise puts the button in `processing`: disabled,
 busy, with a spinner. A rejection puts it in `error`: it reads "Failed", the message is its
 `title`, and a click retries. It is ready again after three seconds. So a refusal shows on the
-button that asked, and no view keeps an error of its own.
+button that asked, and no view keeps an error of its own. The comment and review controls call
+their mutations, get the server's 501, and read "Not implemented yet".
 
 On reconnect the client sends the last `seq` it applied. The server replays from its ring buffer
 when it can, else it sends a fresh snapshot.

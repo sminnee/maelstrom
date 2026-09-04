@@ -2,6 +2,9 @@ import type { ApiClient } from '../api/http';
 import { createApiClient } from '../api/http';
 import type { ChangeNotice } from '../api/types';
 import type { EventSourceLike } from '../live/changeStream';
+import type { Command, Reply as CommandReply } from '../protocol/commands';
+import type { TaskEdit } from '../api/types';
+import type { TaskStatus } from '../protocol/entities';
 import { emptyWorld } from '../protocol/reducer';
 import type { World } from '../protocol/events';
 import type { AgentId } from '../protocol/ids';
@@ -52,9 +55,19 @@ export interface FakeServer {
   openStreams(epoch?: string): void;
 }
 
-export function createFakeServer(
-  opts: { world?: World; transcripts?: Record<AgentId, Transcript>; autoOpen?: boolean } = {},
-): FakeServer {
+export interface FakeServerOptions {
+  world?: World;
+  transcripts?: Record<AgentId, Transcript>;
+  autoOpen?: boolean;
+  /**
+   * Runs the command a POST amounts to. While the fake backend owns the world
+   * this is its `command`, so the consequences arrive as its frames; without
+   * one the fake applies a plain change to its own world and sends the notice.
+   */
+  command?: (cmd: Command) => Promise<CommandReply<Command>>;
+}
+
+export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
   const world = opts.world ?? emptyWorld();
   const transcripts = opts.transcripts ?? {};
   const autoOpen = opts.autoOpen ?? true;
@@ -76,7 +89,11 @@ export function createFakeServer(
       const { status, code, message } = refusal.error;
       return json(status, { error: { code, message: message ?? code } });
     }
-    const reply = route(method, path, server.world, server.transcripts);
+    if (method === 'GET') {
+      const reply = route(method, path, server.world, server.transcripts);
+      return json(reply.status, reply.body);
+    }
+    const reply = await command(method, path, body, server, opts.command);
     return json(reply.status, reply.body);
   };
 
@@ -169,6 +186,126 @@ const NOT_IMPLEMENTED = [
   /^POST \/api\/tasks$/,
   /^POST \/api\/shaping$/,
 ];
+
+/** The HTTP status for each error code, as the server maps them. */
+const STATUS_FOR_CODE: Record<string, number> = {
+  unknown_id: 404,
+  invalid: 400,
+  agent_exited: 409,
+  not_waiting: 409,
+  stale_request: 409,
+  wrong_wait_kind: 409,
+  stale_version: 409,
+  not_implemented: 501,
+};
+
+/** The command a POST, PATCH or DELETE amounts to, or null for no such route. */
+function commandFor(method: string, path: string, body: unknown): Command | null {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const str = (name: string) => (b[name] === undefined ? undefined : String(b[name]));
+  let m = path.match(/^\/api\/agents\/([^/]+)\/(approve|deny|answer|say|stop|resume)$/);
+  if (m && method === 'POST') {
+    const agentId = m[1]!;
+    switch (m[2]) {
+      case 'approve':
+        return { type: 'agent.approve', agentId, requestId: str('requestId') ?? '' };
+      case 'deny':
+        return {
+          type: 'agent.deny',
+          agentId,
+          requestId: str('requestId') ?? '',
+          reason: str('reason') ?? '',
+        };
+      case 'answer':
+        return {
+          type: 'agent.answer',
+          agentId,
+          requestId: str('requestId') ?? '',
+          answers: (b.answers ?? {}) as Record<string, string>,
+        };
+      case 'say':
+        return { type: 'agent.say', agentId, text: str('text') ?? '' };
+      case 'stop':
+        return { type: 'agent.stop', agentId };
+      default:
+        return { type: 'agent.resume', agentId, text: str('text') };
+    }
+  }
+  m = path.match(/^\/api\/tasks\/(.+)\/launch$/);
+  if (m && method === 'POST') return { type: 'agent.launch', taskId: m[1]!, model: str('model') };
+  m = path.match(/^\/api\/tasks\/(.+)\/status$/);
+  if (m && method === 'POST') {
+    return { type: 'task.setStatus', taskId: m[1]!, status: str('status') as TaskStatus };
+  }
+  m = path.match(/^\/api\/tasks\/(.+)$/);
+  if (m && method === 'PATCH') return { type: 'task.update', taskId: m[1]!, fields: b as TaskEdit };
+  if (path === '/api/desk' && method === 'POST') return { type: 'desk.add', id: str('id') ?? '' };
+  m = path.match(/^\/api\/desk\/(.+)$/);
+  if (m && method === 'DELETE') return { type: 'desk.remove', id: decodeURIComponent(m[1]!) };
+  return null;
+}
+
+/** A command route: refused, delegated, or applied to the fake world. */
+async function command(
+  method: string,
+  path: string,
+  body: unknown,
+  server: FakeServer,
+  run: FakeServerOptions['command'],
+): Promise<Reply> {
+  const [pathname] = path.split('?') as [string];
+  const key = `${method} ${pathname}`;
+  if (NOT_IMPLEMENTED.some((r) => r.test(key))) {
+    return error(501, 'not_implemented', `${key} is not implemented yet`);
+  }
+  const cmd = commandFor(method, pathname, body);
+  if (!cmd) return error(404, 'unknown_id', `No route ${key}`);
+  if (run) {
+    const reply = await run(cmd);
+    if (reply.ok) return ok(reply.result);
+    return error(STATUS_FOR_CODE[reply.error.code] ?? 400, reply.error.code, reply.error.message);
+  }
+  return applyToWorld(cmd, server);
+}
+
+/** The plain change a command makes to the fake world, and the notice it raises. */
+function applyToWorld(cmd: Command, server: FakeServer): Reply {
+  const { world } = server;
+  switch (cmd.type) {
+    case 'desk.add': {
+      world.desk[cmd.id] = { id: cmd.id, addedAt: new Date().toISOString() };
+      server.change({ kind: 'desk', ids: [cmd.id] });
+      return ok({});
+    }
+    case 'desk.remove': {
+      if (!(cmd.id in world.desk)) return error(404, 'unknown_id', `${cmd.id} is not on the desk`);
+      delete world.desk[cmd.id];
+      server.change({ kind: 'desk', ids: [cmd.id] });
+      return ok({});
+    }
+    case 'task.setStatus':
+    case 'task.update': {
+      const task = world.tasks[cmd.taskId];
+      if (!task) return error(404, 'unknown_id', `No task ${cmd.taskId}`);
+      world.tasks[cmd.taskId] =
+        cmd.type === 'task.setStatus'
+          ? { ...task, status: cmd.status }
+          : { ...task, ...cmd.fields };
+      server.change({ kind: 'task', ids: [cmd.taskId] });
+      return ok({});
+    }
+    case 'agent.launch': {
+      if (!world.tasks[cmd.taskId]) return error(404, 'unknown_id', `No task ${cmd.taskId}`);
+      return ok({ agentId: 'new1' });
+    }
+    default: {
+      if ('agentId' in cmd && !world.agents[cmd.agentId]) {
+        return error(404, 'unknown_id', `No agent ${cmd.agentId}`);
+      }
+      return ok({});
+    }
+  }
+}
 
 /** The server's routes, over the fake world. */
 function route(

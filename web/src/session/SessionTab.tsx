@@ -1,16 +1,19 @@
 import { useEffect, useRef } from 'react';
+import { useAnswer, useApprove, useDeny, useSay } from '../api/agents';
 import { useWorld } from '../api/useWorld';
 import { describeState } from '../selectors/status';
 import { answeredOnCanvas } from '../selectors/transcript';
 import { useAppStore } from '../store/store';
-import { useCommand } from '../store/useCommand';
 import { MessageInput } from './MessageInput';
 import { Transcript } from './Transcript';
 import styles from './SessionTab.module.css';
 
 /** The rich transcript plus an input. VS-Code-extension-like, not a terminal. */
 export function SessionTab({ agentId }: { agentId: string }) {
-  const { send } = useCommand();
+  const approve = useApprove();
+  const deny = useDeny();
+  const answer = useAnswer();
+  const say = useSay();
   const { world } = useWorld();
   const agent = world.agents[agentId];
   const task = agent ? world.tasks[agent.taskId] : undefined;
@@ -42,26 +45,18 @@ export function SessionTab({ agentId }: { agentId: string }) {
           truncatedBefore={transcript?.truncatedBefore ?? false}
           deferredRequestId={deferred ? agent.pendingRequestId : null}
           handlers={{
-            onAnswer: (requestId, answers) =>
-              send({ type: 'agent.answer', agentId, requestId, answers }),
+            onAnswer: (requestId, answers) => answer.mutateAsync({ agentId, requestId, answers }),
             onDecide: (requestId, decision, reason) =>
-              send(
-                decision === 'approve'
-                  ? { type: 'agent.approve', agentId, requestId }
-                  : {
-                      type: 'agent.deny',
-                      agentId,
-                      requestId,
-                      reason,
-                    },
-              ),
+              decision === 'approve'
+                ? approve.mutateAsync({ agentId, requestId })
+                : deny.mutateAsync({ agentId, requestId, reason }),
           }}
         />
         <div ref={bottom} />
       </div>
       <MessageInput
         disabled={agent.state === 'exited'}
-        onSend={(text) => send({ type: 'agent.say', agentId, text })}
+        onSend={(text) => say.mutateAsync({ agentId, text })}
       />
     </div>
   );

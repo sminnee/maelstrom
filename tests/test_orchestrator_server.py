@@ -893,111 +893,88 @@ def pending_of(snapshot: dict) -> str:
     return snapshot["world"]["agents"]["ag1"]["pendingRequestId"]
 
 
-async def command_with_frames(
-    ws, cmd: dict, command_id: str = "c1", *, until=None
-) -> tuple[dict, list[dict]]:
-    """Send a command; return its reply and the frames it caused.
-
-    A command that writes to the child is a pure relay: the host echoes what
-    it wrote, so the consequences arrive on the attach stream and may follow
-    the reply rather than precede it. ``until`` says which frame ends the
-    wait; with none, only the frames before the reply are collected.
-    """
-    await ws.send_str(json.dumps({"id": command_id, "command": cmd}))
-    frames: list[dict] = []
-    reply = None
-    while True:
-        message = await recv(ws)
-        if "reply" in message and message["reply"]["id"] == command_id:
-            reply = message["reply"]
-            if until is None or not reply["ok"]:
-                return reply, frames
-            continue
-        if "seq" in message:
-            frames.append(message)
-            if reply is not None and until(frames):
-                return reply, frames
+async def pending_id(api: Api, agent_id: str = "ag1") -> str:
+    return (await api.get_json(f"/api/agents/{agent_id}"))["pendingRequestId"]
 
 
-def has_agent_state(state: str):
-    """``until`` for a command that leaves the agent in ``state``."""
+async def no_notice(stream: EventStream, within: float = 0.2) -> None:
+    """Assert the stream stays silent for ``within`` seconds."""
+    try:
+        event = await stream.next("change", within)
+    except asyncio.TimeoutError:
+        return
+    raise AssertionError(f"unexpected notice: {event}")
 
-    def done(frames: list[dict]) -> bool:
-        agents = entities_of(frames, "agent")
-        return bool(agents) and agents[-1]["state"] == state
 
-    return done
-
-
-def entities_of(frames: list[dict], kind: str) -> list[dict]:
+def host_calls(harness) -> list[str]:
+    """The commands that reached the host, less the reads every run makes."""
     return [
-        f["event"]["entity"]
-        for f in frames
-        if f["event"].get("kind") == kind and f["event"]["type"] == "upsert"
+        c["cmd"] for c in harness.daemon.calls if c["cmd"] not in ("list", "attach")
     ]
-
-
-def updates_of(frames: list[dict]) -> list[dict]:
-    return [f["event"] for f in frames if f["event"]["type"] == "transcript.update"]
 
 
 def test_approve_reaches_the_host_and_resolves_the_wait(harness):
     waiting_on(harness, "permission-request.jsonl")
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                snapshot = (await say_hello(ws))[0]["event"]
-                return await command_with_frames(
-                    ws,
-                    {
-                        "type": "agent.approve",
-                        "agentId": "ag1",
-                        "requestId": pending_of(snapshot),
-                    },
-                    until=has_agent_state("processing"),
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                request_id = await pending_id(api)
+                reply = await api.post(
+                    "/api/agents/ag1/approve", {"requestId": request_id}
                 )
+                agent = await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda a: a["state"] == "processing",
+                )
+                attention = await api.get_json("/api/attention")
+                return reply, agent, attention["attention"]
 
-    reply, frames = run(scenario())
-    assert reply == {"id": "c1", "ok": True, "result": {}}
+    reply, agent, attention = run(scenario())
+    assert reply.status == 200
+    assert reply.body == {}
     assert {"cmd": "approve", "id": "ag1"} in harness.daemon.calls
-    agent = entities_of(frames, "agent")[-1]
-    assert agent["state"] == "processing"
     assert agent["pendingRequestId"] is None
-    assert updates_of(frames)[0]["patch"] == {"decision": "allow"}
-    cleared = [a for a in entities_of(frames, "attention") if a["clearedAt"]]
-    assert len(cleared) == 1
+    assert agent["pendingRequest"] is None
+    patches = [u["patch"] for u in published(harness, "transcript.update")]
+    assert {"decision": "allow"} in patches
+    assert [a["clearedAt"] is not None for a in attention] == [True]
 
 
 def test_deny_sends_the_reason_and_records_it(harness):
     waiting_on(harness, "permission-request.jsonl")
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                snapshot = (await say_hello(ws))[0]["event"]
-                return await command_with_frames(
-                    ws,
-                    {
-                        "type": "agent.deny",
-                        "agentId": "ag1",
-                        "requestId": pending_of(snapshot),
-                        "reason": "not on this network",
-                    },
-                    until=has_agent_state("processing"),
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                request_id = await pending_id(api)
+                reply = await api.post(
+                    "/api/agents/ag1/deny",
+                    {"requestId": request_id, "reason": "not on this network"},
                 )
+                await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda a: a["state"] == "processing",
+                )
+                return reply
 
-    reply, frames = run(scenario())
-    assert reply["ok"] is True
+    reply = run(scenario())
+    assert reply.status == 200
     assert {
         "cmd": "deny",
         "id": "ag1",
         "reason": "not on this network",
     } in harness.daemon.calls
-    assert updates_of(frames)[0]["patch"] == {
-        "decision": "deny",
-        "reason": "not on this network",
-    }
+    patches = [u["patch"] for u in published(harness, "transcript.update")]
+    assert {"decision": "deny", "reason": "not on this network"} in patches
 
 
 def test_answer_sends_the_answers_map_and_files_it_on_the_question(harness):
@@ -1005,24 +982,28 @@ def test_answer_sends_the_answers_map_and_files_it_on_the_question(harness):
     answers = {"Which colour do you prefer?": "Blue"}
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                snapshot = (await say_hello(ws))[0]["event"]
-                return await command_with_frames(
-                    ws,
-                    {
-                        "type": "agent.answer",
-                        "agentId": "ag1",
-                        "requestId": pending_of(snapshot),
-                        "answers": answers,
-                    },
-                    until=has_agent_state("processing"),
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                request_id = await pending_id(api)
+                reply = await api.post(
+                    "/api/agents/ag1/answer",
+                    {"requestId": request_id, "answers": answers},
                 )
+                await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda a: a["state"] == "processing",
+                )
+                return reply
 
-    reply, frames = run(scenario())
-    assert reply["ok"] is True
+    reply = run(scenario())
+    assert reply.status == 200
     assert {"cmd": "answer", "id": "ag1", "answers": answers} in harness.daemon.calls
-    assert updates_of(frames)[0]["patch"] == {"answers": answers}
+    patches = [u["patch"] for u in published(harness, "transcript.update")]
+    assert {"answers": answers} in patches
 
 
 def test_say_reaches_the_host_and_the_childs_replay_shows_it(harness):
@@ -1035,15 +1016,15 @@ def test_say_reaches_the_host_and_the_childs_replay_shows_it(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                reply, frames = await command_with_frames(
-                    ws,
-                    {"type": "agent.say", "agentId": "ag1", "text": "also the README"},
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                reply = await api.post(
+                    "/api/agents/ag1/say", {"text": "also the README"}
                 )
-                assert frames == []
-                # The child replays the turn, as every fixture records.
+                # Nothing changes until the child replays the turn.
+                await no_notice(stream)
+                before = len(published(harness, "transcript.append"))
                 harness.daemon.push(
                     "ag1",
                     {
@@ -1055,13 +1036,13 @@ def test_say_reaches_the_host_and_the_childs_replay_shows_it(harness):
                         "isReplay": True,
                     },
                 )
-                frame = await next_frame(
-                    ws, lambda f: f["event"]["type"] == "transcript.append"
+                await wait_until(
+                    lambda: len(published(harness, "transcript.append")) > before
                 )
-                return reply, frame["event"]["item"]
+                return reply, published(harness, "transcript.append")[-1]["item"]
 
     reply, item = run(scenario())
-    assert reply["ok"] is True
+    assert reply.status == 200
     assert {
         "cmd": "say",
         "id": "ag1",
@@ -1079,25 +1060,23 @@ def test_a_wait_answered_outside_the_server_clears_in_the_world(harness):
     stream. The server holds no opinion about how a wait is answered, so the
     UI clears either way.
     """
-    backlog, _ = waiting_on(harness, "permission-request.jsonl")
+    waiting_on(harness, "permission-request.jsonl")
     pending = harness.daemon.pending["ag1"]
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                snapshot = (await say_hello(ws))[0]["event"]
-                assert pending_of(snapshot) == pending.request_id
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                assert await pending_id(api) == pending.request_id
                 # Nobody asked this server; the answer was made elsewhere.
                 harness.daemon.push("ag1", reply_for_approval(pending))
-                frame = await next_frame(
-                    ws,
-                    lambda f: (
-                        f["event"]["type"] == "upsert"
-                        and f["event"]["kind"] == "agent"
-                        and f["event"]["entity"]["state"] == "processing"
-                    ),
+                return await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda a: a["state"] == "processing",
                 )
-                return frame["event"]["entity"]
 
     agent = run(scenario())
     assert agent["pendingRequestId"] is None
@@ -1108,58 +1087,67 @@ def test_stop_reaches_the_host_and_marks_the_agent_exited_cleanly(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                return await command_with_frames(
-                    ws, {"type": "agent.stop", "agentId": "ag1"}
-                )
+        async with harness.client() as api:
+            reply = await api.post("/api/agents/ag1/stop")
+            return reply, await api.get_json("/api/agents/ag1")
 
-    reply, frames = run(scenario())
-    assert reply["ok"] is True
+    reply, agent = run(scenario())
+    assert reply.status == 200
     assert {"cmd": "stop", "id": "ag1"} in harness.daemon.calls
-    agent = entities_of(frames, "agent")[-1]
     assert agent["state"] == "exited"
     assert agent["exitCode"] == 0
 
 
-def test_a_refused_command_replies_with_its_code_and_publishes_nothing(harness):
+def test_a_refused_command_answers_its_code_and_publishes_nothing(harness):
     waiting_on(harness, "question-unanswered.jsonl")
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                ready = (await say_hello(ws))[-1]["ready"]["seq"]
-                unknown = await command(
-                    ws,
-                    {"type": "agent.approve", "agentId": "nobody", "requestId": "x"},
-                    "c1",
-                )
-                stale = await command(
-                    ws,
-                    {"type": "agent.approve", "agentId": "ag1", "requestId": "old"},
-                    "c2",
-                )
-                wrong = await command(
-                    ws,
-                    {
-                        "type": "agent.approve",
-                        "agentId": "ag1",
-                        "requestId": "2ba1273d-d878-4923-ba21-31faa1067613",
-                    },
-                    "c3",
-                )
-                return ready, harness.orch.log.seq, unknown, stale, wrong
+        async with harness.client() as api:
+            before = published(harness)
+            unknown = await api.post("/api/agents/nobody/approve", {"requestId": "x"})
+            stale = await api.post("/api/agents/ag1/approve", {"requestId": "old"})
+            wrong = await api.post(
+                "/api/agents/ag1/approve",
+                {"requestId": "2ba1273d-d878-4923-ba21-31faa1067613"},
+            )
+            assert published(harness) == before
+            return unknown, stale, wrong
 
-    ready, after, unknown, stale, wrong = run(scenario())
-    assert unknown["error"]["code"] == "unknown_id"
-    assert stale["error"]["code"] == "stale_request"
-    assert wrong["error"]["code"] == "wrong_wait_kind"
-    assert after == ready
-    host_calls = [
-        c["cmd"] for c in harness.daemon.calls if c["cmd"] not in ("list", "attach")
-    ]
-    assert host_calls == []
+    unknown, stale, wrong = run(scenario())
+    assert (unknown.status, unknown.body["error"]["code"]) == (404, "unknown_id")
+    assert (stale.status, stale.body["error"]["code"]) == (409, "stale_request")
+    assert (wrong.status, wrong.body["error"]["code"]) == (409, "wrong_wait_kind")
+    assert host_calls(harness) == []
+
+
+@pytest.mark.parametrize(
+    ("send", "status", "code"),
+    [
+        (lambda api: api.post("/api/agents/ag1/say", raw=b"not json"), 400, "invalid"),
+        (lambda api: api.post("/api/agents/ag1/say", {}), 400, "invalid"),
+        (
+            lambda api: api.post("/api/shaping", {"project": PROJECT, "brief": "x"}),
+            501,
+            "not_implemented",
+        ),
+    ],
+    ids=["a body that is not JSON", "a missing field", "a stub route"],
+)
+def test_a_request_the_routes_refuse_is_answered_in_the_error_shape(
+    harness, send, status, code
+):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            before = published(harness)
+            reply = await send(api)
+            assert published(harness) == before
+            return reply
+
+    reply = run(scenario())
+    assert (reply.status, reply.body["error"]["code"]) == (status, code)
+    assert host_calls(harness) == []
 
 
 def test_a_host_refusal_maps_to_the_matching_code(harness):
@@ -1167,21 +1155,13 @@ def test_a_host_refusal_maps_to_the_matching_code(harness):
     harness.daemon.replies["approve"] = [{"error": "agent ag1 is not waiting"}]
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                snapshot = (await say_hello(ws))[0]["event"]
-                return await command(
-                    ws,
-                    {
-                        "type": "agent.approve",
-                        "agentId": "ag1",
-                        "requestId": pending_of(snapshot),
-                    },
-                )
+        async with harness.client() as api:
+            request_id = await pending_id(api)
+            return await api.post("/api/agents/ag1/approve", {"requestId": request_id})
 
     reply = run(scenario())
-    assert reply["ok"] is False
-    assert reply["error"]["code"] == "not_waiting"
+    assert reply.status == 409
+    assert reply.body["error"]["code"] == "not_waiting"
 
 
 def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
@@ -1195,15 +1175,22 @@ def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
     session = model.session_id_for(PROJECT, "NORT-7")
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                return await command_with_frames(
-                    ws, {"type": "agent.launch", "taskId": "northwind/NORT-7"}
-                )
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                reply = await api.post("/api/tasks/northwind/NORT-7/launch")
+                # The reply follows the world changes, so every GET is current.
+                task = await api.get_json("/api/tasks/northwind/NORT-7")
+                agent = await api.get_json("/api/agents/new1")
+                desk = await api.get_json("/api/desk")
+                kinds = set()
+                for _ in range(3):
+                    kinds.add((await stream.next("change"))["data"]["kind"])
+                return reply, task, agent, desk["desk"], kinds
 
-    reply, frames = run(scenario())
-    assert reply == {"id": "c1", "ok": True, "result": {"agentId": "new1"}}
+    reply, task, agent, desk, kinds = run(scenario())
+    assert reply.status == 200
+    assert reply.body == {"agentId": "new1"}
     start = next(c for c in harness.daemon.calls if c["cmd"] == "start")
     assert start["cwd"] == WORKTREE_PATH
     assert start["prompt"] == "/plan-task NORT-7\n\nDo it."
@@ -1216,13 +1203,12 @@ def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
         "MAEL_TASK_SESSION_ID": session,
     }
     assert model.load(harness.store, PROJECT, "NORT-7").status == "in-progress"
-    assert entities_of(frames, "task")[-1]["status"] == "in-progress"
-    agent = entities_of(frames, "agent")[-1]
-    assert agent["id"] == "new1"
+    assert task["status"] == "in-progress"
     assert agent["taskId"] == "northwind/NORT-7"
     assert agent["worktreeId"] == "northwind-alpha"
     # A task launched from the UI joins the desk.
-    assert entities_of(frames, "desk")[-1]["id"] == "task:northwind/NORT-7"
+    assert [e["id"] for e in desk] == ["task:northwind/NORT-7"]
+    assert kinds == {"task", "agent", "desk"}
 
 
 def test_a_launch_the_host_refuses_rolls_the_task_back_to_todo(harness):
@@ -1232,18 +1218,16 @@ def test_a_launch_the_host_refuses_rolls_the_task_back_to_todo(harness):
     ]
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                return await command(
-                    ws, {"type": "agent.launch", "taskId": "northwind/NORT-7"}
-                )
+        async with harness.client() as api:
+            reply = await api.post("/api/tasks/northwind/NORT-7/launch")
+            return reply, await api.get_json("/api/tasks/northwind/NORT-7")
 
-    reply = run(scenario())
-    assert reply["ok"] is False
-    assert reply["error"]["code"] == "invalid"
-    assert "no such file" in reply["error"]["message"]
+    reply, task = run(scenario())
+    assert reply.status == 400
+    assert reply.body["error"]["code"] == "invalid"
+    assert "no such file" in reply.body["error"]["message"]
     assert model.load(harness.store, PROJECT, "NORT-7").status == "todo"
+    assert task["status"] == "todo"
 
 
 def test_a_launch_blocked_by_a_failed_sync_leaves_the_task_todo(store):
@@ -1259,16 +1243,12 @@ def test_a_launch_blocked_by_a_failed_sync_leaves_the_task_todo(store):
     )
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                return await command(
-                    ws, {"type": "agent.launch", "taskId": "northwind/NORT-7"}
-                )
+        async with harness.client() as api:
+            return await api.post("/api/tasks/northwind/NORT-7/launch")
 
     reply = run(scenario())
-    assert reply["ok"] is False
-    assert "rebase conflict" in reply["error"]["message"]
+    assert reply.status == 400
+    assert "rebase conflict" in reply.body["error"]["message"]
     assert model.load(harness.store, PROJECT, "NORT-7").status == "todo"
     assert not [c for c in harness.daemon.calls if c["cmd"] == "start"]
 
@@ -1293,43 +1273,46 @@ def test_two_projects_may_share_a_notebook_id(store):
     }
 
 
-def test_desk_add_publishes_an_upsert_then_replies(harness):
+def test_desk_add_answers_after_the_entry_is_in_the_world(harness):
     harness.add_task("NORT-7")
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                return await command_with_frames(
-                    ws, {"type": "desk.add", "id": "task:northwind/NORT-7"}
-                )
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                reply = await api.post("/api/desk", {"id": "task:northwind/NORT-7"})
+                desk = await api.get_json("/api/desk")
+                ids = await stream.change("desk")
+                return reply, desk["desk"], ids
 
-    reply, frames = run(scenario())
-    assert reply == {"id": "c1", "ok": True, "result": {}}
-    entry = entities_of(frames, "desk")[-1]
+    reply, desk, ids = run(scenario())
+    assert reply.status == 200
+    assert reply.body == {}
+    [entry] = desk
     assert entry["id"] == "task:northwind/NORT-7"
     assert entry["addedAt"] == NOW
+    assert ids == ["task:northwind/NORT-7"]
 
 
-def test_set_status_moves_the_task_then_publishes_and_replies(harness):
+def test_set_status_moves_the_task_before_it_answers(harness):
     harness.add_task("NORT-7")
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                return await command_with_frames(
-                    ws,
-                    {
-                        "type": "task.setStatus",
-                        "taskId": "northwind/NORT-7",
-                        "status": "done",
-                    },
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                reply = await api.post(
+                    "/api/tasks/northwind/NORT-7/status", {"status": "done"}
                 )
+                task = await api.get_json("/api/tasks/northwind/NORT-7")
+                ids = await stream.change("task")
+                return reply, task, ids
 
-    reply, frames = run(scenario())
-    assert reply == {"id": "c1", "ok": True, "result": {}}
-    assert entities_of(frames, "task")[-1]["status"] == "done"
+    reply, task, ids = run(scenario())
+    assert reply.status == 200
+    assert reply.body == {}
+    assert task["status"] == "done"
+    assert ids == ["northwind/NORT-7"]
     assert model.load(harness.store, PROJECT, "NORT-7").status == "done"
 
 
@@ -1337,24 +1320,19 @@ def test_update_writes_only_the_fields_it_was_given(harness):
     harness.add_task("NORT-7", branch="feat/orders")
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                return await command_with_frames(
-                    ws,
-                    {
-                        "type": "task.update",
-                        "taskId": "northwind/NORT-7",
-                        "fields": {"title": "Export the orders"},
-                    },
-                )
+        async with harness.client() as api:
+            reply = await api.patch(
+                "/api/tasks/northwind/NORT-7", {"title": "Export the orders"}
+            )
+            return reply, await api.get_json("/api/tasks/northwind/NORT-7")
 
-    reply, frames = run(scenario())
-    assert reply == {"id": "c1", "ok": True, "result": {}}
-    assert entities_of(frames, "task")[-1]["title"] == "Export the orders"
-    task = model.load(harness.store, PROJECT, "NORT-7")
-    assert task.title == "Export the orders"
-    assert task.branch == "feat/orders"
+    reply, task = run(scenario())
+    assert reply.status == 200
+    assert reply.body == {}
+    assert task["title"] == "Export the orders"
+    stored = model.load(harness.store, PROJECT, "NORT-7")
+    assert stored.title == "Export the orders"
+    assert stored.branch == "feat/orders"
 
 
 def test_a_write_to_a_task_the_notebook_lost_is_unknown_id(harness):
@@ -1362,67 +1340,49 @@ def test_a_write_to_a_task_the_notebook_lost_is_unknown_id(harness):
     harness.add_task("NORT-7")
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                model.delete(harness.store, PROJECT, "NORT-7")
-                return await command(
-                    ws,
-                    {
-                        "type": "task.update",
-                        "taskId": "northwind/NORT-7",
-                        "fields": {"title": "Gone"},
-                    },
-                )
+        async with harness.client() as api:
+            model.delete(harness.store, PROJECT, "NORT-7")
+            return await api.patch("/api/tasks/northwind/NORT-7", {"title": "Gone"})
 
     reply = run(scenario())
-    assert reply["ok"] is False
-    assert reply["error"]["code"] == "unknown_id"
+    assert reply.status == 404
+    assert reply.body["error"]["code"] == "unknown_id"
 
 
-def test_desk_remove_publishes_a_remove_then_replies(harness):
+def test_desk_remove_takes_a_url_encoded_desk_id(harness):
     harness.add_task("NORT-7")
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                await command(ws, {"type": "desk.add", "id": "task:northwind/NORT-7"})
-                return await command_with_frames(
-                    ws,
-                    {"type": "desk.remove", "id": "task:northwind/NORT-7"},
-                    command_id="c2",
-                )
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await api.post("/api/desk", {"id": "task:northwind/NORT-7"})
+                await stream.change("desk")
+                reply = await api.delete("/api/desk/task%3Anorthwind%2FNORT-7")
+                ids = await stream.change("desk")
+                return reply, ids, await api.get_json("/api/desk")
 
-    reply, frames = run(scenario())
-    assert reply == {"id": "c2", "ok": True, "result": {}}
-    removes = [f["event"] for f in frames if f["event"].get("kind") == "desk"]
-    assert removes[-1] == {
-        "type": "remove",
-        "kind": "desk",
-        "id": "task:northwind/NORT-7",
-    }
+    reply, ids, desk = run(scenario())
+    assert reply.status == 200
+    assert reply.body == {}
+    assert ids == ["task:northwind/NORT-7"]
+    assert desk == {"desk": []}
 
 
 def test_a_second_desk_add_is_ok_and_publishes_nothing(harness):
     harness.add_task("NORT-7")
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                await command(ws, {"type": "desk.add", "id": "task:northwind/NORT-7"})
-                before = harness.orch.log.seq
-                reply = await command(
-                    ws,
-                    {"type": "desk.add", "id": "task:northwind/NORT-7"},
-                    command_id="c2",
-                )
-                return reply, before, harness.orch.log.seq
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await api.post("/api/desk", {"id": "task:northwind/NORT-7"})
+                await stream.change("desk")
+                reply = await api.post("/api/desk", {"id": "task:northwind/NORT-7"})
+                await no_notice(stream)
+                return reply
 
-    reply, before, after = run(scenario())
-    assert reply["ok"] is True
-    assert after == before
+    assert run(scenario()).status == 200
 
 
 def test_a_task_deleted_from_the_notebook_leaves_the_desk(harness):
@@ -1433,22 +1393,17 @@ def test_a_task_deleted_from_the_notebook_leaves_the_desk(harness):
     harness.add_task("NORT-8")
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                await command(ws, {"type": "desk.add", "id": "task:northwind/NORT-7"})
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await api.post("/api/desk", {"id": "task:northwind/NORT-7"})
+                await stream.change("desk")
                 model.delete(harness.store, PROJECT, "NORT-7")
                 harness.version += 1
-                await next_frame(
-                    ws,
-                    lambda f: (
-                        f["event"].get("kind") == "desk"
-                        and f["event"]["type"] == "remove"
-                    ),
-                )
-                return harness.orch.log.state["world"]["desk"]
+                await stream.change("desk", "task:northwind/NORT-7")
+                return await api.get_json("/api/desk")
 
-    assert run(scenario()) == {}
+    assert run(scenario()) == {"desk": []}
 
 
 def test_a_live_agent_joins_the_desk(harness):
@@ -1519,14 +1474,12 @@ def test_a_dismissed_entry_is_not_re_added_by_the_next_poll(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                await command(ws, {"type": "desk.remove", "id": "agent:ag1"})
-                await harness.orch.refresh_agents()
-                return harness.orch.log.state["world"]["desk"]
+        async with harness.client() as api:
+            await api.delete("/api/desk/agent%3Aag1")
+            await harness.orch.refresh_agents()
+            return await api.get_json("/api/desk")
 
-    assert run(scenario()) == {}
+    assert run(scenario()) == {"desk": []}
 
 
 def test_an_agent_already_exited_when_it_is_adopted_does_not_join_the_desk(harness):
@@ -1605,10 +1558,8 @@ def test_the_desk_survives_a_restart(store):
     desk = InMemoryDeskStore()
 
     async def scenario(harness):
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                await command(ws, {"type": "desk.add", "id": "task:northwind/NORT-7"})
+        async with harness.client() as api:
+            await api.post("/api/desk", {"id": "task:northwind/NORT-7"})
 
     first = Harness(store, desk=desk)
     first.add_task("NORT-7")
@@ -1630,31 +1581,26 @@ def test_a_project_the_scan_misses_keeps_its_desk_entries(store):
     harness.add_task("ASK-1", project="askastro")
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                await command(ws, {"type": "desk.add", "id": "task:askastro/ASK-1"})
-                # The project disappears from the scan, as an unmounted volume
-                # or a renamed directory would make it.
-                harness.projects = ["northwind"]
-                harness.version += 1
-                await harness.orch.refresh_tasks()
-                return harness.orch.log.state["world"]["desk"]
+        async with harness.client() as api:
+            await api.post("/api/desk", {"id": "task:askastro/ASK-1"})
+            # The project disappears from the scan, as an unmounted volume
+            # or a renamed directory would make it.
+            harness.projects = ["northwind"]
+            harness.version += 1
+            await harness.orch.refresh_tasks()
+            return await api.get_json("/api/desk")
 
-    assert list(run(scenario())) == ["task:askastro/ASK-1"]
+    assert [e["id"] for e in run(scenario())["desk"]] == ["task:askastro/ASK-1"]
 
 
 def test_resume_reaches_the_host_for_an_exited_agent(harness):
     harness.daemon.rows["ag1"] = agent_row(state="exited(1)")
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                return await command(ws, {"type": "agent.resume", "agentId": "ag1"})
+        async with harness.client() as api:
+            return await api.post("/api/agents/ag1/resume")
 
-    reply = run(scenario())
-    assert reply["ok"] is True
+    assert run(scenario()).status == 200
     assert {"cmd": "resume", "id": "ag1"} in harness.daemon.calls
 
 
@@ -1663,14 +1609,12 @@ def test_resume_of_an_agent_that_is_running_is_refused(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                return await command(ws, {"type": "agent.resume", "agentId": "ag1"})
+        async with harness.client() as api:
+            return await api.post("/api/agents/ag1/resume")
 
     reply = run(scenario())
-    assert reply["ok"] is False
-    assert reply["error"]["code"] == "invalid"
+    assert reply.status == 400
+    assert reply.body["error"]["code"] == "invalid"
 
 
 def test_a_host_that_says_the_agent_is_running_refuses_the_resume(harness):
@@ -1679,15 +1623,12 @@ def test_a_host_that_says_the_agent_is_running_refuses_the_resume(harness):
     harness.daemon.replies["resume"] = [{"error": "agent ag1 is running"}]
 
     async def scenario():
-        async with harness.serving() as server:
-            async with connect(url(server)) as ws:
-                await say_hello(ws)
-                return await command(ws, {"type": "agent.resume", "agentId": "ag1"})
+        async with harness.client() as api:
+            return await api.post("/api/agents/ag1/resume")
 
     reply = run(scenario())
-    assert reply["ok"] is False
-    assert reply["error"]["code"] == "invalid"
-    assert "is running" in reply["error"]["message"]
+    assert reply.status == 400
+    assert reply.body["error"]["code"] == "invalid"
 
 
 def test_resume_of_an_agent_the_world_does_not_know_is_refused(harness):

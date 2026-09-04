@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAgent } from '../api/agents';
+import { useAgent, useAnswer, useApprove, useDeny } from '../api/agents';
 import { Markdown } from '../markdown/Markdown';
 import type { Agent } from '../protocol/entities';
 import type { PlanReviewItem } from '../protocol/transcript';
@@ -10,7 +10,6 @@ import { QuestionPrompt } from '../session/cards/QuestionPrompt';
 import { toolCallTitle } from '../session/toolCards';
 import { PanelLink } from '../shell/PanelLink';
 import { useAppStore } from '../store/store';
-import { useCommand } from '../store/useCommand';
 import { AppButton } from '../ui/AppButton';
 import cards from '../session/cards/cards.module.css';
 import styles from './DecisionCard.module.css';
@@ -23,12 +22,18 @@ import styles from './DecisionCard.module.css';
 export function DecisionCard({ agent }: { agent: Agent }) {
   const transcript = useAppStore((s) => s.transcripts[agent.id]);
   const detail = useAgent(agent.id);
-  const { send } = useCommand();
+  const approve = useApprove();
+  const deny = useDeny();
+  const answer = useAnswer();
   const requestId = agent.pendingRequestId;
   const items = transcript?.items ?? [];
   const wait = detail.data?.pendingRequest;
   if (!requestId || !wait || wait.requestId !== requestId) return null;
   const before = contextBefore(items, requestId);
+  const decide = (decision: 'approve' | 'deny', reason: string) =>
+    decision === 'approve'
+      ? approve.mutateAsync({ agentId: agent.id, requestId })
+      : deny.mutateAsync({ agentId: agent.id, requestId, reason });
 
   return (
     <section className={styles.decision} data-testid="decision" data-kind={wait.type}>
@@ -49,35 +54,11 @@ export function DecisionCard({ agent }: { agent: Agent }) {
       {wait.type === 'question' && (
         <QuestionPrompt
           item={wait}
-          onAnswer={(answers) =>
-            send({ type: 'agent.answer', agentId: agent.id, requestId, answers })
-          }
+          onAnswer={(answers) => answer.mutateAsync({ agentId: agent.id, requestId, answers })}
         />
       )}
-      {wait.type === 'permission_request' && (
-        <PermissionPrompt
-          item={wait}
-          onDecide={(decision, reason) =>
-            send(
-              decision === 'approve'
-                ? { type: 'agent.approve', agentId: agent.id, requestId }
-                : { type: 'agent.deny', agentId: agent.id, requestId, reason },
-            )
-          }
-        />
-      )}
-      {wait.type === 'plan_review' && (
-        <PlanReview
-          item={wait}
-          onDecide={(decision, reason) =>
-            send(
-              decision === 'approve'
-                ? { type: 'agent.approve', agentId: agent.id, requestId }
-                : { type: 'agent.deny', agentId: agent.id, requestId, reason },
-            )
-          }
-        />
-      )}
+      {wait.type === 'permission_request' && <PermissionPrompt item={wait} onDecide={decide} />}
+      {wait.type === 'plan_review' && <PlanReview item={wait} onDecide={decide} />}
     </section>
   );
 }
