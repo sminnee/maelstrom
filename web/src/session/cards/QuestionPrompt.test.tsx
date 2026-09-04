@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Question, QuestionItem } from '../../protocol/transcript';
+import { makeQuestionItem } from '../../test/fixtures';
 import { QuestionPrompt } from './QuestionPrompt';
 
 const EXPORT: Question = {
@@ -26,9 +27,8 @@ const COLUMNS: Question = {
   ],
 };
 
-function item(questions: Question[], answers?: Record<string, string>): QuestionItem {
-  return { id: 'q1', ts: '', type: 'question', requestId: 'req-1', questions, answers };
-}
+const item = (questions: Question[], answers?: Record<string, string>): QuestionItem =>
+  makeQuestionItem({ questions, answers });
 
 describe('QuestionPrompt', () => {
   it('shows each option with its description and sends the chosen one on Answer', async () => {

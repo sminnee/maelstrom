@@ -3,6 +3,7 @@ import type { Agent, DeskEntry, Project, Task, Worktree } from '../protocol/enti
 import type { Attention } from '../protocol/attention';
 import type { Document } from '../protocol/documents';
 import type { World } from '../protocol/events';
+import type { PermissionRequestItem, PlanReviewItem, QuestionItem } from '../protocol/transcript';
 import { emptyWorld } from '../protocol/reducer';
 
 export function makeProject(over: Partial<Project> = {}): Project {
@@ -87,6 +88,29 @@ export function makeDocument(over: Partial<Document> = {}): Document {
     source: { type: 'plan_review', requestId: 'req-1', planFilePath: '' },
     ...over,
   };
+}
+
+export function makePermissionRequest(
+  over: Partial<PermissionRequestItem> = {},
+): PermissionRequestItem {
+  return {
+    id: 'p1',
+    ts: '',
+    type: 'permission_request',
+    requestId: 'req-1',
+    tool: 'Write',
+    input: { file_path: '/tmp/hello.txt' },
+    description: 'Write hello.txt',
+    ...over,
+  };
+}
+
+export function makeQuestionItem(over: Partial<QuestionItem> = {}): QuestionItem {
+  return { id: 'q1', ts: '', type: 'question', requestId: 'req-1', questions: [], ...over };
+}
+
+export function makePlanReview(over: Partial<PlanReviewItem> = {}): PlanReviewItem {
+  return { id: 'pr1', ts: '', type: 'plan_review', requestId: 'req-1', documentId: null, ...over };
 }
 
 export function makeAttention(over: Partial<Attention> = {}): Attention {

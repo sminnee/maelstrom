@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { Transcript } from './Transcript';
+import { makePlanReview } from '../test/fixtures';
 import { replayFixture } from '../test/replayFixture';
 
 describe('Transcript', () => {
@@ -57,21 +58,7 @@ describe('Transcript', () => {
   });
 
   it('a plan review nothing answered no longer claims to await review', () => {
-    render(
-      <Transcript
-        truncatedBefore={false}
-        items={[
-          {
-            id: 'p1',
-            ts: '',
-            type: 'plan_review',
-            requestId: 'req-1',
-            documentId: null,
-            stale: true,
-          },
-        ]}
-      />,
-    );
+    render(<Transcript truncatedBefore={false} items={[makePlanReview({ stale: true })]} />);
     expect(screen.getByText('no longer pending')).toBeInTheDocument();
     expect(screen.queryByText('awaiting review')).toBeNull();
   });
