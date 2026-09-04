@@ -34,8 +34,15 @@ release while that section is empty, and retitles it to the version it is releas
   `mael agent resume ID` starts an exited agent again under its own id, with the conversation it
   had. `--text TEXT` replaces the default first turn. A daemon start resumes every agent that was
   running when the last daemon died, so restarting the daemon to pick up new code costs nothing.
-  `mael agent stop ID` now forgets the agent: a stopped agent is not brought back. The daemon keeps
-  one spawn record per agent under `~/.maelstrom/agents/`, overridable with `MAEL_AGENT_SPEC_DIR`.
+  `mael agent stop ID` keeps the agent's spawn record but stops it being brought back, so a
+  deliberately stopped agent stays resumable. The daemon keeps one spawn record per agent under
+  `~/.maelstrom/agents/`, overridable with `MAEL_AGENT_SPEC_DIR`.
+
+- **`mael agent list --stopped` names every session you can resume.** `mael agent resume ID` needs
+  an id, and nothing printed the id of a session that had stopped. The listing reads Claude's own
+  session transcripts, so it covers sessions a person started by hand as well as agents the daemon
+  drove — a `kind` column says which. `--all` shows running and stopped together, and
+  `-w PROJECT.WORKTREE` or `--project NAME` narrows the listing to one place.
 
 - **The desk.** The orchestrator canvas draws the work on your desk, not every task in the world.
   A new task list view lists every task, with filters for status, project, branch and text, and

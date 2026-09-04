@@ -18,16 +18,22 @@ import pytest
 from maelstrom.agent_model import (
     EXITED,
     IDLE,
+    KIND_CLI,
+    KIND_MAEL,
     MESSAGE_CHARS,
     MESSAGE_SUMMARY_CHARS,
     PROCESSING,
+    SPEC_STOPPED,
     AgentSpec,
     AgentState,
+    TranscriptMeta,
     apply_event,
     build_agent_argv,
     build_agent_detail,
     build_agent_env,
     build_agent_row,
+    build_stopped_row,
+    build_stopped_rows,
     interrupt_request,
     mark_exited,
     reply_for_answer,
@@ -38,6 +44,7 @@ from maelstrom.agent_model import (
     spec_to_dict,
     user_message,
 )
+from maelstrom.session_discovery import LiveSession, LiveSessionSet
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
 
@@ -542,3 +549,137 @@ def test_set_mode_request_asks_the_child_to_change_mode():
         "request_id": "r1",
         "request": {"subtype": "set_permission_mode", "mode": "default"},
     }
+
+
+# --- the stopped listing ----------------------------------------------------
+
+
+def _meta(**kw) -> TranscriptMeta:
+    fields = {
+        "session_id": "s1",
+        "cwd": Path("/w/alpha"),
+        "branch": "feat/x",
+        "kind": KIND_CLI,
+        "label": "Improve plan mode",
+        "modified_at": 1_000.0,
+    }
+    fields.update(kw)
+    return TranscriptMeta(**fields)
+
+
+def test_a_stopped_row_names_the_session_it_would_resume():
+    """The id is the whole point: ``mael agent resume`` cannot be typed without it."""
+    row = build_stopped_row(_meta(), None, "", now=1_060.0)
+    assert row["id"] == "s1"
+    assert row["cwd"] == "/w/alpha"
+    assert row["branch"] == "feat/x"
+    assert row["label"] == "Improve plan mode"
+
+
+def test_a_transcript_only_row_leaves_the_record_fields_blank():
+    """A hand-started session has no spawn record, and never had one."""
+    row = build_stopped_row(_meta(), None, "", now=1_000.0)
+    assert row["kind"] == KIND_CLI
+    assert row["model"] == ""
+    assert row["mode"] == ""
+
+
+def test_a_record_supplies_the_model_and_permission_mode():
+    """These are unrecoverable from a transcript, so the record is why it is kept."""
+    spec = AgentSpec(
+        agent_id="s1",
+        cwd="/w/alpha",
+        session_id="s1",
+        model="opus",
+        permission_mode="auto",
+        status=SPEC_STOPPED,
+    )
+    row = build_stopped_row(_meta(kind=KIND_MAEL), spec, "", now=1_000.0)
+    assert row["model"] == "opus"
+    assert row["mode"] == "auto"
+    assert row["kind"] == KIND_MAEL
+
+
+def test_a_stopped_row_names_the_task_the_session_ran_for():
+    row = build_stopped_row(_meta(), None, "2026-09-04.2", now=1_000.0)
+    assert row["task"] == "2026-09-04.2"
+
+
+def test_a_stopped_row_reports_how_long_ago_the_session_last_wrote():
+    row = build_stopped_row(_meta(modified_at=1_000.0), None, "", now=1_000.0 + 7200)
+    assert row["age"] == "2h"
+
+
+def test_stopped_rows_drop_a_session_that_is_still_live():
+    """Two children on one transcript fight, and ``resume`` refuses one for it."""
+    live = LiveSessionSet(
+        sessions=[LiveSession(pid=1, cwd=Path("/w/alpha"), session_id="s1")]
+    )
+    rows = build_stopped_rows(
+        [_meta(session_id="s1"), _meta(session_id="s2")], {}, {}, live, now=1_000.0
+    )
+    assert [row["id"] for row in rows] == ["s2"]
+
+
+def test_stopped_rows_keep_a_session_that_only_shares_a_worktree():
+    """One PR per parent means siblings share a worktree; that is not the same session."""
+    live = LiveSessionSet(
+        sessions=[LiveSession(pid=1, cwd=Path("/w/alpha"), session_id="other")]
+    )
+    rows = build_stopped_rows([_meta(session_id="s1")], {}, {}, live, now=1_000.0)
+    assert [row["id"] for row in rows] == ["s1"]
+
+
+def test_stopped_rows_drop_a_hand_started_session_running_in_the_same_cwd():
+    """A bare ``claude`` reports no session id, so the cwd is the only key left.
+
+    Its transcript is on disk all the same. Without this it would be offered for
+    resume while its own process is still writing to it.
+    """
+    live = LiveSessionSet(
+        sessions=[LiveSession(pid=1, cwd=Path("/w/alpha"), session_id=None)]
+    )
+    rows = build_stopped_rows(
+        [_meta(session_id="s1"), _meta(session_id="s2", cwd=Path("/w/bravo"))],
+        {},
+        {},
+        live,
+        now=1_000.0,
+    )
+    assert [row["id"] for row in rows] == ["s2"]
+
+
+def test_stopped_rows_merge_a_record_and_a_transcript_for_one_session():
+    """A record and a transcript for the same session are one resumable thing."""
+    spec = AgentSpec(
+        agent_id="s1",
+        cwd="/w/alpha",
+        session_id="s1",
+        model="opus",
+        status=SPEC_STOPPED,
+    )
+    rows = build_stopped_rows(
+        [_meta(session_id="s1")],
+        {"s1": spec},
+        {"s1": "2026-09-04.2"},
+        LiveSessionSet(sessions=[]),
+        now=1_000.0,
+    )
+    assert len(rows) == 1
+    assert rows[0]["model"] == "opus"
+    assert rows[0]["task"] == "2026-09-04.2"
+
+
+def test_stopped_rows_are_newest_first():
+    """A listing to pick a resume from wants what was just stopped at the top."""
+    rows = build_stopped_rows(
+        [
+            _meta(session_id="old", modified_at=1.0),
+            _meta(session_id="new", modified_at=9.0),
+        ],
+        {},
+        {},
+        LiveSessionSet(sessions=[]),
+        now=10.0,
+    )
+    assert [row["id"] for row in rows] == ["new", "old"]

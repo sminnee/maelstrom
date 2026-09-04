@@ -7,6 +7,7 @@ import tempfile
 import threading
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from click.testing import CliRunner
@@ -34,14 +35,22 @@ def replay(name: str, stop_before_control: bool = False):
     return state
 
 
-def run_cli(argv: list[str], replies: list[dict] | None = None):
-    """Drive `mael agent` through the fake transport, and return (result, client)."""
+def run_cli(argv: list[str], replies: list[dict] | None = None, resolve=None):
+    """Drive `mael agent` through the fake transport, and return (result, client).
+
+    ``resolve`` stands in for ``resolve_context``, which reads the real config
+    and walks the real filesystem.
+    """
     client = RecordingDaemonClient(replies=list(replies or []))
     agent_cli._client_factory = lambda: client
+    original = agent_cli.resolve_context
+    if resolve is not None:
+        agent_cli.resolve_context = resolve
     try:
         return CliRunner().invoke(agent_cli.agent, argv), client
     finally:
         agent_cli._client_factory = SocketDaemonClient
+        agent_cli.resolve_context = original
 
 
 def test_start_sends_the_cwd_and_the_prompt():
@@ -315,3 +324,133 @@ def test_tail_says_how_many_earlier_events_the_daemon_dropped(monkeypatch):
     assert result.exit_code == 0
     assert f"— {state.seq - 3} earlier events dropped" in result.output
     assert "Hello there, friend" in result.output
+
+
+# --- the stopped listing ----------------------------------------------------
+
+
+def stopped_row(**kw) -> dict:
+    row = {
+        "id": "s1",
+        "kind": "cli",
+        "age": "2h",
+        "task": "2026-09-04.2",
+        "branch": "feat/x",
+        "label": "Improve plan mode",
+        "cwd": "/w/alpha",
+        "model": "",
+        "mode": "",
+        "modified_at": 1.0,
+    }
+    row.update(kw)
+    return row
+
+
+def test_stopped_asks_the_daemon_for_the_stopped_scope():
+    _, client = run_cli(["list", "--stopped"], [{"agents": []}])
+    assert client.calls[0]["scope"] == "stopped"
+
+
+def test_all_asks_the_daemon_for_both_scopes():
+    _, client = run_cli(["list", "--all"], [{"agents": []}])
+    assert client.calls[0]["scope"] == "all"
+
+
+def test_a_plain_list_sends_no_scope_so_an_old_daemon_still_answers():
+    _, client = run_cli(["list"], [{"agents": []}])
+    assert "scope" not in client.calls[0]
+
+
+def test_stopped_and_all_together_are_refused():
+    result, _ = run_cli(["list", "--stopped", "--all"], [{"agents": []}])
+    assert result.exit_code != 0
+
+
+def test_the_stopped_listing_renders_the_session_id_and_its_label():
+    """The id is what ``mael agent resume`` needs, and nothing else prints it."""
+    result, _ = run_cli(["list", "--stopped"], [{"agents": [stopped_row()]}])
+    assert result.exit_code == 0
+    assert "s1" in result.output
+    assert "Improve plan mode" in result.output
+    assert "2026-09-04.2" in result.output
+
+
+def test_an_empty_stopped_listing_says_so_in_a_sentence():
+    result, _ = run_cli(["list", "--stopped"], [{"agents": []}])
+    assert "No stopped sessions." in result.output
+
+
+def test_a_worktree_filter_reaches_the_daemon_as_a_path(monkeypatch, tmp_path):
+    """The CLI knows what a project is; the daemon only ever sees a cwd."""
+    worktree = tmp_path / "maelstrom" / "alpha"
+    worktree.mkdir(parents=True)
+    monkeypatch.setattr(
+        agent_cli,
+        "resolve_context",
+        lambda *a, **kw: SimpleNamespace(worktree_path=worktree, project_path=None),
+    )
+    _, client = run_cli(
+        ["list", "--stopped", "-w", "maelstrom.alpha"], [{"agents": []}]
+    )
+    assert client.calls[0]["cwd"] == str(worktree)
+
+
+def test_a_project_filter_reaches_the_daemon_as_the_project_path(monkeypatch, tmp_path):
+    project = tmp_path / "maelstrom"
+    project.mkdir(parents=True)
+    monkeypatch.setattr(
+        agent_cli,
+        "resolve_context",
+        lambda *a, **kw: SimpleNamespace(worktree_path=None, project_path=project),
+    )
+    _, client = run_cli(
+        ["list", "--stopped", "--project", "maelstrom"], [{"agents": []}]
+    )
+    assert client.calls[0]["cwd"] == str(project)
+
+
+def test_an_unresolvable_worktree_fails_with_a_message_not_a_traceback():
+    def boom(*a, **kw):
+        raise ValueError("no such worktree: nope")
+
+    result, _ = run_cli(
+        ["list", "--stopped", "-w", "nope"], [{"agents": []}], resolve=boom
+    )
+    assert result.exit_code != 0
+    assert "no such worktree" in result.output
+
+
+def test_a_filter_without_a_scope_still_asks_for_the_stopped_one(monkeypatch, tmp_path):
+    """``-w`` on its own is only meaningful against sessions that have stopped."""
+    worktree = tmp_path / "alpha"
+    worktree.mkdir()
+    monkeypatch.setattr(
+        agent_cli,
+        "resolve_context",
+        lambda *a, **kw: SimpleNamespace(worktree_path=worktree, project_path=None),
+    )
+    _, client = run_cli(["list", "-w", "maelstrom.alpha"], [{"agents": []}])
+    assert client.calls[0]["scope"] == "stopped"
+
+
+def test_the_all_listing_renders_both_kinds_of_row_legibly():
+    """``--all`` mixes two row shapes, and neither may render as blank cells.
+
+    A stopped row carries no ``state`` or ``cost``, and a running row carries no
+    ``age``, ``task`` or ``label``. Rendering both through one column set drops
+    whichever half the columns do not name.
+    """
+    running = build_agent_row(replay("normal-turn.jsonl"))
+    result, _ = run_cli(["list", "--all"], [{"agents": [running, stopped_row()]}])
+    assert result.exit_code == 0
+    # The running row keeps what makes it a running row.
+    assert "Hello there, friend" in result.output
+    # ...and the stopped row keeps what makes it resumable.
+    assert "Improve plan mode" in result.output
+    assert "2026-09-04.2" in result.output
+
+
+def test_an_empty_all_listing_names_both_things_it_looked_for():
+    """``--all`` found neither, so naming only one of them would mislead."""
+    result, _ = run_cli(["list", "--all"], [{"agents": []}])
+    assert "No agents running or stopped." in result.output

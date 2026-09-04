@@ -381,7 +381,7 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 | `cmd` | Request fields | Ok reply |
 |---|---|---|
 | `start` | `cwd`; optional `prompt`, `mode`, `model`, `session`, `env`, `resume` | `{"ok": true, "id": "<agent id>"}` |
-| `list` | — | `{"agents": [<row>, …]}`, each row as `mael agent list --json` prints |
+| `list` | optional `scope` (`running`, `stopped` or `all`; default `running`), optional `cwd` | `{"agents": [<row>, …]}`, each row as `mael agent list --json` prints |
 | `show` | `id` | `{"agent": <detail>}`, as `mael agent show --json` prints |
 | `say` | `id`, `text` | `{"ok": true}` |
 | `approve` | `id` | `{"ok": true}` |
@@ -412,8 +412,19 @@ is running. It is the one command that reads the child's answer, so a mode the c
 reported as a refusal. On success the daemon rewrites the spawn record, so a resume or a daemon
 restart keeps the new mode.
 
-`stop` removes the agent from the daemon and deletes its spawn record. A later `list` does not
-name it, and no later daemon start brings it back.
+`stop` removes the agent from the daemon and marks its spawn record `stopped`. A default `list`
+does not name it, and no later daemon start brings it back. The record itself is kept, so
+`mael agent resume` still has the model, permission mode and environment the agent ran with.
+
+`list` with `scope: "stopped"` returns the sessions that can be resumed instead: every Claude
+session transcript on disk whose session is not running. Those rows come from the transcripts, not
+from the daemon's own agents, so they include sessions a person started by hand. `cwd` narrows the
+read to one working directory, which is one transcript directory rather than all of them. The CLI
+resolves a worktree or a project to that path — the daemon knows nothing about either.
+
+The default scope is unchanged on purpose. The orchestrator server infers an agent's exit from its
+id being absent from `list` (see [orchestrator-server.md](orchestrator-server.md)), so a stopped
+agent appearing there would sit on the canvas for ever.
 
 `resume` starts an exited agent again under its own id, and sends it one turn: `text`, or the
 default nudge. See "The resume rules".
@@ -429,7 +440,7 @@ spawning — a bad `--model`, an expired login, a `--resume` Claude will not acc
 | `no such agent: <id>` | No agent has that id |
 | `agent <id> has exited` | Any command except `show`, `stop` and `resume` against an exited agent |
 | `agent <id> is running` | `resume` against an agent that has not exited |
-| `agent <id> has no spawn record` | `resume` when a `stop` deleted the record first |
+| `agent <id> has no spawn record` | `resume` against an agent whose record is missing |
 | `unknown mode: <mode> — one of plan, normal, auto` | `set-mode` with a mode maelstrom does not have |
 | `agent <id> refused <mode>: …` | `set-mode` the child would not accept |
 | `agent <id> did not answer` | `set-mode` when the child stays quiet for 10 seconds |
@@ -536,11 +547,14 @@ writes one record per agent to `~/.maelstrom/agents/<agent-id>.json`, holding ex
 | `session_id` | Always set — the daemon mints one when the caller gives none. A child that dies before its `system/init` stays resumable |
 | `permission_mode`, `model`, `env` | The argv and environment to rebuild. `env` is the caller's own extra vars only. `set-mode` rewrites `permission_mode`, so a resume keeps the mode the agent was moved to |
 | `prompt` | A child that died before its first turn is started again with the prompt it never got |
-| `status` | `running` or `exited`. A `stop` deletes the record |
+| `status` | `running`, `exited` or `stopped`. Only a `stopped` record is invisible to a default `list` |
 | `exit_code` | So `list` still reports the exit after a daemon restart |
 
 `MAEL_AGENT_SPEC_DIR` overrides the directory. A test daemon on its own socket wants its own
 records, so it cannot resume the real daemon's agents.
+
+Records are never deleted, so a machine that runs agents for months accumulates one small JSON
+file per agent.
 
 Records are written owner-only (`0600`, in a `0700` directory). `env` holds whatever a client
 passed to `start`, and that has no allowlist, so a record can hold a secret. `mael doctor`
@@ -555,6 +569,9 @@ tightens a record it finds loose.
   loaded as an exited agent instead, so `list`, `show` and `resume` all answer for it, but nothing
   respawns it. That is also the loop guard: a resumed child that dies again is recorded `exited`,
   so the next daemon start leaves it alone.
+- **A `stopped` record is neither respawned nor loaded.** A stop is deliberate, so the agent stays
+  out of `list` entirely. `mael agent list --stopped` finds it through its transcript, and
+  `mael agent resume` still reads its record.
 - **A daemon shutdown stops every child but leaves the records `running`.** So the next daemon
   start resumes them. Restarting the daemon to pick up new code costs nothing.
 - **A resumed agent gets a turn saying why it came back.** A print-mode session sits idle until a

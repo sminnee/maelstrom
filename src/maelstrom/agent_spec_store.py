@@ -7,8 +7,8 @@ Follows the storage-layer shape in ``docs/dev/architecture-patterns.md``: a
 Protocol, an in-memory backend for tests, and a JSON-file backend.
 
 Records outlive the daemon on purpose. A record still marked ``running`` when a
-daemon starts is an agent that daemon should bring back; ``stop`` deletes the
-record, so a deliberate stop is not resumed.
+daemon starts is an agent that daemon should bring back; a ``stopped`` one is
+kept but left alone.
 """
 
 import json

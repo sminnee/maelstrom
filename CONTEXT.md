@@ -144,6 +144,13 @@ One Claude Code conversation. A session maelstrom launches is tied to exactly on
 A session whose `claude` process is currently running, established from the running processes
 themselves rather than from any file. Only a live session stops a task from being re-run.
 
+**Stopped session**:
+A session whose `claude` process has ended but whose transcript is still on disk, so
+`mael agent resume` can bring it back. A stopped session is established from Claude's own
+transcripts, not from a maelstrom record — a session started by hand has no record at all.
+`mael agent list --stopped` lists them.
+_Avoid_: Closed session (a closed worktree is a different thing), ended session, dead session
+
 **Task session id**:
 The session id derived from the project name and the task id. The task session id exists before
 the session is launched and never changes, so it is what links a session back to its task. It
