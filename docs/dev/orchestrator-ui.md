@@ -266,34 +266,6 @@ moves. The form is two steps in one dialog.
 `ui/Dialog.tsx` and `tasklist/TaskFields.tsx` are shared with the task editor, so the two
 surfaces cannot drift on what a task's fields are.
 
-## Attaching an image
-
-Four surfaces take an image: the new-work prose field, a task's Content field in both the editor
-and step 2, and the session tab's message box. `ui/AttachField.tsx` holds the interaction for all
-four. It wraps the caller's own textarea rather than owning one, so each surface keeps its value,
-its label and its submit.
-
-A user attaches an image in two ways: paste it from the clipboard, or pick it with the "Attach
-image" button. A text paste still reaches the textarea, because only a clipboard carrying an image
-stops the event. Each attached image shows as a thumbnail with a remove button.
-
-The upload runs on attach, not on send. `useUploadAttachment` posts the bytes to
-`POST /api/attachments` and gets back two refs. A task edit abandoned before saving then leaves an
-orphan file rather than a half-written task.
-
-**The two refs are not interchangeable.** `markdown` holds the portable `{{MAEL_TASK_DIR}}` token,
-which is what task content stores and what the agent reads from disk. `url` points at the
-orchestrator server, and is the only ref a browser can fetch. Every surface appends the markdown
-ref to its text. The message box also sends the `url` on the say, and the server resolves it to
-the stored file.
-
-Only the message box sends the image to the model directly. A task's prompt is a plain string, so
-a task's image travels as a path the agent reads. See
-[the agent daemon](agent-daemon.md) for the wire shape.
-
-Attachments are component state, never part of a task draft. `TaskEditor`'s `changed()` diffs the
-draft with `!==`, so a non-scalar field would compare unequal on every save.
-
 Inference and a launch can each take tens of seconds, so all three hooks take
 `SLOW_CALL_TIMEOUT_MS`. A refusal shows in the form, which stays open holding what was typed —
 the one place besides the task list's status select where a view keeps an error of its own,
