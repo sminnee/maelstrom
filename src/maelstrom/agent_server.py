@@ -27,7 +27,7 @@ import sys
 import time
 import uuid
 from contextlib import suppress
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -76,9 +76,15 @@ from .agent_model import (
     subagent_of,
     user_message,
 )
+from .agent_reconcile import Reconciliation, reconcile
 from .agent_spec_store import AgentSpecStore, JsonAgentSpecStore
 from .agent_transport import STREAM_LIMIT, DaemonPaths, daemon_paths
-from .session_discovery import LiveSessionSet
+from .session_discovery import (
+    LiveSessionSet,
+    ProcessInfo,
+    ProcessTableUnavailable,
+    list_claude_processes,
+)
 from .session_view import TaskLookup
 from .transcript_store import ClaudeTranscriptStore, TranscriptStore
 from .util import now_iso
@@ -108,6 +114,56 @@ TERM_WAIT = 3.0
 #: stand in a recorder: a stub child's pid may be a real process on the
 #: developer's machine.
 kill_group: Callable[[int, int], None] = os.killpg
+
+
+def _group_alive(pgid: int) -> bool:
+    """Whether any process is left in group ``pgid``. Signal 0 tests, sends nothing."""
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # there, but not ours to signal
+    return True
+
+
+#: How often the gc polls a signalled group while it waits for it to leave.
+GC_POLL_INTERVAL = 0.05
+
+
+def apply_reconciliation(
+    result: Reconciliation,
+    specs: AgentSpecStore,
+    kill: Callable[[int, int], None],
+) -> list[int]:
+    """Do what ``result`` says: kill its groups and write its records.
+
+    Shared by the daemon's start and the CLI's ``gc``, so both act the same way
+    on the same verdicts. The kill escalates the way ``Agent._end_child`` does
+    — SIGTERM, a bounded wait, SIGKILL — but with a poll on the group instead
+    of a pump, because a stray has no pump. Returns the group ids signalled.
+
+    The records are written after the kills, so a daemon killed between the
+    two leaves records that still name their processes, and the next gc finds
+    them again rather than trusting a rewrite that ran ahead of its kill.
+    """
+    killed: list[int] = []
+    for pgid in result.kill:
+        with suppress(ProcessLookupError):
+            kill(pgid, signal.SIGTERM)
+            killed.append(pgid)
+    deadline = time.monotonic() + TERM_WAIT
+    survivors = list(killed)
+    while survivors and time.monotonic() < deadline:
+        survivors = [pgid for pgid in survivors if _group_alive(pgid)]
+        if survivors:
+            time.sleep(GC_POLL_INTERVAL)
+    for pgid in survivors:
+        with suppress(ProcessLookupError):
+            kill(pgid, signal.SIGKILL)
+    for spec in result.rewrite:
+        specs.write(spec)
+    return killed
 
 
 def _log_pump_failure(agent_id: str) -> Callable[["asyncio.Task[None]"], None]:
@@ -552,12 +608,19 @@ class AgentDaemon:
         live: LiveSessionSet | None = None,
         open_task_index: Callable[[], TaskLookup] = _open_task_index,
         clock: "Callable[[], str]" = now_iso,
+        processes: Callable[[], list[ProcessInfo]] = list_claude_processes,
+        kill_group: Callable[[int, int], None] | None = None,
     ):
         #: The one directory this daemon owns; see ``DaemonPaths``.
         self.paths: DaemonPaths = daemon_paths(root)
         self.socket_path = str(self.paths.socket)
         self.specs = specs or JsonAgentSpecStore(self.paths.spec_dir)
         self.has_transcript = has_transcript
+        #: Reads the process table for `gc`; a test hands in a literal list.
+        self._processes = processes
+        #: The group kill `gc` uses. ``None`` means the module seam, looked up
+        #: at call time so a test that patches it reaches this too.
+        self._kill_group = kill_group
         self._transcripts = transcripts
         self._live = live
         self._open_task_index = open_task_index
@@ -780,29 +843,70 @@ class AgentDaemon:
             record_prompt=spec.prompt,
         )
 
-    async def restore(self) -> None:
-        """Bring back the agents the last daemon held.
+    def _gc(self, *, resume_strays: bool) -> Reconciliation:
+        """Reconcile the records with the process table and act on the result.
 
-        A record still marked ``running`` is an agent whose daemon died without
-        stopping it, so it is spawned again. An ``exited`` record is loaded as an
-        exited agent instead — ``list``, ``show`` and ``resume`` all work on it,
-        but nothing respawns it. That is also the loop guard: a resumed child
-        that dies again is recorded ``exited``, so the next daemon start leaves
-        it alone.
+        Raises:
+            ProcessTableUnavailable: If the table could not be read. Nothing
+                is killed or written then: read as empty, it would write
+                every record off as crashed.
         """
+        result = reconcile(
+            self.specs.list(),
+            self._processes(),
+            set(self.agents),
+            resume_strays=resume_strays,
+        )
+        killed = apply_reconciliation(
+            result, self.specs, self._kill_group or kill_group
+        )
+        for verdict in result.verdicts:
+            log.info(
+                "gc: %s %s pid=%s %s",
+                verdict.kind,
+                verdict.agent_id or verdict.session_id,
+                verdict.pid,
+                verdict.reason,
+            )
+        if killed:
+            log.info("gc: signalled groups %s", killed)
+        return result
+
+    async def restore(self) -> None:
+        """Bring back the agents the last daemon held, exactly once each.
+
+        First the gc: every stray and duplicate on a record's session dies, a
+        record whose child is gone with no shutdown recorded is written off,
+        and the older of two running records on one session is retired. Then
+        one resume per session over what the gc says to resume. Then every
+        ``exited`` record — including the ones the gc just wrote — is loaded
+        as an exited agent, so ``list``, ``show`` and ``resume`` all answer for
+        it while nothing respawns it. That is also the loop guard: a resumed
+        child that dies again is recorded ``exited``, so the next daemon start
+        leaves it alone.
+
+        Where the process table cannot be read, the gc is skipped and every
+        ``running`` record is resumed as it always was: better a duplicate the
+        next gc can clear than every agent written off.
+        """
+        try:
+            to_resume: list[AgentSpec] = list(self._gc(resume_strays=True).resume)
+        except ProcessTableUnavailable as exc:
+            log.warning("gc skipped, the process table is unavailable: %s", exc)
+            to_resume = [s for s in self.specs.list() if s.status == SPEC_RUNNING]
+        for spec in to_resume:
+            try:
+                await self._resume(spec, None)
+            except Exception:  # noqa: BLE001
+                # `restore` runs before the socket binds, so an exception
+                # escaping here loses every agent rather than the one whose
+                # record is bad. A partial record reaches this by design:
+                # `spec_from_dict` defaults rather than raises, because a
+                # resume is worth attempting on one.
+                log.exception("could not resume agent %s", spec.agent_id)
+                self.specs.write(replace(spec, status=SPEC_EXITED, pid=None))
         for spec in self.specs.list():
-            if spec.status == SPEC_RUNNING:
-                try:
-                    await self._resume(spec, None)
-                except Exception:  # noqa: BLE001
-                    # `restore` runs before the socket binds, so an exception
-                    # escaping here loses every agent rather than the one whose
-                    # record is bad. A partial record reaches this by design:
-                    # `spec_from_dict` defaults rather than raises, because a
-                    # resume is worth attempting on one.
-                    log.exception("could not resume agent %s", spec.agent_id)
-                    self.specs.write(replace(spec, status=SPEC_EXITED))
-            elif spec.status != SPEC_STOPPED:
+            if spec.status == SPEC_EXITED and spec.agent_id not in self.agents:
                 self.agents[spec.agent_id] = _exited_agent(spec)
 
     # -- the command surface the CLI drives --
@@ -840,6 +944,27 @@ class AgentDaemon:
             # Before the agent lookup: it names the daemon, not an agent, and
             # has to answer on a daemon holding nothing.
             return {"daemon": self.identity().as_dict()}
+
+        if command in ("reconcile", "gc"):
+            # `reconcile` says what `gc` would do; `gc` does it. Neither
+            # resumes: only a daemon start does that, so a stray's record is
+            # left `running` for the next one.
+            try:
+                if command == "gc":
+                    result = self._gc(resume_strays=False)
+                else:
+                    result = reconcile(
+                        self.specs.list(),
+                        self._processes(),
+                        set(self.agents),
+                        resume_strays=False,
+                    )
+            except ProcessTableUnavailable as exc:
+                return {"error": f"the process table is unavailable: {exc}"}
+            reply: dict[str, Any] = {"verdicts": [asdict(v) for v in result.verdicts]}
+            if command == "gc":
+                reply["killed"] = list(result.kill)
+            return reply
 
         if command == "list":
             # Default scope unchanged: the orchestrator never asks for another.

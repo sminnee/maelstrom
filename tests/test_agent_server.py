@@ -37,7 +37,11 @@ from maelstrom.agent_spec_store import (
     JsonAgentSpecStore,
 )
 from maelstrom.agent_transport import DaemonPaths
-from maelstrom.session_discovery import LiveSessionSet
+from maelstrom.session_discovery import (
+    LiveSessionSet,
+    ProcessInfo,
+    ProcessTableUnavailable,
+)
 from maelstrom.task_index import TaskMeta
 from maelstrom.transcript_store import InMemoryTranscriptStore
 
@@ -1205,6 +1209,204 @@ def test_an_agent_mid_turn_at_shutdown_comes_back_with_the_nudge():
         asyncio.run(fresh.restore())
     sent = json.loads(proc.stdin.write.call_args.args[0])
     assert sent["message"]["content"][0]["text"] == DEFAULT_RESUME_PROMPT
+
+
+# --- gc: the process table against the records, before anything is resumed ---
+
+S1 = "11111111-1111-1111-1111-111111111111"
+_DRIVEN_ARGV = (
+    "claude -p --input-format stream-json --output-format stream-json --verbose "
+    "--permission-prompt-tool stdio --replay-user-messages --resume "
+)
+
+
+def _driven(pid: int, session_id: str = S1) -> ProcessInfo:
+    return ProcessInfo(pid, pid, f"{_DRIVEN_ARGV}{session_id}")
+
+
+def _gc_daemon(records, processes, *, has_transcript=True):
+    """A daemon whose process table is ``processes`` and whose kills are recorded.
+
+    Every group is reported dead as soon as it is signalled, so the escalation
+    never waits.
+    """
+    specs = InMemoryAgentSpecStore()
+    for record in records:
+        specs.write(record)
+    signals: list[tuple[int, int]] = []
+    table = processes if callable(processes) else (lambda: list(processes))
+    daemon = AgentDaemon(
+        "/tmp/x",
+        specs=specs,
+        has_transcript=lambda path, sid: has_transcript,
+        processes=table,
+        kill_group=lambda pgid, signum: signals.append((pgid, signum)),
+    )
+    return daemon, specs, signals
+
+
+@pytest.fixture(autouse=True)
+def _groups_die_when_signalled(monkeypatch):
+    monkeypatch.setattr(agent_server, "_group_alive", lambda pgid: False)
+
+
+def test_restore_kills_the_strays_and_then_resumes_each_session_once():
+    """The night this exists for: a dead daemon's child, plus a duplicate.
+
+    Both die first, then the record is resumed exactly once. Without the gc
+    the restore would have spawned a third `claude` on the same transcript.
+    """
+    record = AgentSpec(agent_id="a1", cwd="/tmp/x", session_id=S1, pid=100)
+    daemon, specs, signals = _gc_daemon([record], [_driven(100), _driven(200)])
+    proc = _spawn_stub()
+    with patch.object(
+        agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
+    ) as spawn:
+        asyncio.run(daemon.restore())
+    assert signals == [(100, signal.SIGTERM), (200, signal.SIGTERM)]
+    assert spawn.call_count == 1
+    argv = list(spawn.call_args.args)
+    assert argv[argv.index("--resume") + 1] == S1
+    assert "a1" in daemon.agents
+
+
+def test_restore_writes_off_a_crashed_record_instead_of_respawning_it():
+    """A known pid that is dead, with no shutdown recorded, is a crash.
+
+    Respawning it is what the old restore did, and what made a crashed agent
+    indistinguishable from a stopped daemon.
+    """
+    record = AgentSpec(agent_id="a1", cwd="/tmp/x", session_id=S1, pid=100)
+    daemon, specs, signals = _gc_daemon([record], [])
+    with patch.object(
+        agent_server.asyncio, "create_subprocess_exec", AsyncMock()
+    ) as spawn:
+        asyncio.run(daemon.restore())
+    assert spawn.call_count == 0
+    assert signals == []
+    assert specs.read("a1").status == SPEC_EXITED
+    # Loaded as exited, so `list`, `show` and `resume` all answer for it.
+    assert daemon.agents["a1"].state.status == EXITED
+
+
+def test_restore_retires_the_older_of_two_running_records_on_one_session():
+    older = AgentSpec(
+        agent_id="old", cwd="/tmp/x", session_id=S1, pid=100, started_at="2026-01-01"
+    )
+    newer = AgentSpec(
+        agent_id="new", cwd="/tmp/x", session_id=S1, pid=200, started_at="2026-01-02"
+    )
+    daemon, specs, signals = _gc_daemon([older, newer], [_driven(100), _driven(200)])
+    with patch.object(
+        agent_server.asyncio,
+        "create_subprocess_exec",
+        AsyncMock(return_value=_spawn_stub()),
+    ) as spawn:
+        asyncio.run(daemon.restore())
+    assert spawn.call_count == 1
+    assert specs.read("old").status == SPEC_STOPPED
+    assert set(daemon.agents) == {"new"}
+
+
+def test_restore_without_a_process_table_resumes_as_before(caplog):
+    """Where `ps` cannot look, the daemon must not write every record off."""
+
+    def unreadable():
+        raise ProcessTableUnavailable("pgrep exited 3")
+
+    record = AgentSpec(agent_id="a1", cwd="/tmp/x", session_id=S1, pid=100)
+    daemon, specs, signals = _gc_daemon([record], unreadable)
+    with (
+        caplog.at_level(logging.WARNING),
+        patch.object(
+            agent_server.asyncio,
+            "create_subprocess_exec",
+            AsyncMock(return_value=_spawn_stub()),
+        ) as spawn,
+    ):
+        asyncio.run(daemon.restore())
+    assert spawn.call_count == 1
+    # The stub's stream ends at once, so the pump records the exit — that is
+    # the child having run, not the gc having written the record off.
+    assert specs.read("a1").exit_code == 0
+    assert "process table" in caplog.text
+
+
+def test_the_reconcile_command_reports_and_touches_nothing():
+    record = AgentSpec(agent_id="a1", cwd="/tmp/x", session_id=S1, pid=100)
+    daemon, specs, signals = _gc_daemon([record], [_driven(100), _driven(200)])
+    reply = asyncio.run(_handle(daemon, {"cmd": "reconcile"}))
+    kinds = {(v["kind"], v["pid"]) for v in reply["verdicts"]}
+    assert kinds == {("stray", 100), ("duplicate", 200)}
+    assert signals == []
+    assert specs.read("a1").pid == 100
+
+
+def test_the_gc_command_kills_and_rewrites_but_never_resumes():
+    """`gc` on a running daemon clears strays; only a daemon start resumes."""
+    stray = AgentSpec(agent_id="a1", cwd="/tmp/x", session_id=S1, pid=100)
+    crashed = AgentSpec(
+        agent_id="a2",
+        cwd="/tmp/x",
+        session_id="22222222-2222-2222-2222-222222222222",
+        pid=300,
+    )
+    daemon, specs, signals = _gc_daemon([stray, crashed], [_driven(100), _driven(200)])
+    with patch.object(
+        agent_server.asyncio, "create_subprocess_exec", AsyncMock()
+    ) as spawn:
+        reply = asyncio.run(_handle(daemon, {"cmd": "gc"}))
+    assert spawn.call_count == 0
+    assert reply["killed"] == [100, 200]
+    assert signals == [(100, signal.SIGTERM), (200, signal.SIGTERM)]
+    assert specs.read("a2").status == SPEC_EXITED
+    # The stray's record stays running, so the next daemon start resumes it.
+    assert specs.read("a1").status == "running"
+
+
+def test_gc_knows_what_this_daemon_holds():
+    """A child this daemon is pumping is owned, whatever the table says."""
+    record = AgentSpec(agent_id="a1", cwd="/tmp/x", session_id=S1, pid=4242)
+    daemon, specs, signals = _gc_daemon([record], [_driven(4242)])
+    daemon.agents["a1"] = _stub_agent()
+    reply = asyncio.run(_handle(daemon, {"cmd": "gc"}))
+    assert [v["kind"] for v in reply["verdicts"]] == ["owned"]
+    assert signals == []
+
+
+def test_gc_without_a_process_table_is_an_error_reply():
+    def unreadable():
+        raise ProcessTableUnavailable("pgrep exited 3")
+
+    daemon, _, _ = _gc_daemon([], unreadable)
+    reply = asyncio.run(_handle(daemon, {"cmd": "gc"}))
+    assert "process table" in reply["error"]
+
+
+def test_apply_reconciliation_escalates_to_sigkill_for_a_group_that_stays(monkeypatch):
+    """`gc` from the CLI has no pump to notice an exit, so it polls the group."""
+    alive = {100: 2}  # answers alive twice, then gone
+
+    def poll(pgid: int) -> bool:
+        alive[pgid] -= 1
+        return alive[pgid] >= 0
+
+    monkeypatch.setattr(agent_server, "_group_alive", poll)
+    monkeypatch.setattr(agent_server, "TERM_WAIT", 0.01)
+    signals: list[tuple[int, int]] = []
+    result = agent_server.reconcile(
+        [AgentSpec(agent_id="a1", cwd="/tmp/x", session_id=S1, pid=100)],
+        [_driven(100)],
+        set(),
+        resume_strays=False,
+    )
+    killed = agent_server.apply_reconciliation(
+        result,
+        InMemoryAgentSpecStore(),
+        lambda pgid, signum: signals.append((pgid, signum)),
+    )
+    assert killed == [100]
+    assert signals == [(100, signal.SIGTERM), (100, signal.SIGKILL)]
 
 
 def test_one_record_that_will_not_start_does_not_stop_the_daemon():
