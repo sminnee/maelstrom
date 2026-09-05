@@ -3,6 +3,8 @@ import { noFilters } from '../selectors/filters';
 import type { ListFilters } from '../selectors/taskList';
 import { noListFilters } from '../selectors/taskList';
 import type { AgentId, DocumentId, TaskId } from '../protocol/ids';
+import type { Zone } from '../protocol/progress';
+import type { MobileScreen } from '../selectors/navStack';
 
 /** One tab in the right-hand panel: a session or a document. A task expands on the canvas instead. */
 export type PanelTab =
@@ -31,6 +33,16 @@ export interface UiState {
    */
   newWorkOpen: boolean;
   panelWidth: number;
+  /**
+   * Which zone the deck list is showing. Narrow layout only: the canvas draws
+   * every zone at once, so it has no such choice to make.
+   */
+  deckZone: Zone;
+  /**
+   * What the narrow layout has pushed over the deck list, deepest last. Empty
+   * is the deck itself.
+   */
+  mobileStack: MobileScreen[];
 }
 
 export function initialUiState(): UiState {
@@ -45,5 +57,8 @@ export function initialUiState(): UiState {
     editingTaskId: null,
     newWorkOpen: false,
     panelWidth: 460,
+    // Running is where the work the user can act on is.
+    deckZone: 'running',
+    mobileStack: [],
   };
 }

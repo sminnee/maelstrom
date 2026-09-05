@@ -47,6 +47,56 @@ if (!('getBBox' in SVGElement.prototype)) {
   });
 }
 
+// jsdom has no matchMedia. The app reads two queries through it: the layout
+// mode, and `prefers-reduced-motion` in the node card. The stub answers both
+// from one settable width.
+let viewportWidth = 1440;
+
+/** Point the stubbed matchMedia at a viewport width. `renderApp` calls this. */
+export function setViewportWidth(width: number) {
+  viewportWidth = width;
+  for (const listener of mediaListeners) listener();
+}
+
+const mediaListeners = new Set<() => void>();
+
+Object.defineProperty(globalThis, 'matchMedia', {
+  writable: true,
+  value: (query: string) => {
+    const listeners = new Set<(e: MediaQueryListEvent) => void>();
+    const matches = () => {
+      const max = /\(max-width:\s*(\d+)px\)/.exec(query);
+      if (max) return viewportWidth <= Number(max[1]);
+      const min = /\(min-width:\s*(\d+)px\)/.exec(query);
+      if (min) return viewportWidth >= Number(min[1]);
+      // Everything else, `prefers-reduced-motion` included, reads as unset.
+      return false;
+    };
+    const media = {
+      get matches() {
+        return matches();
+      },
+      media: query,
+      onchange: null,
+      addEventListener: (_: string, fn: (e: MediaQueryListEvent) => void) => {
+        listeners.add(fn);
+        mediaListeners.add(notify);
+      },
+      removeEventListener: (_: string, fn: (e: MediaQueryListEvent) => void) => {
+        listeners.delete(fn);
+        if (listeners.size === 0) mediaListeners.delete(notify);
+      },
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    };
+    function notify() {
+      for (const fn of listeners) fn({ matches: matches(), media: query } as MediaQueryListEvent);
+    }
+    return media;
+  },
+});
+
 // jsdom has no EventSource. The app injects one; this keeps an un-injected
 // import from throwing before the test can say what it wants.
 if (!('EventSource' in globalThis)) {
