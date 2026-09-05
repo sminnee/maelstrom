@@ -187,6 +187,17 @@ describe('grouping and filters', () => {
     expect(groups()).toHaveLength(0);
     expect(screen.getAllByTestId('task-node').length).toBeGreaterThan(0);
   });
+
+  it('labels the three progress zones, whatever the board groups by', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const labels = () =>
+      [...document.querySelectorAll('[data-testid="zone-label"]')].map((el) => el.textContent);
+    expect(labels()).toEqual(['Done', 'Running', 'Not started']);
+    // One strip for the whole board, so a board with no lanes still has it.
+    await user.selectOptions(screen.getByLabelText('Group by'), 'none');
+    expect(labels()).toEqual(['Done', 'Running', 'Not started']);
+  });
 });
 
 describe('the expanded node', () => {

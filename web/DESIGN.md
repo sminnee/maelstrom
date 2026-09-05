@@ -228,8 +228,15 @@ and none when grouped by `none`. The task list is a full-width table with a stic
 
 The canvas grid is fixed and mechanical, which is what makes it scannable: nodes are 220×76,
 separated by 56px horizontally and 14px vertically. A lane has 20px of padding, a 30px header,
-and 28px between lanes. Horizontal position is dependency depth — a task sits one column right
-of the deepest task it follows — so reading left to right is reading the order work will run in.
+and 28px between lanes. Every lane is as wide as the board, not as wide as its own content.
+
+Horizontal position is progress first and dependency second. The board runs left to right in
+three zones — DONE, RUNNING, NOT STARTED — and a zone boundary sits at the same x in every lane,
+so the board reads as three vertical stripes whatever each lane holds. Inside a zone a task sits
+one column right of the deepest task it follows in that same zone, so a long finished history
+spreads across several DONE columns and a queue of dependent work spreads across several NOT
+STARTED columns. A zone no lane uses takes no columns and collapses. When the two rules conflict
+— a done task that follows a running one — progress wins, and the follows edge draws backwards.
 
 Spacing runs on a 4px base with four steps in use: 4, 8, 12, 16. Component padding uses the
 scale; the canvas uses its own constants because it positions in absolute pixels.
@@ -240,9 +247,10 @@ the panel's drag grip is how the operator trades one surface against the other.
 
 ### Named Rules
 
-**The Fixed Board Rule.** The board does not rearrange itself. Layout changes when the operator
-changes the desk, the grouping or the panel width — never as a side effect of an agent's
-progress. An operator reaching for a node must find it where they last saw it.
+**The Fixed Board Rule.** A card moves only when its own work moves: it changes zone when it
+starts or finishes, and the cards behind it close up. Its lane never changes, and its order
+against the other cards in its zone never changes. So the board reports progress and nothing
+else, and everything else the operator learned about where to look stays true.
 
 ## Elevation & Depth
 

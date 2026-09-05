@@ -11,7 +11,8 @@
  * React Flow paints its own border and wash on a group node. The lane draws
  * its own, so the library's is a second rectangle carrying nothing.
  */
-.canvas :global(.react-flow__node-group) {
+.canvas :global(.react-flow__node-group),
+.canvas :global(.react-flow__node-zones) {
   z-index: -1 !important;
   border: none;
   background: transparent;

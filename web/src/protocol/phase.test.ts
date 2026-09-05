@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isActionable, KNOWN_COMMANDS, nodeState, phaseForCommand } from './phase';
+import { isActionable, KNOWN_COMMANDS, nodeState, phaseForCommand, zoneForState } from './phase';
 import { makeAgent, makeAttention, makeTask } from '../test/fixtures';
 
 describe('phaseForCommand', () => {
@@ -60,6 +60,24 @@ describe('isActionable', () => {
   it.each(['done', 'cancelled', 'blocked', 'template'] as const)('is false when %s', (status) => {
     const task = makeTask({ id: 'C', status });
     expect(isActionable(task, { C: task })).toBe(false);
+  });
+});
+
+describe('zoneForState', () => {
+  it.each([
+    ['done', 'done'],
+    // Cancelled is terminal history, and not running.
+    ['cancelled', 'done'],
+    ['working', 'running'],
+    ['needs-attention', 'running'],
+    ['idle', 'running'],
+    // A run that stopped without the task being marked done is unfinished
+    // work, not history.
+    ['exited', 'running'],
+    ['ready', 'notStarted'],
+    ['queued', 'notStarted'],
+  ] as const)('%s sits in the %s zone', (state, zone) => {
+    expect(zoneForState(state)).toBe(zone);
   });
 });
 
