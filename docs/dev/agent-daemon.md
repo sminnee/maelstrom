@@ -359,7 +359,9 @@ id        state                 waiting_on                   last_message       
 ```
 
 `last_message` is what the agent last said, cut to one line. Without it two working agents look
-identical, because a state and a wait kind say only that both are busy.
+identical, because a state and a wait kind say only that both are busy. The row also carries
+`last_message_at`, which says when — not a column here, but read by `--json` and the
+orchestrator UI.
 
 ### Showing one agent
 
@@ -572,9 +574,15 @@ stream-json events, one per line:
 An attach to an agent that has already exited sends 1 to 4 and 6. An unknown id gets one
 `{"error": "no such agent: <id>"}` line, and the stream ends.
 
-Every event the daemon records carries `mael_seq`: its position in the agent's stream, from 1,
-per life of the agent. A consumer dispatches on `type` and ignores the extra key, so the TUI and
-`tail` need no parsing change. The backlog marker carries the agent's `epoch` — a name for this
+Every event the daemon records carries two extra keys. `mael_seq` is its position in the agent's
+stream, from 1, per life of the agent. `mael_ts` is when the event happened. A consumer
+dispatches on `type` and ignores both, so the TUI and `tail` need no parsing change.
+
+`mael_ts` is the event's own `timestamp` where it has one, and the daemon's clock otherwise. A
+resumed agent's replayed turns carry Claude's timestamp, so they keep their real times instead of
+claiming they just happened.
+
+The backlog marker carries the agent's `epoch` — a name for this
 life, minted per `start` and per `resume` — and the `seq` the replay reached.
 
 A client that comes back sends both: `{"cmd": "attach", "id": "…", "from": 350, "epoch":
@@ -618,7 +626,7 @@ On the socket a dotted id works where a read does:
 
 | `cmd` | On a dotted id |
 |---|---|
-| `list` | Every subagent follows its parent's row, in the same shape: `parent` names the parent, `description` is what the parent asked for, `state` is `processing` while it runs, `exited(0)` once completed, `exited(1)` once failed or stopped. `session`, `cwd`, `model` and `mode` are the parent's; `waiting_on` and `cost` are empty; `last_message` is the summary once ended, else the last text. A top-level row carries `parent: ""` |
+| `list` | Every subagent follows its parent's row, in the same shape: `parent` names the parent, `description` is what the parent asked for, `state` is `processing` while it runs, `exited(0)` once completed, `exited(1)` once failed or stopped. `session`, `cwd`, `model` and `mode` are the parent's; `waiting_on` and `cost` are empty; `last_message` is the summary once ended, else the last text, and `last_message_at` says when. A top-level row carries `parent: ""` |
 | `show` | The subagent's row plus `message` in full. `show` on a parent adds `subagents`, the child rows, and `waiting_subagent` |
 | `attach` | The subagent's stream: its own `mael_agent_detail`, its ring under its own `mael_seq`, `mael_backlog_end` with its seq, live events, then `mael_agent_exited` with `0` for completed and `1` otherwise, or the parent's code when the parent's process goes. `from` and `epoch` work against the subagent's seq and the parent's epoch |
 | anything else | Refused: `<id>.1 is a subagent of <id>; drive <id>` |
@@ -655,10 +663,10 @@ mints a fresh item id per copy.
 
 | What | Kept |
 |---|---|
-| Raw events per agent | The last 200, each with its `mael_seq` |
-| Raw events per subagent | The last 200, under the subagent's own `mael_seq` |
+| Raw events per agent | The last 200, each with its `mael_seq` and `mael_ts` |
+| Raw events per subagent | The last 200, under the subagent's own `mael_seq`, each with its `mael_ts` |
 | Subagents per agent | 50; past that the oldest that is not running goes, and its dotted id stays reserved |
-| What the agent last said | One message, up to 8000 characters |
+| What the agent last said | One message, up to 8000 characters, and when it said it |
 | Events queued for one slow attached client | 1000; past that the oldest is dropped and the client gets a `mael_truncated` marker saying how many |
 | Agent state | Spawn record on disk; events and live state in memory |
 

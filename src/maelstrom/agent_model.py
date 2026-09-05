@@ -463,6 +463,8 @@ class SubagentState:
     recent: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     seq: int = 0
     last_message: str = ""
+    #: When that last message happened. See :attr:`AgentState.last_message_at`.
+    last_message_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -487,8 +489,8 @@ class AgentState:
     #: Exit code of the child, once it has gone. ``None`` while it is alive.
     exit_code: int | None = None
     #: The most recent events, for ``attach`` and ``list`` to render without
-    #: replaying the transcript from disk. Each carries the ``mael_seq`` it
-    #: was stamped with.
+    #: replaying the transcript from disk. Each carries the ``mael_seq`` and
+    #: ``mael_ts`` it was stamped with.
     recent: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     #: How many events this life has seen: the ``mael_seq`` of the last one.
     seq: int = 0
@@ -496,6 +498,9 @@ class AgentState:
     #: review with no plan in its input falls back to it. The conversation
     #: itself is Claude's session transcript on disk, not this field.
     last_message: str = ""
+    #: When the agent last said that, as an ISO 8601 string. Empty until it
+    #: has said anything, or when the daemon stamped no clock.
+    last_message_at: str = ""
     #: The subagents this agent has spawned, by dotted id, oldest first. A
     #: nested one is ``X.1.1``. See :class:`SubagentState`.
     subagents: dict[str, SubagentState] = field(default_factory=dict)
@@ -533,6 +538,11 @@ TRUNCATED = "mael_truncated"
 #: that dispatches on ``type`` never sees it as an event.
 SEQ_KEY = "mael_seq"
 
+#: The key the daemon stamps every recorded event with: when it happened, as
+#: an ISO 8601 string. In the ``mael_`` namespace for the same reason as
+#: :data:`SEQ_KEY`. Empty when the daemon was given no clock.
+TS_KEY = "mael_ts"
+
 #: Event type the daemon writes to every attached client once the agent's
 #: process has gone, carrying ``exit_code``. The last event of an attach
 #: stream, so a client knows the agent ended it, not a dropped connection.
@@ -558,12 +568,41 @@ def _message_texts(event: dict[str, Any]) -> list[str]:
     ]
 
 
-def _with_last_message(state: AgentState, event: dict[str, Any]) -> AgentState:
-    """``state`` with the last text in ``event`` as what the agent last said."""
+def _stamp(event: dict[str, Any], now: str) -> str:
+    """When the event happened: its own clock, or ours if it has none.
+
+    A ``--resume`` replays days-old ``assistant`` and ``user`` turns through
+    the live pump, and those carry Claude's own ``timestamp``. Preferring it is
+    what stops a resumed turn claiming it just happened. The frames with no
+    timestamp (``control_request``, most ``system`` and ``result`` frames) only
+    ever arrive live, so our clock is right for them.
+    """
+    ts = event.get("timestamp")
+    return ts if isinstance(ts, str) and ts else now
+
+
+def _said(event: dict[str, Any], now: str) -> tuple[str, str] | None:
+    """What ``event`` said and when, or ``None`` when it said nothing.
+
+    An agent and a subagent capture the same thing into different states, so
+    the capture lives here rather than in either. Both fields move together or
+    neither does: a row shows them as a pair, and a message dated by an earlier
+    one is worse than no date at all.
+    """
     texts = _message_texts(event)
     if not texts:
+        return None
+    return texts[-1][:MESSAGE_CHARS], _stamp(event, now)
+
+
+def _with_last_message(
+    state: AgentState, event: dict[str, Any], now: str
+) -> AgentState:
+    """``state`` with the last text in ``event`` as what the agent last said."""
+    said = _said(event, now)
+    if said is None:
         return state
-    return replace(state, last_message=texts[-1][:MESSAGE_CHARS])
+    return replace(state, last_message=said[0], last_message_at=said[1])
 
 
 def _one_line(text: str, limit: int = MESSAGE_SUMMARY_CHARS) -> str:
@@ -578,8 +617,15 @@ def _mode_of(event: dict[str, Any]) -> str:
     return from_wire_mode(mode) if isinstance(mode, str) and mode else ""
 
 
-def apply_event(state: AgentState, event: dict[str, Any]) -> AgentState:
+def apply_event(
+    state: AgentState, event: dict[str, Any], *, now: str = ""
+) -> AgentState:
     """The state after one event from the agent's stream.
+
+    ``now`` is when the caller saw the event. It is stamped onto the ring copy
+    under :data:`TS_KEY`, unless the event carries a clock of its own — see
+    :func:`_stamp`. It defaults to empty rather than to a clock read here, so
+    "we do not know when" stays representable and the reducer stays pure.
 
     Pure: no I/O, no clock. Anything the daemon does *because* of a transition
     (writing a reply, waking an attached client) is the caller's job.
@@ -597,10 +643,12 @@ def apply_event(state: AgentState, event: dict[str, Any]) -> AgentState:
     not move any of them.
     """
     if event.get("parent_tool_use_id"):
-        return _apply_subagent_event(state, event)
+        return _apply_subagent_event(state, event, now)
 
     seq = state.seq + 1
-    recent = (state.recent + ({**event, SEQ_KEY: seq},))[-RECENT_LIMIT:]
+    recent = (state.recent + ({**event, SEQ_KEY: seq, TS_KEY: _stamp(event, now)},))[
+        -RECENT_LIMIT:
+    ]
     state = replace(state, recent=recent, seq=seq)
     kind = event.get("type")
 
@@ -615,7 +663,7 @@ def apply_event(state: AgentState, event: dict[str, Any]) -> AgentState:
         return state
 
     if kind == "system" and event.get("subtype") == "task_notification":
-        return _end_subagent(state, event)
+        return _end_subagent(state, event, now)
 
     if kind == "system" and event.get("subtype") == "init":
         return replace(
@@ -665,7 +713,7 @@ def apply_event(state: AgentState, event: dict[str, Any]) -> AgentState:
     if kind == "assistant":
         # Capture above the guard: the guard protects the status, not the words,
         # and a plan review needs the text the agent wrote just before it asked.
-        state = _with_last_message(state, event)
+        state = _with_last_message(state, event, now)
         # A pending wait outranks assistant output. Streaming partials and
         # parallel tool blocks can arrive after a request opens, and letting one
         # set PROCESSING would render a row saying "processing" that still names
@@ -787,12 +835,16 @@ def _make_room(subagents: dict[str, SubagentState]) -> dict[str, SubagentState]:
     return copy
 
 
-def _end_subagent(state: AgentState, event: dict[str, Any]) -> AgentState:
+def _end_subagent(state: AgentState, event: dict[str, Any], now: str) -> AgentState:
     """``state`` with the subagent ``event`` notifies about ended as it says.
 
     A notification carries no ``task_type``, so the ``subagent_ids`` lookup is
     what keeps a background shell's notification out: its ``tool_use_id`` was
     never given a dotted id.
+
+    The summary takes the notification's own stamp. A row shows the message and
+    its time as a pair, and an ended subagent's message is its summary — so the
+    stamp of the last thing it said before finishing would date the wrong text.
     """
     dotted = state.subagent_ids.get(str(event.get("tool_use_id") or ""))
     sub = state.subagents.get(dotted or "")
@@ -801,11 +853,19 @@ def _end_subagent(state: AgentState, event: dict[str, Any]) -> AgentState:
     status = str(event.get("status") or "")
     if status not in SUB_STATUSES or status == SUB_RUNNING:
         status = SUB_COMPLETED
-    ended = replace(sub, status=status, summary=str(event.get("summary") or ""))
+    summary = str(event.get("summary") or "")
+    ended = replace(
+        sub,
+        status=status,
+        summary=summary,
+        last_message_at=_stamp(event, now) if summary else sub.last_message_at,
+    )
     return replace(state, subagents={**state.subagents, dotted: ended})
 
 
-def _apply_subagent_event(state: AgentState, event: dict[str, Any]) -> AgentState:
+def _apply_subagent_event(
+    state: AgentState, event: dict[str, Any], now: str
+) -> AgentState:
     """One event a subagent produced, into that subagent's ring.
 
     Opens the subagent when its ``task_started`` never came, or came before
@@ -823,14 +883,22 @@ def _apply_subagent_event(state: AgentState, event: dict[str, Any]) -> AgentStat
     dotted = state.subagent_ids[tool_use_id]
     sub = state.subagents[dotted]
     seq = sub.seq + 1
-    recent = (sub.recent + ({**event, SEQ_KEY: seq},))[-RECENT_LIMIT:]
+    recent = (sub.recent + ({**event, SEQ_KEY: seq, TS_KEY: _stamp(event, now)},))[
+        -RECENT_LIMIT:
+    ]
     last_message = sub.last_message
+    last_message_at = sub.last_message_at
     if event.get("type") == "assistant":
-        texts = _message_texts(event)
-        if texts:
-            last_message = texts[-1][:MESSAGE_CHARS]
+        said = _said(event, now)
+        if said is not None:
+            last_message, last_message_at = said
     updated = replace(
-        sub, recent=recent, seq=seq, last_message=last_message, status=SUB_RUNNING
+        sub,
+        recent=recent,
+        seq=seq,
+        last_message=last_message,
+        last_message_at=last_message_at,
+        status=SUB_RUNNING,
     )
     return replace(state, subagents={**state.subagents, dotted: updated})
 
@@ -873,6 +941,7 @@ def build_agent_row(state: AgentState) -> dict[str, Any]:
         "mode": state.permission_mode,
         "waiting_on": state.pending.summary if state.pending else "",
         "last_message": _one_line(state.last_message),
+        "last_message_at": state.last_message_at,
         "cost": f"{state.total_cost_usd:.4f}" if state.total_cost_usd else "",
     }
 
@@ -918,6 +987,7 @@ def build_subagent_row(state: AgentState, dotted: str) -> dict[str, Any]:
         "mode": state.permission_mode,
         "waiting_on": "",
         "last_message": _one_line(_subagent_message(sub)),
+        "last_message_at": sub.last_message_at,
         "cost": "",
     }
 

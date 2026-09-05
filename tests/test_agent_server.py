@@ -7,6 +7,7 @@ import os
 import signal
 from dataclasses import replace
 from pathlib import Path
+from typing import Callable
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -23,6 +24,7 @@ from maelstrom.agent_model import (
     SPEC_EXITED,
     SPEC_STOPPED,
     TRUNCATED,
+    TS_KEY,
     AgentSpec,
     TranscriptMeta,
     apply_event,
@@ -56,11 +58,13 @@ def replay(name: str, stop_before_control: bool = False):
     return state
 
 
-def _stub_agent(agent_id: str = "a1") -> Agent:
+def _stub_agent(agent_id: str = "a1", clock: Callable[[], str] | None = None) -> Agent:
     """An `Agent` with a stub child, so `handle` is testable with no subprocess."""
     proc = MagicMock()
     proc.stdin.is_closing.return_value = True
-    return Agent(agent_id, "/tmp/x", proc)
+    if clock is None:
+        return Agent(agent_id, "/tmp/x", proc)
+    return Agent(agent_id, "/tmp/x", proc, clock=clock)
 
 
 class _RecordingWriter:
@@ -229,6 +233,45 @@ def test_attach_marks_where_the_backlog_ends():
     assert kinds[-1] == BACKLOG_END
     assert kinds.count(BACKLOG_END) == 1
     assert "result" in kinds
+
+
+def test_the_daemons_clock_reaches_the_agents_it_starts():
+    """The seam has to be reachable from the daemon a caller builds, or a test
+    of anything timed has to mutate objects it did not construct."""
+    daemon = AgentDaemon("/tmp/x.sock", clock=lambda: "2026-09-05T09:00:00Z")
+    _spawning(daemon, [{"cmd": "start", "cwd": "/tmp/x"}])
+    agent = next(iter(daemon.agents.values()))
+    agent.record({"type": "rate_limit_event"})
+    assert agent.state.recent[-1][TS_KEY] == "2026-09-05T09:00:00Z"
+
+
+def test_the_replayed_backlog_keeps_each_events_own_time():
+    """The point of the whole mechanism. A client attaching an hour late must
+    see when each event happened, not when it reattached."""
+    daemon = AgentDaemon("/tmp/x.sock")
+    clocks = iter(["2026-09-05T09:00:00Z", "2026-09-05T09:40:00Z"])
+    agent = _stub_agent(clock=lambda: next(clocks))
+    daemon.agents["a1"] = agent
+    agent.record({"type": "rate_limit_event"})
+    agent.record({"type": "control_response", "response": {"request_id": "r1"}})
+    writer = _recording_writer()
+
+    async def attach_then_disconnect():
+        task = asyncio.create_task(daemon._attach("a1", writer))
+        await asyncio.sleep(0)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(attach_then_disconnect())
+    events = [json.loads(line) for line in writer.lines]
+    replayed = [e for e in events if TS_KEY in e]
+    assert [e[TS_KEY] for e in replayed] == [
+        "2026-09-05T09:00:00Z",
+        "2026-09-05T09:40:00Z",
+    ]
 
 
 def test_attach_still_marks_the_end_for_an_agent_that_said_nothing():
