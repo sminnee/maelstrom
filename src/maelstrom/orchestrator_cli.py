@@ -9,6 +9,7 @@ an :class:`~maelstrom.orchestrator.server.Orchestrator` and serves it. See
 import asyncio
 import sys
 from concurrent.futures import Executor, ThreadPoolExecutor
+from pathlib import Path
 
 import click
 
@@ -17,11 +18,16 @@ from .context import load_global_config
 from .desk_store import JsonDeskStore
 from .orchestrator.routes import build_app, serve_app
 from .orchestrator.server import Orchestrator
-from .orchestrator.sources import ListAllWorktreeSource, NotebookTaskSource
+from .orchestrator.sources import (
+    CloseBlocked,
+    ListAllWorktreeSource,
+    NotebookTaskSource,
+)
 from .task_cli import open_index
 from .task_launch import LaunchBlocked
 from .task_store import GitFileStore
 from .worktree import WorktreeSetup, find_all_projects, setup_worktree_for_branch
+from .worktree_close import close_worktree_fully
 from .worktree_model import WorktreeError
 
 DEFAULT_HOST = "127.0.0.1"
@@ -59,13 +65,23 @@ def build_orchestrator(*, executor: Executor | None = None) -> Orchestrator:
         except (ValueError, WorktreeError) as exc:
             raise LaunchBlocked(str(exc)) from exc
 
+    def close_worktree(project: str, nato: str, path: str) -> None:
+        # Never forced: unmerged work is refused, and the model's own message
+        # is what the button shows. Forcing writes a wip commit and a reopen
+        # task, which is too much for one click — ``mael close --force`` does it.
+        outcome = close_worktree_fully(
+            project, nato, Path(path), projects_dir / project, force=False
+        )
+        if not outcome.close.success:
+            raise CloseBlocked(outcome.close.message)
+
     tasks = NotebookTaskSource(
         store,
         lambda: [path.name for path in find_all_projects(projects_dir)],
         index=open_index(store),
         open_worktree=open_worktree,
     )
-    worktrees = ListAllWorktreeSource(projects_dir)
+    worktrees = ListAllWorktreeSource(projects_dir, close=close_worktree)
     daemon = SocketAsyncDaemonClient(str(daemon_paths().socket))
     return Orchestrator(
         tasks, worktrees, daemon, desk=JsonDeskStore(), executor=executor
