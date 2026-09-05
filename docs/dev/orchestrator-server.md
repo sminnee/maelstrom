@@ -77,6 +77,12 @@ is adopted and attached. An id that is gone has exited: the host drops a stopped
 `exited(0)` is the state it left in. A row reporting `exited(N)` that the stream never showed is
 applied as-is.
 
+One agent is followed once. A launch adopts the agent it started, and the poll adopts every
+row the host lists, so both reach one new agent when a poll lands in the gap the launch leaves
+between starting the agent and adopting it. A second watch replays the same backlog into the
+same transcript under fresh ids, so every item draws twice. An attach returns early for an
+agent a watch already holds. A revive drops its watch first, so it still re-attaches.
+
 An exited id that comes back live is the same agent again, not a new one: a resume keeps the
 agent id. The server clears the exit code, clears the attention item the exit raised, and attaches
 a second time. The re-attached backlog is relayed with the ids it already had, so a client that
