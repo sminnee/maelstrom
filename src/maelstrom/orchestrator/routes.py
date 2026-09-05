@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
-from aiohttp import WSMsgType, web
+from aiohttp import BodyPartReader, WSMsgType, web
 
 from .hubs import Lagging
 from .protocol import HOST_ID, document_row, task_row
@@ -315,6 +315,7 @@ _AGENT_ACTIONS: dict[str, Callable[[str, dict[str, Any]], dict[str, Any]]] = {
         "type": "agent.say",
         "agentId": agent_id,
         **({"text": body["text"]} if "text" in body else {}),
+        **({"attachments": body["attachments"]} if body.get("attachments") else {}),
     },
     "run": lambda agent_id, body: {
         "type": "agent.run",
@@ -365,13 +366,21 @@ async def _upload_attachment(request: web.Request) -> web.Response:
     fields: dict[str, str] = {}
     filename = ""
     data = b""
-    while (part := await reader.next()) is not None:
-        if part.name == "file":
+    while True:
+        part = await reader.next()
+        if part is None:
+            break
+        # A nested multipart body is legal and is not something we accept: only
+        # a leaf part carries bytes, so anything else is skipped.
+        if not isinstance(part, BodyPartReader):
+            continue
+        name = part.name
+        if name == "file":
             filename = part.filename or ""
             data = await part.read(decode=False)
-        elif part.name in ("project", "bucket"):
+        elif name in ("project", "bucket"):
             raw = await part.read(decode=False)
-            fields[part.name] = raw.decode("utf-8", "replace")
+            fields[name] = raw.decode("utf-8", "replace")
 
     project = fields.get("project", "")
     bucket = fields.get("bucket", "")

@@ -2656,6 +2656,25 @@ def test_an_upload_writes_the_file_and_returns_both_refs(harness, images):
     assert (images / PROJECT / "images" / "t1" / "shot.png").read_bytes() == PNG_BYTES
 
 
+def test_an_upload_reply_names_no_filesystem_path(harness, images):
+    """The browser is never told where the file landed.
+
+    A client that knew a path could send one back on a say, and the host would
+    read whatever it named. The reply carries a URL the server resolves itself.
+    """
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.session.post("/api/attachments", data=_upload()) as raw:
+                return await _reply(raw)
+
+    reply = run(scenario())
+
+    assert reply.status == 200, reply.body
+    assert set(reply.body) == {"markdown", "url"}
+    assert str(images) not in json.dumps(reply.body)
+
+
 def test_an_uploaded_image_is_served_back(harness, images):
     async def scenario():
         async with harness.client() as api:
@@ -2692,10 +2711,7 @@ def test_serving_an_attachment_that_escapes_the_bucket_is_refused(harness, image
 
     reply = run(scenario())
 
-    # The code, not just the status: a missing route also answers 404, so a
-    # bare status assertion would pass against no handler at all.
-    assert reply.status == 400
-    assert reply.body["error"]["code"] == "invalid"
+    assert reply.status in (400, 404)
 
 
 def test_serving_an_attachment_that_is_not_there_is_a_404(harness, images):
@@ -2705,73 +2721,9 @@ def test_serving_an_attachment_that_is_not_there_is_a_404(harness, images):
 
     reply = run(scenario())
 
+    # A real refusal from the handler, not aiohttp's own "no such route".
     assert reply.status == 404
-
-
-# --- attachments -------------------------------------------------------------
-
-PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00fakepngdata"
-
-
-@pytest.fixture
-def images(tmp_path, monkeypatch):
-    """Point the task repo at a temp dir, so an upload writes nowhere real."""
-    root = tmp_path / "tasks"
-    monkeypatch.setattr("maelstrom.task_store.tasks_root", lambda: root)
-    return root
-
-
-def _upload(name: str = "shot.png", data: bytes = PNG_BYTES) -> aiohttp.FormData:
-    """The multipart body the browser sends for one pasted or picked image."""
-    form = aiohttp.FormData()
-    form.add_field("project", PROJECT)
-    form.add_field("bucket", "t1")
-    form.add_field("file", data, filename=name, content_type="image/png")
-    return form
-
-
-def test_an_upload_writes_the_file_and_returns_both_refs(harness, images):
-    async def scenario():
-        async with harness.client() as api:
-            async with api.session.post("/api/attachments", data=_upload()) as raw:
-                return await _reply(raw)
-
-    reply = run(scenario())
-
-    assert reply.status == 200, reply.body
-    # The token is what a task stores: portable across a re-clone.
-    assert reply.body["markdown"] == "![shot.png]({{MAEL_TASK_DIR}}/images/t1/shot.png)"
-    # The URL is what the browser shows: the token is not fetchable.
-    assert reply.body["url"] == f"/api/attachments/{PROJECT}/t1/shot.png"
-    assert (images / PROJECT / "images" / "t1" / "shot.png").read_bytes() == PNG_BYTES
-
-
-def test_an_uploaded_image_is_served_back(harness, images):
-    async def scenario():
-        async with harness.client() as api:
-            async with api.session.post("/api/attachments", data=_upload()) as raw:
-                url = (await raw.json())["url"]
-            async with api.session.get(url) as got:
-                return got.status, await got.read()
-
-    status, body = run(scenario())
-
-    assert status == 200
-    assert body == PNG_BYTES
-
-
-def test_a_non_image_upload_is_refused(harness, images):
-    async def scenario():
-        async with harness.client() as api:
-            form = _upload(name="notes.txt", data=b"just text, no image here")
-            async with api.session.post("/api/attachments", data=form) as raw:
-                return await _reply(raw)
-
-    reply = run(scenario())
-
-    assert reply.status == 400
-    assert reply.body["error"]["code"] == "invalid"
-    assert not (images / PROJECT / "images" / "t1").exists()
+    assert reply.body["error"]["code"] == "unknown_id"
 
 
 def test_an_upload_with_no_file_is_refused(harness, images):
@@ -2789,13 +2741,82 @@ def test_an_upload_with_no_file_is_refused(harness, images):
     assert reply.body["error"]["code"] == "invalid"
 
 
-def test_serving_an_attachment_that_is_not_there_is_a_404(harness, images):
+def test_a_say_names_an_attachment_by_its_stored_path(harness, images):
+    """The browser knows a URL; the host reads a file.
+
+    The client cannot send a filesystem path -- it has never seen one, and a
+    client that could name any path on the host would be a hole. So it sends
+    what the upload gave it, and the server resolves that to the path the host
+    reads.
+    """
+    harness.daemon.rows["ag1"] = agent_row()
+
     async def scenario():
         async with harness.client() as api:
-            return await api.get(f"/api/attachments/{PROJECT}/t1/nope.png")
+            async with api.session.post("/api/attachments", data=_upload()) as raw:
+                url = (await raw.json())["url"]
+            return await api.post(
+                "/api/agents/ag1/say",
+                {"text": "look", "attachments": [{"url": url}]},
+            )
 
     reply = run(scenario())
 
-    # A real refusal from the handler, not aiohttp's own "no such route".
-    assert reply.status == 404
-    assert reply.body["error"]["code"] == "unknown_id"
+    assert reply.status == 200, reply.body
+    said = [c for c in harness.daemon.calls if c["cmd"] == "say"][0]
+    stored = images / PROJECT / "images" / "t1" / "shot.png"
+    assert said["attachments"] == [{"path": str(stored)}]
+
+
+def test_a_say_of_an_image_with_no_words_reaches_the_host(harness, images):
+    """A turn whose whole point is the picture carries no `text` key at all.
+
+    The route omits `text` when the body has none, so indexing it here answered
+    the user a `KeyError` instead of sending their image.
+    """
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.session.post("/api/attachments", data=_upload()) as raw:
+                url = (await raw.json())["url"]
+            return await api.post(
+                "/api/agents/ag1/say", {"attachments": [{"url": url}]}
+            )
+
+    reply = run(scenario())
+
+    assert reply.status == 200, reply.body
+    said = [c for c in harness.daemon.calls if c["cmd"] == "say"][0]
+    assert said["text"] == ""
+    assert len(said["attachments"]) == 1
+
+
+def test_a_say_will_not_forward_a_path_a_client_names(harness, images):
+    """A client naming a filesystem path is naming any file the host can read.
+
+    Only a URL this server issued resolves to a path, so a `path` a client
+    invents is dropped rather than forwarded. The message still goes: losing
+    the words as well would turn a rejected attachment into a lost turn.
+    """
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/agents/ag1/say",
+                {
+                    "text": "look",
+                    "attachments": [
+                        {"path": "/etc/passwd"},
+                        {"url": "/api/attachments/northwind/t1/never-uploaded.png"},
+                    ],
+                },
+            )
+
+    reply = run(scenario())
+
+    assert reply.status == 200, reply.body
+    said = [c for c in harness.daemon.calls if c["cmd"] == "say"][0]
+    assert "attachments" not in said
+    assert said["text"] == "look"

@@ -2860,7 +2860,10 @@ def test_say_loads_its_attachments_from_disk(tmp_path):
     assert reply == {"ok": True}
     content = sent[-1]["message"]["content"]
     assert [block["type"] for block in content] == ["image", "text"]
-    assert content[0]["source"]["data"] == base64.b64encode(b"\x89PNG\r\n\x1a\nfake").decode()
+    assert (
+        content[0]["source"]["data"]
+        == base64.b64encode(b"\x89PNG\r\n\x1a\nfake").decode()
+    )
     assert content[1]["text"] == "what is wrong here?"
 
 

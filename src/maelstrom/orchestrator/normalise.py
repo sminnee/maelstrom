@@ -240,6 +240,18 @@ def normalise_stream_event(
                     out.agent({"state": "processing"})
             elif block.get("type") == "tool_result":
                 out.tool_result(block)
+            elif block.get("type") == "image":
+                # Deliberately dropped, not overlooked. The block carries
+                # base64 and no path, so rendering it here would mean inlining
+                # a data URI into the transcript — megabytes per turn, held in
+                # the world state and pushed to every open socket.
+                #
+                # The surface that attached the image has already saved it and
+                # put an `![…](/api/attachments/…)` ref in the text block
+                # beside this one, and that ref is what the reader sees. The
+                # image block is what the model sees. Do not "fix" this by
+                # inlining the data.
+                continue
 
     elif kind == "assistant":
         for block in _blocks(raw):
