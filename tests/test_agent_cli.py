@@ -729,3 +729,179 @@ def test_daemon_restart_waits_before_it_spawns(tmp_path, monkeypatch):
     result, _ = run_cli(["daemon", "restart", "--root", str(root)])
     assert result.exit_code == 0
     assert waited == [agent_transport.DaemonPaths(root)]
+
+
+# --- gc, list and reconcile: the records against the process table -----------
+
+_S1 = "11111111-1111-1111-1111-111111111111"
+_DRIVEN = (
+    "claude -p --input-format stream-json --output-format stream-json --verbose "
+    "--permission-prompt-tool stdio --resume "
+)
+
+
+def _verdict(kind, agent_id="a1", pid=100, reason=""):
+    return {
+        "kind": kind,
+        "session_id": _S1,
+        "agent_id": agent_id,
+        "pid": pid,
+        "pgid": pid,
+        "reason": reason,
+    }
+
+
+def test_reconcile_asks_a_running_daemon_and_prints_its_verdicts():
+    result, client = run_cli(
+        ["daemon", "reconcile"],
+        replies=[
+            {"verdicts": [_verdict("stray"), _verdict("duplicate", pid=200)]},
+            {"agents": []},
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert [c["cmd"] for c in client.calls] == ["reconcile", "list"]
+    assert client.autostart is False
+    assert "stray" in result.output and "200" in result.output
+
+
+def test_gc_asks_a_running_daemon_and_reports_what_it_killed():
+    result, client = run_cli(
+        ["daemon", "gc"],
+        replies=[{"verdicts": [_verdict("stray")], "killed": [100]}, {"agents": []}],
+    )
+    assert result.exit_code == 0, result.output
+    assert client.calls[0] == {"cmd": "gc"}
+    assert "killed groups: 100" in result.output
+
+
+def _local_root(monkeypatch, records, processes):
+    """No daemon: the command reads the records and the table itself."""
+    from maelstrom.agent_model import AgentSpec
+    from maelstrom.agent_spec_store import JsonAgentSpecStore
+    from maelstrom.agent_transport import daemon_paths
+    from maelstrom.session_discovery import ProcessInfo
+
+    store = JsonAgentSpecStore(daemon_paths().spec_dir)
+    for agent_id, pid, status in records:
+        store.write(
+            AgentSpec(
+                agent_id=agent_id, cwd="/w", session_id=_S1, pid=pid, status=status
+            )
+        )
+    table = [ProcessInfo(pid, pid, f"{_DRIVEN}{_S1}") for pid in processes]
+    monkeypatch.setattr(agent_cli, "list_claude_processes", lambda: list(table))
+    signals: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        "maelstrom.agent_server.kill_group",
+        lambda pgid, sig: signals.append((pgid, sig)),
+    )
+    monkeypatch.setattr("maelstrom.agent_server._group_alive", lambda pgid: False)
+    return store, signals
+
+
+def test_gc_with_no_daemon_kills_the_strays_and_leaves_their_records_running(
+    monkeypatch,
+):
+    """The case `gc` exists for: `kill -9` took the daemon and left its children."""
+    store, signals = _local_root(monkeypatch, [("a1", 100, "running")], [100, 200])
+    result, client = run_cli(
+        ["daemon", "gc"], replies=[{"error": "agent daemon not reachable at /x: nope"}]
+    )
+    assert result.exit_code == 0, result.output
+    assert [s[0] for s in signals] == [100, 200]
+    assert store.read("a1").status == "running"
+    assert "stray" in result.output and "duplicate" in result.output
+
+
+def test_reconcile_with_no_daemon_touches_nothing(monkeypatch):
+    store, signals = _local_root(monkeypatch, [("a1", 100, "running")], [])
+    result, _ = run_cli(
+        ["daemon", "reconcile", "--json"],
+        replies=[{"error": "agent daemon not reachable at /x: nope"}],
+    )
+    assert result.exit_code == 0, result.output
+    body = json.loads(result.output)
+    assert body["reachable"] is False
+    assert [v["kind"] for v in body["verdicts"]] == ["crashed"]
+    assert signals == []
+    assert store.read("a1").status == "running"  # a dry run writes nothing
+
+
+def test_list_shows_each_record_with_its_pid_liveness_and_holder(monkeypatch):
+    store, _ = _local_root(
+        monkeypatch, [("a1", 100, "running"), ("a2", None, "exited")], [100, 200]
+    )
+    result, _ = run_cli(
+        ["daemon", "list", "--json"],
+        replies=[{"error": "agent daemon not reachable at /x: nope"}],
+    )
+    assert result.exit_code == 0, result.output
+    rows = {row["id"]: row for row in json.loads(result.output)}
+    assert rows["a1"]["pid"] == "100"
+    assert rows["a1"]["alive"] == "yes"
+    assert rows["a1"]["held"] == "no"
+    assert rows["a1"]["mismatch"] == "stray, 1 duplicate"
+    assert rows["a2"]["pid"] == ""
+    assert rows["a2"]["alive"] == ""
+
+
+def test_list_marks_held_from_the_daemons_own_listing():
+    result, _ = run_cli(
+        ["daemon", "list", "--json"],
+        replies=[{"verdicts": [_verdict("owned")]}, {"agents": [{"id": "a1"}]}],
+    )
+    # No record on disk under the isolated root, so the only row is none —
+    # the verdict alone does not make a row; the record does.
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == []
+
+
+def test_an_unreadable_process_table_is_an_error_not_a_verdict(monkeypatch):
+    from maelstrom.session_discovery import ProcessTableUnavailable
+
+    def unreadable():
+        raise ProcessTableUnavailable("pgrep exited 3")
+
+    monkeypatch.setattr(agent_cli, "list_claude_processes", unreadable)
+    result, _ = run_cli(
+        ["daemon", "gc"], replies=[{"error": "agent daemon not reachable at /x: nope"}]
+    )
+    assert result.exit_code != 0
+    assert "process table" in result.output
+
+
+def test_all_roots_kills_only_a_process_unknown_to_every_root(monkeypatch, tmp_path):
+    """One root does not kill what it cannot place; every root together may."""
+    from maelstrom.agent_transport import DaemonPaths
+
+    roots = [DaemonPaths(tmp_path / "a"), DaemonPaths(tmp_path / "b")]
+    monkeypatch.setattr(agent_cli, "all_roots", lambda: roots)
+    signals: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        "maelstrom.agent_server.kill_group",
+        lambda pgid, sig: signals.append((pgid, sig)),
+    )
+    monkeypatch.setattr("maelstrom.agent_server._group_alive", lambda pgid: False)
+    # Root a owns pid 100 and knows nothing of 300; root b knows neither.
+    result, client = run_cli(
+        ["daemon", "gc", "--all-roots"],
+        replies=[
+            {
+                "verdicts": [_verdict("owned", pid=100), _verdict("unknown", "", 300)],
+                "killed": [],
+            },
+            {"agents": [{"id": "a1"}]},
+            {
+                "verdicts": [
+                    _verdict("unknown", "", 100),
+                    _verdict("unknown", "", 300),
+                ],
+                "killed": [],
+            },
+            {"agents": []},
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert [s[0] for s in signals] == [300]
+    assert str(tmp_path / "a") in result.output and str(tmp_path / "b") in result.output

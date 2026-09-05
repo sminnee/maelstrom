@@ -632,6 +632,9 @@ all. See [agent-daemon.md](../dev/agent-daemon.md) for the protocol.
 | `mael agent daemon status` | Print which daemon serves this root: its root, socket, pid, version, spawn-record directory, start time, agent count, and the worktree its code came from. `--root DIR`. |
 | `mael agent daemon restart` | Stop the daemon and start a fresh one, so it picks up code changed since it started. A busy agent loses the turn it is running. `--root DIR`. |
 | `mael agent daemon stop` | Stop the daemon serving this root. Its agents go with it, and their records stay resumable. Exits 0 when no daemon is running. `--root DIR`. |
+| `mael agent daemon list` | Every spawn record with its pid, whether that pid is alive, whether the daemon holds it, what it was doing at the last shutdown, and a `mismatch` column naming a stray, a crash, a retired record or a duplicate. A driven `claude` no record names is a row of its own. `--root DIR`, `--all-roots`, `--json`. |
+| `mael agent daemon reconcile` | Say what `gc` would do, doing nothing: one verdict per record and per unplaced process. Asks the daemon when one answers, else reads the records and the process table itself. `--root DIR`, `--all-roots`, `--json`. |
+| `mael agent daemon gc` | Kill the strays and duplicates, retire the older of two running records on one session, and write off the crashed. Never resumes: a stray's record stays `running` for the next daemon start. Under `--all-roots` a process no root claims is killed too. `--root DIR`, `--json`. |
 | `mael agent start [CWD]` | Start an agent in CWD (default `.`). Takes `--prompt`, `--mode`, `--model`, `--session-id`. |
 | `mael agent list` | Show every agent, what each waiting one waits on, and what each last said. A subagent follows its parent under a dotted id (`ID.1`), with `parent` and `description` columns. `--stopped` shows sessions that have stopped and can be resumed; `--all` shows both. `-w PROJECT.WORKTREE` and `--project NAME` narrow the stopped half of the listing, and imply `--stopped` on their own. `--json` emits rows as JSON. |
 | `mael agent show ID` | Show one agent in full: the last thing it said, every question option, the plan, and the command that answers the wait. On a parent it ends with a `Subagents:` table; on a dotted id it shows that subagent. `--json` emits the detail as JSON. |
@@ -670,6 +673,9 @@ mael agent resume 1761dcf6                      # after a crash: same id, same c
 mael agent resume 1761dcf6 --text "rerun the failing test"
 mael agent daemon status                        # which daemon is serving, running whose code
 mael agent daemon restart                       # pick up code changed since it started
+mael agent daemon list                          # every record: pid, alive, held, mismatch
+mael agent daemon reconcile                     # what gc would do
+mael agent daemon gc                            # after a daemon died: kill its strays
 ```
 
 The first command that needs the daemon starts it, in its own process group, logging to

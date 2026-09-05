@@ -95,6 +95,23 @@ def daemon_paths(root: str | Path | None = None) -> DaemonPaths:
     return DaemonPaths(Path(root) if root is not None else resolve_root())
 
 
+def all_roots(base: Path | None = None) -> list[DaemonPaths]:
+    """Every daemon root on this machine: the default, plus each per-environment one.
+
+    A per-environment daemon lives under ``<base>/daemons/<project>-<worktree>``,
+    which is where maelstrom's own ``.maelstrom.yaml`` puts it. A root that
+    someone set by hand elsewhere is not found; ``--root`` names that one.
+    """
+    base = base if base is not None else get_maelstrom_dir()
+    roots = [DaemonPaths(base)]
+    daemons = base / "daemons"
+    if daemons.is_dir():
+        roots += [
+            DaemonPaths(path) for path in sorted(daemons.iterdir()) if path.is_dir()
+        ]
+    return roots
+
+
 #: How long one probe of the socket may take. Much shorter than
 #: :data:`READY_TIMEOUT`, so a single hung connect cannot eat the whole budget.
 PROBE_TIMEOUT = 0.5

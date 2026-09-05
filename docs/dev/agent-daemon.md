@@ -281,6 +281,9 @@ mael agent daemon start                               # start a detached one and
 mael agent daemon status                              # which daemon is answering, and whose code
 mael agent daemon restart                             # pick up code changed since it started
 mael agent daemon stop
+mael agent daemon list                                # every record: pid, alive, held, mismatch
+mael agent daemon reconcile                           # what gc would do
+mael agent daemon gc                                  # kill strays and duplicates, write off crashes
 ```
 
 An auto-started daemon writes its output to `<root>/agent-daemon.log`, and runs in its own
@@ -780,6 +783,55 @@ tightens a record it finds loose.
   other status, or a record too old to carry one, gets the nudge.
 - **A daemon shutdown does not record an exit.** Stopping a child ends its stream, which would
   otherwise mark the record `exited` and stop the next daemon resuming it.
+
+### Strays and gc
+
+A **stray** is a driven agent's `claude` that outlived the daemon that held it. A **duplicate** is
+a second driven `claude` on a session id a record already owns. Both come from the same gap: a
+daemon that dies uncleanly — SIGKILL, an OOM kill, a crash — leaves its children running on a
+dead pipe, and a daemon that then starts against the same records used to spawn each of them
+again. One evening that made twenty-one duplicates.
+
+The reconcile (`agent_reconcile.py`, pure) matches every `running` record against the process
+table. Identity is the session id in the process's argv, nothing else: a pid the record names that
+is a driven `claude` naming the record's session is the child; a pid that is anything else has
+been reused and reads as the child having died. Read with `ps -ww`, because a child launched from
+cmux carries a long `--settings {…}` JSON before its `--session-id`.
+
+| Verdict | When | What happens |
+|---|---|---|
+| `owned` | The record's pid is its child, and this daemon holds it | Nothing |
+| `stray` | The record's pid is its child, and no daemon holds it | Killed. Resumed on a daemon start; left `running` by `gc` |
+| `duplicate` | Another driven `claude` names a running record's session | Killed |
+| `resumable` | The child is gone and the record says why: the last daemon's shutdown wrote `last_status`, or no pid was ever recorded | Resumed on a daemon start |
+| `crashed` | The record's pid is dead or reused, and no shutdown was recorded | Rewritten `exited` |
+| `superseded` | The older of two `running` records on one session | Rewritten `stopped`; its child, if alive, killed |
+| `unknown` | A driven `claude` no running record here names | Reported. Killed only under `--all-roots`, when no root names it |
+
+A daemon start runs the gc before it resumes anything, so the resume finds no live child on any
+session it brings back. `mael agent daemon gc` runs it by hand: through the daemon when one
+answers, which knows what it holds; otherwise the CLI reads the records and the table itself,
+which is the case it exists for — a daemon that died and left its children. `reconcile` prints
+the verdicts and touches nothing. `list` puts the same verdicts beside every record, so a
+mismatch is read off one table.
+
+A session belongs to one root. `unknown` is never killed from one root because the same driven
+`claude` may be another root's `owned`: a task keeps its session id across roots, so a task
+relaunched under a per-environment daemon runs on a session the default root's old records also
+name. `--all-roots` reconciles every root (`~/.maelstrom` and `~/.maelstrom/daemons/*`) and kills
+only what none of them claims.
+
+A kill goes to the process group and escalates, SIGTERM then SIGKILL after 3 seconds, as "Ending
+an agent" describes. The `ps` snapshot is stale by milliseconds; a process that leaves in between
+is skipped, not an error. Where the process table cannot be read — inside an agent sandbox
+`pgrep` exits 3 and `ps` will not run — the daemon skips the gc and resumes every `running`
+record as it always did, and the commands report the failure instead of a verdict. Read as an
+empty table, the gc would have written every record off.
+
+What a child does on its own when its daemon dies has not been measured yet (the plan's step 0).
+Expected: an idle child exits when its stdin closes, a child mid-turn exits at the end of the
+turn, and one blocked on a permission request may wait for ever. That last case is what the gc and
+the group kill exist for.
 
 The retained event buffer is still the only history the daemon itself reads. Reading the
 transcript back through the normaliser is a follow-up, not built. The daemon keeps only the last
