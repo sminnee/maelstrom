@@ -49,3 +49,24 @@
   background: var(--bg-raised);
   border-color: var(--fg-faint);
 }
+
+/*
+ * On a phone the bar carries the brand, the view switch, New and the chip.
+ * It wraps rather than overflows, and every control clears the touch floor.
+ */
+@media (max-width: 839px) {
+  .bar {
+    height: auto;
+    min-height: var(--touch);
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    padding-top: max(var(--space-2), env(safe-area-inset-top));
+  }
+  .view,
+  .new {
+    min-height: var(--touch);
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--text-sm);
+  }
+}

@@ -1443,4 +1443,27 @@ describe('the narrow layout', () => {
     await userEvent.click(screen.getByRole('button', { name: 'New' }));
     expect(screen.getByRole('dialog', { name: 'New work' })).toBeInTheDocument();
   });
+
+  it('gives the document the full width, with no comment margin beside it', async () => {
+    await renderApp({ viewport: 'narrow' });
+    await userEvent.click(screen.getByRole('button', { name: /Plan the order export/ }));
+    await userEvent.click(screen.getByRole('link', { name: /plan\.md/ }));
+    expect(await screen.findByTestId('document-tab')).toBeInTheDocument();
+    expect(screen.queryByTestId('comment-margin')).not.toBeInTheDocument();
+  });
+
+  it('leaves Enter as a newline and sends from the button, as a soft keyboard needs', async () => {
+    const user = userEvent.setup();
+    await renderApp({ viewport: 'narrow' });
+    await user.click(screen.getByRole('button', { name: /Migrate to Postgres 16/ }));
+    await user.click(screen.getByRole('link', { name: /Session/ }));
+    const input = await screen.findByRole('textbox', { name: 'Message to agent' });
+    // Enter makes a newline: it does not send, and it does not clear the box.
+    await user.type(input, 'one{Enter}two');
+    expect(input).toHaveValue('one\ntwo');
+
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    expect(await screen.findByText('one two')).toBeInTheDocument();
+    expect(input).toHaveValue('');
+  });
 });

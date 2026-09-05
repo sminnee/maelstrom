@@ -31,3 +31,12 @@
   font-size: var(--text-sm);
   color: var(--attention);
 }
+
+/* 12em is about half a phone's usable height once the keyboard is up, so the
+   draft field halves. A phone has no useful resize handle either. */
+@media (max-width: 839px) {
+  .draft {
+    min-height: 6em;
+    resize: none;
+  }
+}

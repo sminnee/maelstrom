@@ -93,8 +93,12 @@
   flex: none;
   color: var(--fg-muted);
 }
+/* Shrinkable and truncating: `flex: none` overflowed the row instead. */
 .subagentDescription {
-  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .subagentSummary {
   min-width: 0;
