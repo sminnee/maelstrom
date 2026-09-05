@@ -3,30 +3,65 @@ import { isOpen } from './attention';
 import type { Agent, Phase, Task } from './entities';
 import type { TaskId } from './ids';
 
-/** The commands `phaseForCommand` knows. An unlisted one still runs; it has no phase. */
-export const KNOWN_COMMANDS = ['shape', 'plan-task', 'plan-next-step', 'watch-pr'] as const;
+/**
+ * The phase each command puts a task in. An `impeccable` job that hands back a
+ * plan or a review is shape; one that changes the UI is build. A command that
+ * sets a session or a document up, rather than moving a task through a phase,
+ * is not a key.
+ *
+ * The `impeccable` keys mirror that skill's own Commands table, which lives
+ * outside this repo -- nothing here tells you when the skill has moved on.
+ */
+const PHASES = {
+  shape: 'shape',
+  'plan-task': 'plan',
+  'plan-next-step': 'plan',
+  'watch-pr': 'land',
+  'impeccable shape': 'shape',
+  'impeccable critique': 'shape',
+  'impeccable audit': 'shape',
+  'impeccable extract': 'build',
+  'impeccable polish': 'build',
+  'impeccable bolder': 'build',
+  'impeccable quieter': 'build',
+  'impeccable distill': 'build',
+  'impeccable harden': 'build',
+  'impeccable onboard': 'build',
+  'impeccable animate': 'build',
+  'impeccable colorize': 'build',
+  'impeccable typeset': 'build',
+  'impeccable layout': 'build',
+  'impeccable delight': 'build',
+  'impeccable overdrive': 'build',
+  'impeccable clarify': 'build',
+  'impeccable adapt': 'build',
+  'impeccable optimize': 'build',
+} as const satisfies Record<string, Phase>;
+
+/**
+ * The commands the editor suggests: a shortlist, not every key of `PHASES`.
+ * The field is free text, so any command may be typed in full, and one that
+ * `PHASES` holds still draws its phase.
+ */
+export const KNOWN_COMMANDS = [
+  'shape',
+  'plan-task',
+  'plan-next-step',
+  'watch-pr',
+  'impeccable shape',
+  'impeccable critique',
+  'impeccable audit',
+  'impeccable layout',
+] as const satisfies readonly (keyof typeof PHASES)[];
 
 /**
  * The phase a task's `command` puts it in. The phase is not sent on the wire:
  * it is a reading of `command`, and this is the one place that reading happens.
  */
 export function phaseForCommand(command: string): Phase | null {
-  switch (command) {
-    case 'shape':
-      return 'shape';
-    case 'plan-task':
-    case 'plan-next-step':
-      return 'plan';
-    case 'watch-pr':
-      return 'land';
-    // An execute task runs no skill, so no command is the ordinary build case.
-    case '':
-      return 'build';
-    // A command nobody recognises is not a build task: it is a task whose phase
-    // is unknown. The node draws no phase rather than claiming a wrong one.
-    default:
-      return null;
-  }
+  // An execute task runs no skill, so no command is the ordinary build case.
+  if (command === '') return 'build';
+  return (PHASES as Record<string, Phase>)[command] ?? null;
 }
 
 /**

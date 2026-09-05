@@ -38,6 +38,9 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **A task command may carry arguments.** `--command "impeccable shape"` runs a skill with its
+  argument, and the task draws a phase for it. The task editor suggests the common ones.
+
 - **An approved plan puts the agent into auto.** Approving a plan review moves the agent to
   `auto` mode, so it carries the plan out instead of asking about each edit. A child that
   refuses the mode does not undo the approval: `mael agent approve` prints a warning and the
