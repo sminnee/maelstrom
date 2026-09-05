@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from ..agent_model import PLAN_TOOL, QUESTION_TOOL, from_wire_mode
+from ..agent_model import PLAN_TOOL, QUESTION_TOOL, TS_KEY, from_wire_mode
 from .protocol import Agent, Attention, ClientState, Document, ServerEvent
 
 Dict = dict[str, Any]
@@ -155,7 +155,9 @@ def normalise_stream_event(
     # stream never carries the parent's events.
     if raw.get("parent_tool_use_id") and not is_child:
         return Normalised([], ctx)
-    out = _Emitter(state, agent, ctx, now, message_only=is_child)
+    out = _Emitter(
+        state, agent, ctx, now, message_only=is_child, event_ts=_str(raw.get(TS_KEY))
+    )
     kind = raw.get("type")
 
     if kind == "system":
@@ -213,7 +215,12 @@ def normalise_stream_event(
                 text = _str(block["text"])
                 out.append({"type": "message", "role": "assistant", "markdown": text})
                 out.ctx = replace(out.ctx, last_assistant_text=text)
-                out.agent({"lastMessage": _one_line(text)})
+                out.agent(
+                    {
+                        "lastMessage": _one_line(text),
+                        "lastMessageAt": out.event_ts or out.now,
+                    }
+                )
             elif block.get("type") == "tool_use":
                 tool_use_id = _str(block.get("id"))
                 out.append(
@@ -352,13 +359,19 @@ class _Emitter:
         now: str,
         *,
         message_only: bool = False,
+        event_ts: str = "",
     ):
         self.state = state
         self.now = now
+        #: When the event being normalised happened, as the daemon stamped it.
+        #: An item takes this over ``now``, so a replayed backlog keeps its own
+        #: times instead of collapsing onto the moment of reattach. An emitter
+        #: built without a source event leaves it empty and stamps ``now``.
+        self.event_ts = event_ts
         self.agent_entity: Agent = agent
         self.agent_dirty = False
-        #: Keep only ``lastMessage`` of any agent patch: a subagent's stream
-        #: moves nothing else about it.
+        #: Keep only what the agent last said of any agent patch: a subagent's
+        #: stream moves nothing else about it.
         self.message_only = message_only
         self.ctx = ctx
         self.events: list[ServerEvent] = []
@@ -377,7 +390,7 @@ class _Emitter:
             {
                 "type": "transcript.append",
                 "agentId": self.ctx.agent_id,
-                "item": {**item, "id": item_id, "ts": self.now},
+                "item": {**item, "id": item_id, "ts": self.event_ts or self.now},
             }
         )
         return item_id
@@ -394,7 +407,9 @@ class _Emitter:
 
     def agent(self, patch: Dict) -> None:
         if self.message_only:
-            patch = {k: v for k, v in patch.items() if k == "lastMessage"}
+            patch = {
+                k: v for k, v in patch.items() if k in ("lastMessage", "lastMessageAt")
+            }
             if not patch:
                 return
         self.agent_entity = {**self.agent_entity, **patch}  # type: ignore[typeddict-item]
@@ -566,7 +581,7 @@ class _Emitter:
             "documentId": document_id,
             "requestId": request_id,
             "summary": summary,
-            "raisedAt": self.now,
+            "raisedAt": self.event_ts or self.now,
             "clearedAt": None,
         }
         self.local_attention[attention_id] = item
@@ -579,7 +594,7 @@ class _Emitter:
         ].get(attention_id)
         if item is None or item["clearedAt"] is not None:
             return
-        cleared: Attention = {**item, "clearedAt": self.now}
+        cleared: Attention = {**item, "clearedAt": self.event_ts or self.now}
         self.local_attention[attention_id] = cleared
         self.events.append({"type": "upsert", "kind": "attention", "entity": cleared})
 

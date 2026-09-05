@@ -112,6 +112,7 @@ def _blank_agent(agent_id: str) -> Agent:
         "permissionMode": "",
         "waitingOn": "",
         "lastMessage": "",
+        "lastMessageAt": "",
         "costUsd": 0.0,
         "taskId": "",
         "project": "",

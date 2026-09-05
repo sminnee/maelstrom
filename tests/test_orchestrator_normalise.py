@@ -20,6 +20,7 @@ from maelstrom.orchestrator.normalise import (
     apply_agent_detail,
     context_for_agent,
     mark_exited,
+    normalise_gap,
     normalise_stream_event,
 )
 from maelstrom.orchestrator.protocol import (
@@ -28,6 +29,8 @@ from maelstrom.orchestrator.protocol import (
     empty_world,
     state_with,
 )
+
+from .agent_fixtures import RECEIVED, read_stamped_fixture
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
 GOLDEN = FIXTURES / "normalised"
@@ -47,6 +50,7 @@ def make_agent(**over) -> dict:
         "permissionMode": "",
         "waitingOn": "",
         "lastMessage": "",
+        "lastMessageAt": "",
         "costUsd": 0,
         "taskId": "NORT-7",
         "project": "northwind",
@@ -74,9 +78,7 @@ def make_document(**over) -> dict:
     return doc
 
 
-def read_fixture(name: str) -> list[dict]:
-    lines = (FIXTURES / name).read_text().splitlines()
-    return [json.loads(line) for line in lines if line.strip()]
+read_fixture = read_stamped_fixture
 
 
 def seed(agents: list[dict], documents: list[dict] = ()) -> ClientState:
@@ -197,6 +199,47 @@ def test_every_fixture_replays_to_its_golden(name):
     if os.environ.get("UPDATE_GOLDEN") == "1":
         path.write_text(json.dumps(actual, indent=2, ensure_ascii=False) + "\n")
     assert actual == json.loads(path.read_text())
+
+
+def test_an_items_time_is_when_its_event_happened_not_when_it_was_replayed():
+    """The reattach case. A backlog replayed at ``NOW`` must keep the times of
+    the turns it carries; only an item with no source event takes ``NOW``."""
+    state = replay("normal-turn.jsonl")
+    said = [i for i in state.items if i["type"] == "message"]
+    assert [i["ts"] for i in said] == [
+        "2026-09-01T01:42:16.651Z",
+        "2026-09-01T01:42:19.652Z",
+    ]
+    # A `result` frame carries no clock of its own, so it keeps the daemon's.
+    [result] = items_of(state, "turn_result")
+    assert result["ts"] == RECEIVED
+
+
+def test_an_attention_item_is_raised_and_cleared_at_its_events_own_time():
+    """The same rule as a transcript item: the source event's own stamp, not
+    the reattach clock. `web/src/selectors/attention.ts` sorts by ``raisedAt``,
+    so a reattach that restamped every item would lose the true order."""
+    state = replay("permission-request.jsonl")
+    [item] = list(state["world"]["attention"].values())
+    # A `control_*` frame carries no clock of its own, so both take the
+    # daemon's — never the reattach instant, which is what `NOW` stands for.
+    assert item["raisedAt"] == RECEIVED
+    assert item["clearedAt"] == RECEIVED
+
+    # Every wait is raised by a `control_request`, so the daemon's clock is the
+    # right one throughout. The rule is that the source event decides, not that
+    # an attention item always takes a conversation turn's time.
+    plan = replay("plan-review-with-plan.jsonl")
+    [raised] = list(plan["world"]["attention"].values())
+    assert raised["raisedAt"] == RECEIVED
+
+
+def test_an_item_with_no_source_event_is_stamped_now():
+    """A gap is not something the agent did — it is happening as we say so."""
+    state = seed([make_agent(id="ag1")])
+    out = normalise_gap(state, context_for_agent("ag1"), 3, NOW)
+    [event] = out.events
+    assert event["item"]["ts"] == NOW
 
 
 def test_a_completed_turn_ends_idle_with_the_cost_and_one_result_line():
@@ -636,7 +679,7 @@ def test_a_subagents_replay_is_its_own_transcript():
     assert state.items[0]["role"] == "user"
     assert state.items[1] == {
         "id": "ag1-2",
-        "ts": NOW,
+        "ts": "2026-09-04T08:27:27.953Z",
         "type": "message",
         "role": "assistant",
         "markdown": "I'll look for the `docs/dev` directory.",
@@ -647,7 +690,11 @@ def test_a_subagents_replay_is_its_own_transcript():
 
 def test_a_subagents_stream_moves_nothing_but_its_last_message():
     state = replay_child("subagent-turn.jsonl")
-    expected = {**child(), "lastMessage": agent_of(state)["lastMessage"]}
+    expected = {
+        **child(),
+        "lastMessage": agent_of(state)["lastMessage"],
+        "lastMessageAt": "2026-09-04T08:28:27.870Z",
+    }
     assert agent_of(state) == expected
     assert open_attention(state) == []
     assert state["world"]["documents"] == {}

@@ -15,6 +15,7 @@
         "permissionMode": "normal",
         "waitingOn": "",
         "lastMessage": "The subagent fetched the page. The title is **Example Domain",
+        "lastMessageAt": "2026-09-04T08:46:17.024Z",
         "costUsd": 0.41344450000000005,
         "taskId": "NORT-7",
         "project": "northwind",
@@ -34,8 +35,8 @@
         "documentId": null,
         "requestId": "18358cd0-bea4-4adc-bebd-01da0ea2cd3b",
         "summary": "https://example.com",
-        "raisedAt": "2026-09-01T00:00:00Z",
-        "clearedAt": "2026-09-01T00:00:00Z"
+        "raisedAt": "2026-09-02T00:00:00Z",
+        "clearedAt": "2026-09-02T00:00:00Z"
       }
     },
     "desk": {}
@@ -50,14 +51,14 @@
           "sessionId": "a82cbb22-d3ac-48a4-a9b2-58a45624e64a",
           "model": "claude-opus-5",
           "id": "ag1-1",
-          "ts": "2026-09-01T00:00:00Z"
+          "ts": "2026-09-02T00:00:00Z"
         },
         {
           "type": "message",
           "role": "assistant",
           "markdown": "I'll delegate this to a subagent.",
           "id": "ag1-2",
-          "ts": "2026-09-01T00:00:00Z"
+          "ts": "2026-09-04T08:30:49.528Z"
         },
         {
           "type": "tool_call",
@@ -71,7 +72,7 @@
           },
           "status": "done",
           "id": "toolu_01KgLJnnXSkArhjQQoycVMFn",
-          "ts": "2026-09-01T00:00:00Z",
+          "ts": "2026-09-04T08:30:51.544Z",
           "output": "The page title is **Example Domain**.\n\nWebFetch was indeed deferred; loading it via `ToolSearch` with `select:WebFetch` worked, and the subsequent fetch of https://example.com succeeded. The page body also contains the line \"This domain is for use in documentation examples without needing permission.\"\nagentId: a32f365d5e1fd91ee (use SendMessage with to: 'a32f365d5e1fd91ee', summary: '<5-10 word recap>' to continue this agent)\n<usage>subagent_tokens: 18513\ntool_uses: 2\nduration_ms: 914849</usage>"
         },
         {
@@ -84,7 +85,7 @@
           },
           "description": "https://example.com",
           "id": "ag1-3",
-          "ts": "2026-09-01T00:00:00Z",
+          "ts": "2026-09-02T00:00:00Z",
           "decision": "allow"
         },
         {
@@ -92,7 +93,7 @@
           "role": "assistant",
           "markdown": "The subagent fetched the page. The title is **Example Domain**.\n\nIt also noted the body text: \"This domain is for use in documentation examples without needing permission.\"",
           "id": "ag1-5",
-          "ts": "2026-09-01T00:00:00Z"
+          "ts": "2026-09-04T08:46:17.024Z"
         },
         {
           "type": "turn_result",
@@ -100,7 +101,7 @@
           "costUsd": 0.41344450000000005,
           "durationMs": 943514,
           "id": "ag1-6",
-          "ts": "2026-09-01T00:00:00Z"
+          "ts": "2026-09-02T00:00:00Z"
         }
       ],
       "truncatedBefore": false

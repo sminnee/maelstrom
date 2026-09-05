@@ -182,6 +182,7 @@ def agent_entity(
         "permissionMode": row.get("mode") or "",
         "waitingOn": row.get("waiting_on") or "",
         "lastMessage": row.get("last_message") or "",
+        "lastMessageAt": row.get("last_message_at") or "",
         "costUsd": float(cost),
         "taskId": task_id,
         "project": project,

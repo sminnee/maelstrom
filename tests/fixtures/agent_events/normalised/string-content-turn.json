@@ -15,6 +15,7 @@
         "permissionMode": "normal",
         "waitingOn": "",
         "lastMessage": "The review agent finished, so I'll read its report.",
+        "lastMessageAt": "2026-09-01T01:42:18.120Z",
         "costUsd": 0.0212,
         "taskId": "NORT-7",
         "project": "northwind",
@@ -38,21 +39,21 @@
           "sessionId": "3f1c8a20-5b7e-4d61-9c02-7a4e1d8f60b3",
           "model": "claude-opus-5",
           "id": "ag1-1",
-          "ts": "2026-09-01T00:00:00Z"
+          "ts": "2026-09-02T00:00:00Z"
         },
         {
           "type": "message",
           "role": "user",
           "markdown": "<task-notification>\n<task-id>a9ed786c2916ddbb0</task-id>\n<status>completed</status>\n<summary>Agent \"Review commit e24fa3a\" finished</summary>\n</task-notification>",
           "id": "ag1-2",
-          "ts": "2026-09-01T00:00:00Z"
+          "ts": "2026-09-01T01:42:16.651Z"
         },
         {
           "type": "message",
           "role": "assistant",
           "markdown": "The review agent finished, so I'll read its report.",
           "id": "ag1-3",
-          "ts": "2026-09-01T00:00:00Z"
+          "ts": "2026-09-01T01:42:18.120Z"
         },
         {
           "type": "turn_result",
@@ -60,7 +61,7 @@
           "costUsd": 0.0212,
           "durationMs": 2100,
           "id": "ag1-4",
-          "ts": "2026-09-01T00:00:00Z"
+          "ts": "2026-09-02T00:00:00Z"
         }
       ],
       "truncatedBefore": false

@@ -23,15 +23,15 @@ from maelstrom.orchestrator.server import Orchestrator
 from maelstrom.orchestrator.sources import InMemoryWorktreeSource, NotebookTaskSource
 from maelstrom.worktree import WorktreeSetup
 
+from .agent_fixtures import read_stamped_fixture
+
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
 NOW = "2026-09-01T00:00:00Z"
 PROJECT = "northwind"
 WORKTREE_PATH = "/Users/dev/Projects/northwind/northwind-alpha"
 
 
-def read_fixture(name: str) -> list[dict]:
-    lines = (FIXTURES / name).read_text().splitlines()
-    return [json.loads(line) for line in lines if line.strip()]
+read_fixture = read_stamped_fixture
 
 
 class Harness:
