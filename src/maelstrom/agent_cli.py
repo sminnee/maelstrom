@@ -15,6 +15,7 @@ import asyncio
 import json
 import shlex
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,7 @@ from .agent_transport import (
 )
 from .agent_transport import client as daemon_client
 from .context import resolve_context
+from .env import format_uptime
 from .table import draw_table
 
 #: Columns ``mael agent list`` prints, in order.
@@ -99,6 +101,48 @@ def cmd_daemon_serve(socket_path: str | None) -> None:
     except RuntimeError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
+
+
+@cmd_daemon.command("status")
+def cmd_daemon_status() -> None:
+    """Say which daemon is serving this socket, and what code it runs.
+
+    One socket can be served by a daemon spawned from any worktree, and it
+    holds the modules it imported at start. So the source tree and the start
+    time are the two fields worth reading here.
+    """
+    identity = _send({"cmd": "ping"})["daemon"]
+    rows = [
+        ("socket", identity.get("socket_path", "")),
+        ("pid", str(identity.get("pid", ""))),
+        ("version", identity.get("version", "")),
+        ("source", identity.get("source_tree", "")),
+        ("specs", identity.get("spec_dir", "")),
+        ("started", _started(identity.get("started_at", ""))),
+        ("agents", str(identity.get("agents", 0))),
+    ]
+    width = max(len(label) for label, _ in rows) + 1
+    for label, value in rows:
+        click.echo(f"{label + ':':<{width + 1}} {value}")
+
+
+def _started(stamp: str) -> str:
+    """``<local time> (<age> ago)``, or the raw stamp when it will not parse.
+
+    The age is the useful half: a daemon started days ago is the one holding
+    stale code. ``format_uptime`` is the same renderer ``mael env status``
+    uses, so an age reads the same everywhere.
+    """
+    if not stamp:
+        return ""
+    try:
+        started = datetime.fromisoformat(stamp)
+    except ValueError:
+        return stamp
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    local = started.astimezone().strftime("%Y-%m-%d %H:%M")
+    return f"{local} ({format_uptime(started.isoformat())} ago)"
 
 
 @agent.command("start")

@@ -574,3 +574,49 @@ class TestStopAgentsInWorktree:
         rows = [{"id": "a1", "cwd": "/wt/alpha"}]
         messages, _ = self._stop([{"agents": rows}, {"error": "agent a1 has exited"}])
         assert messages == ["agent a1: agent a1 has exited"]
+
+
+def test_daemon_status_names_the_serving_code():
+    """The command that answers "which copy is serving me?".
+
+    The source tree and the start time are the fields that identify a stale
+    daemon, so both have to reach the output.
+    """
+    result, client = run_cli(
+        ["daemon", "status"],
+        replies=[
+            {
+                "daemon": {
+                    "pid": 4242,
+                    "version": "0.1.2",
+                    "executable": "/tree/.venv/bin/python3",
+                    "source_tree": "/Users/x/Projects/maelstrom/_main",
+                    "socket_path": "/Users/x/.maelstrom/agent-daemon.sock",
+                    "spec_dir": "/Users/x/.maelstrom/agents",
+                    "started_at": "2026-09-05T02:44:16+00:00",
+                    "agents": 5,
+                }
+            }
+        ],
+    )
+    assert result.exit_code == 0
+    assert client.calls == [{"cmd": "ping"}]
+    assert "4242" in result.output
+    assert "/Users/x/Projects/maelstrom/_main" in result.output
+    assert "5" in result.output
+
+
+def test_daemon_status_reports_a_daemon_that_is_not_running():
+    """No daemon is an answer, not a traceback."""
+    result, _ = run_cli(
+        ["daemon", "status"],
+        replies=[{"error": "agent daemon not reachable at /x.sock: nope"}],
+    )
+    assert result.exit_code == 1
+    assert "not reachable" in result.output
+
+
+def test_the_bare_daemon_command_does_not_serve():
+    """`daemon` used to run one in the foreground; it must not now."""
+    result, _ = run_cli(["daemon"])
+    assert result.exit_code != 0

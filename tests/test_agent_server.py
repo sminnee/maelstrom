@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -28,7 +29,10 @@ from maelstrom.agent_model import (
     user_message,
 )
 from maelstrom.agent_server import Agent, AgentDaemon
-from maelstrom.agent_spec_store import InMemoryAgentSpecStore
+from maelstrom.agent_spec_store import (
+    InMemoryAgentSpecStore,
+    JsonAgentSpecStore,
+)
 from maelstrom.session_discovery import LiveSessionSet
 from maelstrom.task_index import TaskMeta
 from maelstrom.transcript_store import InMemoryTranscriptStore
@@ -94,6 +98,38 @@ def test_handle_rejects_an_unknown_command():
     daemon.agents["a1"] = _stub_agent()
     reply = asyncio.run(_handle(daemon, {"cmd": "wat", "id": "a1"}))
     assert "unknown command" in reply["error"]
+
+
+def test_ping_says_which_daemon_is_answering():
+    """`ping` is what makes one daemon of several identifiable.
+
+    It carries no agent id, so it answers before the agent lookup and works on
+    a daemon holding nothing.
+    """
+    daemon = AgentDaemon("/tmp/x.sock")
+    reply = asyncio.run(_handle(daemon, {"cmd": "ping"}))
+    identity = reply["daemon"]
+    assert identity["socket_path"] == "/tmp/x.sock"
+    assert identity["pid"] == os.getpid()
+    assert identity["agents"] == 0
+    # The tree the serving code was imported from — the question `ping` exists
+    # to answer when a stale daemon from another worktree holds the socket.
+    assert identity["source_tree"] == str(Path(agent_server.__file__).parents[2])
+
+
+def test_ping_names_the_spawn_record_directory():
+    """A test daemon and the real one differ by spec dir, so `ping` reports it."""
+    daemon = AgentDaemon("/tmp/x.sock", JsonAgentSpecStore(Path("/tmp/specs")))
+    assert asyncio.run(_handle(daemon, {"cmd": "ping"}))["daemon"]["spec_dir"] == (
+        "/tmp/specs"
+    )
+
+
+def test_ping_counts_the_agents_it_holds():
+    daemon = AgentDaemon("/tmp/x.sock")
+    daemon.agents["a1"] = _stub_agent()
+    reply = asyncio.run(_handle(daemon, {"cmd": "ping"}))
+    assert reply["daemon"]["agents"] == 1
 
 
 def test_handle_refuses_to_answer_an_agent_that_is_not_waiting():
