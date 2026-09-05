@@ -673,8 +673,9 @@ def test_a_shell_command_and_its_output_become_one_item():
     assert items_of(state, "message") == []
     shells = items_of(state, "shell")
     assert [(i["command"], i["output"]) for i in shells] == [("git status", "on main")]
-    # A shell command is context, not a turn: it must not read as the agent
-    # working. This is what makes it behave like `!` and not like a message.
+    # The shell turns ask the agent for nothing, so the normaliser must not
+    # mark it working. An assistant event that follows moves the state on its
+    # own — the point is that these two turns do not.
     assert agent_of(state)["state"] == "idle"
 
 

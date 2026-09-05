@@ -643,8 +643,8 @@ def cmd_run(agent_id: str, command: str) -> None:
     """Run COMMAND in the agent's directory and give it the output.
 
     The same thing a `!` line does in the Claude Code terminal: the host runs
-    it, and the command and its output become context. The agent does not act
-    on it and starts no turn.
+    it, and the command and its output become context. Maelstrom asks the agent
+    for nothing, though the agent often remarks on what it read.
     """
     _send({"cmd": "run", "id": agent_id, "command": command})
 

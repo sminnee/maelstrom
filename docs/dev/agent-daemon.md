@@ -222,8 +222,9 @@ when unused.
 
 Three consequences worth knowing:
 
-- **The agent starts no turn.** A shell command is context, not something the agent owes an
-  answer to. That is what makes it behave like `!` and not like a `say`.
+- **Nothing is asked of the agent.** A shell command carries no request, so no surface shows
+  the agent working and the console does not wait on it. The agent usually remarks on what it
+  read anyway, as it does in the terminal. Maelstrom neither suppresses that nor counts on it.
 - **There is no exit code on the wire.** The CLI declares a `bash-exit-code` tag and emits it in
   none of the recorded transcripts, so neither does the daemon. A failing command reaches the
   agent as `<bash-stderr>` text, which is what it already reads.
@@ -521,7 +522,8 @@ consumed, the git branch, the agent's state and its permission mode.
 
 A `!` line runs a shell command instead of saying something. `!git status` runs the command in
 the agent's working directory, shows it in the transcript, and gives the agent the output. The
-agent starts no turn, so the working line stays off. See "Running a shell command" above.
+line asks the agent for nothing, so the working line stays off. See "Running a shell command"
+above.
 
 A wait is answered in place. A permission ask, a question and a plan review each open a prompt
 over the transcript, so you never leave the terminal to run `mael agent approve` in another one.
