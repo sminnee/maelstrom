@@ -117,6 +117,18 @@ def test_ping_says_which_daemon_is_answering():
     assert identity["source_tree"] == str(Path(agent_server.__file__).parents[2])
 
 
+def test_shutdown_asks_the_daemon_to_stop_serving():
+    """`mael agent daemon stop` needs a way in: the socket, not a signal.
+
+    The reply comes back before the daemon goes, so the caller learns it was
+    heard rather than seeing a closed connection.
+    """
+    daemon = AgentDaemon("/tmp/x.sock")
+    reply = asyncio.run(_handle(daemon, {"cmd": "shutdown"}))
+    assert reply == {"ok": True}
+    assert daemon.stopping.is_set()
+
+
 def test_ping_names_the_spawn_record_directory():
     """A test daemon and the real one differ by spec dir, so `ping` reports it."""
     daemon = AgentDaemon("/tmp/x.sock", JsonAgentSpecStore(Path("/tmp/specs")))

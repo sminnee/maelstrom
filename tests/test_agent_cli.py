@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
 from click.testing import CliRunner
 
 from maelstrom import agent_cli, agent_transport
@@ -50,7 +51,15 @@ def run_cli(argv: list[str], replies: list[dict] | None = None, resolve=None):
     and walks the real filesystem.
     """
     client = RecordingDaemonClient(replies=list(replies or []))
-    agent_transport.client_factory = lambda: client
+
+    def factory(**kwargs):
+        # Record what the command asked for, so a test can assert the socket it
+        # routed to and whether it would have started a daemon.
+        for key, value in kwargs.items():
+            setattr(client, key, value)
+        return client
+
+    agent_transport.client_factory = factory
     original = agent_cli.resolve_context
     if resolve is not None:
         agent_cli.resolve_context = resolve
@@ -539,7 +548,7 @@ class TestStopAgentsInWorktree:
 
     def _stop(self, replies, path="/wt/alpha"):
         client = RecordingDaemonClient(replies=list(replies))
-        agent_transport.client_factory = lambda: client
+        agent_transport.client_factory = lambda **_: client
         try:
             return stop_agents_in_worktree(Path(path)), client
         finally:
@@ -620,3 +629,82 @@ def test_the_bare_daemon_command_does_not_serve():
     """`daemon` used to run one in the foreground; it must not now."""
     result, _ = run_cli(["daemon"])
     assert result.exit_code != 0
+
+
+def test_daemon_stop_asks_the_daemon_to_go():
+    result, client = run_cli(["daemon", "stop"])
+    assert result.exit_code == 0
+    assert client.calls == [{"cmd": "shutdown"}]
+
+
+def test_daemon_stop_is_quiet_about_a_daemon_already_gone():
+    """Nothing to stop is the desired state, not an error."""
+    result, _ = run_cli(
+        ["daemon", "stop"],
+        replies=[{"error": "agent daemon not reachable at /x.sock: nope"}],
+    )
+    assert result.exit_code == 0
+    assert "No daemon running" in result.output
+
+
+@pytest.mark.parametrize("verb", ["status", "stop", "restart"])
+def test_every_daemon_verb_takes_a_socket(verb, monkeypatch, tmp_path):
+    """A per-environment daemon is addressed by path, not only by env var.
+
+    Asserts the socket the command asked its transport for. Asserting the
+    printed path instead would pass on the scripted reply alone, whether or
+    not the flag reached the client.
+    """
+    monkeypatch.delenv("MAEL_AGENT_SOCKET", raising=False)
+    other = str(tmp_path / "other.sock")
+    monkeypatch.setattr(agent_cli, "ensure_daemon", _noop_async)
+    result, client = run_cli(
+        ["daemon", verb, "--socket", other],
+        replies=[{"daemon": {"pid": 1, "socket_path": other, "agents": 0}}],
+    )
+    assert result.exit_code == 0
+    assert client.socket_path == other
+    # These three ask about a daemon; none may conjure one.
+    assert client.autostart is False
+
+
+async def _noop_async(*_args, **_kwargs) -> None:
+    """Stand in for `ensure_daemon`, which `restart` calls to respawn."""
+
+
+def test_daemon_status_explains_a_daemon_too_old_to_answer():
+    """A pre-`ping` daemon answers "no such agent", which reads as a bug here.
+
+    `daemon status` is the command you run to diagnose a stale daemon, so it
+    is the last place that should report the stale daemon's confusion verbatim.
+    """
+    result, _ = run_cli(["daemon", "status"], replies=[{"error": "no such agent: "}])
+    assert result.exit_code == 1
+    assert "older than this code" in result.output
+    assert "daemon restart" in result.output
+
+
+def test_daemon_status_renders_a_timestamp_without_a_zone():
+    """A stamp with no zone must not traceback.
+
+    `status` is the command you run when a daemon is old or foreign, so it has
+    to survive a record it did not write.
+    """
+    result, _ = run_cli(
+        ["daemon", "status"],
+        replies=[{"daemon": {"pid": 1, "started_at": "2026-09-05T14:47:00"}}],
+    )
+    assert result.exit_code == 0
+    # Read as UTC and rendered in local time, so the date depends on the zone.
+    # What matters is that it renders an age at all rather than raising.
+    assert "ago)" in result.output
+
+
+def test_daemon_restart_says_when_there_was_nothing_to_restart():
+    """A user who meant to replace a running daemon must not be told they did."""
+    result, _ = run_cli(
+        ["daemon", "restart"],
+        replies=[{"error": "agent daemon not reachable at /x.sock: nope"}],
+    )
+    assert result.exit_code == 0
+    assert "No daemon was running" in result.output
