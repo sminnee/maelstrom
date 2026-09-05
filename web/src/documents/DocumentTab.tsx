@@ -15,6 +15,7 @@ import { phaseForCommand, phaseLabel } from '../protocol/phase';
 import { describeDocumentStatus } from '../selectors/status';
 import { sessionTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
+import { useLayoutMode } from '../layout/useLayoutMode';
 import { CommentMargin } from './comments/CommentMargin';
 import { applyHighlights } from './comments/highlights';
 import { useSelectionComment } from './comments/useSelectionComment';
@@ -40,6 +41,7 @@ export function DocumentTab({ documentId }: { documentId: string }) {
   const task = doc ? world.tasks[doc.taskId] : undefined;
   const agent = doc ? world.agents[doc.agentId] : undefined;
   const body = useRef<HTMLDivElement>(null);
+  const narrow = useLayoutMode() === 'narrow';
   const { selection, pending, startComment, clear } = useSelectionComment(
     body,
     doc?.markdown ?? '',
@@ -104,18 +106,28 @@ export function DocumentTab({ documentId }: { documentId: string }) {
         <div className={styles.body} ref={body} data-testid="document-body">
           <Markdown source={doc.markdown} />
         </div>
-        <CommentMargin
-          comments={NO_COMMENTS}
-          selection={selection}
-          pending={pending}
-          onStart={startComment}
-          onCancel={clear}
-          onAdd={async (anchor, text) => {
-            await addComment.mutateAsync({ documentId, version: doc.version, anchor, body: text });
-            clear();
-          }}
-          onResolve={(commentId) => resolveComment.mutateAsync({ documentId, commentId })}
-        />
+        {/* The margin is a 220px column beside the prose, which on a phone
+            would leave the document unreadable. It draws no comment today —
+            the server serves none — so hiding it loses nothing. */}
+        {!narrow && (
+          <CommentMargin
+            comments={NO_COMMENTS}
+            selection={selection}
+            pending={pending}
+            onStart={startComment}
+            onCancel={clear}
+            onAdd={async (anchor, text) => {
+              await addComment.mutateAsync({
+                documentId,
+                version: doc.version,
+                anchor,
+                body: text,
+              });
+              clear();
+            }}
+            onResolve={(commentId) => resolveComment.mutateAsync({ documentId, commentId })}
+          />
+        )}
       </div>
       <ReviewActions
         doc={doc}

@@ -441,6 +441,13 @@ running work rather than history. Zone boundaries line up across every lane, so 
 as three vertical stripes. A zone is a stage of progress; a lane is one project's strip.
 _Avoid_: Band, column group, stage, phase
 
+**Deck list**:
+The narrow layout's main view: the desk as one row per node, tabbed by zone and opening on
+running. It draws what the canvas draws — a node per task and per free agent — laid out down the
+screen instead of across it, because a phone has no room for a board. The deck list replaces the
+canvas below 840px, and never appears at or above that width.
+_Avoid_: Mobile canvas, card list, feed
+
 **Task list**:
 The full-width view that lists every task the server knows, with filters for status, project,
 branch and text. The task list is where a task joins the desk, and one of the two places it
@@ -456,8 +463,15 @@ _Avoid_: Task modal, edit form, task detail
 
 **Expanded node**:
 A node grown in place into a card that shows its status, the decision it waits on, and links
-into the panel. One node is expanded at a time.
+into the panel. One node is expanded at a time. The narrow layout has no canvas to grow on, so
+the same reading fills the screen as a pushed screen instead.
 _Avoid_: Popup, detail panel, summary tab, dialog
+
+**Pushed screen**:
+What the narrow layout puts over the deck list: a node's detail, a session, or a document. One
+screen shows at a time and back pops one level, because a phone has no room for the panel's
+tabs. The wide layout pushes nothing — it expands a node and opens tabs.
+_Avoid_: Route, page, modal, drill-down
 
 **Decision**:
 The block an expanded node or a document shows when an agent waits on the user: the last

@@ -270,6 +270,43 @@ Colour comes from `styles/tokens.css`, which holds both the primitive and the se
 and documents the rule: no file outside it names a hex colour. One `[data-phase]` rule in
 `styles/base.css` sets `--phase` from a phase attribute.
 
+## The two layouts
+
+The app draws one of two layouts, chosen by viewport width. At 840px and wider it is the
+main-monitor tool this document describes: the canvas or the task list, with the panel beside it.
+Below 840px it is the deck list, one screen at a time. `web/DESIGN.md` says why the break sits
+there.
+
+`layout/useLayoutMode.ts` makes the choice. The decision is read in TypeScript rather than only in
+a media query, because `web/vite.config.ts` sets `css: false` — a media query is invisible to the
+suite, and a hook the components branch on is a decision the app-boundary tests can assert. The
+CSS carries cosmetic sizing only. `renderApp({ viewport: 'narrow' })` renders the narrow layout,
+and `test/setup.ts` stubs `matchMedia` from one settable width.
+
+`AppShell` branches first, so the narrow layout mounts no `ReactFlowProvider`, no canvas and no
+panel. React Flow is absent rather than hidden: a phone renders no board it cannot use, and
+d3-zoom never competes with the page for a touch. Any component calling `useReactFlow` must
+therefore be wide-only. `AttentionChip` is split into `NarrowChip` and `WideChip` for that reason
+rather than branching inside one component.
+
+**The deck list** (`deck/`) tabs the desk by zone and opens on running. `selectors/deck.ts`
+derives it from `deriveGraph`, so the list and the canvas draw the same nodes in the same states.
+`deck/DeckRow.tsx` carries the canvas node's `data-state` and `data-phase`, so the state
+vocabulary is one.
+
+**One screen at a time.** `ui.mobileStack` holds what is pushed over the deck list; empty is the
+deck itself. A row pushes a node's detail, and the detail's links push a session or a document.
+Back pops one level. `selectors/navStack.ts` holds the transitions. `shell/PanelLink.tsx` is the
+only control that opens a session or a document, so branching it there carries every link at once.
+
+The detail screen renders `canvas/NodeCardBody.tsx`, which the canvas card also renders. Only the
+shell around it was ever canvas-bound — the viewport portal, the absolute transform, the 440px
+width and the grow animation.
+
+Three things differ below the break beyond layout. The document tab draws no comment margin. Dialogs are full-bleed and top-anchored, measured in `dvh` so a soft keyboard shrinks the
+box rather than covering the focused field. And Enter makes a newline in the message input, since
+a soft keyboard sends no other key; the Send button sends.
+
 ## How to run it
 
 ```

@@ -13,9 +13,19 @@
   font-family: var(--mono);
 }
 .agent {
+  /* A subagent's line is its id and its description, which is free text. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--fg-muted);
 }
+/* The state is what the head is for, so `.waiting` below takes the slack first
+   and the state yields last. Both still truncate: `flex: 0 1 auto` is what
+   permits the shrink, where `flex: none` would overflow the head instead. */
 .state {
+  flex: 0 1 auto;
   color: var(--fg-muted);
   min-width: 0;
   overflow: hidden;
@@ -37,6 +47,8 @@
   flex: none;
 }
 .waiting {
+  flex: 1;
+  min-width: 0;
   color: var(--attention);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -93,10 +105,17 @@
   flex: none;
   color: var(--fg-muted);
 }
+/* Shrinkable and truncating: `flex: none` overflowed the row instead, and
+   `min-width: 0` alone does not beat a flex item's automatic minimum size. */
 .subagentDescription {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .subagentSummary {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

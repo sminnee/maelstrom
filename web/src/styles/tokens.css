@@ -75,6 +75,14 @@
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
+  --space-5: 24px;
+
+  /*
+   * The narrow layout's floor for anything a finger presses. Below this a
+   * target is a miss waiting to happen, whatever it looks like. Density is
+   * bought back with space, never by going under it.
+   */
+  --touch: 44px;
 
   --duration-fast: 120ms;
 }
