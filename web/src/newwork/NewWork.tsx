@@ -1,4 +1,6 @@
 import { useId, useMemo, useState } from 'react';
+import { withoutRef, type Attachment } from '../api/attachments';
+import { AttachField } from '../ui/AttachField';
 import { useStartAgent } from '../api/agents';
 import { ApiError } from '../api/http';
 import { useProjects } from '../api/projects';
@@ -44,6 +46,12 @@ export function NewWork() {
   // execute drafts, and step 2's Advanced section is where one is chosen.
   const [mode, setMode] = useState<PermissionMode>(MODES[0]);
   const [model, setModel] = useState<string>(DEFAULT_MODEL);
+  // New work has no id to group its images under, so the dialog mints one and
+  // keeps it for its whole life -- including across the step 1 to 2 move, so an
+  // image attached to the prose is the same bucket as one attached to the
+  // content. `git add -A` on the task's own commit sweeps the files in.
+  const [attached, setAttached] = useState<Attachment[]>([]);
+  const [bucket] = useState(() => `draft-${Math.random().toString(36).slice(2, 10)}`);
   /** The inferred task, once step 2 is reached. `null` means step 1. */
   const [task, setTask] = useState<TaskDraft | null>(null);
 
@@ -110,7 +118,12 @@ export function NewWork() {
       <DialogHeader title={task ? 'Task details' : 'New work'} onClose={() => close(false)} />
 
       {task ? (
-        <TaskFields draft={task} onChange={(patch) => setTask({ ...task, ...patch })} />
+        <TaskFields
+          draft={task}
+          onChange={(patch) => setTask({ ...task, ...patch })}
+          project={chosen}
+          bucket={bucket}
+        />
       ) : (
         <Capture
           names={names}
@@ -127,6 +140,13 @@ export function NewWork() {
           setModel={setModel}
           mode={mode}
           setMode={setMode}
+          bucket={bucket}
+          attached={attached}
+          onAttached={(a) => setAttached((was) => [...was, a])}
+          onRemoved={(image) => {
+            setAttached((was) => was.filter((w) => w.url !== image.url));
+            setDraft((was) => withoutRef(was, image));
+          }}
         />
       )}
 
@@ -198,6 +218,10 @@ function Capture({
   setModel,
   mode,
   setMode,
+  bucket,
+  attached,
+  onAttached,
+  onRemoved,
 }: {
   names: string[];
   project: string;
@@ -213,10 +237,15 @@ function Capture({
   setModel: (model: string) => void;
   mode: PermissionMode;
   setMode: (mode: PermissionMode) => void;
+  bucket: string;
+  attached: Attachment[];
+  onAttached: (attachment: Attachment) => void;
+  onRemoved: (image: Attachment) => void;
 }) {
   // Document-global, so nothing else on the page may share them.
   const kindName = useId();
   const branchList = useId();
+  const draftId = useId();
   return (
     <>
       <label className={dialog.field}>
@@ -251,15 +280,27 @@ function Capture({
         ))}
       </fieldset>
 
-      <label className={dialog.field}>
-        <span>What needs doing?</span>
-        <textarea
-          className={styles.draft}
-          rows={8}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-        />
-      </label>
+      <div className={dialog.field}>
+        <label htmlFor={draftId}>What needs doing?</label>
+        <AttachField
+          project={project}
+          bucket={bucket}
+          attached={attached}
+          onAttach={(a) => {
+            onAttached(a);
+            setDraft(draft ? `${draft}\n\n${a.markdown}` : a.markdown);
+          }}
+          onRemove={onRemoved}
+        >
+          <textarea
+            id={draftId}
+            className={styles.draft}
+            rows={8}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+          />
+        </AttachField>
+      </div>
 
       {/* A free agent has no task to derive a branch from, so it names one
           itself. A task's branch is inferred at the next step instead. */}

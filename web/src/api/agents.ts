@@ -78,8 +78,17 @@ export function useAnswer() {
 }
 
 export function useSay() {
-  return useAgentMutation((api, vars: { agentId: AgentId; text: string }) =>
-    api.post(`/api/agents/${vars.agentId}/say`, { text: vars.text }),
+  return useAgentMutation(
+    (api, vars: { agentId: AgentId; text: string; attachments?: { url: string }[] }) =>
+      api.post(`/api/agents/${vars.agentId}/say`, {
+        text: vars.text,
+        // The URL the upload gave back, not a path: the browser has never
+        // seen one, and the server resolves this to the file the host reads.
+        // Omitted when there are none, so an ordinary message keeps its shape.
+        ...(vars.attachments?.length
+          ? { attachments: vars.attachments.map((a) => ({ url: a.url })) }
+          : {}),
+      }),
   );
 }
 

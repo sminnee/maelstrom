@@ -46,3 +46,18 @@ export function useUploadAttachment() {
     },
   });
 }
+
+/**
+ * The text with one attachment's markdown ref taken out.
+ *
+ * Removing a thumbnail has to remove the ref too. Left behind, it goes to the
+ * agent as a link to an image that was never sent, and shows in the transcript
+ * as a broken image.
+ */
+export function withoutRef(text: string, image: Attachment): string {
+  return text
+    .split(image.markdown)
+    .join('')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
