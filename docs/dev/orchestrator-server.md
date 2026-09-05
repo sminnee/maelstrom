@@ -348,6 +348,31 @@ Three commands write new work.
 
 Not built: the opencode harness, and the cmux placement the CLI does.
 
+## Closing a worktree
+
+`worktree.close` runs the whole close `mael close` runs, from `close_worktree_fully` in
+`worktree_close.py`:
+
+- stop the environment;
+- stop the daemon agents;
+- stop the live sessions;
+- rescue new `.env` vars back to the parent;
+- close the worktree;
+- close the cmux workspace.
+
+`worktree.py` does the git half — sync, verify, detach, free the ports. The sequence sits above
+both adapters, as `task_launch.py` does for a launch, because `env.py` already imports
+`worktree.py`.
+
+The server never forces. A worktree with unmerged commits or a dirty tree is refused, and the
+refusal carries the model's own message, so the UI reads what the command would have printed.
+`--force` writes a `wip: uncommitted changes` commit and a reopen task, which stays with the
+CLI. `_main` is refused by `validate.py`, before any git call runs.
+
+The close blocks for tens of seconds, so it runs on the executor as a launch does. The refresh
+runs whichever way the close ends: one that fails partway has still stopped agents and freed
+ports.
+
 ## Task ids on the wire
 
 A notebook id such as `2026-06-11.1` is unique inside its project and repeats across projects.
@@ -508,6 +533,8 @@ rather than a half-written task, and all four UI surfaces share one path.
 
 The size cap is 5 MB, and the bytes must sniff as PNG, JPEG, GIF or WEBP. Both refusals answer
 400 `invalid`.
+
+| `POST /api/worktrees/{id}/close` | | `worktree.close` | `{}` |
 
 `agent.setMode` is a pure relay. The child announces its new mode in its own `system`/`status`
 event, so the world changes when that arrives, and a mode the child refuses never reaches the

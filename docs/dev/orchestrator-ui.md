@@ -251,8 +251,8 @@ A node resolves its worktree from its agent first, then from the open worktree o
 which is what keeps a finished task showing its pull request. `selectors/graph.ts` holds both
 steps.
 
-Group by `project` and `branch` draw one hairline lane per group. Group by `none` draws no
-lanes. Whatever the grouping, the board runs left to right in three progress zones — done,
+Group by `project`, `branch` and `worktree` draw one hairline lane per group. Group by `none`
+draws no lanes. Whatever the grouping, the board runs left to right in three progress zones — done,
 running, not started — whose boundaries line up across every lane. One strip of labels names
 them above the board. `canvas/columns.ts` assigns the zone and the column; it is pure, it sees
 one lane at a time, and `canvas/layout.ts` aligns the zones and packs the rows.
@@ -266,6 +266,20 @@ it, so `documents/ReviewActions.tsx` returns nothing rather than a bar refusing 
 asked for. Every other status keeps the bar — `awaiting-review` offers Approve and Request
 changes, and the rest read "This version is {status}." See `CONTEXT.md`, "Document tag", for how
 an agent asks for one status or the other.
+
+`worktree` is the one grouping whose lanes come from the world rather than from the nodes. Every
+other grouping derives a lane from the nodes in it, so a lane holding nothing never appears. Here
+the empty lane is the point: an open worktree with no agent in it is what the user cannot
+otherwise see. A closed worktree draws no lane. The project filter drops another project's lanes;
+the branch filter only empties them, because the lanes are what the mode is for.
+
+A task reaches its worktree through the open worktree on its branch, since a task names a branch
+and not a worktree. A free agent names its worktree outright. Work that resolves to neither falls
+to `Unallocated`, which is created only when something needs it.
+
+A worktree lane's header carries a close, which runs the same close `mael close` runs — see
+[orchestrator-server.md](orchestrator-server.md), "Closing a worktree". It never forces. `_main`
+never closes and is offered no button.
 
 Commenting on a document takes one drag. Selecting text shows a "Comment on selection" control
 level with the selection. Clicking it paints the selection in a stronger highlight and opens the

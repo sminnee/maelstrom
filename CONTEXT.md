@@ -498,6 +498,12 @@ screen instead of across it, because a phone has no room for a board. The deck l
 canvas below 840px, and never appears at or above that width.
 _Avoid_: Mobile canvas, card list, feed
 
+**Unallocated**:
+The canvas lane that holds work which resolves to no open worktree, drawn only when grouping by
+worktree. A task whose branch has none lands there, and so does a free agent whose worktree is
+closed or unread. Unallocated stands for no worktree, so its lane offers no close.
+_Avoid_: Ungrouped, orphaned, no worktree
+
 **Task list**:
 The full-width view that lists every task the server knows, with filters for status, project,
 branch and text. The task list is where a task joins the desk, and one of the two places it
