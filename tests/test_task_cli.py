@@ -536,12 +536,12 @@ class TestRun:
         assert result.exit_code == 0, result.output
         assert launch.session.call_args.kwargs["model"] == "opus"
 
-    def test_run_without_a_model_passes_none(self, runner, store, launch):
-        # Empty must reach the launcher as None (no --model), not as "".
+    def test_run_without_a_model_passes_the_default(self, runner, store, launch):
+        # A task that names no model launches on the default, never on "".
         t = model.create(store, project="p", title="Plan it")
         result = runner.invoke(task_cli.task, ["run", t.id])
         assert result.exit_code == 0, result.output
-        assert launch.session.call_args.kwargs["model"] is None
+        assert launch.session.call_args.kwargs["model"] == model.DEFAULT_MODEL
 
     def test_run_here_passes_the_model_too(self, runner, store, launch, monkeypatch):
         # The --here placement builds its own launch line, so it needs its own
@@ -1230,7 +1230,8 @@ class TestRunHere:
             f"mael task prompt {t.id} --project p "
             f"| MAEL_TASK_ID={t.id} MAEL_TASK_PARENT={t.id} "
             f"MAEL_TASK_SESSION_ID={sid} "
-            f"claude --permission-mode plan --session-id {sid}"
+            f"claude --permission-mode plan --model {model.DEFAULT_MODEL} "
+            f"--session-id {sid}"
         )
         kwargs = launch.exec.call_args.kwargs
         assert kwargs["cwd"] is None

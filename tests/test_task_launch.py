@@ -50,7 +50,16 @@ def test_a_parentless_task_self_parents_and_a_normal_mode_has_no_flag():
     assert plan.env["MAEL_TASK_PARENT"] == "NORT-9"
     assert plan.permission_mode is None
     assert plan.branch == model.default_branch("NORT-9", "")
-    assert plan.model is None
+
+
+def test_a_task_that_names_no_model_launches_on_the_default():
+    """The notebook stores no model, so the launch picks one.
+
+    Storing the default instead would pin every task written before the
+    default moved, so the choice is made here, where the session starts.
+    """
+    task = model.Task(id="NORT-9", title="x", project="northwind")
+    assert plan_launch("northwind", task).model == model.DEFAULT_MODEL
 
 
 def test_check_not_live_refuses_a_task_with_a_live_session():

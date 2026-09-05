@@ -36,7 +36,8 @@ class LaunchPlan:
     #: Claude's ``--permission-mode`` value, or ``None`` for its default.
     permission_mode: str | None
     branch: str
-    model: str | None
+    #: The task's model, or :data:`~maelstrom.task.DEFAULT_MODEL` when it names none.
+    model: str
     prompt: str
 
 
@@ -56,7 +57,7 @@ def plan_launch(project: str, task: model.Task) -> LaunchPlan:
         },
         permission_mode=model.permission_mode_for(task.mode),
         branch=task.branch or model.default_branch(task.id, task.parent),
-        model=task.model or None,
+        model=task.model or model.DEFAULT_MODEL,
         prompt=model.build_prompt(task),
     )
 

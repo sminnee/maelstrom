@@ -8,11 +8,13 @@
 export const MODELS = ['opus', 'fable'] as const;
 
 /**
- * The unset model. The launch picks the default for it, so a task left unset
- * follows that default as it moves. `docs/guide/planning.md` asks for this on
- * execute drafts, so a form must be able to say it.
+ * The unset model. The launch substitutes the default for it, so a form must be
+ * able to say it — `docs/guide/planning.md` asks for it on execute drafts.
  */
-export const INHERIT_MODEL = '';
+export const UNSET_MODEL = '';
 
-/** What a new-work form starts on when nothing has chosen a model. */
+/**
+ * What the new-work form pre-selects for a free agent, which has no launch to
+ * default it. A hand-kept mirror of `task.DEFAULT_MODEL`, like `MODES`.
+ */
 export const DEFAULT_MODEL = 'opus';

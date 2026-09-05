@@ -395,7 +395,7 @@ short form `-p`; every other task command takes `--project` in full.
 | `--pre-action TEXT` | Lifecycle action fired when the task starts, e.g. `linear.in-progress`. |
 | `--post-action TEXT` | Lifecycle action fired when the task finishes, e.g. `linear.done`. |
 | `--priority [critical\|high\|medium\|low]` | Task priority. Default `medium`. Affects list ordering and `task next`. |
-| `--model TEXT` | LLM model for the session, e.g. `opus` or a full id. Default: your Claude Code default. |
+| `--model TEXT` | LLM model for the session, e.g. `opus` or a full id. Default: `opus`, applied when the task launches. |
 | `--base TEXT` | Branch to stack this task's branch on. Default: the project's stack tip. Not the same as `--parent`: `--parent` shares one branch and one PR, `--base` stacks a different branch as its own PR. |
 | `--follow TEXT` | Id this task follows. Repeatable. |
 | `--follow-end TEXT` | Follow the end leaves of the given id's follows-chain. Repeatable. Quote `"*"`. |

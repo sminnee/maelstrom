@@ -200,8 +200,8 @@ moves. The form is two steps in one dialog.
   is. The prose is the only field a task needs. A free agent also names a branch, a mode and a
   model.
 - **Step 2, tasks only.** "Next" calls `useInferTask`; the step shows the inferred title, branch
-  and command, every one editable. A task's model starts unset, so it inherits the user's Claude
-  Code default until Advanced names one. The prose becomes the task's content unchanged. "Save" writes
+  and command, every one editable. A task's model starts unset, so it launches on `opus` until
+  Advanced names one. The prose becomes the task's content unchanged. "Save" writes
   the task as `todo`; "Start" writes it and launches it. Both put it on the desk. "Back" returns
   to step 1 with the prose intact.
 - **Free agents skip step 2.** The branch combobox offers the branches of open worktrees in the
