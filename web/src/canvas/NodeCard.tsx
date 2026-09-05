@@ -17,10 +17,18 @@ import { toolCallTitle } from '../session/toolCards';
 import { PanelLink } from '../shell/PanelLink';
 import { useAppStore } from '../store/store';
 import { phaseLabel } from '../protocol/phase';
+import { ago, clockTime, silentFor } from '../protocol/time';
 import { AppButton } from '../ui/AppButton';
 import { StatusPicker } from '../ui/StatusPicker';
+import { useNow } from '../ui/useNow';
 import { NODE } from './layout';
 import styles from './NodeCard.module.css';
+
+/**
+ * How long a working agent may be silent before its age is worth colouring.
+ * One step, not a scale: past this the age is the signal, not the message.
+ */
+const SILENT_MS = 10 * 60_000;
 
 /** The card's width in flow units. Its height comes from its content. */
 export const CARD_WIDTH = 440;
@@ -183,6 +191,13 @@ export function NodeCard({
     .reverse()
     .find((i) => i.type === 'tool_call' && i.status === 'running');
   const now = agent?.lastMessage ?? '';
+  const spokeAt = agent?.lastMessageAt ?? '';
+  const clock = useNow();
+  const age = ago(spokeAt, clock);
+  // An idle agent's silence is not alarming; a working one's is the stall this
+  // display exists to show.
+  const quiet = silentFor(spokeAt, clock);
+  const silent = agent?.state === 'processing' && quiet !== null && quiet >= SILENT_MS;
 
   return (
     <ViewportPortal>
@@ -292,8 +307,20 @@ export function NodeCard({
             <DecisionCard agent={agent} />
           ) : (
             (now || running) && (
-              <div className={styles.now}>
-                <span className={styles.nowHead}>Now</span>
+              <div className={styles.now} data-silent={(age && silent) || undefined}>
+                <div className={styles.nowBand}>
+                  <span className={styles.nowHead}>Now</span>
+                  {age && (
+                    <time
+                      className={styles.nowAge}
+                      data-testid="now-age"
+                      dateTime={spokeAt}
+                      title={clockTime(spokeAt, clock)}
+                    >
+                      {age} ago
+                    </time>
+                  )}
+                </div>
                 <span className={styles.nowText}>
                   {now}
                   {running && running.type === 'tool_call' && (

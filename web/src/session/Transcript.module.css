@@ -3,9 +3,45 @@
   flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
+  /* The gutter is sized here so every row shares one column edge, and the
+     container query below can collapse it in one place. */
+  --gutter: 3.5rem;
+  container-type: inline-size;
 }
+/* A fixed time column, then the card. The times form a clean vertical rule
+   down the left edge and the cards keep their own, so the eye reads either
+   column on its own. */
 .card {
+  display: grid;
+  grid-template-columns: var(--gutter) 1fr;
+  gap: var(--space-3);
   min-width: 0;
+}
+.card > * {
+  min-width: 0;
+}
+.gutter {
+  text-align: right;
+}
+.time {
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+  white-space: nowrap;
+}
+/* The panel is resizable, so this is the panel's width, not the viewport's.
+   Too narrow for a column: the mark moves above the card instead. */
+@container (max-width: 22rem) {
+  .transcript {
+    --gutter: 0;
+  }
+  /* The column is gone, so its gap would only indent every unmarked row. */
+  .card {
+    column-gap: 0;
+  }
+  .gutter {
+    text-align: left;
+    grid-column: 1 / -1;
+  }
 }
 .note,
 .system {

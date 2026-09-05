@@ -14,7 +14,7 @@ unit that needs orders shows it on the canvas itself.
 
 | Layer | Directory | Holds | Imports |
 |---|---|---|---|
-| Protocol | `protocol/` | The entity and transcript types, `phase.ts`, `deskId.ts` | Nothing |
+| Protocol | `protocol/` | The entity and transcript types, `phase.ts`, `deskId.ts`, `time.ts` | Nothing |
 | Backends | `api/`, `live/` | `api/`: the REST client, its query keys, the query cache, one hook per read and per command. `live/`: the change stream that keeps the cache fresh, and the per-agent transcript streams | Protocol |
 | State | `store/`, `selectors/` | The query cache holds the fetched world; one zustand store holds UI state, the connection state and the open transcripts; `selectors/` are pure functions over a `WorldView` | Protocol |
 | UI | `canvas/`, `tasklist/`, `newwork/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, plus the `ui/`, `markdown/` and `styles/` they share, and `test/` for shared test helpers | React components and CSS | State, Protocol |
@@ -23,6 +23,15 @@ The protocol has no React and no I/O. `protocol/phase.ts` reads a task's phase f
 `command` and decides whether a task is actionable. The phase is never sent on the wire, so this
 is the one place the reading happens. An unrecognised command reads as no phase, so a typo in a
 task's frontmatter shows as a node with no phase rather than one claiming a phase it never had.
+
+`protocol/time.ts` writes a moment two ways. `ago` gives the age of one — `<1m`, `7m`, `2h`, `3d`
+— for a live status; `clockTime` gives the time on the clock, for a transcript. Both take `now`
+as an argument rather than reading the clock, so both are pure and a test pins the answer. An
+unreadable stamp gives an empty string, and the caller draws nothing rather than a false age.
+
+`ui/useNow` is the clock those two are given. It is one 30-second interval shared by every age on
+screen, not one timer per card: an age has to advance without a message arriving, and a desk of
+forty cards should not cost forty timers. The interval stops when the last age leaves the screen.
 
 `protocol/progress.ts` decides how a node draws. One call to `progressOf` gives the state, the
 state in words, and the drift between the task file and the agent observed on it. State and

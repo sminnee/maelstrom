@@ -33,6 +33,94 @@ describe('Transcript', () => {
     }
   });
 
+  it('marks the gutter only where the minute moved, so the column is a timeline', () => {
+    const said = (id: string, ts: string): TranscriptItem => ({
+      id,
+      ts,
+      type: 'message',
+      role: 'assistant',
+      markdown: id,
+    });
+    render(
+      <Transcript
+        truncatedBefore={false}
+        items={[
+          said('m1', '2026-09-05T07:31:04Z'),
+          said('m2', '2026-09-05T07:31:48Z'),
+          said('m3', '2026-09-05T07:32:02Z'),
+        ]}
+      />,
+    );
+    const printed = screen
+      .getAllByTestId('transcript-card')
+      .map((c) => within(c).queryByTestId('item-time')?.textContent ?? '');
+    // Two marks for three items: the second says nothing new.
+    expect(printed[0]).not.toBe('');
+    expect(printed[1]).toBe('');
+    expect(printed[2]).not.toBe('');
+    expect(printed[2]).not.toBe(printed[0]);
+  });
+
+  it('leaves the gutter empty for an item that carries no time', () => {
+    render(
+      <Transcript
+        truncatedBefore={false}
+        items={[{ id: 'm1', ts: '', type: 'message', role: 'assistant', markdown: 'hi' }]}
+      />,
+    );
+    expect(screen.queryByTestId('item-time')).toBeNull();
+  });
+
+  it('carries the machine-readable instant and the full time on the mark', () => {
+    render(
+      <Transcript
+        truncatedBefore={false}
+        items={[
+          {
+            id: 'm1',
+            ts: '2026-09-05T07:31:04Z',
+            type: 'message',
+            role: 'assistant',
+            markdown: 'hi',
+          },
+        ]}
+      />,
+    );
+    const time = screen.getByTestId('item-time');
+    expect(time.tagName).toBe('TIME');
+    expect(time).toHaveAttribute('datetime', '2026-09-05T07:31:04Z');
+  });
+
+  it('the item that draws nothing takes no mark and does not move the run', () => {
+    const said = (id: string, ts: string): TranscriptItem => ({
+      id,
+      ts,
+      type: 'message',
+      role: 'assistant',
+      markdown: id,
+    });
+    const skipped: TranscriptItem = {
+      id: 'w1',
+      // An hour later, so a mark here would be unmistakable.
+      ts: '2026-09-05T08:31:00Z',
+      type: 'tool_call',
+      toolUseId: 'w1',
+      tool: 'AskUserQuestion',
+      input: {},
+      status: 'running',
+    };
+    expect(raisesAWait(skipped)).toBe(true);
+    render(
+      <Transcript
+        truncatedBefore={false}
+        items={[said('m1', '2026-09-05T07:31:04Z'), skipped, said('m2', '2026-09-05T07:31:48Z')]}
+      />,
+    );
+    // The skipped item's hour never appears, and the message after it still
+    // reads as the same minute as the one before.
+    expect(screen.getAllByTestId('item-time')).toHaveLength(1);
+  });
+
   it('shows a Bash command with its output and a Write as its content', () => {
     render(<Transcript items={goldenItems('plan-review.jsonl')} truncatedBefore={false} />);
     const cards = screen.getAllByTestId('transcript-card');

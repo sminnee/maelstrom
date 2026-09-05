@@ -231,6 +231,12 @@ the outcome is unknown, not that the answer was no: a tool approved in the cmux 
 and the orchestrator only knows it never saw the answer.
 _Avoid_: Abandoned, orphaned, expired
 
+**Silent agent**:
+A working agent that has said nothing for ten minutes. The node card colours the age of its last
+message, because past that point the age is the signal and the message is not. An idle agent is
+never silent in this sense — an idle agent has nothing to say, and its age is not alarming.
+_Avoid_: Stale (a stale prompt is a different thing), stalled, hung
+
 **Drift**:
 A task status that disagrees with the agent observed on the task. Three kinds, the same three
 `mael task reconcile` names: *finished*, *never-ran*, *orphan-session*. The agent wins when the
