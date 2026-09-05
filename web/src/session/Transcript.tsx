@@ -4,6 +4,7 @@ import { clockTime } from '../protocol/time';
 import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
 import { AgentMessage } from './cards/AgentMessage';
+import { BashCard } from './cards/BashCard';
 import { PermissionPrompt } from './cards/PermissionPrompt';
 import { QuestionPrompt } from './cards/QuestionPrompt';
 import { ResultLine } from './cards/ResultLine';
@@ -173,6 +174,10 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
           {item.droppedEvents} earlier events were dropped here.
         </div>
       );
+    case 'shell':
+      // The same card a Bash tool call draws: a `!` line and a Bash call are
+      // the same thing to the reader, whoever asked for it.
+      return <BashCard command={item.command} output={item.output} status={item.status} />;
     case 'skill':
       return (
         <details className={styles.skill} data-testid="skill">

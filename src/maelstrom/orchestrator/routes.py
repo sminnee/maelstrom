@@ -314,6 +314,11 @@ _AGENT_ACTIONS: dict[str, Callable[[str, dict[str, Any]], dict[str, Any]]] = {
         "agentId": agent_id,
         **({"text": body["text"]} if "text" in body else {}),
     },
+    "run": lambda agent_id, body: {
+        "type": "agent.run",
+        "agentId": agent_id,
+        **({"command": body["command"]} if "command" in body else {}),
+    },
     "set-mode": lambda agent_id, body: {
         "type": "agent.setMode",
         "agentId": agent_id,

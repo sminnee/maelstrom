@@ -83,6 +83,17 @@ export function useSay() {
   );
 }
 
+/**
+ * Run a shell command in the agent's directory and give it the output.
+ *
+ * Nothing is asked of the agent, so this is not a `say` with a prefix.
+ */
+export function useRun() {
+  return useAgentMutation((api, vars: { agentId: AgentId; command: string }) =>
+    api.post(`/api/agents/${vars.agentId}/run`, { command: vars.command }),
+  );
+}
+
 /** Change a running agent's permission mode. The child's own status event moves the world. */
 export function useSetMode() {
   return useAgentMutation((api, vars: { agentId: AgentId; mode: string }) =>

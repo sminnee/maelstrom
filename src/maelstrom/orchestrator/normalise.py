@@ -54,6 +54,8 @@ class NormaliseContext:
     last_assistant_text: str = ""
     #: Tool uses the CLI refused by rule; their tool_result arrives as ``denied``.
     denied_tool_uses: tuple[str, ...] = ()
+    #: The shell item still waiting for its output turn, if any.
+    open_shell: str | None = None
 
 
 @dataclass(frozen=True)
@@ -196,7 +198,37 @@ def normalise_stream_event(
         for block in _blocks(raw):
             if block.get("type") == "text" and _str(block.get("text")):
                 text = _str(block["text"])
+                command = _shell_input(text)
+                output = _shell_output(text)
                 skill = _skill_loaded(text)
+                if command is not None:
+                    # The shell turns carry no request, so the agent's state
+                    # does not move here. An assistant event that follows
+                    # moves it on its own.
+                    item_id = out.append(
+                        {
+                            "type": "shell",
+                            "command": command,
+                            "output": "",
+                            "status": "running",
+                        }
+                    )
+                    out.ctx = replace(out.ctx, open_shell=item_id)
+                    continue
+                if output is not None:
+                    patch = {"output": output, "status": "done"}
+                    if out.ctx.open_shell is not None:
+                        out.update(out.ctx.open_shell, patch)
+                        out.ctx = replace(out.ctx, open_shell=None)
+                    else:
+                        # The ring truncated the command away. Showing the
+                        # output alone beats dropping it.
+                        out.append({"type": "shell", "command": "", **patch})
+                    continue
+                # Any other turn ends the wait for an output turn. A pair
+                # broken by a daemon restart would otherwise leave the binding
+                # set, and the next command's output would land on this item.
+                out.ctx = replace(out.ctx, open_shell=None)
                 if skill is None:
                     out.append({"type": "message", "role": "user", "markdown": text})
                 else:
@@ -641,6 +673,33 @@ def _skill_loaded(text: str) -> str | None:
     name = parts[-1]
     plugin = _plugin_of(parts)
     return f"{plugin}:{name}" if plugin else name
+
+
+#: The whole turn is one tag and nothing else, which is how the harness writes
+#: it. Matching the tag loosely would fold any message that merely quotes it
+#: out of sight behind a shell card.
+_SHELL_INPUT = re.compile(r"^<bash-input>([\s\S]*)</bash-input>$")
+_SHELL_OUTPUT = re.compile(
+    r"^<bash-stdout>([\s\S]*)</bash-stdout><bash-stderr>([\s\S]*)</bash-stderr>$"
+)
+
+
+def _shell_input(text: str) -> str | None:
+    """The command a shell-input turn names, or ``None`` for another turn."""
+    match = _SHELL_INPUT.match(text)
+    return match.group(1) if match else None
+
+
+def _shell_output(text: str) -> str | None:
+    """What a shell command wrote, or ``None`` for another turn.
+
+    The two streams join for display: the card shows what the terminal would.
+    They travel apart because the agent reads a failure as stderr text.
+    """
+    match = _SHELL_OUTPUT.match(text)
+    if match is None:
+        return None
+    return "".join(part for part in (match.group(1), match.group(2)) if part)
 
 
 def _plugin_of(parts: list[str]) -> str:

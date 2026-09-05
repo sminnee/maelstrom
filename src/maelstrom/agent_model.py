@@ -1241,6 +1241,57 @@ def _question_details(pending: PendingRequest | None) -> list[dict[str, Any]]:
 # --- messages written back to the child ------------------------------------
 
 
+#: The tags Claude Code's own ``!`` writes a shell command and its output under.
+#: Reusing them means an agent meets a maelstrom shell command in exactly the
+#: shape it meets one typed into a terminal. The CLI also declares a
+#: ``bash-exit-code`` tag and never emits one, so neither does this.
+SHELL_INPUT_TAG = "bash-input"
+SHELL_STDOUT_TAG = "bash-stdout"
+SHELL_STDERR_TAG = "bash-stderr"
+
+
+def _untagged(text: str) -> str:
+    """``text`` with the shell tag literals defused.
+
+    The turns are tags around raw command output, so output holding a closing
+    tag would end its own field early: the reader would split at the wrong
+    point and file part of stdout under stderr. Running ``cat`` on a file that
+    documents this format does exactly that. A zero-width space after each
+    ``<`` keeps the text readable and stops it closing a tag.
+    """
+    for tag in (SHELL_INPUT_TAG, SHELL_STDOUT_TAG, SHELL_STDERR_TAG):
+        text = text.replace(f"</{tag}>", f"<\u200b/{tag}>")
+        text = text.replace(f"<{tag}>", f"<\u200b{tag}>")
+    return text
+
+
+def shell_input_message(command: str) -> dict[str, Any]:
+    """The user turn naming a shell command the host is about to run.
+
+    The content is a plain string rather than a block list, which is the shape
+    the harness itself writes. ``normalise._blocks`` reads both.
+    """
+    return _string_turn(f"<{SHELL_INPUT_TAG}>{_untagged(command)}</{SHELL_INPUT_TAG}>")
+
+
+def shell_output_message(stdout: str, stderr: str) -> dict[str, Any]:
+    """The user turn carrying what a shell command wrote.
+
+    Both tags are always present, empty when unused, the way the harness writes
+    them. The streams stay apart because a failure reaches the agent as stderr
+    text — there is no exit code on this format.
+    """
+    return _string_turn(
+        f"<{SHELL_STDOUT_TAG}>{_untagged(stdout)}</{SHELL_STDOUT_TAG}>"
+        f"<{SHELL_STDERR_TAG}>{_untagged(stderr)}</{SHELL_STDERR_TAG}>"
+    )
+
+
+def _string_turn(text: str) -> dict[str, Any]:
+    """A user turn whose content is a plain string, as the harness writes one."""
+    return {"type": "user", "message": {"role": "user", "content": text}}
+
+
 def user_message(text: str) -> dict[str, Any]:
     """A user turn, the way the stream-json input format wants it.
 

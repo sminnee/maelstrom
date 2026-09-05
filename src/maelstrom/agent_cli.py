@@ -636,6 +636,19 @@ def cmd_say(agent_id: str, text: str) -> None:
     _send({"cmd": "say", "id": agent_id, "text": text})
 
 
+@agent.command("run")
+@click.argument("agent_id")
+@click.argument("command")
+def cmd_run(agent_id: str, command: str) -> None:
+    """Run COMMAND in the agent's directory and give it the output.
+
+    The same thing a `!` line does in the Claude Code terminal: the host runs
+    it, and the command and its output become context. The agent does not act
+    on it and starts no turn.
+    """
+    _send({"cmd": "run", "id": agent_id, "command": command})
+
+
 @agent.command("answer")
 @click.argument("agent_id")
 @click.argument("choice")

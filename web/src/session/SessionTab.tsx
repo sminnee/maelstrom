@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useAnswer, useApprove, useDeny, useSay, useSetMode } from '../api/agents';
+import { useAnswer, useApprove, useDeny, useRun, useSay, useSetMode } from '../api/agents';
 import { useWorld } from '../api/useWorld';
 import { useAgentStream } from '../live/useAgentStream';
 import type { Agent } from '../protocol/entities';
@@ -26,6 +26,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
   const deny = useDeny();
   const answer = useAnswer();
   const say = useSay();
+  const run = useRun();
   const setMode = useSetMode();
   const { world } = useWorld();
   const agent = world.agents[agentId];
@@ -104,6 +105,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
         <MessageInput
           disabled={agent.state === 'exited'}
           onSend={(text) => say.mutateAsync({ agentId, text })}
+          onRun={(command) => run.mutateAsync({ agentId, command })}
         />
       )}
     </div>

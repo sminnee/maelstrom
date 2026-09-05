@@ -383,7 +383,7 @@ function command(
   const now = () => new Date().toISOString();
 
   let m = pathname.match(
-    /^\/api\/agents\/([^/]+)\/(approve|deny|answer|say|stop|resume|set-mode)$/,
+    /^\/api\/agents\/([^/]+)\/(approve|deny|answer|say|run|stop|resume|set-mode)$/,
   );
   if (m && method === 'POST') {
     const agentId = m[1]!;
@@ -414,6 +414,20 @@ function command(
         type: 'message',
         role: 'user',
         markdown: text,
+      });
+      return ok({});
+    }
+    if (action === 'run') {
+      const command = str('command')?.trim() ?? '';
+      if (!command) return error(400, 'invalid', 'Command is empty');
+      // The host runs it and injects the turns; the fake states the result.
+      server.append(agentId, {
+        id: `m${mint()}`,
+        ts: now(),
+        type: 'shell',
+        command,
+        output: '',
+        status: 'done',
       });
       return ok({});
     }

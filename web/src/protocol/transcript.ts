@@ -109,6 +109,14 @@ export interface SkillItem extends Base {
   markdown: string;
 }
 
+/** A shell command the host ran for a `!` line, and what it wrote. */
+export interface ShellItem extends Base {
+  type: 'shell';
+  command: string;
+  output: string;
+  status: ToolCallStatus;
+}
+
 export type TranscriptItem =
   | MessageItem
   | ToolCallItem
@@ -119,7 +127,8 @@ export type TranscriptItem =
   | SystemItem
   | ErrorItem
   | GapItem
-  | SkillItem;
+  | SkillItem
+  | ShellItem;
 
 export interface Transcript {
   agentId: AgentId;

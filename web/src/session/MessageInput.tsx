@@ -5,10 +5,13 @@ import styles from './MessageInput.module.css';
 
 export function MessageInput({
   onSend,
+  onRun,
   disabled,
 }: {
   /** Resolves once the agent took the message; a rejection keeps the text for a retry. */
   onSend: (text: string) => void | Promise<unknown>;
+  /** Resolves once the host ran the command of a `!` line. */
+  onRun: (command: string) => void | Promise<unknown>;
   disabled?: boolean;
 }) {
   const [text, setText] = useState('');
@@ -21,6 +24,14 @@ export function MessageInput({
   // both paths share one state.
   const send = async () => {
     if (!trimmed) return;
+    // The `!` prefix is the instruction, so it does not travel with the command.
+    if (trimmed.startsWith('!')) {
+      const command = trimmed.slice(1).trim();
+      if (!command) return;
+      await onRun(command);
+      setText('');
+      return;
+    }
     await onSend(trimmed);
     setText('');
   };
@@ -33,8 +44,8 @@ export function MessageInput({
           disabled
             ? 'The agent has exited.'
             : enterSends
-              ? 'Say something to the agent… (Enter to send)'
-              : 'Say something to the agent…'
+              ? 'Say something to the agent, or !run a command… (Enter to send)'
+              : 'Say something to the agent, or !run a command…'
         }
         value={text}
         disabled={disabled}

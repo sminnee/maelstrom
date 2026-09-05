@@ -44,6 +44,7 @@ from .agent_model import (
     IDLE,
     INTERRUPTED_REASON,
     INTERRUPTIBLE,
+    MESSAGE_CHARS,
     MODES,
     SEQ_KEY,
     SPEC_EXITED,
@@ -73,6 +74,8 @@ from .agent_model import (
     reply_for_approval,
     reply_for_denial,
     set_mode_request,
+    shell_input_message,
+    shell_output_message,
     subagent_of,
     user_message,
 )
@@ -245,6 +248,58 @@ class Watcher:
 def _truncated(dropped: int) -> dict[str, Any]:
     """The marker for events a client should have seen and cannot."""
     return {"type": TRUNCATED, "dropped": dropped}
+
+
+#: Per stream. The same bound the daemon keeps a retained message to.
+SHELL_OUTPUT_CHARS = MESSAGE_CHARS
+#: How long a shell command may run before it is killed. It blocks the reply,
+#: so an unbounded command would hang the caller and the console with it.
+SHELL_TIMEOUT_SECS = 30.0
+
+
+async def _run_shell(command: str, cwd: str) -> tuple[str, str]:
+    """Run one shell command in ``cwd`` and return its two streams.
+
+    ``asyncio.create_subprocess_shell`` and not ``shell.run_cmd``: the daemon
+    runs one event loop for every agent it holds, so the sync chokepoint would
+    block all of them for the length of the command. This is that module's
+    async counterpart, not a way around it.
+
+    ``start_new_session`` puts the command in its own process group, so the
+    timeout kills a pipeline whole. Killing the ``sh`` alone would leave its
+    children holding the worktree and its ports, the way ``env`` tears a
+    service down.
+    """
+    proc = await asyncio.create_subprocess_shell(
+        command,
+        cwd=cwd or None,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        out, err = await asyncio.wait_for(
+            proc.communicate(), timeout=SHELL_TIMEOUT_SECS
+        )
+    except asyncio.TimeoutError:
+        try:
+            # Through the module seam, not `os.killpg` directly: a test's stub
+            # pid may be a real process on the developer's machine.
+            kill_group(proc.pid, signal.SIGKILL)
+        except OSError:
+            # The group went between the timeout and the kill.
+            proc.kill()
+        await proc.wait()
+        return "", f"command timed out after {SHELL_TIMEOUT_SECS:.0f}s"
+    return _clip(out), _clip(err)
+
+
+def _clip(raw: bytes) -> str:
+    """One stream as text, bounded, saying so when it was cut."""
+    text = raw.decode("utf-8", "replace").rstrip("\n")
+    if len(text) <= SHELL_OUTPUT_CHARS:
+        return text
+    return text[:SHELL_OUTPUT_CHARS] + "\n… output truncated"
 
 
 def _unreachable(agent: "Agent") -> dict[str, Any]:
@@ -538,6 +593,7 @@ class _DeadProcess:
 #: parent does.
 DRIVING_COMMANDS = (
     "say",
+    "run",
     "answer",
     "approve",
     "deny",
@@ -1045,6 +1101,28 @@ class AgentDaemon:
         if command == "say":
             # Not recorded: the child replays a user turn itself.
             if not await agent.send(user_message(payload["text"])):
+                return _unreachable(agent)
+            return {"ok": True}
+
+        if command == "run":
+            shell_command = str(payload.get("command", "")).strip()
+            if not shell_command:
+                return {"error": "no command given"}
+            # The agent takes the command turn before the command runs, so a
+            # child that will not take it costs nothing. Sending the pair the
+            # other way round could leave a command turn with no output turn
+            # after it, and the UI holds that item open for ever.
+            if not await agent.send(shell_input_message(shell_command)):
+                return _unreachable(agent)
+            try:
+                stdout, stderr = await _run_shell(shell_command, agent.state.cwd)
+            except OSError as exc:
+                # A worktree removed under a live agent leaves a cwd that is
+                # gone. Without this the exception escapes `handle`, and the
+                # connection closes with no reply for the caller to read.
+                stdout, stderr = "", f"could not run command: {exc}"
+            # Neither turn is recorded, for the reason `say` gives above.
+            if not await agent.send(shell_output_message(stdout, stderr)):
                 return _unreachable(agent)
             return {"ok": True}
 

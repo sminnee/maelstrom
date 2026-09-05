@@ -181,6 +181,12 @@ def _widget_for(item: TranscriptItem) -> Widget | None:
     if kind == "skill":
         # The body is a whole file, so the line names the skill and drops it.
         return Static(f"skill › {item['skill']}", classes="dim", markup=False)
+    if kind == "shell":
+        output = item.get("output", "")
+        text = f"! {item.get('command', '')}"
+        if output:
+            text += f"\n{output}"
+        return Static(text, classes="dim", markup=False)
     return None  # a system/init item is footer material, not a transcript line
 
 
@@ -660,18 +666,27 @@ class AttachApp(App[None]):
         text = event.value.strip()
         if not text:
             return
-        reply = await self.client.request(
-            {"cmd": "say", "id": self.agent_id, "text": text}
-        )
+        # A `!` line runs a shell command. It asks the agent for nothing, so
+        # the working line stays off.
+        shell = text.startswith("!")
+        if shell:
+            command = text[1:].strip()
+            if not command:
+                return
+            request = {"cmd": "run", "id": self.agent_id, "command": command}
+        else:
+            request = {"cmd": "say", "id": self.agent_id, "text": text}
+        reply = await self.client.request(request)
         if "error" in reply:
             # Keep what was typed: losing it to a transient error is worse than
             # the error itself.
             self.notify(str(reply["error"]), severity="error")
             return
         event.input.value = ""
-        # The agent has not answered yet, so its state is still whatever it was.
-        # Show the line now rather than waiting for the first event to arrive.
-        self._set_working(True)
+        if not shell:
+            # The agent has not answered yet, so its state is still whatever it
+            # was. Show the line now rather than waiting for the first event.
+            self._set_working(True)
 
     def action_interrupt(self) -> None:
         """Abandon the running turn. A no-op when there is not one."""
