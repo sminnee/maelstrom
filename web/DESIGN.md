@@ -243,8 +243,40 @@ Spacing runs on a 4px base with four steps in use: 4, 8, 12, 16. Component paddi
 scale; the canvas uses its own constants because it positions in absolute pixels.
 
 Density is the point. The operator wants many units visible at once, so containers are tight
-and gaps are small. There is no responsive breakpoint system: this is a main-monitor tool and
-the panel's drag grip is how the operator trades one surface against the other.
+and gaps are small. The panel's drag grip is how the operator trades one surface against the
+other.
+
+### The narrow layout
+
+One breakpoint, at 840px. Below it the board does not fit: the canvas needs room for a node, a
+card beside it and a 320px panel, and under 840px it is a sliver rather than a board. So the
+narrow layout does not shrink the wide one — it replaces it.
+
+The deck list takes the canvas's place. The three zones run left to right on a board as vertical
+stripes; on a phone the same three run as tabs, opening on running. The model does not change
+between the surfaces, only the axis. A row keeps the task node's three registers — the title, the
+state in words, then the identity — and its whole state vocabulary, drawn as a full-width band
+with the phase bar still on its left edge.
+
+One thing owns the screen. There is no panel and no tab strip: a node's detail, a session and a
+document each take the viewport, and a back arrow returns. The wide layout's floating card has no
+place here, so the detail is flat — it overlaps nothing, and the Overlap Test says it earns no
+shadow.
+
+Three rules hold below the break:
+
+**The Thumb Floor Rule.** Anything a finger presses is at least 44px (`--touch`). Density is
+bought back with space, never by going under the floor. The 12px type floor still holds. A form
+field in a dialog goes to 16px, because iOS zooms the page on a smaller one and does not zoom
+back; the other fields have not been brought to that floor yet.
+
+**The Quiet List Rule.** A row cannot glow without lighting its neighbours, so needs-attention
+draws as a field wash and an amber rule rather than the board's glow. It is still the one loud
+state, and still the only interrupt.
+
+**The Nothing Hidden Rule.** Every command the wide layout offers stays reachable: approve, deny,
+answer, set status, launch, add to and remove from the desk, edit, and start new work. The one
+thing dropped is the comment margin, which draws nothing today.
 
 ### Named Rules
 
