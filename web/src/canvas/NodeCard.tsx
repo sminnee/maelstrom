@@ -7,10 +7,10 @@ import { useWorld } from '../api/useWorld';
 import { useAgentStream } from '../live/useAgentStream';
 import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
-import { deskIdForAgent } from '../protocol/deskId';
+import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
 import { driftFixLabel, driftSentence } from '../protocol/progress';
 import type { GraphNode } from '../selectors/graph';
-import { nodeTitle } from '../selectors/graph';
+import { isLive, nodeTitle } from '../selectors/graph';
 import { describeDocumentStatus } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { toolCallTitle } from '../session/toolCards';
@@ -330,7 +330,7 @@ export function NodeCard({
                   variant="quiet"
                   // Disabled while live: the node draws regardless, so a
                   // dismiss now would do nothing.
-                  disabled={agent.state !== 'exited'}
+                  disabled={isLive(agent)}
                   onClick={async () => {
                     await removeFromDesk.mutateAsync({ id: deskIdForAgent(agent.id) });
                     collapseNode();
@@ -339,7 +339,20 @@ export function NodeCard({
                   Dismiss
                 </AppButton>
               )}
-              {agent && agent.state !== 'exited' && (
+              {/* Hidden rather than disabled, unlike Dismiss above: a task keeps
+                  its task list row as the other way off the desk. */}
+              {node.kind === 'task' && task && !isLive(agent) && (
+                <AppButton
+                  variant="quiet"
+                  onClick={async () => {
+                    await removeFromDesk.mutateAsync({ id: deskIdForTask(task.id) });
+                    collapseNode();
+                  }}
+                >
+                  Remove from desk
+                </AppButton>
+              )}
+              {agent && isLive(agent) && (
                 <AppButton variant="quiet" onClick={() => stop.mutateAsync({ agentId: agent.id })}>
                   Stop
                 </AppButton>

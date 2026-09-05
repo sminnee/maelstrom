@@ -403,7 +403,9 @@ every agent it sees start, and the entry outlives the agent, so stopped work sta
 canvas until the user dismisses it. A restart rebuilds the agents, so an entry naming an agent
 that is gone is dropped as the desk loads. Each entry names its kind — `task:<project>/<notebook id>`
 or `agent:<agent id>`. The desk is tracked apart from the notebook and is not a status, so a
-task stays on the desk whatever its status. There is one desk today, and one per user later.
+task stays on the desk whatever its status. A task leaves the desk from its own node or from
+its task list row; a free agent leaves from its node only. There is one desk today, and one per
+user later.
 _Avoid_: Workspace, board, pinned
 
 **Free agent**:
@@ -429,8 +431,9 @@ _Avoid_: Band, column group, stage, phase
 
 **Task list**:
 The full-width view that lists every task the server knows, with filters for status, project,
-branch and text. The task list is where a task joins the desk or leaves it. It lists tasks only:
-a free agent has no row, and is dismissed from its node on the canvas.
+branch and text. The task list is where a task joins the desk, and one of the two places it
+leaves it. It lists tasks only: a free agent has no row, and is dismissed from its node on the
+canvas.
 _Avoid_: Table view, index
 
 **Task editor**:

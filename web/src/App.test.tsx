@@ -131,6 +131,31 @@ describe('App', () => {
     );
   });
 
+  it('removes a task from the desk from its own card', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('NORT-9.1');
+    const card = screen.getByRole('dialog', { name: 'Watch the migration PR' });
+
+    await user.click(within(card).getByRole('button', { name: 'Remove from desk' }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-task-id="NORT-9.1"]')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('offers no removal on a task whose agent is live, since the node draws on regardless', async () => {
+    await renderApp();
+    clickNode('NORT-9');
+    const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
+
+    // Stop proves the footer rendered, so the absence below is the guard at
+    // work rather than a card that drew nothing.
+    expect(within(card).getByRole('button', { name: 'Stop' })).toBeInTheDocument();
+    expect(
+      within(card).queryByRole('button', { name: 'Remove from desk' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('draws a free agent once, named by the worktree it runs in', async () => {
     await renderApp();
     const node = document.querySelector('[data-task-id="f2c6a9d4"]');

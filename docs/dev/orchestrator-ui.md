@@ -155,9 +155,10 @@ agent linked to a task draws as that task's node, so nothing appears twice. Edge
 never a node's agent and never a node: it is reached through its parent's session tab.
 
 The task list lists tasks only. A free agent has no row, and is dismissed from its own expanded
-card instead. That control is disabled while the agent runs, because a live agent is drawn
-whatever the desk says; a remove that arrives anyway is accepted and takes effect once the agent
-stops.
+card. That control is disabled while the agent runs, because a live agent is drawn whatever the
+desk says; a remove that arrives anyway is accepted and takes effect once the agent stops. A task
+is removed from its own card too, under the label its task list row uses. That control is hidden
+rather than disabled, because the task list row remains as the other way off the desk.
 
 A node shows the bare notebook id, because its lane already names the project. A free agent
 shows the head of its agent id, having no notebook id. A panel tab shows the qualified id,

@@ -142,10 +142,10 @@ correct the page they used if it turns out to be wrong. See
 `web/` holds a web app that shows every agent as a node on one canvas, with edges for the work
 each node unblocks, and captures your checkpoints in the tool: plan approval, questions,
 permissions, document feedback. The canvas shows the work on your desk plus everything running
-right now; the task list is where you add a task to the desk or take it off. The list opens on
-live work, and it also edits a task: its status, its title, its content and more. The top bar's
-"New" control starts new work without leaving the page: a task, whose title, branch and command
-are inferred from the prose you type, or a free agent in a branch's worktree.
+right now; the task list is where you add a task to the desk, and either view takes it off. The
+list opens on live work, and it also edits a task: its status, its title, its content and more.
+The top bar's "New" control starts new work without leaving the page: a task, whose title,
+branch and command are inferred from the prose you type, or a free agent in a branch's worktree.
 `mael orchestrator serve` runs the orchestrator server behind it, which builds that world from
 the task notebook, `list-all` and the agent host. See
 [the orchestrator UI](../dev/orchestrator-ui.md) for how the app is built and how to run it, and
