@@ -282,6 +282,35 @@ def test_spec_from_dict_fills_in_what_an_older_record_lacks():
     spec = spec_from_dict({"agent_id": "a1", "cwd": "/w", "session_id": "sid"})
     assert spec.status == "running"
     assert spec.env == {}
+    # The fields that name the child: absent from a record an older daemon
+    # wrote, and read as "unknown" rather than refused.
+    assert spec.pid is None
+    assert spec.started_at == ""
+    assert spec.last_status == ""
+
+
+def test_the_record_names_its_child_and_round_trips_it():
+    """The pid is what lets the next daemon tell a live child from a dead one."""
+    spec = AgentSpec(
+        agent_id="a1",
+        cwd="/w",
+        session_id="sid",
+        pid=4242,
+        started_at="2026-09-05T10:00:00+00:00",
+        last_status="idle",
+    )
+    data = spec_to_dict(spec)
+    assert data["pid"] == 4242
+    assert data["started_at"] == "2026-09-05T10:00:00+00:00"
+    assert data["last_status"] == "idle"
+    assert spec_from_dict(data) == spec
+
+
+def test_the_row_carries_the_childs_pid():
+    """So `mael agent list` and the orchestrator can see which process an agent is."""
+    row = build_agent_row(AgentState(agent_id="a1", cwd="/tmp/x", pid=4242))
+    assert row["pid"] == 4242
+    assert build_agent_row(AgentState(agent_id="a1", cwd="/tmp/x"))["pid"] is None
 
 
 # --- the row `mael agent list` renders -------------------------------------
@@ -1082,6 +1111,7 @@ def test_subagent_rows_take_the_row_shape_under_the_parent():
         "state": "exited(0)",
         "session": "67abe140-d302-472e-aae5-99d423dfa180",
         "cwd": "/tmp/x",
+        "pid": None,
         "model": "claude-opus-5",
         "mode": "auto",
         "waiting_on": "",

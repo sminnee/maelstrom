@@ -868,6 +868,46 @@ def test_a_child_that_ends_leaves_an_exited_record():
     (spec,) = specs.list()
     assert spec.status == "exited"
     assert spec.exit_code == -9
+    # A dead record must never name a pid the system may since have reused.
+    assert spec.pid is None
+
+
+def test_start_records_the_childs_pid_and_start_time():
+    """The record names its child once there is one to name.
+
+    The write before the spawn stays: a daemon killed between the two would
+    otherwise leave a running child no record can find. The write after adds
+    what only the spawn knows.
+    """
+    daemon, specs = _daemon_with_specs()
+    written: list[AgentSpec] = []
+    original = specs.write
+
+    def record(spec: AgentSpec) -> None:
+        written.append(spec)
+        original(spec)
+
+    specs.write = record  # type: ignore[method-assign]
+    _spawning(daemon, [{"cmd": "start", "cwd": "/tmp/x"}])
+    assert written[0].pid is None
+    assert written[1].pid == 4242
+    assert written[1].started_at
+    assert written[1].last_status == ""
+    # The stub's stream is already at its end, so the exit write follows and
+    # clears the pid again — from the record and from the live state.
+    assert written[2].pid is None
+    (agent,) = daemon.agents.values()
+    assert agent.state.pid is None
+
+
+def test_stop_clears_the_pid_from_the_record():
+    daemon, specs = _daemon_with_specs()
+    _spawning(daemon, [{"cmd": "start", "cwd": "/tmp/x"}])
+    agent_id = next(iter(daemon.agents))
+    asyncio.run(_handle(daemon, {"cmd": "stop", "id": agent_id}))
+    (spec,) = specs.list()
+    assert spec.status == SPEC_STOPPED
+    assert spec.pid is None
 
 
 def test_stop_keeps_the_record_and_marks_it_stopped():
@@ -1103,6 +1143,68 @@ def test_a_daemon_shutdown_leaves_its_records_resumable():
 
     (spec,) = specs.list()
     assert spec.status == "running"
+    # The pid stays: a child the kill missed is the next daemon's stray, and
+    # the record is how that daemon finds it.
+    assert spec.pid == 4242
+    assert spec.last_status == "idle"
+
+
+def _shut_down_holding(daemon, specs, *, status: str) -> None:
+    """Spawn one agent, move it to ``status``, and shut the daemon down."""
+    proc = _spawn_stub()
+    proc.stdout.readline = AsyncMock(side_effect=asyncio.Event().wait)
+
+    async def scenario():
+        with patch.object(
+            agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
+        ):
+            await daemon.handle(
+                {"cmd": "start", "cwd": "/tmp/x", "prompt": "go", "session": "sid-1"}
+            )
+        (agent,) = daemon.agents.values()
+        agent.state = replace(agent.state, status=status)
+        with _short_waits():
+            await daemon.shutdown()
+
+    asyncio.run(asyncio.wait_for(scenario(), timeout=5))
+
+
+def test_an_agent_idle_at_shutdown_comes_back_without_a_nudge():
+    """A restart to pick up new code must not wake every idle agent.
+
+    The nudge exists for a turn that was cut short. An agent that had nothing
+    in flight has nothing to be told, and a turn costs money and attention.
+    """
+    daemon, specs = _daemon_with_specs(has_transcript=True)
+    _shut_down_holding(daemon, specs, status="idle")
+    assert specs.list()[0].last_status == "idle"
+
+    proc = _spawn_stub()
+    fresh, _ = _daemon_with_specs(has_transcript=True)
+    fresh.specs = specs
+    with patch.object(
+        agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
+    ):
+        asyncio.run(fresh.restore())
+    proc.stdin.write.assert_not_called()
+    # The status the last daemon saw is spent: the next shutdown writes its own.
+    assert specs.list()[0].last_status == ""
+
+
+def test_an_agent_mid_turn_at_shutdown_comes_back_with_the_nudge():
+    daemon, specs = _daemon_with_specs(has_transcript=True)
+    _shut_down_holding(daemon, specs, status=PROCESSING)
+    assert specs.list()[0].last_status == PROCESSING
+
+    proc = _spawn_stub()
+    fresh, _ = _daemon_with_specs(has_transcript=True)
+    fresh.specs = specs
+    with patch.object(
+        agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
+    ):
+        asyncio.run(fresh.restore())
+    sent = json.loads(proc.stdin.write.call_args.args[0])
+    assert sent["message"]["content"][0]["text"] == DEFAULT_RESUME_PROMPT
 
 
 def test_one_record_that_will_not_start_does_not_stop_the_daemon():

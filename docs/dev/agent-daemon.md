@@ -735,6 +735,9 @@ writes one record per agent to `~/.maelstrom/agents/<agent-id>.json`, holding ex
 | `prompt` | A child that died before its first turn is started again with the prompt it never got |
 | `status` | `running`, `exited` or `stopped`. Only a `stopped` record is invisible to a default `list` |
 | `exit_code` | So `list` still reports the exit after a daemon restart |
+| `pid` | The child, while the record is `running`; `None` once it is known to be gone, so a dead record never names a pid the system has reused. How the next daemon tells a live child from a dead one |
+| `started_at` | When the child was spawned. Orders two `running` records on one session, so the newer wins |
+| `last_status` | What the agent was doing when the last daemon shut down. `idle` means the resume sends no nudge. Reset to `""` on every spawn |
 
 The directory is the root's `agents/`, so a daemon on its own root has its own records and
 cannot resume the real daemon's agents.
@@ -765,6 +768,10 @@ tightens a record it finds loose.
   replaces the default nudge in `agent_model.DEFAULT_RESUME_PROMPT`. The nudge is sent, not
   recorded: the record keeps the opening prompt, so a child that never wrote a transcript can
   still be started fresh with it after any number of resumes.
+- **An agent idle at shutdown comes back silent.** Shutdown writes each record's `last_status`,
+  and a daemon start sends no nudge to a record that says `idle`: the agent had nothing in
+  flight, and a restart to pick up new code must not spend a turn on every agent it held. Any
+  other status, or a record too old to carry one, gets the nudge.
 - **A daemon shutdown does not record an exit.** Stopping a child ends its stream, which would
   otherwise mark the record `exited` and stop the next daemon resuming it.
 
