@@ -91,6 +91,8 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/agents", _start_free_agent)
     app.router.add_post("/api/tasks/infer", _infer_task)
     app.router.add_post("/api/tasks", _create_task)
+    app.router.add_post("/api/attachments", _upload_attachment)
+    app.router.add_get("/api/attachments/{project}/{bucket}/{name}", _serve_attachment)
     app.router.add_post("/api/desk", _desk_add)
     app.router.add_delete("/api/desk/{desk_id:.+}", _desk_remove)
     for method, path in _NOT_IMPLEMENTED:
@@ -339,6 +341,78 @@ async def _agent_command(request: web.Request) -> web.StreamResponse:
         raise web.HTTPNotFound(reason=f"No agent action {request.match_info['action']}")
     agent_id = request.match_info["id"]
     return await _command(request, lambda body: action(agent_id, body))
+
+
+# -- attachments --
+
+
+async def _upload_attachment(request: web.Request) -> web.Response:
+    """Take one image and put it in the task repo.
+
+    Multipart, because the payload is bytes rather than JSON. The reply carries
+    two refs and they are not interchangeable: ``markdown`` holds the portable
+    ``{{MAEL_TASK_DIR}}`` token, which is what a task stores and what the agent
+    later reads from disk, while ``url`` points at this server and is the only
+    one a browser can fetch.
+    """
+    from ..attachments import markdown_ref, save_attachment
+
+    try:
+        reader = await request.multipart()
+    except (ValueError, AssertionError) as exc:
+        return error_response("invalid", f"Body is not multipart: {exc}")
+
+    fields: dict[str, str] = {}
+    filename = ""
+    data = b""
+    while (part := await reader.next()) is not None:
+        if part.name == "file":
+            filename = part.filename or ""
+            data = await part.read(decode=False)
+        elif part.name in ("project", "bucket"):
+            raw = await part.read(decode=False)
+            fields[part.name] = raw.decode("utf-8", "replace")
+
+    project = fields.get("project", "")
+    bucket = fields.get("bucket", "")
+    if not project or not bucket:
+        return error_response("invalid", "An upload needs a project and a bucket")
+    if not data:
+        return error_response("invalid", "An upload needs a file")
+
+    try:
+        token = save_attachment(project, bucket, data, name=filename)
+    except ValueError as exc:
+        # The size cap and the format sniff both land here: the client sent
+        # something this server will not store, and the message says which.
+        return error_response("invalid", str(exc))
+
+    name = token.rsplit("/", 1)[-1]
+    return web.json_response(
+        {
+            "markdown": markdown_ref(filename or name, token),
+            "url": f"/api/attachments/{project}/{bucket}/{name}",
+        }
+    )
+
+
+async def _serve_attachment(request: web.Request) -> web.StreamResponse:
+    """Serve one stored attachment back, so the browser can show it."""
+    from ..attachments import resolve_attachment
+
+    try:
+        found = resolve_attachment(
+            request.match_info["project"],
+            request.match_info["bucket"],
+            request.match_info["name"],
+        )
+    except ValueError as exc:
+        # A name that is a path, not a filename. Refused rather than cleaned:
+        # nothing legitimate sends one.
+        return error_response("invalid", str(exc))
+    except KeyError as exc:
+        return error_response("unknown_id", str(exc))
+    return web.FileResponse(found)
 
 
 def _task_id(request: web.Request) -> str:
