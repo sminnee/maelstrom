@@ -44,6 +44,17 @@ POLL_INTERVAL = 0.025
 #: How much of the log to quote when a spawned daemon dies.
 LOG_TAIL_BYTES = 8192
 
+#: How long a request waits for the daemon's reply line before giving up.
+REPLY_TIMEOUT = 30.0
+
+#: How long a single NDJSON line may be, in bytes.
+#:
+#: ``asyncio``'s default is 64 KiB, and one reply is one line. A stopped
+#: listing carries every resumable session on the machine — hundreds of rows —
+#: which overruns that and kills the read with ``LimitOverrunError``. 16 MiB
+#: leaves ample headroom and still bounds a runaway line.
+STREAM_LIMIT = 16 * 1024 * 1024
+
 
 def resolve_socket_path() -> str:
     """The daemon socket path from the environment, or the default."""
@@ -69,11 +80,23 @@ def autostart_enabled() -> bool:
     return os.environ.get(NO_AUTOSTART_ENV, "") != "1"
 
 
+async def open_connection(
+    socket_path: str, *, limit: int = STREAM_LIMIT
+) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    """One connection to the daemon, as one seam.
+
+    The sibling of :data:`client_factory`, for the callers that open a socket
+    rather than send a command. See "Tests in an agent sandbox" in
+    ``CONTRIBUTING.md`` for what a test hands back here.
+    """
+    return await asyncio.open_unix_connection(socket_path, limit=limit)
+
+
 async def _probe(socket_path: str) -> bool:
     """Whether a daemon already answers on ``socket_path``."""
     try:
         _, writer = await asyncio.wait_for(
-            asyncio.open_unix_connection(socket_path), timeout=PROBE_TIMEOUT
+            open_connection(socket_path), timeout=PROBE_TIMEOUT
         )
     except (OSError, asyncio.TimeoutError):
         return False
@@ -166,18 +189,6 @@ def _reason(offset: int) -> str:
     return f": {tail}" if tail else ""
 
 
-#: How long a request waits for the daemon's reply line before giving up.
-REPLY_TIMEOUT = 30.0
-
-#: How long a single NDJSON line may be, in bytes.
-#:
-#: ``asyncio``'s default is 64 KiB, and one reply is one line. A stopped
-#: listing carries every resumable session on the machine — hundreds of rows —
-#: which overruns that and kills the read with ``LimitOverrunError``. 16 MiB
-#: leaves ample headroom and still bounds a runaway line.
-STREAM_LIMIT = 16 * 1024 * 1024
-
-
 async def request_over_socket(
     socket_path: str, payload: dict[str, Any], *, autostart: bool = True
 ) -> dict[str, Any]:
@@ -193,9 +204,7 @@ async def request_over_socket(
     try:
         if autostart:
             await ensure_daemon(socket_path)
-        reader, writer = await asyncio.open_unix_connection(
-            socket_path, limit=STREAM_LIMIT
-        )
+        reader, writer = await open_connection(socket_path)
     except (OSError, asyncio.TimeoutError) as exc:
         return {"error": f"agent daemon not reachable at {socket_path}: {exc}"}
     try:
@@ -340,9 +349,7 @@ class SocketAsyncDaemonClient:
         try:
             if self.autostart:
                 await ensure_daemon(self.socket_path)
-            reader, writer = await asyncio.open_unix_connection(
-                self.socket_path, limit=STREAM_LIMIT
-            )
+            reader, writer = await open_connection(self.socket_path)
         except (OSError, asyncio.TimeoutError) as exc:
             yield {"error": f"agent daemon not reachable at {self.socket_path}: {exc}"}
             return
