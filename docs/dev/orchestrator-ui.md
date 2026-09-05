@@ -200,7 +200,9 @@ subagent; closing it releases the socket after the usual 5-second grace, and the
 
 Every tool card starts folded. The summary line names the tool, its title and its status, and a
 click opens the body. An agent that makes hundreds of calls is a list, not a wall of text. A
-loaded skill folds the same way, under the skill's name.
+loaded skill folds the same way, under the skill's name. A shell command draws with the same
+card a `Bash` tool call gets, because a `!` line and a `Bash` call are the same thing to the
+reader — see [orchestrator-server.md](orchestrator-server.md#a-shell-command).
 
 A decision shows the last three things the agent said or did, then the prompt. A question
 follows AskUserQuestion's shape; `session/cards/QuestionPrompt.tsx` says why every answer
