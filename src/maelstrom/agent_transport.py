@@ -18,6 +18,7 @@ import asyncio
 import json
 import os
 import subprocess
+import sys
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
@@ -176,6 +177,60 @@ def wait_for_daemon_gone(socket_path: str, timeout: float = GONE_TIMEOUT) -> Non
         time.sleep(0.05)
 
 
+def local_source_tree() -> str:
+    """The tree this code was imported from.
+
+    ``src/maelstrom/agent_transport.py`` sits two directories below the tree
+    root, the same derivation ``build_daemon_identity`` uses for the daemon's
+    own side of the comparison.
+    """
+    return str(Path(__file__).parents[2])
+
+
+async def warn_on_skew(socket_path: str) -> None:
+    """Say so when the daemon answering runs different code than this caller.
+
+    A daemon lives for days holding the modules it imported at start, and a
+    command from a newer tree is served by it silently. That has produced a
+    bug that looked like the feature under development.
+
+    A warning, never a refusal: the daemon works, and stopping it is the
+    caller's decision.
+    """
+    reply = await request_over_socket(socket_path, {"cmd": "ping"}, autostart=False)
+    identity = reply.get("daemon")
+    if not isinstance(identity, dict):
+        # A daemon that cannot answer `ping` predates the command, so it is
+        # older than this code by construction. Staying quiet here would mute
+        # the warning in precisely the case it exists for.
+        #
+        # Match on there being an error at all, not on its words: a pre-`ping`
+        # daemon falls through to the agent lookup and answers "no such agent",
+        # never "unknown command". Only an unreachable daemon is exempt — the
+        # caller's own request reports that better than a warning would.
+        error = str(reply.get("error", ""))
+        if error and "not reachable" not in error:
+            _warn(
+                f"the daemon on {socket_path} is older than this code: it does "
+                "not answer `ping`."
+            )
+        return
+    theirs = str(identity.get("source_tree", ""))
+    ours = local_source_tree()
+    if not theirs or theirs == ours:
+        return
+    _warn(f"the daemon on {socket_path} runs code from {theirs}, not {ours}.")
+
+
+def _warn(what: str) -> None:
+    """One warning line, plus the command that fixes it."""
+    print(
+        f"Warning: {what}\n"
+        "         Run `mael agent daemon restart` to serve from this tree.",
+        file=sys.stderr,
+    )
+
+
 async def ensure_daemon(socket_path: str) -> None:
     """Make sure a daemon answers on ``socket_path``, starting one if not.
 
@@ -190,7 +245,11 @@ async def ensure_daemon(socket_path: str) -> None:
     Raises:
         OSError: If the daemon could not be started, quoting what it wrote.
     """
-    if not autostart_enabled() or await _probe(socket_path):
+    if not autostart_enabled():
+        return
+    if await _probe(socket_path):
+        # It answers, so nothing needs starting — but it may be another tree's.
+        await warn_on_skew(socket_path)
         return
 
     child, offset = spawn_daemon(socket_path)
