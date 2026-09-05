@@ -1,7 +1,4 @@
-import type { Zone } from '../canvas/columns';
-import type { Attention } from './attention';
-import { isOpen } from './attention';
-import type { Agent, Phase, Task } from './entities';
+import type { Phase, Task } from './entities';
 import type { TaskId } from './ids';
 
 /**
@@ -78,57 +75,4 @@ export function phaseLabel(phase: Phase): string {
 export function isActionable(task: Task, tasks: Record<TaskId, Task>): boolean {
   if (['done', 'cancelled', 'blocked', 'template'].includes(task.status)) return false;
   return task.follows.every((id) => tasks[id]?.status === 'done');
-}
-
-/** How a node draws: the state axis, orthogonal to phase. */
-export type NodeState =
-  'queued' | 'ready' | 'working' | 'needs-attention' | 'idle' | 'done' | 'cancelled' | 'exited';
-
-export function nodeState(
-  task: Pick<Task, 'id' | 'status' | 'actionable'> | undefined,
-  agent: Agent | undefined,
-  attention: readonly Attention[],
-): NodeState {
-  if (task?.status === 'done') return 'done';
-  // Cancelled is terminal but not a success, so it never draws as one.
-  if (task?.status === 'cancelled') return 'cancelled';
-  // A dead agent is the stronger signal: its attention item still counts in
-  // the chip, but the node draws red rather than orange. An unknown exit code
-  // counts as abnormal: only an observed 0 is a clean exit.
-  if (agent?.state === 'exited' && agent.exitCode !== 0) return 'exited';
-  const open = attention.some(
-    (item) =>
-      isOpen(item) && ((task && item.taskId === task.id) || (agent && item.agentId === agent.id)),
-  );
-  if (open) return 'needs-attention';
-  // Ready is the one waiting state the operator can act on, so it is the one
-  // that gets a hue: queued is waiting on other work, ready is waiting on them.
-  if (!agent) return task?.actionable ? 'ready' : 'queued';
-  if (agent.state === 'exited') return 'idle';
-  if (agent.state === 'processing') return 'working';
-  return 'idle';
-}
-
-/**
- * Which of the three progress zones a state falls in. The rule underneath: the
- * running zone means an agent has been launched and the task is not finished.
- * Cancelled is history, so it sits with done.
- */
-export function zoneForState(state: NodeState): Zone {
-  switch (state) {
-    case 'done':
-    case 'cancelled':
-      return 'done';
-    // `exited` sits here rather than in done: a run that stopped without the
-    // task being marked done is not history, it is unfinished work that needs
-    // the operator, and the done zone is for work that is actually settled.
-    case 'working':
-    case 'needs-attention':
-    case 'idle':
-    case 'exited':
-      return 'running';
-    case 'ready':
-    case 'queued':
-      return 'notStarted';
-  }
 }

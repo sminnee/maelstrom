@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { isActionable, KNOWN_COMMANDS, nodeState, phaseForCommand, zoneForState } from './phase';
-import { makeAgent, makeAttention, makeTask } from '../test/fixtures';
+import { isActionable, KNOWN_COMMANDS, phaseForCommand } from './phase';
+import { makeTask } from '../test/fixtures';
 
 describe('phaseForCommand', () => {
   it.each([
@@ -60,88 +60,5 @@ describe('isActionable', () => {
   it.each(['done', 'cancelled', 'blocked', 'template'] as const)('is false when %s', (status) => {
     const task = makeTask({ id: 'C', status });
     expect(isActionable(task, { C: task })).toBe(false);
-  });
-});
-
-describe('zoneForState', () => {
-  it.each([
-    ['done', 'done'],
-    // Cancelled is terminal history, and not running.
-    ['cancelled', 'done'],
-    ['working', 'running'],
-    ['needs-attention', 'running'],
-    ['idle', 'running'],
-    // A run that stopped without the task being marked done is unfinished
-    // work, not history.
-    ['exited', 'running'],
-    ['ready', 'notStarted'],
-    ['queued', 'notStarted'],
-  ] as const)('%s sits in the %s zone', (state, zone) => {
-    expect(zoneForState(state)).toBe(zone);
-  });
-});
-
-describe('nodeState', () => {
-  it('is ready for an actionable task with no agent', () => {
-    expect(nodeState(makeTask({ status: 'todo', actionable: true }), undefined, [])).toBe('ready');
-  });
-
-  it('is queued for a task whose turn has not come', () => {
-    expect(nodeState(makeTask({ status: 'todo', actionable: false }), undefined, [])).toBe(
-      'queued',
-    );
-  });
-
-  // Cancelled is neither a success nor a fault: it is work that stopped.
-  it('is cancelled for a cancelled task, apart from done', () => {
-    expect(nodeState(makeTask({ status: 'cancelled' }), undefined, [])).toBe('cancelled');
-    expect(nodeState(makeTask({ status: 'done' }), undefined, [])).toBe('done');
-  });
-
-  it('is working while the agent is processing', () => {
-    expect(nodeState(makeTask({ status: 'in-progress' }), makeAgent(), [])).toBe('working');
-  });
-
-  it('is needs-attention while an open attention item points at the task', () => {
-    const agent = makeAgent({ state: 'awaiting-plan-review' });
-    expect(nodeState(makeTask({ status: 'in-progress' }), agent, [makeAttention()])).toBe(
-      'needs-attention',
-    );
-  });
-
-  it('ignores a cleared attention item', () => {
-    const agent = makeAgent({ state: 'idle' });
-    const cleared = makeAttention({ clearedAt: '2026-09-01T00:01:00Z' });
-    expect(nodeState(makeTask({ status: 'in-progress' }), agent, [cleared])).toBe('idle');
-  });
-
-  it('is done once the task is done, whatever the agent says', () => {
-    expect(nodeState(makeTask({ status: 'done' }), makeAgent(), [makeAttention()])).toBe('done');
-  });
-
-  it('is exited when the agent left with a non-zero code, even with attention open', () => {
-    const agent = makeAgent({ state: 'exited', exitCode: 1 });
-    expect(nodeState(makeTask({ status: 'in-progress' }), agent, [])).toBe('exited');
-    const exited = makeAttention({ kind: 'agent_exited' });
-    expect(nodeState(makeTask({ status: 'in-progress' }), agent, [exited])).toBe('exited');
-    const unknown = makeAgent({ state: 'exited', exitCode: null });
-    expect(nodeState(makeTask({ status: 'in-progress' }), unknown, [])).toBe('exited');
-  });
-
-  it('is idle when the agent exited cleanly', () => {
-    const agent = makeAgent({ state: 'exited', exitCode: 0 });
-    expect(nodeState(makeTask({ status: 'in-progress' }), agent, [])).toBe('idle');
-  });
-
-  it('a free agent takes its state from the agent alone', () => {
-    expect(nodeState(undefined, makeAgent({ state: 'processing' }), [])).toBe('working');
-    expect(nodeState(undefined, makeAgent({ state: 'exited', exitCode: 0 }), [])).toBe('idle');
-    expect(nodeState(undefined, makeAgent({ state: 'exited', exitCode: 1 }), [])).toBe('exited');
-  });
-
-  it('a free agent with open attention needs the user', () => {
-    const agent = makeAgent({ id: 'a1', state: 'awaiting-question' });
-    const raised = makeAttention({ agentId: 'a1', taskId: '' });
-    expect(nodeState(undefined, agent, [raised])).toBe('needs-attention');
   });
 });

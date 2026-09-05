@@ -20,11 +20,45 @@ unit that needs orders shows it on the canvas itself.
 | UI | `canvas/`, `tasklist/`, `newwork/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, plus the `ui/`, `markdown/` and `styles/` they share, and `test/` for shared test helpers | React components and CSS | State, Protocol |
 
 The protocol has no React and no I/O. `protocol/phase.ts` reads a task's phase from its
-`command`, decides whether a task is actionable, and decides how a node draws (`queued`, `ready`,
-`working`, `needs-attention`, `idle`, `done`, `cancelled`, `exited`). The phase is never sent on
-the wire, so this is the one place the reading happens. An unrecognised command reads as no
-phase, so a typo in a task's frontmatter shows as a node with no phase rather than one claiming a
-phase it never had.
+`command` and decides whether a task is actionable. The phase is never sent on the wire, so this
+is the one place the reading happens. An unrecognised command reads as no phase, so a typo in a
+task's frontmatter shows as a node with no phase rather than one claiming a phase it never had.
+
+`protocol/progress.ts` decides how a node draws. One call to `progressOf` gives the state, the
+state in words, and the drift between the task file and the agent observed on it. State and
+words come from one traversal, so they cannot disagree. The drift kinds mirror `reconcile()` in
+`task.py`, with one deliberate divergence: an agent on a closed task carries no mark.
+
+### The life of a task
+
+A task's node reads from two fields at once: the notebook status, and the agent observed on it.
+The ordinary run through them, in order:
+
+| Node reads | Task status | Agent | Zone |
+|---|---|---|---|
+| Queued | `todo` | none | not started |
+| Ready to launch | `todo`, actionable | none | not started |
+| Working | `in-progress` | processing | running |
+| Needs you · … | `in-progress` | awaiting, with an open attention item | running |
+| Idle | `in-progress` | idle | running |
+| Finalising | `done` | still running | running |
+| Done | `done` | stopped, or none | done |
+
+`Finalising` is the step people miss. The task-completion flow pushes the PR, closes the task,
+then runs `watch-pr` to take CI green — so a `done` task with a live agent is the normal tail of
+the work, not a disagreement. It stays in the running zone, because the work is not settled
+until CI is, and it moves to the done zone when the agent stops.
+
+Two branches leave that line. `blocked` and `cancelled` read as themselves. And a status that
+disagrees with the agent is drift: `in-progress` with no agent, or `in-progress` whose agent has
+stopped. Drift draws an amber caret and names both values on the card. It never counts as
+attention, because nothing is waiting on the user.
+
+The card offers a fix only where the client can be sure of one. `finished` offers Mark done, and
+`orphan-session` offers Mark in-progress. `never-ran` offers none: the client reads it from the
+absence of an agent record, and a server that has just restarted has no record of an agent that
+ran before it — so finished work can present this way, and `todo` would send it back to the
+queue. The wire fix is a `hasRun` flag on the task row, from `has_claude_transcript`.
 
 ## The API
 

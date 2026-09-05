@@ -1,12 +1,15 @@
 import { useMemo, useState } from 'react';
+import type { TaskRow } from '../api/types';
 import { useAddToDesk, useRemoveFromDesk } from '../api/desk';
 import { useSetStatus } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
 import { deskIdForTask } from '../protocol/deskId';
+import type { Attention } from '../protocol/attention';
+import type { Agent } from '../protocol/entities';
 import { TASK_STATUSES, type TaskStatus } from '../protocol/entities';
 import type { TaskId } from '../protocol/ids';
 import { filterOptions } from '../selectors/filters';
-import { describeState } from '../selectors/status';
+import { driftLabel, progressOf } from '../protocol/progress';
 import { listTasks } from '../selectors/taskList';
 import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
@@ -24,6 +27,7 @@ export function TaskList() {
   const setStatus = useSetStatus();
   // Which row's status is being picked.
   const [picking, setPicking] = useState<TaskId | null>(null);
+  const attention = useMemo(() => Object.values(world.attention), [world.attention]);
   const options = filterOptions(world, filters);
   // Re-derived only when the world or the filters move, not on every frame
   // the server publishes.
@@ -131,7 +135,7 @@ export function TaskList() {
                   }}
                 />
               </td>
-              <td>{describeState(task, agent)}</td>
+              <td>{stateCell(task, agent, attention)}</td>
             </tr>
           ))}
           {status === 'loading' && (
@@ -159,5 +163,26 @@ export function TaskList() {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** The state in words, plus the caret when the status and the agent disagree. */
+function stateCell(task: TaskRow, agent: Agent | undefined, attention: readonly Attention[]) {
+  const progress = progressOf(task, agent, attention);
+  return (
+    <>
+      {progress.words}
+      {progress.drift && (
+        <span
+          className={styles.drift}
+          role="img"
+          aria-label={driftLabel(progress)}
+          data-drift={progress.drift}
+        >
+          {' '}
+          ▲
+        </span>
+      )}
+    </>
   );
 }

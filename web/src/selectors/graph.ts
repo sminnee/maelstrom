@@ -5,8 +5,9 @@ import type { TaskRow } from '../api/types';
 import type { Agent, Phase, Worktree } from '../protocol/entities';
 import type { WorldView } from './world';
 import type { TaskId } from '../protocol/ids';
-import type { NodeState } from '../protocol/phase';
-import { nodeState, phaseForCommand } from '../protocol/phase';
+import { phaseForCommand } from '../protocol/phase';
+import type { Progress } from '../protocol/progress';
+import { progressOf } from '../protocol/progress';
 import type { Filters, GroupBy } from './filters';
 import { branchKey } from './filters';
 
@@ -22,7 +23,8 @@ export interface GraphNode {
   agent: Agent | undefined;
   /** Where a freeAgent gets its lane, branch and name. */
   worktree: Worktree | undefined;
-  state: NodeState;
+  /** The one reading of the node's state: how it draws, its words, its drift. */
+  progress: Progress;
   /** Null on a freeAgent: with no task there is no command to read a phase from. */
   phase: Phase | null;
   groupId: string;
@@ -176,7 +178,7 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
       task,
       agent,
       worktree: agent ? world.worktrees[agent.worktreeId] : undefined,
-      state: nodeState(task, agent, attention),
+      progress: progressOf(task, agent, attention),
       phase: phaseForCommand(task.command),
       groupId,
       attention,
@@ -205,7 +207,7 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
       task: undefined,
       agent,
       worktree,
-      state: nodeState(undefined, agent, attention),
+      progress: progressOf(undefined, agent, attention),
       phase: null,
       groupId,
       attention,
