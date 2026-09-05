@@ -1002,11 +1002,14 @@ def build_subagent_rows(state: AgentState) -> list[dict[str, Any]]:
 STOPPED_COLUMNS = ["id", "age", "task", "branch", "label", "cwd"]
 
 
-def format_age(seconds: float) -> str:
+def age_of(seconds: float) -> str:
     """``seconds`` as the one short unit a table cell holds.
 
     Rounds down, so "2h" means at least two hours. Anything under a minute is
     "now" — a listing of stopped sessions never needs second precision.
+    :func:`~maelstrom.session_view.age_since` takes a timestamp instead, and
+    shows the seconds. ``ago`` in ``web/src/protocol/time.ts`` is this rule for
+    the UI, which says "<1m" rather than "now".
     """
     if seconds < 60:
         return "now"
@@ -1037,7 +1040,7 @@ def build_stopped_row(
     return {
         "id": spec.agent_id,
         "session": meta.session_id,
-        "age": format_age(max(now - meta.modified_at, 0.0)),
+        "age": age_of(max(now - meta.modified_at, 0.0)),
         "task": task_id,
         "branch": meta.branch,
         "label": _one_line(meta.label, STOPPED_LABEL_CHARS),

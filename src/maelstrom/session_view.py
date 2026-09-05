@@ -41,8 +41,12 @@ class TaskLookup(Protocol):
     def find_by_session_id(self, session_id: str) -> TaskMeta | None: ...
 
 
-def format_age(started_at: str) -> str:
+def age_since(started_at: str) -> str:
     """``started_at`` as an age like ``45s`` / ``12m`` / ``3h`` / ``2d``.
+
+    Takes a timestamp, and shows seconds. :func:`~maelstrom.agent_model.age_of`
+    takes a duration and shows "now" under a minute — a session listing wants
+    the seconds while it starts, and a stopped listing never does.
 
     Empty for a timestamp that will not parse, and ``0s`` for one in the future —
     a clock skew must not print a negative age.
@@ -127,7 +131,7 @@ def build_session_row(
         state = entry.get("state", "")
         if is_stale_processing(state, entry.get("updated_at", "")):
             state = "idle"  # display-only; ESC/interrupt leaves it stuck
-        age = format_age(entry.get("started_at", ""))
+        age = age_since(entry.get("started_at", ""))
         model = entry.get("model", "") or ""
 
     task_id = ""
