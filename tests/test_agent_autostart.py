@@ -133,3 +133,79 @@ def _script(directory: Path, body: str) -> Path:
     path.write_text(f"#!/bin/sh\n{body}\n")
     path.chmod(0o755)
     return path
+
+
+@pytest.mark.binds_socket
+@pytest.mark.binds_socket
+def test_a_daemon_from_another_tree_warns_but_still_serves(
+    autostart_on, socket_path, monkeypatch, tmp_path, capsys
+):
+    """The recorded failure: a daemon holding another worktree's code.
+
+    It answers, so the command works. But nothing said which tree was
+    serving, and a stale daemon once deleted a spawn record that way. A
+    warning names the mismatch without refusing a working daemon.
+    """
+    monkeypatch.setenv("MAEL_AGENT_LOG", str(tmp_path / "daemon.log"))
+    monkeypatch.setenv("MAEL_AGENT_SPEC_DIR", str(tmp_path / "agents"))
+    started: list[subprocess.Popen] = []
+    real_popen = subprocess.Popen
+
+    def watch(argv, **kwargs):
+        child = real_popen(argv, **kwargs)
+        started.append(child)
+        return child
+
+    monkeypatch.setattr("maelstrom.agent_transport.subprocess.Popen", watch)
+    client = SocketDaemonClient(socket_path=socket_path)
+    try:
+        # First command starts it. The skew only exists for a *later* caller,
+        # so the warning belongs to the second command, not this one.
+        assert client.request({"cmd": "list"}).get("agents") == []
+        capsys.readouterr()
+        monkeypatch.setattr(
+            "maelstrom.agent_transport.local_source_tree",
+            lambda: "/Users/x/Projects/maelstrom/some-other-tree",
+        )
+        assert client.request({"cmd": "list"}).get("agents") == []
+        warning = capsys.readouterr().err
+        assert "some-other-tree" in warning
+        assert "daemon restart" in warning
+    finally:
+        for child in started:
+            child.kill()
+            child.wait(timeout=5)
+
+
+def test_a_daemon_too_old_to_know_ping_is_named_as_stale(
+    autostart_on, socket_path, monkeypatch, capsys
+):
+    """The very case the warning exists for must not be the silent one.
+
+    A daemon predating `ping` cannot report its tree. That is not "no skew" —
+    it is proof the daemon is older than this code, which is exactly what the
+    caller needs to hear.
+    """
+    monkeypatch.setattr(
+        "maelstrom.agent_transport._probe", _answers_yes := _always(True)
+    )
+
+    # What the real pre-`ping` daemon answers: it falls through to the agent
+    # lookup with an empty id, so the error names an agent, not the command.
+    async def no_ping(socket_path, payload, *, autostart=True):
+        return {"error": "no such agent: "}
+
+    monkeypatch.setattr("maelstrom.agent_transport.request_over_socket", no_ping)
+    asyncio.run(ensure_daemon(socket_path))
+    warning = capsys.readouterr().err
+    assert "older" in warning
+    assert "daemon restart" in warning
+
+
+def _always(value):
+    """A stand-in for an async predicate that always answers the same."""
+
+    async def answer(*args, **kwargs):
+        return value
+
+    return answer
