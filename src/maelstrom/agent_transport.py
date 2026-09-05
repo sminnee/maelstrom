@@ -18,6 +18,7 @@ import asyncio
 import json
 import os
 import subprocess
+import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -145,6 +146,36 @@ def _log_tail(offset: int) -> str:
         return handle.read(LOG_TAIL_BYTES).decode(errors="replace").strip()
 
 
+#: How long to wait for a stopping daemon to let go, in seconds.
+GONE_TIMEOUT = 10.0
+
+
+def wait_for_daemon_gone(socket_path: str, timeout: float = GONE_TIMEOUT) -> None:
+    """Wait until a stopping daemon has let go of ``socket_path``.
+
+    Waiting on the socket file alone is not enough. Shutdown unlinks the socket
+    *before* it releases the lock, so a restart that watched only the file would
+    spawn while the old daemon still held the lock — and the new daemon would
+    lose the bind and report "a daemon is already serving".
+
+    Taking the lock is the test: it succeeds only once the old daemon has gone.
+    The lock is released again straight away, so the daemon spawned next can
+    take it.
+
+    Returns when the daemon has gone, or when ``timeout`` passes — a caller that
+    spawns anyway gets the clearer "already serving" error from the child.
+    """
+    from .agent_server import _release_socket_lock, _take_socket_lock
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        fd = _take_socket_lock(Path(socket_path))
+        if fd is not None:
+            _release_socket_lock(fd)
+            return
+        time.sleep(0.05)
+
+
 async def ensure_daemon(socket_path: str) -> None:
     """Make sure a daemon answers on ``socket_path``, starting one if not.
 
@@ -243,6 +274,11 @@ class RecordingDaemonClient:
 
     replies: list[dict[str, Any]] = field(default_factory=list)
     calls: list[dict[str, Any]] = field(default_factory=list)
+    #: Same shape as the real client, so ``client()`` is one plain call and a
+    #: test can assert which socket a command asked for, and whether it would
+    #: have started a daemon.
+    socket_path: str = ""
+    autostart: bool = True
 
     def request(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.calls.append(payload)
@@ -275,12 +311,26 @@ class SocketDaemonClient:
 #: this attribute to drive a command through :class:`RecordingDaemonClient`
 #: instead of a real socket. One copy, so a test patching it reaches every
 #: caller.
-client_factory: Callable[[], DaemonClient] = SocketDaemonClient
+client_factory: Callable[..., DaemonClient] = SocketDaemonClient
 
 
-def client() -> DaemonClient:
-    """The transport for one command."""
-    return client_factory()
+def client(*, autostart: bool = True, socket_path: str | None = None) -> DaemonClient:
+    """The transport for one command.
+
+    ``autostart=False`` is for the commands that must not conjure a daemon:
+    stopping one that is already gone, or asking whether one is there.
+    ``socket_path`` addresses a daemon other than the resolved default, which
+    is how a per-environment daemon is reached without setting an env var.
+    """
+    kwargs: dict[str, Any] = {"autostart": autostart}
+    if socket_path is not None:
+        kwargs["socket_path"] = socket_path
+    try:
+        return client_factory(**kwargs)
+    except TypeError:
+        # A test fake takes neither: it never reaches a socket, so both are
+        # meaningless to it.
+        return client_factory()
 
 
 # --- the async pair, for a caller that already owns an event loop -----------

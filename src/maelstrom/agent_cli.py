@@ -7,7 +7,7 @@ Rendering goes through ``build_agent_row`` in the model layer, the way
 ``session_cli`` renders through ``session_view``.
 
 The first command that needs a daemon starts one, in the transport layer.
-``mael agent daemon`` runs one in the foreground instead — see
+``mael agent daemon`` is the group that runs and inspects one by hand — see
 ``docs/dev/agent-daemon.md``.
 """
 
@@ -34,7 +34,11 @@ from .agent_model import (
 )
 from .agent_server import SCOPE_ALL, SCOPE_RUNNING, SCOPE_STOPPED, AgentDaemon
 from .agent_transport import (
+    DaemonClient,
     SocketAsyncDaemonClient,
+    ensure_daemon,
+    resolve_socket_path,
+    wait_for_daemon_gone,
 )
 from .agent_transport import client as daemon_client
 from .context import resolve_context
@@ -59,13 +63,23 @@ LIST_COLUMNS = [
 SUBAGENT_COLUMNS = ["id", "state", "description", "last_message"]
 
 
-def _send(payload: dict[str, Any]) -> dict[str, Any]:
+def _daemon_at(socket_path: str | None, *, autostart: bool = True) -> DaemonClient:
+    """A client for one socket, or the resolved default when given none.
+
+    Goes through ``client_factory`` either way, so a test fake still
+    intercepts a command that names a socket. The fake takes the path and
+    ignores it, having no socket to reach.
+    """
+    return daemon_client(autostart=autostart, socket_path=socket_path)
+
+
+def _send(payload: dict[str, Any], *, socket_path: str | None = None) -> dict[str, Any]:
     """Send one command, printing the daemon's error and exiting on failure.
 
     A ``warning`` is not a failure: the command did what was asked, and
     something alongside it did not. It prints and the command still succeeds.
     """
-    reply = daemon_client().request(payload)
+    reply = _daemon_at(socket_path).request(payload)
     if "error" in reply:
         click.echo(f"Error: {reply['error']}", err=True)
         sys.exit(1)
@@ -79,18 +93,24 @@ def agent() -> None:
     """Drive Claude agents over a stream-json pipe."""
 
 
+#: Every daemon verb takes it: a per-environment daemon is addressed by path.
+socket_option = click.option(
+    "--socket", "socket_path", default=None, help="Control socket path."
+)
+
+
 @agent.group("daemon")
 def cmd_daemon() -> None:
     """Run and inspect the agent daemon.
 
-    A bare ``mael agent daemon`` used to run one in the foreground. That is
-    ``serve`` now, and the bare command exits non-zero rather than doing
-    something a caller did not ask for.
+    `serve` runs one in the foreground; `start` detaches. `status` says which
+    daemon is answering and whose code it runs, which is the question a
+    long-lived daemon makes worth asking.
     """
 
 
 @cmd_daemon.command("serve")
-@click.option("--socket", "socket_path", default=None, help="Control socket path.")
+@socket_option
 def cmd_daemon_serve(socket_path: str | None) -> None:
     """Run the agent daemon in the foreground."""
     daemon = AgentDaemon(socket_path)
@@ -103,15 +123,103 @@ def cmd_daemon_serve(socket_path: str | None) -> None:
         sys.exit(1)
 
 
+@cmd_daemon.command("stop")
+@socket_option
+def cmd_daemon_stop(socket_path: str | None) -> None:
+    """Stop the daemon serving this socket.
+
+    Its agents are its children and go with it. Their records stay
+    ``running``, so the next daemon start resumes them — that is what makes
+    restarting to pick up new code cheap.
+
+    A daemon that is already gone is the desired state, not an error, so this
+    exits 0 either way.
+    """
+    path = socket_path or resolve_socket_path()
+    # No auto-start: starting a daemon in order to stop it is absurd, and the
+    # default client would do exactly that.
+    reply = _daemon_at(path, autostart=False).request({"cmd": "shutdown"})
+    if "error" in reply:
+        click.echo(f"No daemon running at {path}.")
+        return
+    click.echo(f"Stopped the daemon at {path}.")
+
+
+@cmd_daemon.command("start")
+@socket_option
+def cmd_daemon_start(socket_path: str | None) -> None:
+    """Start a detached daemon and wait for it to bind.
+
+    ``ensure_daemon`` is the same spawn-and-wait auto-start uses, so a daemon
+    started by hand and one started by a command are the same process in the
+    same state.
+    """
+    path = socket_path or resolve_socket_path()
+    try:
+        asyncio.run(ensure_daemon(path))
+    except OSError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+    click.echo(f"Daemon listening on {path}.")
+
+
+@cmd_daemon.command("restart")
+@socket_option
+def cmd_daemon_restart(socket_path: str | None) -> None:
+    """Stop the daemon and start a fresh one, picking up the current code.
+
+    A busy agent loses the turn it is running and comes back with the resume
+    nudge; the conversation itself is in the transcript and survives.
+    """
+    path = socket_path or resolve_socket_path()
+    reply = _daemon_at(path, autostart=False).request({"cmd": "shutdown"})
+    replaced = "error" not in reply
+    if replaced:
+        wait_for_daemon_gone(path)
+    try:
+        asyncio.run(ensure_daemon(path))
+    except OSError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+    if replaced:
+        click.echo(f"Daemon restarted on {path}.")
+    else:
+        # Saying "restarted" here would tell a user who expected to replace a
+        # running daemon that they did.
+        click.echo(f"No daemon was running. Started one on {path}.")
+
+
 @cmd_daemon.command("status")
-def cmd_daemon_status() -> None:
+@socket_option
+def cmd_daemon_status(socket_path: str | None) -> None:
     """Say which daemon is serving this socket, and what code it runs.
 
     One socket can be served by a daemon spawned from any worktree, and it
     holds the modules it imported at start. So the source tree and the start
     time are the two fields worth reading here.
     """
-    identity = _send({"cmd": "ping"})["daemon"]
+    # No auto-start, and no skew warning: the serving tree is what this command
+    # was asked for, so it belongs in the `source` row rather than in a warning
+    # printed immediately above it.
+    reply = _daemon_at(socket_path, autostart=False).request({"cmd": "ping"})
+    if "error" in reply:
+        # A daemon predating `ping` falls through to the agent lookup and
+        # answers "no such agent", which reads here as a fault in this command
+        # rather than in the daemon it is asking. Say what it means instead.
+        error = reply["error"]
+        if "not reachable" in error:
+            click.echo(f"Error: {error}", err=True)
+        else:
+            click.echo(
+                "Error: the daemon on "
+                f"{socket_path or resolve_socket_path()} is older than this "
+                "code: it does not answer `ping`.\n"
+                "       Run `mael agent daemon restart` to serve from this "
+                "tree.",
+                err=True,
+            )
+        sys.exit(1)
+    identity = reply["daemon"]
     rows = [
         ("socket", identity.get("socket_path", "")),
         ("pid", str(identity.get("pid", ""))),

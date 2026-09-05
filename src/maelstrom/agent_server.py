@@ -476,6 +476,9 @@ class AgentDaemon:
         # For `ping`: how long this daemon — and so the code it holds — has
         # been the one serving the socket.
         self.started_at = datetime.now(timezone.utc).isoformat()
+        # Set by the `shutdown` command, awaited by `serve`. An asked-for stop
+        # runs the same orderly path a signal does, rather than racing it.
+        self.stopping = asyncio.Event()
 
     @property
     def transcripts(self) -> TranscriptStore:
@@ -692,6 +695,13 @@ class AgentDaemon:
                 # `claude` that is simply not on PATH.
                 return {"error": f"could not start claude: {exc}"}
             return {"ok": True, "id": agent_id}
+
+        if command == "shutdown":
+            # Reply first, stop after: the caller learns it was heard rather
+            # than reading a closed connection. `serve` does the stopping, so
+            # the children go through the same orderly path a signal takes.
+            self.stopping.set()
+            return {"ok": True}
 
         if command == "ping":
             # Before the agent lookup: it names the daemon, not an agent, and
@@ -928,7 +938,8 @@ class AgentDaemon:
         )
         try:
             async with server:
-                await server.serve_forever()
+                # Whichever comes first: a `shutdown` command or cancellation.
+                await self.stopping.wait()
         finally:
             await self.shutdown()
             path.unlink(missing_ok=True)
