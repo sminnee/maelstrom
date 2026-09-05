@@ -8,14 +8,18 @@ back on explicitly.
 
 import asyncio
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 import pytest
 
+from maelstrom import agent_server
 from maelstrom.agent_transport import (
     NO_AUTOSTART_ENV,
     SocketDaemonClient,
     ensure_daemon,
+    wait_for_daemon_gone,
 )
 
 
@@ -209,3 +213,34 @@ def _always(value):
         return value
 
     return answer
+
+
+def test_a_restart_waits_for_the_old_daemon_to_release_the_lock(
+    autostart_on, socket_path, monkeypatch, tmp_path
+):
+    """Shutdown unlinks the socket before it releases the lock.
+
+    So a wait that watches the socket alone returns while the old daemon still
+    holds the lock. The restart then spawns, the new daemon loses the bind, and
+    the whole restart fails with "a daemon is already serving".
+    """
+    monkeypatch.setenv("MAEL_AGENT_LOG", str(tmp_path / "daemon.log"))
+    monkeypatch.setenv("MAEL_AGENT_SPEC_DIR", str(tmp_path / "agents"))
+    held = agent_server._take_socket_lock(Path(socket_path))
+    assert held is not None
+    released: list[float] = []
+
+    def release_soon() -> None:
+        """Stands in for the old daemon finishing its shutdown."""
+        released.append(time.monotonic())
+        agent_server._release_socket_lock(held)
+
+    timer = threading.Timer(0.3, release_soon)
+    timer.start()
+    try:
+        wait_for_daemon_gone(socket_path)
+        assert released, "returned while the old daemon still held the lock"
+    finally:
+        timer.cancel()
+        if not released:
+            agent_server._release_socket_lock(held)

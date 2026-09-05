@@ -17,24 +17,20 @@ services:
     ports: [ORCHESTRATOR]
     command: uv run mael orchestrator serve --port ${ORCHESTRATOR_PORT}
 
-  # An agent daemon of this environment's own. Opt-in and off by default: a
-  # plain `mael env start` skips it, so a worktree testing an unrelated
-  # feature keeps using the everyday daemon that `_main` runs. Start it by
-  # name — `mael env start agent-daemon` — when the change touches the agent
-  # protocol, and `mael env stop` takes it and its agents away again.
+  # An agent daemon of this environment's own, for testing a change to the
+  # agent protocol against agents that run it. Off by default: start it with
+  # `mael env start agent-daemon`. See docs/guide/dev-environments.md.
   #
-  # To point this environment's orchestrator at it, set MAEL_AGENT_SOCKET in
-  # the worktree's .env to the path below: a service's own `env:` block does
-  # not reach its siblings, but the .env does. Without that the orchestrator
-  # reads the machine default, which is the everyday daemon.
+  # The socket path carries the project name because `${WORKTREE}` alone
+  # collides — one worktree name is used across many projects.
   #
-  # The project name is written out because `${WORKTREE}` alone collides:
-  # `bravo` names a worktree in 171 projects on this machine, `_main` in 165.
-  # A project's own name is a constant inside its own config.
+  # MAEL_AGENT_SPEC_DIR must differ from the default. Two daemons sharing a
+  # spawn-record directory both restore the same records, so this one would
+  # start a second `claude` on every session id the everyday daemon holds.
   #
-  # MAEL_AGENT_SPEC_DIR is not optional. Sharing the default spawn-record
-  # directory would make this daemon restore the everyday daemon's live agents
-  # against the same session ids the moment it starts.
+  # A service's `env:` block reaches that service alone. To point this
+  # environment's orchestrator at this daemon, set MAEL_AGENT_SOCKET in the
+  # worktree's .env, which every service reads.
   agent-daemon:
     optional: true
     command: uv run mael agent daemon serve --socket ${MAEL_AGENT_SOCKET}
