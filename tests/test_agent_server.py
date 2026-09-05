@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import signal
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -1939,3 +1940,37 @@ def test_the_socket_lock_is_owner_only(tmp_path):
         assert lock.stat().st_mode & 0o777 == 0o600
     finally:
         agent_server._release_socket_lock(fd)
+
+
+@pytest.mark.binds_socket
+def test_a_signal_stops_the_daemon_the_way_the_command_does(tmp_path):
+    """`mael env stop` sends SIGTERM, so the signal path must be the tidy one.
+
+    Python's default disposition kills the process outright: `serve`'s
+    `finally` never runs, so the socket is left behind and whether each record
+    lands `running` or `exited` is a race with the pump tasks. A daemon
+    declared as an env service is stopped this way every time.
+    """
+    socket_path = tmp_path / "signalled.sock"
+
+    async def serve_then_signal():
+        daemon = AgentDaemon(str(socket_path), InMemoryAgentSpecStore())
+        task = asyncio.create_task(daemon.serve())
+        # Signal only once the daemon is listening. The signal goes to this
+        # process, so a `serve` that died before installing its handler would
+        # take the whole test run down with it under the default disposition.
+        for _ in range(100):
+            await asyncio.sleep(0.01)
+            if task.done():
+                await task
+                pytest.fail("the daemon stopped before it could be signalled")
+            if socket_path.exists():
+                break
+        else:
+            task.cancel()
+            pytest.fail("the daemon never bound its socket")
+        os.kill(os.getpid(), signal.SIGTERM)
+        await asyncio.wait_for(task, timeout=5)
+
+    asyncio.run(serve_then_signal())
+    assert not socket_path.exists()

@@ -22,11 +22,12 @@ import fcntl
 import json
 import logging
 import os
+import signal
 import sys
 import time
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -79,6 +80,7 @@ from .agent_transport import STREAM_LIMIT, resolve_socket_path, resolve_spec_dir
 from .session_discovery import LiveSessionSet
 from .session_view import TaskLookup
 from .transcript_store import ClaudeTranscriptStore, TranscriptStore
+from .util import now_iso
 from .worktree_model import has_claude_transcript
 
 log = logging.getLogger(__name__)
@@ -515,7 +517,7 @@ class AgentDaemon:
         self.agents: dict[str, Agent] = {}
         # For `ping`: how long this daemon — and so the code it holds — has
         # been the one serving the socket.
-        self.started_at = datetime.now(timezone.utc).isoformat()
+        self.started_at = now_iso()
         # Set by the `shutdown` command, awaited by `serve`. An asked-for stop
         # runs the same orderly path a signal does, rather than racing it.
         self.stopping = asyncio.Event()
@@ -989,6 +991,25 @@ class AgentDaemon:
         await self.restore()
         server = await asyncio.start_unix_server(
             self._on_client, str(path), limit=STREAM_LIMIT
+        )
+        # `mael env stop` sends SIGTERM to the process group, and Python's
+        # default disposition would kill the daemon outright: the teardown
+        # below would not run, so the socket would stay and each record would
+        # land `running` or `exited` by a race. Both signals take the same path
+        # the `shutdown` command does.
+        loop = asyncio.get_running_loop()
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            with suppress(NotImplementedError):
+                loop.add_signal_handler(signum, self.stopping.set)
+        # After the bind, never before. The old line printed on the way in, so
+        # the log said "Listening" for a daemon that then lost the socket and
+        # died. It names the tree too: the log is where you find out which code
+        # served you three days ago.
+        identity = self.identity()
+        print(
+            f"Listening on {path} (pid {identity.pid}, {identity.source_tree})",
+            file=sys.stderr,
+            flush=True,
         )
         try:
             async with server:

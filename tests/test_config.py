@@ -539,3 +539,30 @@ class TestBoolKeyParsing:
         svc = MaelstromConfig.from_dict(data).services[0]
         assert svc.optional is False
         assert svc.shared is False
+
+
+class TestAgentDaemonService:
+    """The daemon as an opt-in env service.
+
+    A worktree testing a protocol change must not drive the everyday daemon:
+    its agents run different code. Declaring the daemon as an optional service
+    gives that worktree its own, and `mael env stop` takes it away again.
+    """
+
+    def test_the_daemon_service_parses_as_optional(self, tmp_path):
+        (tmp_path / ".maelstrom.yaml").write_text(
+            "services:\n"
+            "  agent-daemon:\n"
+            "    optional: true\n"
+            "    command: uv run mael agent daemon serve --socket ${MAEL_AGENT_SOCKET}\n"
+            "    env:\n"
+            "      MAEL_AGENT_SOCKET: ${HOME}/.maelstrom/sockets/proj-${WORKTREE}.sock\n"
+            "      MAEL_AGENT_SPEC_DIR: ${HOME}/.maelstrom/agents-proj-${WORKTREE}\n"
+        )
+        config = load_config(tmp_path)
+        daemon = next(s for s in config.services if s.name == "agent-daemon")
+        assert daemon.optional is True
+        # No ports: the socket is a path, not an allocation.
+        assert daemon.ports == []
+        assert "${MAEL_AGENT_SOCKET}" in daemon.command
+        assert daemon.env["MAEL_AGENT_SPEC_DIR"].endswith("agents-proj-${WORKTREE}")
