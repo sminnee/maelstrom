@@ -101,8 +101,8 @@ def save_attachment(project: str, bucket: str, data: bytes, *, name: str = "") -
     against a set held for one call. Attachments arrive one request at a time,
     so an in-memory set would let a later upload overwrite an earlier one.
 
-    The directory is created only once the bytes are in hand, so a caller that
-    gives up before calling leaves no empty directory behind.
+    A refused image leaves no directory behind: both guards run before the
+    ``mkdir``.
     """
     from .task import MAEL_TASK_DIR_TOKEN
 

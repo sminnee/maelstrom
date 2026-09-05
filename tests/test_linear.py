@@ -325,7 +325,6 @@ class TestLocalizeDescriptionImages:
         assert len(list(image_dir.iterdir())) == 1
         assert result.count("{{MAEL_TASK_DIR}}/images/NORT-1/") == 2
 
-
     def test_an_unstorable_image_keeps_the_original_url(self, tmp_path, monkeypatch):
         """One bad image must not abort the plan, as the docstring promises.
 

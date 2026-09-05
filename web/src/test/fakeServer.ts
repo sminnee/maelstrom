@@ -137,7 +137,16 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const method = init?.method ?? 'GET';
     const path = url.replace(/^https?:\/\/[^/]+/, '');
-    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+    const body =
+      init?.body instanceof FormData
+        ? // The file part stays a Blob: a test asserts its name and size,
+          // never its bytes. The real server renames it — the extension comes
+          // from the magic bytes and the stem is de-duped on disk — so a test
+          // must not assume the name it sent comes back.
+          Object.fromEntries(init.body.entries())
+        : typeof init?.body === 'string'
+          ? JSON.parse(init.body)
+          : undefined;
     requests.push({ method, path, body });
     const refusal = refusals.find((r) => r.route.test(`${method} ${path}`));
     if (refusal) {
@@ -609,6 +618,16 @@ function command(
     server.change({ kind: 'agent', ids: [agentId] });
     server.change({ kind: 'desk', ids: [`agent:${agentId}`] });
     return ok({ agentId });
+  }
+
+  if (pathname === '/api/attachments' && method === 'POST') {
+    const file = b.file as { name?: string } | undefined;
+    const name = file?.name ?? 'image.png';
+    const bucket = String(b.bucket ?? 't1');
+    return ok({
+      markdown: `![${name}]({{MAEL_TASK_DIR}}/images/${bucket}/${name})`,
+      url: `/api/attachments/${String(b.project ?? '')}/${bucket}/${name}`,
+    });
   }
 
   if (pathname === '/api/desk' && method === 'POST') {

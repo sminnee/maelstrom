@@ -26,6 +26,20 @@ describe('createApiClient', () => {
     expect(new Headers(init.headers).get('content-type')).toBe('application/json');
   });
 
+  it('passes a FormData body through without JSON-encoding it', async () => {
+    // The browser must set the multipart Content-Type itself.
+    const fetch = vi.fn().mockResolvedValue(jsonResponse(200, { url: '/api/x.png' }));
+    const api = createApiClient({ fetch });
+    const form = new FormData();
+    form.append('project', 'northwind');
+
+    await api.post('/api/attachments', form);
+
+    const [, init] = fetch.mock.calls[0] as [string, RequestInit];
+    expect(init.body).toBe(form);
+    expect(new Headers(init.headers).get('content-type')).toBeNull();
+  });
+
   it("throws the server's code and message as an ApiError", async () => {
     const fetch = vi
       .fn()
