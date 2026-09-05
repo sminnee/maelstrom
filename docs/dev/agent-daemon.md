@@ -198,6 +198,26 @@ A follow-up message is a plain user turn on stdin. The opening prompt uses the s
  "content": [{"type": "text", "text": "also update the README"}]}}
 ```
 
+A message can carry images. Each one is a base64 block ahead of the text:
+
+```json
+{"type": "user", "message": {"role": "user", "content": [
+  {"type": "image",
+   "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0…"}},
+  {"type": "text", "text": "what is wrong with this screen?"}]}}
+```
+
+The model sees the image on the turn it arrives, rather than after choosing to read a file. A
+very small image is refused by the API as unprocessable -- a 2 by 2 PNG was, a 200 by 200 one was
+not -- so probe this shape with a realistic one rather than the smallest file you can build.
+
+An image with no words is a message in its own right, so the text block is dropped when the text
+is empty.
+
+A task cannot use this path. `build_prompt` returns a string, so a task's images travel as
+`{{MAEL_TASK_DIR}}` refs in its content, and the agent reads them with `Read`. See
+[the orchestrator server](orchestrator-server.md) for where the bytes are stored.
+
 ### Running a shell command
 
 A shell command is the user's, not the agent's: the host runs it and gives the agent the output
@@ -572,7 +592,7 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 | `start` | `cwd`; optional `prompt`, `mode`, `model`, `session`, `env`, `resume` | `{"ok": true, "id": "<agent id>"}` |
 | `list` | optional `scope` (`running`, `stopped` or `all`; default `running`), optional `cwd` | `{"agents": [<row>, …]}`, each row as `mael agent list --json` prints |
 | `show` | `id` | `{"agent": <detail>}`, as `mael agent show --json` prints |
-| `say` | `id`, `text` | `{"ok": true}` |
+| `say` | `id`, `text`; optional `attachments` | `{"ok": true}` |
 | `run` | `id`, `command` | `{"ok": true}` |
 | `approve` | `id` | `{"ok": true}`, plus `"mode": "auto"` or `"warning": "<why not>"` for a plan review |
 | `deny` | `id`; optional `reason` | `{"ok": true}` |
@@ -590,6 +610,11 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 `start` merges `env` over the daemon's own environment for that child, with no allowlist: a
 client of the socket can set any variable. The socket's file permissions are the trust boundary.
 A task launch passes `MAEL_TASK_ID`, `MAEL_TASK_PARENT` and `MAEL_TASK_SESSION_ID` this way.
+
+`say` takes `attachments` as `[{"path": "/…/shot.png"}]`. The daemon reads each file and sends
+it as an image block. Paths rather than base64 keep the socket line small, and the daemon runs on
+the same machine as the files. A path that will not read is refused: a turn that silently lost
+its picture is worse than a refusal.
 
 `answer` with `answers` files each answer under its question. `choice` applies one answer to
 every question. An empty `answers` map is refused: the agent reads an empty map as no answer at
