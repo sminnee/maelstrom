@@ -30,6 +30,7 @@ def socket_path(tmp_path) -> str:
     return str(tmp_path / "agent-daemon.sock")
 
 
+@pytest.mark.binds_socket
 def test_a_command_starts_the_daemon_when_none_runs(
     autostart_on, socket_path, monkeypatch, tmp_path
 ):

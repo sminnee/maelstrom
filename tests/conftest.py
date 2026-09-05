@@ -1,12 +1,39 @@
 """Global test fixtures for maelstrom test suite."""
 
 import os
+import socket
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from maelstrom.cmux.client import RecordingCmuxClient
 from maelstrom.cmux.model import CmuxLayout
+
+
+def _can_bind_a_unix_socket() -> bool:
+    """Whether this process may ``bind()`` at all.
+
+    Probed rather than sniffed for, so it stays right whatever the sandbox is.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+                probe.bind(str(Path(tmp) / "probe.sock"))
+        except OSError:
+            return False
+    return True
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip the tests that need a ``bind()`` when this process may not."""
+    if _can_bind_a_unix_socket():
+        return
+    skip = pytest.mark.skip(reason="the sandbox denies bind() on a Unix socket")
+    for item in items:
+        if "binds_socket" in item.keywords:
+            item.add_marker(skip)
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -33,6 +60,20 @@ def _block_agent_daemon_autostart(monkeypatch):
     tests unset this themselves.
     """
     monkeypatch.setenv("MAEL_AGENT_NO_AUTOSTART", "1")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_agent_paths(monkeypatch, tmp_path):
+    """Keep every test off the real ``~/.maelstrom``.
+
+    The three agent paths default under the developer's home, so an unpinned
+    test reads the real spawn records and sees whatever agents run on the
+    machine.
+    """
+    root = tmp_path / "maelstrom"
+    monkeypatch.setenv("MAEL_AGENT_SOCKET", str(root / "agent-daemon.sock"))
+    monkeypatch.setenv("MAEL_AGENT_LOG", str(root / "agent-daemon.log"))
+    monkeypatch.setenv("MAEL_AGENT_SPEC_DIR", str(root / "agents"))
 
 
 @pytest.fixture(autouse=True)

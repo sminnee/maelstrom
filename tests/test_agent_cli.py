@@ -2,9 +2,7 @@
 
 import asyncio
 import json
-import os
-import tempfile
-import threading
+import socket
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -228,64 +226,46 @@ def test_show_sends_the_show_command():
 
 # --- tail ------------------------------------------------------------------
 #
-# `tail` opens its own connection rather than going through `client_factory`,
-# so the only honest test is against a real daemon on a temp socket. The daemon
-# runs on its own loop in a background thread, so the CLI's `asyncio.run` has
-# the main thread to itself.
+# `tail` opens its own connection through `open_connection`, so a test serves a
+# real `AgentDaemon` over a `socketpair` on the CLI's own loop.
 
 
 @contextmanager
 def _serving(state, spy: list[dict] | None = None):
-    """Serve one agent in ``state`` on a temp socket, for the body's duration."""
-    with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR")) as tmp:
-        socket_path = str(Path(tmp) / "d.sock")
-        daemon = AgentDaemon(socket_path)
-        proc = MagicMock()
-        proc.stdin.is_closing.return_value = True
-        agent = Agent("a1", "/tmp/x", proc)
-        agent.state = state
-        daemon.agents["a1"] = agent
-        if spy is not None:
-            original = daemon.handle
+    """Serve one agent in ``state`` to the next connection, for the body."""
+    daemon = AgentDaemon("unused.sock")
+    proc = MagicMock()
+    proc.stdin.is_closing.return_value = True
+    agent = Agent("a1", "/tmp/x", proc)
+    agent.state = state
+    daemon.agents["a1"] = agent
+    if spy is not None:
+        original = daemon.handle
 
-            async def record(payload: dict) -> dict:
-                spy.append(payload)
-                return await original(payload)
+        async def record(payload: dict) -> dict:
+            spy.append(payload)
+            return await original(payload)
 
-            daemon.handle = record  # type: ignore[method-assign]
+        daemon.handle = record  # type: ignore[method-assign]
 
-        loop = asyncio.new_event_loop()
-        ready = threading.Event()
+    serving: list[asyncio.Task] = []
 
-        def serve() -> None:
-            asyncio.set_event_loop(loop)
-            server = loop.run_until_complete(
-                asyncio.start_unix_server(daemon._on_client, socket_path)
-            )
-            ready.set()
-            loop.run_forever()
-            # Let the handler tasks unwind before the loop closes, or their
-            # writers raise "Event loop is closed" out of the reaper.
-            server.close()
-            pending = asyncio.all_tasks(loop)
-            for task in pending:
-                task.cancel()
-            if pending:
-                loop.run_until_complete(
-                    asyncio.gather(*pending, return_exceptions=True)
-                )
-            loop.close()
+    async def fake_open(socket_path: str, *, limit: int = agent_transport.STREAM_LIMIT):
+        client_end, daemon_end = socket.socketpair(socket.AF_UNIX)
+        reader, writer = await asyncio.open_unix_connection(
+            sock=daemon_end, limit=limit
+        )
+        serving.append(asyncio.ensure_future(daemon._on_client(reader, writer)))
+        return await asyncio.open_unix_connection(sock=client_end, limit=limit)
 
-        thread = threading.Thread(target=serve, daemon=True)
-        thread.start()
-        ready.wait(timeout=5)
-        os.environ["MAEL_AGENT_SOCKET"] = socket_path
-        try:
-            yield
-        finally:
-            os.environ.pop("MAEL_AGENT_SOCKET", None)
-            loop.call_soon_threadsafe(loop.stop)
-            thread.join(timeout=5)
+    original_open = agent_transport.open_connection
+    agent_transport.open_connection = fake_open
+    try:
+        yield
+    finally:
+        agent_transport.open_connection = original_open
+        for task in serving:
+            task.cancel()
 
 
 def test_tail_prints_the_history_and_exits():

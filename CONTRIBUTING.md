@@ -35,6 +35,16 @@ the full set before you push.
 `ruff format` decides the layout, so let it. `bin/lint` only checks; run
 `uv run ruff format src/ tests/` to apply it.
 
+### Tests in an agent sandbox
+
+An agent sandbox denies `bind()` on every Unix socket path, so a test that needs a real
+daemon on a real socket cannot run there. Such a test carries the `binds_socket` marker,
+which `conftest.py` skips only when it finds `bind()` denied.
+
+Write a new socket test against a `socket.socketpair()`, not a bound path. Both endpoints of a
+pair are the same connected Unix socket, so the framing under test is unchanged, and the
+`open_connection` seam in `agent_transport.py` is where a test hands one in.
+
 ## Commits and pull requests
 
 Prefix commits with `feat:`, `fix:`, `refactor:` or `chore:`. Explain why the change is right,

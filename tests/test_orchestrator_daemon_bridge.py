@@ -1,29 +1,47 @@
-"""The real agent-host client, against a throwaway socket server.
+"""The real agent-host client, against a stand-in daemon on a socketpair.
 
 The scripted fake drives every server test; this is the one place the socket
 framing and the three error replies the server's code mapping relies on are
 exercised for real.
+
+Each connection is one ``socketpair``, served by ``handler`` as a task on the
+caller's loop.
 """
 
 import asyncio
 import json
-import os
-import tempfile
-from pathlib import Path
+import socket
+from unittest.mock import patch
 
+from maelstrom.agent_transport import STREAM_LIMIT
 from maelstrom.orchestrator.daemon_bridge import SocketAsyncDaemonClient
 
 
 async def _serve(handler, body):
-    """Run ``body`` against a server whose connections ``handler`` answers."""
-    with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR")) as tmp:
-        path = str(Path(tmp) / "d.sock")
-        server = await asyncio.start_unix_server(handler, path)
+    """Run ``body`` against a stand-in daemon whose connections ``handler`` answers."""
+    serving: list[asyncio.Task] = []
+
+    async def fake_open(socket_path: str, *, limit: int = STREAM_LIMIT):
+        client_end, daemon_end = socket.socketpair(socket.AF_UNIX)
+        reader, writer = await asyncio.open_unix_connection(
+            sock=daemon_end, limit=limit
+        )
+        serving.append(asyncio.ensure_future(handler(reader, writer)))
+        return await asyncio.open_unix_connection(sock=client_end, limit=limit)
+
+    # ``request`` reaches the socket through ``agent_transport``; ``attach``
+    # goes through the bridge's own ``_connect``, which imported the helper by
+    # name. Both bindings need the stand-in.
+    with (
+        patch("maelstrom.agent_transport.open_connection", fake_open),
+        patch("maelstrom.orchestrator.daemon_bridge.open_connection", fake_open),
+    ):
         try:
-            return await body(SocketAsyncDaemonClient(path, autostart=False))
+            return await body(SocketAsyncDaemonClient("unused.sock", autostart=False))
         finally:
-            server.close()
-            await server.wait_closed()
+            for task in serving:
+                task.cancel()
+            await asyncio.gather(*serving, return_exceptions=True)
 
 
 def test_a_reply_line_comes_back_as_the_reply():
