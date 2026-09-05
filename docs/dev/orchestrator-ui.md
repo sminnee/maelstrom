@@ -266,11 +266,69 @@ moves. The form is two steps in one dialog.
 `ui/Dialog.tsx` and `tasklist/TaskFields.tsx` are shared with the task editor, so the two
 surfaces cannot drift on what a task's fields are.
 
+## Attaching an image
+
+Four surfaces take an image: the new-work prose field, a task's Content field in both the editor
+and step 2, and the session tab's message box. `ui/AttachField.tsx` holds the interaction for all
+four. It wraps the caller's own textarea rather than owning one, so each surface keeps its value,
+its label and its submit.
+
+A user attaches an image in two ways: paste it from the clipboard, or pick it with the "Attach
+image" button. A text paste still reaches the textarea, because only a clipboard carrying an image
+stops the event. Each attached image shows as a thumbnail with a remove button.
+
+The upload runs on attach, not on send. `useUploadAttachment` posts the bytes to
+`POST /api/attachments` and gets back two refs. A task edit abandoned before saving then leaves an
+orphan file rather than a half-written task.
+
+**The two refs are not interchangeable.** `markdown` holds the portable `{{MAEL_TASK_DIR}}` token,
+which is what task content stores and what the agent reads from disk. `url` points at the
+orchestrator server, and is the only ref a browser can fetch. Every surface appends the markdown
+ref to its text. The message box also sends the `url` on the say, and the server resolves it to
+the stored file.
+
+Only the message box sends the image to the model directly. A task's prompt is a plain string, so
+a task's image travels as a path the agent reads. See
+[the agent daemon](agent-daemon.md) for the wire shape.
+
+Attachments are component state, never part of a task draft. `TaskEditor`'s `changed()` diffs the
+draft with `!==`, so a non-scalar field would compare unequal on every save.
+
 Inference and a launch can each take tens of seconds, so all three hooks take
 `SLOW_CALL_TIMEOUT_MS`. A refusal shows in the form, which stays open holding what was typed —
 the one place besides the task list's status select where a view keeps an error of its own,
 because a dialog outlives the button's three-second window. A create whose launch failed says so
 and stops offering to write the task again.
+
+## Attaching an image
+
+`ui/AttachField.tsx` wraps a text field and adds a file picker, a clipboard paste handler and a
+strip of thumbnails. It wraps rather than replaces, so each surface keeps its own textarea, its
+own value and its own submit — and the four cannot drift on how attaching works.
+
+Four surfaces use it: the chat box (`session/MessageInput.tsx`), the new-work prose field, and
+task create and task edit, which are one component (`tasklist/TaskFields.tsx`).
+
+The upload runs as the image arrives, not at submit. So the caller gets a markdown ref to append
+to its text, and a refusal shows while the user is still looking at the field. A failed upload
+names the file: a screenshot that never arrived is otherwise invisible, and the words would go
+believing it went. A paste is intercepted only when it carries an image, so pasted prose still
+reaches the textarea.
+
+The ref is appended to the text rather than held beside it. For a task the content is what the
+notebook stores and what `build_prompt` sends, so a ref kept outside it would never reach the
+agent. It also keeps `TaskEditor`'s `changed()` diffing strings.
+
+The chat box sends the bytes as well, as an image block on the user turn, so the model sees the
+picture on the turn rather than after choosing to read a file. A task cannot: its prompt is a
+plain string. Either way the ref in the text is what renders in the transcript.
+
+New work has no id to group its images under, so the dialog mints a bucket and holds it across
+the step 1 to 2 move. An image attached to the prose lands beside one attached to the content,
+and the task's own commit sweeps both in.
+
+Each label uses an explicit `htmlFor`. `AttachField` sits between the label and the field, so a
+wrapping label would leave the field with no accessible name.
 
 Colour comes from `styles/tokens.css`, which holds both the primitive and the semantic layer
 and documents the rule: no file outside it names a hex colour. One `[data-phase]` rule in
