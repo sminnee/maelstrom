@@ -7,6 +7,9 @@ import type { ListFilters } from '../selectors/taskList';
 import type { PanelTab, UiState, View } from './uiSlice';
 import { initialUiState } from './uiSlice';
 import { closeTab as closeTabIn, openOrFocusTab } from '../selectors/tabs';
+import type { MobileScreen } from '../selectors/navStack';
+import { popScreen, pushScreen } from '../selectors/navStack';
+import type { Zone } from '../protocol/progress';
 
 export interface AppStore {
   ui: UiState;
@@ -32,6 +35,14 @@ export interface AppStore {
   setEditingTask(taskId: TaskId | null): void;
   setNewWorkOpen(open: boolean): void;
   setPanelWidth(width: number): void;
+  /** Which zone the deck list shows. Narrow layout only. */
+  setDeckZone(zone: Zone): void;
+  /** Push a screen over the deck list, or return to it if it is already open. */
+  pushScreen(screen: MobileScreen): void;
+  /** Go back one screen. At the deck list this does nothing. */
+  popScreen(): void;
+  /** Drop every pushed screen and return to the deck list. */
+  clearStack(): void;
 }
 
 /**
@@ -78,4 +89,15 @@ export const useAppStore = create<AppStore>()((set) => ({
   setEditingTask: (editingTaskId) => set((s) => ({ ui: { ...s.ui, editingTaskId } })),
   setNewWorkOpen: (newWorkOpen) => set((s) => ({ ui: { ...s.ui, newWorkOpen } })),
   setPanelWidth: (panelWidth) => set((s) => ({ ui: { ...s.ui, panelWidth } })),
+  setDeckZone: (deckZone) => set((s) => ({ ui: { ...s.ui, deckZone } })),
+  pushScreen: (screen) =>
+    set((s) => ({ ui: { ...s.ui, mobileStack: pushScreen(s.ui.mobileStack, screen) } })),
+  popScreen: () =>
+    set((s) =>
+      s.ui.mobileStack.length === 0
+        ? s
+        : { ui: { ...s.ui, mobileStack: popScreen(s.ui.mobileStack) } },
+    ),
+  clearStack: () =>
+    set((s) => (s.ui.mobileStack.length === 0 ? s : { ui: { ...s.ui, mobileStack: [] } })),
 }));
