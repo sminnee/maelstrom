@@ -43,7 +43,10 @@
   min-width: 0;
   font-size: var(--text-sm);
 }
+/* `flex: 1` with `min-width: 0` is what lets it shrink below its content and
+   truncate; `min-width` alone loses to the flex item's automatic minimum. */
 .state {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -69,6 +72,7 @@
 .project,
 .id,
 .worktree {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
