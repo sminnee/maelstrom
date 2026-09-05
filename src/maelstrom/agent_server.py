@@ -188,12 +188,17 @@ class Agent:
         cwd: str,
         proc: asyncio.subprocess.Process,
         on_exit: "Callable[[int | None], None] | None" = None,
+        clock: "Callable[[], str]" = now_iso,
     ):
         self.state = AgentState(agent_id=agent_id, cwd=cwd)
         #: Names this life of the agent. A resume makes a new ``Agent``, so a
         #: cursor from the old life is not honoured against the new one.
         self.epoch = uuid.uuid4().hex[:8]
         self.proc = proc
+        #: When an event was seen. The one clock read on the record path, at
+        #: the one point an event is first seen — injectable so a test can pin
+        #: it, as ``OrchestratorServer`` already takes its own.
+        self.clock = clock
         # Called once, with the exit code, when the child's stream ends. The
         # daemon uses it to record the exit, so a crash observed by a daemon
         # that then dies itself is still known to the next one.
@@ -235,7 +240,7 @@ class Agent:
         per copy, so the user's own message would render twice.
         """
         before = self.state
-        self.state = apply_event(self.state, message)
+        self.state = apply_event(self.state, message, now=self.clock())
         self._settle(message)
         # The stamped copy, off the ring the event went to, so a watcher sees
         # the seq that ring holds.
@@ -507,6 +512,7 @@ class AgentDaemon:
         transcripts: TranscriptStore | None = None,
         live: LiveSessionSet | None = None,
         open_task_index: Callable[[], TaskLookup] = _open_task_index,
+        clock: "Callable[[], str]" = now_iso,
     ):
         self.socket_path = socket_path or resolve_socket_path()
         self.specs = specs or JsonAgentSpecStore(Path(resolve_spec_dir()))
@@ -514,6 +520,9 @@ class AgentDaemon:
         self._transcripts = transcripts
         self._live = live
         self._open_task_index = open_task_index
+        #: When an event was seen. Handed to every agent this daemon starts, so
+        #: a test pins one clock rather than reaching into the agents it built.
+        self.clock = clock
         self.agents: dict[str, Agent] = {}
         # For `ping`: how long this daemon — and so the code it holds — has
         # been the one serving the socket.
@@ -640,7 +649,13 @@ class AgentDaemon:
             cwd=cwd,
             env=build_agent_env(dict(os.environ), env),
         )
-        agent = Agent(agent_id, cwd, proc, on_exit=self._record_exit(agent_id))
+        agent = Agent(
+            agent_id,
+            cwd,
+            proc,
+            on_exit=self._record_exit(agent_id),
+            clock=self.clock,
+        )
         self.agents[agent_id] = agent
         agent.pump_task = asyncio.create_task(agent.pump())
         agent.pump_task.add_done_callback(_log_pump_failure(agent_id))

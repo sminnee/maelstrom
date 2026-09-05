@@ -28,6 +28,7 @@ from maelstrom.agent_model import (
     SUB_RUNNING,
     SUB_STOPPED,
     SUBAGENT_LIMIT,
+    TS_KEY,
     AgentSpec,
     AgentState,
     TranscriptMeta,
@@ -506,10 +507,101 @@ def test_apply_event_stamps_each_event_with_its_seq_and_leaves_the_input_alone()
     state = AgentState(agent_id="a1", cwd="/tmp/x")
     events = [{"type": "rate_limit_event"}, {"type": "assistant"}, {"type": "result"}]
     for event in events:
-        state = apply_event(state, event)
+        state = apply_event(state, event, now="2026-09-05T10:00:00Z")
     assert [e[SEQ_KEY] for e in state.recent] == [1, 2, 3]
+    assert [e[TS_KEY] for e in state.recent] == ["2026-09-05T10:00:00Z"] * 3
     assert state.seq == 3
-    assert all(SEQ_KEY not in event for event in events)
+    assert all(SEQ_KEY not in event and TS_KEY not in event for event in events)
+
+
+def test_an_event_with_no_clock_is_stamped_unstamped():
+    """``now`` defaults to empty, so "we do not know when" stays representable."""
+    state = apply_event(AgentState(agent_id="a1", cwd="/tmp/x"), {"type": "result"})
+    assert state.recent[-1][TS_KEY] == ""
+
+
+# --- when an event happened: its own clock, or ours ------------------------
+
+
+def test_an_event_with_its_own_timestamp_keeps_it():
+    """The resume rule. A ``--resume`` replays days-old turns through the live
+    pump, so preferring the event's own clock is what stops one claiming it
+    just happened."""
+    state = apply_event(
+        AgentState(agent_id="a1", cwd="/tmp/x"),
+        {"type": "assistant", "timestamp": "2026-09-04T09:15:00Z"},
+        now="2026-09-05T22:00:00Z",
+    )
+    assert state.recent[-1][TS_KEY] == "2026-09-04T09:15:00Z"
+
+
+def test_a_frame_with_no_timestamp_takes_the_receive_clock():
+    """``control_request`` and friends only ever arrive live."""
+    state = apply_event(
+        AgentState(agent_id="a1", cwd="/tmp/x"),
+        {"type": "control_request", "request_id": "r1"},
+        now="2026-09-05T22:00:00Z",
+    )
+    assert state.recent[-1][TS_KEY] == "2026-09-05T22:00:00Z"
+
+
+def test_a_replayed_fixture_keeps_every_recorded_conversation_time():
+    """A whole recorded stream, replayed with an absurd ``now``: every turn
+    Claude timestamped keeps its own time, and nothing else invents one."""
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    # Pair by seq, not by position: a subagent event goes to a different ring,
+    # so positional pairing would silently compare the wrong two events.
+    raw: dict[int, dict] = {}
+    for line in (FIXTURES / "normal-turn.jsonl").read_text().splitlines():
+        if not line.strip():
+            continue
+        event = json.loads(line)
+        state = apply_event(state, event, now="2099-01-01T00:00:00Z")
+        raw[state.seq] = event
+    own = [
+        (e, raw[e[SEQ_KEY]]) for e in state.recent if raw[e[SEQ_KEY]].get("timestamp")
+    ]
+    assert own, "the fixture must carry timestamped turns"
+    assert all(e[TS_KEY] == r["timestamp"] for e, r in own)
+    borrowed = [e for e in state.recent if not raw[e[SEQ_KEY]].get("timestamp")]
+    assert borrowed and all(e[TS_KEY] == "2099-01-01T00:00:00Z" for e in borrowed)
+
+
+def test_an_ended_subagents_summary_carries_the_time_it_arrived():
+    """A row shows ``last_message`` and ``last_message_at`` as a pair, and an
+    ended subagent's message is its summary. The stamp must be the summary's,
+    not that of the last thing it said before finishing."""
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    for line in (FIXTURES / "subagent-turn.jsonl").read_text().splitlines():
+        if not line.strip():
+            continue
+        event = json.loads(line)
+        # The notification carries no clock of its own, so it takes ours.
+        now = (
+            "2026-09-04T09:00:00Z"
+            if event.get("subtype") == "task_notification"
+            else ""
+        )
+        state = apply_event(state, event, now=now)
+    sub = state.subagents["a1.1"]
+    assert sub.summary
+    [row] = build_subagent_rows(state)
+    assert row["last_message"].startswith("`docs/dev` exists")
+    assert row["last_message_at"] == "2026-09-04T09:00:00Z"
+
+
+def test_last_message_at_moves_only_when_the_last_message_does():
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    said = {
+        "type": "assistant",
+        "message": {"content": [{"type": "text", "text": "Done."}]},
+        "timestamp": "2026-09-04T09:15:00Z",
+    }
+    state = apply_event(state, said, now="2026-09-05T22:00:00Z")
+    assert state.last_message == "Done."
+    assert state.last_message_at == "2026-09-04T09:15:00Z"
+    state = apply_event(state, {"type": "result"}, now="2026-09-05T23:00:00Z")
+    assert state.last_message_at == "2026-09-04T09:15:00Z"
 
 
 # --- the permission mode, read off the stream ------------------------------
@@ -993,6 +1085,7 @@ def test_subagent_rows_take_the_row_shape_under_the_parent():
         "model": "claude-opus-5",
         "mode": "auto",
         "waiting_on": "",
+        "last_message_at": "",
         "cost": "",
     }
     assert last_message.startswith("`docs/dev` exists")
