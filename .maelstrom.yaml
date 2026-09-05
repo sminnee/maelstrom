@@ -16,3 +16,28 @@ services:
   orchestrator:
     ports: [ORCHESTRATOR]
     command: uv run mael orchestrator serve --port ${ORCHESTRATOR_PORT}
+
+  # An agent daemon of this environment's own. Opt-in and off by default: a
+  # plain `mael env start` skips it, so a worktree testing an unrelated
+  # feature keeps using the everyday daemon that `_main` runs. Start it by
+  # name — `mael env start agent-daemon` — when the change touches the agent
+  # protocol, and `mael env stop` takes it and its agents away again.
+  #
+  # To point this environment's orchestrator at it, set MAEL_AGENT_SOCKET in
+  # the worktree's .env to the path below: a service's own `env:` block does
+  # not reach its siblings, but the .env does. Without that the orchestrator
+  # reads the machine default, which is the everyday daemon.
+  #
+  # The project name is written out because `${WORKTREE}` alone collides:
+  # `bravo` names a worktree in 171 projects on this machine, `_main` in 165.
+  # A project's own name is a constant inside its own config.
+  #
+  # MAEL_AGENT_SPEC_DIR is not optional. Sharing the default spawn-record
+  # directory would make this daemon restore the everyday daemon's live agents
+  # against the same session ids the moment it starts.
+  agent-daemon:
+    optional: true
+    command: uv run mael agent daemon serve --socket ${MAEL_AGENT_SOCKET}
+    env:
+      MAEL_AGENT_SOCKET: ${HOME}/.maelstrom/sockets/maelstrom-${WORKTREE}.sock
+      MAEL_AGENT_SPEC_DIR: ${HOME}/.maelstrom/agents-maelstrom-${WORKTREE}

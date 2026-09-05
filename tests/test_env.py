@@ -15,6 +15,7 @@ from maelstrom.env import (
     ServiceState,
     ServiceStatus,
     SharedEnvState,
+    _spawn_services,
     build_service_env,
     cleanup_stale_env,
     cleanup_stale_shared,
@@ -2848,3 +2849,47 @@ class TestStopEnvSharedOnlyRemainder:
 
         mock_remove.assert_called_once_with(store, "proj", "bravo")
         mock_save.assert_not_called()
+
+
+class TestAgentDaemonServiceEnv:
+    """The daemon socket path is a config expression, not generated code.
+
+    `WORKTREE` is already in the generated .env and a service's `env:` block is
+    ${VAR}-expanded, so a per-worktree socket needs no new machinery. This pins
+    that both vars actually expand -- an unexpanded ${HOME} would create a
+    directory literally named "${HOME}".
+    """
+
+    def test_the_socket_and_spec_paths_expand(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", "/home/tester")
+        spawned = []
+
+        def fake_popen(argv, **kwargs):
+            spawned.append(kwargs["env"])
+            proc = MagicMock()
+            proc.pid = 4242
+            return proc
+
+        svc = ResolvedService(
+            name="agent-daemon",
+            command="mael agent daemon serve --socket ${MAEL_AGENT_SOCKET}",
+            env={
+                "MAEL_AGENT_SOCKET": "${HOME}/.maelstrom/sockets/p-${WORKTREE}.sock",
+                "MAEL_AGENT_SPEC_DIR": "${HOME}/.maelstrom/agents-p-${WORKTREE}",
+            },
+        )
+        with patch("maelstrom.env.Popen", fake_popen):
+            _spawn_services(
+                [svc],
+                tmp_path,
+                {"HOME": "/home/tester", "WORKTREE": "delta"},
+                tmp_path / "logs",
+                "2026-09-05T00:00:00+00:00",
+            )
+        child_env = spawned[0]
+        assert child_env["MAEL_AGENT_SOCKET"] == (
+            "/home/tester/.maelstrom/sockets/p-delta.sock"
+        )
+        assert child_env["MAEL_AGENT_SPEC_DIR"] == (
+            "/home/tester/.maelstrom/agents-p-delta"
+        )
