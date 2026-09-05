@@ -62,10 +62,30 @@ def replay(name: str, stop_before_control: bool = False):
 def _stub_agent(agent_id: str = "a1", clock: Callable[[], str] | None = None) -> Agent:
     """An `Agent` with a stub child, so `handle` is testable with no subprocess."""
     proc = MagicMock()
+    proc.pid = 4242
     proc.stdin.is_closing.return_value = True
     if clock is None:
         return Agent(agent_id, "/tmp/x", proc)
     return Agent(agent_id, "/tmp/x", proc, clock=clock)
+
+
+@pytest.fixture(autouse=True)
+def killed(monkeypatch) -> list[tuple[int, int]]:
+    """Every group signal the daemon sends, as ``(pid, signum)``.
+
+    Autouse, so no test can reach ``os.killpg`` with a stub's pid: 4242 may be
+    a real process on the developer's machine.
+    """
+    calls: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        agent_server, "kill_group", lambda pid, signum: calls.append((pid, signum))
+    )
+    return calls
+
+
+def _short_waits():
+    """Both bounded waits cut to 50 ms, so an escalation test runs in a blink."""
+    return patch.multiple(agent_server, EXIT_WAIT=0.05, TERM_WAIT=0.05)
 
 
 class _RecordingWriter:
@@ -304,6 +324,7 @@ def test_start_merges_env_over_the_daemons_own_environment(monkeypatch):
 
     monkeypatch.setenv("INHERITED", "yes")
     proc = MagicMock()
+    proc.pid = 4242
     proc.stdin.is_closing.return_value = True
     proc.stdout.readline = AsyncMock(return_value=b"")
     proc.wait = AsyncMock(return_value=0)
@@ -329,6 +350,7 @@ def test_a_watcher_is_told_when_the_agent_exits():
     from maelstrom.agent_model import AGENT_EXITED
 
     proc = MagicMock()
+    proc.pid = 4242
     proc.stdin.is_closing.return_value = True
     proc.stdout.readline = AsyncMock(return_value=b"")
     proc.wait = AsyncMock(return_value=3)
@@ -352,6 +374,7 @@ def test_a_watcher_is_told_when_the_agent_exits():
 def test_an_over_long_line_does_not_stop_the_pump(caplog):
     """A line past the read limit costs that one event, not the whole agent."""
     proc = MagicMock()
+    proc.pid = 4242
     proc.stdin.is_closing.return_value = True
     proc.returncode = 0
     proc.stdout.readline = AsyncMock(
@@ -386,13 +409,14 @@ def test_an_over_long_line_does_not_stop_the_pump(caplog):
     assert TRUNCATED in kinds
 
 
-def test_a_pump_that_fails_unexpectedly_still_settles_the_agent():
+def test_a_pump_that_fails_unexpectedly_still_settles_the_agent(killed):
     """An unexpected failure ends the agent rather than freezing it.
 
     The child is still running, so the exit wait needs its bound to return.
     """
     live = asyncio.Event()  # never set: the child outlives its pump
     proc = MagicMock()
+    proc.pid = 4242
     proc.stdin.is_closing.return_value = True
     proc.returncode = None
     proc.stdout.readline = AsyncMock(side_effect=RuntimeError("the reader broke"))
@@ -408,7 +432,7 @@ def test_a_pump_that_fails_unexpectedly_still_settles_the_agent():
         waiter = asyncio.get_running_loop().create_future()
         agent.waiting["r1"] = waiter
         waiters.append(waiter)
-        with patch.object(agent_server, "EXIT_WAIT", 0.05):
+        with _short_waits():
             with pytest.raises(RuntimeError):
                 await agent.pump()
         await asyncio.wait_for(attached, timeout=2)
@@ -419,29 +443,115 @@ def test_a_pump_that_fails_unexpectedly_still_settles_the_agent():
     assert agent.state.status == EXITED
     assert isinstance(waiters[0].exception(), ConnectionResetError)
     assert json.loads(writer.lines[-1])["type"] == AGENT_EXITED
-    proc.kill.assert_called_once()
+    # The whole group, escalating: a child that ignores SIGTERM gets SIGKILL.
+    assert killed == [(4242, signal.SIGTERM), (4242, signal.SIGKILL)]
 
 
-def test_stop_kills_only_a_child_that_ignores_its_closed_stdin():
-    """Closing stdin is what a child is meant to notice, so it goes first."""
+def test_stop_kills_only_a_child_that_ignores_its_closed_stdin(killed):
+    """Closing stdin is what a child is meant to notice, so it goes first.
+
+    The kill, when it comes, goes to the child's process group and escalates:
+    `proc.kill()` reached the child alone and left its hooks, MCP servers and
+    tool shells running.
+    """
     quiet = MagicMock()
+    quiet.pid = 4242
     quiet.stdin.is_closing.return_value = False
     quiet.returncode = None
     quiet.wait = AsyncMock(return_value=0)
     asyncio.run(asyncio.wait_for(Agent("a1", "/tmp/x", quiet).stop(), timeout=5))
     quiet.stdin.close.assert_called_once()
-    quiet.kill.assert_not_called()
+    assert killed == []
 
     stubborn = MagicMock()
+    stubborn.pid = 4343
     stubborn.stdin.is_closing.return_value = False
     stubborn.returncode = None
     stubborn.wait = AsyncMock(side_effect=asyncio.Event().wait)
-    with patch.object(agent_server, "EXIT_WAIT", 0.05):
+    with _short_waits():
         asyncio.run(asyncio.wait_for(Agent("a2", "/tmp/x", stubborn).stop(), timeout=5))
-    stubborn.kill.assert_called_once()
+    stubborn.kill.assert_not_called()
+    assert killed == [(4343, signal.SIGTERM), (4343, signal.SIGKILL)]
 
 
-def test_a_cancelled_pump_leaves_the_child_to_stop():
+def test_a_child_that_leaves_on_sigterm_is_not_killed(killed):
+    """The escalation stops at the first signal the child honours."""
+    gone = asyncio.Event()
+
+    async def wait_for_signal() -> int:
+        await gone.wait()
+        return -15
+
+    proc = MagicMock()
+    proc.pid = 4242
+    proc.stdin.is_closing.return_value = True
+    proc.returncode = None
+    proc.wait = AsyncMock(side_effect=wait_for_signal)
+    agent = Agent("a1", "/tmp/x", proc)
+
+    def term(pid: int, signum: int) -> None:
+        killed.append((pid, signum))
+        gone.set()
+
+    with patch.object(agent_server, "kill_group", term), _short_waits():
+        code = asyncio.run(asyncio.wait_for(agent._end_child(kill=True), timeout=5))
+    assert code == -15
+    assert killed == [(4242, signal.SIGTERM)]
+
+
+def test_a_group_already_gone_is_not_an_error():
+    """The `ps` snapshot is stale by milliseconds; a pid can exit in between."""
+
+    def gone(pid: int, signum: int) -> None:
+        raise ProcessLookupError(pid)
+
+    proc = MagicMock()
+    proc.pid = 4242
+    proc.stdin.is_closing.return_value = True
+    proc.returncode = None
+    proc.wait = AsyncMock(return_value=None)
+    with patch.object(agent_server, "kill_group", gone), _short_waits():
+        asyncio.run(asyncio.wait_for(Agent("a1", "/tmp/x", proc).stop(), timeout=5))
+
+
+def test_shutdown_signals_each_childs_group(killed):
+    """`mael env stop` sends SIGTERM to the daemon's group, which the children
+    are no longer in. The daemon's own shutdown is what reaches them now, so
+    it has to signal every one.
+    """
+    daemon, _ = _daemon_with_specs()
+    gone: dict[int, asyncio.Event] = {}
+
+    def child(pid: int) -> MagicMock:
+        proc = MagicMock()
+        proc.pid = pid
+        proc.stdin.is_closing.return_value = False
+        proc.returncode = None
+
+        async def wait_for_signal() -> int:
+            await gone[pid].wait()
+            return 0
+
+        proc.wait = AsyncMock(side_effect=wait_for_signal)
+        return proc
+
+    def term(pid: int, signum: int) -> None:
+        killed.append((pid, signum))
+        gone[pid].set()
+
+    async def scenario():
+        for pid in (101, 102):
+            gone[pid] = asyncio.Event()
+            daemon.agents[f"a{pid}"] = Agent(f"a{pid}", "/tmp/x", child(pid))
+        with patch.object(agent_server, "kill_group", term), _short_waits():
+            await daemon.shutdown()
+
+    asyncio.run(asyncio.wait_for(scenario(), timeout=5))
+    assert sorted(killed) == [(101, signal.SIGTERM), (102, signal.SIGTERM)]
+    assert daemon.agents == {}
+
+
+def test_a_cancelled_pump_leaves_the_child_to_stop(killed):
     """Loop teardown is not a crash, so the child outlives its pump.
 
     A killed child would be recorded as exited, and `restore` brings back only
@@ -455,6 +565,7 @@ def test_a_cancelled_pump_leaves_the_child_to_stop():
         return b""
 
     proc = MagicMock()
+    proc.pid = 4242
     proc.stdin.is_closing.return_value = True
     proc.returncode = None
     proc.stdout.readline = AsyncMock(side_effect=block)
@@ -470,12 +581,13 @@ def test_a_cancelled_pump_leaves_the_child_to_stop():
 
     asyncio.run(asyncio.wait_for(cancel_mid_read(), timeout=5))
 
-    proc.kill.assert_not_called()
+    assert killed == []
 
 
 def test_the_spawn_bounds_the_childs_line_length():
     """The child's stdout gets the same limit as every socket the daemon reads."""
     proc = MagicMock()
+    proc.pid = 4242
     proc.stdin.is_closing.return_value = True
     proc.stdout.readline = AsyncMock(return_value=b"")
     proc.wait = AsyncMock(return_value=0)
@@ -485,6 +597,21 @@ def test_the_spawn_bounds_the_childs_line_length():
     ) as spawn:
         asyncio.run(_handle(daemon, {"cmd": "start", "cwd": "/tmp/x"}))
     assert spawn.call_args.kwargs["limit"] == agent_server.STREAM_LIMIT
+
+
+def test_the_child_runs_in_its_own_process_group():
+    """So one group kill takes its hooks, MCP servers and tool shells with it.
+
+    A child in the daemon's own group would also die with a foreground
+    `serve`'s Ctrl-C before the daemon's handler could stop it tidily.
+    """
+    proc = _spawn_stub()
+    daemon, _ = _daemon_with_specs()
+    with patch.object(
+        agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
+    ) as spawn:
+        asyncio.run(_handle(daemon, {"cmd": "start", "cwd": "/tmp/x"}))
+    assert spawn.call_args.kwargs["start_new_session"] is True
 
 
 def test_attaching_to_an_exited_agent_ends_after_the_backlog():
@@ -550,6 +677,7 @@ def _spawn_stub(exit_code: int = 0):
     one closed would swallow the very prompt these tests assert on.
     """
     proc = MagicMock()
+    proc.pid = 4242
     proc.stdin.is_closing.return_value = False
     proc.stdin.drain = AsyncMock(return_value=None)
     proc.stdout.readline = AsyncMock(return_value=b"")
@@ -945,6 +1073,7 @@ def test_a_daemon_shutdown_leaves_its_records_resumable():
     # its `finally` runs during the stop — which is when the exit was recorded.
     stream_open: asyncio.Event | None = None
     proc = MagicMock()
+    proc.pid = 4242
     proc.stdin.is_closing.return_value = False
     proc.stdin.drain = AsyncMock(return_value=None)
     proc.wait = AsyncMock(return_value=0)
@@ -1952,6 +2081,7 @@ def test_a_parent_exit_reaches_the_subagents_watchers_too():
     from maelstrom.agent_model import AGENT_EXITED
 
     proc = MagicMock()
+    proc.pid = 4242
     proc.stdin.is_closing.return_value = True
     proc.stdout.readline = AsyncMock(return_value=b"")
     proc.wait = AsyncMock(return_value=3)

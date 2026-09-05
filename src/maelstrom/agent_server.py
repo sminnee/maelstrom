@@ -98,6 +98,16 @@ REQUEST_TIMEOUT = 10.0
 #: and an unbounded wait there never settles the agent's state.
 EXIT_WAIT = 5.0
 
+#: How long a child's process group gets to leave on SIGTERM before SIGKILL.
+#: Long enough for claude to flush its transcript; short enough that a daemon
+#: shutdown holding twenty agents does not take a minute.
+TERM_WAIT = 3.0
+
+#: Sends a signal to a whole process group. A module attribute so tests can
+#: stand in a recorder: a stub child's pid may be a real process on the
+#: developer's machine.
+kill_group: Callable[[int, int], None] = os.killpg
+
 
 def _log_pump_failure(agent_id: str) -> Callable[["asyncio.Task[None]"], None]:
     """A done-callback that logs whatever killed ``agent_id``'s pump.
@@ -362,14 +372,40 @@ class Agent:
     async def _end_child(self, kill: bool) -> int | None:
         """Wait for the child to go, and return its exit code.
 
-        ``kill`` ends it up front rather than waiting for it to notice. Either
-        way the wait is bounded, so a child that ignores both still lets its
-        agent settle — ``None`` then, the exit code being unknown.
+        ``kill`` ends it up front rather than waiting for it to notice: SIGTERM
+        to the child's whole process group, a bounded wait, then SIGKILL to the
+        group and another. The group, not the pid alone — the child runs in
+        its own session (see ``start_agent``), so its hooks, MCP servers and
+        tool shells go with it instead of being left on a dead pipe.
+
+        Either way the last wait is bounded, so a child that ignores every
+        signal still lets its agent settle — ``None`` then, the exit code
+        being unknown.
         """
         if kill and self.proc.returncode is None:
-            self.proc.kill()
+            self._signal_group(signal.SIGTERM)
+            code = await self._wait(TERM_WAIT)
+            if code is not None:
+                return code
+            self._signal_group(signal.SIGKILL)
+        return await self._wait(EXIT_WAIT)
+
+    def _signal_group(self, signum: int) -> None:
+        """Send ``signum`` to the child's process group, if there is one.
+
+        A group that has already gone is not an error: the child can exit in
+        the moment between the decision to signal and the signal.
+        """
+        pid = self.proc.pid
+        if pid is None:
+            return
+        with suppress(ProcessLookupError):
+            kill_group(pid, signum)
+
+    async def _wait(self, timeout: float) -> int | None:
+        """The child's exit code, or ``None`` when it has not gone in ``timeout``."""
         try:
-            return await asyncio.wait_for(self.proc.wait(), timeout=EXIT_WAIT)
+            return await asyncio.wait_for(self.proc.wait(), timeout=timeout)
         except asyncio.TimeoutError:
             return None
 
@@ -650,6 +686,12 @@ class AgentDaemon:
         # accumulated message — with `--forward-subagent-text` every subagent's
         # text lands on this stream too, so lines run long. Hence the same
         # STREAM_LIMIT the daemon's sockets use.
+        #
+        # Its own session, so the child leads a process group of its own. One
+        # `killpg` then ends the child and everything it spawned — hooks, MCP
+        # servers, tool shells — where `proc.kill()` reached the child alone.
+        # It also keeps a foreground `serve`'s Ctrl-C off the children: the
+        # daemon's SIGINT handler runs the orderly shutdown instead.
         proc = await asyncio.create_subprocess_exec(
             *argv,
             stdin=asyncio.subprocess.PIPE,
@@ -658,6 +700,7 @@ class AgentDaemon:
             limit=STREAM_LIMIT,
             cwd=cwd,
             env=build_agent_env(dict(os.environ), env),
+            start_new_session=True,
         )
         agent = Agent(
             agent_id,
