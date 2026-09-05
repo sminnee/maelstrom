@@ -518,6 +518,8 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 | `attach` | `id`; optional `from`, `epoch` | A stream; see below |
 | `ping` | none | `{"daemon": {…}}`: `pid`, `version`, `executable`, `source_tree`, `root`, `socket_path`, `spec_dir`, `started_at`, `agents` |
 | `shutdown` | none | `{"ok": true}`, then the daemon stops |
+| `reconcile` | none | `{"verdicts": [<verdict>, …]}`: what `gc` would do, doing nothing. See "Strays and gc" |
+| `gc` | none | `{"verdicts": […], "killed": [<pgid>, …]}`: the verdicts, acted on. Never resumes |
 
 `start` merges `env` over the daemon's own environment for that child, with no allowlist: a
 client of the socket can set any variable. The socket's file permissions are the trust boundary.
@@ -754,10 +756,14 @@ tightens a record it finds loose.
 - **A crashed child does not restart itself.** The agent shows `exited(N)`, and
   `mael agent resume <id>` brings it back. The id is kept, which is what makes a resume invisible
   to the orchestrator and to the user.
-- **A daemon start resumes every record still marked `running`.** A record marked `exited` is
-  loaded as an exited agent instead, so `list`, `show` and `resume` all answer for it, but nothing
-  respawns it. That is also the loop guard: a resumed child that dies again is recorded `exited`,
-  so the next daemon start leaves it alone.
+- **A daemon start runs the gc first, then resumes each session once.** The gc kills every stray
+  and duplicate on a record's session, writes off a record whose child is gone with no shutdown
+  recorded, and retires the older of two `running` records on one session. Only then is each
+  surviving `running` record resumed, one per session. A record marked `exited` — including one
+  the gc just wrote — is loaded as an exited agent instead, so `list`, `show` and `resume` all
+  answer for it, but nothing respawns it. That is also the loop guard: a resumed child that dies
+  again is recorded `exited`, so the next daemon start leaves it alone. Where the process table
+  cannot be read, the gc is skipped and every `running` record is resumed as before.
 - **A `stopped` record is neither respawned nor loaded.** A stop is deliberate, so the agent stays
   out of `list` entirely. `mael agent list --stopped` finds it through its record, and reads its
   transcript for what it was doing. `mael agent resume` reads the record.
