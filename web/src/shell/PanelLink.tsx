@@ -1,8 +1,20 @@
 import type { ReactNode } from 'react';
+import { useLayoutMode } from '../layout/useLayoutMode';
 import { useAppStore } from '../store/store';
+import type { MobileScreen } from '../selectors/navStack';
 import type { PanelTab } from '../store/uiSlice';
 import { OpenInPanelIcon } from './OpenInPanelIcon';
 import styles from './PanelLink.module.css';
+
+/** The same destination as a screen the narrow layout can push. */
+function screenFor(tab: PanelTab): MobileScreen {
+  switch (tab.kind) {
+    case 'session':
+      return { kind: 'session', agentId: tab.agentId };
+    case 'document':
+      return { kind: 'document', documentId: tab.documentId };
+  }
+}
 
 /** The id a tab's href carries: what the panel would show, for a hover or a copied link. */
 function hrefFor(tab: PanelTab): string {
@@ -15,10 +27,14 @@ function hrefFor(tab: PanelTab): string {
 }
 
 /**
- * A link that opens a tab in the right panel. Links open more information;
+ * A link that opens a session or a document. Links open more information;
  * buttons act. Every panel link carries the open-in-panel icon so the two
  * are told apart at a glance. The click stops there: a link on a canvas node
  * must not also toggle the node.
+ *
+ * Where it opens depends on the layout: a panel tab when wide, a pushed
+ * screen when narrow. Every link in the app goes through here, so one branch
+ * carries the whole difference.
  */
 export function PanelLink({
   tab,
@@ -35,6 +51,8 @@ export function PanelLink({
   'aria-label'?: string;
 }) {
   const openTab = useAppStore((s) => s.openTab);
+  const pushScreen = useAppStore((s) => s.pushScreen);
+  const narrow = useLayoutMode() === 'narrow';
   return (
     <a
       href={hrefFor(tab)}
@@ -43,7 +61,8 @@ export function PanelLink({
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        openTab(tab);
+        if (narrow) pushScreen(screenFor(tab));
+        else openTab(tab);
       }}
     >
       {children}

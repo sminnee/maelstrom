@@ -1,3 +1,4 @@
+import { useLayoutMode } from '../layout/useLayoutMode';
 import { useAppStore } from '../store/store';
 import type { View } from '../store/uiSlice';
 import { AttentionChip } from './AttentionChip';
@@ -13,8 +14,10 @@ export function TopBar() {
   const view = useAppStore((s) => s.ui.view);
   const setView = useAppStore((s) => s.setView);
   const setNewWorkOpen = useAppStore((s) => s.setNewWorkOpen);
+  const clearStack = useAppStore((s) => s.clearStack);
+  const narrow = useLayoutMode() === 'narrow';
   return (
-    <header className={styles.bar}>
+    <header className={styles.bar} data-narrow={narrow || undefined}>
       <h1 className={styles.brand}>maelstrom</h1>
       <div className={styles.views}>
         {VIEWS.map((v) => (
@@ -23,13 +26,19 @@ export function TopBar() {
             type="button"
             className={styles.view}
             aria-pressed={view === v.view}
-            onClick={() => setView(v.view)}
+            onClick={() => {
+              setView(v.view);
+              // The stack sits over the view it was pushed from, so a switch
+              // that left it standing would draw the old screen under a new view.
+              clearStack();
+            }}
           >
             {v.label}
           </button>
         ))}
       </div>
-      {view === 'canvas' && <FilterBar />}
+      {/* The narrow layout has no canvas to filter, and no room for the bar. */}
+      {view === 'canvas' && !narrow && <FilterBar />}
       <div className={styles.spacer}>
         {/* In both views, so the affordance never moves. */}
         <button type="button" className={styles.new} onClick={() => setNewWorkOpen(true)}>
