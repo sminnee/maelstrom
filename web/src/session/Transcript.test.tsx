@@ -196,6 +196,27 @@ describe('Transcript', () => {
     expect(card).toHaveTextContent('The conventions this file carries.');
   });
 
+  it('a shell command renders as a command and its output', () => {
+    render(
+      <Transcript
+        truncatedBefore={false}
+        items={[
+          {
+            id: 'sh1',
+            ts: '',
+            type: 'shell',
+            command: 'git status',
+            output: 'on main',
+            status: 'done',
+          },
+        ]}
+      />,
+    );
+    const card = screen.getByTestId('transcript-card');
+    expect(card).toHaveTextContent('git status');
+    expect(card).toHaveTextContent('on main');
+  });
+
   it('a denied permission shows its decision', () => {
     render(<Transcript items={goldenItems('permission-denied.jsonl')} truncatedBefore={false} />);
     const card = screen

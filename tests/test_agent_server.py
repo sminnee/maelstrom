@@ -1909,6 +1909,101 @@ def test_a_message_the_user_sends_is_not_recorded():
     ]
 
 
+def test_a_shell_command_reaches_the_agent_as_the_harness_two_turns(tmp_path):
+    """``run`` writes what Claude Code's own ``!`` writes: input, then output.
+
+    Neither turn is recorded, for the same reason a ``say`` is not: the child
+    echoes every stdin user turn back itself.
+    """
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent, sent = _sending_agent()
+    agent.state = replace(agent.state, cwd=str(tmp_path))
+    daemon.agents["a1"] = agent
+    writer = _recording_writer()
+
+    async def attach_then_run():
+        task = asyncio.create_task(daemon._attach("a1", writer))
+        await asyncio.sleep(0)
+        reply = await daemon.handle(
+            {"cmd": "run", "id": "a1", "command": "printf hello"}
+        )
+        await asyncio.sleep(0)
+        task.cancel()
+        return reply
+
+    reply = asyncio.run(attach_then_run())
+    assert reply["ok"] is True
+    assert [m["message"]["content"] for m in sent] == [
+        "<bash-input>printf hello</bash-input>",
+        "<bash-stdout>hello</bash-stdout><bash-stderr></bash-stderr>",
+    ]
+    assert [json.loads(line).get("type") for line in writer.lines] == [
+        AGENT_DETAIL,
+        BACKLOG_END,
+    ]
+
+
+def test_a_shell_command_runs_in_the_agents_own_directory(tmp_path):
+    """The point of running it host-side: the agent's cwd is the context."""
+    (tmp_path / "marker.txt").write_text("x")
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent, sent = _sending_agent()
+    agent.state = replace(agent.state, cwd=str(tmp_path))
+    daemon.agents["a1"] = agent
+    asyncio.run(daemon.handle({"cmd": "run", "id": "a1", "command": "ls"}))
+    assert "marker.txt" in sent[-1]["message"]["content"]
+
+
+def test_a_failing_shell_command_sends_its_stderr_not_an_error(tmp_path):
+    """A non-zero exit is output, the way a terminal gives you output."""
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent, sent = _sending_agent()
+    agent.state = replace(agent.state, cwd=str(tmp_path))
+    daemon.agents["a1"] = agent
+    reply = asyncio.run(
+        daemon.handle({"cmd": "run", "id": "a1", "command": "printf oops >&2; exit 3"})
+    )
+    assert reply["ok"] is True
+    assert sent[-1]["message"]["content"] == (
+        "<bash-stdout></bash-stdout><bash-stderr>oops</bash-stderr>"
+    )
+
+
+def test_a_shell_command_survives_a_working_directory_that_is_gone():
+    """A worktree removed under a live agent must not kill the connection.
+
+    Without a guard the spawn raises, the exception escapes ``handle``, and
+    the socket closes with no reply for the caller to read.
+    """
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent, sent = _sending_agent()
+    agent.state = replace(agent.state, cwd="/nonexistent/gone")
+    daemon.agents["a1"] = agent
+    reply = asyncio.run(daemon.handle({"cmd": "run", "id": "a1", "command": "ls"}))
+    assert reply["ok"] is True
+    assert "could not run command" in sent[-1]["message"]["content"]
+
+
+def test_a_shell_command_must_not_be_empty():
+    """A bare ``!`` sends nothing rather than running the empty command."""
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent, sent = _sending_agent()
+    daemon.agents["a1"] = agent
+    reply = asyncio.run(daemon.handle({"cmd": "run", "id": "a1", "command": "  "}))
+    assert "error" in reply
+    assert sent == []
+
+
+def test_a_shell_command_is_refused_against_an_exited_agent():
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent, sent = _sending_agent()
+    agent.state = mark_exited(agent.state, 1)
+    daemon.agents["a1"] = agent
+    reply = asyncio.run(daemon.handle({"cmd": "run", "id": "a1", "command": "ls"}))
+    assert "has exited" in reply["error"]
+    assert sent == []
+
+
 def test_interrupt_refuses_an_idle_agent():
     """An idle agent has no turn to abandon, so ok would be a lie."""
     daemon = AgentDaemon()
@@ -2411,7 +2506,16 @@ def test_show_on_an_unopened_subagent_is_no_such_agent():
 
 def test_driving_a_subagent_is_refused_with_the_parent_named():
     daemon, _ = _agent_with_subagent()
-    for command in ("say", "approve", "deny", "answer", "interrupt", "stop", "resume"):
+    for command in (
+        "say",
+        "run",
+        "approve",
+        "deny",
+        "answer",
+        "interrupt",
+        "stop",
+        "resume",
+    ):
         reply = asyncio.run(
             _handle(daemon, {"cmd": command, "id": "a1.1", "text": "x"})
         )

@@ -635,6 +635,148 @@ def test_a_user_turn_that_only_quotes_the_skill_line_stays_a_message():
     assert [i["markdown"] for i in items_of(state, "message")] == [asked]
 
 
+def test_a_shell_command_and_its_output_become_one_item():
+    """The two turns the host injects for a ``!`` fold into a single item.
+
+    The command arrives first and the output follows, so the item appends on
+    the input turn and is updated by the output turn — the same shape a
+    ``tool_call`` and its ``tool_result`` already use.
+    """
+    state = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = context_for_agent("ag1")
+    out = normalise_stream_event(
+        state.state,
+        ctx,
+        {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": "<bash-input>git status</bash-input>",
+            },
+        },
+        NOW,
+    )
+    state.take(out.events)
+    out = normalise_stream_event(
+        state.state,
+        out.ctx,
+        {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": "<bash-stdout>on main</bash-stdout><bash-stderr></bash-stderr>",
+            },
+        },
+        NOW,
+    )
+    state.take(out.events)
+    assert items_of(state, "message") == []
+    shells = items_of(state, "shell")
+    assert [(i["command"], i["output"]) for i in shells] == [("git status", "on main")]
+    # A shell command is context, not a turn: it must not read as the agent
+    # working. This is what makes it behave like `!` and not like a message.
+    assert agent_of(state)["state"] == "idle"
+
+
+def test_a_shell_command_keeps_stderr():
+    """A failing command reaches the agent as its stderr text."""
+    state = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = context_for_agent("ag1")
+    out = normalise_stream_event(
+        state.state,
+        ctx,
+        {
+            "type": "user",
+            "message": {"role": "user", "content": "<bash-input>nope</bash-input>"},
+        },
+        NOW,
+    )
+    state.take(out.events)
+    out = normalise_stream_event(
+        state.state,
+        out.ctx,
+        {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": "<bash-stdout></bash-stdout><bash-stderr>not found</bash-stderr>",
+            },
+        },
+        NOW,
+    )
+    state.take(out.events)
+    assert [i["output"] for i in items_of(state, "shell")] == ["not found"]
+
+
+def test_shell_output_with_no_command_before_it_still_shows():
+    """The ring can truncate away the input turn. A gap must not eat output."""
+    state = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = context_for_agent("ag1")
+    out = normalise_stream_event(
+        state.state,
+        ctx,
+        {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": "<bash-stdout>orphaned</bash-stdout><bash-stderr></bash-stderr>",
+            },
+        },
+        NOW,
+    )
+    state.take(out.events)
+    assert [i["output"] for i in items_of(state, "shell")] == ["orphaned"]
+
+
+def test_an_interrupted_shell_pair_does_not_capture_a_later_command():
+    """A command turn with no output turn must not swallow the next one.
+
+    The daemon sends the pair together, so only a restart between the two
+    breaks it. When that happens the later command needs its own item.
+    """
+    state = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = context_for_agent("ag1")
+    turns = [
+        "<bash-input>first</bash-input>",
+        "an ordinary message",
+        "<bash-stdout>late</bash-stdout><bash-stderr></bash-stderr>",
+    ]
+    for content in turns:
+        out = normalise_stream_event(
+            state.state,
+            ctx,
+            {"type": "user", "message": {"role": "user", "content": content}},
+            NOW,
+        )
+        state.take(out.events)
+        ctx = out.ctx
+    # The orphaned output gets its own item; the first command keeps its own.
+    assert [(i["command"], i["output"]) for i in items_of(state, "shell")] == [
+        ("first", ""),
+        ("", "late"),
+    ]
+
+
+def test_a_user_turn_that_only_quotes_the_bash_tag_stays_a_message():
+    """As with a skill, the prefix alone is not the test.
+
+    This repo's own docs carry the tag, so a user pasting one must not have
+    their message folded away behind a shell card.
+    """
+    state = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = context_for_agent("ag1")
+    asked = "what does <bash-input> mean when it opens a turn?"
+    out = normalise_stream_event(
+        state.state,
+        ctx,
+        {"type": "user", "message": {"role": "user", "content": asked}},
+        NOW,
+    )
+    state.take(out.events)
+    assert items_of(state, "shell") == []
+    assert [i["markdown"] for i in items_of(state, "message")] == [asked]
+
+
 # --- subagents ----------------------------------------------------------------
 
 AGENT_CALL = "toolu_01GYXSgBQ1wcW9LA8SSvM5uJ"

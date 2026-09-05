@@ -763,6 +763,7 @@ class Orchestrator:
             "agent.deny": self._deny,
             "agent.answer": self._answer,
             "agent.say": self._say,
+            "agent.run": self._run_shell,
             "agent.stop": self._stop,
             "agent.setMode": self._set_mode,
             "agent.resume": self._resume_agent,
@@ -810,6 +811,16 @@ class Orchestrator:
     async def _say(self, command: dict[str, Any]) -> dict[str, Any]:
         return await self._relay(
             {"cmd": "say", "id": command["agentId"], "text": command["text"]}
+        )
+
+    async def _run_shell(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Ask the host to run a shell command in the agent's directory.
+
+        A pure relay, like ``_say``. The host runs it, because the host is
+        where the agent's working directory is.
+        """
+        return await self._relay(
+            {"cmd": "run", "id": command["agentId"], "command": command["command"]}
         )
 
     async def _set_mode(self, command: dict[str, Any]) -> dict[str, Any]:
