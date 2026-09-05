@@ -41,6 +41,7 @@ from .agent_model import (
     BACKLOG_END,
     DEFAULT_RESUME_PROMPT,
     EXITED,
+    IDLE,
     INTERRUPTED_REASON,
     INTERRUPTIBLE,
     MODES,
@@ -709,7 +710,12 @@ class AgentDaemon:
             on_exit=self._record_exit(agent_id),
             clock=self.clock,
         )
+        agent.state = replace(agent.state, pid=proc.pid)
         self.agents[agent_id] = agent
+        # Written again now there is a child to name. The pid is what lets the
+        # next daemon tell a live child from a dead one; `started_at` orders
+        # two running records on one session.
+        self.specs.write(replace(spec, pid=proc.pid, started_at=now_iso()))
         agent.pump_task = asyncio.create_task(agent.pump())
         agent.pump_task.add_done_callback(_log_pump_failure(agent_id))
         if prompt:
@@ -728,7 +734,11 @@ class AgentDaemon:
             spec = self.specs.read(agent_id)
             if spec is None or spec.status == SPEC_STOPPED:
                 return  # a deliberate stop is not a crash
-            self.specs.write(replace(spec, status=SPEC_EXITED, exit_code=exit_code))
+            # `pid=None`: the process is gone, and a dead record must never
+            # name a pid the system has since handed to something else.
+            self.specs.write(
+                replace(spec, status=SPEC_EXITED, exit_code=exit_code, pid=None)
+            )
 
         return record
 
@@ -738,7 +748,10 @@ class AgentDaemon:
         A child that never got its opening prompt wrote no transcript, so it is
         started fresh with its original prompt. Otherwise the transcript is
         replayed and the agent gets a turn back — see
-        :data:`~maelstrom.agent_model.DEFAULT_RESUME_PROMPT`.
+        :data:`~maelstrom.agent_model.DEFAULT_RESUME_PROMPT` — unless the last
+        daemon recorded it ``idle`` at shutdown: an agent with nothing in
+        flight has nothing to be told, and a daemon restarted to pick up new
+        code must not wake every idle agent it held.
 
         The transcript on disk is the one fact worth trusting here. A record
         saying no prompt went out cannot be believed: a daemon killed just after
@@ -747,7 +760,14 @@ class AgentDaemon:
         rather than awkward.
         """
         replay = self.has_transcript(Path(spec.cwd), spec.session_id)
-        prompt = text or (DEFAULT_RESUME_PROMPT if replay else spec.prompt)
+        if text:
+            prompt = text
+        elif not replay:
+            prompt = spec.prompt
+        elif spec.last_status == IDLE:
+            prompt = ""
+        else:
+            prompt = DEFAULT_RESUME_PROMPT
         return await self.start_agent(
             spec.cwd,
             prompt,
@@ -897,7 +917,7 @@ class AgentDaemon:
             # which would overwrite a still-`running` record as `exited`.
             spec = self.specs.read(agent.state.agent_id)
             if spec is not None:
-                self.specs.write(replace(spec, status=SPEC_STOPPED))
+                self.specs.write(replace(spec, status=SPEC_STOPPED, pid=None))
             await agent.stop()
             # Popped all the same: the orchestrator reads an id's absence from
             # `list` as an exit. See docs/dev/agent-daemon.md.
@@ -1107,9 +1127,16 @@ class AgentDaemon:
         agent alone. Dropping the callback first is what keeps the records
         ``running``, which is what makes restarting the daemon to pick up new
         code free.
+
+        Each record also learns what its agent was doing, so the next daemon
+        knows whether the resume needs a nudge. The pid stays: a child the
+        kill misses is that daemon's stray, and the record is how it is found.
         """
         for agent in self.agents.values():
             agent.on_exit = None
+            spec = self.specs.read(agent.state.agent_id)
+            if spec is not None and spec.status == SPEC_RUNNING:
+                self.specs.write(replace(spec, last_status=agent.state.status))
         await asyncio.gather(
             *(agent.stop() for agent in self.agents.values()),
             return_exceptions=True,

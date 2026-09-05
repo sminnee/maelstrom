@@ -254,6 +254,14 @@ class AgentSpec:
 
     ``env`` is the caller's own extra vars only, never the daemon's environment
     — that is re-read at spawn time.
+
+    ``pid`` names the child while the record is ``running``, and is ``None``
+    once the child is known to be gone, so a dead record can never name a pid
+    the system has since reused. It is how the next daemon tells "my
+    predecessor's child is still alive" from "it died". ``started_at`` orders
+    two running records on one session. ``last_status`` is what the agent was
+    doing when the last daemon shut down: an agent that was ``idle`` comes back
+    without the resume nudge. Both are set by the daemon, never by a client.
     """
 
     agent_id: str
@@ -265,6 +273,9 @@ class AgentSpec:
     prompt: str = ""
     status: str = SPEC_RUNNING
     exit_code: int | None = None
+    pid: int | None = None
+    started_at: str = ""
+    last_status: str = ""
 
 
 def build_start_payload(
@@ -321,6 +332,9 @@ def spec_to_dict(spec: AgentSpec) -> dict[str, Any]:
         "prompt": spec.prompt,
         "status": spec.status,
         "exit_code": spec.exit_code,
+        "pid": spec.pid,
+        "started_at": spec.started_at,
+        "last_status": spec.last_status,
     }
 
 
@@ -341,6 +355,9 @@ def spec_from_dict(data: dict[str, Any]) -> AgentSpec:
         prompt=data.get("prompt", ""),
         status=data.get("status", SPEC_RUNNING),
         exit_code=data.get("exit_code"),
+        pid=data.get("pid"),
+        started_at=data.get("started_at") or "",
+        last_status=data.get("last_status") or "",
     )
 
 
@@ -492,6 +509,9 @@ class AgentState:
     total_cost_usd: float = 0.0
     #: Exit code of the child, once it has gone. ``None`` while it is alive.
     exit_code: int | None = None
+    #: The child's pid while it is alive; ``None`` before the spawn and after
+    #: the exit, so a row never names a pid the system may have reused.
+    pid: int | None = None
     #: The most recent events, for ``attach`` and ``list`` to render without
     #: replaying the transcript from disk. Each carries the ``mael_seq`` and
     #: ``mael_ts`` it was stamped with.
@@ -912,9 +932,10 @@ def mark_exited(state: AgentState, exit_code: int | None) -> AgentState:
 
     Clears ``pending``: a request nobody can answer must not keep advertising
     itself, or ``mael agent answer`` reports success against a dead process.
+    Clears ``pid`` too: the process is gone, and the number may be reused.
     The subagents stay as they are: their rings are still worth reading.
     """
-    return replace(state, status=EXITED, pending=None, exit_code=exit_code)
+    return replace(state, status=EXITED, pending=None, exit_code=exit_code, pid=None)
 
 
 def build_agent_row(state: AgentState) -> dict[str, Any]:
@@ -941,6 +962,7 @@ def build_agent_row(state: AgentState) -> dict[str, Any]:
         "state": status,
         "session": state.session_id,
         "cwd": state.cwd,
+        "pid": state.pid,
         "model": state.model,
         "mode": state.permission_mode,
         "waiting_on": state.pending.summary if state.pending else "",
@@ -974,10 +996,10 @@ def build_subagent_row(state: AgentState, dotted: str) -> dict[str, Any]:
 
     ``parent`` names the agent whose stream it came from — always the top-level
     agent, even for a nested subagent, because that is whose child process
-    carries it. ``session``, ``cwd``, ``model`` and ``mode`` are the parent's:
-    a subagent runs inside the parent's process, in its directory, under its
-    mode. ``waiting_on`` and ``cost`` are empty: a subagent's asks are the
-    parent's waits, and its spend is in the parent's total.
+    carries it. ``session``, ``cwd``, ``pid``, ``model`` and ``mode`` are the
+    parent's: a subagent runs inside the parent's process, in its directory,
+    under its mode. ``waiting_on`` and ``cost`` are empty: a subagent's asks
+    are the parent's waits, and its spend is in the parent's total.
     """
     sub = state.subagents[dotted]
     return {
@@ -987,6 +1009,7 @@ def build_subagent_row(state: AgentState, dotted: str) -> dict[str, Any]:
         "state": _subagent_status(sub),
         "session": state.session_id,
         "cwd": state.cwd,
+        "pid": state.pid,
         "model": state.model,
         "mode": state.permission_mode,
         "waiting_on": "",
