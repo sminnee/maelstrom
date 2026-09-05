@@ -244,6 +244,7 @@ def _serving(state, spy: list[dict] | None = None):
     """Serve one agent in ``state`` to the next connection, for the body."""
     daemon = AgentDaemon("unused.sock")
     proc = MagicMock()
+    proc.pid = 4242
     proc.stdin.is_closing.return_value = True
     agent = Agent("a1", "/tmp/x", proc)
     agent.state = state

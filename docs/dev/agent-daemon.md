@@ -239,6 +239,21 @@ process. `stop`, `show`, `tail` and `attach` send the agent nothing, so they sti
 `resume` is the one command that wants an exited agent. It refuses a running one: two children on
 one session id would fight over one transcript.
 
+### Ending an agent
+
+Every child runs in its own session, so it leads a process group of its own. Ending an agent is
+an escalation against that group: `stop` closes the child's stdin first, which a driven `claude`
+is meant to notice; a child still there after 5 seconds gets SIGTERM to its group, and one still
+there 3 seconds after that gets SIGKILL to its group. A pump that fails unexpectedly skips the
+stdin step and goes straight to the signals. Signalling the group rather than the pid is what
+takes the child's hooks, MCP servers and tool shells with it: a `proc.kill()` reached the child
+alone and left the rest running on a dead pipe.
+
+The daemon's own shutdown, whether from `mael agent daemon stop`, `mael env stop`'s SIGTERM or a
+foreground `serve`'s Ctrl-C, stops every child this way. Because the children are outside the
+daemon's group, a signal to the daemon never reaches them directly; the daemon's handler is the
+one path, and it leaves every record `running` so the next daemon resumes them.
+
 ## Running it
 
 One daemon serves one *daemon root*: the directory holding its socket, its lock, its pid file,
@@ -535,7 +550,8 @@ is running. It is the one command that reads the child's answer, so a mode the c
 reported as a refusal. On success the daemon rewrites the spawn record, so a resume or a daemon
 restart keeps the new mode.
 
-`stop` removes the agent from the daemon and marks its spawn record `stopped`. A default `list`
+`stop` removes the agent from the daemon and marks its spawn record `stopped`. It ends the child's
+whole process group — see "Ending an agent". A default `list`
 does not name it, and no later daemon start brings it back. The record itself is kept, so
 `mael agent resume` still has the model, permission mode and environment the agent ran with.
 
