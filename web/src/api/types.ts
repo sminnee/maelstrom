@@ -72,7 +72,7 @@ export function errorCode(raw: unknown): ErrorCode {
 
 /** The kinds a change notice may name. */
 export type NoticeKind =
-  'project' | 'worktree' | 'task' | 'agent' | 'attention' | 'document' | 'desk';
+  'project' | 'worktree' | 'task' | 'agent' | 'attention' | 'document' | 'desk' | 'host';
 
 export interface ChangeNotice {
   kind: NoticeKind;

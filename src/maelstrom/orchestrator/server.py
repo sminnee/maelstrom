@@ -36,7 +36,7 @@ from .normalise import (
     revive_agent,
 )
 from .notices import notices_for
-from .protocol import Agent, ServerEvent, TranscriptItem, World
+from .protocol import HOST_ID, Agent, Host, ServerEvent, TranscriptItem, World
 from .sources import TaskSource, WorktreeSource
 from .transcript_log import (
     TRANSCRIPT_RING,
@@ -62,6 +62,9 @@ TASK_POLL_SECS = 2.0
 WORKTREE_POLL_SECS = 15.0
 #: How often the agent host's ``list`` is reconciled against the world.
 AGENT_POLL_SECS = 2.0
+#: How many consecutive failed agent polls make the host unreachable. Two, so
+#: the one dropped connection a daemon restart costs does not raise the banner.
+HOST_UNREACHABLE_AFTER = 2
 #: How long adopting an agent waits for its replayed backlog to end.
 BACKLOG_TIMEOUT_SECS = 5.0
 #: How long a subagent's stream stays attached after its last transcript
@@ -151,6 +154,10 @@ class Orchestrator:
         self._item_seeds: dict[str, int] = {}
         #: Tasks whose launch is under way, so a second launch is refused.
         self._launching: set[str] = set()
+        #: Consecutive agent polls the host answered with an error. The host
+        #: is reported unreachable on the second, so one dropped connection
+        #: during a daemon restart does not raise the banner.
+        self._host_failures = 0
 
     # -- running --
 
@@ -396,7 +403,12 @@ class Orchestrator:
         reply = await self.daemon.request({"cmd": "list"})
         if "error" in reply:
             log.warning("agent host: %s", reply["error"])
+            self._host_failures += 1
+            if self._host_failures >= HOST_UNREACHABLE_AFTER:
+                self._set_host_reachable(False)
             return
+        self._host_failures = 0
+        self._set_host_reachable(True)
         rows = {row["id"]: row for row in reply.get("agents", [])}
         agents = self.world["agents"]
         for agent_id, row in rows.items():
@@ -423,6 +435,26 @@ class Orchestrator:
         for agent_id, agent in list(agents.items()):
             if agent_id not in rows and agent["state"] != "exited":
                 await self._exit(agent_id, 0)
+
+    def _set_host_reachable(self, reachable: bool) -> None:
+        """Record whether the host answers, publishing only a change.
+
+        The agents are never exited for the host being away: a daemon restart
+        is a few seconds of silence and then the same ids, revived, and the
+        clients keep their cursors through it. The host entity is what tells a
+        client the agents it shows are the last known ones.
+        """
+        old = self.world["host"]
+        current = old.get(HOST_ID)
+        if current is not None and current["reachable"] == reachable:
+            return
+        entity: Host = {
+            "id": HOST_ID,
+            "reachable": reachable,
+            "since": self.clock(),
+            "socket": str(getattr(self.daemon, "socket_path", "")),
+        }
+        self._apply(diff_kind("host", old, {HOST_ID: entity}))
 
     async def _close_wait_the_host_no_longer_holds(
         self, agent_id: str, state: str

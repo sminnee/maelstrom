@@ -105,6 +105,7 @@ function agent(id: string, t: Task, worktreeId: string, over: Partial<Agent> = {
     worktreeId,
     exitCode: null,
     pendingRequestId: null,
+    pid: null,
     ...over,
   };
 }
@@ -134,6 +135,7 @@ function freeAgent(
     worktreeId,
     exitCode: null,
     pendingRequestId: null,
+    pid: null,
     ...over,
   };
 }
@@ -440,6 +442,7 @@ body rather than the query builder.
   ];
 
   const world: FakeWorld = {
+    host: { id: 'agent-host', reachable: true, since: T(9), socket: '' },
     projects: keyed(projects),
     worktrees: keyed(worktrees),
     tasks: byId,

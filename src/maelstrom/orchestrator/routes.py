@@ -17,7 +17,7 @@ from typing import Any
 from aiohttp import WSMsgType, web
 
 from .hubs import Lagging
-from .protocol import document_row, task_row
+from .protocol import HOST_ID, document_row, task_row
 from .server import Orchestrator
 
 log = logging.getLogger(__name__)
@@ -82,6 +82,7 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_get("/api/documents", _documents)
     app.router.add_get("/api/documents/{id}", _document)
     app.router.add_get("/api/desk", _desk)
+    app.router.add_get("/api/host", _host)
     app.router.add_get("/api/events", _events)
     app.router.add_post("/api/agents/{id}/{action}", _agent_command)
     app.router.add_post("/api/tasks/{project}/{id}/launch", _launch)
@@ -232,6 +233,12 @@ async def _document(request: web.Request) -> web.Response:
 async def _desk(request: web.Request) -> web.Response:
     orch = await _ready(request)
     return web.json_response({"desk": list(orch.world["desk"].values())})
+
+
+async def _host(request: web.Request) -> web.Response:
+    """The agent host's reachability, or ``null`` before the first poll has settled."""
+    orch = await _ready(request)
+    return web.json_response({"host": orch.world["host"].get(HOST_ID)})
 
 
 # -- commands --

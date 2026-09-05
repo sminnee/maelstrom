@@ -119,6 +119,7 @@ def _blank_agent(agent_id: str) -> Agent:
         "worktreeId": "",
         "exitCode": None,
         "pendingRequestId": None,
+        "pid": None,
     }
 
 

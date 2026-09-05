@@ -57,6 +57,7 @@ def make_agent(**over) -> dict:
         "worktreeId": "northwind-alpha",
         "exitCode": None,
         "pendingRequestId": None,
+        "pid": None,
     }
     agent.update(over)
     return agent

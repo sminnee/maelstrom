@@ -1102,6 +1102,36 @@ describe('the change stream', () => {
   });
 });
 
+describe('the agent host', () => {
+  it('says when the host stopped answering, keeps the agents, and clears when it is back', async () => {
+    const { server } = await renderApp();
+    await act(async () => {});
+    expect(screen.queryByRole('status')).toBeNull();
+    await act(async () => {
+      server.change({ kind: 'host', ids: ['agent-host'] }, (world) => {
+        world.host = {
+          id: 'agent-host',
+          reachable: false,
+          since: '2026-06-11T09:05:00Z',
+          socket: '/x/agent-daemon.sock',
+        };
+      });
+    });
+    const banner = await screen.findByRole('status');
+    expect(banner).toHaveTextContent('Agent host unreachable since');
+    expect(banner).toHaveTextContent('showing the last known agents');
+    expect(banner).toHaveTextContent('mael agent daemon restart');
+    // The agents are the last known ones, still drawn.
+    expect(screen.getAllByTestId('task-node').length).toBeGreaterThan(0);
+    await act(async () => {
+      server.change({ kind: 'host', ids: ['agent-host'] }, (world) => {
+        world.host = { ...world.host!, reachable: true, since: '2026-06-11T09:06:00Z' };
+      });
+    });
+    await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+  });
+});
+
 describe('the transcript stream', () => {
   /**
    * Waits for the first item to arrive over a freshly-opened transcript socket.

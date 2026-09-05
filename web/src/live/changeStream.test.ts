@@ -11,6 +11,7 @@ describe('invalidationsFor', () => {
     [{ kind: 'project', ids: ['p'] }, [keys.projects()]],
     [{ kind: 'worktree', ids: ['w'] }, [keys.worktrees()]],
     [{ kind: 'desk', ids: ['task:a'] }, [keys.desk()]],
+    [{ kind: 'host', ids: ['agent-host'] }, [keys.host()]],
     [{ kind: 'attention', ids: ['at1'] }, [keys.attention()]],
     [
       { kind: 'task', ids: ['p/1', 'p/2'] },

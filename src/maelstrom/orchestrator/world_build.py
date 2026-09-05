@@ -189,7 +189,13 @@ def agent_entity(
         "worktreeId": worktree_id,
         "exitCode": exit_code,
         "pendingRequestId": pending_request_id,
+        "pid": _pid(row.get("pid")),
     }
+
+
+def _pid(value: Any) -> int | None:
+    """A pid off the row, or ``None`` for anything that is not one."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 @dataclass(frozen=True)

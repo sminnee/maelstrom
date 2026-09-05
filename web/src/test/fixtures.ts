@@ -72,6 +72,7 @@ export function makeAgent(over: Partial<Agent> = {}): Agent {
     worktreeId: 'northwind-alpha',
     exitCode: null,
     pendingRequestId: null,
+    pid: null,
     ...over,
   };
 }
