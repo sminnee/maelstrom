@@ -583,7 +583,7 @@ class TestLaunchAgentInWorktree:
 
     def _launch(self, client, **kwargs):
         with (
-            patch("maelstrom.agent_transport.client_factory", lambda: client),
+            patch("maelstrom.agent_transport.client_factory", lambda **_: client),
             patch("maelstrom.worktree_launcher.ensure_cmux_running", return_value=True),
             patch(
                 "maelstrom.worktree_launcher.open_claude_workspace",
@@ -644,7 +644,7 @@ class TestLaunchAgentInWorktree:
         with (
             patch(
                 "maelstrom.agent_transport.client_factory",
-                lambda: (order.append("start"), client)[1],
+                lambda **_: (order.append("start"), client)[1],
             ),
             patch(
                 "maelstrom.worktree_launcher.ensure_cmux_running",
@@ -661,7 +661,7 @@ class TestLaunchAgentInWorktree:
     def test_cmux_down_returns_false_and_places_nothing(self):
         client = RecordingDaemonClient(replies=[{"ok": True, "id": "a7"}])
         with (
-            patch("maelstrom.agent_transport.client_factory", lambda: client),
+            patch("maelstrom.agent_transport.client_factory", lambda **_: client),
             patch(
                 "maelstrom.worktree_launcher.ensure_cmux_running", return_value=False
             ),
@@ -753,7 +753,7 @@ class TestLaunchClaudeInWorktree:
             ),
             patch(
                 "maelstrom.agent_transport.client_factory",
-                lambda: RecordingDaemonClient(replies=[{"error": "no daemon"}]),
+                lambda **_: RecordingDaemonClient(replies=[{"error": "no daemon"}]),
             ),
             patch("maelstrom.worktree_launcher.open_claude_workspace") as mock_open,
         ):

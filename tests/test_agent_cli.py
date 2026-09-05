@@ -708,3 +708,22 @@ def test_daemon_restart_says_when_there_was_nothing_to_restart():
     )
     assert result.exit_code == 0
     assert "No daemon was running" in result.output
+
+
+def test_daemon_restart_waits_before_it_spawns(tmp_path, monkeypatch):
+    """Restart waits for the old daemon on the socket it was given.
+
+    That the wait tests the lock rather than the socket file is
+    `test_a_restart_waits_for_the_old_daemon_to_release_the_lock` in
+    test_agent_autostart.py, which lets a real lock go on a timer. This asserts
+    only the part that lives in the command: it waits, on the right path,
+    before it spawns.
+    """
+    socket_path = tmp_path / "r.sock"
+    waited = []
+    monkeypatch.setattr(
+        agent_cli, "wait_for_daemon_gone", lambda p, **k: waited.append(p)
+    )
+    result, _ = run_cli(["daemon", "restart", "--socket", str(socket_path)])
+    assert result.exit_code == 0
+    assert waited == [str(socket_path)]
