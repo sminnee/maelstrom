@@ -21,6 +21,16 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **An approved plan puts the agent into auto.** Approving a plan review moves the agent to
+  `auto` mode, so it carries the plan out instead of asking about each edit. A child that
+  refuses the mode does not undo the approval: `mael agent approve` prints a warning and the
+  plan stays accepted.
+
+- **The new-work form chooses a mode and a model.** A free agent now names its permission mode,
+  starting on `plan`. Model is a dropdown of `opus` and `fable` on both the new-work form and
+  the task editor, rather than a free-text box. The editor shows an unset model as "not set",
+  so a task stays unpinned, and a task that names no model launches on `opus`.
+
 - **Tool cards start folded.** Every tool call in a session tab is a one-line summary until
   clicked, whatever the tool.
 
