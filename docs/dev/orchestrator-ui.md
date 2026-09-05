@@ -185,7 +185,10 @@ a tab; `shell/PanelLink.tsx` says why links, not buttons. Every tab carries a ph
 its task id, so two agents' tabs are told apart.
 
 Group by `project` and `branch` draw one hairline lane per group. Group by `none` draws no
-lanes.
+lanes. Whatever the grouping, the board runs left to right in three progress zones — done,
+running, not started — whose boundaries line up across every lane. One strip of labels names
+them above the board. `canvas/columns.ts` assigns the zone and the column; it is pure, it sees
+one lane at a time, and `canvas/layout.ts` aligns the zones and packs the rows.
 
 Commenting on a document takes one drag. Selecting text shows a "Comment on selection" control
 level with the selection. Clicking it paints the selection in a stronger highlight and opens the

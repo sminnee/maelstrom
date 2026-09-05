@@ -2,15 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { layoutSwimlanes } from './layout';
 import { deriveGraph } from '../selectors/graph';
 import { noFilters } from '../selectors/filters';
-import { makeTask, onDesk, worldWith } from '../test/fixtures';
-import type { Task } from '../protocol/entities';
+import { makeAgent, makeTask, onDesk, worldWith } from '../test/fixtures';
+import type { Agent, Task } from '../protocol/entities';
 
-function graphOf(tasks: Task[]) {
-  return deriveGraph(worldWith({ tasks, desk: onDesk(tasks) }), {
+function graphOf(tasks: Task[], agents: Agent[] = []) {
+  return deriveGraph(worldWith({ tasks, agents, desk: onDesk(tasks) }), {
     groupBy: 'project',
     filters: noFilters(),
   });
 }
+
+/** A task in each of the three zones, without an edge to argue about. */
+const doneTask = (id: string, project: string, follows: string[] = []) =>
+  makeTask({ id, project, follows, status: 'done', actionable: false });
+const runningTask = (id: string, project: string, follows: string[] = []) =>
+  makeTask({ id, project, follows, status: 'in-progress', actionable: false });
+const agentOn = (id: string, taskId: string) => makeAgent({ id, taskId, state: 'processing' });
 
 const chain = [
   makeTask({ id: 'A', project: 'p1' }),
@@ -79,7 +86,8 @@ describe('layoutSwimlanes', () => {
       makeTask({ id: 'D', project: 'p2' }),
     ];
     const layout = layoutSwimlanes(graphOf(across));
-    // C has no predecessor in its own band, so it takes column 0 and the first row.
+    // C has no predecessor in its own band, so it takes the first column of
+    // the not-started zone, and the first row.
     expect(layout.nodes['C']).toEqual(layout.nodes['A']);
     expect(layout.nodes['D']!.y).toBeGreaterThan(layout.nodes['C']!.y);
   });
@@ -120,5 +128,77 @@ describe('layoutSwimlanes', () => {
       expect(after.nodes[id]).toEqual(before.nodes[id]);
     }
     expect(after.nodes['G']!.x).toBeGreaterThan(after.nodes['A']!.x);
+  });
+
+  it('lines the zone boundaries up across every lane', () => {
+    const layout = layoutSwimlanes(
+      graphOf(
+        [
+          doneTask('A', 'p1'),
+          doneTask('B', 'p1', ['A']),
+          runningTask('C', 'p1'),
+          runningTask('D', 'p2'),
+        ],
+        [agentOn('ag-c', 'C'), agentOn('ag-d', 'D')],
+      ),
+    );
+    // p2 has no done history, so its running node starts where p1's does
+    // rather than in p2's own first column.
+    expect(layout.nodes['D']!.x).toBe(layout.nodes['C']!.x);
+  });
+
+  it('leaves the done columns blank in a lane with no done task', () => {
+    const layout = layoutSwimlanes(
+      graphOf(
+        [doneTask('A', 'p1'), runningTask('B', 'p1'), runningTask('C', 'p2')],
+        [agentOn('ag-b', 'B'), agentOn('ag-c', 'C')],
+      ),
+    );
+    expect(layout.nodes['C']!.x).toBeGreaterThan(layout.nodes['A']!.x);
+  });
+
+  it('reports all three zones in board order, with a zero-width empty zone', () => {
+    const layout = layoutSwimlanes(
+      graphOf([doneTask('A', 'p1'), makeTask({ id: 'B', project: 'p1' })]),
+    );
+    expect(layout.zones.map((z) => z.zone)).toEqual(['done', 'running', 'notStarted']);
+    expect(layout.zones.map((z) => z.x)).toEqual(
+      [...layout.zones.map((z) => z.x)].sort((a, b) => a - b),
+    );
+    expect(layout.zones.find((z) => z.zone === 'running')?.columns).toBe(0);
+    expect(layout.zones.find((z) => z.zone === 'done')?.columns).toBe(1);
+  });
+
+  it('puts a done task left of a running one with no edge between them', () => {
+    const layout = layoutSwimlanes(
+      graphOf([doneTask('A', 'p1'), runningTask('B', 'p1')], [agentOn('ag-b', 'B')]),
+    );
+    expect(layout.nodes['A']!.x).toBeLessThan(layout.nodes['B']!.x);
+  });
+
+  // The conflict case: progress wins, so the follower draws left of its head.
+  it('keeps a done follower left of the running task it follows', () => {
+    const layout = layoutSwimlanes(
+      graphOf([runningTask('B', 'p1'), doneTask('A', 'p1', ['B'])], [agentOn('ag-b', 'B')]),
+    );
+    expect(layout.nodes['A']!.x).toBeLessThan(layout.nodes['B']!.x);
+  });
+
+  it('moves a node that starts one zone and nothing else', () => {
+    const queued = [makeTask({ id: 'A', project: 'p1' }), makeTask({ id: 'B', project: 'p2' })];
+    const before = layoutSwimlanes(graphOf(queued));
+    const after = layoutSwimlanes(
+      graphOf([runningTask('A', 'p1'), queued[1]!], [agentOn('ag-a', 'A')]),
+    );
+    // The lane widens by the column the running zone gained; the lanes
+    // themselves keep their order and their vertical place.
+    expect(Object.keys(after.groups)).toEqual(Object.keys(before.groups));
+    for (const id of Object.keys(before.groups)) {
+      expect(after.groups[id]!.y).toBe(before.groups[id]!.y);
+      expect(after.groups[id]!.height).toBe(before.groups[id]!.height);
+    }
+    expect(after.nodes['A']!.x).toBeLessThan(after.nodes['B']!.x);
+    expect(after.nodes['A']!.y).toBe(before.nodes['A']!.y);
+    expect(after.nodes['B']!.y).toBe(before.nodes['B']!.y);
   });
 });

@@ -396,6 +396,14 @@ The view that draws swimlanes of nodes: one per task, one per free agent. A node
 it is on the desk, or it has a live agent, so running work is always visible.
 _Avoid_: Graph view, board
 
+**Zone**:
+One of the three stages of progress the canvas lays out left to right: done, running, not
+started. A node's zone comes from its state, not from its task status: the running zone means an
+agent has been launched and the task is not finished, so an agent that ran and stopped is still
+running work rather than history. Zone boundaries line up across every lane, so the board reads
+as three vertical stripes. A zone is a stage of progress; a lane is one project's strip.
+_Avoid_: Band, column group, stage, phase
+
 **Task list**:
 The full-width view that lists every task the server knows, with filters for status, project,
 branch and text. The task list is where a task joins the desk or leaves it. It lists tasks only:

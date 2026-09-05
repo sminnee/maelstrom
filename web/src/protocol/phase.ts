@@ -1,3 +1,4 @@
+import type { Zone } from '../canvas/columns';
 import type { Attention } from './attention';
 import { isOpen } from './attention';
 import type { Agent, Phase, Task } from './entities';
@@ -106,4 +107,28 @@ export function nodeState(
   if (agent.state === 'exited') return 'idle';
   if (agent.state === 'processing') return 'working';
   return 'idle';
+}
+
+/**
+ * Which of the three progress zones a state falls in. The rule underneath: the
+ * running zone means an agent has been launched and the task is not finished.
+ * Cancelled is history, so it sits with done.
+ */
+export function zoneForState(state: NodeState): Zone {
+  switch (state) {
+    case 'done':
+    case 'cancelled':
+      return 'done';
+    // `exited` sits here rather than in done: a run that stopped without the
+    // task being marked done is not history, it is unfinished work that needs
+    // the operator, and the done zone is for work that is actually settled.
+    case 'working':
+    case 'needs-attention':
+    case 'idle':
+    case 'exited':
+      return 'running';
+    case 'ready':
+    case 'queued':
+      return 'notStarted';
+  }
 }

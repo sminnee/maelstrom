@@ -10,9 +10,13 @@ import { layoutSwimlanes } from './layout';
 import { GroupNode, type GroupFlowNode } from './GroupNode';
 import { CARD_WIDTH, NodeCard } from './NodeCard';
 import { TaskNode, type TaskFlowNode } from './TaskNode';
+import { ZonesNode, type ZonesFlowNode } from './ZonesNode';
 import styles from './Canvas.module.css';
 
-const nodeTypes = { task: TaskNode, group: GroupNode };
+const nodeTypes = { task: TaskNode, group: GroupNode, zones: ZonesNode };
+
+/** The strip of zone labels sits above the first lane. */
+const ZONES_HEIGHT = 20;
 
 /** Below this zoom the card is hard to read, so expanding eases in to 1. */
 const LEGIBLE_ZOOM = 0.75;
@@ -51,6 +55,16 @@ export function Canvas() {
         data: { group },
       };
     });
+    const zonesNode: ZonesFlowNode = {
+      id: 'zones',
+      type: 'zones',
+      position: { x: 0, y: -ZONES_HEIGHT },
+      width: layout.boardWidth,
+      height: ZONES_HEIGHT,
+      draggable: false,
+      selectable: false,
+      data: { zones: layout.zones },
+    };
     const positions: Record<string, { x: number; y: number }> = {};
     const byId: Record<string, GraphNode> = {};
     const taskNodes: TaskFlowNode[] = graph.nodes.map((node) => {
@@ -76,7 +90,7 @@ export function Canvas() {
       type: 'smoothstep',
     }));
     return {
-      nodes: [...groupNodes, ...taskNodes] as Node[],
+      nodes: [zonesNode, ...groupNodes, ...taskNodes] as Node[],
       edges: flowEdges,
       byId,
       positions,
