@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { useLayoutMode } from '../layout/useLayoutMode';
 import { AppButton } from '../ui/AppButton';
 import styles from './MessageInput.module.css';
 
@@ -12,6 +13,9 @@ export function MessageInput({
 }) {
   const [text, setText] = useState('');
   const sendButton = useRef<HTMLButtonElement>(null);
+  // A soft keyboard's Enter means a newline, so only the button sends there.
+  // On a hardware keyboard Enter sends, which is what a power tool wants.
+  const enterSends = useLayoutMode() === 'wide';
   const trimmed = text.trim();
   // The button owns the send: pending, failed, retried. Enter presses it, so
   // both paths share one state.
@@ -26,14 +30,18 @@ export function MessageInput({
         className={styles.input}
         aria-label="Message to agent"
         placeholder={
-          disabled ? 'The agent has exited.' : 'Say something to the agent… (Enter to send)'
+          disabled
+            ? 'The agent has exited.'
+            : enterSends
+              ? 'Say something to the agent… (Enter to send)'
+              : 'Say something to the agent…'
         }
         value={text}
         disabled={disabled}
         rows={2}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
+          if (enterSends && e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             sendButton.current?.click();
           }

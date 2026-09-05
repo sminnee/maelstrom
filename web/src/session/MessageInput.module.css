@@ -2,6 +2,8 @@
   display: flex;
   gap: 8px;
   padding: 8px 12px;
+  /* The bottom of a pushed session screen, so it clears the home indicator. */
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
   border-top: 1px solid var(--border);
   background: var(--bg-raised);
 }
