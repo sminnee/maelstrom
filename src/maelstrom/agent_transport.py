@@ -265,7 +265,10 @@ async def ensure_daemon(socket_path: str) -> None:
                 f"the agent daemon exited at once ({child.returncode}){_reason(offset)}"
             )
         if asyncio.get_running_loop().time() >= deadline:
-            child.kill()
+            # SIGTERM, not SIGKILL: a daemon this slow has already restored
+            # its agents, and `serve`'s `finally` is what stops them again.
+            # A kill would leave every child running on a dead pipe.
+            child.terminate()
             raise OSError(
                 f"the agent daemon did not start within {READY_TIMEOUT:g}s"
                 f"{_reason(offset)}"

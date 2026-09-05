@@ -414,14 +414,20 @@ class _DeadProcess:
 
     ``Agent.send`` returns silently on a closing stdin, and ``Agent.stop``
     closes it, so a closed-stdin stand-in makes both safe without a branch.
+    ``stop`` escalates to a kill when the wait yields no exit code, so the
+    kill has to be safe too: there is no process to kill.
     """
 
     stdin = None
     stdout = None
     returncode: int | None = None
+    pid: int | None = None
 
     async def wait(self) -> int | None:
         return self.returncode
+
+    def kill(self) -> None:
+        return None
 
 
 #: The commands that write to a child or end it. A subagent takes none: its
@@ -595,6 +601,7 @@ class AgentDaemon:
         agent_id: str | None = None,
         env: dict[str, str] | None = None,
         resume: bool = False,
+        record_prompt: str | None = None,
     ) -> str:
         """Spawn an agent in ``cwd`` and return its id.
 
@@ -610,6 +617,11 @@ class AgentDaemon:
         ``resume`` continues the session ``claude`` already has on disk instead
         of claiming a new one. ``agent_id`` keeps the id the orchestrator and
         the user already know, which is what makes a resume invisible to them.
+
+        ``record_prompt`` is what the spawn record remembers as the opening
+        prompt, when that differs from ``prompt``: a resume sends the nudge but
+        must keep the original, or a record that never got its first turn can
+        never be started fresh again.
         """
         agent_id = agent_id or uuid.uuid4().hex[:8]
         session_id = session_id or str(uuid.uuid4())
@@ -620,7 +632,7 @@ class AgentDaemon:
             permission_mode=permission_mode,
             model=model,
             env=dict(env or {}),
-            prompt=prompt,
+            prompt=prompt if record_prompt is None else record_prompt,
             status=SPEC_RUNNING,
         )
         # Written before the spawn, not after: a daemon killed between the two
@@ -704,6 +716,7 @@ class AgentDaemon:
             agent_id=spec.agent_id,
             env=spec.env or None,
             resume=replay,
+            record_prompt=spec.prompt,
         )
 
     async def restore(self) -> None:
