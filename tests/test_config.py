@@ -554,15 +554,14 @@ class TestAgentDaemonService:
             "services:\n"
             "  agent-daemon:\n"
             "    optional: true\n"
-            "    command: uv run mael agent daemon serve --socket ${MAEL_AGENT_SOCKET}\n"
+            "    command: uv run mael agent daemon serve --root ${MAEL_AGENT_ROOT}\n"
             "    env:\n"
-            "      MAEL_AGENT_SOCKET: ${HOME}/.maelstrom/sockets/proj-${WORKTREE}.sock\n"
-            "      MAEL_AGENT_SPEC_DIR: ${HOME}/.maelstrom/agents-proj-${WORKTREE}\n"
+            "      MAEL_AGENT_ROOT: ${HOME}/.maelstrom/daemons/proj-${WORKTREE}\n"
         )
         config = load_config(tmp_path)
         daemon = next(s for s in config.services if s.name == "agent-daemon")
         assert daemon.optional is True
         # No ports: the socket is a path, not an allocation.
         assert daemon.ports == []
-        assert "${MAEL_AGENT_SOCKET}" in daemon.command
-        assert daemon.env["MAEL_AGENT_SPEC_DIR"].endswith("agents-proj-${WORKTREE}")
+        assert "${MAEL_AGENT_ROOT}" in daemon.command
+        assert daemon.env["MAEL_AGENT_ROOT"].endswith("daemons/proj-${WORKTREE}")

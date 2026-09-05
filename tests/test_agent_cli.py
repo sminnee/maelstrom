@@ -600,6 +600,7 @@ def test_daemon_status_names_the_serving_code():
                     "version": "0.1.2",
                     "executable": "/tree/.venv/bin/python3",
                     "source_tree": "/Users/x/Projects/maelstrom/_main",
+                    "root": "/Users/x/.maelstrom",
                     "socket_path": "/Users/x/.maelstrom/agent-daemon.sock",
                     "spec_dir": "/Users/x/.maelstrom/agents",
                     "started_at": "2026-09-05T02:44:16+00:00",
@@ -648,22 +649,22 @@ def test_daemon_stop_is_quiet_about_a_daemon_already_gone():
 
 
 @pytest.mark.parametrize("verb", ["status", "stop", "restart"])
-def test_every_daemon_verb_takes_a_socket(verb, monkeypatch, tmp_path):
-    """A per-environment daemon is addressed by path, not only by env var.
+def test_every_daemon_verb_takes_a_root(verb, monkeypatch, tmp_path):
+    """A per-environment daemon is addressed by its root, not only by env var.
 
     Asserts the socket the command asked its transport for. Asserting the
     printed path instead would pass on the scripted reply alone, whether or
     not the flag reached the client.
     """
-    monkeypatch.delenv("MAEL_AGENT_SOCKET", raising=False)
-    other = str(tmp_path / "other.sock")
+    monkeypatch.delenv("MAEL_AGENT_ROOT", raising=False)
+    other = tmp_path / "other"
     monkeypatch.setattr(agent_cli, "ensure_daemon", _noop_async)
     result, client = run_cli(
-        ["daemon", verb, "--socket", other],
-        replies=[{"daemon": {"pid": 1, "socket_path": other, "agents": 0}}],
+        ["daemon", verb, "--root", str(other)],
+        replies=[{"daemon": {"pid": 1, "root": str(other), "agents": 0}}],
     )
     assert result.exit_code == 0
-    assert client.socket_path == other
+    assert client.socket_path == str(other / "agent-daemon.sock")
     # These three ask about a daemon; none may conjure one.
     assert client.autostart is False
 
@@ -711,7 +712,7 @@ def test_daemon_restart_says_when_there_was_nothing_to_restart():
 
 
 def test_daemon_restart_waits_before_it_spawns(tmp_path, monkeypatch):
-    """Restart waits for the old daemon on the socket it was given.
+    """Restart waits for the old daemon on the root it was given.
 
     That the wait tests the lock rather than the socket file is
     `test_a_restart_waits_for_the_old_daemon_to_release_the_lock` in
@@ -719,11 +720,11 @@ def test_daemon_restart_waits_before_it_spawns(tmp_path, monkeypatch):
     only the part that lives in the command: it waits, on the right path,
     before it spawns.
     """
-    socket_path = tmp_path / "r.sock"
+    root = tmp_path / "r"
     waited = []
     monkeypatch.setattr(
         agent_cli, "wait_for_daemon_gone", lambda p, **k: waited.append(p)
     )
-    result, _ = run_cli(["daemon", "restart", "--socket", str(socket_path)])
+    result, _ = run_cli(["daemon", "restart", "--root", str(root)])
     assert result.exit_code == 0
-    assert waited == [str(socket_path)]
+    assert waited == [agent_transport.DaemonPaths(root)]

@@ -12,6 +12,16 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **One daemon root replaces three variables.** `MAEL_AGENT_ROOT` names the one directory a
+  daemon owns — its socket, lock, pid file, log and `agents/` spawn records — and replaces
+  `MAEL_AGENT_SOCKET`, `MAEL_AGENT_LOG` and `MAEL_AGENT_SPEC_DIR`. Every daemon verb and
+  `mael orchestrator serve` take `--root` where they took `--socket`. The default root is
+  `~/.maelstrom`, so nothing moves for a default setup. A per-environment daemon declares
+  `MAEL_AGENT_ROOT: ${HOME}/.maelstrom/daemons/<project>-${WORKTREE}` and serves with
+  `--root ${MAEL_AGENT_ROOT}`; the old `sockets/` and `agents-*` directories are abandoned, not
+  migrated. Three independent paths let a daemon be pointed at one directory's records over
+  another's socket, which is how two daemons came to spawn the same agents.
+
 - **`mael agent daemon` is a command group.** Running one in the foreground is now
   `mael agent daemon serve`. The bare command prints help and exits non-zero. Anything scripted
   against the old spelling needs the `serve`.

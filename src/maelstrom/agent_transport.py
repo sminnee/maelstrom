@@ -10,8 +10,9 @@
 event loop: the sync clients wrap ``asyncio.run``, which cannot nest. It also
 streams an attach, which the sync Protocol has no shape for.
 
-The socket path comes from ``MAEL_AGENT_SOCKET`` and falls back to
-:data:`DEFAULT_SOCKET_PATH`.
+Every path a daemon uses hangs off one directory, its *daemon root*: see
+:class:`DaemonPaths`. The root comes from ``MAEL_AGENT_ROOT`` and falls back to
+``~/.maelstrom``, so the default paths are where they have always been.
 """
 
 import asyncio
@@ -25,16 +26,74 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from .context import get_maelstrom_dir
 from .shell import mael_path
 
-#: Where the daemon listens for CLI commands. One socket per machine.
-DEFAULT_SOCKET_PATH = str(Path.home() / ".maelstrom" / "agent-daemon.sock")
-#: Where an auto-started daemon writes its output.
-DEFAULT_LOG_PATH = str(Path.home() / ".maelstrom" / "agent-daemon.log")
-#: Where the daemon keeps its spawn records, beside the socket and the log.
-DEFAULT_SPEC_DIR = str(Path.home() / ".maelstrom" / "agents")
+#: Names the daemon root. The one variable that moves every daemon path at once.
+ROOT_ENV = "MAEL_AGENT_ROOT"
 #: Set to ``1`` to keep a command from starting a daemon of its own.
 NO_AUTOSTART_ENV = "MAEL_AGENT_NO_AUTOSTART"
+
+
+@dataclass(frozen=True)
+class DaemonPaths:
+    """Everything one daemon owns, under one directory.
+
+    Socket, lock, pid file, log and spawn records used to be three independent
+    variables, so a daemon could be pointed at one directory's records over
+    another directory's socket, and two daemons could share the records that
+    make them spawn. One root, and one daemon per root (the lock enforces it),
+    is what makes "a session belongs to one daemon" true.
+    """
+
+    root: Path
+
+    @property
+    def socket(self) -> Path:
+        """Where the daemon listens for commands."""
+        return self.root / "agent-daemon.sock"
+
+    @property
+    def lock(self) -> Path:
+        """The exclusive lock held for the daemon's life."""
+        return self.root / "agent-daemon.lock"
+
+    @property
+    def pid_file(self) -> Path:
+        """The serving daemon's pid, written after it takes the lock."""
+        return self.root / "agent-daemon.pid"
+
+    @property
+    def log(self) -> Path:
+        """Where a detached daemon writes its output."""
+        return self.root / "agent-daemon.log"
+
+    @property
+    def spec_dir(self) -> Path:
+        """One spawn record per agent this daemon holds."""
+        return self.root / "agents"
+
+    @classmethod
+    def for_socket(cls, socket_path: str) -> "DaemonPaths":
+        """The root a socket path sits in.
+
+        The socket is always ``<root>/agent-daemon.sock``, so a client that
+        was handed only a socket path can still start the daemon that belongs
+        on it.
+        """
+        return cls(Path(socket_path).parent)
+
+
+def resolve_root() -> Path:
+    """The daemon root: :data:`ROOT_ENV`, else ``~/.maelstrom``."""
+    override = os.environ.get(ROOT_ENV)
+    return Path(override) if override else get_maelstrom_dir()
+
+
+def daemon_paths(root: str | Path | None = None) -> DaemonPaths:
+    """The paths under ``root``, or under the resolved default."""
+    return DaemonPaths(Path(root) if root is not None else resolve_root())
+
 
 #: How long one probe of the socket may take. Much shorter than
 #: :data:`READY_TIMEOUT`, so a single hung connect cannot eat the whole budget.
@@ -59,22 +118,12 @@ STREAM_LIMIT = 16 * 1024 * 1024
 
 
 def resolve_socket_path() -> str:
-    """The daemon socket path from the environment, or the default."""
-    return os.environ.get("MAEL_AGENT_SOCKET") or DEFAULT_SOCKET_PATH
+    """The default daemon's socket, as a string.
 
-
-def resolve_log_path() -> str:
-    """Where an auto-started daemon's output goes."""
-    return os.environ.get("MAEL_AGENT_LOG") or DEFAULT_LOG_PATH
-
-
-def resolve_spec_dir() -> str:
-    """Where the daemon keeps its spawn records.
-
-    Overridden by ``MAEL_AGENT_SPEC_DIR``, so a test daemon on its own socket
-    also keeps its own records and cannot resume the real one's agents.
+    The one-liner the socket clients default to, so a caller that only ever
+    wanted the socket need not learn about roots.
     """
-    return os.environ.get("MAEL_AGENT_SPEC_DIR") or DEFAULT_SPEC_DIR
+    return str(daemon_paths().socket)
 
 
 def autostart_enabled() -> bool:
@@ -106,8 +155,8 @@ async def _probe(socket_path: str) -> bool:
     return True
 
 
-def spawn_daemon(socket_path: str) -> tuple[subprocess.Popen, int]:
-    """Start a detached daemon on ``socket_path``.
+def spawn_daemon(paths: DaemonPaths) -> tuple[subprocess.Popen, int]:
+    """Start a detached daemon on ``paths``' root.
 
     Returns the child and the log size before it started, so a later failure is
     read back from that offset only — otherwise an older daemon's crash is
@@ -119,13 +168,13 @@ def spawn_daemon(socket_path: str) -> tuple[subprocess.Popen, int]:
     daemon, and the inherited :data:`NO_AUTOSTART_ENV` keeps a daemon from
     spawning a daemon.
     """
-    log = Path(resolve_log_path())
+    log = paths.log
     log.parent.mkdir(parents=True, exist_ok=True)
     offset = log.stat().st_size if log.exists() else 0
     handle = log.open("ab")
     try:
         child = subprocess.Popen(
-            [mael_path(), "agent", "daemon", "serve", "--socket", socket_path],
+            [mael_path(), "agent", "daemon", "serve", "--root", str(paths.root)],
             stdin=subprocess.DEVNULL,
             stdout=handle,
             stderr=subprocess.STDOUT,
@@ -137,9 +186,9 @@ def spawn_daemon(socket_path: str) -> tuple[subprocess.Popen, int]:
     return child, offset
 
 
-def _log_tail(offset: int) -> str:
+def _log_tail(paths: DaemonPaths, offset: int) -> str:
     """What the daemon wrote since ``offset``, for a failure message."""
-    log = Path(resolve_log_path())
+    log = paths.log
     if not log.exists():
         return ""
     with log.open("rb") as handle:
@@ -151,8 +200,8 @@ def _log_tail(offset: int) -> str:
 GONE_TIMEOUT = 10.0
 
 
-def wait_for_daemon_gone(socket_path: str, timeout: float = GONE_TIMEOUT) -> None:
-    """Wait until a stopping daemon has let go of ``socket_path``.
+def wait_for_daemon_gone(paths: DaemonPaths, timeout: float = GONE_TIMEOUT) -> None:
+    """Wait until a stopping daemon has let go of its root.
 
     Waiting on the socket file alone is not enough. Shutdown unlinks the socket
     *before* it releases the lock, so a restart that watched only the file would
@@ -166,13 +215,13 @@ def wait_for_daemon_gone(socket_path: str, timeout: float = GONE_TIMEOUT) -> Non
     Returns when the daemon has gone, or when ``timeout`` passes — a caller that
     spawns anyway gets the clearer "already serving" error from the child.
     """
-    from .agent_server import _release_socket_lock, _take_socket_lock
+    from .agent_server import _release_lock, _take_lock
 
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        fd = _take_socket_lock(Path(socket_path))
+        fd = _take_lock(paths.lock)
         if fd is not None:
-            _release_socket_lock(fd)
+            _release_lock(fd)
             return
         time.sleep(0.05)
 
@@ -231,8 +280,8 @@ def _warn(what: str) -> None:
     )
 
 
-async def ensure_daemon(socket_path: str) -> None:
-    """Make sure a daemon answers on ``socket_path``, starting one if not.
+async def ensure_daemon(paths: DaemonPaths) -> None:
+    """Make sure a daemon answers on ``paths``' socket, starting one if not.
 
     A no-op when one already runs, or when auto-start is disabled — a caller
     that finds no daemon then gets its own connection error, which says the same
@@ -247,12 +296,13 @@ async def ensure_daemon(socket_path: str) -> None:
     """
     if not autostart_enabled():
         return
+    socket_path = str(paths.socket)
     if await _probe(socket_path):
         # It answers, so nothing needs starting — but it may be another tree's.
         await warn_on_skew(socket_path)
         return
 
-    child, offset = spawn_daemon(socket_path)
+    child, offset = spawn_daemon(paths)
     deadline = asyncio.get_running_loop().time() + READY_TIMEOUT
     while True:
         # Probe before checking the child: two commands can race, the loser
@@ -262,7 +312,8 @@ async def ensure_daemon(socket_path: str) -> None:
             return
         if child.poll() is not None:
             raise OSError(
-                f"the agent daemon exited at once ({child.returncode}){_reason(offset)}"
+                f"the agent daemon exited at once ({child.returncode})"
+                f"{_reason(paths, offset)}"
             )
         if asyncio.get_running_loop().time() >= deadline:
             # SIGTERM, not SIGKILL: a daemon this slow has already restored
@@ -271,14 +322,14 @@ async def ensure_daemon(socket_path: str) -> None:
             child.terminate()
             raise OSError(
                 f"the agent daemon did not start within {READY_TIMEOUT:g}s"
-                f"{_reason(offset)}"
+                f"{_reason(paths, offset)}"
             )
         await asyncio.sleep(POLL_INTERVAL)
 
 
-def _reason(offset: int) -> str:
+def _reason(paths: DaemonPaths, offset: int) -> str:
     """The daemon's own words, when it left any."""
-    tail = _log_tail(offset)
+    tail = _log_tail(paths, offset)
     return f": {tail}" if tail else ""
 
 
@@ -296,7 +347,7 @@ async def request_over_socket(
     """
     try:
         if autostart:
-            await ensure_daemon(socket_path)
+            await ensure_daemon(DaemonPaths.for_socket(socket_path))
         reader, writer = await open_connection(socket_path)
     except (OSError, asyncio.TimeoutError) as exc:
         return {"error": f"agent daemon not reachable at {socket_path}: {exc}"}
@@ -455,7 +506,7 @@ class SocketAsyncDaemonClient:
         """
         try:
             if self.autostart:
-                await ensure_daemon(self.socket_path)
+                await ensure_daemon(DaemonPaths.for_socket(self.socket_path))
             reader, writer = await open_connection(self.socket_path)
         except (OSError, asyncio.TimeoutError) as exc:
             yield {"error": f"agent daemon not reachable at {self.socket_path}: {exc}"}

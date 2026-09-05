@@ -16,13 +16,13 @@ from pathlib import Path
 from typing import Protocol
 
 from .agent_model import AgentSpec, spec_from_dict, spec_to_dict
-from .context import get_maelstrom_dir
+from .agent_transport import daemon_paths
 from .util import atomic_write_json, harden_path
 
 
 def get_spec_dir() -> Path:
-    """The directory holding spawn records, beside the socket and the log."""
-    return get_maelstrom_dir() / "agents"
+    """The default daemon root's spawn-record directory."""
+    return daemon_paths().spec_dir
 
 
 class AgentSpecStore(Protocol):

@@ -12,7 +12,7 @@ from concurrent.futures import Executor, ThreadPoolExecutor
 
 import click
 
-from .agent_transport import resolve_socket_path
+from .agent_transport import daemon_paths
 from .context import load_global_config
 from .desk_store import JsonDeskStore
 from .orchestrator.daemon_bridge import SocketAsyncDaemonClient
@@ -30,13 +30,14 @@ DEFAULT_PORT = 8765
 
 
 def build_orchestrator(
-    socket_path: str | None = None, *, executor: Executor | None = None
+    root: str | None = None, *, executor: Executor | None = None
 ) -> Orchestrator:
     """An orchestrator over the real notebook, ``list-all`` and agent host.
 
-    ``executor`` runs the blocking reads; :func:`run_server` passes a pool of
-    one thread, because the SQLite index behind the notebook is bound to the
-    thread that first opens it.
+    ``root`` is the agent host's daemon root; ``None`` takes the resolved
+    default. ``executor`` runs the blocking reads; :func:`run_server` passes a
+    pool of one thread, because the SQLite index behind the notebook is bound
+    to the thread that first opens it.
     """
     projects_dir = load_global_config().projects_dir
     store = GitFileStore()
@@ -67,20 +68,20 @@ def build_orchestrator(
         open_worktree=open_worktree,
     )
     worktrees = ListAllWorktreeSource(projects_dir)
-    daemon = SocketAsyncDaemonClient(socket_path or resolve_socket_path())
+    daemon = SocketAsyncDaemonClient(str(daemon_paths(root).socket))
     return Orchestrator(
         tasks, worktrees, daemon, desk=JsonDeskStore(), executor=executor
     )
 
 
-def run_server(host: str, port: int, socket_path: str | None) -> None:
+def run_server(host: str, port: int, root: str | None) -> None:
     """Build the orchestrator and serve it until interrupted.
 
     The worker pool lives for the serve call, so an interrupt does not wait on
     a read in flight past the point the server has stopped.
     """
     with ThreadPoolExecutor(max_workers=1) as executor:
-        orchestrator = build_orchestrator(socket_path, executor=executor)
+        orchestrator = build_orchestrator(root, executor=executor)
         asyncio.run(serve_app(build_app(orchestrator), host, port))
 
 
@@ -94,14 +95,12 @@ def orchestrator() -> None:
 @click.option(
     "--port", default=DEFAULT_PORT, show_default=True, type=int, help="Bind port."
 )
-@click.option(
-    "--socket", "socket_path", default=None, help="Agent host control socket."
-)
-def cmd_serve(host: str, port: int, socket_path: str | None) -> None:
+@click.option("--root", default=None, help="The agent host's daemon root.")
+def cmd_serve(host: str, port: int, root: str | None) -> None:
     """Run the orchestrator server in the foreground."""
     click.echo(f"Serving on http://{host}:{port}", err=True)
     try:
-        run_server(host, port, socket_path)
+        run_server(host, port, root)
     except KeyboardInterrupt:
         pass
     except OSError as exc:

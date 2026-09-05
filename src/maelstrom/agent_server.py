@@ -76,7 +76,7 @@ from .agent_model import (
     user_message,
 )
 from .agent_spec_store import AgentSpecStore, JsonAgentSpecStore
-from .agent_transport import STREAM_LIMIT, resolve_socket_path, resolve_spec_dir
+from .agent_transport import STREAM_LIMIT, DaemonPaths, daemon_paths
 from .session_discovery import LiveSessionSet
 from .session_view import TaskLookup
 from .transcript_store import ClaudeTranscriptStore, TranscriptStore
@@ -467,21 +467,17 @@ def _open_task_index() -> TaskLookup:
 _DEAD_PROC: Any = _DeadProcess()
 
 
-def _socket_lock_path(socket_path: Path) -> Path:
-    """The lock beside a socket. One per socket, so per-environment holds."""
-    return socket_path.with_name(socket_path.name + ".lock")
+def _take_lock(path: Path) -> int | None:
+    """An exclusive lock on ``path``, or ``None`` when another daemon holds it.
 
-
-def _take_socket_lock(socket_path: Path) -> int | None:
-    """An exclusive lock on the socket, or ``None`` when another daemon holds it.
-
-    Deliberately not :func:`maelstrom.util.locked_file`: that is a context
-    manager releasing on block exit, for the port allocator's short read/rewrite
-    transactions. This lock is held for the process's life, which is a different
-    shape. The permission discipline is the same — ``0o600`` on the fd, set
-    before the daemon does anything with it.
+    ``path`` is the root's lock file: one per daemon root, so one daemon per
+    root. Deliberately not :func:`maelstrom.util.locked_file`: that is a
+    context manager releasing on block exit, for the port allocator's short
+    read/rewrite transactions. This lock is held for the process's life, which
+    is a different shape. The permission discipline is the same — ``0o600`` on
+    the fd, set before the daemon does anything with it.
     """
-    path = _socket_lock_path(socket_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
     try:
         os.fchmod(fd, 0o600)
@@ -498,7 +494,7 @@ def _take_socket_lock(socket_path: Path) -> int | None:
     return fd
 
 
-def _release_socket_lock(fd: int) -> None:
+def _release_lock(fd: int) -> None:
     """Drop the lock. Closing the fd releases it, so this is belt and braces."""
     try:
         fcntl.flock(fd, fcntl.LOCK_UN)
@@ -511,7 +507,7 @@ class AgentDaemon:
 
     def __init__(
         self,
-        socket_path: str | None = None,
+        root: str | Path | None = None,
         specs: AgentSpecStore | None = None,
         *,
         has_transcript: Callable[[Path, str], bool] = has_claude_transcript,
@@ -520,8 +516,10 @@ class AgentDaemon:
         open_task_index: Callable[[], TaskLookup] = _open_task_index,
         clock: "Callable[[], str]" = now_iso,
     ):
-        self.socket_path = socket_path or resolve_socket_path()
-        self.specs = specs or JsonAgentSpecStore(Path(resolve_spec_dir()))
+        #: The one directory this daemon owns; see ``DaemonPaths``.
+        self.paths: DaemonPaths = daemon_paths(root)
+        self.socket_path = str(self.paths.socket)
+        self.specs = specs or JsonAgentSpecStore(self.paths.spec_dir)
         self.has_transcript = has_transcript
         self._transcripts = transcripts
         self._live = live
@@ -975,6 +973,7 @@ class AgentDaemon:
     def identity(self) -> DaemonIdentity:
         """Who this daemon is, for `ping` and the log line it prints on bind."""
         return build_daemon_identity(
+            root=str(self.paths.root),
             socket_path=self.socket_path,
             spec_dir=str(getattr(self.specs, "root", "")),
             started_at=self.started_at,
@@ -997,23 +996,27 @@ class AgentDaemon:
         Raises:
             RuntimeError: If a daemon is already serving this socket.
         """
-        path = Path(self.socket_path)
+        path = self.paths.socket
         path.parent.mkdir(parents=True, exist_ok=True)
-        # The lock, not the probe, is what makes one daemon per socket true.
+        # The lock, not the probe, is what makes one daemon per root true.
         # A probe cannot close a race against another process: two daemons can
         # both find the socket free, and the second unlinks and binds while the
         # first is left listening on an unreachable inode, still holding its
         # children. The lock is held for this process's whole life, so it is
         # released by the process dying and never by a code path forgetting to.
-        self._lock = _take_socket_lock(path)
+        self._lock = _take_lock(self.paths.lock)
         if self._lock is None:
-            raise RuntimeError(f"a daemon is already serving {path}")
+            raise RuntimeError(f"a daemon is already serving {self.paths.root}")
         if await self._socket_is_live(path):
             # Lock free but socket live: a daemon from before the lock existed.
-            _release_socket_lock(self._lock)
+            _release_lock(self._lock)
             self._lock = None
-            raise RuntimeError(f"a daemon is already serving {path}")
+            raise RuntimeError(f"a daemon is already serving {self.paths.root}")
         path.unlink(missing_ok=True)
+        # After the lock, so the pid file never names a daemon that lost the
+        # race. `kill -9 $(cat agent-daemon.pid)` is what an operator reaches
+        # for, and `gc` is what clears up after it.
+        self.paths.pid_file.write_text(f"{os.getpid()}\n")
         # Before listening, so the first client to connect sees the restored
         # agents rather than an empty list it would read as "nothing running".
         await self.restore()
@@ -1046,8 +1049,9 @@ class AgentDaemon:
         finally:
             await self.shutdown()
             path.unlink(missing_ok=True)
+            self.paths.pid_file.unlink(missing_ok=True)
             if self._lock is not None:
-                _release_socket_lock(self._lock)
+                _release_lock(self._lock)
                 self._lock = None
 
     async def shutdown(self) -> None:

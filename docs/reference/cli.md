@@ -627,11 +627,11 @@ all. See [agent-daemon.md](../dev/agent-daemon.md) for the protocol.
 
 | Command | Description |
 |---|---|
-| `mael agent daemon serve` | Run the agent daemon in the foreground. `--socket PATH` overrides the socket. |
-| `mael agent daemon start` | Start a detached daemon and wait for it to bind. `--socket PATH` overrides the socket. |
-| `mael agent daemon status` | Print which daemon serves this socket: its pid, version, spawn-record directory, start time, agent count, and the worktree its code came from. |
-| `mael agent daemon restart` | Stop the daemon and start a fresh one, so it picks up code changed since it started. A busy agent loses the turn it is running. |
-| `mael agent daemon stop` | Stop the daemon serving this socket. Its agents go with it, and their records stay resumable. Exits 0 when no daemon is running. |
+| `mael agent daemon serve` | Run the agent daemon in the foreground. `--root DIR` names the daemon root, the directory holding its socket, log and spawn records. |
+| `mael agent daemon start` | Start a detached daemon and wait for it to bind. `--root DIR` as above. |
+| `mael agent daemon status` | Print which daemon serves this root: its root, socket, pid, version, spawn-record directory, start time, agent count, and the worktree its code came from. `--root DIR`. |
+| `mael agent daemon restart` | Stop the daemon and start a fresh one, so it picks up code changed since it started. A busy agent loses the turn it is running. `--root DIR`. |
+| `mael agent daemon stop` | Stop the daemon serving this root. Its agents go with it, and their records stay resumable. Exits 0 when no daemon is running. `--root DIR`. |
 | `mael agent start [CWD]` | Start an agent in CWD (default `.`). Takes `--prompt`, `--mode`, `--model`, `--session-id`. |
 | `mael agent list` | Show every agent, what each waiting one waits on, and what each last said. A subagent follows its parent under a dotted id (`ID.1`), with `parent` and `description` columns. `--stopped` shows sessions that have stopped and can be resumed; `--all` shows both. `-w PROJECT.WORKTREE` and `--project NAME` narrow the stopped half of the listing, and imply `--stopped` on their own. `--json` emits rows as JSON. |
 | `mael agent show ID` | Show one agent in full: the last thing it said, every question option, the plan, and the command that answers the wait. On a parent it ends with a `Subagents:` table; on a dotted id it shows that subagent. `--json` emits the detail as JSON. |
@@ -675,6 +675,8 @@ mael agent daemon restart                       # pick up code changed since it 
 The first command that needs the daemon starts it, in its own process group, logging to
 `~/.maelstrom/agent-daemon.log` — a foreground `mael agent daemon serve` ignores that log. Set
 `MAEL_AGENT_NO_AUTOSTART=1` to turn auto-start off. Every agent is a normal `claude` process.
+Everything the daemon owns lives under its root, `~/.maelstrom` by default; `MAEL_AGENT_ROOT` or
+`--root` moves it.
 
 A daemon holds the code it started with, so a command from one worktree can be served by another
 worktree's daemon. `mael agent daemon status` names the tree serving you, and a command that
@@ -701,7 +703,7 @@ agents from the agent host, over HTTP. See
 
 | Command | Description |
 |---|---|
-| `mael orchestrator serve` | Run the orchestrator server in the foreground. `--host` (default `127.0.0.1`), `--port` (default `8765`), `--socket PATH` for the agent host's socket. |
+| `mael orchestrator serve` | Run the orchestrator server in the foreground. `--host` (default `127.0.0.1`), `--port` (default `8765`), `--root DIR` for the agent host's daemon root. |
 
 ```bash
 mael orchestrator serve                     # http://127.0.0.1:8765

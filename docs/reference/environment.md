@@ -147,9 +147,7 @@ that lack the key.
 | Variable | Default | Meaning |
 |---|---|---|
 | `CMUX_SOCKET_PATH` | `/tmp/cmux.sock` | Socket maelstrom uses to drive cmux. Set it when cmux listens elsewhere. |
-| `MAEL_AGENT_SOCKET` | `~/.maelstrom/agent-daemon.sock` | Control socket for `mael agent`. The daemon, the CLI and `mael orchestrator serve` (without `--socket`) all read it, so set it for all of them. Set it in a worktree's `.env` to give that environment its own daemon — see [agent-daemon.md](../dev/agent-daemon.md#a-daemon-per-environment). |
-| `MAEL_AGENT_LOG` | `~/.maelstrom/agent-daemon.log` | Where an auto-started agent daemon writes its output. |
-| `MAEL_AGENT_SPEC_DIR` | `~/.maelstrom/agents` | Where the daemon keeps one spawn record per agent. A daemon resumes the agents whose records it finds here, so a test daemon wants its own directory. |
+| `MAEL_AGENT_ROOT` | `~/.maelstrom` | The agent daemon's root: the one directory holding its socket (`agent-daemon.sock`), lock, pid file, log and `agents/` spawn records. The daemon, `mael agent` and `mael orchestrator serve` (without `--root`) all read it, so set it for all of them. Set it in a worktree's `.env` to give that environment its own daemon — see [agent-daemon.md](../dev/agent-daemon.md#a-daemon-per-environment). Replaces `MAEL_AGENT_SOCKET`, `MAEL_AGENT_LOG` and `MAEL_AGENT_SPEC_DIR`. |
 | `MAEL_AGENT_NO_AUTOSTART` | unset | Set to `1` to stop `mael agent` starting a daemon it finds missing. Every auto-started daemon inherits it, so a daemon never spawns a daemon. |
 | `ORCHESTRATOR_URL` | `http://localhost:8765` | Where the web dev server proxies `/api` to: the orchestrator's REST routes, its change stream and its per-agent sockets. Read by `vite.config.ts`, not by the bundle, so the built app carries no address. |
 | `EDITOR` | `vi` | Editor for `mael task edit` and `mael task add --edit`. |

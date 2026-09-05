@@ -186,6 +186,8 @@ class DaemonIdentity:
     version: str
     executable: str
     source_tree: str
+    #: The daemon root; ``socket_path`` and ``spec_dir`` hang off it.
+    root: str
     socket_path: str
     spec_dir: str
     started_at: str
@@ -198,6 +200,7 @@ class DaemonIdentity:
 
 def build_daemon_identity(
     *,
+    root: str,
     socket_path: str,
     spec_dir: str,
     started_at: str,
@@ -219,6 +222,7 @@ def build_daemon_identity(
         version=version,
         executable=executable,
         source_tree=str(Path(module_file).parents[2]),
+        root=root,
         socket_path=socket_path,
         spec_dir=spec_dir,
         started_at=started_at,
