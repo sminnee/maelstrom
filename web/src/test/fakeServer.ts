@@ -686,6 +686,32 @@ function command(
     });
   }
 
+  m = pathname.match(/^\/api\/worktrees\/([^/]+)\/close$/);
+  if (m && method === 'POST') {
+    const id = decodeURIComponent(m[1]!);
+    const worktree = world.worktrees[id];
+    if (!worktree) return notFound(`worktree ${id}`);
+    if (worktree.nato === '_main') {
+      return error(400, 'invalid', `${id} holds the main checkout and cannot be closed`);
+    }
+    if (worktree.isClosed) return error(400, 'invalid', `${id} is already closed`);
+    // Both refusals the real close makes, in its order — dirty tree, then
+    // unmerged commits — with the model's own wording.
+    if (worktree.dirtyFiles > 0) {
+      return error(400, 'invalid', 'Worktree has uncommitted changes');
+    }
+    if (worktree.localCommits > 0) {
+      return error(
+        400,
+        'invalid',
+        `Worktree has ${worktree.localCommits} commit(s) not merged to origin/main`,
+      );
+    }
+    world.worktrees[id] = { ...worktree, isClosed: true, branch: '', base: '' };
+    server.change({ kind: 'worktree', ids: [id] });
+    return ok({});
+  }
+
   if (pathname === '/api/desk' && method === 'POST') {
     const id = str('id') ?? '';
     world.desk[id] = { id, addedAt: now() };

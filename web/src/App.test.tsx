@@ -8,6 +8,7 @@ import type { Agent } from './protocol/entities';
 import { TASK_STATUSES } from './protocol/entities';
 import type { Document } from './protocol/documents';
 import type { FakeServer } from './test/fakeServer';
+import { UNALLOCATED } from './selectors/graph';
 import { clickNode, pressKey, renderApp, selectText } from './test/renderApp';
 import { seedWorld } from './test/seedWorld';
 
@@ -246,6 +247,51 @@ describe('grouping and filters', () => {
     expect(labels.map((el) => el.getAttribute('data-zone'))).not.toContain('done');
     const lefts = labels.map((el) => (el as HTMLElement).style.left);
     expect(new Set(lefts).size).toBe(lefts.length);
+  });
+
+  it('grouping by worktree draws a lane per open worktree, empty ones included', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await user.selectOptions(screen.getByLabelText('Group by'), 'worktree');
+    const open = Object.values(seedWorld().world.worktrees).filter((w) => !w.isClosed);
+    const lanes = () => [...document.querySelectorAll('[data-testid="group-node"]')];
+    // Exactly the open worktrees plus Unallocated: a closed worktree draws no
+    // lane, and nothing draws twice.
+    expect(new Set(lanes().map((l) => l.getAttribute('data-group-id')))).toEqual(
+      new Set([...open.map((w) => w.id), UNALLOCATED]),
+    );
+    // `_main` never closes, so its lane is offered no button.
+    const main = document.querySelector('[data-group-id="_main"]')!;
+    expect(within(main as HTMLElement).queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('a worktree lane closes its worktree, and reports a refusal on the button', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await user.selectOptions(screen.getByLabelText('Group by'), 'worktree');
+
+    // northwind-alpha is clean, so the close goes through and its lane leaves.
+    // fireEvent, not user-event: a canvas mousedown reaches React Flow's
+    // d3-zoom, which jsdom cannot run — see clickNode in test/renderApp.tsx.
+    const clean = document.querySelector('[data-group-id="northwind-alpha"]')!;
+    fireEvent.click(within(clean as HTMLElement).getByRole('button', { name: 'Close' }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-group-id="northwind-alpha"]')).not.toBeInTheDocument(),
+    );
+
+    // maelstrom-bravo has 2 unmerged commits, so the close is refused and the
+    // button says so with the server's own words. The lane stays.
+    const unmerged = document.querySelector('[data-group-id="maelstrom-bravo"]')!;
+    const button = within(unmerged as HTMLElement).getByRole('button', { name: 'Close' });
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(within(unmerged as HTMLElement).getByRole('button')).toHaveTextContent('Failed'),
+    );
+    expect(within(unmerged as HTMLElement).getByRole('button')).toHaveAttribute(
+      'title',
+      expect.stringContaining('not merged to origin/main'),
+    );
+    expect(document.querySelector('[data-group-id="maelstrom-bravo"]')).toBeInTheDocument();
   });
 });
 
