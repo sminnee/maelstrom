@@ -4,7 +4,11 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import signal
+import tempfile
+import time
+from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
 from typing import Callable
@@ -71,6 +75,31 @@ def _stub_agent(agent_id: str = "a1", clock: Callable[[], str] | None = None) ->
     if clock is None:
         return Agent(agent_id, "/tmp/x", proc)
     return Agent(agent_id, "/tmp/x", proc, clock=clock)
+
+
+#: The real liveness probe, captured before any fixture stands in for it.
+_REAL_GROUP_ALIVE = agent_server._group_alive
+
+
+def _reap(pid: int, timeout: float = 5.0) -> None:
+    """Wait for ``pid`` to die and reap it, so ``os.kill(pid, 0)`` tells the truth.
+
+    The test process is the child's parent, and the loop that spawned it is
+    closed. On Linux the loop's pidfd watcher closed with it, so nothing reaps
+    the child and a dead one lingers as a zombie, which ``kill(pid, 0)`` still
+    finds. On macOS the threaded watcher may have reaped it already, hence the
+    ``ChildProcessError``. Reaping here also covers the gap between the SIGKILL
+    and the exit, which ``kill_groups`` does not wait for.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            reaped, _ = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            return
+        if reaped:
+            return
+        time.sleep(0.05)
 
 
 @pytest.fixture(autouse=True)
@@ -1409,6 +1438,89 @@ def test_apply_reconciliation_escalates_to_sigkill_for_a_group_that_stays(monkey
     assert signals == [(100, signal.SIGTERM), (100, signal.SIGKILL)]
 
 
+@pytest.mark.binds_socket
+def test_a_stray_left_by_a_dead_daemon_is_killed_and_resumed_exactly_once(
+    tmp_path, monkeypatch
+):
+    """End to end against the real process table.
+
+    The child is a `sh` that ignores SIGTERM, dressed in the driven flags so
+    `pgrep -f` and `is_driven` take it for a claude on its session. The first
+    daemon dies without a shutdown — its pump is cancelled and it is dropped —
+    and the child survives. The second daemon on the same root must find the
+    child through the record's pid, kill it, and resume the session once.
+
+    Marked `binds_socket` because it needs the process table, which the same
+    sandbox denies.
+    """
+    sid = "0f8fad5b-d9cb-469f-a165-70867728950e"
+    stubborn = [
+        "sh",
+        "-c",
+        "trap '' TERM; sleep 300",
+        "sh",
+        "--input-format",
+        "stream-json",
+        "--permission-prompt-tool",
+        "stdio",
+        "--session-id",
+        sid,
+    ]
+    real_argv = agent_server.build_agent_argv
+    monkeypatch.setattr(agent_server, "build_agent_argv", lambda **kw: stubborn)
+    monkeypatch.setattr(agent_server, "kill_group", os.killpg)
+    monkeypatch.setattr(agent_server, "_group_alive", _REAL_GROUP_ALIVE)
+    monkeypatch.setattr(agent_server, "TERM_WAIT", 0.5)
+    monkeypatch.setattr(agent_server, "EXIT_WAIT", 0.1)
+    store = JsonAgentSpecStore(tmp_path / "agents")
+
+    async def first_life() -> int:
+        daemon = AgentDaemon(tmp_path, specs=store)
+        agent_id = await daemon.start_agent(str(tmp_path), session_id=sid)
+        agent = daemon.agents[agent_id]
+        pid = agent.proc.pid
+        # The daemon dies uncleanly: nothing records an exit, and the pump
+        # stops without ending the child. A SIGKILLed daemon runs neither.
+        agent.on_exit = None
+        assert agent.pump_task is not None
+        agent.pump_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await agent.pump_task
+        return pid
+
+    pid = asyncio.run(first_life())
+    try:
+        os.kill(pid, 0)  # the stray survived its daemon
+        assert store.list()[0].pid == pid
+
+        spawned = _spawn_stub()
+
+        async def second_life() -> None:
+            # The second daemon builds the real argv: the assertion below is
+            # that the resume names the stray's session.
+            monkeypatch.setattr(agent_server, "build_agent_argv", real_argv)
+            daemon = AgentDaemon(
+                tmp_path, specs=store, has_transcript=lambda path, s: True
+            )
+            with patch.object(
+                agent_server.asyncio,
+                "create_subprocess_exec",
+                AsyncMock(return_value=spawned),
+            ) as spawn:
+                await daemon.restore()
+            assert spawn.call_count == 1
+            argv = list(spawn.call_args.args)
+            assert argv[argv.index("--resume") + 1] == sid
+
+        asyncio.run(asyncio.wait_for(second_life(), timeout=20))
+        _reap(pid)
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+    finally:
+        with suppress(ProcessLookupError):
+            os.killpg(pid, signal.SIGKILL)
+
+
 def test_one_record_that_will_not_start_does_not_stop_the_daemon():
     """A daemon that cannot restore one agent must still serve the others.
 
@@ -2464,7 +2576,9 @@ def test_a_signal_stops_the_daemon_the_way_the_command_does(tmp_path):
     lands `running` or `exited` is a race with the pump tasks. A daemon
     declared as an env service is stopped this way every time.
     """
-    paths = DaemonPaths(tmp_path / "signalled")
+    # A short root: `tmp_path` under pytest's long test-name directory can
+    # push `<root>/agent-daemon.sock` past the Unix socket path limit.
+    paths = DaemonPaths(Path(tempfile.mkdtemp(prefix="mael-sig-")))
     socket_path = paths.socket
 
     async def serve_then_signal():
@@ -2486,8 +2600,11 @@ def test_a_signal_stops_the_daemon_the_way_the_command_does(tmp_path):
         os.kill(os.getpid(), signal.SIGTERM)
         await asyncio.wait_for(task, timeout=5)
 
-    asyncio.run(serve_then_signal())
-    assert not socket_path.exists()
-    # The pid file goes with the socket: a stale one would send `kill -9
-    # $(cat agent-daemon.pid)` after a pid the system may have reused.
-    assert not paths.pid_file.exists()
+    try:
+        asyncio.run(serve_then_signal())
+        assert not socket_path.exists()
+        # The pid file goes with the socket: a stale one would send `kill -9
+        # $(cat agent-daemon.pid)` after a pid the system may have reused.
+        assert not paths.pid_file.exists()
+    finally:
+        shutil.rmtree(paths.root, ignore_errors=True)

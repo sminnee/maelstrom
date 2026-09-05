@@ -194,11 +194,31 @@ The process that holds driven agents and serves the control socket `mael agent` 
 driven agent's live state dies with the daemon, but its spawn record does not, so a later daemon
 can start the agent again.
 
-One daemon per socket, and one socket per machine by default — so normally one daemon holds every
-driven agent. An environment can declare its own on its own socket, which is how a worktree tests
-a change to the agent protocol without driving the agents its `_main` holds. `mael agent daemon
-status` names the daemon answering: its process id, its start time, and the worktree its code
-came from.
+One daemon per daemon root, and one root per machine by default — so normally one daemon holds
+every driven agent. An environment can declare its own on its own root, which is how a worktree
+tests a change to the agent protocol without driving the agents its `_main` holds.
+`mael agent daemon status` names the daemon answering: its root, its process id, its start time,
+and the worktree its code came from.
+
+**Daemon root**:
+The one directory a daemon owns: its socket, its lock, its pid file, its log and its `agents/`
+spawn records. `~/.maelstrom` by default; `MAEL_AGENT_ROOT` or `--root` names another. One
+daemon per root, enforced by the lock, so a session belongs to exactly one daemon — the socket,
+log and records can no longer be pointed at three different places.
+_Avoid_: Socket directory, spec dir, daemon home
+
+**Stray**:
+A driven agent's `claude` process that outlived the daemon that held it. Left by a daemon that
+died uncleanly; found by the next daemon start or by `mael agent daemon gc` through the pid in its
+spawn record, killed with its process group, and its record resumed once. Not an orphan: that
+word belongs to the Free agent's `_Avoid_` list and to `mael task reconcile`.
+_Avoid_: Orphan, zombie, leftover
+
+**Duplicate**:
+A second driven `claude` on a session id a spawn record already owns. Two children on one session
+write to one transcript, and each is told the other's turn ended unexpectedly. Killed by the gc;
+the record's own child, or the record's resume, is the one that stays.
+_Avoid_: Clone, double, second copy
 
 **Permission mode**:
 How much a driven agent may do without asking: `plan`, `normal` or `auto`. A task launches under
