@@ -293,6 +293,13 @@ The turn opens with `Base directory for this skill:`, which is the only mark the
 carries.
 _Avoid_: Skill message, skill prompt
 
+**Shell command**:
+A command the agent host runs on the user's behalf, asked for with a `!` line in teleport or in
+the orchestrator UI. The host runs it in the agent's working directory and injects the command
+and its output as two user turns. Maelstrom asks the agent for nothing: a shell command is
+context, never a request.
+_Avoid_: Bash command (that is the agent's own tool call), local command, bang command
+
 **Spawn record**:
 What one driven agent takes to start again: its working directory, its session id, its permission
 mode, its model, and the environment it was given. Claude keeps the conversation itself, so the

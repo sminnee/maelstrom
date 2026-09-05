@@ -637,6 +637,7 @@ all. See [agent-daemon.md](../dev/agent-daemon.md) for the protocol.
 | `mael agent show ID` | Show one agent in full: the last thing it said, every question option, the plan, and the command that answers the wait. On a parent it ends with a `Subagents:` table; on a dotted id it shows that subagent. `--json` emits the detail as JSON. |
 | `mael agent tail ID` | Print an agent's events and stop, without driving it. `-f` keeps streaming. A dotted id tails one subagent's stream; a parent's tail shows none of its subagents. The read-only half of `attach`. |
 | `mael agent say ID TEXT` | Send TEXT to an agent as a user message. |
+| `mael agent run ID COMMAND` | Run COMMAND in the agent's directory and give it the output. Killed after 30s; output is capped. |
 | `mael agent answer ID CHOICE` | Answer an agent's pending question. CHOICE answers every question the agent asked. |
 | `mael agent approve ID` | Approve an agent's pending plan or tool call. Approving a plan also moves the agent to `auto`. |
 | `mael agent deny ID` | Deny it. `--reason TEXT` reaches the agent as the tool result. |
@@ -660,6 +661,7 @@ mael agent answer 1761dcf6 "Green"              # answer a question
 mael agent approve 0b2f5f5b                     # approve a plan or a tool call
 mael agent deny 0b2f5f5b --reason "not now"
 mael agent say 1761dcf6 "also update the README"
+mael agent run 1761dcf6 "git log --oneline -3"
 mael agent tail 1761dcf6                        # print the history, then stop
 mael agent tail -f 1761dcf6                     # ...and keep streaming
 mael agent attach 1761dcf6                      # teleport: the terminal UI

@@ -198,6 +198,45 @@ A follow-up message is a plain user turn on stdin. The opening prompt uses the s
  "content": [{"type": "text", "text": "also update the README"}]}}
 ```
 
+### Running a shell command
+
+A shell command is the user's, not the agent's: the host runs it and gives the agent the output
+as context. `mael agent run`, a `!` line in teleport, and a `!` line in the orchestrator UI all
+reach the same `run` command.
+
+The daemon runs it, because the daemon is where the agent's working directory is. A surface that
+ran the command itself would need to learn that directory and keep it fresh, and the orchestrator
+server would run it on the wrong machine once the agent host moves.
+
+The result reaches the agent as **two user turns, in the tags Claude Code's own `!` writes**:
+
+```json
+{"type": "user", "message": {"role": "user",
+ "content": "<bash-input>git status</bash-input>"}}
+{"type": "user", "message": {"role": "user",
+ "content": "<bash-stdout>On branch main</bash-stdout><bash-stderr></bash-stderr>"}}
+```
+
+The content is a plain string, not a block list. Both output tags are always present, and empty
+when unused.
+
+Three consequences worth knowing:
+
+- **The agent starts no turn.** A shell command is context, not something the agent owes an
+  answer to. That is what makes it behave like `!` and not like a `say`.
+- **There is no exit code on the wire.** The CLI declares a `bash-exit-code` tag and emits it in
+  none of the recorded transcripts, so neither does the daemon. A failing command reaches the
+  agent as `<bash-stderr>` text, which is what it already reads.
+- **Neither turn is recorded**, for the same reason a `say` is not: the child echoes every stdin
+  user turn itself. That echo needs `--replay-user-messages` — see the flag table above.
+
+Output is capped per stream at the same bound a retained message keeps, and the command is
+killed after 30 seconds. A timeout reaches the agent as `<bash-stderr>` text, and the caller
+still sees `{"ok": true}` — there is no exit code on this format to say otherwise. The
+command runs with the daemon's own privileges. That is the socket's existing trust boundary —
+`start` already takes an arbitrary `env` with no allowlist — so a shell command adds no exposure,
+and it is not a sandbox.
+
 ## The layers
 
 `src/maelstrom/` follows the three layers in
@@ -270,6 +309,7 @@ mael agent answer a1b2c3d4 "Green"
 mael agent approve a1b2c3d4
 mael agent deny a1b2c3d4 --reason "not on a public network"
 mael agent say a1b2c3d4 "also update the README"
+mael agent run a1b2c3d4 "git log --oneline -3"   # give it a command's output
 mael agent interrupt a1b2c3d4                         # abandon the turn, keep the agent
 mael agent tail a1b2c3d4
 mael agent attach a1b2c3d4
@@ -479,6 +519,10 @@ type as a user message, and the transcript shows it. A line above the console sa
 working while it owes a reply. A footer names the working directory, the model, the tokens
 consumed, the git branch, the agent's state and its permission mode.
 
+A `!` line runs a shell command instead of saying something. `!git status` runs the command in
+the agent's working directory, shows it in the transcript, and gives the agent the output. The
+agent starts no turn, so the working line stays off. See "Running a shell command" above.
+
 A wait is answered in place. A permission ask, a question and a plan review each open a prompt
 over the transcript, so you never leave the terminal to run `mael agent approve` in another one.
 The prompt closes by itself when the wait ends some other way — another client answered it, the
@@ -521,6 +565,7 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 | `list` | optional `scope` (`running`, `stopped` or `all`; default `running`), optional `cwd` | `{"agents": [<row>, …]}`, each row as `mael agent list --json` prints |
 | `show` | `id` | `{"agent": <detail>}`, as `mael agent show --json` prints |
 | `say` | `id`, `text` | `{"ok": true}` |
+| `run` | `id`, `command` | `{"ok": true}` |
 | `approve` | `id` | `{"ok": true}`, plus `"mode": "auto"` or `"warning": "<why not>"` for a plan review |
 | `deny` | `id`; optional `reason` | `{"ok": true}` |
 | `answer` | `id`; `answers` (a map keyed by question text) or `choice` | `{"ok": true}` |
@@ -603,6 +648,7 @@ spawning — a bad `--model`, an expired login, a `--resume` Claude will not acc
 | `agent <id> is not waiting` | `approve`, `deny` or `answer` with no pending request |
 | `agent <id> is not waiting on a question — use approve or deny` | `answer` against a permission or plan review |
 | `no answers given` | `answer` with an empty `answers` map |
+| `no command given` | `run` with an empty command |
 | `could not reach agent <id>` | The child's stdin would not take the message: it is dying |
 | `could not start claude: …` | `start` when the child could not be spawned |
 | `unknown command: <cmd>` | Anything else |
