@@ -1046,6 +1046,48 @@ def test_a_resume_asks_the_transcript_not_only_the_record():
     assert "--session-id" not in argv
 
 
+def test_a_resume_keeps_the_records_original_prompt():
+    """The nudge is what the agent hears, not what the record remembers.
+
+    A record whose prompt has become the nudge can no longer start fresh a
+    child that never wrote a transcript, so the opening prompt has to survive
+    every resume.
+    """
+    daemon, specs = _daemon_with_specs(has_transcript=True)
+    specs.write(
+        AgentSpec(
+            agent_id="a1",
+            cwd="/tmp/x",
+            session_id="sid-1",
+            prompt="go",
+            status=SPEC_EXITED,
+        )
+    )
+    daemon.agents["a1"] = _stub_agent()
+    daemon.agents["a1"].state = mark_exited(daemon.agents["a1"].state, 1)
+    _spawning(daemon, [{"cmd": "resume", "id": "a1"}])
+    assert specs.read("a1").prompt == "go"
+
+
+def test_stopping_a_restored_exited_agent_does_not_crash():
+    """A restored `exited` record has no process, and `stop` used to kill it anyway.
+
+    The stand-in child has no `kill`, so the handler raised, the connection
+    closed unanswered, and the log filled with tracebacks.
+    """
+    daemon, specs = _daemon_with_specs()
+    spec = AgentSpec(
+        agent_id="dead", cwd="/tmp/x", session_id="s1", status=SPEC_EXITED, exit_code=1
+    )
+    specs.write(spec)
+    asyncio.run(daemon.restore())
+    with patch.object(agent_server, "EXIT_WAIT", 0.01):
+        reply = asyncio.run(_handle(daemon, {"cmd": "stop", "id": "dead"}))
+    assert reply == {"ok": True}
+    assert "dead" not in daemon.agents
+    assert specs.read("dead").status == SPEC_STOPPED
+
+
 # --- interrupt, and the replies the daemon writes back into the stream ------
 
 

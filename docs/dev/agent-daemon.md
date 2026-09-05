@@ -729,7 +729,9 @@ tightens a record it finds loose.
   start resumes them. Restarting the daemon to pick up new code costs nothing.
 - **A resumed agent gets a turn saying why it came back.** A print-mode session sits idle until a
   user turn arrives, and a permission it was blocked on did not survive. `mael agent resume --text`
-  replaces the default nudge in `agent_model.DEFAULT_RESUME_PROMPT`.
+  replaces the default nudge in `agent_model.DEFAULT_RESUME_PROMPT`. The nudge is sent, not
+  recorded: the record keeps the opening prompt, so a child that never wrote a transcript can
+  still be started fresh with it after any number of resumes.
 - **A daemon shutdown does not record an exit.** Stopping a child ends its stream, which would
   otherwise mark the record `exited` and stop the next daemon resuming it.
 

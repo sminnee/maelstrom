@@ -244,3 +244,39 @@ def test_a_restart_waits_for_the_old_daemon_to_release_the_lock(
         timer.cancel()
         if not released:
             agent_server._release_socket_lock(held)
+
+
+def test_a_daemon_that_misses_the_deadline_is_terminated_not_killed(
+    autostart_on, socket_path, monkeypatch
+):
+    """SIGTERM, so `serve`'s `finally` runs its shutdown.
+
+    A daemon that binds late has already restored its agents. SIGKILL would
+    leave those children running on a dead pipe; SIGTERM lets the daemon stop
+    them and leave their records resumable.
+    """
+
+    class Slow:
+        returncode = None
+
+        def __init__(self) -> None:
+            self.signals: list[str] = []
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.signals.append("terminate")
+
+        def kill(self):
+            self.signals.append("kill")
+
+    child = Slow()
+    monkeypatch.setattr(
+        "maelstrom.agent_transport.spawn_daemon", lambda paths: (child, 0)
+    )
+    monkeypatch.setattr("maelstrom.agent_transport._probe", _always(False))
+    monkeypatch.setattr("maelstrom.agent_transport.READY_TIMEOUT", 0.05)
+    with pytest.raises(OSError, match="did not start"):
+        asyncio.run(ensure_daemon(socket_path))
+    assert child.signals == ["terminate"]
