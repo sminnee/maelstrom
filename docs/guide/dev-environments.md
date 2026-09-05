@@ -178,6 +178,55 @@ position instead.
 
 `mael env status` tags a stopped optional service `(optional)`.
 
+## An agent daemon per environment
+
+The agent daemon holds driven agents and serves the control socket `mael agent` talks to.
+One daemon serves one socket, and the socket defaults to `~/.maelstrom/agent-daemon.sock`. So one
+daemon normally holds every agent on the machine, and maelstrom's own `_main` is the worktree
+that runs it.
+
+That is the right arrangement until you change the agent protocol. A worktree running
+orchestrator/web is testing changed code, and driving the daemon `_main` holds means testing your
+change against agents that run different code.
+
+maelstrom declares a daemon of its own as an optional service:
+
+```yaml
+  agent-daemon:
+    optional: true
+    command: uv run mael agent daemon serve --socket ${MAEL_AGENT_SOCKET}
+    env:
+      MAEL_AGENT_SOCKET: ${HOME}/.maelstrom/sockets/maelstrom-${WORKTREE}.sock
+      MAEL_AGENT_SPEC_DIR: ${HOME}/.maelstrom/agents-maelstrom-${WORKTREE}
+```
+
+`optional: true` keeps it out of a plain `mael env start`, so a worktree testing anything else
+keeps using the daemon `_main` runs. Start it by name when you need it:
+
+```bash
+mael env start agent-daemon                    # a daemon of this worktree's own
+mael agent daemon status                       # names the daemon on MAEL_AGENT_SOCKET
+mael env stop                                  # takes the daemon and its agents with it
+```
+
+Three details decide whether this works.
+
+**The socket path carries the project name.** `${WORKTREE}` alone collides: `bravo` names a
+worktree in many projects at once. Two projects would then share one socket, which is the problem
+this solves rather than a smaller version of it.
+
+**`MAEL_AGENT_SPEC_DIR` is not optional.** A daemon resumes the agents whose spawn records it
+finds. Two daemons sharing the default directory both restore the same records, so the second
+starts a second `claude` on every session id the first already holds.
+
+**A service's `env:` block reaches that service alone.** To point this environment's orchestrator
+at its own daemon, set `MAEL_AGENT_SOCKET` in the worktree's `.env`, which every service reads.
+
+`mael agent daemon status` names the daemon answering, and `mael agent daemon restart` replaces
+one holding stale code. A `mael agent` command that auto-starts the daemon warns when it finds one
+running another worktree's code, and carries on. `MAEL_AGENT_NO_AUTOSTART=1` turns that warning
+off with the auto-start.
+
 ## Running
 
 ```bash

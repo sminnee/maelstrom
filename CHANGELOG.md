@@ -10,7 +10,35 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+### Changed
+
+- **`mael agent daemon` is a command group.** Running one in the foreground is now
+  `mael agent daemon serve`. The bare command prints help and exits non-zero. Anything scripted
+  against the old spelling needs the `serve`.
+
 ### Added
+
+- **The daemon says which code it is running.** `mael agent daemon status` names the daemon
+  serving a socket: its process id, version, spawn-record directory, start time, agent count, and
+  the worktree its code was imported from. A daemon holds the modules it imported at start, so a
+  command from one worktree is often served by another worktree's daemon — which has produced a
+  bug that looked like the feature under development. A command that auto-starts the daemon
+  now warns when it finds one running code from a different tree, and `mael agent daemon restart`
+  replaces the `pkill` and `rm` that fixing it used to take. `mael agent daemon start` and
+  `mael agent daemon stop` complete the set.
+
+- **An environment can run its own agent daemon.** A worktree that runs orchestrator/web to test
+  a change to the agent protocol should not drive the agents `_main` holds. Declare an
+  `agent-daemon` service in `.maelstrom.yaml` with its own `MAEL_AGENT_SOCKET` and
+  `MAEL_AGENT_SPEC_DIR`, mark it `optional: true`, and `mael env start agent-daemon` gives that
+  environment a daemon of its own. `mael env stop` takes it and its agents away again.
+
+### Fixed
+
+- **One daemon per socket, enforced by a lock.** The liveness check before the bind was a
+  check-then-act, so two daemons could both find a socket free; the loser then bound a path no
+  client could reach while it still held its children. An exclusive lock beside the socket, held
+  for the daemon's life, closes that window.
 
 - **A subagent is an agent of its own.** The agent daemon keeps each subagent's events apart
   from its parent's, under a dotted id (`X.1`, `X.1.1` for a nested one). `mael agent list`

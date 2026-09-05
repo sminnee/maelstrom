@@ -190,9 +190,15 @@ the orchestrator UI opens it from the parent's session tab.
 _Avoid_: Sidechain, child session, sub-agent
 
 **Agent daemon**:
-The one process per machine that holds every driven agent and serves the control socket
-`mael agent` talks to. A driven agent's live state dies with the daemon, but its spawn record
-does not, so a later daemon can start the agent again.
+The process that holds driven agents and serves the control socket `mael agent` talks to. A
+driven agent's live state dies with the daemon, but its spawn record does not, so a later daemon
+can start the agent again.
+
+One daemon per socket, and one socket per machine by default — so normally one daemon holds every
+driven agent. An environment can declare its own on its own socket, which is how a worktree tests
+a change to the agent protocol without driving the agents its `_main` holds. `mael agent daemon
+status` names the daemon answering: its process id, its start time, and the worktree its code
+came from.
 
 **Permission mode**:
 How much a driven agent may do without asking: `plan`, `normal` or `auto`. A task launches under
