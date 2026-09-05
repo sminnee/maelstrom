@@ -24,13 +24,14 @@ Each agent is a normal `claude` process with different I/O plumbing:
 
 ```
 claude -p --input-format stream-json --output-format stream-json --verbose \
-       --permission-prompt-tool stdio --forward-subagent-text [--permission-mode auto]
+       --permission-prompt-tool stdio --forward-subagent-text --replay-user-messages \
+       [--permission-mode auto]
 ```
 
 Because it is the same binary, skills, `CLAUDE.md`, settings, sub-agents, MCP servers, hooks and
 `--permission-mode auto` all behave as they do today.
 
-Five flags matter, and one of them is easy to miss:
+Six flags matter, and two of them are easy to miss:
 
 | Flag | Why it is needed |
 |---|---|
@@ -39,10 +40,15 @@ Five flags matter, and one of them is easy to miss:
 | `--output-format stream-json --verbose` | Emits the event stream. `--verbose` is required with this output format. |
 | `--permission-prompt-tool stdio` | **Load-bearing.** Tells the CLI that permission prompts reach the host over the pipe. |
 | `--forward-subagent-text` | Puts a subagent's text and thinking blocks on the stream beside its tool calls. Without it a subagent's stream shows what it did and never what it said. |
+| `--replay-user-messages` | **Load-bearing.** Makes the child echo every `user` turn it reads from stdin back on stdout, marked `isReplay`. Without it a `say` never reaches the transcript. Confirmed against v2.1.261. |
 
 Without `--permission-prompt-tool stdio` a headless agent has nobody to ask. Every "ask" decision
 resolves itself, the agent never pauses, and no wait is ever observable. The flag does not appear
 in `claude --help` on v2.1.252, but it works.
+
+`--replay-user-messages` is easy to miss for the opposite reason: v2.1.252 echoed stdin user turns
+without it, so a fixture recorded then shows the echo with no flag. v2.1.261 echoes nothing
+without it.
 
 The daemon holds the child's stdin open for the life of the agent. A closed stdin ends the session
 after one turn, which is what a bare `claude -p` does.
@@ -560,8 +566,9 @@ go on showing a wait that has already been answered. Every attached client there
 resolve, whoever resolved it, and the orchestrator server needs no copy of its own.
 
 A `user` turn from `say` is the exception. The child replays every user turn on its own stdout,
-marked `isReplay`, so the daemon does not record one — doing so would put a single turn on the
-stream twice, and the orchestrator's normaliser mints a fresh item id per copy.
+marked `isReplay` — that is what `--replay-user-messages` buys — so the daemon does not record
+one. Doing so would put a single turn on the stream twice, and the orchestrator's normaliser
+mints a fresh item id per copy.
 
 
 ### Retention

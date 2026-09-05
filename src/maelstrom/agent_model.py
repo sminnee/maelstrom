@@ -82,7 +82,7 @@ def build_agent_argv(
     """The ``claude`` argv for a daemon-driven agent.
 
     Starts from the same shape as
-    :func:`maelstrom.worktree_launcher.build_claude_command` and adds the five
+    :func:`maelstrom.worktree_launcher.build_claude_command` and adds the six
     flags that make the process drivable:
 
     ``-p`` with ``--input-format``/``--output-format stream-json`` turns stdio
@@ -96,6 +96,10 @@ def build_agent_argv(
     ``--forward-subagent-text`` puts a subagent's text and thinking blocks on
     the stream beside its tool calls. Without it a subagent's own stream shows
     what it did and never what it said.
+
+    ``--replay-user-messages`` makes the child echo every ``user`` turn it reads
+    from stdin back on stdout, marked ``isReplay``. The daemon records no user
+    turn itself, so without the flag a ``say`` never reaches the transcript.
 
     The prompt is not an argv argument — it is written to the child's stdin as a
     ``user`` message, which is also how every later message reaches it.
@@ -119,6 +123,7 @@ def build_agent_argv(
         "--permission-prompt-tool",
         "stdio",
         "--forward-subagent-text",
+        "--replay-user-messages",
     ]
     if permission_mode and permission_mode != NORMAL:
         argv += ["--permission-mode", permission_mode]
