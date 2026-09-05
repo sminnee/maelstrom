@@ -2,13 +2,17 @@
 
 import asyncio
 import json
+import logging
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from maelstrom import agent_server
 from maelstrom.agent_model import (
     AGENT_DETAIL,
+    AGENT_EXITED,
     BACKLOG_END,
     DEFAULT_RESUME_PROMPT,
     EXITED,
@@ -252,6 +256,144 @@ def test_a_watcher_is_told_when_the_agent_exits():
     events = [json.loads(line) for line in writer.lines]
     assert events[-1] == {"type": AGENT_EXITED, "exit_code": 3}
     assert events[-2]["type"] == BACKLOG_END
+
+
+def test_an_over_long_line_does_not_stop_the_pump(caplog):
+    """A line past the read limit costs that one event, not the whole agent."""
+    proc = MagicMock()
+    proc.stdin.is_closing.return_value = True
+    proc.returncode = 0
+    proc.stdout.readline = AsyncMock(
+        side_effect=[
+            b'{"type":"system","subtype":"init","hook_id":"one"}\n',
+            ValueError("Separator is found, but chunk is longer than limit"),
+            b'{"type":"system","subtype":"init","hook_id":"two"}\n',
+            b"",
+        ]
+    )
+    proc.wait = AsyncMock(return_value=0)
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = Agent("a1", "/tmp/x", proc)
+    daemon.agents["a1"] = agent
+    writer = _recording_writer()
+
+    async def attach_then_pump():
+        attached = asyncio.create_task(daemon._attach("a1", writer))
+        await asyncio.sleep(0)
+        await agent.pump()
+        await asyncio.wait_for(attached, timeout=2)
+
+    with caplog.at_level(logging.WARNING, logger=agent_server.__name__):
+        asyncio.run(asyncio.wait_for(attach_then_pump(), timeout=5))
+
+    assert [e.get("hook_id") for e in agent.state.recent] == ["one", "two"]
+    assert agent.state.status == EXITED
+    proc.kill.assert_not_called()
+    assert "skipping a line over" in caplog.text
+    # The gap reaches the watcher, so a dropped event is not silent.
+    kinds = [json.loads(line).get("type") for line in writer.lines]
+    assert TRUNCATED in kinds
+
+
+def test_a_pump_that_fails_unexpectedly_still_settles_the_agent():
+    """An unexpected failure ends the agent rather than freezing it.
+
+    The child is still running, so the exit wait needs its bound to return.
+    """
+    live = asyncio.Event()  # never set: the child outlives its pump
+    proc = MagicMock()
+    proc.stdin.is_closing.return_value = True
+    proc.returncode = None
+    proc.stdout.readline = AsyncMock(side_effect=RuntimeError("the reader broke"))
+    proc.wait = AsyncMock(side_effect=live.wait)
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = Agent("a1", "/tmp/x", proc)
+    daemon.agents["a1"] = agent
+    waiters: list[asyncio.Future] = []
+
+    async def pump_and_watch():
+        attached = asyncio.create_task(daemon._attach("a1", writer))
+        await asyncio.sleep(0)
+        waiter = asyncio.get_running_loop().create_future()
+        agent.waiting["r1"] = waiter
+        waiters.append(waiter)
+        with patch.object(agent_server, "EXIT_WAIT", 0.05):
+            with pytest.raises(RuntimeError):
+                await agent.pump()
+        await asyncio.wait_for(attached, timeout=2)
+
+    writer = _recording_writer()
+    asyncio.run(asyncio.wait_for(pump_and_watch(), timeout=5))
+
+    assert agent.state.status == EXITED
+    assert isinstance(waiters[0].exception(), ConnectionResetError)
+    assert json.loads(writer.lines[-1])["type"] == AGENT_EXITED
+    proc.kill.assert_called_once()
+
+
+def test_stop_kills_only_a_child_that_ignores_its_closed_stdin():
+    """Closing stdin is what a child is meant to notice, so it goes first."""
+    quiet = MagicMock()
+    quiet.stdin.is_closing.return_value = False
+    quiet.returncode = None
+    quiet.wait = AsyncMock(return_value=0)
+    asyncio.run(asyncio.wait_for(Agent("a1", "/tmp/x", quiet).stop(), timeout=5))
+    quiet.stdin.close.assert_called_once()
+    quiet.kill.assert_not_called()
+
+    stubborn = MagicMock()
+    stubborn.stdin.is_closing.return_value = False
+    stubborn.returncode = None
+    stubborn.wait = AsyncMock(side_effect=asyncio.Event().wait)
+    with patch.object(agent_server, "EXIT_WAIT", 0.05):
+        asyncio.run(asyncio.wait_for(Agent("a2", "/tmp/x", stubborn).stop(), timeout=5))
+    stubborn.kill.assert_called_once()
+
+
+def test_a_cancelled_pump_leaves_the_child_to_stop():
+    """Loop teardown is not a crash, so the child outlives its pump.
+
+    A killed child would be recorded as exited, and `restore` brings back only
+    the records still marked running — so a restart would silently drop it.
+    """
+    started = asyncio.Event()
+
+    async def block():
+        started.set()
+        await asyncio.Event().wait()  # never returns: the child is quiet
+        return b""
+
+    proc = MagicMock()
+    proc.stdin.is_closing.return_value = True
+    proc.returncode = None
+    proc.stdout.readline = AsyncMock(side_effect=block)
+    proc.wait = AsyncMock(return_value=0)
+    agent = Agent("a1", "/tmp/x", proc)
+
+    async def cancel_mid_read():
+        pump = asyncio.create_task(agent.pump())
+        await started.wait()
+        pump.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pump
+
+    asyncio.run(asyncio.wait_for(cancel_mid_read(), timeout=5))
+
+    proc.kill.assert_not_called()
+
+
+def test_the_spawn_bounds_the_childs_line_length():
+    """The child's stdout gets the same limit as every socket the daemon reads."""
+    proc = MagicMock()
+    proc.stdin.is_closing.return_value = True
+    proc.stdout.readline = AsyncMock(return_value=b"")
+    proc.wait = AsyncMock(return_value=0)
+    daemon, _ = _daemon_with_specs()
+    with patch.object(
+        agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
+    ) as spawn:
+        asyncio.run(_handle(daemon, {"cmd": "start", "cwd": "/tmp/x"}))
+    assert spawn.call_args.kwargs["limit"] == agent_server.STREAM_LIMIT
 
 
 def test_attaching_to_an_exited_agent_ends_after_the_backlog():
