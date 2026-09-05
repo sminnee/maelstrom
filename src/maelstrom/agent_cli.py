@@ -15,6 +15,7 @@ import asyncio
 import json
 import shlex
 import sys
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -32,11 +33,27 @@ from .agent_model import (
     TRUNCATED,
     build_start_payload,
 )
-from .agent_server import SCOPE_ALL, SCOPE_RUNNING, SCOPE_STOPPED, AgentDaemon
+from .agent_reconcile import (
+    DAEMON_LIST_COLUMNS,
+    UNKNOWN,
+    Verdict,
+    build_daemon_list_rows,
+    reconcile,
+)
+from .agent_server import (
+    SCOPE_ALL,
+    SCOPE_RUNNING,
+    SCOPE_STOPPED,
+    AgentDaemon,
+    apply_reconciliation,
+    kill_groups,
+)
+from .agent_spec_store import JsonAgentSpecStore
 from .agent_transport import (
     DaemonClient,
     DaemonPaths,
     SocketAsyncDaemonClient,
+    all_roots,
     daemon_paths,
     ensure_daemon,
     wait_for_daemon_gone,
@@ -44,6 +61,7 @@ from .agent_transport import (
 from .agent_transport import client as daemon_client
 from .context import resolve_context
 from .env import format_uptime
+from .session_discovery import ProcessTableUnavailable, list_claude_processes
 from .table import draw_table
 
 #: Columns ``mael agent list`` prints, in order.
@@ -238,6 +256,195 @@ def cmd_daemon_status(root: str | None) -> None:
     width = max(len(label) for label, _ in rows) + 1
     for label, value in rows:
         click.echo(f"{label + ':':<{width + 1}} {value}")
+
+
+#: The two flags `gc`, `list` and `reconcile` share.
+all_roots_option = click.option(
+    "--all-roots",
+    is_flag=True,
+    help="Every daemon root on this machine, not only the resolved one.",
+)
+json_option = click.option("--json", "as_json", is_flag=True, help="Emit JSON.")
+
+
+@dataclass
+class _RootReport:
+    """One root's reconcile: its verdicts, what was killed, and who holds what."""
+
+    paths: DaemonPaths
+    verdicts: list[Verdict]
+    killed: list[int]
+    held: set[str]
+    reachable: bool
+
+
+def _reconcile_root(paths: DaemonPaths, *, act: bool) -> _RootReport:
+    """Reconcile one root, through its daemon when one answers, else locally.
+
+    The daemon knows which agents it holds, so its verdict is the better one.
+    With no daemon there is nothing held, and the CLI reads the records and
+    the process table itself — which is the case `gc` exists for: a daemon
+    that died and left its children behind.
+
+    Raises:
+        click.ClickException: If the process table cannot be read, or the
+            daemon answered something other than "not reachable".
+    """
+    client = _daemon_at(paths, autostart=False)
+    reply = client.request({"cmd": "gc" if act else "reconcile"})
+    if "error" not in reply:
+        rows = client.request({"cmd": "list"}).get("agents", [])
+        held = {row["id"] for row in rows if not row.get("parent")}
+        verdicts = [Verdict(**v) for v in reply.get("verdicts", [])]
+        return _RootReport(paths, verdicts, list(reply.get("killed", [])), held, True)
+    if "not reachable" not in reply["error"]:
+        raise click.ClickException(reply["error"])
+    specs = JsonAgentSpecStore(paths.spec_dir)
+    try:
+        processes = list_claude_processes()
+    except ProcessTableUnavailable as exc:
+        raise click.ClickException(f"the process table is unavailable: {exc}") from exc
+    result = reconcile(specs.list(), processes, set(), resume_strays=False)
+    killed = apply_reconciliation(result, specs, _kill_group()) if act else []
+    return _RootReport(paths, list(result.verdicts), killed, set(), False)
+
+
+def _kill_group():
+    """The group kill, read at call time so a test's patch of the seam reaches it."""
+    from . import agent_server
+
+    return agent_server.kill_group
+
+
+def _roots(root: str | None, every: bool) -> list[DaemonPaths]:
+    if every:
+        return all_roots()
+    return [daemon_paths(root)]
+
+
+def _reports(root: str | None, every: bool, *, act: bool) -> list[_RootReport]:
+    """Reconcile the chosen roots. With every root, a process unknown to all of
+    them has no owner anywhere and is killed too, when acting."""
+    reports = [_reconcile_root(paths, act=act) for paths in _roots(root, every)]
+    if every and act:
+        orphans = _unknown_everywhere(reports)
+        if orphans:
+            killed = kill_groups(sorted(orphans), _kill_group())
+            reports[0].killed += killed
+    return reports
+
+
+def _unknown_everywhere(reports: list[_RootReport]) -> set[int]:
+    """Group ids of driven processes no root's records claim.
+
+    A process one root owns is `owned` or `stray` there and `unknown` to the
+    rest, so only a pid that is `unknown` in every report is nobody's.
+    """
+    claimed: set[int] = set()
+    unknown: dict[int, int] = {}
+    for report in reports:
+        for v in report.verdicts:
+            if v.pid is None:
+                continue
+            if v.kind == UNKNOWN:
+                unknown[v.pid] = v.pgid if v.pgid is not None else v.pid
+            else:
+                claimed.add(v.pid)
+    return {pgid for pid, pgid in unknown.items() if pid not in claimed}
+
+
+def _print_verdicts(reports: list[_RootReport], *, acted: bool) -> None:
+    for report in reports:
+        if len(reports) > 1:
+            where = "daemon up" if report.reachable else "no daemon"
+            click.echo(f"{report.paths.root} ({where}):")
+        if not report.verdicts:
+            click.echo("  nothing to reconcile")
+        for v in report.verdicts:
+            who = v.agent_id or v.session_id or "?"
+            pid = f" pid {v.pid}" if v.pid is not None else ""
+            reason = f" — {v.reason}" if v.reason else ""
+            click.echo(f"  {v.kind:<11} {who}{pid}{reason}")
+        if acted:
+            if report.killed:
+                click.echo(f"  killed groups: {', '.join(map(str, report.killed))}")
+            else:
+                click.echo("  killed nothing")
+
+
+def _emit_json(reports: list[_RootReport], acted: bool) -> None:
+    out = [
+        {
+            "root": str(r.paths.root),
+            "reachable": r.reachable,
+            "verdicts": [asdict(v) for v in r.verdicts],
+            **({"killed": r.killed} if acted else {}),
+        }
+        for r in reports
+    ]
+    click.echo(json.dumps(out if len(out) > 1 else out[0], indent=2))
+
+
+@cmd_daemon.command("reconcile")
+@root_option
+@all_roots_option
+@json_option
+def cmd_daemon_reconcile(root: str | None, all_roots: bool, as_json: bool) -> None:
+    """Say what `gc` would do, doing nothing.
+
+    Each spawn record against the process table: owned, stray, duplicate,
+    resumable, crashed or superseded, and any driven `claude` no record here
+    names. Asks the daemon when one answers, else reads the records and the
+    table itself.
+    """
+    reports = _reports(root, all_roots, act=False)
+    if as_json:
+        _emit_json(reports, acted=False)
+        return
+    _print_verdicts(reports, acted=False)
+
+
+@cmd_daemon.command("gc")
+@root_option
+@all_roots_option
+@json_option
+def cmd_daemon_gc(root: str | None, all_roots: bool, as_json: bool) -> None:
+    """Kill the strays and duplicates, and write off the crashed records.
+
+    Never resumes: a stray's record stays `running`, so the next daemon start
+    brings the agent back exactly once. Under `--all-roots`, a driven `claude`
+    no root's records name is killed too; from one root it is only reported,
+    because it may belong to another.
+    """
+    reports = _reports(root, all_roots, act=True)
+    if as_json:
+        _emit_json(reports, acted=True)
+        return
+    _print_verdicts(reports, acted=True)
+
+
+@cmd_daemon.command("list")
+@root_option
+@all_roots_option
+@json_option
+def cmd_daemon_list(root: str | None, all_roots: bool, as_json: bool) -> None:
+    """Every spawn record, with its pid, whether that pid is alive, and whether
+    the daemon holds it — so a mismatch is read off the table, not inferred.
+    """
+    reports = _reports(root, all_roots, act=False)
+    rows: list[dict[str, str]] = []
+    for report in reports:
+        records = JsonAgentSpecStore(report.paths.spec_dir).list()
+        for row in build_daemon_list_rows(records, report.verdicts, report.held):
+            rows.append({"root": str(report.paths.root), **row} if all_roots else row)
+    if as_json:
+        click.echo(json.dumps(rows, indent=2))
+        return
+    if not rows:
+        click.echo("No spawn records.")
+        return
+    columns = (["root"] if all_roots else []) + DAEMON_LIST_COLUMNS
+    draw_table(rows, columns)
 
 
 def _started(stamp: str) -> str:

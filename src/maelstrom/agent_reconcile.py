@@ -238,6 +238,97 @@ def reconcile(
     )
 
 
+#: Columns ``mael agent daemon list`` prints, in order.
+DAEMON_LIST_COLUMNS = [
+    "id",
+    "session",
+    "status",
+    "pid",
+    "alive",
+    "held",
+    "last_status",
+    "mismatch",
+    "cwd",
+]
+
+
+def build_daemon_list_rows(
+    records: list[AgentSpec], verdicts: list[Verdict], held: set[str]
+) -> list[dict[str, str]]:
+    """One row per spawn record, plus one per driven process no record claims.
+
+    ``alive`` is what the reconcile saw of the record's pid: a verdict that
+    found the child says yes, one that did not says no, and a record with no
+    pid has nothing to be alive. ``held`` is whether the daemon has the agent
+    in memory. ``mismatch`` is the verdict when it is not the healthy one, so
+    a stray, a crash, a retired record or a duplicate is read off the table
+    rather than inferred from three columns.
+
+    Every key is always present, on the same contract as ``build_agent_row``,
+    so ``--json`` can emit the rows as they are.
+    """
+    by_agent = {v.agent_id: v for v in verdicts if v.agent_id and v.kind != DUPLICATE}
+    duplicates: dict[str, int] = {}
+    for v in verdicts:
+        if v.kind == DUPLICATE:
+            duplicates[v.agent_id] = duplicates.get(v.agent_id, 0) + 1
+
+    rows: list[dict[str, str]] = []
+    for spec in sorted(records, key=lambda r: (r.status != SPEC_RUNNING, r.agent_id)):
+        verdict = by_agent.get(spec.agent_id)
+        rows.append(
+            {
+                "id": spec.agent_id,
+                "session": spec.session_id,
+                "status": spec.status,
+                "pid": str(spec.pid) if spec.pid is not None else "",
+                "alive": _alive(spec, verdict),
+                "held": "yes" if spec.agent_id in held else "no",
+                "last_status": spec.last_status,
+                "mismatch": _mismatch(verdict, duplicates.get(spec.agent_id, 0)),
+                "cwd": spec.cwd,
+            }
+        )
+    for v in verdicts:
+        if v.kind == UNKNOWN:
+            rows.append(
+                {
+                    "id": "",
+                    "session": v.session_id,
+                    "status": "",
+                    "pid": str(v.pid) if v.pid is not None else "",
+                    "alive": "yes",
+                    "held": "no",
+                    "last_status": "",
+                    "mismatch": "unknown process",
+                    "cwd": "",
+                }
+            )
+    return rows
+
+
+def _alive(spec: AgentSpec, verdict: Verdict | None) -> str:
+    if spec.pid is None:
+        return ""
+    if verdict is None:
+        # Held with a dead pid gets no verdict; the reconcile saw no child.
+        return "no" if spec.status == SPEC_RUNNING else ""
+    if verdict.kind in (OWNED, STRAY):
+        return "yes"
+    if verdict.kind == SUPERSEDED:
+        return "yes" if verdict.pgid is not None else "no"
+    return "no"
+
+
+def _mismatch(verdict: Verdict | None, duplicates: int) -> str:
+    parts: list[str] = []
+    if verdict is not None and verdict.kind not in (OWNED, RESUMABLE):
+        parts.append(verdict.kind)
+    if duplicates:
+        parts.append(f"{duplicates} duplicate{'s' if duplicates > 1 else ''}")
+    return ", ".join(parts)
+
+
 def _child_of(spec: AgentSpec, by_pid: dict[int, ProcessInfo]) -> ProcessInfo | None:
     """The process ``spec`` names, when it is a driven ``claude`` on its session.
 

@@ -147,8 +147,21 @@ def apply_reconciliation(
     two leaves records that still name their processes, and the next gc finds
     them again rather than trusting a rewrite that ran ahead of its kill.
     """
+    killed = kill_groups(result.kill, kill)
+    for spec in result.rewrite:
+        specs.write(spec)
+    return killed
+
+
+def kill_groups(
+    pgids: tuple[int, ...] | list[int], kill: Callable[[int, int], None]
+) -> list[int]:
+    """SIGTERM every group in ``pgids``, wait, then SIGKILL the ones still there.
+
+    Returns the groups that took the first signal; one already gone is skipped.
+    """
     killed: list[int] = []
-    for pgid in result.kill:
+    for pgid in pgids:
         with suppress(ProcessLookupError):
             kill(pgid, signal.SIGTERM)
             killed.append(pgid)
@@ -161,8 +174,6 @@ def apply_reconciliation(
     for pgid in survivors:
         with suppress(ProcessLookupError):
             kill(pgid, signal.SIGKILL)
-    for spec in result.rewrite:
-        specs.write(spec)
     return killed
 
 

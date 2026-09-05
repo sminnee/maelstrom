@@ -34,6 +34,20 @@ release while that section is empty, and retitles it to the version it is releas
   clock moved. The daemon stamps each event with when it happened, so a reattach replays the
   history with its own times instead of dating all of it to the moment of reconnection.
 
+- **No lost agents, no duplicates, no strays.** A daemon start now reconciles its spawn records
+  with the process table before it resumes anything: a child that outlived a dead daemon is
+  killed and its record resumed once, a second `claude` on a session a record owns is killed, the
+  older of two running records on one session is retired, and a record whose child is gone with
+  no shutdown recorded is written off as `exited`. Each record names its child's pid, its start
+  time and what it was doing at the last shutdown; an agent that was idle comes back without the
+  resume nudge. Every child runs in its own process group, and stopping one takes its hooks, MCP
+  servers and tool shells with it. `mael agent daemon list` shows every record with its pid,
+  whether that pid is alive and whether the daemon holds it; `mael agent daemon reconcile` says
+  what `gc` would do; `mael agent daemon gc` does it, with `--all-roots` to clear what no daemon
+  root claims. A stopped restored agent no longer crashes the handler, a resume keeps the
+  record's opening prompt, and a daemon that misses its start deadline is sent SIGTERM so it stops
+  the agents it already restored.
+
 - **The daemon says which code it is running.** `mael agent daemon status` names the daemon
   serving a socket: its process id, version, spawn-record directory, start time, agent count, and
   the worktree its code was imported from. A daemon holds the modules it imported at start, so a
