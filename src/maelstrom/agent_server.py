@@ -289,10 +289,9 @@ def _clip(text: str) -> str:
 def _load_attachments(attachments: object) -> list[tuple[str, bytes]]:
     """Read the files a ``say`` names, ready for :func:`user_message`.
 
-    The socket carries paths rather than base64: the daemon runs on the same
-    machine as the files, and a screenshot inlined on the NDJSON line would be
-    carried twice over. A path that will not read raises, so the caller can
-    refuse — a turn that silently lost its picture is worse than a refusal.
+    A path that will not read raises, so the caller can refuse — a turn that
+    silently lost its picture is worse than a refusal. See
+    ``docs/dev/agent-daemon.md`` for why the socket carries paths, not base64.
     """
     # The value comes off the socket as arbitrary JSON, so it is narrowed here
     # rather than trusted through a type annotation.
@@ -317,7 +316,6 @@ def _load_attachments(attachments: object) -> list[tuple[str, bytes]]:
     return loaded
 
 
-#: Extension → media type, for the formats ``attachments.IMAGE_MAGIC`` accepts.
 _MEDIA_TYPES = {
     ".png": "image/png",
     ".jpg": "image/jpeg",

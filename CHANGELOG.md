@@ -38,6 +38,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Attach an image to what you send an agent.** The chat box, the new-work form and the task
+  editor all take an image, pasted from the clipboard or picked from a file. A message to a
+  running agent carries the picture to the model on the turn it is sent, so you can paste a
+  screenshot and ask what is wrong with it. Images are at most 5 MB, in PNG, JPEG, GIF or WEBP.
+
 - **The desk shows when an agent last spoke.** A node card prints the age of the agent's last
   message beside the "Now" heading, and colours it once a working agent has been silent ten
   minutes. The session transcript grows a time gutter down its left edge, marked only where the

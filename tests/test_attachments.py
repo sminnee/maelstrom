@@ -163,4 +163,6 @@ class TestBucketDirGuards:
     def test_a_traversing_project_writes_nothing(self, tasks):
         """The guard is in the path builder, so the write path inherits it."""
         with pytest.raises(ValueError):
-            attachments.save_attachment("../../../../tmp/pwned", "t1", PNG, name="x.png")
+            attachments.save_attachment(
+                "../../../../tmp/pwned", "t1", PNG, name="x.png"
+            )

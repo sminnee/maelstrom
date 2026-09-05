@@ -520,6 +520,18 @@ The git-backed store of task files at `~/.maelstrom/tasks`. Every change is comm
 Curated markdown pages for design patterns that apply to more than one project. The wiki fills
 the gap that per-project memory and a repo's own `docs/` both leave open.
 
+**Attachment**:
+An image stored in the task notebook under `<project>/images/<bucket>/`, referenced from task
+content by a `{{MAEL_TASK_DIR}}` token that expands to an absolute path at launch. A brief from
+Linear and a screenshot pasted into the orchestrator UI both land here.
+_Avoid_: Upload, file, asset
+
+**Bucket**:
+The directory that groups one piece of work's attachments. A task uses its notebook id, a
+Linear issue its identifier, an agent tied to no task `agent-<id>`, and a task that does not
+exist yet `draft-<random>`.
+_Avoid_: Folder, group, album
+
 ## Open questions
 
 This is unresolved. Do not treat it as settled intent.

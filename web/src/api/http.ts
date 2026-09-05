@@ -77,7 +77,12 @@ export function createApiClient(opts: ApiClientOptions = {}): ApiClient {
       controller.abort(new Error('Timed out'));
     }, options.timeoutMs ?? defaultTimeoutMs);
     const init: RequestInit = { method, signal: controller.signal };
-    if (body !== undefined) {
+    if (body instanceof FormData) {
+      // Multipart, for the one route that carries bytes. No Content-Type: the
+      // browser sets it, boundary and all, and a header set here would name a
+      // boundary the body does not use.
+      init.body = body;
+    } else if (body !== undefined) {
       init.body = JSON.stringify(body);
       init.headers = { 'Content-Type': 'application/json' };
     }

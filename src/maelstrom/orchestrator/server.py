@@ -821,8 +821,9 @@ class Orchestrator:
             # route omits `text` when the body carries none.
             "text": command.get("text", ""),
         }
-        if command.get("attachments"):
-            payload["attachments"] = command["attachments"]
+        attachments = _attachment_paths(command.get("attachments"))
+        if attachments:
+            payload["attachments"] = attachments
         return await self._relay(payload)
 
     async def _run_shell(self, command: dict[str, Any]) -> dict[str, Any]:
@@ -1032,6 +1033,31 @@ class Orchestrator:
             return _refused("invalid", str(exc))
         await self.refresh_tasks(force=True)
         return {"ok": True, "result": {}}
+
+
+def _attachment_paths(attachments: Any) -> list[dict[str, str]]:
+    """Turn the URLs a client sent into the paths the host reads.
+
+    A client that could name a filesystem path would be naming any file the
+    host can read, so anything that is not an attachment URL this server
+    serves is dropped rather than forwarded.
+    """
+    from ..attachments import resolve_attachment
+
+    resolved: list[dict[str, str]] = []
+    for item in attachments or ():
+        if not isinstance(item, dict):
+            continue
+        parts = str(item.get("url", "")).strip("/").split("/")
+        # api/attachments/<project>/<bucket>/<name>
+        if len(parts) != 5 or parts[0] != "api" or parts[1] != "attachments":
+            continue
+        try:
+            found = resolve_attachment(parts[2], parts[3], parts[4])
+        except (ValueError, KeyError):
+            continue
+        resolved.append({"path": str(found)})
+    return resolved
 
 
 _NEVER = object()
