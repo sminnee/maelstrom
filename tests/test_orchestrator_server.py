@@ -3463,8 +3463,8 @@ def test_closing_a_worktree_asks_the_source_and_refreshes_the_world(harness):
     """The reply lands after the world holds the close, so a GET is current."""
     closed: list[str] = []
 
-    def close(worktree_id: str) -> None:
-        closed.append(worktree_id)
+    def close(project: str, nato: str, path: str) -> None:
+        closed.append(f"{project}/{nato}")
         harness.worktrees.worktrees[0] = {
             **harness.worktrees.worktrees[0],
             "isClosed": True,
@@ -3480,12 +3480,12 @@ def test_closing_a_worktree_asks_the_source_and_refreshes_the_world(harness):
 
     reply, worktrees = run(scenario())
     assert reply.status == 200
-    assert closed == ["northwind-alpha"]
+    assert closed == ["northwind/alpha"]
     assert worktrees["worktrees"][0]["isClosed"] is True
 
 
 def test_a_refused_close_says_what_the_model_said_and_changes_nothing(harness):
-    def close(worktree_id: str) -> None:
+    def close(project: str, nato: str, path: str) -> None:
         raise CloseBlocked("Worktree has 2 commit(s) not merged to origin/main")
 
     harness.worktrees.close = close

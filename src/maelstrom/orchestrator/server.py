@@ -1203,8 +1203,10 @@ class Orchestrator:
         if close is None:
             return _refused("invalid", "This server cannot close worktrees")
         worktree_id = command["worktreeId"]
+        # Validation proved the worktree is in the world, so the row is here.
+        row = self.world["worktrees"][worktree_id]
         try:
-            await self._run(close, worktree_id)
+            await self._run(close, row["project"], row["nato"], row["path"])
         except CloseBlocked as exc:
             return _refused("invalid", str(exc))
         except Exception as exc:  # noqa: BLE001 — the client hears why

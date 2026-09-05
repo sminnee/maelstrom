@@ -40,9 +40,11 @@ from .world_build import (
 #: agent — opens a worktree through the same injected collaborator.
 OpenWorktree = Callable[[str, str, str], WorktreeSetup]
 
-#: Closes a worktree by its wire id. Raises :class:`CloseBlocked` with the
-#: reason when it will not close — the message the user reads on the button.
-CloseWorktree = Callable[[str], None]
+#: Closes one worktree: ``(project, nato, path) -> None``. The server passes
+#: what the world already holds, so the closer resolves nothing itself. Raises
+#: :class:`CloseBlocked` with the reason when it will not close — the message
+#: the user reads on the button.
+CloseWorktree = Callable[[str, str, str], None]
 
 
 class CloseBlocked(Exception):
