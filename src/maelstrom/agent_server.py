@@ -27,7 +27,6 @@ import subprocess
 import sys
 import time
 import uuid
-from collections.abc import Sequence
 from contextlib import suppress
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -287,9 +286,7 @@ def _clip(text: str) -> str:
     return text[:SHELL_OUTPUT_CHARS] + "\n… output truncated"
 
 
-def _load_attachments(
-    attachments: Sequence[Any] | None,
-) -> list[tuple[str, bytes]]:
+def _load_attachments(attachments: object) -> list[tuple[str, bytes]]:
     """Read the files a ``say`` names, ready for :func:`user_message`.
 
     The socket carries paths rather than base64: the daemon runs on the same
