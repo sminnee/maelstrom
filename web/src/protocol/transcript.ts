@@ -101,6 +101,13 @@ export interface GapItem extends Base {
   droppedEvents: number;
 }
 
+/** A skill the agent loaded, and the body the harness injected for it. */
+export interface SkillItem extends Base {
+  type: 'skill';
+  skill: string;
+  markdown: string;
+}
+
 export type TranscriptItem =
   | MessageItem
   | ToolCallItem
@@ -110,7 +117,8 @@ export type TranscriptItem =
   | TurnResultItem
   | SystemItem
   | ErrorItem
-  | GapItem;
+  | GapItem
+  | SkillItem;
 
 export interface Transcript {
   agentId: AgentId;

@@ -151,7 +151,8 @@ Opening the tab opens the transcript socket, which is what makes the server atta
 subagent; closing it releases the socket after the usual 5-second grace, and the server detaches.
 
 Every tool card starts folded. The summary line names the tool, its title and its status, and a
-click opens the body. An agent that makes hundreds of calls is a list, not a wall of text.
+click opens the body. An agent that makes hundreds of calls is a list, not a wall of text. A
+loaded skill folds the same way, under the skill's name.
 
 A decision shows the last three things the agent said or did, then the prompt. A question
 follows AskUserQuestion's shape; `session/cards/QuestionPrompt.tsx` says why every answer

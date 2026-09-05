@@ -193,9 +193,12 @@ def normalise_stream_event(
     elif kind == "user":
         for block in _blocks(raw):
             if block.get("type") == "text" and _str(block.get("text")):
-                out.append(
-                    {"type": "message", "role": "user", "markdown": _str(block["text"])}
-                )
+                text = _str(block["text"])
+                skill = _skill_loaded(text)
+                if skill is None:
+                    out.append({"type": "message", "role": "user", "markdown": text})
+                else:
+                    out.append({"type": "skill", "skill": skill, "markdown": text})
                 # A message to the agent is the start of a turn. Without this
                 # the UI shows "idle" until the agent's first event lands,
                 # which reads as though nothing was sent.
@@ -596,6 +599,41 @@ class _Emitter:
                 {"type": "upsert", "kind": "agent", "entity": self.agent_entity}
             )
         return Normalised(self.events, self.ctx)
+
+
+#: The line the harness opens an injected skill body with: the prefix, an
+#: absolute path with no spaces, then a blank line. A user quoting the prefix
+#: writes prose after it, so the whole shape is the test and not the prefix
+#: alone — matching that loosely would fold a real message out of sight.
+_SKILL_OPENING = re.compile(r"^Base directory for this skill: (/\S*)\n\n")
+
+
+def _skill_loaded(text: str) -> str | None:
+    """The skill a user turn is the body of, or ``None`` for an ordinary turn.
+
+    The name is the last part of the path the opening line names, qualified
+    by its plugin when it has one, as the harness names it. A path with no
+    name left to read still loaded a skill, so it folds under a bare label
+    rather than falling back to a message. See
+    ``docs/dev/orchestrator-server.md``, "A loaded skill".
+    """
+    match = _SKILL_OPENING.match(text)
+    if match is None:
+        return None
+    parts = [p for p in match.group(1).split("/") if p]
+    if not parts:
+        return "skill"
+    name = parts[-1]
+    plugin = _plugin_of(parts)
+    return f"{plugin}:{name}" if plugin else name
+
+
+def _plugin_of(parts: list[str]) -> str:
+    """The plugin a skill path belongs to, or ``""`` for a plain skill."""
+    for i, part in enumerate(parts):
+        if part == "plugins" and i + 1 < len(parts):
+            return parts[i + 1]
+    return ""
 
 
 def _blocks(raw: Dict) -> list[Dict]:

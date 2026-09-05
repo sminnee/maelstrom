@@ -19,6 +19,16 @@ release while that section is empty, and retitles it to the version it is releas
   UI a parent's session tab lists its subagents, each opening as a read-only tab of its own,
   and the parent's transcript shows one `Agent` call and none of the chatter under it.
 
+- **A loaded skill folds behind its name.** Loading a skill injects the whole skill file as a
+  user turn, which filled the transcript. The orchestrator UI now shows one collapsed row
+  naming the skill, which opens to the body; `mael agent attach` prints the name alone.
+
+### Fixed
+
+- **An agent is followed once, however many callers adopt it.** A launch and the agent poll
+  could both reach one new agent, and the second watch replayed the same backlog into the same
+  transcript. Every message in the orchestrator UI drew twice.
+
 ### Changed
 
 - **An approved plan puts the agent into auto.** Approving a plan review moves the agent to

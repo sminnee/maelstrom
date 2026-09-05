@@ -9,5 +9,10 @@
       "Bash(bin/lint:*)",
       "Bash(printf:*)"
     ]
+  },
+  "sandbox": {
+    "network": {
+      "allowLocalBinding": true
+    }
   }
 }

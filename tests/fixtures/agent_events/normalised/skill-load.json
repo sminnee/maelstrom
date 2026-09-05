@@ -1,0 +1,69 @@
+{
+  "world": {
+    "projects": {},
+    "worktrees": {},
+    "tasks": {},
+    "agents": {
+      "ag1": {
+        "id": "ag1",
+        "parent": "",
+        "description": "",
+        "state": "idle",
+        "session": "9c4e1a70-2d38-4b52-a1f6-3e8b7c05d924",
+        "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
+        "model": "claude-opus-5",
+        "permissionMode": "normal",
+        "waitingOn": "",
+        "lastMessage": "The skill is loaded, so I will follow its git workflow.",
+        "costUsd": 0.0421,
+        "taskId": "NORT-7",
+        "project": "northwind",
+        "worktreeId": "northwind-alpha",
+        "exitCode": null,
+        "pendingRequestId": null
+      }
+    },
+    "documents": {},
+    "comments": {},
+    "attention": {},
+    "desk": {}
+  },
+  "transcripts": {
+    "ag1": {
+      "agentId": "ag1",
+      "items": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "sessionId": "9c4e1a70-2d38-4b52-a1f6-3e8b7c05d924",
+          "model": "claude-opus-5",
+          "id": "ag1-1",
+          "ts": "2026-09-01T00:00:00Z"
+        },
+        {
+          "type": "skill",
+          "skill": "mael",
+          "markdown": "Base directory for this skill: /Users/dev/.claude/skills/mael\n\n# Maelstrom CLI Skill\n\nThe conventions behind `mael`.",
+          "id": "ag1-2",
+          "ts": "2026-09-01T00:00:00Z"
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "The skill is loaded, so I will follow its git workflow.",
+          "id": "ag1-3",
+          "ts": "2026-09-01T00:00:00Z"
+        },
+        {
+          "type": "turn_result",
+          "subtype": "success",
+          "costUsd": 0.0421,
+          "durationMs": 1800,
+          "id": "ag1-4",
+          "ts": "2026-09-01T00:00:00Z"
+        }
+      ],
+      "truncatedBefore": false
+    }
+  }
+}

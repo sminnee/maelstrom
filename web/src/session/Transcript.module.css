@@ -59,3 +59,25 @@
   color: var(--attention);
   white-space: nowrap;
 }
+.skill {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+}
+.skillHead {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  list-style: none;
+}
+.skillLabel {
+  font-family: var(--mono);
+  color: var(--fg-faint);
+}
+.skillName {
+  font-family: var(--mono);
+  font-weight: 600;
+}
