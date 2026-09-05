@@ -10,6 +10,7 @@ plan. ``plan-review.jsonl`` is an agent whose plan-file write a sandbox refused,
 so the request arrives bare and the plan is in a message instead.
 """
 
+import base64
 import json
 from pathlib import Path
 
@@ -195,6 +196,50 @@ def test_user_message_is_a_stream_json_user_turn():
     assert msg["message"]["content"] == [
         {"type": "text", "text": "also update the README"}
     ]
+
+
+def test_user_message_puts_images_before_the_text():
+    """The order a live agent accepts.
+
+    Verified against ``claude -p --input-format stream-json`` on v2.1.261: an
+    image block ahead of the text block is read as an image the model can see.
+    """
+    msg = user_message("what is wrong here?", images=[("image/png", b"\x89PNG!")])
+
+    assert msg["message"]["content"] == [
+        {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": base64.b64encode(b"\x89PNG!").decode(),
+            },
+        },
+        {"type": "text", "text": "what is wrong here?"},
+    ]
+
+
+def test_user_message_carries_an_image_with_no_words():
+    """A screenshot on its own is a message. The text block is dropped."""
+    msg = user_message("", images=[("image/png", b"\x89PNG!")])
+
+    assert msg["message"]["content"] == [
+        {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": base64.b64encode(b"\x89PNG!").decode(),
+            },
+        }
+    ]
+
+
+def test_user_message_with_no_images_is_unchanged():
+    """The no-image call stays byte-identical: every launch goes through it."""
+    plain = user_message("hello")
+    assert user_message("hello", images=None) == plain
+    assert user_message("hello", images=[]) == plain
 
 
 # --- argv ------------------------------------------------------------------

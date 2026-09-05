@@ -11,6 +11,8 @@ and saved as ``tests/fixtures/agent_events/``. ``docs/dev/agent-daemon.md`` docu
 protocol; read it before changing a shape.
 """
 
+import base64
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -1292,16 +1294,34 @@ def _string_turn(text: str) -> dict[str, Any]:
     return {"type": "user", "message": {"role": "user", "content": text}}
 
 
-def user_message(text: str) -> dict[str, Any]:
+def user_message(
+    text: str, images: Sequence[tuple[str, bytes]] | None = None
+) -> dict[str, Any]:
     """A user turn, the way the stream-json input format wants it.
 
     This is the only way text reaches the agent — the initial prompt and every
     later follow-up are the same shape.
+
+    ``images`` are ``(media_type, data)`` pairs sent as base64 image blocks
+    ahead of the text, which is what the child accepts and what makes the model
+    see the image on this turn rather than after reading a file. An image with
+    no words is a message in its own right, so the text block is dropped when
+    the text is empty and an image is present.
     """
-    return {
-        "type": "user",
-        "message": {"role": "user", "content": [{"type": "text", "text": text}]},
-    }
+    content: list[dict[str, Any]] = [
+        {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": base64.b64encode(data).decode(),
+            },
+        }
+        for media_type, data in images or ()
+    ]
+    if text or not content:
+        content.append({"type": "text", "text": text})
+    return {"type": "user", "message": {"role": "user", "content": content}}
 
 
 def _control_response(request_id: str, payload: dict[str, Any]) -> dict[str, Any]:
