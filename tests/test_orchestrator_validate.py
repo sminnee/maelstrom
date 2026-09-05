@@ -544,14 +544,15 @@ def test_closing_an_open_worktree_is_allowed():
 
 
 def test_closing_a_worktree_the_world_does_not_hold_is_unknown_id():
-    assert (
-        code(validate_command(empty_world(), close("northwind-zulu"))) == "unknown_id"
-    )
+    error = validate_command(empty_world(), close("northwind-zulu"))
+    assert error == {"code": "unknown_id", "message": "No worktree northwind-zulu"}
 
 
 def test_closing_an_already_closed_worktree_is_refused():
     world = world_with(worktrees=[make_worktree(isClosed=True, branch="")])
-    assert code(validate_command(world, close("northwind-alpha"))) == "invalid"
+    error = validate_command(world, close("northwind-alpha"))
+    assert code(error) == "invalid"
+    assert "closed already" in error["message"]
 
 
 def test_closing_main_is_refused_without_touching_git():
@@ -562,43 +563,5 @@ def test_closing_main_is_refused_without_touching_git():
     error = validate_command(world, close("_main"))
     assert code(error) == "invalid"
     assert "_main" in error["message"]
-
-
-class TestWorktreeClose:
-    """``worktree.close`` is refused before any git call runs."""
-
-    def test_an_open_worktree_may_close(self):
-        world = world_with(worktrees=[make_worktree()])
-        cmd = {"type": "worktree.close", "worktreeId": "northwind-alpha"}
-        assert validate_command(world, cmd) is None
-
-    def test_an_unknown_worktree_is_unknown_id(self):
-        error = validate_command(
-            world_with(), {"type": "worktree.close", "worktreeId": "northwind-zulu"}
-        )
-        assert error == {
-            "code": "unknown_id",
-            "message": "No worktree northwind-zulu",
-        }
-
-    def test_a_closed_worktree_is_refused(self):
-        world = world_with(worktrees=[make_worktree(isClosed=True)])
-        error = validate_command(
-            world, {"type": "worktree.close", "worktreeId": "northwind-alpha"}
-        )
-        assert error is not None
-        assert error["code"] == "invalid"
-        assert "closed already" in error["message"]
-
-    def test_the_main_worktree_cannot_close(self):
-        # Refused here rather than at the model, so the button says why with no
-        # git call behind it.
-        world = world_with(
-            worktrees=[make_worktree(id="_main", nato="_main", branch="main")]
-        )
-        error = validate_command(
-            world, {"type": "worktree.close", "worktreeId": "_main"}
-        )
-        assert error is not None
-        assert error["code"] == "invalid"
-        assert "main checkout" in error["message"]
+    # The reason, not only the name: it is the whole of what the user reads.
+    assert "main checkout" in error["message"]

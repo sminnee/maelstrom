@@ -8,6 +8,7 @@ host is touched.
 from typing import Any
 
 from ..agent_model import MODES as AGENT_MODES
+from ..worktree_model import is_worktree_closable
 from .desk import split_desk_id
 from .protocol import World
 
@@ -19,9 +20,6 @@ EDITABLE = ("title", "content", "branch", "command", "mode", "priority", "model"
 
 #: The three permission modes, shared with a live agent — see CONTEXT.md.
 MODES = AGENT_MODES
-
-#: The one worktree that never closes — see CONTEXT.md, "Unclosable worktree".
-MAIN_WORKTREE = "_main"
 
 #: The notebook's four priorities, from :data:`maelstrom.task.PRIORITIES`.
 PRIORITIES = ("critical", "high", "medium", "low")
@@ -143,22 +141,6 @@ def validate_command(world: World, cmd: dict[str, Any]) -> dict[str, str] | None
             return _err("unknown_id", f"No {entity_kind} {entity_id}")
         return None
 
-    if kind == "worktree.close":
-        worktree_id = cmd.get("worktreeId", "")
-        worktree = world["worktrees"].get(worktree_id)
-        if worktree is None:
-            return _err("unknown_id", f"No worktree {worktree_id}")
-        # Refused here rather than at the model, so the button hears why with
-        # no git call behind it.
-        if worktree["nato"] == MAIN_WORKTREE:
-            return _err(
-                "invalid",
-                f"{MAIN_WORKTREE} holds the main checkout and cannot be closed",
-            )
-        if worktree["isClosed"]:
-            return _err("invalid", f"Worktree {worktree_id} is closed already")
-        return None
-
     if kind == "desk.remove":
         desk_id = cmd.get("id", "")
         if desk_id not in world["desk"]:
@@ -208,6 +190,21 @@ def validate_command(world: World, cmd: dict[str, Any]) -> dict[str, str] | None
             return _err("unknown_id", f"No comment {comment_id}")
         if comment["resolved"]:
             return _err("invalid", f"Comment {comment_id} is resolved already")
+        return None
+
+    if kind == "worktree.close":
+        worktree_id = cmd.get("worktreeId", "")
+        worktree = world["worktrees"].get(worktree_id)
+        if worktree is None:
+            return _err("unknown_id", f"No worktree {worktree_id}")
+        # Refused here, so the button is told before any sync or teardown runs.
+        if not is_worktree_closable(worktree["nato"]):
+            return _err(
+                "invalid",
+                f"{worktree['nato']} holds the main checkout and cannot be closed",
+            )
+        if worktree["isClosed"]:
+            return _err("invalid", f"Worktree {worktree_id} is closed already")
         return None
 
     if kind == "task.setStatus":
