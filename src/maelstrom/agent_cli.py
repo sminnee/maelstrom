@@ -77,12 +77,21 @@ def agent() -> None:
     """Drive Claude agents over a stream-json pipe."""
 
 
-@agent.command("daemon")
+@agent.group("daemon")
+def cmd_daemon() -> None:
+    """Run and inspect the agent daemon.
+
+    A bare ``mael agent daemon`` used to run one in the foreground. That is
+    ``serve`` now, and the bare command exits non-zero rather than doing
+    something a caller did not ask for.
+    """
+
+
+@cmd_daemon.command("serve")
 @click.option("--socket", "socket_path", default=None, help="Control socket path.")
-def cmd_daemon(socket_path: str | None) -> None:
+def cmd_daemon_serve(socket_path: str | None) -> None:
     """Run the agent daemon in the foreground."""
     daemon = AgentDaemon(socket_path)
-    click.echo(f"Listening on {daemon.socket_path}", err=True)
     try:
         asyncio.run(daemon.serve())
     except KeyboardInterrupt:

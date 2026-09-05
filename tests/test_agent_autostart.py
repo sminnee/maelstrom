@@ -36,6 +36,9 @@ def test_a_command_starts_the_daemon_when_none_runs(
 ):
     """End to end: no daemon, one command, and the command still works."""
     monkeypatch.setenv("MAEL_AGENT_LOG", str(tmp_path / "daemon.log"))
+    # Its own spawn records too: the default dir holds this machine's real
+    # agents, and a spawned daemon restores every record it finds there.
+    monkeypatch.setenv("MAEL_AGENT_SPEC_DIR", str(tmp_path / "agents"))
     started: list[subprocess.Popen] = []
     real_popen = subprocess.Popen
 
@@ -75,6 +78,27 @@ def test_a_daemon_never_spawns_a_daemon(autostart_on, socket_path, monkeypatch):
     with pytest.raises(AssertionError):
         asyncio.run(ensure_daemon(socket_path))
     assert spawned[0]["env"][NO_AUTOSTART_ENV] == "1"
+
+
+def test_the_spawn_names_the_serve_subcommand(
+    autostart_on, socket_path, monkeypatch, tmp_path
+):
+    """``daemon`` is a command group, so the spawn has to name a verb.
+
+    A bare ``mael agent daemon`` prints help and exits, which would make every
+    auto-start fail. This is the guard on that rename.
+    """
+    monkeypatch.setenv("MAEL_AGENT_LOG", str(tmp_path / "daemon.log"))
+    spawned: list[list[str]] = []
+
+    def fake_popen(argv, **kwargs):
+        spawned.append(argv)
+        raise AssertionError("spawn attempted")
+
+    monkeypatch.setattr("maelstrom.agent_transport.subprocess.Popen", fake_popen)
+    with pytest.raises(AssertionError):
+        asyncio.run(ensure_daemon(socket_path))
+    assert spawned[0][1:4] == ["agent", "daemon", "serve"]
 
 
 def test_a_daemon_that_never_binds_fails_fast(autostart_on, socket_path, monkeypatch):
