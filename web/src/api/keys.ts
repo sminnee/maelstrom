@@ -7,6 +7,7 @@ export const keys = {
   projects: () => ['projects'] as const,
   worktrees: () => ['worktrees'] as const,
   desk: () => ['desk'] as const,
+  host: () => ['host'] as const,
   attention: () => ['attention'] as const,
   tasks: {
     all: () => ['tasks'] as const,

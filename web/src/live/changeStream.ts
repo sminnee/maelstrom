@@ -43,6 +43,8 @@ export function invalidationsFor(notice: ChangeNotice): QueryKey[] {
       return [keys.worktrees()];
     case 'desk':
       return [keys.desk()];
+    case 'host':
+      return [keys.host()];
     case 'attention':
       return [keys.attention()];
     case 'task':

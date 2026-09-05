@@ -7,6 +7,7 @@ import { TaskEditor } from '../tasklist/TaskEditor';
 import { TaskList } from '../tasklist/TaskList';
 import { useAppStore } from '../store/store';
 import { ConnectionBanner } from './ConnectionBanner';
+import { HostBanner } from './HostBanner';
 import { TopBar } from './TopBar';
 import styles from './AppShell.module.css';
 
@@ -23,6 +24,7 @@ export function AppShell() {
       <div className={styles.shell}>
         <TopBar />
         <ConnectionBanner hasData={status === 'ready'} />
+        <HostBanner />
         <div className={styles.body}>
           <main className={styles.canvas}>{view === 'canvas' ? <Canvas /> : <TaskList />}</main>
           {view === 'canvas' && <Panel />}

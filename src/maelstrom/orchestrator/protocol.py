@@ -142,6 +142,8 @@ class Agent(TypedDict):
     worktreeId: str
     exitCode: int | None
     pendingRequestId: str | None
+    #: The child's pid while it is alive, so the UI can name the process.
+    pid: int | None
 
 
 class Attention(TypedDict):
@@ -225,6 +227,26 @@ class DeskEntry(TypedDict):
     addedAt: str
 
 
+#: The one host entity's id. There is one agent host per server.
+HOST_ID = "agent-host"
+
+
+class Host(TypedDict):
+    """Whether the agent host answers, and since when it has not.
+
+    The server never exits an agent because the host stopped answering — a
+    daemon restart would otherwise flash every agent exited — so this is how a
+    client learns that the agents it shows are the last known ones.
+    """
+
+    id: str
+    reachable: bool
+    #: When ``reachable`` last changed.
+    since: str
+    #: The socket the server reaches the host on.
+    socket: str
+
+
 class World(TypedDict):
     projects: dict[str, Project]
     worktrees: dict[str, Worktree]
@@ -234,6 +256,7 @@ class World(TypedDict):
     comments: dict[str, Comment]
     attention: dict[str, Attention]
     desk: dict[str, DeskEntry]
+    host: dict[str, Host]
 
 
 class ClientState(TypedDict):
@@ -256,6 +279,7 @@ ENTITY_KINDS = (
     "comment",
     "attention",
     "desk",
+    "host",
 )
 
 #: Which ``World`` key each entity kind lives under.
@@ -268,6 +292,7 @@ WORLD_KEY = {
     "comment": "comments",
     "attention": "attention",
     "desk": "desk",
+    "host": "host",
 }
 
 
@@ -281,6 +306,7 @@ def empty_world() -> World:
         "comments": {},
         "attention": {},
         "desk": {},
+        "host": {},
     }
 
 

@@ -88,7 +88,11 @@ list and the detail of every id a `task`, `agent` or `document` notice carries, 
 the rest — and a `reset` invalidates everything. TanStack refetches only the queries something
 is showing, so a reset costs one GET per list on screen. The connection state lives in the
 store, and `shell/ConnectionBanner.tsx` shows "Connecting…" before any data and "Reconnecting…
-showing the last known state" once there is some.
+showing the last known state" once there is some. `shell/HostBanner.tsx` is its twin for the far
+end: `api/host.ts` reads `GET /api/host`, and when the server says the agent host has stopped
+answering the banner says since when, that the agents on screen are the last known ones, and
+which command brings the host back. The agents themselves stay as they were — the server never
+exits one for the host being away — so a daemon restart is a banner, not a canvas of exits.
 
 **Transcripts are sockets.** `live/agentStreams.ts` keeps one socket per agent however many
 views show it: a view acquires the agent through `useAgentStream`, the socket opens on the first

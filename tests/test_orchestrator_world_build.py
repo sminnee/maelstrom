@@ -190,6 +190,18 @@ def test_agent_entity_from_a_live_row():
     assert entity["exitCode"] is None
     assert entity["pendingRequestId"] is None
     assert entity["taskId"] == "NORT-7"
+    assert entity["pid"] is None
+
+
+def test_agent_entity_carries_the_childs_pid_when_the_row_has_one():
+    """So the UI can name the process an agent is, and a mismatch is visible."""
+    row = {**build_agent_row(replay("normal-turn.jsonl")), "pid": 4242}
+    entity = agent_entity(row, task_id="", project="", worktree_id="")
+    assert entity["pid"] == 4242
+    assert (
+        agent_entity({**row, "pid": "x"}, task_id="", project="", worktree_id="")["pid"]
+        is None
+    )
 
 
 def test_agent_entity_parses_the_exit_code_out_of_the_row_state():

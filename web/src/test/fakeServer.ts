@@ -11,6 +11,7 @@ import type { Document } from '../protocol/documents';
 import type {
   Agent,
   DeskEntry,
+  Host,
   Project,
   Task,
   TaskMode,
@@ -34,6 +35,8 @@ export interface FakeWorld {
   documents: Record<string, Document>;
   attention: Record<string, Attention>;
   desk: Record<string, DeskEntry>;
+  /** The agent host's reachability; `null` before the server's first poll settles. */
+  host: Host | null;
 }
 
 export function emptyFakeWorld(): FakeWorld {
@@ -45,6 +48,7 @@ export function emptyFakeWorld(): FakeWorld {
     documents: {},
     attention: {},
     desk: {},
+    host: { id: 'agent-host', reachable: true, since: '2026-06-11T09:00:00Z', socket: '' },
   };
 }
 
@@ -345,6 +349,7 @@ function read(path: string, server: FakeServer): Reply {
     return doc ? ok(doc) : notFound(`document ${m[1]}`);
   }
   if (pathname === '/api/desk') return ok({ desk: Object.values(world.desk) });
+  if (pathname === '/api/host') return ok({ host: world.host });
   return error(404, 'unknown_id', `No route GET ${pathname}`);
 }
 
@@ -501,6 +506,7 @@ function command(
       worktreeId: '',
       exitCode: null,
       pendingRequestId: null,
+      pid: null,
     };
     world.desk[`task:${task.id}`] = { id: `task:${task.id}`, addedAt: now() };
     server.change({ kind: 'task', ids: [task.id] });
@@ -663,5 +669,6 @@ function makeNewAgent(
     worktreeId: '',
     exitCode: null,
     pendingRequestId: null,
+    pid: null,
   };
 }

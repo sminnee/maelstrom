@@ -21,7 +21,8 @@
         "project": "northwind",
         "worktreeId": "northwind-alpha",
         "exitCode": null,
-        "pendingRequestId": "9df2f603-da86-44cf-ac99-4e102c7f7add"
+        "pendingRequestId": "9df2f603-da86-44cf-ac99-4e102c7f7add",
+        "pid": null
       }
     },
     "documents": {
@@ -55,7 +56,8 @@
         "clearedAt": null
       }
     },
-    "desk": {}
+    "desk": {},
+    "host": {}
   },
   "transcripts": {
     "ag1": {

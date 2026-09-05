@@ -125,3 +125,12 @@ def test_a_task_row_is_a_task_less_its_detail_fields():
     )
     task = make_task(content="prose", log=[{"ts": NOW, "text": "did it"}])
     assert set(task_row(task)) == set(TaskRow.__annotations__)
+
+
+def test_the_host_is_an_entity_kind_with_its_own_table():
+    """One entity says whether the agent host answers; the desk precedent."""
+    host = {"id": "agent-host", "reachable": False, "since": NOW, "socket": "/x.sock"}
+    assert empty_world()["host"] == {}
+    state = initial_client_state()
+    state = apply_event(state, {"type": "upsert", "kind": "host", "entity": host})
+    assert state["world"]["host"] == {"agent-host": host}

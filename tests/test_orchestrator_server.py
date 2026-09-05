@@ -1343,6 +1343,61 @@ def test_the_desk_entry_outlives_the_agent(harness):
     assert [e["id"] for e in desk] == ["agent:ag1"]
 
 
+def test_the_host_is_reported_unreachable_after_two_failed_polls_and_no_agent_exits(
+    harness,
+):
+    """A daemon restart must show as a banner, not as every agent exiting.
+
+    One failed poll is the dropped connection a restart costs, so it raises
+    nothing. The second does. The agents stay as they were, and the first
+    successful poll after marks the host reachable again with the same ids.
+    """
+    harness.daemon.rows["ag1"] = agent_row()
+    unreachable = {"error": "agent daemon not reachable at /x.sock: gone"}
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                before = await api.get_json("/api/host")
+                # Enough errors to hold the host down past the notice coalesce
+                # window; otherwise "down" and "up" land in one notice.
+                harness.daemon.replies["list"] = [unreachable] * 500
+                await stream.change("host", "agent-host")
+                down = await api.get_json("/api/host")
+                agent_while_down = await api.get_json("/api/agents/ag1")
+                harness.daemon.replies["list"].clear()  # the host answers again
+                await stream.change("host", "agent-host")
+                up = await api.get_json("/api/host")
+                return before, down, agent_while_down, up, host_calls(harness)
+
+    before, down, agent_while_down, up, calls = run(scenario())
+    assert before["host"]["reachable"] is True
+    assert down["host"]["reachable"] is False
+    assert down["host"]["since"] == NOW
+    assert agent_while_down["state"] != "exited"
+    assert up["host"]["reachable"] is True
+    assert calls == []
+
+
+def test_one_failed_poll_raises_no_host_notice(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                before = published(harness)
+                harness.daemon.replies["list"] = [{"error": "not reachable"}]
+                await harness.orch.refresh_agents()
+                await harness.orch.refresh_agents()
+                return published(harness) - before, await api.get_json("/api/host")
+
+    extra, host = run(scenario())
+    assert extra == 0
+    assert host["host"]["reachable"] is True
+
+
 def test_a_second_agent_poll_publishes_nothing(harness):
     """The 2s poll must not thrash the desk file, nor the clients."""
     harness.daemon.rows["ag1"] = agent_row()

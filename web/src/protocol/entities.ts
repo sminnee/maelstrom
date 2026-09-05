@@ -116,10 +116,26 @@ export interface Agent {
   worktreeId: WorktreeId;
   exitCode: number | null;
   pendingRequestId: RequestId | null;
+  /** The child's pid while it is alive; `null` before the spawn and after the exit. */
+  pid: number | null;
 }
 
 /** One entry on the desk: a task or a free agent the canvas keeps drawing. */
 export interface DeskEntry {
   id: DeskId;
   addedAt: string;
+}
+
+/**
+ * Whether the agent host answers the server, and since when it has not. One
+ * entity, id `agent-host`. The server never exits an agent for the host being
+ * away, so this is how the app knows the agents it shows are the last known.
+ */
+export interface Host {
+  id: 'agent-host';
+  reachable: boolean;
+  /** When `reachable` last changed. */
+  since: string;
+  /** The socket the server reaches the host on. */
+  socket: string;
 }

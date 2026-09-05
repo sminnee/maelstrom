@@ -72,6 +72,7 @@ snapshot and its first live one.
 | Worktrees and projects | Re-read `build_list_all_data`, one read in flight at a time | 15 s |
 | Agents | Reconcile the host's `list` against the world | 2 s |
 | Desk | Read once at start, pruned on every task refresh, joined by every live agent, and written through on change | — |
+| Host | One entity, `agent-host`, saying whether the agent host answers. Set by every agent poll; published only when it changes | with the agent poll |
 
 Blocking reads run on one worker thread. The SQLite index behind the notebook is bound to the
 thread that opens it, so a pool of one keeps every read on the same connection.
@@ -91,6 +92,16 @@ row the host lists, so both reach one new agent when a poll lands in the gap the
 between starting the agent and adopting it. A second watch replays the same backlog into the
 same transcript under fresh ids, so every item draws twice. An attach returns early for an
 agent a watch already holds. A revive drops its watch first, so it still re-attaches.
+
+The host being away is not an exit. A `list` the host does not answer changes no agent: the
+second consecutive failed poll upserts the `agent-host` entity as unreachable, with when, and the
+first successful poll after upserts it reachable again. One failed poll raises nothing, because a
+daemon restart costs exactly one dropped connection. So a restart shows in the UI as a banner for
+a few seconds and then the same agent ids, revived, with every client's cursors intact — never as
+a canvas full of exits. `GET /api/host` serves the entity; a `host` change notice names it.
+
+Each agent row carries the child's `pid` while it is alive, so a client can name the process an
+agent is and `mael agent daemon list` can be read against the canvas.
 
 An exited id that comes back live is the same agent again, not a new one: a resume keeps the
 agent id. The server clears the exit code, clears the attention item the exit raised, and attaches
@@ -256,6 +267,7 @@ route is under `/api` and answers JSON. A task id is two path segments, because 
 | `GET /api/documents` | `{documents: [Document]}` without `markdown` |
 | `GET /api/documents/{id}` | The `Document`, `markdown` included |
 | `GET /api/desk` | `{desk: [DeskEntry]}` |
+| `GET /api/host` | `{host: Host \| null}`: whether the agent host answers, since when, and on which socket. `null` until the first agent poll has settled |
 
 The task list ships every task as a slim row and the client filters. The list already filters in
 memory, and a server-side filter would fragment the client's cache.
