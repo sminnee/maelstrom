@@ -208,6 +208,9 @@ def test_argv_carries_the_flags_the_pipe_needs():
     # Without this a subagent's stream carries its tool calls only, never its
     # words. Confirmed against v2.1.260.
     assert "--forward-subagent-text" in argv
+    # Without this the child echoes no stdin user turn, so a `say` never
+    # reaches the transcript. Confirmed against v2.1.261.
+    assert "--replay-user-messages" in argv
 
 
 def test_argv_pins_a_session_id_when_given():

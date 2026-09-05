@@ -25,6 +25,7 @@ from maelstrom.agent_model import (
     TranscriptMeta,
     apply_event,
     mark_exited,
+    user_message,
 )
 from maelstrom.agent_server import Agent, AgentDaemon
 from maelstrom.agent_spec_store import InMemoryAgentSpecStore
@@ -1170,13 +1171,17 @@ def test_a_message_the_user_sends_is_not_recorded():
         await asyncio.sleep(0)
         await daemon.handle({"cmd": "say", "id": "a1", "text": "carry on"})
         await asyncio.sleep(0)
+        agent.record({**user_message("carry on"), "isReplay": True})
+        await asyncio.sleep(0)
         task.cancel()
 
     asyncio.run(attach_then_say())
     assert sent[-1]["message"]["content"][0]["text"] == "carry on"
+    # The daemon writes nothing of its own; the one copy is the child's echo.
     assert [json.loads(line).get("type") for line in writer.lines] == [
         AGENT_DETAIL,
         BACKLOG_END,
+        "user",
     ]
 
 

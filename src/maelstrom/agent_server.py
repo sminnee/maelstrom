@@ -221,9 +221,9 @@ class Agent:
         ``control_response`` the daemon wrote. Without it an attached client
         goes on showing a wait that has been answered.
 
-        A ``user`` turn does not: the child replays every one on its own
-        stdout, marked ``isReplay``, so recording it here would put one turn on
-        the stream twice. The orchestrator's normaliser mints a fresh item id
+        A ``user`` turn does not: the child replays every one on its own stdout
+        marked ``isReplay``, so recording it here would put one turn on the
+        stream twice. The orchestrator's normaliser mints a fresh item id
         per copy, so the user's own message would render twice.
         """
         before = self.state

@@ -30,6 +30,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Fixed
 
+- **A message sent to an agent shows in its transcript.** A message from the orchestrator GUI
+  or `mael agent say` opened a turn the transcript showed as the agent answering nothing. The
+  daemon now starts the child with `--replay-user-messages`, which Claude Code 2.1.261 needs
+  before it echoes a stdin user turn.
+
 - **A busy agent no longer freezes at `processing`.** A very long line on the child's stream
   could overrun the daemon's read limit, after which the agent's state stopped being updated
   and `list`, `show` and the orchestrator UI all went on claiming `processing` for an agent
