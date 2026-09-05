@@ -178,6 +178,9 @@ def _widget_for(item: TranscriptItem) -> Widget | None:
         return WaitLine(item)
     if kind == "turn_result":
         return Static(turn_result_line(item), classes="dim")
+    if kind == "skill":
+        # The body is a whole file, so the line names the skill and drops it.
+        return Static(f"skill › {item['skill']}", classes="dim", markup=False)
     return None  # a system/init item is footer material, not a transcript line
 
 

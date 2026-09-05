@@ -16,6 +16,7 @@ import pytest
 
 from maelstrom.orchestrator.normalise import (
     NormaliseContext,
+    _skill_loaded,
     apply_agent_detail,
     context_for_agent,
     mark_exited,
@@ -520,6 +521,74 @@ def test_a_user_turn_whose_content_is_a_plain_string_still_shows():
         ("user", "Present the plan")
     ]
     assert agent_of(state)["state"] == "processing"
+
+
+def test_a_skill_body_becomes_a_folded_skill_item():
+    """A user turn opening with the base-directory line is a loaded skill.
+
+    Read as an ordinary message the whole skill file fills the transcript, so
+    it becomes its own item instead.
+    """
+    state = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = context_for_agent("ag1")
+    body = (
+        "Base directory for this skill: /Users/dev/.claude/skills/mael"
+        "\n\n# Maelstrom CLI Skill\n\nThe conventions behind mael."
+    )
+    out = normalise_stream_event(
+        state.state,
+        ctx,
+        {"type": "user", "message": {"role": "user", "content": body}},
+        NOW,
+    )
+    state.take(out.events)
+    assert items_of(state, "message") == []
+    loaded = items_of(state, "skill")
+    assert [i["skill"] for i in loaded] == ["mael"]
+    assert loaded[0]["markdown"] == body
+    # A skill body is still a turn the agent acts on.
+    assert agent_of(state)["state"] == "processing"
+
+
+def test_a_skill_name_survives_an_odd_base_directory():
+    """A plugin skill keeps its qualifier, and a nameless path still folds.
+
+    The harness names a plugin skill ``plugin:skill``, and two plugins may
+    ship one leaf name. A path with no name left to read is still a skill
+    load, so it folds rather than dumping the file back on the transcript.
+    """
+    plugin = "/d/.claude/plugins/figma/skills/figma-use"
+    cases = [
+        (plugin, "figma:figma-use"),
+        ("/d/.claude/skills/mael/", "mael"),
+        ("///", "skill"),
+    ]
+    for path, name in cases:
+        body = f"Base directory for this skill: {path}\n\nBody"
+        assert _skill_loaded(body) == name, path
+    assert _skill_loaded("Please run the tests") is None
+
+
+def test_a_user_turn_that_only_quotes_the_skill_line_stays_a_message():
+    """Prefix alone is not the test: the whole opening shape is.
+
+    The repo's own docs carry the phrase, so a user pasting one would have
+    their message folded out of sight behind a card named after a stray token.
+    """
+    state = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = context_for_agent("ag1")
+    asked = (
+        "Base directory for this skill: what does that line mean when it opens a turn?"
+    )
+    out = normalise_stream_event(
+        state.state,
+        ctx,
+        {"type": "user", "message": {"role": "user", "content": asked}},
+        NOW,
+    )
+    state.take(out.events)
+    assert items_of(state, "skill") == []
+    assert [i["markdown"] for i in items_of(state, "message")] == [asked]
 
 
 # --- subagents ----------------------------------------------------------------

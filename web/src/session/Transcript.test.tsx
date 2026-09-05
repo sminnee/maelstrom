@@ -87,6 +87,27 @@ describe('Transcript', () => {
     expect(screen.getByTestId('gap')).toHaveTextContent('12 earlier events were dropped here.');
   });
 
+  it('a skill body is folded away behind the skill name', () => {
+    render(
+      <Transcript
+        truncatedBefore={false}
+        items={[
+          {
+            id: 's1',
+            ts: '',
+            type: 'skill',
+            skill: 'mael',
+            markdown: '# Skill heading\n\nThe conventions this file carries.',
+          },
+        ]}
+      />,
+    );
+    const card = screen.getByTestId('skill');
+    expect(card).not.toHaveAttribute('open');
+    expect(within(card).getByText('mael')).toBeInTheDocument();
+    expect(card).toHaveTextContent('The conventions this file carries.');
+  });
+
   it('a denied permission shows its decision', () => {
     render(<Transcript items={goldenItems('permission-denied.jsonl')} truncatedBefore={false} />);
     const card = screen

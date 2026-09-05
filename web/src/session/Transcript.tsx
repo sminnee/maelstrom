@@ -1,3 +1,4 @@
+import { Markdown } from '../markdown/Markdown';
 import type { TranscriptItem } from '../protocol/transcript';
 import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
@@ -130,6 +131,16 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
         <div className={styles.note} data-testid="gap">
           {item.droppedEvents} earlier events were dropped here.
         </div>
+      );
+    case 'skill':
+      return (
+        <details className={styles.skill} data-testid="skill">
+          <summary className={styles.skillHead}>
+            <span className={styles.skillLabel}>skill</span>
+            <span className={styles.skillName}>{item.skill}</span>
+          </summary>
+          <Markdown source={item.markdown} />
+        </details>
       );
   }
 }

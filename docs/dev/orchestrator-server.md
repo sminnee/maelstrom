@@ -49,6 +49,15 @@ are a hand port of `web/src/session/toolCards.ts`, which renders in the browser 
 reference. `tests/fixtures/agent_events/tool-cards.json` records what it makes of each tool;
 `UPDATE_GOLDEN=1 pnpm test` in `web/` re-records it, and the Python test replays it.
 
+## A loaded skill
+
+Loading a skill injects the whole skill file as a user turn, so it becomes a `skill` item and
+not a message: the web UI folds it behind the skill's name, and the TUI prints that name alone.
+The turn opens with `Base directory for this skill:`, and that line is the only mark the stream
+carries — the transcript file marks such a turn `isMeta`, but the daemon stream does not. The
+skill's name is the last part of the path on that line. A harness that reworded that line would
+silently return the body to the transcript as an ordinary message.
+
 ## Keeping the world fresh
 
 The server holds one `WorldState`. Every change to the world is an event applied through

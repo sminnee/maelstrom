@@ -230,6 +230,13 @@ One thing a driven agent said, in its own words. Text blocks only — a `thinkin
 reasoning the agent did not choose to say, and a `tool_use` block is an action. The daemon keeps
 only the last message, so `mael agent list` and `mael agent show` answer without reading a file.
 
+**Loaded skill**:
+The whole skill file, injected as a user turn when an agent loads a skill. It is not something
+the user said, so the transcript folds it under the skill's name rather than showing the file.
+The turn opens with `Base directory for this skill:`, which is the only mark the daemon stream
+carries.
+_Avoid_: Skill message, skill prompt
+
 **Spawn record**:
 What one driven agent takes to start again: its working directory, its session id, its permission
 mode, its model, and the environment it was given. Claude keeps the conversation itself, so the
