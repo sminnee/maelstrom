@@ -135,6 +135,7 @@ class Agent(TypedDict):
     permissionMode: str
     waitingOn: str
     lastMessage: str
+    lastMessageAt: str
     costUsd: float
     taskId: str
     project: str

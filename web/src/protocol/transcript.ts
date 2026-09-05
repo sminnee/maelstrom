@@ -9,6 +9,7 @@ export const PLAN_TOOL = 'ExitPlanMode';
 
 interface Base {
   id: TranscriptItemId;
+  /** When the item's source event happened, ISO 8601 — not when it was normalised. */
   ts: string;
 }
 

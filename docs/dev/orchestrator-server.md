@@ -147,10 +147,17 @@ attach asks the host for what was missed, and what the host's ring dropped meanw
 `gap` item, as for a parent. A subagent that exits raises no attention: the parent gets the
 notification and reports it. A subagent whose row comes back live is revived without an attach.
 
-On a subagent's stream the normaliser changes nothing about the agent but `lastMessage`, ignores
-a `control_request`, and writes no document. On a parent's stream it drops any event carrying a
-`parent_tool_use_id`, so a host that had not split the streams would still yield a parent-only
-transcript.
+On a subagent's stream the normaliser changes nothing about the agent but `lastMessage` and
+`lastMessageAt`, ignores a `control_request`, and writes no document. On a parent's stream it
+drops any event carrying a `parent_tool_use_id`, so a host that had not split the streams would
+still yield a parent-only transcript.
+
+Every item carries a `ts`: when its source event happened, taken from the `mael_ts` the daemon
+stamped. A conversation turn therefore keeps Claude's own time, and a `system` or `result` item
+keeps the daemon's, because those frames carry no clock of their own. This is what lets a
+reattach replay an hour of backlog without every item reading as "just now". An item with no
+source event — a gap, an exit, the detail frame — is stamped with the server's clock, because it
+really is happening then.
 
 ### Links
 

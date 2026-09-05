@@ -15,6 +15,7 @@
         "permissionMode": "normal",
         "waitingOn": "",
         "lastMessage": "Hello there, friend",
+        "lastMessageAt": "2026-09-01T01:42:19.652Z",
         "costUsd": 0.1495855,
         "taskId": "NORT-7",
         "project": "northwind",
@@ -38,21 +39,21 @@
           "sessionId": "029ed263-b318-4d4e-a661-32f9c9f23f19",
           "model": "claude-opus-5",
           "id": "ag1-1",
-          "ts": "2026-09-01T00:00:00Z"
+          "ts": "2026-09-02T00:00:00Z"
         },
         {
           "type": "message",
           "role": "user",
           "markdown": "Say hello in exactly three words, then stop.",
           "id": "ag1-2",
-          "ts": "2026-09-01T00:00:00Z"
+          "ts": "2026-09-01T01:42:16.651Z"
         },
         {
           "type": "message",
           "role": "assistant",
           "markdown": "Hello there, friend",
           "id": "ag1-3",
-          "ts": "2026-09-01T00:00:00Z"
+          "ts": "2026-09-01T01:42:19.652Z"
         },
         {
           "type": "turn_result",
@@ -60,7 +61,7 @@
           "costUsd": 0.1495855,
           "durationMs": 3391,
           "id": "ag1-4",
-          "ts": "2026-09-01T00:00:00Z"
+          "ts": "2026-09-02T00:00:00Z"
         }
       ],
       "truncatedBefore": false
