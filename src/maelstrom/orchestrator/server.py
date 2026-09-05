@@ -809,9 +809,21 @@ class Orchestrator:
         )
 
     async def _say(self, command: dict[str, Any]) -> dict[str, Any]:
-        return await self._relay(
-            {"cmd": "say", "id": command["agentId"], "text": command["text"]}
-        )
+        """Relay one message, and the paths of any images on it.
+
+        Paths, not bytes: the host is local to the files, so sending base64
+        here would carry each image twice over.
+        """
+        payload: dict[str, Any] = {
+            "cmd": "say",
+            "id": command["agentId"],
+            # Defaulted, not indexed: an image-only turn is valid, and the
+            # route omits `text` when the body carries none.
+            "text": command.get("text", ""),
+        }
+        if command.get("attachments"):
+            payload["attachments"] = command["attachments"]
+        return await self._relay(payload)
 
     async def _run_shell(self, command: dict[str, Any]) -> dict[str, Any]:
         """Ask the host to run a shell command in the agent's directory.

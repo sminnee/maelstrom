@@ -94,7 +94,13 @@ def validate_command(world: World, cmd: dict[str, Any]) -> dict[str, str] | None
             return _err("unknown_id", f"No agent {agent_id}")
         if agent["state"] == "exited":
             return _err("agent_exited", f"Agent {agent_id} has exited")
-        if kind == "agent.say" and not str(cmd.get("text", "")).strip():
+        if (
+            kind == "agent.say"
+            and not str(cmd.get("text", "")).strip()
+            and not cmd.get("attachments")
+        ):
+            # An image with no words is a message in its own right, so only a
+            # turn carrying neither is empty.
             return _err("invalid", "Message is empty")
         if kind == "agent.run" and not str(cmd.get("command", "")).strip():
             return _err("invalid", "Command is empty")

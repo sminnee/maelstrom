@@ -488,3 +488,25 @@ def test_a_free_agent_on_a_branch_with_a_prompt_is_allowed():
         "mode": "normal",
     }
     assert validate_command(world, cmd) is None
+
+
+def test_a_say_carrying_only_an_image_is_allowed():
+    """An image with no words is a message in its own right.
+
+    The blank-text refusal above still holds for a `say` with nothing on it;
+    it is the attachment, not the text, that makes this one a message.
+    """
+    world = world_with(agents=[make_agent()])
+    cmd = {
+        "type": "agent.say",
+        "agentId": "agent-1",
+        "text": "",
+        "attachments": [{"path": "/tmp/shot.png"}],
+    }
+    assert validate_command(world, cmd) is None
+
+
+def test_a_say_with_neither_words_nor_an_image_is_still_refused():
+    world = world_with(agents=[make_agent()])
+    cmd = {"type": "agent.say", "agentId": "agent-1", "text": "  ", "attachments": []}
+    assert code(validate_command(world, cmd)) == "invalid"

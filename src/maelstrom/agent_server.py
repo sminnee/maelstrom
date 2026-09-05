@@ -27,6 +27,7 @@ import subprocess
 import sys
 import time
 import uuid
+from collections.abc import Sequence
 from contextlib import suppress
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -287,7 +288,7 @@ def _clip(text: str) -> str:
 
 
 def _load_attachments(
-    attachments: object,
+    attachments: Sequence[Any] | None,
 ) -> list[tuple[str, bytes]]:
     """Read the files a ``say`` names, ready for :func:`user_message`.
 
@@ -296,8 +297,12 @@ def _load_attachments(
     carried twice over. A path that will not read raises, so the caller can
     refuse — a turn that silently lost its picture is worse than a refusal.
     """
+    # The value comes off the socket as arbitrary JSON, so it is narrowed here
+    # rather than trusted through a type annotation.
+    if not isinstance(attachments, list):
+        return []
     loaded: list[tuple[str, bytes]] = []
-    for item in attachments or ():
+    for item in attachments:
         if not isinstance(item, dict):
             continue
         path = Path(str(item.get("path", "")))
