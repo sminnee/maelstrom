@@ -1,6 +1,7 @@
 """The daemon's command surface, driven with a stub child instead of a subprocess."""
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -2830,3 +2831,86 @@ def test_a_signal_stops_the_daemon_the_way_the_command_does(tmp_path):
         assert not paths.pid_file.exists()
     finally:
         shutil.rmtree(paths.root, ignore_errors=True)
+
+
+def test_say_loads_its_attachments_from_disk(tmp_path):
+    """An attachment travels as a path and reaches the child as an image block.
+
+    The socket carries the path, not the bytes: the daemon is local to the
+    files, and a base64 blob would bloat every NDJSON line the host writes.
+    """
+    shot = tmp_path / "shot.png"
+    shot.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent, sent = _sending_agent()
+    daemon.agents["a1"] = agent
+
+    reply = asyncio.run(
+        _handle(
+            daemon,
+            {
+                "cmd": "say",
+                "id": "a1",
+                "text": "what is wrong here?",
+                "attachments": [{"path": str(shot), "media_type": "image/png"}],
+            },
+        )
+    )
+
+    assert reply == {"ok": True}
+    content = sent[-1]["message"]["content"]
+    assert [block["type"] for block in content] == ["image", "text"]
+    assert content[0]["source"]["data"] == base64.b64encode(b"\x89PNG\r\n\x1a\nfake").decode()
+    assert content[1]["text"] == "what is wrong here?"
+
+
+def test_say_refuses_an_attachment_it_cannot_read(tmp_path):
+    """A missing file is the client's bug; sending the words alone would hide it."""
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent, sent = _sending_agent()
+    daemon.agents["a1"] = agent
+
+    reply = asyncio.run(
+        _handle(
+            daemon,
+            {
+                "cmd": "say",
+                "id": "a1",
+                "text": "look",
+                "attachments": [{"path": str(tmp_path / "gone.png")}],
+            },
+        )
+    )
+
+    assert "could not read" in reply["error"]
+    assert sent == []
+
+
+def test_say_carries_an_attachment_as_an_image_block(tmp_path):
+    """A pasted screenshot reaches the model on the turn it is sent.
+
+    The socket carries paths, not base64: the daemon is local to the files, and
+    a megabyte of base64 on one NDJSON line would be carried twice.
+    """
+    shot = tmp_path / "shot.png"
+    shot.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent, sent = _sending_agent()
+    daemon.agents["a1"] = agent
+
+    reply = asyncio.run(
+        _handle(
+            daemon,
+            {
+                "cmd": "say",
+                "id": "a1",
+                "text": "what is wrong here?",
+                "attachments": [{"path": str(shot), "media_type": "image/png"}],
+            },
+        )
+    )
+
+    assert reply == {"ok": True}
+    content = sent[0]["message"]["content"]
+    assert [block["type"] for block in content] == ["image", "text"]
+    assert content[0]["source"]["data"] == base64.b64encode(shot.read_bytes()).decode()
