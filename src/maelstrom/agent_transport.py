@@ -384,12 +384,7 @@ def client(*, autostart: bool = True, socket_path: str | None = None) -> DaemonC
     kwargs: dict[str, Any] = {"autostart": autostart}
     if socket_path is not None:
         kwargs["socket_path"] = socket_path
-    try:
-        return client_factory(**kwargs)
-    except TypeError:
-        # A test fake takes neither: it never reaches a socket, so both are
-        # meaningless to it.
-        return client_factory()
+    return client_factory(**kwargs)
 
 
 # --- the async pair, for a caller that already owns an event loop -----------

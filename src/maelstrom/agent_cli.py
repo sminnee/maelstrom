@@ -73,13 +73,13 @@ def _daemon_at(socket_path: str | None, *, autostart: bool = True) -> DaemonClie
     return daemon_client(autostart=autostart, socket_path=socket_path)
 
 
-def _send(payload: dict[str, Any], *, socket_path: str | None = None) -> dict[str, Any]:
+def _send(payload: dict[str, Any]) -> dict[str, Any]:
     """Send one command, printing the daemon's error and exiting on failure.
 
     A ``warning`` is not a failure: the command did what was asked, and
     something alongside it did not. It prints and the command still succeeds.
     """
-    reply = _daemon_at(socket_path).request(payload)
+    reply = _daemon_at(None).request(payload)
     if "error" in reply:
         click.echo(f"Error: {reply['error']}", err=True)
         sys.exit(1)
