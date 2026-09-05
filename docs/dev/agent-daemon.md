@@ -305,13 +305,16 @@ started:  2026-09-05 14:47 (3h ago)
 agents:   5
 ```
 
-`source` is the field that matters: it names the worktree the serving code came from. Any command
-that finds a daemon already running compares that tree with its own and warns on a mismatch. The
-warning names `mael agent daemon restart`, and never refuses — a daemon serving older code still
-works.
+`source` is the field that matters: it names the worktree the serving code came from. A
+command that auto-starts the daemon compares that tree with its own and warns on a mismatch, so
+`MAEL_AGENT_NO_AUTOSTART=1` mutes the warning along with the auto-start. The warning names
+`mael agent daemon restart`, and never refuses — a daemon serving older code still works.
+`status` prints the tree instead of warning about it: the daemon's identity is the answer it was
+asked for, not a note in the margin.
 
-A daemon too old to answer `ping` is warned about as well, since a daemon that does not know the
-command predates it by construction.
+A daemon too old to answer `ping` gets the same warning on the auto-start path, since a daemon
+that does not know the command predates it by construction. `status` cannot report it as a
+footnote — it has no identity to print — so it fails with the same advice.
 
 ### A daemon per environment
 
@@ -339,7 +342,7 @@ mael env stop                                         # takes the daemon and its
 ```
 
 `MAEL_AGENT_SPEC_DIR` is not optional. Two daemons sharing the default spawn-record directory
-both restore the same records, so the second would start a second child on every session id the
+both restore the same records, so the second would start a second `claude` on every session id the
 first already holds.
 
 A service's `env:` block reaches that service only. To point the environment's orchestrator at
