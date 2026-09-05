@@ -241,8 +241,9 @@ one session id would fight over one transcript.
 
 ## Running it
 
-The daemon is one process per machine, and the first command that needs it starts it. A daemon
-started by accident holds no agents, so it costs nothing.
+One daemon serves one socket, and the socket path defaults to `~/.maelstrom/agent-daemon.sock`.
+So one daemon normally holds every driven agent on the machine. The first command that needs it
+starts it. A daemon started by accident holds no agents, so it costs nothing.
 
 ```bash
 mael agent start ~/Projects/maelstrom/maelstrom-alpha --prompt "run the tests"
@@ -258,7 +259,12 @@ mael agent interrupt a1b2c3d4                         # abandon the turn, keep t
 mael agent tail a1b2c3d4
 mael agent attach a1b2c3d4
 mael agent stop a1b2c3d4
-mael agent daemon                                     # run it in the foreground instead
+
+mael agent daemon serve                               # run one in the foreground
+mael agent daemon start                               # start a detached one and wait for it
+mael agent daemon status                              # which daemon is answering, and whose code
+mael agent daemon restart                             # pick up code changed since it started
+mael agent daemon stop
 ```
 
 An auto-started daemon writes its output to `~/.maelstrom/agent-daemon.log`, and runs in its own
@@ -273,9 +279,71 @@ a daemon can never spawn a daemon.
 `MAEL_AGENT_SPEC_DIR` the spawn-record directory.
 `mael agent list --json` emits the rows as JSON.
 
-A second daemon on the same socket refuses to start. Unlinking a live socket would leave the
-first daemon listening on a path no client can reach, holding agents nothing can stop. A stale
-socket file left by a killed daemon refuses connections, so it reads as free and is replaced.
+A second daemon on the same socket refuses to start. An exclusive `flock` on
+`<socket>.lock`, held for the daemon's life, is what makes that true: a liveness probe is a
+check-then-act, so two daemons can both find the socket free, and the loser then binds a path no
+client can reach while it still holds its children. A stale socket file left by a killed daemon
+refuses connections, so it reads as free and is replaced; the kernel releases that daemon's lock
+when the process dies.
+
+### Which daemon is answering
+
+A daemon holds the modules it imported at start, for days. So a command from a worktree is
+served by whatever code the daemon started with, which is usually `_main`'s. That has produced a
+bug that looked like the feature under development: a daemon running older code deleted a spawn
+record.
+
+`mael agent daemon status` answers it:
+
+```
+socket:   /Users/sminnee/.maelstrom/agent-daemon.sock
+pid:      59360
+version:  0.1.2
+source:   /Users/sminnee/Projects/maelstrom/_main
+specs:    /Users/sminnee/.maelstrom/agents
+started:  2026-09-05 14:47 (3h ago)
+agents:   5
+```
+
+`source` is the field that matters: it names the worktree the serving code came from. Any command
+that finds a daemon already running compares that tree with its own and warns on a mismatch. The
+warning names `mael agent daemon restart`, and never refuses — a daemon serving older code still
+works.
+
+A daemon too old to answer `ping` is warned about as well, since a daemon that does not know the
+command predates it by construction.
+
+### A daemon per environment
+
+An environment can run a daemon of its own, on its own socket. A worktree that runs
+orchestrator/web is testing changed code; if that change touches the agent protocol, driving the
+daemon `_main` holds is the bug rather than the accident.
+
+maelstrom's own `.maelstrom.yaml` declares one as an optional service:
+
+```yaml
+  agent-daemon:
+    optional: true
+    command: uv run mael agent daemon serve --socket ${MAEL_AGENT_SOCKET}
+    env:
+      MAEL_AGENT_SOCKET: ${HOME}/.maelstrom/sockets/maelstrom-${WORKTREE}.sock
+      MAEL_AGENT_SPEC_DIR: ${HOME}/.maelstrom/agents-maelstrom-${WORKTREE}
+```
+
+`optional: true` keeps it out of a plain `mael env start`. Start it by name, and stop it with the
+environment:
+
+```bash
+mael env start agent-daemon
+mael env stop                                         # takes the daemon and its agents with it
+```
+
+`MAEL_AGENT_SPEC_DIR` is not optional. Two daemons sharing the default spawn-record directory
+both restore the same records, so the second would start a second child on every session id the
+first already holds.
+
+A service's `env:` block reaches that service only. To point the environment's orchestrator at
+its own daemon, set `MAEL_AGENT_SOCKET` in the worktree's `.env`, which every service reads.
 
 `mael agent list` names what each waiting agent waits on, which is the point of the whole
 mechanism:
@@ -411,6 +479,8 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 | `stop` | `id` | `{"ok": true}` |
 | `resume` | `id`; optional `text` | `{"ok": true, "id": "<agent id>"}` |
 | `attach` | `id`; optional `from`, `epoch` | A stream; see below |
+| `ping` | none | `{"daemon": {…}}`: `pid`, `version`, `executable`, `source_tree`, `socket_path`, `spec_dir`, `started_at`, `agents` |
+| `shutdown` | none | `{"ok": true}`, then the daemon stops |
 
 `start` merges `env` over the daemon's own environment for that child, with no allowlist: a
 client of the socket can set any variable. The socket's file permissions are the trust boundary.
@@ -430,6 +500,13 @@ reply still says `ok`, and names the refusal under `warning`. `mael agent` print
 still exits 0, because the command did what was asked.
 
 `interrupt` abandons the turn the agent is running and leaves the agent alive.
+
+`ping` names the daemon rather than an agent, so it carries no id and answers on a daemon holding
+nothing. `source_tree` is the worktree the serving code was imported from.
+
+`shutdown` replies before it stops, so a caller learns the daemon heard it instead of reading a
+closed connection. The daemon then stops every child and leaves each record `running`, so the
+next daemon start resumes them.
 
 `set-mode` changes the permission mode of a running agent, and takes effect on the turn the agent
 is running. It is the one command that reads the child's answer, so a mode the child refuses is
