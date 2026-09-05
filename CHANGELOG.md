@@ -19,6 +19,11 @@ release while that section is empty, and retitles it to the version it is releas
   UI a parent's session tab lists its subagents, each opening as a read-only tab of its own,
   and the parent's transcript shows one `Agent` call and none of the chatter under it.
 
+- **A task leaves the desk from its own node.** The expanded card of a task now offers
+  "Remove from desk", the label its task list row already uses, so finished work is cleared
+  where it is seen instead of from the other view. The control is absent while the task's agent
+  is live.
+
 - **A loaded skill folds behind its name.** Loading a skill injects the whole skill file as a
   user turn, which filled the transcript. The orchestrator UI now shows one collapsed row
   naming the skill, which opens to the body; `mael agent attach` prints the name alone.
