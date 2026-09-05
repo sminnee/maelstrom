@@ -524,3 +524,111 @@ class TestSessionForPid:
             ),
         )
         assert session_discovery.session_for_pid(42) is None
+
+
+# --- the process table, for the daemon's reconcile ---------------------------
+
+
+class TestProcessTable:
+    DRIVEN = (
+        "claude -p --input-format stream-json --output-format stream-json "
+        '--verbose --permission-prompt-tool stdio --settings {"a": 1} '
+        "--resume 0f8fad5b-d9cb-469f-a165-70867728950e"
+    )
+
+    def test_session_id_in_reads_both_flags(self):
+        sid = "0f8fad5b-d9cb-469f-a165-70867728950e"
+        assert session_discovery.session_id_in(f"claude --session-id {sid}") == sid
+        assert session_discovery.session_id_in(f"claude --resume {sid}") == sid
+        assert session_discovery.session_id_in("claude --resume") is None
+
+    def test_is_driven_needs_both_daemon_flags(self):
+        assert session_discovery.is_driven(self.DRIVEN)
+        assert not session_discovery.is_driven("claude --session-id x")
+        assert not session_discovery.is_driven(
+            "claude -p --input-format stream-json --output-format stream-json"
+        )
+
+    def test_parse_process_table_reads_pid_pgid_and_the_whole_command(self):
+        rows = session_discovery.parse_process_table(
+            f"  101   101 {self.DRIVEN}\n  202    50 claude\ngarbage line\n"
+        )
+        assert rows == [
+            session_discovery.ProcessInfo(101, 101, self.DRIVEN),
+            session_discovery.ProcessInfo(202, 50, "claude"),
+        ]
+
+    def test_list_unions_both_pgrep_sweeps_and_reads_ps_at_full_width(
+        self, monkeypatch
+    ):
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(list(cmd))
+            if cmd[0] == "pgrep" and cmd[1] == "-x":
+                return subprocess.CompletedProcess(cmd, 0, stdout="101\n", stderr="")
+            if cmd[0] == "pgrep":
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="101\n202\n", stderr=""
+                )
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                stdout=f"101 101 {self.DRIVEN}\n202 202 node claude\n",
+                stderr="",
+            )
+
+        monkeypatch.setattr(session_discovery, "run_cmd", fake_run)
+        rows = session_discovery.list_claude_processes()
+        assert [r.pid for r in rows] == [101, 202]
+        ps = calls[-1]
+        assert ps[:2] == ["ps", "-ww"]
+        assert sorted(ps[-1].split(",")) == ["101", "202"]
+
+    def test_no_match_is_an_empty_table_not_an_error(self, monkeypatch):
+        monkeypatch.setattr(
+            session_discovery,
+            "run_cmd",
+            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, stdout="", stderr=""),
+        )
+        assert session_discovery.list_claude_processes() == []
+
+    def test_a_closed_process_table_raises_rather_than_reading_as_empty(
+        self, monkeypatch
+    ):
+        """Inside an agent sandbox `pgrep` exits 3 and `ps` will not run.
+
+        Read as "no processes", a reconcile would write every record off as
+        crashed. So the reader says it could not look.
+        """
+        monkeypatch.setattr(
+            session_discovery,
+            "run_cmd",
+            lambda cmd, **kw: subprocess.CompletedProcess(
+                cmd, 3, stdout="", stderr="pgrep: Cannot get process list"
+            ),
+        )
+        with pytest.raises(session_discovery.ProcessTableUnavailable):
+            session_discovery.list_claude_processes()
+
+        def ps_refused(cmd, **kw):
+            if cmd[0] == "pgrep":
+                return subprocess.CompletedProcess(cmd, 0, stdout="101\n", stderr="")
+            raise OSError("operation not permitted: ps")
+
+        monkeypatch.setattr(session_discovery, "run_cmd", ps_refused)
+        with pytest.raises(session_discovery.ProcessTableUnavailable):
+            session_discovery.list_claude_processes()
+
+    def test_ps_exit_1_means_some_pids_have_gone_not_a_closed_table(self, monkeypatch):
+        def some_gone(cmd, **kw):
+            if cmd[0] == "pgrep":
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="101\n202\n", stderr=""
+                )
+            return subprocess.CompletedProcess(
+                cmd, 1, stdout=f"101 101 {self.DRIVEN}\n", stderr=""
+            )
+
+        monkeypatch.setattr(session_discovery, "run_cmd", some_gone)
+        assert [r.pid for r in session_discovery.list_claude_processes()] == [101]
