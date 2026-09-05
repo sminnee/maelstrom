@@ -364,7 +364,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/agents/{id}/approve` | `{requestId}` | `agent.approve` | `{}` |
 | `POST /api/agents/{id}/deny` | `{requestId, reason}` | `agent.deny` | `{}` |
 | `POST /api/agents/{id}/answer` | `{requestId, answers}` | `agent.answer` | `{}` |
-| `POST /api/agents/{id}/say` | `{text}` | `agent.say` | `{}` |
+| `POST /api/agents/{id}/say` | `{text, attachments?}` | `agent.say` | `{}` |
 | `POST /api/agents/{id}/set-mode` | `{mode}` | `agent.setMode` | `{}` |
 | `POST /api/agents/{id}/stop` | | `agent.stop` | `{}` |
 | `POST /api/agents/{id}/resume` | `{text?}` | `agent.resume` | `{}` |
@@ -376,6 +376,41 @@ check being missing, both answer 400 `invalid`.
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
 | `POST /api/desk` | `{id}`, a desk id | `desk.add` | `{}` |
 | `DELETE /api/desk/{deskId}` | the desk id, URL-encoded | `desk.remove` | `{}` |
+
+## Attachments
+
+An image reaches an agent as a file in the task notebook, whatever brought it in. `mael linear
+plan` already worked this way; the orchestrator UI uses the same mechanism through
+`maelstrom.attachments`, so a pasted screenshot is not a second way to put an image in the
+notebook.
+
+Two routes carry the bytes. Neither is a command: nothing about the world changes.
+
+| Route | Body | Returns |
+|---|---|---|
+| `POST /api/attachments` | multipart: `project`, `bucket`, `file` | `{markdown, url}` |
+| `GET /api/attachments/{project}/{bucket}/{name}` | | the image bytes |
+
+Multipart, because the payload is bytes. Base64 in a JSON body would inflate it by a third for
+nothing.
+
+The reply carries two refs, and they are not interchangeable:
+
+- `markdown` holds the portable `{{MAEL_TASK_DIR}}` token. A task stores this, and
+  `build_prompt` expands it to an absolute path the agent can `Read`.
+- `url` points at this server. A browser can fetch only this one, so it is what the thumbnail
+  and the transcript show.
+
+**The reply never names a filesystem path.** A client that knew one could send it back on a
+`say`, and the agent host would read whatever file it named. So a `say` carries attachment
+URLs, and the server resolves each one to a stored file itself. A URL that does not resolve to
+an attachment this server serves is dropped rather than forwarded.
+
+An upload is separate from the send. A task edit that is never saved leaves an orphan file
+rather than a half-written task, and all four UI surfaces share one path.
+
+The size cap is 5 MB, and the bytes must sniff as PNG, JPEG, GIF or WEBP. Both refusals answer
+400 `invalid`.
 
 `agent.setMode` is a pure relay. The child announces its new mode in its own `system`/`status`
 event, so the world changes when that arrives, and a mode the child refuses never reaches the
