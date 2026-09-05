@@ -25,6 +25,13 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Fixed
 
+- **A busy agent no longer freezes at `processing`.** A very long line on the child's stream
+  could overrun the daemon's read limit, after which the agent's state stopped being updated
+  and `list`, `show` and the orchestrator UI all went on claiming `processing` for an agent
+  that was in fact waiting on a question. An over-long line now costs only that event, showing
+  as a gap in the transcript, and any other read failure ends the agent — with a log line —
+  rather than leaving it stuck.
+
 - **An agent is followed once, however many callers adopt it.** A launch and the agent poll
   could both reach one new agent, and the second watch replayed the same backlog into the same
   transcript. Every message in the orchestrator UI drew twice.

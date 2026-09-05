@@ -85,6 +85,28 @@ WATCHER_QUEUE_LIMIT = 1000
 #: socket: the connection serving it answers nothing until `handle` returns.
 REQUEST_TIMEOUT = 10.0
 
+#: How long the pump waits for the child's exit code once its stream has ended.
+#: Bounded because a pump that stops for any other reason leaves the child alive,
+#: and an unbounded wait there never settles the agent's state.
+EXIT_WAIT = 5.0
+
+
+def _log_pump_failure(agent_id: str) -> Callable[["asyncio.Task[None]"], None]:
+    """A done-callback that logs whatever killed ``agent_id``'s pump.
+
+    Nothing awaits the pump task, so without this its exception is swallowed
+    and a daemon-side bug leaves no evidence at all.
+    """
+
+    def done(task: "asyncio.Task[None]") -> None:
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            log.error("agent %s: its pump failed", agent_id, exc_info=error)
+
+    return done
+
 
 def _offer(queue: "asyncio.Queue[dict[str, Any]]", event: dict[str, Any]) -> None:
     """Give ``event`` to a watcher, dropping the oldest when it is full.
@@ -279,11 +301,29 @@ class Agent:
         The stream ending is the only notice the daemon gets that a child has
         gone, so marking the agent ``exited`` here is what stops a crashed agent
         advertising a wait nobody can answer.
+
+        Every way out of the loop settles the agent's state. An unexpected one
+        kills the child on the way, so no orphan is left holding stdin.
         """
         assert self.proc.stdout is not None
+        unexpected = True
         try:
             while True:
-                line = await self.proc.stdout.readline()
+                try:
+                    line = await self.proc.stdout.readline()
+                except ValueError:
+                    # A line over the limit. The reader resynchronises on the
+                    # next one, so this loses the event and nothing more — but
+                    # the loss must show: a dropped `control_request` would
+                    # leave the agent's state claiming no wait while the child
+                    # blocks on one.
+                    log.warning(
+                        "agent %s: skipping a line over the %d-byte limit",
+                        self.state.agent_id,
+                        STREAM_LIMIT,
+                    )
+                    self._fan_out("", _truncated(1))
+                    continue
                 if not line:
                     break
                 try:
@@ -291,27 +331,57 @@ class Agent:
                 except json.JSONDecodeError:
                     continue  # a non-JSON line is noise, not a state change
                 self.record(event)
+            unexpected = False
+
+        except asyncio.CancelledError:
+            # A cancelled pump is the loop shutting down, not a crash: leave the
+            # child to stop(), so its record stays running and a restart
+            # resumes it.
+            unexpected = False
+            raise
 
         finally:
-            exit_code = await self.proc.wait()
-            self.state = mark_exited(self.state, exit_code)
-            self.fail_waiters()
-            if self.on_exit is not None:
-                self.on_exit(exit_code)
-            # Tell every watcher the stream ended because the agent did, so an
-            # attach can return rather than wait on a queue nothing will fill.
-            # A subagent's watchers too: its events came from this process.
-            for watcher in list(self.watchers):
-                _offer(watcher.queue, _exit_marker(exit_code))
+            # A clean end of stream means the child is already gone; any other
+            # way out leaves it running, and an orphan holding stdin is
+            # unreachable.
+            self._mark_gone(await self._end_child(kill=unexpected))
+
+    async def _end_child(self, kill: bool) -> int | None:
+        """Wait for the child to go, and return its exit code.
+
+        ``kill`` ends it up front rather than waiting for it to notice. Either
+        way the wait is bounded, so a child that ignores both still lets its
+        agent settle — ``None`` then, the exit code being unknown.
+        """
+        if kill and self.proc.returncode is None:
+            self.proc.kill()
+        try:
+            return await asyncio.wait_for(self.proc.wait(), timeout=EXIT_WAIT)
+        except asyncio.TimeoutError:
+            return None
+
+    def _mark_gone(self, exit_code: int | None) -> None:
+        """Mark the agent gone and release everything waiting on it."""
+        self.state = mark_exited(self.state, exit_code)
+        self.fail_waiters()
+        if self.on_exit is not None:
+            self.on_exit(exit_code)
+        # Tell every watcher the stream ended because the agent did, so an
+        # attach can return rather than wait on a queue nothing will fill.
+        # A subagent's watchers too: its events came from this process.
+        for watcher in list(self.watchers):
+            _offer(watcher.queue, _exit_marker(exit_code))
 
     async def stop(self) -> None:
-        """End the agent: close its stdin, then kill it if it does not exit."""
+        """End the agent: close its stdin, then kill it if it does not exit.
+
+        Closing stdin is what a child is meant to notice, so it gets the same
+        bounded wait first and the kill only if it overruns.
+        """
         if self.proc.stdin is not None and not self.proc.stdin.is_closing():
             self.proc.stdin.close()
-        try:
-            await asyncio.wait_for(self.proc.wait(), timeout=5)
-        except asyncio.TimeoutError:
-            self.proc.kill()
+        if await self._end_child(kill=False) is None:
+            await self._end_child(kill=True)
 
 
 def _exited_agent(spec: AgentSpec) -> Agent:
@@ -501,17 +571,24 @@ class AgentDaemon:
         # stderr joins stdout so a child that dies early — a bad --model, an
         # expired login — leaves its reason in the event buffer. pump() skips
         # the non-JSON lines, and `mael agent attach` still shows them.
+        #
+        # One event is one line, and an `assistant` event carries the whole
+        # accumulated message — with `--forward-subagent-text` every subagent's
+        # text lands on this stream too, so lines run long. Hence the same
+        # STREAM_LIMIT the daemon's sockets use.
         proc = await asyncio.create_subprocess_exec(
             *argv,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            limit=STREAM_LIMIT,
             cwd=cwd,
             env=build_agent_env(dict(os.environ), env),
         )
         agent = Agent(agent_id, cwd, proc, on_exit=self._record_exit(agent_id))
         self.agents[agent_id] = agent
         agent.pump_task = asyncio.create_task(agent.pump())
+        agent.pump_task.add_done_callback(_log_pump_failure(agent_id))
         if prompt:
             await agent.send(user_message(prompt))
         return agent_id
