@@ -123,7 +123,7 @@ def spawn_daemon(socket_path: str) -> tuple[subprocess.Popen, int]:
     handle = log.open("ab")
     try:
         child = subprocess.Popen(
-            [mael_path(), "agent", "daemon", "--socket", socket_path],
+            [mael_path(), "agent", "daemon", "serve", "--socket", socket_path],
             stdin=subprocess.DEVNULL,
             stdout=handle,
             stderr=subprocess.STDOUT,
