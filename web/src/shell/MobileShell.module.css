@@ -1,0 +1,69 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* A pushed screen: its own bar, then the thing itself. */
+.screen {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--bg);
+}
+.bar {
+  display: flex;
+  align-items: center;
+  flex: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+.back {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--touch);
+  padding: 0 var(--space-3);
+  font: inherit;
+  font-size: var(--text-md);
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.screenBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+/*
+ * The node's detail. It reads as the card's content given the whole width:
+ * the phase edge stays, the floating card's shadow and radius do not, because
+ * it overlaps nothing.
+ */
+.detail {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
+  border-left: 4px solid var(--phase);
+  color: var(--fg);
+}
+.gone {
+  margin: 0;
+  padding: var(--space-5) var(--space-4);
+  color: var(--fg-faint);
+  text-align: center;
+}

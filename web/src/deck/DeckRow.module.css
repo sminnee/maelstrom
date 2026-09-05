@@ -1,0 +1,143 @@
+/* A full-width band rather than a card on a board. The 4px left edge carries
+   phase, as it does everywhere else. */
+.row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+  border-left: 4px solid var(--phase);
+  background: var(--bg-raised);
+}
+.open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  /* Three lines of text clear the touch floor on their own; the padding is
+     what makes the row comfortable rather than what makes it reachable. */
+  min-height: var(--touch);
+  padding: var(--space-3) var(--space-3);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.title {
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--fg);
+  /* Two lines, then the ellipsis: a phone's width makes one line too little to
+     tell two tasks apart, and the row has the height to spare. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+.state {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-muted);
+}
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--fg-faint);
+}
+.meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+}
+.project,
+.id,
+.worktree {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.phase {
+  margin-left: auto;
+  flex: none;
+  font-family: var(--font);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--phase);
+}
+.drift {
+  flex: none;
+  font-size: 9px;
+  color: var(--attention);
+}
+
+/* The state channel, read from the same attribute the canvas node uses. */
+.row[data-state='working'] .dot {
+  background: var(--phase);
+}
+.row[data-state='ready'] .dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--phase);
+}
+.row[data-state='done'] .dot {
+  background: var(--ok);
+}
+.row[data-state='finalising'] .dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--ok);
+}
+.row[data-state='exited'] .dot {
+  background: var(--danger);
+}
+.row[data-state='needs-attention'] .dot {
+  background: var(--attention);
+}
+/* The Quiet List Rule: a wash and an amber rule, not the board's glow. */
+.row[data-state='needs-attention'] {
+  background: color-mix(in srgb, var(--attention) 8%, var(--bg-raised));
+  border-bottom-color: color-mix(in srgb, var(--attention) 40%, var(--border));
+}
+.row[data-state='needs-attention'] .state {
+  color: var(--attention);
+  font-weight: 500;
+}
+.row[data-state='idle'] {
+  opacity: 0.8;
+}
+.row[data-state='queued'] {
+  opacity: 0.65;
+}
+.row[data-state='done'],
+.row[data-state='cancelled'] {
+  opacity: 0.5;
+}
+
+/* The badge opens the document the agent waits on: a second destination. */
+.badge {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--touch);
+  align-self: stretch;
+  font-weight: 700;
+  color: var(--attention);
+  text-decoration: none;
+}

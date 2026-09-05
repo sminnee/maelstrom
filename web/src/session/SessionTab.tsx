@@ -46,7 +46,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
 
   if (!agent) return <div className={styles.empty}>Agent {agentId} is gone.</div>;
   return (
-    <div className={styles.session}>
+    <div className={styles.session} data-testid="session-tab">
       <div className={styles.head}>
         <span className={styles.agent}>
           {isChild ? `${agent.id} · ${agent.description}` : agent.id}
