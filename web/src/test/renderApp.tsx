@@ -6,6 +6,10 @@ import { keys } from '../api/keys';
 import { useAppStore } from '../store/store';
 import { createFakeServer, type FakeServer } from './fakeServer';
 import { seedWorld } from './seedWorld';
+import { setViewportWidth } from './setup';
+
+/** The two viewports the app draws for. `narrow` is a phone; `wide` is the main monitor. */
+export const VIEWPORTS = { narrow: 390, wide: 1440 } as const;
 
 /** The seven list queries the world is read from. */
 const LIST_KEYS = [
@@ -28,10 +32,15 @@ const LIST_KEYS = [
  *
  * With `strict: true` the tree is wrapped in `<StrictMode>`, the way `main.tsx`
  * mounts it, so the test sees the remount.
+ *
+ * With `viewport: 'narrow'` the app draws the narrow layout: the deck list in
+ * place of the canvas, and no panel. It defaults to `wide`.
  */
 export async function renderApp(
-  opts: { ready?: boolean; strict?: boolean } = {},
+  opts: { ready?: boolean; strict?: boolean; viewport?: keyof typeof VIEWPORTS } = {},
 ): Promise<RenderResult & { server: FakeServer; queryClient: QueryClient }> {
+  // Before the render: the layout is read on the first pass, not in an effect.
+  setViewportWidth(VIEWPORTS[opts.viewport ?? 'wide']);
   // The store is a module singleton: a test must not inherit the view, the
   // filters or the tabs the one before it left.
   useAppStore.getState().reset();
