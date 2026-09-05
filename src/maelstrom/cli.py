@@ -9,17 +9,14 @@ import click
 from . import __version__, session_discovery
 from .admin_cli import cmd_install, cmd_self_env, cmd_self_update
 from .agent_cli import agent as agent_cli
-from .agent_stop import stop_agents_in_worktree
 from .agent_transport import RootUnset
 from .base_store import GitConfigBaseStore
-from .cmux import mael_layout
 from .cmux.client import ensure_cmux_running, resolve_socket_path
 from .context import load_global_config, resolve_context, validate_project_name
 from .env import (
     get_env_status,
     regenerate_and_restart_if_running,
     stop_env,
-    stop_sessions,
 )
 from .env_cli import (
     ensure_cmux_browser,
@@ -69,7 +66,6 @@ from .worktree import (
     SyncResult,
     add_project,
     check_base_exists,
-    close_worktree,
     closed_worktrees,
     copy_back_new_env_vars,
     create_worktree,
@@ -90,6 +86,7 @@ from .worktree import (
     tidy_branches,
     update_claude_local_md,
 )
+from .worktree_close import close_worktree_fully
 from .worktree_launcher import (
     HARNESS_DAEMON,
     launch_claude_in_worktree,
@@ -1321,44 +1318,24 @@ def cmd_close(targets, wait, timeout, interval, force):
                 errors.append(target)
                 continue
 
-        # Stop running environment if any
-        env_store = make_store()
-        env_status = get_env_status(env_store, ctx.project, ctx.worktree)
-        if env_status and any(s.alive for s in env_status):
-            click.echo(f"Stopping environment for '{ctx.worktree}'...")
-            for msg in stop_env(env_store, ctx.project, ctx.worktree):
-                click.echo(f"  {msg}")
-
-        # Ask the daemon to stop its own agents first. Signalling their pids
-        # instead would record a normal close as a crash — see agent_stop.
-        for msg in stop_agents_in_worktree(worktree_path):
-            click.echo(f"  {msg}")
-
-        # Gracefully stop any live Claude sessions in this worktree before tearing
-        # it down, so close doesn't orphan them. Best-effort: SIGINT (cancel any
-        # in-flight turn), then SIGTERM survivors, then proceed regardless.
-        worktree_sessions = session_discovery.LiveSessionSet().all_for(worktree_path)
-        if worktree_sessions:
-            click.echo(
-                f"Stopping {len(worktree_sessions)} Claude session(s) in '{ctx.worktree}'..."
-            )
-            for msg in stop_sessions(worktree_sessions):
-                click.echo(f"  {msg}")
-
-        # Rescue any vars added to this worktree's .env back to the parent before
-        # closing. Warnings never fail the close.
+        # In the model, so the orchestrator server runs the same close.
+        outcome = close_worktree_fully(
+            ctx.project, ctx.worktree, worktree_path, ctx.project_path, force=force
+        )
+        # The rescue is reported where it ran, before the close is announced.
+        split = outcome.messages_before_copy_back
+        for line in outcome.messages[:split]:
+            click.echo(line)
         if ctx.project_path is not None:
-            copy_back = copy_back_new_env_vars(ctx.project_path, worktree_path)
-            print_copy_back_result(copy_back, ctx.project_path)
+            print_copy_back_result(outcome.copy_back, ctx.project_path)
+        for line in outcome.messages[split:]:
+            click.echo(line)
 
-        click.echo(f"Closing worktree '{ctx.worktree}'...")
-        result = close_worktree(worktree_path, force=force)
-
+        result = outcome.close
         if result.success:
-            click.echo(result.message)
             # On a forced close that preserved unmerged work, create a "reopen the
-            # branch" task so the branch + PR aren't forgotten. Done before closing
-            # the cmux workspace. A real branch only (already-detached → "HEAD").
+            # branch" task so the branch + PR aren't forgotten. A real branch only
+            # (already-detached → "HEAD").
             if (
                 force
                 and result.had_unmerged_work
@@ -1386,10 +1363,6 @@ def cmd_close(targets, wait, timeout, interval, force):
                         f"Warning: could not create reopen task for '{result.branch}': {e}",
                         err=True,
                     )
-            # Close cmux workspace after successful worktree close
-            if mael_layout.close_workspace(ctx.project, ctx.worktree):
-                ws_name = mael_layout.workspace_name(ctx.project, ctx.worktree)
-                click.echo(f"Closed cmux workspace '{ws_name}'.")
             continue
 
         # Handle specific failure cases

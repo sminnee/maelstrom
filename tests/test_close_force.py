@@ -225,10 +225,10 @@ class TestCloseForceCli:
         env_store = MagicMock()
         with (
             patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
-            patch("maelstrom.cli.close_worktree", return_value=close_result),
+            patch("maelstrom.worktree_close.close_worktree", return_value=close_result),
             patch("maelstrom.cli.make_store", return_value=env_store),
-            patch("maelstrom.cli.get_env_status", return_value=[]),
-            patch("maelstrom.cli.mael_layout") as mock_layout,
+            patch("maelstrom.worktree_close.get_env_status", return_value=[]),
+            patch("maelstrom.worktree_close.mael_layout") as mock_layout,
             patch("maelstrom.cli.add_task") as mock_add_task,
         ):
             mock_layout.close_workspace.return_value = False
@@ -288,11 +288,11 @@ class TestCloseForceCli:
         with (
             patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
             patch(
-                "maelstrom.cli.close_worktree", return_value=close_result
+                "maelstrom.worktree_close.close_worktree", return_value=close_result
             ) as mock_close,
             patch("maelstrom.cli.make_store", return_value=MagicMock()),
-            patch("maelstrom.cli.get_env_status", return_value=[]),
-            patch("maelstrom.cli.mael_layout") as mock_layout,
+            patch("maelstrom.worktree_close.get_env_status", return_value=[]),
+            patch("maelstrom.worktree_close.mael_layout") as mock_layout,
             patch("maelstrom.cli.add_task"),
         ):
             mock_layout.close_workspace.return_value = False

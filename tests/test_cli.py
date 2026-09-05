@@ -526,11 +526,11 @@ class TestCloseMultiTarget:
 
             with (
                 patch(
-                    "maelstrom.cli.copy_back_new_env_vars",
+                    "maelstrom.worktree_close.copy_back_new_env_vars",
                     return_value=CopyBackResult(),
                 ),
-                patch("maelstrom.cli.close_worktree") as mock_close,
-                patch("maelstrom.cli.get_env_status", return_value=None),
+                patch("maelstrom.worktree_close.close_worktree") as mock_close,
+                patch("maelstrom.worktree_close.get_env_status", return_value=None),
             ):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 runner.invoke(cli, ["close"])
@@ -560,144 +560,17 @@ class TestCloseMultiTarget:
 
             with (
                 patch(
-                    "maelstrom.cli.copy_back_new_env_vars",
+                    "maelstrom.worktree_close.copy_back_new_env_vars",
                     return_value=CopyBackResult(),
                 ),
-                patch("maelstrom.cli.close_worktree") as mock_close,
-                patch("maelstrom.cli.get_env_status", return_value=None),
+                patch("maelstrom.worktree_close.close_worktree") as mock_close,
+                patch("maelstrom.worktree_close.get_env_status", return_value=None),
             ):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 result = runner.invoke(cli, ["close", "alpha", "bravo"])
 
             assert mock_close.call_count == 2
             assert result.exit_code == 0
-
-    def test_close_stops_running_env(self):
-        """Test that mael close stops a running environment before closing."""
-        runner = CliRunner()
-
-        with patch("maelstrom.cli.resolve_context") as mock_resolve:
-            mock_ctx = MagicMock()
-            mock_ctx.worktree = "alpha"
-            mock_ctx.project = "myproject"
-            mock_ctx.worktree_path = MagicMock()
-            mock_ctx.worktree_path.exists.return_value = True
-            mock_resolve.return_value = mock_ctx
-
-            alive_service = MagicMock(alive=True)
-            with (
-                patch(
-                    "maelstrom.cli.copy_back_new_env_vars",
-                    return_value=CopyBackResult(),
-                ),
-                patch("maelstrom.cli.close_worktree") as mock_close,
-                patch("maelstrom.cli.get_env_status", return_value=[alive_service]),
-                patch(
-                    "maelstrom.cli.stop_env", return_value=["web: stopped"]
-                ) as mock_stop,
-            ):
-                mock_close.return_value = MagicMock(success=True, message="Closed")
-                result = runner.invoke(cli, ["close", "myproject.alpha"])
-
-            mock_stop.assert_called_once_with(ANY, "myproject", "alpha")
-            assert "Stopping environment" in result.output
-
-    def test_close_stops_daemon_agents_before_signalling_pids(self):
-        """The daemon stop comes first, so a close is not recorded as a crash."""
-        runner = CliRunner()
-        order = []
-
-        with patch("maelstrom.cli.resolve_context") as mock_resolve:
-            mock_ctx = MagicMock()
-            mock_ctx.worktree = "alpha"
-            mock_ctx.project = "myproject"
-            mock_ctx.worktree_path = MagicMock()
-            mock_ctx.worktree_path.exists.return_value = True
-            mock_resolve.return_value = mock_ctx
-
-            with (
-                patch(
-                    "maelstrom.cli.copy_back_new_env_vars",
-                    return_value=CopyBackResult(),
-                ),
-                patch("maelstrom.cli.close_worktree") as mock_close,
-                patch("maelstrom.cli.get_env_status", return_value=[]),
-                patch(
-                    "maelstrom.cli.stop_agents_in_worktree",
-                    side_effect=lambda p: (
-                        order.append("daemon") or ["agent a1: stopped"]
-                    ),
-                ) as mock_agents,
-                patch(
-                    "maelstrom.cli.stop_sessions",
-                    side_effect=lambda s: order.append("pids") or [],
-                ),
-                patch("maelstrom.cli.session_discovery.LiveSessionSet") as mock_live,
-            ):
-                mock_live.return_value.all_for.return_value = [MagicMock()]
-                mock_close.return_value = MagicMock(success=True, message="Closed")
-                result = runner.invoke(cli, ["close", "myproject.alpha"])
-
-            assert result.exit_code == 0, result.output
-            mock_agents.assert_called_once_with(mock_ctx.worktree_path)
-            assert order == ["daemon", "pids"]
-            assert "agent a1: stopped" in result.output
-
-    def test_close_skips_stop_when_no_env(self):
-        """Test that mael close does not call stop_env when no environment is running."""
-        runner = CliRunner()
-
-        with patch("maelstrom.cli.resolve_context") as mock_resolve:
-            mock_ctx = MagicMock()
-            mock_ctx.worktree = "alpha"
-            mock_ctx.project = "myproject"
-            mock_ctx.worktree_path = MagicMock()
-            mock_ctx.worktree_path.exists.return_value = True
-            mock_resolve.return_value = mock_ctx
-
-            with (
-                patch(
-                    "maelstrom.cli.copy_back_new_env_vars",
-                    return_value=CopyBackResult(),
-                ),
-                patch("maelstrom.cli.close_worktree") as mock_close,
-                patch("maelstrom.cli.get_env_status", return_value=None),
-                patch("maelstrom.cli.stop_env") as mock_stop,
-            ):
-                mock_close.return_value = MagicMock(success=True, message="Closed")
-                runner.invoke(cli, ["close", "myproject.alpha"])
-
-            mock_stop.assert_not_called()
-
-    def test_close_closes_cmux_workspace(self):
-        """Test that mael close closes the cmux workspace."""
-        runner = CliRunner()
-
-        with patch("maelstrom.cli.resolve_context") as mock_resolve:
-            mock_ctx = MagicMock()
-            mock_ctx.worktree = "alpha"
-            mock_ctx.project = "myproject"
-            mock_ctx.worktree_path = MagicMock()
-            mock_ctx.worktree_path.exists.return_value = True
-            mock_resolve.return_value = mock_ctx
-
-            with (
-                patch(
-                    "maelstrom.cli.copy_back_new_env_vars",
-                    return_value=CopyBackResult(),
-                ),
-                patch("maelstrom.cli.close_worktree") as mock_close,
-                patch("maelstrom.cli.get_env_status", return_value=None),
-                patch("maelstrom.cli.stop_env"),
-                patch(
-                    "maelstrom.cli.mael_layout.close_workspace", return_value=True
-                ) as mock_close_ws,
-            ):
-                mock_close.return_value = MagicMock(success=True, message="Closed")
-                result = runner.invoke(cli, ["close", "myproject.alpha"])
-
-            mock_close_ws.assert_called_once_with("myproject", "alpha")
-            assert "Closed cmux workspace 'myproject-alpha'" in result.output
 
     def test_close_copies_back_new_var(self, tmp_path):
         """mael close copies a new worktree var back to the parent and reports it."""
@@ -723,8 +596,8 @@ class TestCloseMultiTarget:
             mock_resolve.return_value = mock_ctx
 
             with (
-                patch("maelstrom.cli.close_worktree") as mock_close,
-                patch("maelstrom.cli.get_env_status", return_value=None),
+                patch("maelstrom.worktree_close.close_worktree") as mock_close,
+                patch("maelstrom.worktree_close.get_env_status", return_value=None),
             ):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 result = runner.invoke(cli, ["close", "myproject.alpha"])
@@ -759,8 +632,8 @@ class TestCloseMultiTarget:
             mock_resolve.return_value = mock_ctx
 
             with (
-                patch("maelstrom.cli.close_worktree") as mock_close,
-                patch("maelstrom.cli.get_env_status", return_value=None),
+                patch("maelstrom.worktree_close.close_worktree") as mock_close,
+                patch("maelstrom.worktree_close.get_env_status", return_value=None),
             ):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 result = runner.invoke(cli, ["close", "myproject.alpha"])
@@ -796,11 +669,12 @@ class TestCloseWait:
         with (
             patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
             patch(
-                "maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()
+                "maelstrom.worktree_close.copy_back_new_env_vars",
+                return_value=CopyBackResult(),
             ),
-            patch("maelstrom.cli.get_env_status", return_value=None),
+            patch("maelstrom.worktree_close.get_env_status", return_value=None),
             patch("maelstrom.cli.wait_for_merge") as mock_wait,
-            patch("maelstrom.cli.close_worktree") as mock_close,
+            patch("maelstrom.worktree_close.close_worktree") as mock_close,
         ):
             mock_wait.return_value = MagicMock(number=42)
             mock_close.return_value = MagicMock(success=True, message="Closed")
@@ -818,11 +692,12 @@ class TestCloseWait:
         with (
             patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
             patch(
-                "maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()
+                "maelstrom.worktree_close.copy_back_new_env_vars",
+                return_value=CopyBackResult(),
             ),
-            patch("maelstrom.cli.get_env_status", return_value=None),
+            patch("maelstrom.worktree_close.get_env_status", return_value=None),
             patch("maelstrom.cli.wait_for_merge") as mock_wait,
-            patch("maelstrom.cli.close_worktree") as mock_close,
+            patch("maelstrom.worktree_close.close_worktree") as mock_close,
         ):
             mock_wait.return_value = MagicMock(number=1)
             mock_close.return_value = MagicMock(success=True, message="Closed")
@@ -850,14 +725,15 @@ class TestCloseWait:
         with (
             patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
             patch(
-                "maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()
+                "maelstrom.worktree_close.copy_back_new_env_vars",
+                return_value=CopyBackResult(),
             ),
-            patch("maelstrom.cli.get_env_status", return_value=None),
+            patch("maelstrom.worktree_close.get_env_status", return_value=None),
             patch(
                 "maelstrom.cli.wait_for_merge",
                 side_effect=PullRequestNotMergeable("PR #7 was closed without merging"),
             ),
-            patch("maelstrom.cli.close_worktree") as mock_close,
+            patch("maelstrom.worktree_close.close_worktree") as mock_close,
         ):
             result = runner.invoke(cli, ["close", "myproject.alpha", "--wait"])
 
@@ -872,14 +748,15 @@ class TestCloseWait:
         with (
             patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
             patch(
-                "maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()
+                "maelstrom.worktree_close.copy_back_new_env_vars",
+                return_value=CopyBackResult(),
             ),
-            patch("maelstrom.cli.get_env_status", return_value=None),
+            patch("maelstrom.worktree_close.get_env_status", return_value=None),
             patch(
                 "maelstrom.cli.wait_for_merge",
                 side_effect=TimeoutError("Timed out after 3600s"),
             ),
-            patch("maelstrom.cli.close_worktree") as mock_close,
+            patch("maelstrom.worktree_close.close_worktree") as mock_close,
         ):
             result = runner.invoke(cli, ["close", "myproject.alpha", "--wait"])
 
@@ -894,11 +771,12 @@ class TestCloseWait:
         with (
             patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
             patch(
-                "maelstrom.cli.copy_back_new_env_vars", return_value=CopyBackResult()
+                "maelstrom.worktree_close.copy_back_new_env_vars",
+                return_value=CopyBackResult(),
             ),
-            patch("maelstrom.cli.get_env_status", return_value=None),
+            patch("maelstrom.worktree_close.get_env_status", return_value=None),
             patch("maelstrom.cli.wait_for_merge") as mock_wait,
-            patch("maelstrom.cli.close_worktree") as mock_close,
+            patch("maelstrom.worktree_close.close_worktree") as mock_close,
         ):
             mock_close.return_value = MagicMock(success=True, message="Closed")
             result = runner.invoke(cli, ["close", "myproject.alpha"])
@@ -2247,7 +2125,7 @@ class TestWorktreeDomainErrorsAtTheCli:
                 patch("maelstrom.cli.get_worktree_dirty_files", return_value=[])
             )
             stack.enter_context(
-                patch("maelstrom.cli.get_env_status", return_value=None)
+                patch("maelstrom.worktree_close.get_env_status", return_value=None)
             )
             stack.enter_context(
                 patch(
