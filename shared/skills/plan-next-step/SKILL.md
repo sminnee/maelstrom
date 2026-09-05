@@ -115,8 +115,8 @@ reality, plan the top item, and hand the next planner an updated tail.
 - **Set `--model` on the tail draft** to the model *this* session is running — read it from
   your system prompt ("You are powered by the model named …") and write that literal alias
   (e.g. `opus`), not an env var, so the task file stays self-describing. This keeps every
-  planner in the chain on one model. Leave `--model` unset on the execute draft — it inherits
-  the user's Claude Code default.
+  planner in the chain on one model. Leave `--model` unset on the execute draft — an unset
+  model launches on `opus`.
 - **Leave `branch:` unset on both drafts.** Tasks inherit their parent's branch, so every step
   continues on the **same branch** as the steps before it and `create-pr` appends to the PR
   already open there rather than opening another. That keeps the whole task in one

@@ -265,7 +265,7 @@ def _run_task(
                 env=session_env,
                 session_id=session_id,
                 resume=resume,
-                model=task.model or None,
+                model=plan.model,
                 harness=harness,
             ),
             cwd=None,
@@ -330,7 +330,7 @@ def _run_task(
         env=session_env,
         session_id=session_id,
         resume=resume,
-        model=task.model or None,
+        model=plan.model,
         prompt=plan.prompt,
         harness=harness,
     )
@@ -437,8 +437,11 @@ _BLOCK_OPTIONS: dict[str, _Opt] = {
     ),
     "model": _Opt(
         "LLM model for the session, e.g. 'opus' or a full id "
-        "(default: your Claude Code default).",
-        update_help="Set the task's LLM model, e.g. 'opus' (pass '' to clear).",
+        f"(default: {task_model.DEFAULT_MODEL}, applied at launch).",
+        update_help=(
+            "Set the task's LLM model, e.g. 'opus' "
+            "(pass '' to unset it, which launches on the default)."
+        ),
     ),
     "base": _Opt(
         "Branch to stack this task's branch on (default: the project's stack tip). "

@@ -68,6 +68,11 @@ DEFAULT_STATUS = STATUS_TODO
 # ``mode`` is left unset.
 DEFAULT_MODE = "plan"
 
+# The model a session runs on when its task names none. Applied at launch, not
+# at ``create()``: storing it would pin every task written before the default
+# moved, and an empty ``model`` stays the notebook's word for "unset".
+DEFAULT_MODEL = "opus"
+
 # Task priorities, highest first; the tuple index *is* the sort rank
 # (critical=0 … low=3, lower sorts first). A missing/blank priority is treated
 # as the default, so existing on-disk tasks keep working with no migration.
@@ -144,7 +149,7 @@ TASK_FIELDS = (
     # files keep a stable diff; missing key defaults to medium on load.
     _FieldSpec("priority", block=True),
     # LLM model for the session (``claude --model``). Free-form: an alias (opus)
-    # or a full id. Empty = inherit the user's Claude Code default.
+    # or a full id. Empty = launch on ``DEFAULT_MODEL``.
     _FieldSpec("model", block=True),
     # The branch this task's branch is stacked on -- a declarative input that
     # seeds the branch's stored base when the worktree is set up. Empty = use the
@@ -262,7 +267,7 @@ class Task:
     # from an on-disk file ⇒ medium (see ``from_markdown``).
     priority: str = DEFAULT_PRIORITY
     # LLM model for the launched session (``claude --model``). Free-form
-    # passthrough — an alias or a full id; empty inherits the user's default.
+    # passthrough — an alias or a full id; empty launches on ``DEFAULT_MODEL``.
     model: str = ""
     # Branch to stack this task's branch on; empty uses the project's stack tip.
     # Declarative input only — the stored base in git config is the live value.

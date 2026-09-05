@@ -175,7 +175,7 @@ Drafts omit `parent:`; it defaults to `$MAEL_TASK_PARENT` at promote time.
 
 Pin the tail draft to the model the planning session is running, so every planner in the
 chain stays on one model. Planning is where the leverage is. Leave `--model` unset on execute
-drafts so they inherit your default.
+drafts: an unset model launches on `opus`.
 
 ### Lifecycle actions mirror to Linear
 

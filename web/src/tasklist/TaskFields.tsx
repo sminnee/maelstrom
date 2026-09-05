@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useRef } from 'react';
 import type { TaskEdit } from '../api/types';
 import type { PermissionMode } from '../protocol/modes';
 import { MODES } from '../protocol/modes';
-import { INHERIT_MODEL, MODELS } from '../protocol/models';
+import { UNSET_MODEL, MODELS } from '../protocol/models';
 import { KNOWN_COMMANDS } from '../protocol/phase';
 import styles from '../ui/Dialog.module.css';
 
@@ -124,12 +124,12 @@ export function ModelSelect({
   model: string;
   onChange: (model: string) => void;
 }) {
-  const offered: readonly string[] = [INHERIT_MODEL, ...MODELS];
+  const offered: readonly string[] = [UNSET_MODEL, ...MODELS];
   return (
     <select value={model} onChange={(e) => onChange(e.target.value)}>
       {(offered.includes(model) ? offered : [...offered, model]).map((m) => (
         <option key={m} value={m}>
-          {m === INHERIT_MODEL ? 'not set' : m}
+          {m === UNSET_MODEL ? 'not set' : m}
         </option>
       ))}
     </select>

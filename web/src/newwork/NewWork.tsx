@@ -5,7 +5,7 @@ import { useProjects } from '../api/projects';
 import { useCreateTask, useInferTask } from '../api/tasks';
 import type { PermissionMode } from '../protocol/modes';
 import { MODES } from '../protocol/modes';
-import { DEFAULT_MODEL, INHERIT_MODEL } from '../protocol/models';
+import { DEFAULT_MODEL, UNSET_MODEL } from '../protocol/models';
 import type { TaskDraft } from '../tasklist/TaskFields';
 import { ModeSelect, ModelSelect, TaskFields } from '../tasklist/TaskFields';
 import { useWorktrees } from '../api/worktrees';
@@ -76,7 +76,7 @@ export function NewWork() {
       command: inferred.command,
       mode: inferred.mode,
       priority: 'medium',
-      model: INHERIT_MODEL,
+      model: UNSET_MODEL,
     });
   };
 

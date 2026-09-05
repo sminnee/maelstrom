@@ -148,7 +148,7 @@ someone moves it on explicitly.
 **Set `--model` on the tail draft** to the model *this* session is running — read it from your
 system prompt ("You are powered by the model named …") and write that literal alias (e.g.
 `opus`), not an env var. Planning is where the leverage is, so every planner in the chain
-stays on one model. Leave `--model` unset on execute drafts: they inherit the user's default.
+stays on one model. Leave `--model` unset on execute drafts: an unset model launches on `opus`.
 
 ## Draft bodies
 
