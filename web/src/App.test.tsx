@@ -402,6 +402,55 @@ describe('the expanded node', () => {
   });
 });
 
+describe('how long since the agent spoke', () => {
+  /** Put NORT-9's agent's last message `minutesAgo`, in whatever `state`. */
+  function spokeAt(server: FakeServer, minutesAgo: number, state: Agent['state']) {
+    server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
+      const agent = w.agents['d9a4c7f1']!;
+      agent.lastMessageAt = new Date(Date.now() - minutesAgo * 60_000).toISOString();
+      agent.state = state;
+    });
+  }
+
+  it('shows the age of the last message beside the heading', async () => {
+    const { server } = await renderApp();
+    spokeAt(server, 12, 'processing');
+    clickNode('NORT-9');
+    await waitFor(() =>
+      expect(within(expanded()).getByTestId('now-age')).toHaveTextContent('12m ago'),
+    );
+  });
+
+  it('shows no age at all for an agent that has said nothing', async () => {
+    const { server } = await renderApp();
+    server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
+      w.agents['d9a4c7f1']!.lastMessageAt = '';
+    });
+    clickNode('NORT-9');
+    await waitFor(() => expect(within(expanded()).queryByTestId('now-age')).toBeNull());
+  });
+
+  it('marks a working agent once it has been silent ten minutes', async () => {
+    const { server } = await renderApp();
+    spokeAt(server, 11, 'processing');
+    clickNode('NORT-9');
+    await waitFor(() =>
+      expect(within(expanded()).getByTestId('now-age').closest('[data-silent]')).not.toBeNull(),
+    );
+  });
+
+  it('leaves an idle agent unmarked however long it has been silent', async () => {
+    const { server } = await renderApp();
+    spokeAt(server, 240, 'idle');
+    clickNode('NORT-9');
+    await waitFor(() => {
+      const age = within(expanded()).getByTestId('now-age');
+      expect(age).toHaveTextContent('4h ago');
+      expect(age.closest('[data-silent]')).toBeNull();
+    });
+  });
+});
+
 describe('the state in words', () => {
   it('the session tab names the wait when its agent is blocked on the user', async () => {
     const { server } = await renderApp();

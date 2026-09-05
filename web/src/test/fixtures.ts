@@ -65,6 +65,7 @@ export function makeAgent(over: Partial<Agent> = {}): Agent {
     permissionMode: 'normal',
     waitingOn: '',
     lastMessage: '',
+    lastMessageAt: '',
     costUsd: 0,
     taskId: 'NORT-7',
     project: 'northwind',

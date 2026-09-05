@@ -1,5 +1,6 @@
 import { Markdown } from '../markdown/Markdown';
 import type { TranscriptItem } from '../protocol/transcript';
+import { clockTime } from '../protocol/time';
 import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
 import { AgentMessage } from './cards/AgentMessage';
@@ -8,6 +9,7 @@ import { QuestionPrompt } from './cards/QuestionPrompt';
 import { ResultLine } from './cards/ResultLine';
 import { ToolCallCard } from './cards/ToolCallCard';
 import { classifyToolCall } from './toolCards';
+import { useNow } from '../ui/useNow';
 import styles from './Transcript.module.css';
 
 export interface TranscriptHandlers {
@@ -17,6 +19,18 @@ export interface TranscriptHandlers {
     decision: 'approve' | 'deny',
     reason: string,
   ) => void | Promise<unknown>;
+}
+
+/**
+ * Whether an item draws nothing at all.
+ *
+ * The wait item that follows renders this prompt in full. An empty wrapper
+ * would still take a gap slot, so the item takes no row — and no gutter mark.
+ * One predicate, because the render loop and {@link gutterMarks} must agree:
+ * a skipped item that still claimed a mark would print a time on no row.
+ */
+function drawsNothing(item: TranscriptItem): boolean {
+  return item.type === 'tool_call' && classifyToolCall(item) === 'wait';
 }
 
 /** The rich transcript: one card per item, in order. */
@@ -32,15 +46,16 @@ export function Transcript({
   /** The wait the expanded card answers, echoed here without controls. */
   deferredRequestId?: string | null;
 }) {
+  const now = useNow();
+  const marks = gutterMarks(items, now);
   return (
     <div className={styles.transcript}>
       {truncatedBefore && <div className={styles.note}>Earlier events were not kept.</div>}
       {items.map((item) => {
-        // The wait item that follows renders this prompt in full. An empty
-        // wrapper would still take a gap slot, so the item takes no row at all.
-        if (item.type === 'tool_call' && classifyToolCall(item) === 'wait') return null;
+        if (drawsNothing(item)) return null;
         const deferred =
           deferredRequestId !== null && 'requestId' in item && item.requestId === deferredRequestId;
+        const mark = marks.get(item.id) ?? '';
         return (
           <div
             key={item.id}
@@ -48,12 +63,38 @@ export function Transcript({
             data-testid="transcript-card"
             data-item-type={item.type}
           >
+            <span className={styles.gutter}>
+              {mark && (
+                <time className={styles.time} data-testid="item-time" dateTime={item.ts}>
+                  {mark}
+                </time>
+              )}
+            </span>
             {deferred ? <DeferredWait item={item} /> : <Card item={item} handlers={handlers} />}
           </div>
         );
       })}
     </div>
   );
+}
+
+/**
+ * The time to print beside each item, by item id.
+ *
+ * A mark only where time moved is what makes the column a timeline: printed on
+ * every item it is wallpaper, and the eye stops reading it.
+ */
+function gutterMarks(items: TranscriptItem[], now: number): Map<string, string> {
+  const marks = new Map<string, string>();
+  let printed = '';
+  for (const item of items) {
+    if (drawsNothing(item)) continue;
+    const at = clockTime(item.ts, now);
+    if (!at || at === printed) continue;
+    marks.set(item.id, at);
+    printed = at;
+  }
+  return marks;
 }
 
 /**

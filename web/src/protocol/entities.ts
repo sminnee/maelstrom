@@ -108,6 +108,8 @@ export interface Agent {
   permissionMode: PermissionMode | '';
   waitingOn: string;
   lastMessage: string;
+  /** When the agent last said that, ISO 8601; `''` until it has said anything. */
+  lastMessageAt: string;
   costUsd: number;
   taskId: TaskId;
   project: ProjectId;

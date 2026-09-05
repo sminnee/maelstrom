@@ -18,6 +18,12 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **The desk shows when an agent last spoke.** A node card prints the age of the agent's last
+  message beside the "Now" heading, and colours it once a working agent has been silent ten
+  minutes. The session transcript grows a time gutter down its left edge, marked only where the
+  clock moved. The daemon stamps each event with when it happened, so a reattach replays the
+  history with its own times instead of dating all of it to the moment of reconnection.
+
 - **The daemon says which code it is running.** `mael agent daemon status` names the daemon
   serving a socket: its process id, version, spawn-record directory, start time, agent count, and
   the worktree its code was imported from. A daemon holds the modules it imported at start, so a
