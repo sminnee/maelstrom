@@ -20,7 +20,11 @@ from maelstrom.branch_name import TaskNames
 from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
 from maelstrom.orchestrator.routes import build_app, serving
 from maelstrom.orchestrator.server import Orchestrator
-from maelstrom.orchestrator.sources import InMemoryWorktreeSource, NotebookTaskSource
+from maelstrom.orchestrator.sources import (
+    CloseBlocked,
+    InMemoryWorktreeSource,
+    NotebookTaskSource,
+)
 from maelstrom.orchestrator.world_build import split_task_key
 from maelstrom.worktree import WorktreeSetup
 
@@ -3448,3 +3452,72 @@ def test_approving_a_document_of_another_kind_writes_no_task(notebook_harness):
     assert notebook_titles(harness) == []
     # The file was only ever read, so it stays where the agent wrote it.
     assert (harness.worktree / "notes.md").exists()
+
+
+# ---------------------------------------------------------------------------
+# worktree.close
+# ---------------------------------------------------------------------------
+
+
+def test_closing_a_worktree_asks_the_source_and_refreshes_the_world(harness):
+    """The reply lands after the world holds the close, so a GET is current."""
+    closed: list[str] = []
+
+    def close(worktree_id: str) -> None:
+        closed.append(worktree_id)
+        harness.worktrees.worktrees[0] = {
+            **harness.worktrees.worktrees[0],
+            "isClosed": True,
+            "branch": "",
+        }
+
+    harness.worktrees.close = close
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post("/api/worktrees/northwind-alpha/close")
+            return reply, await api.get_json("/api/worktrees")
+
+    reply, worktrees = run(scenario())
+    assert reply.status == 200
+    assert closed == ["northwind-alpha"]
+    assert worktrees["worktrees"][0]["isClosed"] is True
+
+
+def test_a_refused_close_says_what_the_model_said_and_changes_nothing(harness):
+    def close(worktree_id: str) -> None:
+        raise CloseBlocked("Worktree has 2 commit(s) not merged to origin/main")
+
+    harness.worktrees.close = close
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post("/api/worktrees/northwind-alpha/close")
+            return reply, await api.get_json("/api/worktrees")
+
+    reply, worktrees = run(scenario())
+    assert reply.status == 400
+    assert reply.body["error"]["code"] == "invalid"
+    assert "not merged to origin/main" in reply.body["error"]["message"]
+    assert worktrees["worktrees"][0]["isClosed"] is False
+
+
+def test_closing_a_worktree_the_world_does_not_hold_is_unknown_id(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/worktrees/northwind-zulu/close")
+
+    reply = run(scenario())
+    assert (reply.status, reply.body["error"]["code"]) == (404, "unknown_id")
+
+
+def test_a_server_that_cannot_close_worktrees_says_so(harness):
+    """No closer injected: the refusal names the server, not the worktree."""
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/worktrees/northwind-alpha/close")
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "cannot close worktrees" in reply.body["error"]["message"]

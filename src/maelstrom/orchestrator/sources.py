@@ -40,6 +40,14 @@ from .world_build import (
 #: agent — opens a worktree through the same injected collaborator.
 OpenWorktree = Callable[[str, str, str], WorktreeSetup]
 
+#: Closes a worktree by its wire id. Raises :class:`CloseBlocked` with the
+#: reason when it will not close — the message the user reads on the button.
+CloseWorktree = Callable[[str], None]
+
+
+class CloseBlocked(Exception):
+    """The worktree must not close now. The message says why, for the user."""
+
 
 @dataclass(frozen=True)
 class LaunchRequest:
@@ -139,9 +147,12 @@ class TaskSource(Protocol):
 
 
 class WorktreeSource(Protocol):
-    """``list-all``, as projects and their worktrees."""
+    """``list-all``, as projects and their worktrees, and the close over them."""
 
     def read(self) -> tuple[list[Project], list[Worktree]]: ...
+
+    #: Closes a worktree, or ``None`` on a source that cannot.
+    close: CloseWorktree | None
 
 
 class NotebookTaskSource:
@@ -320,19 +331,26 @@ class InMemoryWorktreeSource:
         self,
         projects: list[Project] | None = None,
         worktrees: list[Worktree] | None = None,
+        close: CloseWorktree | None = None,
     ) -> None:
         self.projects = list(projects or [])
         self.worktrees = list(worktrees or [])
+        self.close = close
 
     def read(self) -> tuple[list[Project], list[Worktree]]:
         return list(self.projects), list(self.worktrees)
 
 
 class ListAllWorktreeSource:
-    """Projects and worktrees from :func:`maelstrom.list_all.build_list_all_data`."""
+    """Projects and worktrees from :func:`maelstrom.list_all.build_list_all_data`.
 
-    def __init__(self, projects_dir: Path) -> None:
+    ``close`` is how the server closes one. A source built without it serves
+    the world read-only, and a close is refused rather than half-done.
+    """
+
+    def __init__(self, projects_dir: Path, close: CloseWorktree | None = None) -> None:
         self.projects_dir = projects_dir
+        self.close = close
 
     def read(self) -> tuple[list[Project], list[Worktree]]:
         data = build_list_all_data(self.projects_dir)

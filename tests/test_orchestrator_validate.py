@@ -23,8 +23,10 @@ def make_task(**over) -> dict:
     return task
 
 
-def world_with(agents=(), tasks=(), documents=(), projects=(), desk=()):
+def world_with(agents=(), tasks=(), documents=(), projects=(), desk=(), worktrees=()):
     world = empty_world()
+    for w in worktrees:
+        world["worktrees"][w["id"]] = w
     for entry in desk:
         world["desk"][entry] = {"id": entry, "addedAt": "2026-09-04T09:00:00Z"}
     for a in agents:
@@ -510,3 +512,93 @@ def test_a_say_with_neither_words_nor_an_image_is_still_refused():
     world = world_with(agents=[make_agent()])
     cmd = {"type": "agent.say", "agentId": "agent-1", "text": "  ", "attachments": []}
     assert code(validate_command(world, cmd)) == "invalid"
+
+
+def make_worktree(**over) -> dict:
+    """One worktree row, open on a branch unless a test says otherwise."""
+    return {
+        "id": "northwind-alpha",
+        "project": "northwind",
+        "nato": "alpha",
+        "path": "/Users/dev/Projects/northwind/northwind-alpha",
+        "branch": "feat/orders",
+        "base": "main",
+        "isClosed": False,
+        "dirtyFiles": 0,
+        "localCommits": 0,
+        "prNumber": None,
+        "appUrl": "",
+        "appRunning": False,
+        "sessionCount": 0,
+        **over,
+    }
+
+
+def close(worktree_id: str) -> dict:
+    return {"type": "worktree.close", "worktreeId": worktree_id}
+
+
+def test_closing_an_open_worktree_is_allowed():
+    world = world_with(worktrees=[make_worktree()])
+    assert validate_command(world, close("northwind-alpha")) is None
+
+
+def test_closing_a_worktree_the_world_does_not_hold_is_unknown_id():
+    assert (
+        code(validate_command(empty_world(), close("northwind-zulu"))) == "unknown_id"
+    )
+
+
+def test_closing_an_already_closed_worktree_is_refused():
+    world = world_with(worktrees=[make_worktree(isClosed=True, branch="")])
+    assert code(validate_command(world, close("northwind-alpha"))) == "invalid"
+
+
+def test_closing_main_is_refused_without_touching_git():
+    """_main holds the main checkout. Refused here, so no git call runs."""
+    world = world_with(
+        worktrees=[make_worktree(id="_main", nato="_main", branch="main")]
+    )
+    error = validate_command(world, close("_main"))
+    assert code(error) == "invalid"
+    assert "_main" in error["message"]
+
+
+class TestWorktreeClose:
+    """``worktree.close`` is refused before any git call runs."""
+
+    def test_an_open_worktree_may_close(self):
+        world = world_with(worktrees=[make_worktree()])
+        cmd = {"type": "worktree.close", "worktreeId": "northwind-alpha"}
+        assert validate_command(world, cmd) is None
+
+    def test_an_unknown_worktree_is_unknown_id(self):
+        error = validate_command(
+            world_with(), {"type": "worktree.close", "worktreeId": "northwind-zulu"}
+        )
+        assert error == {
+            "code": "unknown_id",
+            "message": "No worktree northwind-zulu",
+        }
+
+    def test_a_closed_worktree_is_refused(self):
+        world = world_with(worktrees=[make_worktree(isClosed=True)])
+        error = validate_command(
+            world, {"type": "worktree.close", "worktreeId": "northwind-alpha"}
+        )
+        assert error is not None
+        assert error["code"] == "invalid"
+        assert "closed already" in error["message"]
+
+    def test_the_main_worktree_cannot_close(self):
+        # Refused here rather than at the model, so the button says why with no
+        # git call behind it.
+        world = world_with(
+            worktrees=[make_worktree(id="_main", nato="_main", branch="main")]
+        )
+        error = validate_command(
+            world, {"type": "worktree.close", "worktreeId": "_main"}
+        )
+        assert error is not None
+        assert error["code"] == "invalid"
+        assert "main checkout" in error["message"]
