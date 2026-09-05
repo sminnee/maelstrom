@@ -1086,7 +1086,11 @@ class AgentDaemon:
 
         if command == "say":
             # Not recorded: the child replays a user turn itself.
-            if not await agent.send(user_message(payload["text"])):
+            try:
+                images = _load_attachments(payload.get("attachments"))
+            except OSError as exc:
+                return {"error": f"could not read an attachment: {exc}"}
+            if not await agent.send(user_message(payload["text"], images)):
                 return _unreachable(agent)
             return {"ok": True}
 
