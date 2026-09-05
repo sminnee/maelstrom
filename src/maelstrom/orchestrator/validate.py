@@ -20,6 +20,9 @@ EDITABLE = ("title", "content", "branch", "command", "mode", "priority", "model"
 #: The three permission modes, shared with a live agent — see CONTEXT.md.
 MODES = AGENT_MODES
 
+#: The one worktree that never closes — see CONTEXT.md, "Unclosable worktree".
+MAIN_WORKTREE = "_main"
+
 #: The notebook's four priorities, from :data:`maelstrom.task.PRIORITIES`.
 PRIORITIES = ("critical", "high", "medium", "low")
 
@@ -138,6 +141,22 @@ def validate_command(world: World, cmd: dict[str, Any]) -> dict[str, str] | None
         table = "tasks" if entity_kind == "task" else "agents"
         if entity_id not in world[table]:
             return _err("unknown_id", f"No {entity_kind} {entity_id}")
+        return None
+
+    if kind == "worktree.close":
+        worktree_id = cmd.get("worktreeId", "")
+        worktree = world["worktrees"].get(worktree_id)
+        if worktree is None:
+            return _err("unknown_id", f"No worktree {worktree_id}")
+        # Refused here rather than at the model, so the button hears why with
+        # no git call behind it.
+        if worktree["nato"] == MAIN_WORKTREE:
+            return _err(
+                "invalid",
+                f"{MAIN_WORKTREE} holds the main checkout and cannot be closed",
+            )
+        if worktree["isClosed"]:
+            return _err("invalid", f"Worktree {worktree_id} is closed already")
         return None
 
     if kind == "desk.remove":

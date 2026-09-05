@@ -47,7 +47,7 @@ from .protocol import (
     TranscriptItem,
     World,
 )
-from .sources import TaskSource, WorktreeSource
+from .sources import CloseBlocked, TaskSource, WorktreeSource
 from .transcript_log import (
     TRANSCRIPT_RING,
     TranscriptFrame,
@@ -815,6 +815,7 @@ class Orchestrator:
             "agent.start": self._start_free_agent,
             "document.approve": self._approve_document,
             "document.requestChanges": self._request_changes,
+            "worktree.close": self._close_worktree,
         }
         handler = handlers.get(kind)
         if handler is None:
@@ -1191,6 +1192,30 @@ class Orchestrator:
                     }
                 )
         self._apply(events)
+
+    async def _close_worktree(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Close a worktree and everything living in it.
+
+        The whole ``mael close`` sequence, so a close from the canvas leaves no
+        environment running, no agent alive and no cmux workspace open.
+        """
+        close = self.worktrees.close
+        if close is None:
+            return _refused("invalid", "This server cannot close worktrees")
+        worktree_id = command["worktreeId"]
+        try:
+            await self._run(close, worktree_id)
+        except CloseBlocked as exc:
+            return _refused("invalid", str(exc))
+        except Exception as exc:  # noqa: BLE001 — the client hears why
+            log.exception("could not close worktree %s", worktree_id)
+            return _refused("invalid", f"Could not close the worktree: {exc}")
+        finally:
+            # A close that fails partway has still stopped agents and freed
+            # ports, so the world is stale whichever way this ends.
+            await self.refresh_worktrees()
+            await self.refresh_agents()
+        return {"ok": True, "result": {}}
 
     async def _set_status(self, command: dict[str, Any]) -> dict[str, Any]:
         return await self._write_task(

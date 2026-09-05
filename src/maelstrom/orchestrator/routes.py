@@ -89,6 +89,7 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/tasks/{project}/{id}/status", _set_status)
     app.router.add_patch("/api/tasks/{project}/{id}", _update_task)
     app.router.add_post("/api/agents", _start_free_agent)
+    app.router.add_post("/api/worktrees/{id}/close", _close_worktree)
     app.router.add_post("/api/tasks/infer", _infer_task)
     app.router.add_post("/api/tasks", _create_task)
     app.router.add_post("/api/attachments", _upload_attachment)
@@ -464,6 +465,15 @@ async def _update_task(request: web.Request) -> web.StreamResponse:
 async def _start_free_agent(request: web.Request) -> web.StreamResponse:
     """Start an agent tied to no task. It may open a worktree, so it can be slow."""
     return await _command(request, lambda body: {**body, "type": "agent.start"})
+
+
+async def _close_worktree(request: web.Request) -> web.StreamResponse:
+    """Close a worktree. It syncs and stops an environment, so it can be slow."""
+    worktree_id = request.match_info["id"]
+    return await _command(
+        request,
+        lambda _body: {"type": "worktree.close", "worktreeId": worktree_id},
+    )
 
 
 async def _infer_task(request: web.Request) -> web.StreamResponse:
