@@ -232,9 +232,9 @@ def generate_branch_name(
 #: model invents falls back to ``""``.
 #:
 #: Deliberately narrower than the web app's ``KNOWN_COMMANDS``
-#: (``web/src/protocol/phase.ts``): ``shape`` names no skill, and ``watch-pr``
-#: follows a pushed PR rather than starting new work. Neither suits a task the
-#: user has only just described; both stay typeable in the task editor.
+#: (``web/src/protocol/phase.ts``): ``shape`` names no skill file, ``watch-pr``
+#: needs a pushed PR, and every ``impeccable`` command needs a target. None
+#: suits a task the user has only just described.
 KNOWN_COMMANDS = ("plan-task", "plan-next-step")
 
 #: The longest title inference will hand back. Long enough for a real sentence,

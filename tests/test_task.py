@@ -1104,6 +1104,15 @@ class TestBuildPrompt:
         )
         assert model.build_prompt(t) == "/plan-task Do thing\n\nDetails here."
 
+    def test_a_command_may_carry_arguments(self):
+        t = Task(
+            id="x",
+            title="Redo the settings page",
+            project="p",
+            command="impeccable shape",
+        )
+        assert model.build_prompt(t) == "/impeccable shape Redo the settings page"
+
     def test_no_command_omits_leading_space(self):
         t = Task(id="x", title="Do thing", project="p", content="Details.")
         assert model.build_prompt(t) == "Do thing\n\nDetails."

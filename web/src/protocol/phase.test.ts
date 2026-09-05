@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isActionable, nodeState, phaseForCommand } from './phase';
+import { isActionable, KNOWN_COMMANDS, nodeState, phaseForCommand } from './phase';
 import { makeAgent, makeAttention, makeTask } from '../test/fixtures';
 
 describe('phaseForCommand', () => {
@@ -8,16 +8,38 @@ describe('phaseForCommand', () => {
     ['plan-task', 'plan'],
     ['plan-next-step', 'plan'],
     ['watch-pr', 'land'],
+    ['impeccable shape', 'shape'],
+    ['impeccable critique', 'shape'],
+    ['impeccable audit', 'shape'],
+    ['impeccable polish', 'build'],
+    ['impeccable animate', 'build'],
+    ['impeccable optimize', 'build'],
+    // Suggested by the editor, so its phase is pinned, not just its presence.
+    ['impeccable layout', 'build'],
     // An execute task runs no skill, so an empty command is the ordinary build case.
     ['', 'build'],
   ])('%j → %s', (command, phase) => {
     expect(phaseForCommand(command)).toBe(phase);
   });
 
-  // A command nobody recognises is not a build task: it is a task whose phase
-  // is unknown, and the node draws no phase rather than claiming a wrong one.
-  it.each(['some-other-skill', 'watch-prs', 'comand'])('%j has no phase', (command) => {
+  it.each([
+    'some-other-skill',
+    'watch-prs',
+    'comand',
+    'impeccable',
+    'impeccable nonsense',
+    'impeccable init',
+    'impeccable live',
+  ])('%j has no phase', (command) => {
     expect(phaseForCommand(command)).toBeNull();
+  });
+
+  it('gives every suggested command a phase', () => {
+    // Asserted, or an emptied shortlist would pass on an empty loop.
+    expect(KNOWN_COMMANDS.length).toBeGreaterThan(0);
+    for (const command of KNOWN_COMMANDS) {
+      expect(phaseForCommand(command), command).not.toBeNull();
+    }
   });
 });
 

@@ -388,7 +388,7 @@ short form `-p`; every other task command takes `--project` in full.
 | Option | Description |
 |---|---|
 | `-p`, `--project TEXT` | Project name. |
-| `-c`, `--command TEXT` | Skill the launched session runs. |
+| `-c`, `--command TEXT` | Skill the launched session runs. May carry arguments, e.g. `"impeccable shape"`. |
 | `-m`, `--mode TEXT` | Session mode. Default `plan`. Use `auto` for an unattended execute session, `normal` for a non-planning session that prompts. |
 | `-b`, `--branch TEXT` | Branch for the task. Default `task/<id>`. |
 | `-P`, `--parent TEXT` | Parent task id. Creates a child id. Defaults to `$MAEL_TASK_PARENT`. |
@@ -461,7 +461,7 @@ short flags, and it cannot set `--parent`, `--follow`, `--follow-end`, `--from`,
 |---|---|
 | `--id TEXT` | Re-key the task to a new id, rewriting `follows` and `parent` references that point at it. Applied first; the other flags then apply to the new id. |
 | `--project TEXT` | Project name. Default: from the current directory. |
-| `--command TEXT` | Skill the launched session runs. |
+| `--command TEXT` | Skill the launched session runs. May carry arguments, e.g. `"impeccable shape"`. |
 | `--mode TEXT` | Session mode, e.g. `plan`, `auto`, `normal`. |
 | `--branch TEXT` | Branch for the task. |
 | `--pre-action TEXT` | Lifecycle action fired when the task starts. |

@@ -122,7 +122,8 @@ New tasks default to **plan** mode, so a bare `--run` opens a planning session.
 
 An **execute task runs no skill**: the task's content *is* the plan, and the session
 implements that plan directly.
-Set `--command` to run a skill instead, such as `plan-task` or `plan-next-step`.
+Set `--command` to run a skill instead, such as `plan-task` or `plan-next-step`. A command may
+carry arguments, as in `--command "impeccable shape"`.
 
 ### Other fields
 
