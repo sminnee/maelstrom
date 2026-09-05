@@ -21,6 +21,10 @@ export default defineConfig({
     },
   },
   test: {
+    // Several worktrees run their suites at once, so one worker per core
+    // thrashes on jsdom setup rather than computing. CI has the machine to
+    // itself, so it keeps the default.
+    poolOptions: process.env.CI ? {} : { forks: { maxForks: 2 } },
     environment: 'jsdom',
     globals: false,
     setupFiles: ['./src/test/setup.ts'],
