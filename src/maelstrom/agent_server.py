@@ -18,6 +18,7 @@ child, a crashed daemon or a reboot loses the live state and nothing else. See
 """
 
 import asyncio
+import fcntl
 import json
 import logging
 import os
@@ -453,6 +454,45 @@ def _open_task_index() -> TaskLookup:
 _DEAD_PROC: Any = _DeadProcess()
 
 
+def _socket_lock_path(socket_path: Path) -> Path:
+    """The lock beside a socket. One per socket, so per-environment holds."""
+    return socket_path.with_name(socket_path.name + ".lock")
+
+
+def _take_socket_lock(socket_path: Path) -> int | None:
+    """An exclusive lock on the socket, or ``None`` when another daemon holds it.
+
+    Deliberately not :func:`maelstrom.util.locked_file`: that is a context
+    manager releasing on block exit, for the port allocator's short read/rewrite
+    transactions. This lock is held for the process's life, which is a different
+    shape. The permission discipline is the same — ``0o600`` on the fd, set
+    before the daemon does anything with it.
+    """
+    path = _socket_lock_path(socket_path)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        # Only contention returns ``None``. Any other ``OSError`` propagates:
+        # reporting a full disk or an exhausted lock table as "a daemon is
+        # already serving" sends the operator after a process that is not there.
+        os.close(fd)
+        return None
+    except OSError:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _release_socket_lock(fd: int) -> None:
+    """Drop the lock. Closing the fd releases it, so this is belt and braces."""
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
 class AgentDaemon:
     """The N agents on this machine, and the control socket the CLI talks to."""
 
@@ -479,6 +519,8 @@ class AgentDaemon:
         # Set by the `shutdown` command, awaited by `serve`. An asked-for stop
         # runs the same orderly path a signal does, rather than racing it.
         self.stopping = asyncio.Event()
+        # Held open for the daemon's life while it serves; see `serve`.
+        self._lock: int | None = None
 
     @property
     def transcripts(self) -> TranscriptStore:
@@ -927,7 +969,19 @@ class AgentDaemon:
         """
         path = Path(self.socket_path)
         path.parent.mkdir(parents=True, exist_ok=True)
+        # The lock, not the probe, is what makes one daemon per socket true.
+        # A probe cannot close a race against another process: two daemons can
+        # both find the socket free, and the second unlinks and binds while the
+        # first is left listening on an unreachable inode, still holding its
+        # children. The lock is held for this process's whole life, so it is
+        # released by the process dying and never by a code path forgetting to.
+        self._lock = _take_socket_lock(path)
+        if self._lock is None:
+            raise RuntimeError(f"a daemon is already serving {path}")
         if await self._socket_is_live(path):
+            # Lock free but socket live: a daemon from before the lock existed.
+            _release_socket_lock(self._lock)
+            self._lock = None
             raise RuntimeError(f"a daemon is already serving {path}")
         path.unlink(missing_ok=True)
         # Before listening, so the first client to connect sees the restored
@@ -943,6 +997,9 @@ class AgentDaemon:
         finally:
             await self.shutdown()
             path.unlink(missing_ok=True)
+            if self._lock is not None:
+                _release_socket_lock(self._lock)
+                self._lock = None
 
     async def shutdown(self) -> None:
         """Stop every child, leaving each record resumable.

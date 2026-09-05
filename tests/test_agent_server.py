@@ -1900,3 +1900,42 @@ def test_attach_to_an_unopened_subagent_is_no_such_agent():
     writer = _recording_writer()
     asyncio.run(daemon._attach("a1.9", writer))
     assert "no such agent" in _frames(writer)[0]["error"]
+
+
+def test_a_second_daemon_is_refused_while_the_first_holds_the_lock(tmp_path):
+    """One daemon per socket, enforced by a lock rather than a liveness probe.
+
+    `_socket_is_live` is a check-then-act: between it and the bind there is a
+    window where two daemons both find the socket free, and the loser is left
+    listening on an inode no client can reach while still holding its children.
+    Process start-up is slow enough that spawning has never been observed to
+    reach that window -- this is the guard that means it cannot.
+
+    The lock is taken directly here because `flock` is per-process: two
+    `AgentDaemon`s in one test process both acquire it, so driving this through
+    `serve` would pass with or without the lock and prove nothing.
+    """
+    socket_path = tmp_path / "held.sock"
+    first = agent_server._take_socket_lock(socket_path)
+    assert first is not None
+    try:
+        with pytest.raises(RuntimeError, match="already serving"):
+            asyncio.run(AgentDaemon(str(socket_path), InMemoryAgentSpecStore()).serve())
+    finally:
+        agent_server._release_socket_lock(first)
+    # Released, so the next daemon may have it.
+    second = agent_server._take_socket_lock(socket_path)
+    assert second is not None
+    agent_server._release_socket_lock(second)
+
+
+def test_the_socket_lock_is_owner_only(tmp_path):
+    """It sits in ~/.maelstrom beside the socket, so it matches the rest."""
+    socket_path = tmp_path / "perm.sock"
+    fd = agent_server._take_socket_lock(socket_path)
+    assert fd is not None
+    try:
+        lock = agent_server._socket_lock_path(socket_path)
+        assert lock.stat().st_mode & 0o777 == 0o600
+    finally:
+        agent_server._release_socket_lock(fd)
