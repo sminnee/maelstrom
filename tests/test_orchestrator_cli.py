@@ -19,12 +19,12 @@ def test_serve_passes_its_flags_to_the_server():
                 "0.0.0.0",
                 "--port",
                 "9000",
-                "--socket",
-                "/tmp/a.sock",
+                "--root",
+                "/tmp/a",
             ],
         )
     assert result.exit_code == 0, result.output
-    run_server.assert_called_once_with("0.0.0.0", 9000, "/tmp/a.sock")
+    run_server.assert_called_once_with("0.0.0.0", 9000, "/tmp/a")
 
 
 def test_serve_defaults_to_localhost_and_the_default_port():
@@ -75,7 +75,7 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(tm
             "maelstrom.orchestrator_cli.setup_worktree_for_branch", return_value=setup
         ) as open_wt,
     ):
-        orchestrator = build_orchestrator("/tmp/a.sock")
+        orchestrator = build_orchestrator("/tmp/a")
         opened = orchestrator.tasks.open_worktree("northwind", "feat/x", "feat/base")
     assert isinstance(orchestrator.tasks, NotebookTaskSource)
     assert orchestrator.tasks.projects() == ["northwind"]
@@ -83,7 +83,7 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(tm
     assert isinstance(orchestrator.worktrees, ListAllWorktreeSource)
     assert isinstance(orchestrator.desk, JsonDeskStore)
     assert orchestrator.worktrees.projects_dir == projects_dir
-    assert orchestrator.daemon.socket_path == "/tmp/a.sock"
+    assert orchestrator.daemon.socket_path == "/tmp/a/agent-daemon.sock"
     assert opened is setup
     open_wt.assert_called_once()
     assert open_wt.call_args.args[:3] == (

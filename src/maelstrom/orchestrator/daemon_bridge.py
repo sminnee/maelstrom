@@ -28,6 +28,7 @@ from ..agent_model import (
     reply_for_denial,
 )
 from ..agent_transport import (
+    DaemonPaths,
     attach_command,
     ensure_daemon,
     open_connection,
@@ -279,5 +280,5 @@ class SocketAsyncDaemonClient:
 
     async def _connect(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         if self.autostart:
-            await ensure_daemon(self.socket_path)
+            await ensure_daemon(DaemonPaths.for_socket(self.socket_path))
         return await open_connection(self.socket_path)

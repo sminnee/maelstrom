@@ -66,14 +66,10 @@ def _block_agent_daemon_autostart(monkeypatch):
 def _isolate_agent_paths(monkeypatch, tmp_path):
     """Keep every test off the real ``~/.maelstrom``.
 
-    The three agent paths default under the developer's home, so an unpinned
-    test reads the real spawn records and sees whatever agents run on the
-    machine.
+    The daemon root defaults under the developer's home, so an unpinned test
+    reads the real spawn records and sees whatever agents run on the machine.
     """
-    root = tmp_path / "maelstrom"
-    monkeypatch.setenv("MAEL_AGENT_SOCKET", str(root / "agent-daemon.sock"))
-    monkeypatch.setenv("MAEL_AGENT_LOG", str(root / "agent-daemon.log"))
-    monkeypatch.setenv("MAEL_AGENT_SPEC_DIR", str(root / "agents"))
+    monkeypatch.setenv("MAEL_AGENT_ROOT", str(tmp_path / "maelstrom"))
 
 
 @pytest.fixture(autouse=True)

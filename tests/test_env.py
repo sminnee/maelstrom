@@ -2860,7 +2860,7 @@ class TestAgentDaemonServiceEnv:
     directory literally named "${HOME}".
     """
 
-    def test_the_socket_and_spec_paths_expand(self, tmp_path, monkeypatch):
+    def test_the_root_path_expands(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", "/home/tester")
         spawned = []
 
@@ -2872,11 +2872,8 @@ class TestAgentDaemonServiceEnv:
 
         svc = ResolvedService(
             name="agent-daemon",
-            command="mael agent daemon serve --socket ${MAEL_AGENT_SOCKET}",
-            env={
-                "MAEL_AGENT_SOCKET": "${HOME}/.maelstrom/sockets/p-${WORKTREE}.sock",
-                "MAEL_AGENT_SPEC_DIR": "${HOME}/.maelstrom/agents-p-${WORKTREE}",
-            },
+            command="mael agent daemon serve --root ${MAEL_AGENT_ROOT}",
+            env={"MAEL_AGENT_ROOT": "${HOME}/.maelstrom/daemons/p-${WORKTREE}"},
         )
         with patch("maelstrom.env.Popen", fake_popen):
             _spawn_services(
@@ -2887,9 +2884,4 @@ class TestAgentDaemonServiceEnv:
                 "2026-09-05T00:00:00+00:00",
             )
         child_env = spawned[0]
-        assert child_env["MAEL_AGENT_SOCKET"] == (
-            "/home/tester/.maelstrom/sockets/p-delta.sock"
-        )
-        assert child_env["MAEL_AGENT_SPEC_DIR"] == (
-            "/home/tester/.maelstrom/agents-p-delta"
-        )
+        assert child_env["MAEL_AGENT_ROOT"] == "/home/tester/.maelstrom/daemons/p-delta"

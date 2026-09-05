@@ -36,6 +36,7 @@ from maelstrom.agent_spec_store import (
     InMemoryAgentSpecStore,
     JsonAgentSpecStore,
 )
+from maelstrom.agent_transport import DaemonPaths
 from maelstrom.session_discovery import LiveSessionSet
 from maelstrom.task_index import TaskMeta
 from maelstrom.transcript_store import InMemoryTranscriptStore
@@ -92,14 +93,12 @@ async def _handle(daemon: AgentDaemon, payload: dict) -> dict:
 
 
 def test_handle_rejects_an_unknown_agent():
-    reply = asyncio.run(
-        _handle(AgentDaemon("/tmp/x.sock"), {"cmd": "say", "id": "nope"})
-    )
+    reply = asyncio.run(_handle(AgentDaemon(), {"cmd": "say", "id": "nope"}))
     assert "no such agent" in reply["error"]
 
 
 def test_handle_rejects_an_unknown_command():
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     daemon.agents["a1"] = _stub_agent()
     reply = asyncio.run(_handle(daemon, {"cmd": "wat", "id": "a1"}))
     assert "unknown command" in reply["error"]
@@ -111,10 +110,11 @@ def test_ping_says_which_daemon_is_answering():
     It carries no agent id, so it answers before the agent lookup and works on
     a daemon holding nothing.
     """
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon("/tmp/x")
     reply = asyncio.run(_handle(daemon, {"cmd": "ping"}))
     identity = reply["daemon"]
-    assert identity["socket_path"] == "/tmp/x.sock"
+    assert identity["root"] == "/tmp/x"
+    assert identity["socket_path"] == "/tmp/x/agent-daemon.sock"
     assert identity["pid"] == os.getpid()
     assert identity["agents"] == 0
     # The tree the serving code was imported from — the question `ping` exists
@@ -128,7 +128,7 @@ def test_shutdown_asks_the_daemon_to_stop_serving():
     The reply comes back before the daemon goes, so the caller learns it was
     heard rather than seeing a closed connection.
     """
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     reply = asyncio.run(_handle(daemon, {"cmd": "shutdown"}))
     assert reply == {"ok": True}
     assert daemon.stopping.is_set()
@@ -136,21 +136,21 @@ def test_shutdown_asks_the_daemon_to_stop_serving():
 
 def test_ping_names_the_spawn_record_directory():
     """A test daemon and the real one differ by spec dir, so `ping` reports it."""
-    daemon = AgentDaemon("/tmp/x.sock", JsonAgentSpecStore(Path("/tmp/specs")))
+    daemon = AgentDaemon(specs=JsonAgentSpecStore(Path("/tmp/specs")))
     assert asyncio.run(_handle(daemon, {"cmd": "ping"}))["daemon"]["spec_dir"] == (
         "/tmp/specs"
     )
 
 
 def test_ping_counts_the_agents_it_holds():
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     daemon.agents["a1"] = _stub_agent()
     reply = asyncio.run(_handle(daemon, {"cmd": "ping"}))
     assert reply["daemon"]["agents"] == 1
 
 
 def test_handle_refuses_to_answer_an_agent_that_is_not_waiting():
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     daemon.agents["a1"] = _stub_agent()
     reply = asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
     assert "not waiting" in reply["error"]
@@ -158,7 +158,7 @@ def test_handle_refuses_to_answer_an_agent_that_is_not_waiting():
 
 def test_handle_refuses_every_command_against_an_exited_agent():
     """Answering a dead agent must fail loudly, not report a silent success."""
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     agent.state = mark_exited(agent.state, 1)
     daemon.agents["a1"] = agent
@@ -168,7 +168,7 @@ def test_handle_refuses_every_command_against_an_exited_agent():
 
 def test_handle_refuses_to_answer_a_wait_that_is_not_a_question():
     """`answer` on a plan review would send an empty answers map, reading as no answer."""
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     agent.state = replay("plan-review.jsonl", stop_before_control=True)
     daemon.agents["a1"] = agent
@@ -177,14 +177,14 @@ def test_handle_refuses_to_answer_a_wait_that_is_not_a_question():
 
 
 def test_handle_lists_every_agent():
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     daemon.agents["a1"] = _stub_agent()
     reply = asyncio.run(_handle(daemon, {"cmd": "list"}))
     assert [row["id"] for row in reply["agents"]] == ["a1"]
 
 
 def test_show_returns_one_agents_detail():
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     agent.state = replay("question-unanswered.jsonl", stop_before_control=True)
     daemon.agents["a1"] = agent
@@ -195,7 +195,7 @@ def test_show_returns_one_agents_detail():
 
 def test_show_works_on_an_exited_agent():
     """Inspecting why an agent died is the main reason to run ``show``."""
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     agent.state = mark_exited(replay("normal-turn.jsonl"), 1)
     daemon.agents["a1"] = agent
@@ -205,15 +205,13 @@ def test_show_works_on_an_exited_agent():
 
 
 def test_show_rejects_an_unknown_agent():
-    reply = asyncio.run(
-        _handle(AgentDaemon("/tmp/x.sock"), {"cmd": "show", "id": "nope"})
-    )
+    reply = asyncio.run(_handle(AgentDaemon(), {"cmd": "show", "id": "nope"}))
     assert "no such agent" in reply["error"]
 
 
 def test_attach_marks_where_the_backlog_ends():
     """``tail`` without ``-f`` needs to know when history stops, not guess."""
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     agent.state = replay("normal-turn.jsonl")
     daemon.agents["a1"] = agent
@@ -238,7 +236,7 @@ def test_attach_marks_where_the_backlog_ends():
 def test_the_daemons_clock_reaches_the_agents_it_starts():
     """The seam has to be reachable from the daemon a caller builds, or a test
     of anything timed has to mutate objects it did not construct."""
-    daemon = AgentDaemon("/tmp/x.sock", clock=lambda: "2026-09-05T09:00:00Z")
+    daemon = AgentDaemon(clock=lambda: "2026-09-05T09:00:00Z")
     _spawning(daemon, [{"cmd": "start", "cwd": "/tmp/x"}])
     agent = next(iter(daemon.agents.values()))
     agent.record({"type": "rate_limit_event"})
@@ -248,7 +246,7 @@ def test_the_daemons_clock_reaches_the_agents_it_starts():
 def test_the_replayed_backlog_keeps_each_events_own_time():
     """The point of the whole mechanism. A client attaching an hour late must
     see when each event happened, not when it reattached."""
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     clocks = iter(["2026-09-05T09:00:00Z", "2026-09-05T09:40:00Z"])
     agent = _stub_agent(clock=lambda: next(clocks))
     daemon.agents["a1"] = agent
@@ -275,7 +273,7 @@ def test_the_replayed_backlog_keeps_each_events_own_time():
 
 
 def test_attach_still_marks_the_end_for_an_agent_that_said_nothing():
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     daemon.agents["a1"] = _stub_agent()
     writer = _recording_writer()
 
@@ -334,7 +332,7 @@ def test_a_watcher_is_told_when_the_agent_exits():
     proc.stdin.is_closing.return_value = True
     proc.stdout.readline = AsyncMock(return_value=b"")
     proc.wait = AsyncMock(return_value=3)
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = Agent("a1", "/tmp/x", proc)
     daemon.agents["a1"] = agent
     writer = _recording_writer()
@@ -365,7 +363,7 @@ def test_an_over_long_line_does_not_stop_the_pump(caplog):
         ]
     )
     proc.wait = AsyncMock(return_value=0)
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = Agent("a1", "/tmp/x", proc)
     daemon.agents["a1"] = agent
     writer = _recording_writer()
@@ -399,7 +397,7 @@ def test_a_pump_that_fails_unexpectedly_still_settles_the_agent():
     proc.returncode = None
     proc.stdout.readline = AsyncMock(side_effect=RuntimeError("the reader broke"))
     proc.wait = AsyncMock(side_effect=live.wait)
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = Agent("a1", "/tmp/x", proc)
     daemon.agents["a1"] = agent
     waiters: list[asyncio.Future] = []
@@ -492,7 +490,7 @@ def test_the_spawn_bounds_the_childs_line_length():
 def test_attaching_to_an_exited_agent_ends_after_the_backlog():
     from maelstrom.agent_model import AGENT_EXITED
 
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     agent.state = mark_exited(replay("normal-turn.jsonl"), 0)
     daemon.agents["a1"] = agent
@@ -504,7 +502,7 @@ def test_attaching_to_an_exited_agent_ends_after_the_backlog():
 
 
 def test_answer_accepts_a_map_of_answers_keyed_by_question():
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     agent.state = replay("question-unanswered.jsonl", stop_before_control=True)
     sent: list[dict] = []
@@ -525,7 +523,7 @@ def test_answer_accepts_a_map_of_answers_keyed_by_question():
 
 def test_answer_refuses_an_empty_answer_map():
     """An empty map reads as no answer at all, so it must not resolve the wait."""
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     agent.state = replay("question-unanswered.jsonl", stop_before_control=True)
     daemon.agents["a1"] = agent
@@ -534,7 +532,7 @@ def test_answer_refuses_an_empty_answer_map():
 
 
 def test_answer_with_neither_answers_nor_choice_is_an_error_reply():
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     agent.state = replay("question-unanswered.jsonl", stop_before_control=True)
     daemon.agents["a1"] = agent
@@ -566,9 +564,7 @@ def _daemon_with_specs(*, has_transcript: bool = True):
     what decides whether a resume replays or starts fresh.
     """
     specs = InMemoryAgentSpecStore()
-    daemon = AgentDaemon(
-        "/tmp/x.sock", specs=specs, has_transcript=lambda path, sid: has_transcript
-    )
+    daemon = AgentDaemon(specs=specs, has_transcript=lambda path, sid: has_transcript)
     return daemon, specs
 
 
@@ -611,7 +607,6 @@ def _stopped_daemon(metas, *, live=None, tasks=None, records=True):
         return _FakeTaskIndex(tasks or {})
 
     daemon = AgentDaemon(
-        "/tmp/x.sock",
         specs=specs,
         has_transcript=lambda path, sid: True,
         transcripts=transcripts,
@@ -1105,7 +1100,7 @@ def _sending_agent(agent_id: str = "a1") -> tuple[Agent, list[dict]]:
 
 
 def test_interrupt_sends_the_interrupt_control_request():
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent, sent = _sending_agent()
     agent.state = replace(agent.state, status=PROCESSING)
     daemon.agents["a1"] = agent
@@ -1117,7 +1112,7 @@ def test_interrupt_sends_the_interrupt_control_request():
 
 def test_interrupt_denies_the_pending_wait_first_with_the_interrupted_reason():
     """A pending request the child still holds would survive the interrupt."""
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent, sent = _sending_agent()
     agent.state = replay("permission-request.jsonl", stop_before_control=True)
     daemon.agents["a1"] = agent
@@ -1130,7 +1125,7 @@ def test_interrupt_denies_the_pending_wait_first_with_the_interrupted_reason():
 
 def test_interrupt_refuses_an_exited_agent():
 
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent, sent = _sending_agent()
     agent.state = mark_exited(agent.state, 1)
     daemon.agents["a1"] = agent
@@ -1141,7 +1136,7 @@ def test_interrupt_refuses_an_exited_agent():
 
 def test_a_reply_the_daemon_writes_reaches_every_watcher():
     """An attached client must see a wait resolve, whoever resolved it."""
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent, _ = _sending_agent()
     agent.state = replay("permission-request.jsonl", stop_before_control=True)
     daemon.agents["a1"] = agent
@@ -1160,7 +1155,7 @@ def test_a_reply_the_daemon_writes_reaches_every_watcher():
 
 def test_approving_a_plan_puts_the_agent_into_auto():
     """An approved plan is one to carry out, not one to re-ask about."""
-    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
     daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
     agent, sent = _answering_agent()
     agent.state = replay("plan-review-with-plan.jsonl", stop_before_control=True)
@@ -1178,7 +1173,7 @@ def test_approving_a_plan_puts_the_agent_into_auto():
 
 def test_approving_a_plan_records_auto_on_the_spawn_record():
     """A mode that misses the spawn record is reverted by the next daemon start."""
-    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
     daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
     agent, _ = _answering_agent()
     agent.state = replay("plan-review-with-plan.jsonl", stop_before_control=True)
@@ -1193,7 +1188,7 @@ def test_approving_a_plan_records_auto_on_the_spawn_record():
 
 def test_a_refused_mode_does_not_undo_the_approval():
     """The allow already went out, so the plan is accepted either way."""
-    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
     daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
     agent, _ = _answering_agent(subtype="error")
     agent.state = replay("plan-review-with-plan.jsonl", stop_before_control=True)
@@ -1211,7 +1206,7 @@ def test_a_refused_mode_does_not_undo_the_approval():
 
 def test_approving_an_ordinary_permission_leaves_the_mode_alone():
     """Only a plan review carries the operator's "go and do it"."""
-    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
     daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
     agent, sent = _answering_agent()
     agent.state = replay("permission-request.jsonl", stop_before_control=True)
@@ -1224,7 +1219,7 @@ def test_approving_an_ordinary_permission_leaves_the_mode_alone():
 
 def test_answering_clears_the_wait_at_once():
     """Without the echo the daemon's own state still advertises the wait."""
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent, _ = _sending_agent()
     agent.state = replay("permission-request.jsonl", stop_before_control=True)
     daemon.agents["a1"] = agent
@@ -1255,7 +1250,7 @@ def attach_frames(daemon: AgentDaemon, agent_id: str) -> list[dict]:
 
 def test_attach_opens_with_the_agents_detail():
     """A client must know what the agent waits on without inferring it."""
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     agent.state = replay("question-unanswered.jsonl", stop_before_control=True)
     daemon.agents["a1"] = agent
@@ -1267,7 +1262,7 @@ def test_attach_opens_with_the_agents_detail():
 
 def test_the_detail_frame_names_the_request_a_wait_can_be_answered_with():
     """A row alone can never make a wait answerable: it carries no request id."""
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     agent.state = replay("permission-request.jsonl", stop_before_control=True)
     daemon.agents["a1"] = agent
@@ -1276,7 +1271,7 @@ def test_the_detail_frame_names_the_request_a_wait_can_be_answered_with():
 
 
 def test_the_detail_frame_comes_before_the_backlog():
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     agent.state = mark_exited(replay("normal-turn.jsonl"), 0)
     daemon.agents["a1"] = agent
@@ -1295,7 +1290,7 @@ def test_a_message_the_user_sends_is_not_recorded():
     orchestrator's normaliser mints a fresh item id per copy — so the user's
     own message would render twice.
     """
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent, sent = _sending_agent()
     daemon.agents["a1"] = agent
     writer = _recording_writer()
@@ -1321,7 +1316,7 @@ def test_a_message_the_user_sends_is_not_recorded():
 
 def test_interrupt_refuses_an_idle_agent():
     """An idle agent has no turn to abandon, so ok would be a lie."""
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent, sent = _sending_agent()
     daemon.agents["a1"] = agent
     reply = asyncio.run(_handle(daemon, {"cmd": "interrupt", "id": "a1"}))
@@ -1331,7 +1326,7 @@ def test_interrupt_refuses_an_idle_agent():
 
 def test_interrupt_accepts_a_waiting_agent():
     """A wait is a turn the agent has not finished, so it is interruptible."""
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent, sent = _sending_agent()
     agent.state = replay("permission-request.jsonl", stop_before_control=True)
     daemon.agents["a1"] = agent
@@ -1368,7 +1363,7 @@ def _attach_briefly(daemon: AgentDaemon, agent_id: str, **cursor) -> list[dict]:
 def test_the_backlog_carries_a_seq_per_event_and_ends_with_the_epoch_and_seq():
     from maelstrom.agent_model import SEQ_KEY
 
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     agent.state = replay("normal-turn.jsonl")
     daemon.agents["a1"] = agent
@@ -1385,7 +1380,7 @@ def test_the_backlog_carries_a_seq_per_event_and_ends_with_the_epoch_and_seq():
 def test_a_cursor_from_this_life_replays_only_what_came_after_it():
     from maelstrom.agent_model import SEQ_KEY
 
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     agent.state = replay("normal-turn.jsonl")
     daemon.agents["a1"] = agent
@@ -1398,7 +1393,7 @@ def test_a_cursor_from_this_life_replays_only_what_came_after_it():
 def test_a_cursor_from_another_life_is_ignored_and_the_whole_window_replays():
     from maelstrom.agent_model import SEQ_KEY
 
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     agent.state = replay("normal-turn.jsonl")
     daemon.agents["a1"] = agent
@@ -1413,7 +1408,7 @@ def test_a_cursor_the_ring_has_rolled_past_gets_a_truncated_marker_first(monkeyp
     from maelstrom.agent_model import SEQ_KEY
 
     monkeypatch.setattr(agent_model, "RECENT_LIMIT", 3)
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     for _ in range(10):
         agent.record({"type": "rate_limit_event"})
@@ -1430,7 +1425,7 @@ def test_a_fresh_attach_to_a_rolled_ring_says_how_many_are_gone(monkeypatch):
     from maelstrom import agent_model
 
     monkeypatch.setattr(agent_model, "RECENT_LIMIT", 3)
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     for _ in range(5):
         agent.record({"type": "rate_limit_event"})
@@ -1442,7 +1437,7 @@ def test_a_fresh_attach_to_a_rolled_ring_says_how_many_are_gone(monkeypatch):
 def test_two_watchers_on_one_agent_both_receive_a_recorded_event():
     from maelstrom.agent_model import SEQ_KEY
 
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     daemon.agents["a1"] = agent
     one, two = _recording_writer(), _recording_writer()
@@ -1472,7 +1467,7 @@ def test_a_watcher_that_falls_a_queue_behind_is_told_what_it_lost_once(monkeypat
     from maelstrom.agent_model import SEQ_KEY
 
     monkeypatch.setattr(agent_server, "WATCHER_QUEUE_LIMIT", 2)
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     daemon.agents["a1"] = agent
     writer = _recording_writer()
@@ -1533,7 +1528,7 @@ def _answering_agent(subtype: str = "success", agent_id: str = "a1"):
 
 
 def test_set_mode_sends_the_control_request_with_the_wire_word():
-    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
     daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
     agent, sent = _answering_agent()
     daemon.agents["a1"] = agent
@@ -1546,7 +1541,7 @@ def test_set_mode_sends_the_control_request_with_the_wire_word():
 
 def test_set_mode_rewrites_the_spawn_record():
     """Without this a resume or a daemon restart silently reverts the mode."""
-    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
     daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
     daemon.agents["a1"] = _answering_agent()[0]
     asyncio.run(_handle(daemon, {"cmd": "set-mode", "id": "a1", "mode": "auto"}))
@@ -1556,7 +1551,7 @@ def test_set_mode_rewrites_the_spawn_record():
 
 
 def test_set_mode_refuses_an_unknown_mode_before_touching_the_child():
-    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
     agent, sent = _answering_agent()
     daemon.agents["a1"] = agent
     reply = asyncio.run(
@@ -1568,7 +1563,7 @@ def test_set_mode_refuses_an_unknown_mode_before_touching_the_child():
 
 def test_set_mode_reports_a_mode_the_child_refused():
     """An error reply must not be recorded as a change that happened."""
-    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
     daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
     daemon.agents["a1"] = _answering_agent(subtype="error")[0]
     reply = asyncio.run(
@@ -1582,7 +1577,7 @@ def test_set_mode_reports_a_mode_the_child_refused():
 
 def test_set_mode_reports_a_child_that_never_answers():
     """The timeout is what stops one quiet child holding the socket open."""
-    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
     daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
     agent, _ = _sending_agent()  # sends, but never answers
     daemon.agents["a1"] = agent
@@ -1597,7 +1592,7 @@ def test_set_mode_reports_a_child_that_never_answers():
 
 
 def test_set_mode_reports_a_child_whose_stdin_would_not_take_it():
-    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
     daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
     agent = _stub_agent()  # a closing stdin, so `send` returns False
 
@@ -1618,7 +1613,7 @@ def test_set_mode_reports_a_child_that_dies_mid_request():
     A cancellation here would be indistinguishable from the daemon shutting
     down, so `pump` fails the waiter instead.
     """
-    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
     daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
     agent = _stub_agent()
 
@@ -1639,7 +1634,7 @@ def test_set_mode_reports_a_child_that_dies_mid_request():
 
 
 def test_set_mode_refuses_an_exited_agent():
-    daemon = AgentDaemon("/tmp/x.sock", specs=InMemoryAgentSpecStore())
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
     agent, sent = _answering_agent()
     agent.state = mark_exited(agent.state, 1)
     daemon.agents["a1"] = agent
@@ -1783,7 +1778,7 @@ def _notification(tool_use_id: str, status: str = "completed") -> dict:
 
 def _agent_with_subagent() -> tuple[AgentDaemon, Agent]:
     """A daemon holding ``a1`` with a live subagent ``a1.1`` that said two things."""
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     agent.record({"type": "assistant", "message": {"content": []}})
     agent.record(_parented("t1", "one"))
@@ -1794,7 +1789,7 @@ def _agent_with_subagent() -> tuple[AgentDaemon, Agent]:
 
 def test_list_names_each_subagent_under_its_parent():
     """Driven by a recorded stream, so the row reads the shapes claude sends."""
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = _stub_agent()
     agent.state = replay("subagent-turn.jsonl")
     daemon.agents["a1"] = agent
@@ -1960,7 +1955,7 @@ def test_a_parent_exit_reaches_the_subagents_watchers_too():
     proc.stdin.is_closing.return_value = True
     proc.stdout.readline = AsyncMock(return_value=b"")
     proc.wait = AsyncMock(return_value=3)
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon()
     agent = Agent("a1", "/tmp/x", proc)
     agent.record(_parented("t1", "one"))
     daemon.agents["a1"] = agent
@@ -2001,30 +1996,29 @@ def test_a_second_daemon_is_refused_while_the_first_holds_the_lock(tmp_path):
     `AgentDaemon`s in one test process both acquire it, so driving this through
     `serve` would pass with or without the lock and prove nothing.
     """
-    socket_path = tmp_path / "held.sock"
-    first = agent_server._take_socket_lock(socket_path)
+    paths = DaemonPaths(tmp_path / "held")
+    first = agent_server._take_lock(paths.lock)
     assert first is not None
     try:
         with pytest.raises(RuntimeError, match="already serving"):
-            asyncio.run(AgentDaemon(str(socket_path), InMemoryAgentSpecStore()).serve())
+            asyncio.run(AgentDaemon(paths.root, InMemoryAgentSpecStore()).serve())
     finally:
-        agent_server._release_socket_lock(first)
+        agent_server._release_lock(first)
     # Released, so the next daemon may have it.
-    second = agent_server._take_socket_lock(socket_path)
+    second = agent_server._take_lock(paths.lock)
     assert second is not None
-    agent_server._release_socket_lock(second)
+    agent_server._release_lock(second)
 
 
-def test_the_socket_lock_is_owner_only(tmp_path):
-    """It sits in ~/.maelstrom beside the socket, so it matches the rest."""
-    socket_path = tmp_path / "perm.sock"
-    fd = agent_server._take_socket_lock(socket_path)
+def test_the_lock_is_owner_only(tmp_path):
+    """It sits in the daemon root beside the socket, so it matches the rest."""
+    paths = DaemonPaths(tmp_path / "perm")
+    fd = agent_server._take_lock(paths.lock)
     assert fd is not None
     try:
-        lock = agent_server._socket_lock_path(socket_path)
-        assert lock.stat().st_mode & 0o777 == 0o600
+        assert paths.lock.stat().st_mode & 0o777 == 0o600
     finally:
-        agent_server._release_socket_lock(fd)
+        agent_server._release_lock(fd)
 
 
 @pytest.mark.binds_socket
@@ -2036,10 +2030,11 @@ def test_a_signal_stops_the_daemon_the_way_the_command_does(tmp_path):
     lands `running` or `exited` is a race with the pump tasks. A daemon
     declared as an env service is stopped this way every time.
     """
-    socket_path = tmp_path / "signalled.sock"
+    paths = DaemonPaths(tmp_path / "signalled")
+    socket_path = paths.socket
 
     async def serve_then_signal():
-        daemon = AgentDaemon(str(socket_path), InMemoryAgentSpecStore())
+        daemon = AgentDaemon(paths.root, InMemoryAgentSpecStore())
         task = asyncio.create_task(daemon.serve())
         # Signal only once the daemon is listening. The signal goes to this
         # process, so a `serve` that died before installing its handler would
@@ -2059,3 +2054,6 @@ def test_a_signal_stops_the_daemon_the_way_the_command_does(tmp_path):
 
     asyncio.run(serve_then_signal())
     assert not socket_path.exists()
+    # The pid file goes with the socket: a stale one would send `kill -9
+    # $(cat agent-daemon.pid)` after a pid the system may have reused.
+    assert not paths.pid_file.exists()

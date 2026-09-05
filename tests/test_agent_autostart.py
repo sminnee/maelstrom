@@ -17,6 +17,7 @@ import pytest
 from maelstrom import agent_server
 from maelstrom.agent_transport import (
     NO_AUTOSTART_ENV,
+    DaemonPaths,
     SocketDaemonClient,
     ensure_daemon,
     wait_for_daemon_gone,
@@ -30,8 +31,18 @@ def autostart_on(monkeypatch):
 
 
 @pytest.fixture()
-def socket_path(tmp_path) -> str:
-    return str(tmp_path / "agent-daemon.sock")
+def paths(tmp_path) -> DaemonPaths:
+    """A daemon root of the test's own: its socket, log and records together.
+
+    The default root holds this machine's real agents, and a spawned daemon
+    restores every record it finds under its root.
+    """
+    return DaemonPaths(tmp_path)
+
+
+@pytest.fixture()
+def socket_path(paths) -> str:
+    return str(paths.socket)
 
 
 @pytest.mark.binds_socket
@@ -39,10 +50,6 @@ def test_a_command_starts_the_daemon_when_none_runs(
     autostart_on, socket_path, monkeypatch, tmp_path
 ):
     """End to end: no daemon, one command, and the command still works."""
-    monkeypatch.setenv("MAEL_AGENT_LOG", str(tmp_path / "daemon.log"))
-    # Its own spawn records too: the default dir holds this machine's real
-    # agents, and a spawned daemon restores every record it finds there.
-    monkeypatch.setenv("MAEL_AGENT_SPEC_DIR", str(tmp_path / "agents"))
     started: list[subprocess.Popen] = []
     real_popen = subprocess.Popen
 
@@ -70,7 +77,7 @@ def test_the_disable_var_leaves_the_daemon_alone(socket_path, monkeypatch):
     assert not Path(socket_path).exists()
 
 
-def test_a_daemon_never_spawns_a_daemon(autostart_on, socket_path, monkeypatch):
+def test_a_daemon_never_spawns_a_daemon(autostart_on, paths, monkeypatch):
     """The child inherits the disable var, so the recursion cannot start."""
     spawned: list[dict] = []
 
@@ -80,19 +87,20 @@ def test_a_daemon_never_spawns_a_daemon(autostart_on, socket_path, monkeypatch):
 
     monkeypatch.setattr("maelstrom.agent_transport.subprocess.Popen", fake_popen)
     with pytest.raises(AssertionError):
-        asyncio.run(ensure_daemon(socket_path))
+        asyncio.run(ensure_daemon(paths))
     assert spawned[0]["env"][NO_AUTOSTART_ENV] == "1"
 
 
-def test_the_spawn_names_the_serve_subcommand(
-    autostart_on, socket_path, monkeypatch, tmp_path
+def test_the_spawn_names_the_serve_subcommand_and_the_root(
+    autostart_on, paths, monkeypatch
 ):
     """``daemon`` is a command group, so the spawn has to name a verb.
 
     A bare ``mael agent daemon`` prints help and exits, which would make every
-    auto-start fail. This is the guard on that rename.
+    auto-start fail. This is the guard on that rename. The root travels too:
+    a spawned daemon must serve the root the command asked for, not the
+    default one, or a per-environment daemon would restore `_main`'s agents.
     """
-    monkeypatch.setenv("MAEL_AGENT_LOG", str(tmp_path / "daemon.log"))
     spawned: list[list[str]] = []
 
     def fake_popen(argv, **kwargs):
@@ -101,31 +109,29 @@ def test_the_spawn_names_the_serve_subcommand(
 
     monkeypatch.setattr("maelstrom.agent_transport.subprocess.Popen", fake_popen)
     with pytest.raises(AssertionError):
-        asyncio.run(ensure_daemon(socket_path))
-    assert spawned[0][1:4] == ["agent", "daemon", "serve"]
+        asyncio.run(ensure_daemon(paths))
+    assert spawned[0][1:6] == ["agent", "daemon", "serve", "--root", str(paths.root)]
 
 
-def test_a_daemon_that_never_binds_fails_fast(autostart_on, socket_path, monkeypatch):
+def test_a_daemon_that_never_binds_fails_fast(autostart_on, paths, monkeypatch):
     """A spawn that exits immediately is reported at once, not after the deadline."""
     monkeypatch.setattr("maelstrom.agent_transport.mael_path", lambda: "/usr/bin/false")
     with pytest.raises(OSError) as excinfo:
-        asyncio.run(ensure_daemon(socket_path))
+        asyncio.run(ensure_daemon(paths))
     assert "exited" in str(excinfo.value)
 
 
 def test_a_failed_start_is_reported_in_its_own_words(
-    autostart_on, socket_path, monkeypatch, tmp_path
+    autostart_on, paths, monkeypatch, tmp_path
 ):
     """An older daemon's crash must not be reported as this one's."""
-    log = tmp_path / "daemon.log"
-    log.write_text("an older daemon died of something else entirely\n")
-    monkeypatch.setenv("MAEL_AGENT_LOG", str(log))
+    paths.log.write_text("an older daemon died of something else entirely\n")
     monkeypatch.setattr(
         "maelstrom.agent_transport.mael_path",
         lambda: str(_script(tmp_path, "echo this daemon could not bind >&2; exit 1")),
     )
     with pytest.raises(OSError) as excinfo:
-        asyncio.run(ensure_daemon(socket_path))
+        asyncio.run(ensure_daemon(paths))
     message = str(excinfo.value)
     assert "this daemon could not bind" in message
     assert "older daemon" not in message
@@ -140,9 +146,8 @@ def _script(directory: Path, body: str) -> Path:
 
 
 @pytest.mark.binds_socket
-@pytest.mark.binds_socket
 def test_a_daemon_from_another_tree_warns_but_still_serves(
-    autostart_on, socket_path, monkeypatch, tmp_path, capsys
+    autostart_on, socket_path, monkeypatch, capsys
 ):
     """The recorded failure: a daemon holding another worktree's code.
 
@@ -150,8 +155,6 @@ def test_a_daemon_from_another_tree_warns_but_still_serves(
     serving, and a stale daemon once deleted a spawn record that way. A
     warning names the mismatch without refusing a working daemon.
     """
-    monkeypatch.setenv("MAEL_AGENT_LOG", str(tmp_path / "daemon.log"))
-    monkeypatch.setenv("MAEL_AGENT_SPEC_DIR", str(tmp_path / "agents"))
     started: list[subprocess.Popen] = []
     real_popen = subprocess.Popen
 
@@ -182,7 +185,7 @@ def test_a_daemon_from_another_tree_warns_but_still_serves(
 
 
 def test_a_daemon_too_old_to_know_ping_is_named_as_stale(
-    autostart_on, socket_path, monkeypatch, capsys
+    autostart_on, paths, monkeypatch, capsys
 ):
     """The very case the warning exists for must not be the silent one.
 
@@ -200,7 +203,7 @@ def test_a_daemon_too_old_to_know_ping_is_named_as_stale(
         return {"error": "no such agent: "}
 
     monkeypatch.setattr("maelstrom.agent_transport.request_over_socket", no_ping)
-    asyncio.run(ensure_daemon(socket_path))
+    asyncio.run(ensure_daemon(paths))
     warning = capsys.readouterr().err
     assert "older" in warning
     assert "daemon restart" in warning
@@ -215,39 +218,35 @@ def _always(value):
     return answer
 
 
-def test_a_restart_waits_for_the_old_daemon_to_release_the_lock(
-    autostart_on, socket_path, monkeypatch, tmp_path
-):
+def test_a_restart_waits_for_the_old_daemon_to_release_the_lock(autostart_on, paths):
     """Shutdown unlinks the socket before it releases the lock.
 
     So a wait that watches the socket alone returns while the old daemon still
     holds the lock. The restart then spawns, the new daemon loses the bind, and
     the whole restart fails with "a daemon is already serving".
     """
-    monkeypatch.setenv("MAEL_AGENT_LOG", str(tmp_path / "daemon.log"))
-    monkeypatch.setenv("MAEL_AGENT_SPEC_DIR", str(tmp_path / "agents"))
-    held = agent_server._take_socket_lock(Path(socket_path))
+    held = agent_server._take_lock(paths.lock)
     assert held is not None
     released: list[float] = []
 
     def release_soon() -> None:
         """Stands in for the old daemon finishing its shutdown."""
         released.append(time.monotonic())
-        agent_server._release_socket_lock(held)
+        agent_server._release_lock(held)
 
     timer = threading.Timer(0.3, release_soon)
     timer.start()
     try:
-        wait_for_daemon_gone(socket_path)
+        wait_for_daemon_gone(paths)
         assert released, "returned while the old daemon still held the lock"
     finally:
         timer.cancel()
         if not released:
-            agent_server._release_socket_lock(held)
+            agent_server._release_lock(held)
 
 
 def test_a_daemon_that_misses_the_deadline_is_terminated_not_killed(
-    autostart_on, socket_path, monkeypatch
+    autostart_on, paths, monkeypatch
 ):
     """SIGTERM, so `serve`'s `finally` runs its shutdown.
 
@@ -278,5 +277,5 @@ def test_a_daemon_that_misses_the_deadline_is_terminated_not_killed(
     monkeypatch.setattr("maelstrom.agent_transport._probe", _always(False))
     monkeypatch.setattr("maelstrom.agent_transport.READY_TIMEOUT", 0.05)
     with pytest.raises(OSError, match="did not start"):
-        asyncio.run(ensure_daemon(socket_path))
+        asyncio.run(ensure_daemon(paths))
     assert child.signals == ["terminate"]

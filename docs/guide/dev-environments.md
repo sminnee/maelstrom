@@ -181,9 +181,9 @@ position instead.
 ## An agent daemon per environment
 
 The agent daemon holds driven agents and serves the control socket `mael agent` talks to.
-One daemon serves one socket, and the socket defaults to `~/.maelstrom/agent-daemon.sock`. So one
-daemon normally holds every agent on the machine, and maelstrom's own `_main` is the worktree
-that runs it.
+One daemon serves one daemon root — the directory holding its socket, log and spawn records —
+and the root defaults to `~/.maelstrom`. So one daemon normally holds every agent on the
+machine, and maelstrom's own `_main` is the worktree that runs it.
 
 That is the right arrangement until you change the agent protocol. A worktree running
 orchestrator/web is testing changed code, and driving the daemon `_main` holds means testing your
@@ -194,10 +194,9 @@ maelstrom declares a daemon of its own as an optional service:
 ```yaml
   agent-daemon:
     optional: true
-    command: uv run mael agent daemon serve --socket ${MAEL_AGENT_SOCKET}
+    command: uv run mael agent daemon serve --root ${MAEL_AGENT_ROOT}
     env:
-      MAEL_AGENT_SOCKET: ${HOME}/.maelstrom/sockets/maelstrom-${WORKTREE}.sock
-      MAEL_AGENT_SPEC_DIR: ${HOME}/.maelstrom/agents-maelstrom-${WORKTREE}
+      MAEL_AGENT_ROOT: ${HOME}/.maelstrom/daemons/maelstrom-${WORKTREE}
 ```
 
 `optional: true` keeps it out of a plain `mael env start`, so a worktree testing anything else
@@ -205,22 +204,23 @@ keeps using the daemon `_main` runs. Start it by name when you need it:
 
 ```bash
 mael env start agent-daemon                    # a daemon of this worktree's own
-mael agent daemon status                       # names the daemon on MAEL_AGENT_SOCKET
+mael agent daemon status                       # names the daemon on MAEL_AGENT_ROOT
 mael env stop                                  # takes the daemon and its agents with it
 ```
 
 Three details decide whether this works.
 
-**The socket path carries the project name.** `${WORKTREE}` alone collides: `bravo` names a
-worktree in many projects at once. Two projects would then share one socket, which is the problem
-this solves rather than a smaller version of it.
+**The root carries the project name.** `${WORKTREE}` alone collides: `bravo` names a worktree in
+many projects at once. Two projects would then share one daemon, which is the problem this solves
+rather than a smaller version of it.
 
-**`MAEL_AGENT_SPEC_DIR` is not optional.** A daemon resumes the agents whose spawn records it
-finds. Two daemons sharing the default directory both restore the same records, so the second
-starts a second `claude` on every session id the first already holds.
+**The root holds the spawn records too.** A daemon resumes the agents whose records it finds under
+its root. With records and socket under one directory, two daemons cannot share the records that
+make them spawn, so this one never starts a second `claude` on a session the everyday daemon
+holds.
 
 **A service's `env:` block reaches that service alone.** To point this environment's orchestrator
-at its own daemon, set `MAEL_AGENT_SOCKET` in the worktree's `.env`, which every service reads.
+at its own daemon, set `MAEL_AGENT_ROOT` in the worktree's `.env`, which every service reads.
 
 `mael agent daemon status` names the daemon answering, and `mael agent daemon restart` replaces
 one holding stale code. A `mael agent` command that auto-starts the daemon warns when it finds one

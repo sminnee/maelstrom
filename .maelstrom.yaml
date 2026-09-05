@@ -21,19 +21,18 @@ services:
   # agent protocol against agents that run it. Off by default: start it with
   # `mael env start agent-daemon`. See docs/guide/dev-environments.md.
   #
-  # The socket path carries the project name because `${WORKTREE}` alone
-  # collides — one worktree name is used across many projects.
-  #
-  # MAEL_AGENT_SPEC_DIR must differ from the default. Two daemons sharing a
-  # spawn-record directory both restore the same records, so this one would
-  # start a second `claude` on every session id the everyday daemon holds.
+  # The root carries the project name because `${WORKTREE}` alone collides —
+  # one worktree name is used across many projects. Everything the daemon
+  # owns lives under that one root: its socket, lock, pid file, log and
+  # spawn records. So two daemons cannot share the records that make them
+  # spawn, and this one cannot start a second `claude` on a session the
+  # everyday daemon holds.
   #
   # A service's `env:` block reaches that service alone. To point this
-  # environment's orchestrator at this daemon, set MAEL_AGENT_SOCKET in the
+  # environment's orchestrator at this daemon, set MAEL_AGENT_ROOT in the
   # worktree's .env, which every service reads.
   agent-daemon:
     optional: true
-    command: uv run mael agent daemon serve --socket ${MAEL_AGENT_SOCKET}
+    command: uv run mael agent daemon serve --root ${MAEL_AGENT_ROOT}
     env:
-      MAEL_AGENT_SOCKET: ${HOME}/.maelstrom/sockets/maelstrom-${WORKTREE}.sock
-      MAEL_AGENT_SPEC_DIR: ${HOME}/.maelstrom/agents-maelstrom-${WORKTREE}
+      MAEL_AGENT_ROOT: ${HOME}/.maelstrom/daemons/maelstrom-${WORKTREE}

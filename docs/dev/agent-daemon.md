@@ -241,9 +241,10 @@ one session id would fight over one transcript.
 
 ## Running it
 
-One daemon serves one socket, and the socket path defaults to `~/.maelstrom/agent-daemon.sock`.
-So one daemon normally holds every driven agent on the machine. The first command that needs it
-starts it. A daemon started by accident holds no agents, so it costs nothing.
+One daemon serves one *daemon root*: the directory holding its socket, its lock, its pid file,
+its log and its `agents/` spawn records. The root defaults to `~/.maelstrom`, so one daemon
+normally holds every driven agent on the machine. The first command that needs it starts it. A
+daemon started by accident holds no agents, so it costs nothing.
 
 ```bash
 mael agent start ~/Projects/maelstrom/maelstrom-alpha --prompt "run the tests"
@@ -267,24 +268,40 @@ mael agent daemon restart                             # pick up code changed sin
 mael agent daemon stop
 ```
 
-An auto-started daemon writes its output to `~/.maelstrom/agent-daemon.log`, and runs in its own
+An auto-started daemon writes its output to `<root>/agent-daemon.log`, and runs in its own
 process group. So Ctrl-C on the command that started it does not kill the daemon holding every
 agent. A daemon that fails to start is reported with what it wrote to that log.
 
 Auto-start waits 5 seconds for the daemon to bind, and reports a child that dies sooner as soon as
-it dies. `MAEL_AGENT_NO_AUTOSTART=1` turns auto-start off, and every spawned daemon inherits it, so
-a daemon can never spawn a daemon.
+it dies. A daemon that misses the deadline is sent SIGTERM, not SIGKILL, so it stops the agents it
+has already restored. `MAEL_AGENT_NO_AUTOSTART=1` turns auto-start off, and every spawned daemon
+inherits it, so a daemon can never spawn a daemon.
 
-`MAEL_AGENT_SOCKET` overrides the socket path, `MAEL_AGENT_LOG` the log path, and
-`MAEL_AGENT_SPEC_DIR` the spawn-record directory.
 `mael agent list --json` emits the rows as JSON.
 
-A second daemon on the same socket refuses to start. An exclusive `flock` on
-`<socket>.lock`, held for the daemon's life, is what makes that true: a liveness probe is a
-check-then-act, so two daemons can both find the socket free, and the loser then binds a path no
-client can reach while it still holds its children. A stale socket file left by a killed daemon
-refuses connections, so it reads as free and is replaced; the kernel releases that daemon's lock
-when the process dies.
+### The daemon root
+
+Everything a daemon owns lives under one directory:
+
+| Path | What |
+|---|---|
+| `<root>/agent-daemon.sock` | The control socket |
+| `<root>/agent-daemon.lock` | The exclusive lock, held for the daemon's life |
+| `<root>/agent-daemon.pid` | The serving daemon's pid, written after the lock is taken and removed at shutdown |
+| `<root>/agent-daemon.log` | Where a detached daemon writes |
+| `<root>/agents/` | One spawn record per agent |
+
+`MAEL_AGENT_ROOT` moves the root; every daemon verb and `mael orchestrator serve` take `--root`
+for the same thing. The socket, the log and the records used to be three independent variables,
+so a daemon could be pointed at one directory's records over another directory's socket, and two
+daemons could share the records that make them spawn. One root, with one daemon per root, is
+what makes a session belong to exactly one daemon.
+
+A second daemon on the same root refuses to start. An exclusive `flock` on the lock file, held
+for the daemon's life, is what makes that true: a liveness probe is a check-then-act, so two
+daemons can both find the socket free, and the loser then binds a path no client can reach while
+it still holds its children. A stale socket file left by a killed daemon refuses connections, so
+it reads as free and is replaced; the kernel releases that daemon's lock when the process dies.
 
 ### Which daemon is answering
 
@@ -296,6 +313,7 @@ record.
 `mael agent daemon status` answers it:
 
 ```
+root:     /Users/sminnee/.maelstrom
 socket:   /Users/sminnee/.maelstrom/agent-daemon.sock
 pid:      59360
 version:  0.1.2
@@ -318,7 +336,7 @@ footnote — it has no identity to print — so it fails with the same advice.
 
 ### A daemon per environment
 
-An environment can run a daemon of its own, on its own socket. A worktree that runs
+An environment can run a daemon of its own, on its own root. A worktree that runs
 orchestrator/web is testing changed code; if that change touches the agent protocol, driving the
 daemon `_main` holds is the bug rather than the accident.
 
@@ -327,10 +345,9 @@ maelstrom's own `.maelstrom.yaml` declares one as an optional service:
 ```yaml
   agent-daemon:
     optional: true
-    command: uv run mael agent daemon serve --socket ${MAEL_AGENT_SOCKET}
+    command: uv run mael agent daemon serve --root ${MAEL_AGENT_ROOT}
     env:
-      MAEL_AGENT_SOCKET: ${HOME}/.maelstrom/sockets/maelstrom-${WORKTREE}.sock
-      MAEL_AGENT_SPEC_DIR: ${HOME}/.maelstrom/agents-maelstrom-${WORKTREE}
+      MAEL_AGENT_ROOT: ${HOME}/.maelstrom/daemons/maelstrom-${WORKTREE}
 ```
 
 `optional: true` keeps it out of a plain `mael env start`. Start it by name, and stop it with the
@@ -341,12 +358,12 @@ mael env start agent-daemon
 mael env stop                                         # takes the daemon and its agents with it
 ```
 
-`MAEL_AGENT_SPEC_DIR` is not optional. Two daemons sharing the default spawn-record directory
-both restore the same records, so the second would start a second `claude` on every session id the
-first already holds.
+The root carries the project name because `${WORKTREE}` alone collides across projects. Its
+spawn records come with it, so this daemon cannot restore the records the everyday daemon holds
+and start a second `claude` on each of its sessions.
 
 A service's `env:` block reaches that service only. To point the environment's orchestrator at
-its own daemon, set `MAEL_AGENT_SOCKET` in the worktree's `.env`, which every service reads.
+its own daemon, set `MAEL_AGENT_ROOT` in the worktree's `.env`, which every service reads.
 
 `mael agent list` names what each waiting agent waits on, which is the point of the whole
 mechanism:
@@ -463,7 +480,7 @@ The daemon's socket is the interface the orchestrator server drives agents throu
 `mael agent` uses. This section is the reference for that interface: the orchestrator server ↔
 agent host protocol. A host on another machine later means the same messages over TCP.
 
-The transport is NDJSON on a Unix domain socket at `MAEL_AGENT_SOCKET`. Every command is one line
+The transport is NDJSON on a Unix domain socket in the daemon root. Every command is one line
 in and one line out, except `attach`, which holds the connection open and streams.
 
 ### Commands
@@ -484,7 +501,7 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 | `stop` | `id` | `{"ok": true}` |
 | `resume` | `id`; optional `text` | `{"ok": true, "id": "<agent id>"}` |
 | `attach` | `id`; optional `from`, `epoch` | A stream; see below |
-| `ping` | none | `{"daemon": {…}}`: `pid`, `version`, `executable`, `source_tree`, `socket_path`, `spec_dir`, `started_at`, `agents` |
+| `ping` | none | `{"daemon": {…}}`: `pid`, `version`, `executable`, `source_tree`, `root`, `socket_path`, `spec_dir`, `started_at`, `agents` |
 | `shutdown` | none | `{"ok": true}`, then the daemon stops |
 
 `start` merges `env` over the daemon's own environment for that child, with no allowlist: a
@@ -703,8 +720,8 @@ writes one record per agent to `~/.maelstrom/agents/<agent-id>.json`, holding ex
 | `status` | `running`, `exited` or `stopped`. Only a `stopped` record is invisible to a default `list` |
 | `exit_code` | So `list` still reports the exit after a daemon restart |
 
-`MAEL_AGENT_SPEC_DIR` overrides the directory. A test daemon on its own socket wants its own
-records, so it cannot resume the real daemon's agents.
+The directory is the root's `agents/`, so a daemon on its own root has its own records and
+cannot resume the real daemon's agents.
 
 Records are never deleted, so a machine that runs agents for months accumulates one small JSON
 file per agent.
