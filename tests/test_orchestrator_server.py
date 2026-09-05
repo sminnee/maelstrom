@@ -2706,3 +2706,96 @@ def test_serving_an_attachment_that_is_not_there_is_a_404(harness, images):
     reply = run(scenario())
 
     assert reply.status == 404
+
+
+# --- attachments -------------------------------------------------------------
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00fakepngdata"
+
+
+@pytest.fixture
+def images(tmp_path, monkeypatch):
+    """Point the task repo at a temp dir, so an upload writes nowhere real."""
+    root = tmp_path / "tasks"
+    monkeypatch.setattr("maelstrom.task_store.tasks_root", lambda: root)
+    return root
+
+
+def _upload(name: str = "shot.png", data: bytes = PNG_BYTES) -> aiohttp.FormData:
+    """The multipart body the browser sends for one pasted or picked image."""
+    form = aiohttp.FormData()
+    form.add_field("project", PROJECT)
+    form.add_field("bucket", "t1")
+    form.add_field("file", data, filename=name, content_type="image/png")
+    return form
+
+
+def test_an_upload_writes_the_file_and_returns_both_refs(harness, images):
+    async def scenario():
+        async with harness.client() as api:
+            async with api.session.post("/api/attachments", data=_upload()) as raw:
+                return await _reply(raw)
+
+    reply = run(scenario())
+
+    assert reply.status == 200, reply.body
+    # The token is what a task stores: portable across a re-clone.
+    assert reply.body["markdown"] == "![shot.png]({{MAEL_TASK_DIR}}/images/t1/shot.png)"
+    # The URL is what the browser shows: the token is not fetchable.
+    assert reply.body["url"] == f"/api/attachments/{PROJECT}/t1/shot.png"
+    assert (images / PROJECT / "images" / "t1" / "shot.png").read_bytes() == PNG_BYTES
+
+
+def test_an_uploaded_image_is_served_back(harness, images):
+    async def scenario():
+        async with harness.client() as api:
+            async with api.session.post("/api/attachments", data=_upload()) as raw:
+                url = (await raw.json())["url"]
+            async with api.session.get(url) as got:
+                return got.status, await got.read()
+
+    status, body = run(scenario())
+
+    assert status == 200
+    assert body == PNG_BYTES
+
+
+def test_a_non_image_upload_is_refused(harness, images):
+    async def scenario():
+        async with harness.client() as api:
+            form = _upload(name="notes.txt", data=b"just text, no image here")
+            async with api.session.post("/api/attachments", data=form) as raw:
+                return await _reply(raw)
+
+    reply = run(scenario())
+
+    assert reply.status == 400
+    assert reply.body["error"]["code"] == "invalid"
+    assert not (images / PROJECT / "images" / "t1").exists()
+
+
+def test_an_upload_with_no_file_is_refused(harness, images):
+    async def scenario():
+        async with harness.client() as api:
+            form = aiohttp.FormData()
+            form.add_field("project", PROJECT)
+            form.add_field("bucket", "t1")
+            async with api.session.post("/api/attachments", data=form) as raw:
+                return await _reply(raw)
+
+    reply = run(scenario())
+
+    assert reply.status == 400
+    assert reply.body["error"]["code"] == "invalid"
+
+
+def test_serving_an_attachment_that_is_not_there_is_a_404(harness, images):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get(f"/api/attachments/{PROJECT}/t1/nope.png")
+
+    reply = run(scenario())
+
+    # A real refusal from the handler, not aiohttp's own "no such route".
+    assert reply.status == 404
+    assert reply.body["error"]["code"] == "unknown_id"

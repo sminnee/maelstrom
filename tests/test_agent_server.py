@@ -2841,7 +2841,7 @@ def test_say_loads_its_attachments_from_disk(tmp_path):
     """
     shot = tmp_path / "shot.png"
     shot.write_bytes(b"\x89PNG\r\n\x1a\nfake")
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon(tmp_path, specs=InMemoryAgentSpecStore())
     agent, sent = _sending_agent()
     daemon.agents["a1"] = agent
 
@@ -2866,7 +2866,7 @@ def test_say_loads_its_attachments_from_disk(tmp_path):
 
 def test_say_refuses_an_attachment_it_cannot_read(tmp_path):
     """A missing file is the client's bug; sending the words alone would hide it."""
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon(tmp_path, specs=InMemoryAgentSpecStore())
     agent, sent = _sending_agent()
     daemon.agents["a1"] = agent
 
@@ -2894,7 +2894,7 @@ def test_say_carries_an_attachment_as_an_image_block(tmp_path):
     """
     shot = tmp_path / "shot.png"
     shot.write_bytes(b"\x89PNG\r\n\x1a\nfake")
-    daemon = AgentDaemon("/tmp/x.sock")
+    daemon = AgentDaemon(tmp_path, specs=InMemoryAgentSpecStore())
     agent, sent = _sending_agent()
     daemon.agents["a1"] = agent
 
@@ -2914,3 +2914,61 @@ def test_say_carries_an_attachment_as_an_image_block(tmp_path):
     content = sent[0]["message"]["content"]
     assert [block["type"] for block in content] == ["image", "text"]
     assert content[0]["source"]["data"] == base64.b64encode(shot.read_bytes()).decode()
+
+
+def test_say_types_an_attachment_from_its_bytes(tmp_path):
+    """A client that names no media type must not get a mislabelled one.
+
+    The bytes are the only reliable source: a screenshot saved with the wrong
+    extension, or none at all, would otherwise go up labelled ``image/png``
+    and the API would refuse it.
+    """
+    shot = tmp_path / "screenshot"  # no extension at all
+    shot.write_bytes(b"\xff\xd8\xfffake-jpeg")
+    daemon = AgentDaemon(tmp_path, specs=InMemoryAgentSpecStore())
+    agent, sent = _sending_agent()
+    daemon.agents["a1"] = agent
+
+    reply = asyncio.run(
+        _handle(
+            daemon,
+            {
+                "cmd": "say",
+                "id": "a1",
+                "text": "look",
+                "attachments": [{"path": str(shot)}],
+            },
+        )
+    )
+
+    assert reply == {"ok": True}
+    content = sent[0]["message"]["content"]
+    assert content[0]["source"]["media_type"] == "image/jpeg"
+
+
+def test_say_refuses_an_attachment_that_is_not_an_image(tmp_path):
+    """`say` reaches the loader directly, so it needs the upload route's gate.
+
+    Without it a socket client could base64 any readable file onto one turn and
+    have it labelled an image.
+    """
+    daemon = AgentDaemon(tmp_path, specs=InMemoryAgentSpecStore())
+    agent, sent = _sending_agent()
+    daemon.agents["a1"] = agent
+    not_an_image = tmp_path / "notes.txt"
+    not_an_image.write_bytes(b"just some text, never an image")
+
+    reply = asyncio.run(
+        _handle(
+            daemon,
+            {
+                "cmd": "say",
+                "id": "a1",
+                "text": "look",
+                "attachments": [{"path": str(not_an_image)}],
+            },
+        )
+    )
+
+    assert "not an image" in reply["error"]
+    assert sent == []

@@ -83,6 +83,7 @@ from .agent_model import (
 from .agent_reconcile import Reconciliation, reconcile
 from .agent_spec_store import AgentSpecStore, JsonAgentSpecStore
 from .agent_transport import STREAM_LIMIT, DaemonPaths, daemon_paths
+from .attachments import MAX_BYTES, image_extension, is_image
 from .session_discovery import (
     LiveSessionSet,
     ProcessInfo,
@@ -283,6 +284,55 @@ def _clip(text: str) -> str:
     if len(text) <= SHELL_OUTPUT_CHARS:
         return text
     return text[:SHELL_OUTPUT_CHARS] + "\n… output truncated"
+
+
+def _load_attachments(
+    attachments: object,
+) -> list[tuple[str, bytes]]:
+    """Read the files a ``say`` names, ready for :func:`user_message`.
+
+    The socket carries paths rather than base64: the daemon runs on the same
+    machine as the files, and a screenshot inlined on the NDJSON line would be
+    carried twice over. A path that will not read raises, so the caller can
+    refuse — a turn that silently lost its picture is worse than a refusal.
+    """
+    loaded: list[tuple[str, bytes]] = []
+    for item in attachments or ():
+        if not isinstance(item, dict):
+            continue
+        path = Path(str(item.get("path", "")))
+        data = path.read_bytes()
+        # The same gate the upload route applies, because this path does not go
+        # through it: `mael agent say` and any socket client reach here directly.
+        # Without it a `say` could base64 any readable file onto one NDJSON line
+        # and label it an image.
+        if len(data) > MAX_BYTES:
+            raise ValueError(f"{path} is larger than {MAX_BYTES} bytes")
+        if not is_image(data):
+            raise ValueError(f"{path} is not an image")
+        media_type = str(item.get("media_type") or "") or _media_type_of(data)
+        loaded.append((media_type, data))
+    return loaded
+
+
+#: Extension → media type, for the formats ``attachments.IMAGE_MAGIC`` accepts.
+_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+
+def _media_type_of(data: bytes) -> str:
+    """The media type of an image, from its bytes.
+
+    Sniffed rather than taken from the filename: a screenshot saved with the
+    wrong extension, or with none, would otherwise go up mislabelled and the
+    API would refuse it. Falls back to PNG, which is what a clipboard paste
+    almost always is.
+    """
+    return _MEDIA_TYPES.get(image_extension("", data), "image/png")
 
 
 def _unreachable(agent: "Agent") -> dict[str, Any]:
@@ -1085,11 +1135,14 @@ class AgentDaemon:
             return {"agent": build_agent_detail(agent.state)}
 
         if command == "say":
-            # Not recorded: the child replays a user turn itself.
             try:
                 images = _load_attachments(payload.get("attachments"))
-            except OSError as exc:
+            except (OSError, ValueError) as exc:
+                # OSError: the file will not read. ValueError: it is not an
+                # image, or it is over the cap. Both refuse the turn rather
+                # than send the words alone.
                 return {"error": f"could not read an attachment: {exc}"}
+            # Not recorded: the child replays a user turn itself.
             if not await agent.send(user_message(payload["text"], images)):
                 return _unreachable(agent)
             return {"ok": True}
