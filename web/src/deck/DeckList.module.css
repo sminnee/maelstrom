@@ -1,0 +1,72 @@
+.deck {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+}
+/* A tab is full-height and the row divides the width evenly, so every zone is
+   one thumb-width target. */
+.tabs {
+  display: flex;
+  flex: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+.tab {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--touch);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--fg-muted);
+  background: none;
+  border: none;
+  /* The active mark is an inset underline, as the panel's tabs use. */
+  box-shadow: inset 0 -2px 0 transparent;
+  cursor: pointer;
+}
+.tab[aria-selected='true'] {
+  color: var(--fg);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.count {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+}
+.tab[aria-selected='true'] .count {
+  color: var(--fg-muted);
+}
+.rows {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  /* Clear of the home indicator on a phone that has one. */
+  padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+  -webkit-overflow-scrolling: touch;
+}
+.empty {
+  margin: 0;
+  padding: var(--space-5) var(--space-4);
+  color: var(--fg-faint);
+  font-size: var(--text-md);
+  text-align: center;
+}
+.frame {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: var(--space-4);
+  color: var(--fg-muted);
+  text-align: center;
+}
