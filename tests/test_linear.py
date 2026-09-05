@@ -326,6 +326,26 @@ class TestLocalizeDescriptionImages:
         assert result.count("{{MAEL_TASK_DIR}}/images/NORT-1/") == 2
 
 
+    def test_an_unstorable_image_keeps_the_original_url(self, tmp_path, monkeypatch):
+        """One bad image must not abort the plan, as the docstring promises.
+
+        A Linear brief can hold an SVG, an oversized screenshot, or a URL that
+        answers HTTP 200 with an HTML error body. The storage layer refuses all
+        three, and the brief keeps the ref it came with.
+        """
+        self._patch_root(monkeypatch, tmp_path)
+        url = "https://uploads.linear.app/7b3f/not-an-image"
+        desc = f"Before\n\n![diagram.svg]({url})\n\nAfter"
+
+        with patch.object(
+            linear_mod, "request_bytes", return_value=b"<svg>not a raster image</svg>"
+        ):
+            result = localize_description_images("NORT-1", "proj", desc)
+
+        assert result == desc
+        assert not (tmp_path / "tasks" / "proj" / "images" / "NORT-1").exists()
+
+
 class TestCreateComment:
     """Tests for create_comment function."""
 

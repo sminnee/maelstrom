@@ -26,17 +26,6 @@ LINEAR_API_URL = "https://api.linear.app/graphql"
 # localized — comments and attachments are out of scope.
 _LINEAR_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\((https://uploads\.linear\.app/[^)]+)\)")
 
-# Magic-byte → extension sniffing for the common image formats Linear stores.
-# The upload URLs are extensionless UUIDs, so we sniff the downloaded bytes to
-# pick a filename extension (falling back to the alt text, then ``.bin``).
-_IMAGE_MAGIC: tuple[tuple[bytes, str], ...] = (
-    (b"\x89PNG\r\n\x1a\n", ".png"),
-    (b"\xff\xd8\xff", ".jpg"),
-    (b"GIF87a", ".gif"),
-    (b"GIF89a", ".gif"),
-    (b"RIFF", ".webp"),  # WEBP is RIFF-framed; good enough for a filename.
-)
-
 
 def get_linear_api_key() -> str:
     """Get the Linear API key.
@@ -716,21 +705,6 @@ def cmd_list_tasks(status):
         )
 
 
-def _image_extension(alt: str, data: bytes) -> str:
-    """Pick a filename extension for a downloaded image.
-
-    Sniffs magic bytes first (the URLs are extensionless UUIDs), then falls back
-    to the extension in the alt text (e.g. ``image.png``), then ``.bin``.
-    """
-    for magic, ext in _IMAGE_MAGIC:
-        if data.startswith(magic):
-            return ext
-    alt_suffix = Path(alt).suffix.lower()
-    if alt_suffix:
-        return alt_suffix
-    return ".bin"
-
-
 def localize_description_images(identifier: str, project: str, description: str) -> str:
     """Download ``uploads.linear.app`` images and rewrite refs to a portable token.
 
@@ -749,17 +723,14 @@ def localize_description_images(identifier: str, project: str, description: str)
     whole plan. Alt text is preserved. A description with no matching images is
     returned unchanged and writes nothing.
     """
-    from ..task import MAEL_TASK_DIR_TOKEN
-    from ..task_store import tasks_root
+    from ..attachments import markdown_ref, save_attachment
 
     matches = list(_LINEAR_IMAGE_RE.finditer(description))
     if not matches:
         return description
 
-    image_dir = tasks_root() / project / "images" / identifier
     # url -> the token that replaces it (cached so a URL used twice = one file).
     replacements: dict[str, str] = {}
-    used_names: set[str] = set()
 
     for match in matches:
         url = match.group(2)
@@ -776,27 +747,31 @@ def localize_description_images(identifier: str, project: str, description: str)
             )
             continue
 
-        ext = _image_extension(alt, data)
-        # Base the filename on the last URL segment (a UUID) for stability, then
-        # de-dupe within this issue's dir in case two URLs share a segment.
+        # Name the file after the URL's last segment (a UUID) so re-localizing a
+        # brief keeps stable filenames; the alt text backs up the extension
+        # sniff. Writing, de-duping and minting the token are shared with every
+        # other way an image reaches a task — see ``maelstrom.attachments``.
         stem = url.rstrip("/").rsplit("/", 1)[-1] or "image"
-        filename = f"{stem}{ext}"
-        counter = 1
-        while filename in used_names:
-            filename = f"{stem}-{counter}{ext}"
-            counter += 1
-        used_names.add(filename)
-
-        image_dir.mkdir(parents=True, exist_ok=True)
-        (image_dir / filename).write_bytes(data)
-        replacements[url] = f"{MAEL_TASK_DIR_TOKEN}/images/{identifier}/{filename}"
+        hint = f"{stem}{Path(alt).suffix}"
+        try:
+            replacements[url] = save_attachment(project, identifier, data, name=hint)
+        except ValueError as e:
+            # An SVG, an oversized image, or an HTML error body served with
+            # HTTP 200. Treated like a failed download: one bad image must not
+            # abort the whole plan.
+            click.echo(
+                f"warning: could not store image {url}: {e}; "
+                "leaving the original URL in the brief",
+                err=True,
+            )
+            continue
 
     def _rewrite(match: "re.Match[str]") -> str:
         url = match.group(2)
         token = replacements.get(url)
         if token is None:
             return match.group(0)  # download failed — keep original.
-        return f"![{match.group(1)}]({token})"
+        return markdown_ref(match.group(1), token)
 
     return _LINEAR_IMAGE_RE.sub(_rewrite, description)
 
