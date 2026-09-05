@@ -27,11 +27,14 @@ function worktree(
   nato: string,
   over: Partial<Omit<Worktree, 'id' | 'project' | 'nato'>> = {},
 ): Worktree {
+  // `_main` takes no project prefix, in its folder name or its id — see
+  // `get_worktree_folder_name`.
+  const folder = nato === '_main' ? '_main' : `${project}-${nato}`;
   return {
-    id: `${project}-${nato}`,
+    id: folder,
     project,
     nato,
-    path: `/Users/dev/Projects/${project}/${project}-${nato}`,
+    path: `/Users/dev/Projects/${project}/${folder}`,
     branch: '',
     base: 'main',
     isClosed: false,
@@ -188,6 +191,7 @@ export function seedWorld(): Seed {
   const projects = [project('maelstrom', 'main'), project('northwind', 'feat/db-migrate')];
 
   const worktrees = [
+    worktree('maelstrom', '_main', { branch: 'main' }),
     worktree('maelstrom', 'alpha', {
       branch: 'feat/orchestrator-ui',
       dirtyFiles: 3,

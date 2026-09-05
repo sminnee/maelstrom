@@ -4,7 +4,11 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
 }
+/* The group sits behind the pane (see Canvas.module.css); the header lifts out
+ * so its close button stays clickable. */
 .label {
+  z-index: 1;
+  pointer-events: auto;
   position: absolute;
   top: var(--space-2);
   left: var(--space-3);
@@ -23,4 +27,8 @@
   text-transform: none;
   letter-spacing: 0;
   color: var(--fg-faint);
+}
+.close {
+  margin-left: var(--space-2);
+  font-size: var(--text-xs);
 }
