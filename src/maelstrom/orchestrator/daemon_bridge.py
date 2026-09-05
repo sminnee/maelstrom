@@ -100,6 +100,10 @@ class ScriptedAsyncDaemonClient:
     _seqs: dict[str, int] = field(default_factory=dict)
 
     async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
+        # The real client writes to a socket and awaits the reply, so it
+        # yields the loop on every call. Match that, or no test can
+        # interleave a command with a poll.
+        await asyncio.sleep(0)
         self.calls.append(payload)
         command = str(payload.get("cmd"))
         if self.replies.get(command):
@@ -117,6 +121,9 @@ class ScriptedAsyncDaemonClient:
                 "session": payload.get("session") or "",
                 "cwd": payload["cwd"],
                 "model": payload.get("model") or "",
+                # The host describes the agent it started. The row a launch
+                # builds for itself cannot, so the two rows differ.
+                "description": f"started in {payload['cwd']}",
                 "waiting_on": "",
                 "last_message": "",
                 "cost": "",

@@ -483,7 +483,19 @@ class Orchestrator:
         return link_agent(row, worktrees=world["worktrees"], tasks=world["tasks"])
 
     async def _adopt(self, row: dict[str, Any]) -> None:
-        """Put a new agent in the world and start following its stream."""
+        """Put a new agent in the world and start following its stream.
+
+        An agent the world already holds is left as it stands. A launch adopts
+        the synthetic row it built from its own payload, which names no mode
+        and may name no model or session; the poll adopts the host's real row.
+        When the poll gets there first, overwriting it would blank those
+        fields until the next list, and ``_relink`` repairs only the links.
+        """
+        known = self.world["agents"].get(row["id"])
+        if known is not None:
+            if not known["parent"]:
+                await self._attach(row["id"])
+            return
         link = self._link(row)
         entity = agent_entity(
             row,
@@ -538,20 +550,37 @@ class Orchestrator:
             self._detaches.pop(agent_id, None)
 
     async def _attach(self, agent_id: str) -> None:
-        """Follow an agent's stream, and wait for its replayed backlog to end."""
+        """Follow an agent's stream, and wait for its replayed backlog to end.
+
+        One watch per agent. See ``docs/dev/orchestrator-server.md``, "Agents".
+        A caller that finds a watch already there waits for that watch's
+        backlog, so every caller returns on the same promise.
+        """
+        held = self._watches.get(agent_id)
+        if held is not None:
+            await self._wait_for_backlog(held)
+            return
         watch = AgentWatch(
             agent_id, context_for_agent(agent_id, self._next_item_seed(agent_id))
         )
         self._watches[agent_id] = watch
         cursor = self._cursors.setdefault(agent_id, Cursor())
         watch.task = asyncio.create_task(self._follow(watch, cursor))
-        # A host that never sends the backlog marker only delays adoption; it
-        # does not block the server.
+        await self._wait_for_backlog(watch)
+
+    async def _wait_for_backlog(self, watch: AgentWatch) -> None:
+        """Wait for a watch to replay its backlog.
+
+        A host that never sends the marker only delays the caller; it does not
+        block the server.
+        """
         try:
             await asyncio.wait_for(watch.caught_up.wait(), BACKLOG_TIMEOUT_SECS)
         except asyncio.TimeoutError:
             log.warning(
-                "agent %s: no backlog marker within %ss", agent_id, BACKLOG_TIMEOUT_SECS
+                "agent %s: no backlog marker within %ss",
+                watch.agent_id,
+                BACKLOG_TIMEOUT_SECS,
             )
 
     def _next_item_seed(self, agent_id: str) -> int:

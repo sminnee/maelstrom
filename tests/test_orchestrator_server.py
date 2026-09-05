@@ -683,6 +683,54 @@ def test_a_revive_mints_no_item_id_twice(harness):
     assert [i["id"] for i in first] == ids[: len(first)]
 
 
+def test_a_launch_the_poll_interrupts_follows_its_agent_once(harness):
+    """The host lists a launched agent before the launch has adopted it.
+
+    A launch re-reads the notebook and saves the desk between starting the
+    agent and adopting it. A poll that lands in that gap adopts the agent
+    first, and the launch must not follow it a second time.
+    """
+    harness.add_task("NORT-7", mode="auto", content="Do it.")
+    harness.daemon.backlog["new1"] = read_fixture("normal-turn.jsonl")
+
+    real_refresh = harness.orch.refresh_tasks
+    raced = []
+
+    async def refresh_then_poll(**kwargs):
+        """The agent poll, landing where a launch yields to re-read tasks."""
+        await real_refresh(**kwargs)
+        if "new1" in harness.daemon.rows:
+            raced.append(True)
+            await harness.orch.refresh_agents()
+
+    harness.orch.refresh_tasks = refresh_then_poll
+
+    async def scenario():
+        await harness.orch.start()
+        try:
+            reply = await harness.orch.handle_command(
+                {"type": "agent.launch", "taskId": "northwind/NORT-7"}
+            )
+            assert reply["ok"], reply
+            return (
+                harness.orch.transcript_snapshot("new1")["items"],
+                harness.orch.world["agents"]["new1"],
+            )
+        finally:
+            await harness.orch.stop()
+
+    items, agent = run(scenario())
+    # The poll really did land in the gap, or the rest proves nothing.
+    assert raced, "the poll never reached the agent before the launch adopted it"
+    attaches = [c for c in harness.daemon.calls if c["cmd"] == "attach"]
+    assert len(attaches) == 1, f"the agent was followed {len(attaches)} times"
+    ids = [i["id"] for i in items]
+    assert len(ids) == len(set(ids)), "an item was published under two ids"
+    # The poll adopted the host's real row. The launch must not overwrite it
+    # with the synthetic one it built, which carries no description.
+    assert agent["description"] == f"started in {WORKTREE_PATH}"
+
+
 # --- commands ----------------------------------------------------------------
 
 
