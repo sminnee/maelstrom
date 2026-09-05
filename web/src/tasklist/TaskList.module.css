@@ -54,3 +54,8 @@
 .empty {
   color: var(--fg-faint);
 }
+
+.drift {
+  color: var(--attention);
+  font-size: 9px;
+}

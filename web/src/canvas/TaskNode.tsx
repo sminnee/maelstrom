@@ -1,9 +1,9 @@
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { useDocuments } from '../api/documents';
+import { driftLabel } from '../protocol/progress';
 import type { GraphNode } from '../selectors/graph';
 import { nodeTitle } from '../selectors/graph';
 import { phaseLabel } from '../protocol/phase';
-import { describeState } from '../selectors/status';
 import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
 import { useAppStore } from '../store/store';
@@ -26,14 +26,14 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
       data-testid="task-node"
       data-task-id={node.id}
       data-phase={node.phase ?? undefined}
-      data-state={node.state}
+      data-state={node.progress.state}
       data-focused={focused || undefined}
       data-expanded={expanded || undefined}
     >
       <Handle type="target" position={Position.Left} className={styles.handle} />
       <div className={styles.head}>
         <span className={styles.title}>{nodeTitle(node)}</span>
-        {node.state === 'needs-attention' &&
+        {node.progress.state === 'needs-attention' &&
           (documentId ? (
             <PanelLink
               tab={documentTab(documentId)}
@@ -56,14 +56,24 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
               !
             </button>
           ))}
-        {node.state === 'done' && <span className={styles.tick}>✓</span>}
+        {node.progress.state === 'done' && <span className={styles.tick}>✓</span>}
       </div>
       <div className={styles.status}>
         <span className={styles.dot} aria-hidden="true" />
         {node.reason ? (
           <span className={styles.reason}>{node.reason}</span>
         ) : (
-          <span className={styles.state}>{describeState(node.task, node.agent)}</span>
+          <span className={styles.state}>{node.progress.words}</span>
+        )}
+        {node.progress.drift && (
+          <span
+            className={styles.drift}
+            role="img"
+            aria-label={driftLabel(node.progress)}
+            data-drift={node.progress.drift}
+          >
+            ▲
+          </span>
         )}
       </div>
       <div className={styles.meta}>

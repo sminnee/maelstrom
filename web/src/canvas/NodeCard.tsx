@@ -8,9 +8,10 @@ import { useAgentStream } from '../live/useAgentStream';
 import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
 import { deskIdForAgent } from '../protocol/deskId';
+import { driftFixLabel, driftSentence } from '../protocol/progress';
 import type { GraphNode } from '../selectors/graph';
 import { nodeTitle } from '../selectors/graph';
-import { describeDocumentStatus, describeState, stateRestatesStatus } from '../selectors/status';
+import { describeDocumentStatus } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { toolCallTitle } from '../session/toolCards';
 import { PanelLink } from '../shell/PanelLink';
@@ -192,7 +193,7 @@ export function NodeCard({
         aria-label={title}
         tabIndex={-1}
         data-phase={node.phase ?? undefined}
-        data-state={node.state}
+        data-state={node.progress.state}
         style={{ transform: `translate(${position.x}px, ${position.y}px)` }}
       >
         <div ref={inner} className={styles.inner}>
@@ -216,16 +217,16 @@ export function NodeCard({
             </button>
           </header>
 
-          <div className={styles.status} data-state={node.state}>
+          <div className={styles.status} data-state={node.progress.state}>
             {/*
              * The status control at the right says it already when the words
              * would only echo it. The dot goes with them: it reads the state,
              * so alone it says nothing.
              */}
-            {!stateRestatesStatus(task, agent) && (
+            {!node.progress.echoesStatus && (
               <>
                 <span className={styles.dot} aria-hidden="true" />
-                <span className={styles.stateText}>{describeState(task, agent)}</span>
+                <span className={styles.stateText}>{node.progress.words}</span>
               </>
             )}
             {!deciding && node.reason && <span className={styles.reason}>{node.reason}</span>}
@@ -244,6 +245,25 @@ export function NodeCard({
               />
             )}
           </div>
+
+          {task && node.progress.drift && (
+            <div className={styles.drift} data-testid="drift-band">
+              <span className={styles.driftMark} aria-hidden="true">
+                ▲
+              </span>
+              <span className={styles.driftText}>{driftSentence(node.progress, task.status)}</span>
+              {node.progress.fixStatus && (
+                <AppButton
+                  variant="quiet"
+                  onClick={() =>
+                    setStatus.mutateAsync({ taskId: task.id, status: node.progress.fixStatus! })
+                  }
+                >
+                  {driftFixLabel(node.progress.fixStatus)}
+                </AppButton>
+              )}
+            </div>
+          )}
 
           {brief && (
             <div

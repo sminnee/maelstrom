@@ -5,7 +5,7 @@ import { useAgentStream } from '../live/useAgentStream';
 import type { Agent } from '../protocol/entities';
 import { nextMode } from '../protocol/modes';
 import { subagentsOf } from '../selectors/agents';
-import { describeState } from '../selectors/status';
+import { progressOf } from '../protocol/progress';
 import { sessionTab } from '../selectors/tabs';
 import { answeredOnCanvas } from '../selectors/transcript';
 import { PanelLink } from '../shell/PanelLink';
@@ -52,7 +52,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
           {isChild ? `${agent.id} · ${agent.description}` : agent.id}
         </span>
         <span className={styles.state} data-state={agent.state}>
-          {describeState(task, agent)}
+          {progressOf(task, agent, Object.values(world.attention)).words}
         </span>
         {agent.permissionMode && !isChild && (
           <AppButton

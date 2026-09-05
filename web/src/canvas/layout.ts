@@ -1,6 +1,6 @@
-import { zoneForState } from '../protocol/phase';
+import { zoneForState, ZONES, type Zone } from '../protocol/progress';
 import type { Graph } from '../selectors/graph';
-import { assignColumns, ZONES, type Zone } from './columns';
+import { assignColumns } from './columns';
 
 export interface Box {
   x: number;
@@ -48,7 +48,7 @@ export function layoutSwimlanes(graph: Graph): Layout {
   const nodes: Record<string, { x: number; y: number }> = {};
   let laneY = 0;
 
-  const zoneOf = new Map(graph.nodes.map((n) => [n.id, zoneForState(n.state)]));
+  const zoneOf = new Map(graph.nodes.map((n) => [n.id, zoneForState(n.progress.state)]));
   const followsOf = new Map(graph.nodes.map((n) => [n.id, [] as string[]]));
   for (const edge of graph.edges) followsOf.get(edge.target)?.push(edge.source);
 

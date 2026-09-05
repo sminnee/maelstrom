@@ -1,8 +1,4 @@
-/** Where a node sits in the left-to-right progression of work. */
-export type Zone = 'done' | 'running' | 'notStarted';
-
-/** The zones in board order, leftmost first. The index is the progress rank. */
-export const ZONES = ['done', 'running', 'notStarted'] as const;
+import type { Zone } from '../protocol/progress';
 
 /** One node as the engine sees it: an id, a zone, and what it follows. */
 export interface ColumnInput {

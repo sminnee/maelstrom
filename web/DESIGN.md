@@ -230,13 +230,14 @@ The canvas grid is fixed and mechanical, which is what makes it scannable: nodes
 separated by 56px horizontally and 14px vertically. A lane has 20px of padding, a 30px header,
 and 28px between lanes. Every lane is as wide as the board, not as wide as its own content.
 
-Horizontal position is progress first and dependency second. The board runs left to right in
-three zones — DONE, RUNNING, NOT STARTED — and a zone boundary sits at the same x in every lane,
-so the board reads as three vertical stripes whatever each lane holds. Inside a zone a task sits
-one column right of the deepest task it follows in that same zone, so a long finished history
-spreads across several DONE columns and a queue of dependent work spreads across several NOT
-STARTED columns. A zone no lane uses takes no columns and collapses. When the two rules conflict
-— a done task that follows a running one — progress wins, and the follows edge draws backwards.
+Horizontal position is progress first and dependency second:
+
+- The board runs left to right in three zones — DONE, RUNNING, NOT STARTED.
+- A zone boundary sits at the same x in every lane, so the board reads as three vertical stripes.
+- Inside a zone a task sits one column right of the deepest task it follows in that zone.
+- A zone no lane uses takes no columns and collapses, and draws no label.
+- When the two rules conflict — a done task that follows a running one — progress wins, and the
+  follows edge draws backwards.
 
 Spacing runs on a 4px base with four steps in use: 4, 8, 12, 16. Component padding uses the
 scale; the canvas uses its own constants because it positions in absolute pixels.
@@ -249,8 +250,7 @@ the panel's drag grip is how the operator trades one surface against the other.
 
 **The Fixed Board Rule.** A card moves only when its own work moves: it changes zone when it
 starts or finishes, and the cards behind it close up. Its lane never changes, and its order
-against the other cards in its zone never changes. So the board reports progress and nothing
-else, and everything else the operator learned about where to look stays true.
+against the other cards in its zone never changes. The board reports progress and nothing else.
 
 ## Elevation & Depth
 
@@ -327,6 +327,8 @@ told apart by where they run, so the worktree sits beside the id rather than onl
 - **Ready:** a hollow dot in the phase hue. Hollow means the work has not started and filled
   means it runs, so the shape tells ready from working even though both take the phase hue.
 - **Idle:** 0.8 opacity. **Queued:** dashed border, 0.65 opacity.
+- **Finalising:** a hollow Clear Green dot. The task is closed and an agent is still carrying
+  the PR, so the node reads as closed but not yet settled.
 - **Done:** 0.5 opacity, Clear Green dot. **Cancelled:** 0.5 opacity, faint dot — terminal, but
   not a success.
 - **Exited:** Fault Rose border and ring.
@@ -335,6 +337,11 @@ told apart by where they run, so the worktree sits beside the id rather than onl
 
 The status dot restates the state in colour, so state is carried twice — position and hue —
 and neither alone is load-bearing.
+
+- **Drift:** a small amber caret beside the state, never a border or a glow — a note on the
+  state, not a state of its own. A second amber dot would read as a competing state; a different
+  shape reads as a note. The Single Interrupt Rule keeps the border and the glow for work that
+  is really blocked, and the card carries the explanation.
 
 ### Node Card (expanded node)
 
@@ -349,6 +356,11 @@ The brief is the task's own content, rendered as markdown at card scale. It clam
 lines and fades out at the cut, with a More control that opens it in place. A brief of four lines
 or fewer shows whole and offers no control. The card measures itself when its size changes, so
 opening a long brief pans the card back into view.
+
+A drifting task gets its own band under the status strip: the amber caret, a sentence naming
+both the task status and what the agent is doing, and a button that applies the fix where there
+is one. The sentence takes `--fg-muted`, because an open attention item is a real block and
+drift is a bookkeeping note — only the caret is amber.
 
 When the node needs attention the card's border takes Alert Amber — but the left edge stays
 the phase hue. Two channels, two edges, no conflict.

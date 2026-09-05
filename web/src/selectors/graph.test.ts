@@ -24,13 +24,16 @@ describe('deriveGraph', () => {
     const ready = drawnWorld({ tasks: [makeTask({ id: 'T1', status: 'todo', actionable: true })] });
     expect(deriveGraph(ready, byProject).nodes[0]).toMatchObject({
       id: 'T1',
-      state: 'ready',
+      progress: expect.objectContaining({ state: 'ready' }),
       phase: 'build',
     });
     const queued = drawnWorld({
       tasks: [makeTask({ id: 'T1', status: 'todo', actionable: false })],
     });
-    expect(deriveGraph(queued, byProject).nodes[0]).toMatchObject({ id: 'T1', state: 'queued' });
+    expect(deriveGraph(queued, byProject).nodes[0]).toMatchObject({
+      id: 'T1',
+      progress: expect.objectContaining({ state: 'queued' }),
+    });
   });
 
   // A running agent works in one worktree, and that is how two runs are told
@@ -93,7 +96,7 @@ describe('deriveGraph', () => {
       agents: [makeAgent({ id: 'a2', taskId: 'T2', state: 'processing' })],
     });
     const states = Object.fromEntries(
-      deriveGraph(world, byProject).nodes.map((n) => [n.id, n.state]),
+      deriveGraph(world, byProject).nodes.map((n) => [n.id, n.progress.state]),
     );
     expect(states).toEqual({ T1: 'done', T2: 'working' });
   });
@@ -105,7 +108,7 @@ describe('deriveGraph', () => {
       attention: [makeAttention({ agentId: 'a2', taskId: 'T2', summary: 'Which colour?' })],
     });
     expect(deriveGraph(world, byProject).nodes[0]).toMatchObject({
-      state: 'needs-attention',
+      progress: expect.objectContaining({ state: 'needs-attention' }),
       reason: 'Which colour?',
     });
   });
@@ -231,7 +234,7 @@ describe('free agents', () => {
       id: 'free1',
       kind: 'freeAgent',
       task: undefined,
-      state: 'working',
+      progress: expect.objectContaining({ state: 'working' }),
     });
     expect(graph.nodes[0]?.worktree?.nato).toBe('alpha');
   });

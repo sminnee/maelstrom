@@ -188,15 +188,29 @@ describe('grouping and filters', () => {
     expect(screen.getAllByTestId('task-node').length).toBeGreaterThan(0);
   });
 
-  it('labels the three progress zones, whatever the board groups by', async () => {
+  it('labels the progress zones the board uses, whatever it groups by', async () => {
     const user = userEvent.setup();
     await renderApp();
     const labels = () =>
       [...document.querySelectorAll('[data-testid="zone-label"]')].map((el) => el.textContent);
-    expect(labels()).toEqual(['Done', 'Running', 'Not started']);
+    // The desk holds no done task, so that zone collapses and draws no label.
+    expect(labels()).toEqual(['Running', 'Not started']);
     // One strip for the whole board, so a board with no lanes still has it.
     await user.selectOptions(screen.getByLabelText('Group by'), 'none');
-    expect(labels()).toEqual(['Done', 'Running', 'Not started']);
+    expect(labels()).toEqual(['Running', 'Not started']);
+  });
+
+  // A collapsed zone holds no column, so a label for it would sit on top of
+  // the next zone's rather than over anything of its own.
+  it('draws no label for a zone no lane uses', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    // One branch whose every task is queued: nothing is done, nothing runs.
+    await user.selectOptions(screen.getByLabelText('Branch'), 'maelstrom/feat/orchestrator-ui');
+    const labels = [...document.querySelectorAll('[data-testid="zone-label"]')];
+    expect(labels.map((el) => el.getAttribute('data-zone'))).not.toContain('done');
+    const lefts = labels.map((el) => (el as HTMLElement).style.left);
+    expect(new Set(lefts).size).toBe(lefts.length);
   });
 });
 
@@ -360,6 +374,63 @@ describe('the expanded node', () => {
       .getAllByRole('button')
       .find((b) => statuses.has(b.textContent ?? ''));
     expect(opener).toBeUndefined();
+  });
+});
+
+describe('the state in words', () => {
+  it('the session tab names the wait when its agent is blocked on the user', async () => {
+    const { server } = await renderApp();
+    askQuestion(server);
+    clickNode('NORT-9');
+    await userEvent.setup().click(await within(expanded()).findByRole('link', { name: 'Session' }));
+    await waitFor(() =>
+      expect(screen.getByRole('tabpanel')).toHaveTextContent('Needs you · question'),
+    );
+  });
+});
+
+describe('drift between the task file and the agent', () => {
+  /** Stop MAEL-40.1's agent cleanly, leaving the task in-progress. */
+  function stopAgent(server: FakeServer) {
+    server.change({ kind: 'agent', ids: ['c3e8f1b5'] }, (w) => {
+      w.agents['c3e8f1b5'] = { ...w.agents['c3e8f1b5']!, state: 'exited', exitCode: 0 };
+    });
+  }
+
+  it('marks a drifting node without changing how it draws', async () => {
+    const { server } = await renderApp();
+    const node = () => document.querySelector('[data-task-id="MAEL-40.1"]')!;
+    expect(node().querySelector('[data-drift]')).toBeNull();
+
+    stopAgent(server);
+    await waitFor(() => expect(node().querySelector('[data-drift]')).not.toBeNull());
+    expect(node().querySelector('[data-drift]')).toHaveAttribute('data-drift', 'finished');
+    // Drift is a fourth channel, not a ninth state: the Single Interrupt Rule
+    // keeps the amber border and glow for work that is really blocked.
+    expect(nodeState('MAEL-40.1')).toBe('idle');
+  });
+
+  it('names both values on the card, and its fix moves the task', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    stopAgent(server);
+    await waitFor(() =>
+      expect(document.querySelector('[data-task-id="MAEL-40.1"] [data-drift]')).not.toBeNull(),
+    );
+    clickNode('MAEL-40.1');
+
+    const band = within(expanded()).getByTestId('drift-band');
+    expect(band).toHaveTextContent('The agent has stopped, but the task is still in-progress.');
+
+    await user.click(within(band).getByRole('button', { name: 'Mark done' }));
+    // The status it sends is the fix, not merely that it sent one: posting
+    // `todo` here would send finished work back to the queue.
+    await waitFor(() => {
+      const posted = server.requests.find(
+        (r) => r.method === 'POST' && r.path.includes('MAEL-40.1') && r.path.endsWith('/status'),
+      );
+      expect(posted?.body).toEqual({ status: 'done' });
+    });
   });
 });
 

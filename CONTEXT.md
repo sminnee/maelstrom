@@ -225,6 +225,29 @@ the outcome is unknown, not that the answer was no: a tool approved in the cmux 
 and the orchestrator only knows it never saw the answer.
 _Avoid_: Abandoned, orphaned, expired
 
+**Drift**:
+A task status that disagrees with the agent observed on the task. Three kinds, the same three
+`mael task reconcile` names: *finished*, *never-ran*, *orphan-session*. The agent wins when the
+two disagree, because an agent state is observed from events and a task status is a file that
+goes out of date. A closed task with an agent still on it is not drift — that is
+**Finalising**. Drift is a bookkeeping note, never something waiting on the user: it is not
+counted in attention.
+_Avoid_: Stale (a stale prompt is a different thing), out of date, orphaned
+
+**Finalising**:
+A task that is `done` while an agent still runs on it. That is the ordinary tail of the
+task-completion flow: the PR is pushed, the task is closed, and `watch-pr` carries CI to green.
+The node draws its own state and sits in the running zone, because the work is not settled until
+CI is. It carries no drift mark. When the agent stops, the node reads Done.
+_Avoid_: Orphan session, lingering session, post-done
+
+**Reconcile**:
+Reading every in-progress task against the sessions running now, and reporting each drift with
+the status that would correct it. `mael task reconcile` lists the findings; `--fix` applies
+them. Reconcile never guesses at a terminal task: a done task with a session still up is
+reported, not moved.
+_Avoid_: Repair, sync, heal
+
 **Agent message**:
 One thing a driven agent said, in its own words. Text blocks only — a `thinking` block is
 reasoning the agent did not choose to say, and a `tool_use` block is an action. The daemon keeps
