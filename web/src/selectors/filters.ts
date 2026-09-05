@@ -1,6 +1,6 @@
 import type { WorldView } from './world';
 
-export type GroupBy = 'project' | 'branch' | 'none';
+export type GroupBy = 'project' | 'branch' | 'worktree' | 'none';
 
 export interface Filters {
   project: string | null;

@@ -5,7 +5,7 @@ import { useWorld } from '../api/useWorld';
 import { useAppStore } from '../store/store';
 import styles from './FilterBar.module.css';
 
-const GROUP_BY_OPTIONS: GroupBy[] = ['project', 'branch', 'none'];
+const GROUP_BY_OPTIONS: GroupBy[] = ['project', 'branch', 'worktree', 'none'];
 
 /** Project and branch filters plus the grouping toggle. All client state. */
 export function FilterBar() {
