@@ -21,12 +21,15 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import time
 import uuid
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from . import __version__
 from .agent_model import (
     AGENT_DETAIL,
     AGENT_EXITED,
@@ -48,6 +51,7 @@ from .agent_model import (
     TRUNCATED,
     AgentSpec,
     AgentState,
+    DaemonIdentity,
     SubagentState,
     TranscriptMeta,
     apply_event,
@@ -55,6 +59,7 @@ from .agent_model import (
     build_agent_detail,
     build_agent_env,
     build_agent_row,
+    build_daemon_identity,
     build_stopped_rows,
     build_subagent_detail,
     build_subagent_rows,
@@ -468,6 +473,9 @@ class AgentDaemon:
         self._live = live
         self._open_task_index = open_task_index
         self.agents: dict[str, Agent] = {}
+        # For `ping`: how long this daemon — and so the code it holds — has
+        # been the one serving the socket.
+        self.started_at = datetime.now(timezone.utc).isoformat()
 
     @property
     def transcripts(self) -> TranscriptStore:
@@ -685,6 +693,11 @@ class AgentDaemon:
                 return {"error": f"could not start claude: {exc}"}
             return {"ok": True, "id": agent_id}
 
+        if command == "ping":
+            # Before the agent lookup: it names the daemon, not an agent, and
+            # has to answer on a daemon holding nothing.
+            return {"daemon": self.identity().as_dict()}
+
         if command == "list":
             # Default scope unchanged: the orchestrator never asks for another.
             scope = payload.get("scope", SCOPE_RUNNING)
@@ -876,6 +889,19 @@ class AgentDaemon:
         if agent_id in agent.state.subagents:
             return agent, agent_id
         return None, ""
+
+    def identity(self) -> DaemonIdentity:
+        """Who this daemon is, for `ping` and the log line it prints on bind."""
+        return build_daemon_identity(
+            socket_path=self.socket_path,
+            spec_dir=str(getattr(self.specs, "root", "")),
+            started_at=self.started_at,
+            agents=len(self.agents),
+            module_file=__file__,
+            pid=os.getpid(),
+            executable=sys.executable,
+            version=__version__,
+        )
 
     # -- the socket --
 

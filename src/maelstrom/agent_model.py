@@ -11,7 +11,7 @@ and saved as ``tests/fixtures/agent_events/``. ``docs/dev/agent-daemon.md`` docu
 protocol; read it before changing a shape.
 """
 
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -168,6 +168,62 @@ def build_agent_env(
     env[FORCE_PERSISTENCE_ENV] = "1"
     env.update(extra or {})
     return env
+
+
+@dataclass(frozen=True)
+class DaemonIdentity:
+    """Which daemon is answering, and what code it is running.
+
+    One socket can be served by a daemon spawned from any worktree, and that
+    process holds the modules it imported at start — for days. So "which copy
+    is serving me?" is not answerable from the outside without this.
+
+    ``source_tree`` is the tree the serving code was imported from, which is
+    the field that catches a stale daemon from another worktree.
+    """
+
+    pid: int
+    version: str
+    executable: str
+    source_tree: str
+    socket_path: str
+    spec_dir: str
+    started_at: str
+    agents: int = 0
+
+    def as_dict(self) -> dict[str, Any]:
+        """The wire shape, for the ``ping`` reply."""
+        return asdict(self)
+
+
+def build_daemon_identity(
+    *,
+    socket_path: str,
+    spec_dir: str,
+    started_at: str,
+    agents: int,
+    module_file: str,
+    pid: int,
+    executable: str,
+    version: str,
+) -> DaemonIdentity:
+    """Assemble a :class:`DaemonIdentity`.
+
+    Pure: every varying input is passed in, so a test pins the whole record
+    without patching ``os`` or ``sys``. ``source_tree`` is derived from the
+    module's own path — ``src/maelstrom/agent_model.py`` sits two directories
+    below the tree root.
+    """
+    return DaemonIdentity(
+        pid=pid,
+        version=version,
+        executable=executable,
+        source_tree=str(Path(module_file).parents[2]),
+        socket_path=socket_path,
+        spec_dir=spec_dir,
+        started_at=started_at,
+        agents=agents,
+    )
 
 
 #: A spawn record's three states. ``stopped`` is the deliberate one, and only
