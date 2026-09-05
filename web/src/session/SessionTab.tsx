@@ -103,8 +103,10 @@ export function SessionTab({ agentId }: { agentId: string }) {
       {children.length > 0 && <SubagentStrip agents={children} />}
       {!isChild && (
         <MessageInput
+          project={agent.project}
+          bucket={`agent-${agentId}`}
           disabled={agent.state === 'exited'}
-          onSend={(text) => say.mutateAsync({ agentId, text })}
+          onSend={(text, attachments) => say.mutateAsync({ agentId, text, attachments })}
           onRun={(command) => run.mutateAsync({ agentId, command })}
         />
       )}

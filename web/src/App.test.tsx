@@ -555,6 +555,89 @@ describe('the session tab', () => {
     expect(input).toHaveValue('');
   });
 
+  it('sends a pasted image with the message, and the server gets both', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('NORT-9');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+    const input = screen.getByRole('textbox', { name: 'Message to agent' });
+
+    await user.click(input);
+    await user.paste({
+      files: [
+        new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', {
+          type: 'image/png',
+        }),
+      ],
+    } as unknown as DataTransfer);
+    // The thumbnail says the image is on the message before it is sent.
+    expect(await screen.findByRole('button', { name: 'Remove shot.png' })).toBeInTheDocument();
+
+    await user.type(input, 'what is wrong here?');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() => {
+      const said = server.requests.find((r) => r.path.endsWith('/say'));
+      expect(said).toBeDefined();
+      const body = said!.body as { text: string; attachments: unknown[] };
+      // The words and the picture both go: the ref so the reader sees it, the
+      // attachment so the model does.
+      expect(body.text).toContain('what is wrong here?');
+      expect(body.text).toContain('![shot.png]');
+      expect(body.attachments).toHaveLength(1);
+    });
+  });
+
+  it('attaches a picked image, keeps its ref in the text, and sends both', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('NORT-9');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', {
+      type: 'image/png',
+    });
+    await user.upload(screen.getByLabelText('Attach image', { selector: 'input' }), png);
+
+    const input = screen.getByRole('textbox', { name: 'Message to agent' });
+    // The ref lands in the text the user is still editing, so they can see and
+    // move what they attached before sending.
+    await waitFor(() => expect((input as HTMLTextAreaElement).value).toContain('![shot.png]('));
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    const say = await waitFor(() => {
+      const found = server.requests.find((r) => r.path.endsWith('/say'));
+      expect(found).toBeDefined();
+      return found!;
+    });
+    const body = say.body as { text: string; attachments: { url: string }[] };
+    expect(body.text).toContain('![shot.png]');
+    // A URL, never a path: the browser has not seen one, and the server
+    // resolves this to the file the host reads.
+    expect(body.attachments).toHaveLength(1);
+    expect(body.attachments[0]!.url).toMatch(/^\/api\/attachments\/.*shot\.png$/);
+  });
+
+  it('removing an attached image takes its ref out of the message too', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('NORT-9');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', {
+      type: 'image/png',
+    });
+    await user.upload(screen.getByLabelText('Attach image', { selector: 'input' }), png);
+    const input = screen.getByRole('textbox', { name: 'Message to agent' });
+    await waitFor(() => expect((input as HTMLTextAreaElement).value).toContain('![shot.png]('));
+
+    await user.click(await screen.findByRole('button', { name: 'Remove shot.png' }));
+
+    // Left behind, the ref would go to the agent as a link to an image it was
+    // never sent, and render as a broken image in the transcript.
+    expect((input as HTMLTextAreaElement).value).not.toContain('shot.png');
+  });
+
   it('leaves one live prompt when the card and the session tab show the same wait', async () => {
     const user = userEvent.setup();
     await renderApp();
@@ -1352,6 +1435,59 @@ describe('new work', () => {
     expect(await within(form).findByTestId('new-work-error')).toHaveTextContent('No such branch');
     // The form stays, holding what was typed.
     expect(screen.getByRole('dialog', { name: 'New work' })).toBeVisible();
+  });
+
+  it('starts a free agent with an attached image in its prompt', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const form = await openNewWork(user);
+    await user.click(within(form).getByRole('radio', { name: 'Free agent' }));
+    await user.type(within(form).getByLabelText('Branch'), 'feat/logs');
+
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', {
+      type: 'image/png',
+    });
+    await user.upload(within(form).getByLabelText('Attach image', { selector: 'input' }), png);
+    const draft = within(form).getByLabelText('What needs doing?');
+    await waitFor(() => expect((draft as HTMLTextAreaElement).value).toContain('![shot.png]('));
+    await user.type(draft, 'why does this look wrong?');
+    await user.click(within(form).getByRole('button', { name: 'Start' }));
+
+    const started = await waitFor(() => {
+      const found = server.requests.find((r) => r.method === 'POST' && r.path === '/api/agents');
+      expect(found).toBeDefined();
+      return found!;
+    });
+    const body = started.body as { prompt: string };
+    // A free agent has no say to carry an image block, so the prompt carries
+    // the token the agent reads from disk.
+    expect(body.prompt).toContain('{{MAEL_TASK_DIR}}');
+    expect(body.prompt).toContain('why does this look wrong?');
+  });
+
+  it('attaches an image to a task, which stores the portable token', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const form = await openNewWork(user);
+    await user.type(within(form).getByLabelText('What needs doing?'), 'Fix the header');
+    await user.click(within(form).getByRole('button', { name: 'Next' }));
+
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', {
+      type: 'image/png',
+    });
+    await user.upload(within(form).getByLabelText('Attach image', { selector: 'input' }), png);
+    const content = within(form).getByLabelText('Content');
+    await waitFor(() => expect((content as HTMLTextAreaElement).value).toContain('![shot.png]('));
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
+
+    const created = await waitFor(() => {
+      const found = server.requests.find((r) => r.method === 'POST' && r.path === '/api/tasks');
+      expect(found).toBeDefined();
+      return found!;
+    });
+    // The stored content holds the token, never the fetch URL: it has to
+    // survive a re-clone on another machine.
+    expect((created.body as { content: string }).content).toContain('{{MAEL_TASK_DIR}}');
   });
 });
 

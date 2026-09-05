@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useId, useRef } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { TaskEdit } from '../api/types';
 import type { PermissionMode } from '../protocol/modes';
 import { MODES } from '../protocol/modes';
 import { UNSET_MODEL, MODELS } from '../protocol/models';
 import { KNOWN_COMMANDS } from '../protocol/phase';
+import { withoutRef, type Attachment } from '../api/attachments';
+import { AttachField } from '../ui/AttachField';
 import styles from '../ui/Dialog.module.css';
 
 /** From `task.PRIORITIES`, highest first. */
@@ -21,15 +23,22 @@ export type TaskDraft = Required<TaskEdit>;
 export function TaskFields({
   draft,
   onChange,
+  project,
+  bucket,
 }: {
   draft: TaskDraft;
   onChange: (patch: Partial<TaskDraft>) => void;
+  project: string;
+  /** Groups this task's images in the task repo. */
+  bucket: string;
 }) {
   // The content field shows the whole task body: it grows to fit, and the
   // dialog scrolls.
   // Document-global, so two field sets on one page must not share it.
   const commands = useId();
+  const contentId = useId();
   const content = useRef<HTMLTextAreaElement>(null);
+  const [attached, setAttached] = useState<Attachment[]>([]);
   const grow = useCallback((el: HTMLTextAreaElement | null) => {
     content.current = el;
     fitToText(el);
@@ -42,15 +51,38 @@ export function TaskFields({
         <span>Title</span>
         <input value={draft.title} onChange={(e) => onChange({ title: e.target.value })} />
       </label>
-      <label className={styles.field}>
-        <span>Content</span>
-        <textarea
-          ref={grow}
-          rows={1}
-          value={draft.content}
-          onChange={(e) => onChange({ content: e.target.value })}
-        />
-      </label>
+      {/* An explicit id, not a wrapping label: AttachField sits between the
+          label and the field, so the implicit association is broken. */}
+      <div className={styles.field}>
+        <label htmlFor={contentId}>Content</label>
+        <AttachField
+          project={project}
+          bucket={bucket}
+          attached={attached}
+          onAttach={(a) => {
+            setAttached((was) => [...was, a]);
+            // Appended to the content, not held beside it: the content is what
+            // the task stores and what `build_prompt` sends, so a ref outside
+            // it would never reach the agent. It also keeps `changed()`'s
+            // shallow diff comparing strings.
+            onChange({
+              content: draft.content ? `${draft.content}\n\n${a.markdown}` : a.markdown,
+            });
+          }}
+          onRemove={(image) => {
+            setAttached((was) => was.filter((w) => w.url !== image.url));
+            onChange({ content: withoutRef(draft.content, image) });
+          }}
+        >
+          <textarea
+            id={contentId}
+            ref={grow}
+            rows={1}
+            value={draft.content}
+            onChange={(e) => onChange({ content: e.target.value })}
+          />
+        </AttachField>
+      </div>
       <label className={styles.field}>
         <span>Branch</span>
         <input value={draft.branch} onChange={(e) => onChange({ branch: e.target.value })} />

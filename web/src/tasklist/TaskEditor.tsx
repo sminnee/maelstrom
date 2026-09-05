@@ -82,7 +82,7 @@ function TaskForm({ task }: { task: Task }) {
   return (
     <Dialog label={task.title} onClose={leave}>
       <DialogHeader title={task.notebookId} onClose={leave} />
-      <TaskFields draft={draft} onChange={set} />
+      <TaskFields draft={draft} onChange={set} project={task.project} bucket={task.notebookId} />
 
       {confirming && (
         <p className={styles.confirm} role="alert">
