@@ -727,6 +727,11 @@ without `CLAUDECODE` and `CLAUDE_CODE_CHILD_SESSION`, which an inherited marker 
 suppress the write, and with `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1`. See
 `agent_model.build_agent_env`.
 
+Each child also gets `CMUX_CLAUDE_HOOKS_DISABLED=1`. Inside a cmux terminal a shell script named
+`claude` shadows the real binary on `PATH`, and that script adds a `--settings` block of hooks
+which call back into the cmux integrated development environment (IDE). A driven agent is not an
+IDE session, so the variable tells the script to run the real binary with the argv untouched.
+
 ### The spawn record
 
 Claude stores none of the cwd, permission mode, model or environment a spawn needs. So the daemon

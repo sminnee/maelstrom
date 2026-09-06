@@ -140,6 +140,11 @@ def build_agent_argv(
 _CHILD_MARKERS = ("CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION")
 #: Asks for the transcript even where an inherited marker would have skipped it.
 FORCE_PERSISTENCE_ENV = "CLAUDE_CODE_FORCE_SESSION_PERSISTENCE"
+#: Tells cmux's ``claude`` shim to exec the real binary untouched. Inside a
+#: cmux terminal that shim shadows ``claude`` on PATH and injects a
+#: ``--settings`` block of hooks calling back into the cmux IDE. A driven agent
+#: is not an IDE session, so they only cost it subprocess spawns.
+CMUX_HOOKS_DISABLED_ENV = "CMUX_CLAUDE_HOOKS_DISABLED"
 
 #: What a resumed agent is told on its first turn back.
 #:
@@ -158,14 +163,15 @@ def build_agent_env(
     """The environment for a driven ``claude`` child.
 
     Takes ``base`` (the daemon's own environment), drops the two markers that
-    can stop the child writing a transcript, asks for persistence outright, then
-    lets ``extra`` win — the no-allowlist contract in
-    ``docs/dev/agent-daemon.md`` stands.
+    can stop the child writing a transcript, asks for persistence outright,
+    turns off cmux's hook injection, then lets ``extra`` win — the
+    no-allowlist contract in ``docs/dev/agent-daemon.md`` stands.
     """
     env = dict(base)
     for marker in _CHILD_MARKERS:
         env.pop(marker, None)
     env[FORCE_PERSISTENCE_ENV] = "1"
+    env[CMUX_HOOKS_DISABLED_ENV] = "1"
     env.update(extra or {})
     return env
 
