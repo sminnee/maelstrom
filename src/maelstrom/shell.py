@@ -18,18 +18,31 @@ Three public entry points, all owned here so callers stay shell-agnostic:
   exec has no result to check, no output to capture, and no wait to bound, so
   those options would be dead weight on one of the two paths.
 
-``run_cmd`` and ``exec_cmd`` together are the execution chokepoint: every command
-in the codebase routes through one of them, so they are the seam to mock / log /
-intercept.
+- ``async_run_cmd`` — the same wait on an event loop, for a caller that holds
+  one for many jobs. It returns the exit code rather than raising on it, and
+  always captures: a server has no script to abort and no stdout to itself.
+
+``run_cmd``, ``exec_cmd`` and ``async_run_cmd`` together are the execution
+chokepoint: every command in the codebase routes through one of them, so they
+are the seam to mock / log / intercept. Each writes the command it runs to this
+module's logger, so one handler sees every command whatever the caller.
+
+These functions own the accidental complexity of running a command — quoting,
+whether a shell is needed, process groups, decoding, the deadline. A caller
+states what to run and reads the result.
 
 Quoting/escaping happens in exactly one place: ``_shell_string``. This module is
 a leaf — it imports only stdlib, so anything may depend on it without cycles.
 """
 
+import asyncio
+import logging
 import os
 import shlex
 import shutil
+import signal
 import subprocess
+from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NoReturn, assert_never
@@ -56,8 +69,25 @@ class Pipeline:
     stages: list["ShellExpr"]
 
 
-# Closed union. ``list[str]`` is a literal member (the zero-ceremony base case).
-ShellExpr = list[str] | Command | Pipeline
+class RawShell(str):
+    """A shell command as raw text, for the one case that is genuinely text.
+
+    Every other member of :data:`ShellExpr` is structured, so ``to_argv`` can
+    run a bare argv with no shell at all. A ``RawShell`` cannot be: it holds
+    what a user typed after a ``!``, and pipes and redirection are what they
+    typed it for. So it always goes through ``sh -c``, and whatever it contains
+    is shell syntax rather than data.
+
+    It is a ``str`` subclass and not a bare ``str`` on purpose. A caller must
+    name it to get this behaviour, and ``grep -rn RawShell`` finds every place
+    the codebase executes text it did not build. Prefer an argv or a
+    :class:`Command` wherever the caller knows the parts.
+    """
+
+
+# Closed union. ``list[str]`` is a literal member (the zero-ceremony base case);
+# ``RawShell`` is the deliberately-awkward member for user-typed text.
+ShellExpr = list[str] | Command | Pipeline | RawShell
 
 
 class Subst(str):
@@ -88,6 +118,8 @@ def _join_argv(argv: list[str]) -> str:
 def _shell_string(expr: ShellExpr) -> str:
     """Render ``expr`` to a shell string. The ONLY place quoting/escaping happens."""
     match expr:
+        case RawShell():  # already shell text — nothing to quote
+            return str(expr)
         case list():  # bare argv — base case
             return _join_argv(expr)
         case Command(argv, env):
@@ -119,6 +151,11 @@ def to_argv(expr: ShellExpr, *, replace_process: bool = False) -> list[str]:
     no-op there).
     """
     match expr:
+        case RawShell():
+            # Raw text is shell syntax by definition, so it cannot bypass the
+            # shell the way a structured argv does.
+            s = str(expr)
+            return ["sh", "-c", f"exec {s}" if replace_process else s]
         case list():  # bare argv — exec/run identically, no shell
             return expr
         case Command() | Pipeline():
@@ -126,6 +163,65 @@ def to_argv(expr: ShellExpr, *, replace_process: bool = False) -> list[str]:
             return ["sh", "-c", f"exec {s}" if replace_process else s]
         case _:
             assert_never(expr)
+
+
+async def async_run_cmd(
+    cmd: ShellExpr,
+    *,
+    cwd: Path | None = None,
+    env: dict | None = None,
+    timeout: float | None = None,
+) -> tuple[str, str, int]:
+    """Run a ``ShellExpr`` on the caller's event loop, returning its two streams.
+
+    The async half of the chokepoint. :func:`run_cmd` blocks the calling
+    thread, which a caller holding one loop for many jobs cannot afford — the
+    agent daemon runs every agent on one loop, so a blocking wait would stall
+    all of them for the length of the command.
+
+    Differs from :func:`run_cmd` in two ways, both because the caller is a
+    server rather than a script:
+
+    - **Never raises on a non-zero exit.** The exit code comes back for the
+      caller to read. A failing command is often the point, and there is no
+      script to abort.
+    - **Always captures.** Streaming to this process's stdout would interleave
+      output from every concurrent job.
+
+    ``timeout`` raises ``subprocess.TimeoutExpired``. The child gets its own
+    process group, so a timeout kills a pipeline whole rather than leaving the
+    stages behind their dead ``sh``.
+    """
+    _audit(cmd, cwd)
+    proc = await asyncio.create_subprocess_exec(
+        *to_argv(cmd),
+        cwd=cwd,
+        env={**os.environ, **env} if env is not None else None,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except TimeoutError:
+        _kill_group(proc)
+        await proc.wait()
+        raise subprocess.TimeoutExpired(describe(cmd), timeout or 0) from None
+    return (
+        out.decode("utf-8", "replace"),
+        err.decode("utf-8", "replace"),
+        proc.returncode if proc.returncode is not None else -1,
+    )
+
+
+def _kill_group(proc: "asyncio.subprocess.Process") -> None:
+    """Kill ``proc``'s whole process group, falling back to the child alone."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except OSError:
+        # The group went between the timeout and the kill.
+        with suppress(ProcessLookupError):
+            proc.kill()
 
 
 def mael_path() -> str:
@@ -141,6 +237,23 @@ def mael_path() -> str:
     # Conventional location, for a PATH that does not carry `mael` yet.
     # `ensure_schedule_agent` rewrites the plist on the next install if wrong.
     return str(Path.home() / ".local" / "bin" / "mael")
+
+
+#: Every command the chokepoint runs, for anything that wants an audit trail.
+#: A module logger and not a caller-passed one: the point of a chokepoint is
+#: that one handler sees every command, however deep the caller sits.
+log = logging.getLogger(__name__)
+
+
+def _audit(cmd: ShellExpr, cwd: Path | None) -> None:
+    """Record one command on the audit log.
+
+    ``RawShell`` is called out by name. A structured expression was built by
+    this codebase; raw text came from outside it, and that difference is what
+    an auditor is reading the log to find.
+    """
+    kind = "raw shell" if isinstance(cmd, RawShell) else "command"
+    log.info("%s in %s: %s", kind, cwd or Path.cwd(), describe(cmd))
 
 
 def _echo(cmd: ShellExpr) -> None:
@@ -173,6 +286,7 @@ def exec_cmd(
     """
     if not quiet:
         _echo(cmd)
+    _audit(cmd, cwd)
     if cwd is not None:
         os.chdir(cwd)
     if env:
@@ -210,6 +324,7 @@ def run_cmd(
     applies to a streamed command as much as a captured one, so a long-running
     child can be watched and still be given a deadline.
     """
+    _audit(cmd, cwd)
     if not quiet:
         _echo(cmd)
     merged_env = {**os.environ, **env} if env is not None else None
