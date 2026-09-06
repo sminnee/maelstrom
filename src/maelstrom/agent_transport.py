@@ -115,34 +115,22 @@ def require_root() -> Path:
     return Path(override).expanduser()
 
 
-def resolve_root() -> Path:
-    """The daemon root named by :data:`ROOT_ENV`.
-
-    The same as :func:`require_root`. There is no fallback: every environment
-    writes its own root into ``.env``, and a command that finds none has no
-    daemon to talk to rather than a default one.
-
-    Raises:
-        RootUnset: If the variable is absent or empty.
-    """
-    return require_root()
-
-
 def daemon_paths(root: str | Path | None = None) -> DaemonPaths:
     """The paths under ``root``, or under the environment's own.
 
     Raises:
         RootUnset: If ``root`` is None and the environment names none.
     """
-    return DaemonPaths(Path(root).expanduser() if root is not None else resolve_root())
+    return DaemonPaths(Path(root).expanduser() if root is not None else require_root())
 
 
 def all_roots(base: Path | None = None) -> list[DaemonPaths]:
-    """Every daemon root on this machine: the default, plus each per-environment one.
+    """Every daemon root on this machine: ``base`` itself, plus each under ``daemons``.
 
-    A per-environment daemon lives under ``<base>/daemons/<project>-<worktree>``,
-    which is where maelstrom's own ``.maelstrom.yaml`` puts it. A root that
-    someone set by hand elsewhere is not found; ``--root`` names that one.
+    An environment's daemon lives under ``<base>/daemons/<worktree>``, which is
+    where maelstrom's own ``.maelstrom.yaml`` puts it. ``base`` itself is
+    listed because the everyday daemon used to live there, and its records
+    outlive the move. A root set by hand anywhere else cannot be reached.
     """
     base = base if base is not None else get_maelstrom_dir()
     roots = [DaemonPaths(base)]

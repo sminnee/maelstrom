@@ -121,17 +121,13 @@ class TestNothingStartsADaemon:
         asyncio.run(request_over_socket(missing, {"cmd": "list"}))
         assert spawned == []
 
-    def test_the_transport_offers_no_way_to_start_one(self):
-        """`ensure_daemon` and `spawn_daemon` are gone, so no caller can ask."""
-        import maelstrom.agent_transport as transport
-
-        assert not hasattr(transport, "ensure_daemon")
-        assert not hasattr(transport, "spawn_daemon")
-
-    def test_a_client_takes_no_autostart_flag(self):
-        """A caller that still asks for auto-start must fail loudly, not be
-        silently ignored into starting nothing."""
-        import pytest
-
-        with pytest.raises(TypeError):
-            SocketDaemonClient("unused.sock", **{"autostart": False})
+    def test_the_blocking_client_spawns_nothing_either(self, tmp_path, monkeypatch):
+        """`SocketDaemonClient` is what every CLI command actually uses."""
+        spawned = []
+        monkeypatch.setattr(
+            "subprocess.Popen", lambda *a, **k: spawned.append(a) or None
+        )
+        missing = str(tmp_path / "gone" / "agent-daemon.sock")
+        reply = SocketDaemonClient(missing).request({"cmd": "list"})
+        assert "No agent daemon on" in reply["error"]
+        assert spawned == []

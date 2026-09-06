@@ -1,5 +1,6 @@
 """Tests for self-management CLI commands (focus: self-update dep sync)."""
 
+import pathlib
 import subprocess
 from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
@@ -193,13 +194,16 @@ class TestSelfUpdateWritesTheDaemonRootShim:
     worktree's `.env` and the root a daemon gives its children both still win.
     """
 
-    def _update(self, tmp_path, entrypoint_body="#!/bin/sh\nexec real\n"):
+    def _update(
+        self, tmp_path, entrypoint_body="#!/bin/sh\nexec real\n", entrypoint=None
+    ):
         from maelstrom.admin_cli import cmd_self_update
 
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        entrypoint = bin_dir / "mael"
-        entrypoint.write_text(entrypoint_body)
+        if entrypoint is None:
+            bin_dir = tmp_path / "bin"
+            bin_dir.mkdir()
+            entrypoint = bin_dir / "mael"
+            entrypoint.write_text(entrypoint_body)
         entrypoint.chmod(0o755)
         with (
             patch("maelstrom.admin_cli.Path.exists", return_value=True),
@@ -258,6 +262,45 @@ class TestSelfUpdateWritesTheDaemonRootShim:
         assert "could not point `mael`" in result.output
         assert "MAEL_AGENT_ROOT" in result.output
         assert "Update complete." in result.output
+
+    def test_a_venv_entrypoint_is_left_alone(self, tmp_path):
+        """`uv run mael self-update` inside a worktree resolves `mael` to that
+        worktree's .venv. Shimming there would corrupt the venv and pin its
+        `uv run mael` to _main's root — the very PATH-resolution bug this whole
+        change exists to stop."""
+        venv_bin = tmp_path / "wt" / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        entrypoint = venv_bin / "mael"
+        entrypoint.write_text("#!/bin/sh\nexec real\n")
+        result, _ = self._update(tmp_path, entrypoint=entrypoint)
+
+        assert result.exit_code == 0, result.output
+        assert entrypoint.read_text() == "#!/bin/sh\nexec real\n"
+        assert not (venv_bin / "mael-real").exists()
+        assert "not the `mael` on your PATH" in result.output
+
+    def test_a_failed_write_puts_the_entrypoint_back(self, tmp_path, monkeypatch):
+        """The rename happens before the write. A failure between them would
+        leave the user with no `mael` at all, and a warning they cannot act on
+        because the command it names is gone."""
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        entrypoint = bin_dir / "mael"
+        entrypoint.write_text("#!/bin/sh\nexec real\n")
+
+        real_write = pathlib.Path.write_text
+
+        def explode(self, *args, **kwargs):
+            if self.name == "mael":
+                raise OSError("disk full")
+            return real_write(self, *args, **kwargs)
+
+        monkeypatch.setattr(pathlib.Path, "write_text", explode)
+        result, _ = self._update(tmp_path, entrypoint=entrypoint)
+
+        assert result.exit_code == 0, result.output
+        assert entrypoint.exists(), "self-update must not remove the user's mael"
+        assert entrypoint.read_text() == "#!/bin/sh\nexec real\n"
 
     def test_a_second_update_does_not_nest_the_shim(self, tmp_path):
         """self-update runs repeatedly. A shim wrapping a shim would grow one
