@@ -1,11 +1,20 @@
 """Tests for maelstrom.shell — the closed command algebra and its two views."""
 
+import asyncio
 import subprocess
 import sys
 
 import pytest
 
-from maelstrom.shell import Command, Pipeline, describe, run_cmd, to_argv
+from maelstrom.shell import (
+    Command,
+    Pipeline,
+    RawShell,
+    async_run_cmd,
+    describe,
+    run_cmd,
+    to_argv,
+)
 
 
 class TestDescribe:
@@ -184,3 +193,41 @@ class TestRunCmdEnv:
             quiet=True,
         )
         assert result.stdout.strip() == "inherited"
+
+
+class TestAsyncRunCmd:
+    """The async half of the chokepoint, for callers that own an event loop."""
+
+    def test_it_runs_a_shell_expr_and_captures_both_streams(self):
+        out, err, code = asyncio.run(
+            async_run_cmd(["sh", "-c", "printf out; printf err >&2; exit 3"])
+        )
+        assert (out, err, code) == ("out", "err", 3)
+
+    def test_it_does_not_raise_on_a_non_zero_exit(self):
+        """The caller reads the code. An async caller has no CalledProcessError
+        to catch mid-turn, and a failing command is often the point."""
+        _, _, code = asyncio.run(async_run_cmd(["false"]))
+        assert code != 0
+
+    def test_a_raw_string_goes_through_a_shell(self):
+        """``RawShell`` is the one way a raw string reaches the chokepoint, so
+        a grep for it finds every place user text is executed."""
+        out, _, _ = asyncio.run(async_run_cmd(RawShell("echo a | tr a b")))
+        assert out.strip() == "b"
+
+    def test_a_bare_argv_takes_no_shell(self):
+        """The ShellExpr guarantee holds on the async path: no shell, so a
+        metacharacter in an argument is data, not syntax."""
+        out, _, _ = asyncio.run(async_run_cmd(["echo", "a; whoami"]))
+        assert out.strip() == "a; whoami"
+
+    def test_it_runs_in_the_given_directory(self, tmp_path):
+        (tmp_path / "marker.txt").write_text("x")
+        out, _, _ = asyncio.run(async_run_cmd(["ls"], cwd=tmp_path))
+        assert "marker.txt" in out
+
+    def test_a_timeout_kills_the_whole_process_group(self):
+        """A pipeline's children must die with it, or they hold the worktree."""
+        with pytest.raises(subprocess.TimeoutExpired):
+            asyncio.run(async_run_cmd(RawShell("sleep 30 | cat"), timeout=0.3))
