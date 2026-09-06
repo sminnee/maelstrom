@@ -13,6 +13,7 @@ from click.testing import CliRunner
 
 from maelstrom import agent_cli, agent_transport
 from maelstrom.agent_model import (
+    AGENT_EXITED,
     apply_event,
     build_agent_detail,
     build_agent_row,
@@ -1018,3 +1019,93 @@ class TestAnUnreachableDaemonIsReported:
             replies=[{"error": unreachable_message(DaemonPaths(tmp_path))}],
         )
         assert result.exit_code == 0, result.output
+
+
+class TestTailRaw:
+    """`mael agent tail --raw`: the child's stream as JSON, one event per line.
+
+    The recorder for `tests/fixtures/agent_events/`. The rendered form drops
+    every event `_render` has no line for -- `system`/`task_*` above all --
+    which is exactly what a fixture needs, so `--raw` prints the events
+    themselves. The daemon's own `mael_*` markers are not the child's, so
+    they do not appear, and neither does the `mael_seq`/`mael_ts` stamp.
+    """
+
+    def run_tail(self, monkeypatch, argv, backlog, agent_id="a1"):
+        """Drive `tail` over the scripted async client, and return its output."""
+        from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
+
+        client = ScriptedAsyncDaemonClient(
+            rows={agent_id: build_agent_row(replay("normal-turn.jsonl"))},
+            backlog={agent_id: list(backlog)},
+        )
+        monkeypatch.setattr(agent_cli, "SocketAsyncDaemonClient", lambda: client)
+        return CliRunner().invoke(agent_cli.agent, argv)
+
+    def lines(self, result):
+        """The output as parsed JSON, one object per line."""
+        return [json.loads(line) for line in result.output.splitlines() if line.strip()]
+
+    def test_every_event_is_one_json_line(self, monkeypatch):
+        """The rendered form drops `system` events; a fixture needs them."""
+        backlog = [
+            {"type": "system", "subtype": "task_started", "task_id": "t1"},
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "hi"}]},
+            },
+            {"type": "result", "subtype": "success"},
+        ]
+        result = self.run_tail(monkeypatch, ["tail", "--raw", "a1"], backlog)
+        assert result.exit_code == 0, result.output
+        assert [e["type"] for e in self.lines(result)] == [
+            "system",
+            "assistant",
+            "result",
+        ]
+
+    def test_the_daemons_own_stamp_is_not_in_the_output(self, monkeypatch):
+        """`mael_seq` and `mael_ts` are the daemon's, not the child's."""
+        backlog = [{"type": "result", "subtype": "success"}]
+        result = self.run_tail(monkeypatch, ["tail", "--raw", "a1"], backlog)
+        [event] = self.lines(result)
+        assert "mael_seq" not in event
+        assert "mael_ts" not in event
+
+    def test_the_daemons_own_markers_are_not_events(self, monkeypatch):
+        """`mael_agent_detail` and `mael_backlog_end` open and close the stream."""
+        backlog = [{"type": "result", "subtype": "success"}]
+        result = self.run_tail(monkeypatch, ["tail", "--raw", "a1"], backlog)
+        assert [e["type"] for e in self.lines(result)] == ["result"]
+
+    def test_the_exit_marker_does_not_break_the_json(self, monkeypatch):
+        """The exit notice is prose, so a recording must not carry it."""
+        from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
+
+        client = ScriptedAsyncDaemonClient(
+            rows={"a1": build_agent_row(replay("normal-turn.jsonl"))},
+            backlog={"a1": [{"type": "result", "subtype": "success"}]},
+        )
+        monkeypatch.setattr(agent_cli, "SocketAsyncDaemonClient", lambda: client)
+
+        async def drive():
+            task = asyncio.create_task(agent_cli._tail("a1", True, True))
+            # Let the backlog drain, then end the agent as the host would.
+            for _ in range(20):
+                await asyncio.sleep(0)
+            client.push("a1", {"type": AGENT_EXITED, "exit_code": 0})
+            await task
+
+        with CliRunner().isolation() as (out, _err, _):
+            asyncio.run(drive())
+            captured = out.getvalue().decode()
+        # The exact events, so an empty capture cannot pass.
+        assert [json.loads(line) for line in captured.splitlines() if line.strip()] == [
+            {"type": "result", "subtype": "success"}
+        ]
+
+    def test_without_raw_the_rendered_form_is_unchanged(self, monkeypatch):
+        """The flag is additive: `tail` on its own still renders lines."""
+        backlog = [{"type": "result", "subtype": "success"}]
+        result = self.run_tail(monkeypatch, ["tail", "a1"], backlog)
+        assert result.output.strip() == "— turn complete (success)"

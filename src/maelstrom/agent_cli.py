@@ -24,14 +24,17 @@ from typing import Any
 import click
 
 from .agent_model import (
+    AGENT_DETAIL,
     AGENT_EXITED,
     AWAITING_PERMISSION,
     AWAITING_PLAN_REVIEW,
     AWAITING_QUESTION,
     BACKLOG_END,
     MODES,
+    SEQ_KEY,
     STOPPED_COLUMNS,
     TRUNCATED,
+    TS_KEY,
     build_start_payload,
 )
 from .agent_reconcile import (
@@ -737,15 +740,25 @@ def cmd_attach(agent_id: str) -> None:
 @agent.command("tail")
 @click.argument("agent_id")
 @click.option("-f", "follow", is_flag=True, help="Keep streaming new events.")
-def cmd_tail(agent_id: str, follow: bool) -> None:
+@click.option(
+    "--raw",
+    is_flag=True,
+    help="Print each event as JSON, one per line, for recording a fixture.",
+)
+def cmd_tail(agent_id: str, follow: bool, raw: bool) -> None:
     """Read an agent without driving it: print its events, and stop.
 
     The read-only half of ``attach``. With ``-f`` it keeps streaming; without
     it, it stops where the replayed history ends. Nothing you type reaches the
     agent either way.
+
+    ``--raw`` prints the child's own events as JSON instead of rendering them.
+    The rendered form shows only what it has a line for, which leaves out the
+    ``system`` events a subagent's life is told in, so a fixture is recorded
+    with ``--raw``. See ``docs/dev/agent-daemon.md``.
     """
     try:
-        asyncio.run(_tail(agent_id, follow))
+        asyncio.run(_tail(agent_id, follow, raw))
     except KeyboardInterrupt:
         pass
 
@@ -758,11 +771,14 @@ def cmd_tail(agent_id: str, follow: bool) -> None:
 TAIL_READ_TIMEOUT = 30.0
 
 
-async def _tail(agent_id: str, follow: bool) -> None:
+async def _tail(agent_id: str, follow: bool, raw: bool) -> None:
     """Print an agent's events until the stream ends, driving nothing.
 
     Without ``follow`` it stops at the backlog marker. Either way the exit
     marker ends it: the agent is gone, so there is nothing left to follow.
+
+    With ``raw`` each event goes out as JSON, and nothing else is printed, so
+    every line of a recording parses.
     """
     stream = SocketAsyncDaemonClient().attach(agent_id)
     while True:
@@ -783,14 +799,30 @@ async def _tail(agent_id: str, follow: bool) -> None:
                 return
             continue
         if event.get("type") == AGENT_EXITED:
-            click.echo(f"— agent exited ({event.get('exit_code')})")
+            if not raw:
+                click.echo(f"— agent exited ({event.get('exit_code')})")
             return
         if event.get("type") == TRUNCATED:
-            click.echo(f"— {event.get('dropped')} earlier events dropped")
+            if not raw:
+                click.echo(f"— {event.get('dropped')} earlier events dropped")
+            continue
+        if raw:
+            # The detail frame is the daemon's opening summary, not the child's.
+            if event.get("type") != AGENT_DETAIL:
+                click.echo(json.dumps(_unstamped(event)))
             continue
         text = _render(event)
         if text:
             click.echo(text)
+
+
+def _unstamped(event: dict[str, Any]) -> dict[str, Any]:
+    """``event`` without the daemon's own per-event stamp.
+
+    The daemon adds ``mael_seq`` and ``mael_ts`` to every event it passes on.
+    A recording carries neither.
+    """
+    return {k: v for k, v in event.items() if k not in (SEQ_KEY, TS_KEY)}
 
 
 def _render(event: dict[str, Any]) -> str:
