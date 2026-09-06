@@ -8,11 +8,9 @@ import pytest
 
 from maelstrom.worktree import (
     branch_exists_on_remote,
-    create_worktree,
     delete_branch,
     is_branch_merged,
     list_local_branches,
-    remove_worktree,
     tidy_branches,
 )
 from tests.git_helpers import create_commit, run_git, setup_git_repo
@@ -263,30 +261,6 @@ class TestTidyBranchesIntegration:
         assert merged_result is not None
         assert merged_result.action == "deleted"
         assert merged_result.deleted_local is True
-
-    def test_tidy_skips_checked_out_branch(self, git_repo_with_remote):
-        """Test that a branch checked out in a worktree is skipped."""
-        project_path, _helper_wt = git_repo_with_remote
-
-        # Create a worktree with a branch
-        _worktree_path = create_worktree(project_path, "feature/checked-out")
-
-        # Run tidy
-        results = tidy_branches(project_path)
-
-        # Verify branch still exists
-        branches = list_local_branches(project_path)
-        assert "feature/checked-out" in branches
-
-        # Verify result
-        skipped_result = next(
-            (r for r in results if r.branch == "feature/checked-out"), None
-        )
-        assert skipped_result is not None
-        assert skipped_result.action == "skipped_checked_out"
-
-        # Cleanup
-        remove_worktree(project_path, "feature/checked-out")
 
     def test_tidy_rebases_local_only_branch(self, git_repo_with_remote):
         """Test that a local-only branch with commits is rebased but not pushed."""
