@@ -956,9 +956,9 @@ def cmd_base(target):
 def cmd_stack_tip(branch, project):
     """Show or move the branch new worktrees stack on.
 
-    New work stacks on the tip, and the tip then advances to each new branch, so
-    stacks form a chain. `mael stack-tip main` resets it to the bottom — the way
-    to start unrelated work without piling onto the current stack.
+    The tip is `main` until you move it, so new work bases on `main`. Move it to
+    stack the next worktrees on a branch; `mael stack-tip main` resets it. Only
+    this command moves the tip — `mael add` leaves it where it is.
 
     The tip self-heals to main when its branch is deleted, so a merged or
     abandoned branch can never become the base of new work.

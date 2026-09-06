@@ -54,8 +54,9 @@ a stale tip that conflicts.
 _Avoid_: Merge base, fork point
 
 **Stack tip**:
-One pointer per project naming the branch new worktrees stack on. It advances to each new
-branch, falls back to `main` when its branch is deleted, and is moved by `mael stack-tip`.
+One pointer per project naming the branch new worktrees stack on. It is `main` until
+`mael stack-tip` moves it, so new work bases on `main`. It falls back to `main` when its
+branch is deleted.
 _Avoid_: Head, current branch, newest branch
 
 **Collapse**:

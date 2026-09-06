@@ -14,9 +14,10 @@ opens, when `mael gh create-pr` pushes, and on every `/watch-pr` loop. Because e
 the base, they maintain a stack for free: a parent's new work cascades into its children with no
 extra machinery.
 
-Work is stacked whether or not anyone says so. Merges here are rebases, so every branch is
-implicitly based on whatever lands before it. Naming the base resolves that early, one rebase at a
-time, instead of late — as one large reconciliation after the parent merges.
+Stacking is opt-in. New work bases on `main` until someone moves the stack tip or passes
+`--base`. Merges here are rebases, so every branch is implicitly based on whatever lands before
+it. Naming the base resolves that early, one rebase at a time, instead of late — as one large
+reconciliation after the parent merges.
 
 ## What a base is
 
@@ -82,21 +83,21 @@ for good is worse than collapsing one sync late.
 
 ## The stack tip
 
-`maelstrom.stackTip` is one pointer per project: **the branch new worktrees stack on**. It
-auto-advances to each new branch, so stacks form a chain rather than a fan.
+`maelstrom.stackTip` is one pointer per project: **the branch new worktrees stack on**. It is
+`main` until `mael stack-tip` moves it, so new work bases on `main`.
 
 ```bash
 mael stack-tip                 # show where new work will stack
-mael stack-tip feat/parent     # move it
+mael stack-tip feat/parent     # stack the next worktrees on feat/parent
 mael stack-tip main            # reset to the bottom — start unrelated work
 ```
 
-"Newest open branch" would be the wrong default. It silently stacks fresh work on a branch that was
-shelved months ago. That base never merges, so the child never collapses: it carries dead commits in
-its PR diff indefinitely and keeps rebasing onto work nobody intends to land.
+"Newest open branch" would be the wrong default. It silently stacks fresh work on a branch
+that was shelved months ago. That base never merges, so the child never collapses: it carries dead
+commits in its PR diff indefinitely and keeps rebasing onto work nobody intends to land.
 
-One explicit pointer avoids the heuristic. It also answers "what will my next worktree stack on?"
-readably. Two rules keep it honest:
+One explicit pointer avoids the heuristic. It also answers "what will my next worktree stack
+on?" readably. Two rules keep a moved tip honest:
 
 - **Self-healing.** When the tip's branch is deleted, the tip falls back to `main` and the fallback
   is written back. No `mael add` can base on a dead ref.
@@ -191,8 +192,8 @@ The full comparison lives beside `parent`'s own definition, in
   squash. That commit belongs in the parent's PR, so put the fixup there.
 - **`/watch-pr` re-syncs each CI iteration.** With a moving parent, parent and child can ping-pong.
   In practice CI duration bounds it.
-- **Deep stacks cascade.** Because the tip auto-advances, a change low in the stack rebases
-  everything above it. `mael stack-tip main` is the one-command escape.
+- **Deep stacks cascade.** A change low in the stack rebases everything above it.
+  `mael stack-tip main` is the one-command escape from adding to it.
 
 ## Where the code lives
 
