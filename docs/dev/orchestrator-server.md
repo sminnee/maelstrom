@@ -100,6 +100,12 @@ daemon restart costs exactly one dropped connection. So a restart shows in the U
 a few seconds and then the same agent ids, revived, with every client's cursors intact — never as
 a canvas full of exits. `GET /api/host` serves the entity; a `host` change notice names it.
 
+**The server never starts the daemon.** It polls, and reports what it finds. A server that
+started one served its own worktree's code to every session on the machine: it noticed the
+everyday daemon was gone before anything else did, and `mael agent daemon serve` under `uv run`
+resolved to that worktree's `.venv`. The banner is the whole response now, and
+`mael self-env start` is what brings the daemon back.
+
 Each agent row carries the child's `pid` while it is alive, so a client can name the process an
 agent is and `mael agent daemon list` can be read against the canvas.
 

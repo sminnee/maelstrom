@@ -176,7 +176,7 @@ def test_ping_says_which_daemon_is_answering():
 
 
 def test_shutdown_asks_the_daemon_to_stop_serving():
-    """`mael agent daemon stop` needs a way in: the socket, not a signal.
+    """Stopping a daemon needs a way in: the socket, not a signal.
 
     The reply comes back before the daemon goes, so the caller learns it was
     heard rather than seeing a closed connection.
@@ -374,6 +374,47 @@ def test_start_merges_env_over_the_daemons_own_environment(monkeypatch):
     env = spawn.call_args.kwargs["env"]
     assert env["MAEL_TASK_ID"] == "T-1"
     assert env["INHERITED"] == "yes"
+
+
+def _spawned_env(daemon, request_env=None, *, proc=None):
+    """The environment one spawned child receives."""
+    from unittest.mock import AsyncMock, patch
+
+    from maelstrom import agent_server
+
+    if proc is None:
+        proc = MagicMock()
+        proc.pid = 4242
+        proc.stdin.is_closing.return_value = True
+        proc.stdout.readline = AsyncMock(return_value=b"")
+        proc.wait = AsyncMock(return_value=0)
+    payload = {"cmd": "start", "cwd": "/tmp/x"}
+    if request_env is not None:
+        payload["env"] = request_env
+    with patch.object(
+        agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
+    ) as spawn:
+        asyncio.run(_handle(daemon, payload))
+    return spawn.call_args.kwargs["env"]
+
+
+def test_a_child_is_told_the_root_of_the_daemon_that_spawned_it(tmp_path):
+    """So `mael agent ...` inside a driven session reaches the daemon holding
+    that session, rather than whichever root the session's shell names."""
+    from maelstrom.agent_spec_store import InMemoryAgentSpecStore
+
+    root = tmp_path / "chosen"
+    daemon = AgentDaemon(root, specs=InMemoryAgentSpecStore())
+    assert _spawned_env(daemon)["MAEL_AGENT_ROOT"] == str(root)
+
+
+def test_a_request_that_names_a_root_still_wins(tmp_path):
+    """The no-allowlist contract: a caller's `env` beats every default."""
+    from maelstrom.agent_spec_store import InMemoryAgentSpecStore
+
+    daemon = AgentDaemon(tmp_path / "chosen", specs=InMemoryAgentSpecStore())
+    env = _spawned_env(daemon, {"MAEL_AGENT_ROOT": "/elsewhere"})
+    assert env["MAEL_AGENT_ROOT"] == "/elsewhere"
 
 
 def test_a_watcher_is_told_when_the_agent_exits():

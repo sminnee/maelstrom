@@ -11,28 +11,23 @@ event loop: the sync clients wrap ``asyncio.run``, which cannot nest. It also
 streams an attach, which the sync Protocol has no shape for.
 
 Every path a daemon uses hangs off one directory, its *daemon root*: see
-:class:`DaemonPaths`. The root comes from ``MAEL_AGENT_ROOT`` and falls back to
-``~/.maelstrom``, so the default paths are where they have always been.
+:class:`DaemonPaths`. The root comes from ``MAEL_AGENT_ROOT``, which each
+environment writes into its own ``.env``. There is no fallback: a command that
+finds no root has no daemon to talk to, rather than someone else's.
 """
 
 import asyncio
 import json
 import os
-import subprocess
-import sys
-import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
 from .context import get_maelstrom_dir
-from .shell import mael_path
 
 #: Names the daemon root. The one variable that moves every daemon path at once.
 ROOT_ENV = "MAEL_AGENT_ROOT"
-#: Set to ``1`` to keep a command from starting a daemon of its own.
-NO_AUTOSTART_ENV = "MAEL_AGENT_NO_AUTOSTART"
 
 
 @dataclass(frozen=True)
@@ -84,15 +79,62 @@ class DaemonPaths:
         return cls(Path(socket_path).parent)
 
 
-def resolve_root() -> Path:
-    """The daemon root: :data:`ROOT_ENV`, else ``~/.maelstrom``."""
+class RootUnset(Exception):
+    """Raised when :data:`ROOT_ENV` names no daemon root.
+
+    The one failure that has no safe default. A guessed root reaches another
+    environment's agents, which is how a worktree's test code came to serve as
+    the everyday daemon.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(ROOT_UNSET_MESSAGE)
+
+
+#: What to tell someone whose environment names no root. Names both starters,
+#: because which one they want depends on the worktree they are standing in.
+ROOT_UNSET_MESSAGE = (
+    f"{ROOT_ENV} is not set. `mael self-env start` runs the everyday daemon; "
+    "`mael env start` runs this worktree's."
+)
+
+
+def require_root() -> Path:
+    """The daemon root named by :data:`ROOT_ENV`.
+
+    ``~`` is expanded: the value is written by hand into ``.env``, so a tilde
+    reaches here, and an unexpanded one makes a directory named ``~`` wherever
+    the process happens to be running.
+
+    Raises:
+        RootUnset: If the variable is absent or empty.
+    """
     override = os.environ.get(ROOT_ENV)
-    return Path(override) if override else get_maelstrom_dir()
+    if not override:
+        raise RootUnset()
+    return Path(override).expanduser()
+
+
+def resolve_root() -> Path:
+    """The daemon root named by :data:`ROOT_ENV`.
+
+    The same as :func:`require_root`. There is no fallback: every environment
+    writes its own root into ``.env``, and a command that finds none has no
+    daemon to talk to rather than a default one.
+
+    Raises:
+        RootUnset: If the variable is absent or empty.
+    """
+    return require_root()
 
 
 def daemon_paths(root: str | Path | None = None) -> DaemonPaths:
-    """The paths under ``root``, or under the resolved default."""
-    return DaemonPaths(Path(root) if root is not None else resolve_root())
+    """The paths under ``root``, or under the environment's own.
+
+    Raises:
+        RootUnset: If ``root`` is None and the environment names none.
+    """
+    return DaemonPaths(Path(root).expanduser() if root is not None else resolve_root())
 
 
 def all_roots(base: Path | None = None) -> list[DaemonPaths]:
@@ -111,16 +153,6 @@ def all_roots(base: Path | None = None) -> list[DaemonPaths]:
         ]
     return roots
 
-
-#: How long one probe of the socket may take. Much shorter than
-#: :data:`READY_TIMEOUT`, so a single hung connect cannot eat the whole budget.
-PROBE_TIMEOUT = 0.5
-#: How long to wait for a freshly spawned daemon to bind.
-READY_TIMEOUT = 5.0
-#: How often to re-probe while waiting. The daemon binds in tens of ms.
-POLL_INTERVAL = 0.025
-#: How much of the log to quote when a spawned daemon dies.
-LOG_TAIL_BYTES = 8192
 
 #: How long a request waits for the daemon's reply line before giving up.
 REPLY_TIMEOUT = 30.0
@@ -143,11 +175,6 @@ def resolve_socket_path() -> str:
     return str(daemon_paths().socket)
 
 
-def autostart_enabled() -> bool:
-    """Whether a command may start a daemon it finds missing."""
-    return os.environ.get(NO_AUTOSTART_ENV, "") != "1"
-
-
 async def open_connection(
     socket_path: str, *, limit: int = STREAM_LIMIT
 ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
@@ -160,198 +187,27 @@ async def open_connection(
     return await asyncio.open_unix_connection(socket_path, limit=limit)
 
 
-async def _probe(socket_path: str) -> bool:
-    """Whether a daemon already answers on ``socket_path``."""
-    try:
-        _, writer = await asyncio.wait_for(
-            open_connection(socket_path), timeout=PROBE_TIMEOUT
-        )
-    except (OSError, asyncio.TimeoutError):
-        return False
-    writer.close()
-    return True
+#: The phrase every "no daemon here" reply opens with. Callers that must tell
+#: an absent daemon from one that answered badly match on this rather than on
+#: the whole sentence, so the advice can be reworded without breaking them.
+UNREACHABLE_MARKER = "No agent daemon on"
 
 
-def spawn_daemon(paths: DaemonPaths) -> tuple[subprocess.Popen, int]:
-    """Start a detached daemon on ``paths``' root.
+def unreachable_message(paths: DaemonPaths) -> str:
+    """What to say when no daemon answers on ``paths``' socket.
 
-    Returns the child and the log size before it started, so a later failure is
-    read back from that offset only — otherwise an older daemon's crash is
-    reported as this one's.
-
-    Output goes to a real file, never a ``PIPE``: this process exits, the read
-    end closes, and the detached daemon dies of ``SIGPIPE`` on its next write.
-    ``start_new_session`` keeps Ctrl-C on the starting command from killing the
-    daemon, and the inherited :data:`NO_AUTOSTART_ENV` keeps a daemon from
-    spawning a daemon.
+    Names the root, because a command reaching the wrong environment's daemon
+    looks the same as no daemon at all. Names both starters, because which one
+    is wanted depends on the worktree the caller is standing in.
     """
-    log = paths.log
-    log.parent.mkdir(parents=True, exist_ok=True)
-    offset = log.stat().st_size if log.exists() else 0
-    handle = log.open("ab")
-    try:
-        child = subprocess.Popen(
-            [mael_path(), "agent", "daemon", "serve", "--root", str(paths.root)],
-            stdin=subprocess.DEVNULL,
-            stdout=handle,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            env={**os.environ, NO_AUTOSTART_ENV: "1"},
-        )
-    finally:
-        handle.close()
-    return child, offset
-
-
-def _log_tail(paths: DaemonPaths, offset: int) -> str:
-    """What the daemon wrote since ``offset``, for a failure message."""
-    log = paths.log
-    if not log.exists():
-        return ""
-    with log.open("rb") as handle:
-        handle.seek(offset)
-        return handle.read(LOG_TAIL_BYTES).decode(errors="replace").strip()
-
-
-#: How long to wait for a stopping daemon to let go, in seconds.
-GONE_TIMEOUT = 10.0
-
-
-def wait_for_daemon_gone(paths: DaemonPaths, timeout: float = GONE_TIMEOUT) -> None:
-    """Wait until a stopping daemon has let go of its root.
-
-    Waiting on the socket file alone is not enough. Shutdown unlinks the socket
-    *before* it releases the lock, so a restart that watched only the file would
-    spawn while the old daemon still held the lock — and the new daemon would
-    lose the bind and report "a daemon is already serving".
-
-    Taking the lock is the test: it succeeds only once the old daemon has gone.
-    The lock is released again straight away, so the daemon spawned next can
-    take it.
-
-    Returns when the daemon has gone, or when ``timeout`` passes — a caller that
-    spawns anyway gets the clearer "already serving" error from the child.
-    """
-    from .agent_server import _release_lock, _take_lock
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        fd = _take_lock(paths.lock)
-        if fd is not None:
-            _release_lock(fd)
-            return
-        time.sleep(0.05)
-
-
-def local_source_tree() -> str:
-    """The tree this code was imported from.
-
-    ``src/maelstrom/agent_transport.py`` sits two directories below the tree
-    root, the same derivation ``build_daemon_identity`` uses for the daemon's
-    own side of the comparison.
-    """
-    return str(Path(__file__).parents[2])
-
-
-async def warn_on_skew(socket_path: str) -> None:
-    """Say so when the daemon answering runs different code than this caller.
-
-    A daemon lives for days holding the modules it imported at start, and a
-    command from a newer tree is served by it silently. That has produced a
-    bug that looked like the feature under development.
-
-    A warning, never a refusal: the daemon works, and stopping it is the
-    caller's decision.
-    """
-    reply = await request_over_socket(socket_path, {"cmd": "ping"}, autostart=False)
-    identity = reply.get("daemon")
-    if not isinstance(identity, dict):
-        # A daemon that cannot answer `ping` predates the command, so it is
-        # older than this code by construction. Staying quiet here would mute
-        # the warning in precisely the case it exists for.
-        #
-        # Match on there being an error at all, not on its words: a pre-`ping`
-        # daemon falls through to the agent lookup and answers "no such agent",
-        # never "unknown command". Only an unreachable daemon is exempt — the
-        # caller's own request reports that better than a warning would.
-        error = str(reply.get("error", ""))
-        if error and "not reachable" not in error:
-            _warn(
-                f"the daemon on {socket_path} is older than this code: it does "
-                "not answer `ping`."
-            )
-        return
-    theirs = str(identity.get("source_tree", ""))
-    ours = local_source_tree()
-    if not theirs or theirs == ours:
-        return
-    _warn(f"the daemon on {socket_path} runs code from {theirs}, not {ours}.")
-
-
-def _warn(what: str) -> None:
-    """One warning line, plus the command that fixes it."""
-    print(
-        f"Warning: {what}\n"
-        "         Run `mael agent daemon restart` to serve from this tree.",
-        file=sys.stderr,
+    return (
+        f"{UNREACHABLE_MARKER} {paths.root}. Run `mael self-env start` "
+        "(everyday daemon) or `mael env start` (this worktree's)."
     )
 
 
-async def ensure_daemon(paths: DaemonPaths) -> None:
-    """Make sure a daemon answers on ``paths``' socket, starting one if not.
-
-    A no-op when one already runs, or when auto-start is disabled — a caller
-    that finds no daemon then gets its own connection error, which says the same
-    thing.
-
-    The readiness wait races three outcomes: the socket answers, the child dies,
-    or the deadline passes. So a daemon that fails in 40 ms is reported in 40 ms
-    rather than after the full timeout.
-
-    Raises:
-        OSError: If the daemon could not be started, quoting what it wrote.
-    """
-    if not autostart_enabled():
-        return
-    socket_path = str(paths.socket)
-    if await _probe(socket_path):
-        # It answers, so nothing needs starting — but it may be another tree's.
-        await warn_on_skew(socket_path)
-        return
-
-    child, offset = spawn_daemon(paths)
-    deadline = asyncio.get_running_loop().time() + READY_TIMEOUT
-    while True:
-        # Probe before checking the child: two commands can race, the loser
-        # exits 1 having lost the socket, and the winner is already listening.
-        # Reversing the order turns a won race into a spurious failure.
-        if await _probe(socket_path):
-            return
-        if child.poll() is not None:
-            raise OSError(
-                f"the agent daemon exited at once ({child.returncode})"
-                f"{_reason(paths, offset)}"
-            )
-        if asyncio.get_running_loop().time() >= deadline:
-            # SIGTERM, not SIGKILL: a daemon this slow has already restored
-            # its agents, and `serve`'s `finally` is what stops them again.
-            # A kill would leave every child running on a dead pipe.
-            child.terminate()
-            raise OSError(
-                f"the agent daemon did not start within {READY_TIMEOUT:g}s"
-                f"{_reason(paths, offset)}"
-            )
-        await asyncio.sleep(POLL_INTERVAL)
-
-
-def _reason(paths: DaemonPaths, offset: int) -> str:
-    """The daemon's own words, when it left any."""
-    tail = _log_tail(paths, offset)
-    return f": {tail}" if tail else ""
-
-
 async def request_over_socket(
-    socket_path: str, payload: dict[str, Any], *, autostart: bool = True
+    socket_path: str, payload: dict[str, Any]
 ) -> dict[str, Any]:
     """One NDJSON round-trip over the daemon's Unix domain socket.
 
@@ -360,14 +216,13 @@ async def request_over_socket(
     malformed line all come back as a reply whose ``error`` explains them,
     never an exception — the same non-fatal contract as ``CmuxResult``.
 
-    ``autostart`` starts a daemon first when none answers on ``socket_path``.
+    No daemon is started. A missing one is the error reply
+    :func:`unreachable_message` describes.
     """
     try:
-        if autostart:
-            await ensure_daemon(DaemonPaths.for_socket(socket_path))
         reader, writer = await open_connection(socket_path)
-    except (OSError, asyncio.TimeoutError) as exc:
-        return {"error": f"agent daemon not reachable at {socket_path}: {exc}"}
+    except (OSError, asyncio.TimeoutError):
+        return {"error": unreachable_message(DaemonPaths.for_socket(socket_path))}
     try:
         writer.write((json.dumps(payload) + "\n").encode())
         await writer.drain()
@@ -405,10 +260,8 @@ class RecordingDaemonClient:
     replies: list[dict[str, Any]] = field(default_factory=list)
     calls: list[dict[str, Any]] = field(default_factory=list)
     #: Same shape as the real client, so ``client()`` is one plain call and a
-    #: test can assert which socket a command asked for, and whether it would
-    #: have started a daemon.
+    #: test can assert which socket a command asked for.
     socket_path: str = ""
-    autostart: bool = True
 
     def request(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.calls.append(payload)
@@ -427,14 +280,9 @@ class SocketDaemonClient:
     """
 
     socket_path: str = field(default_factory=resolve_socket_path)
-    #: Set false to keep this client from starting a daemon it finds missing.
-    #: ``MAEL_AGENT_NO_AUTOSTART`` does the same from outside.
-    autostart: bool = True
 
     def request(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return asyncio.run(
-            request_over_socket(self.socket_path, payload, autostart=self.autostart)
-        )
+        return asyncio.run(request_over_socket(self.socket_path, payload))
 
 
 #: The transport every sync caller goes through, as one seam. Tests override
@@ -444,15 +292,13 @@ class SocketDaemonClient:
 client_factory: Callable[..., DaemonClient] = SocketDaemonClient
 
 
-def client(*, autostart: bool = True, socket_path: str | None = None) -> DaemonClient:
+def client(*, socket_path: str | None = None) -> DaemonClient:
     """The transport for one command.
 
-    ``autostart=False`` is for the commands that must not conjure a daemon:
-    stopping one that is already gone, or asking whether one is there.
-    ``socket_path`` addresses a daemon other than the resolved default, which
-    is how a per-environment daemon is reached without setting an env var.
+    ``socket_path`` addresses a daemon other than this environment's, which is
+    how ``--all-roots`` reaches each root in turn.
     """
-    kwargs: dict[str, Any] = {"autostart": autostart}
+    kwargs: dict[str, Any] = {}
     if socket_path is not None:
         kwargs["socket_path"] = socket_path
     return client_factory(**kwargs)
@@ -504,12 +350,9 @@ class SocketAsyncDaemonClient:
     """
 
     socket_path: str = field(default_factory=resolve_socket_path)
-    autostart: bool = True
 
     async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return await request_over_socket(
-            self.socket_path, payload, autostart=self.autostart
-        )
+        return await request_over_socket(self.socket_path, payload)
 
     async def attach(
         self, agent_id: str, from_seq: int = 0, epoch: str = ""
@@ -522,11 +365,11 @@ class SocketAsyncDaemonClient:
         no cursor still answers.
         """
         try:
-            if self.autostart:
-                await ensure_daemon(DaemonPaths.for_socket(self.socket_path))
             reader, writer = await open_connection(self.socket_path)
-        except (OSError, asyncio.TimeoutError) as exc:
-            yield {"error": f"agent daemon not reachable at {self.socket_path}: {exc}"}
+        except (OSError, asyncio.TimeoutError):
+            yield {
+                "error": unreachable_message(DaemonPaths.for_socket(self.socket_path))
+            }
             return
         try:
             writer.write(

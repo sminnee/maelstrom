@@ -249,17 +249,16 @@ stdin step and goes straight to the signals. Signalling the group rather than th
 takes the child's hooks, MCP servers and tool shells with it: a `proc.kill()` reached the child
 alone and left the rest running on a dead pipe.
 
-The daemon's own shutdown, whether from `mael agent daemon stop`, `mael env stop`'s SIGTERM or a
-foreground `serve`'s Ctrl-C, stops every child this way. Because the children are outside the
+The daemon's own shutdown, whether from `mael env stop`'s SIGTERM or a foreground `serve`'s
+Ctrl-C, stops every child this way. Because the children are outside the
 daemon's group, a signal to the daemon never reaches them directly; the daemon's handler is the
 one path, and it leaves every record `running` so the next daemon resumes them.
 
 ## Running it
 
 One daemon serves one *daemon root*: the directory holding its socket, its lock, its pid file,
-its log and its `agents/` spawn records. The root defaults to `~/.maelstrom`, so one daemon
-normally holds every driven agent on the machine. The first command that needs it starts it. A
-daemon started by accident holds no agents, so it costs nothing.
+its log and its `agents/` spawn records. Every environment names its own root in
+`MAEL_AGENT_ROOT`, so one environment's agents never mix with another's.
 
 ```bash
 mael agent start ~/Projects/maelstrom/maelstrom-alpha --prompt "run the tests"
@@ -276,26 +275,40 @@ mael agent tail a1b2c3d4
 mael agent attach a1b2c3d4
 mael agent stop a1b2c3d4
 
-mael agent daemon serve                               # run one in the foreground
-mael agent daemon start                               # start a detached one and wait for it
 mael agent daemon status                              # which daemon is answering, and whose code
-mael agent daemon restart                             # pick up code changed since it started
-mael agent daemon stop
 mael agent daemon list                                # every record: pid, alive, held, mismatch
 mael agent daemon reconcile                           # what gc would do
 mael agent daemon gc                                  # kill strays and duplicates, write off crashes
 ```
 
-An auto-started daemon writes its output to `<root>/agent-daemon.log`, and runs in its own
-process group. So Ctrl-C on the command that started it does not kill the daemon holding every
-agent. A daemon that fails to start is reported with what it wrote to that log.
-
-Auto-start waits 5 seconds for the daemon to bind, and reports a child that dies sooner as soon as
-it dies. A daemon that misses the deadline is sent SIGTERM, not SIGKILL, so it stops the agents it
-has already restored. `MAEL_AGENT_NO_AUTOSTART=1` turns auto-start off, and every spawned daemon
-inherits it, so a daemon can never spawn a daemon.
-
 `mael agent list --json` emits the rows as JSON.
+
+### Starting a daemon
+
+Two commands start one, and nothing else does:
+
+```bash
+mael self-env start                  # the everyday daemon, on ~/.maelstrom/daemons/_main
+mael env start                       # this worktree's daemon
+mael self-env restart agent-daemon   # replace one holding stale code
+```
+
+Both run `mael agent daemon serve` as a service, so a daemon's lifetime is its environment's, and
+`mael env stop` takes the daemon and its agents with it. The service writes to
+`<root>/agent-daemon.log`.
+
+No `mael agent` command, session launch or orchestrator poll starts a daemon. Each reports the
+root it looked for and both of these commands:
+
+```
+No agent daemon on /Users/you/.maelstrom/daemons/_main. Run `mael self-env start`
+(everyday daemon) or `mael env start` (this worktree's).
+```
+
+Auto-start used to fill that gap, and it is what made the everyday daemon serve a worktree's test
+code. The worktree's orchestrator polled the socket, found it gone, and started a daemon from its
+own tree — four times over. Whoever noticed a missing daemon first chose the code every session on
+the machine then ran.
 
 ### The daemon root
 
@@ -309,8 +322,9 @@ Everything a daemon owns lives under one directory:
 | `<root>/agent-daemon.log` | Where a detached daemon writes |
 | `<root>/agents/` | One spawn record per agent |
 
-`MAEL_AGENT_ROOT` moves the root; every daemon verb and `mael orchestrator serve` take `--root`
-for the same thing. The socket, the log and the records used to be three independent variables,
+`MAEL_AGENT_ROOT` names the root, and nothing else does. There is no default and no `--root`
+flag, so a daemon cannot be started on a root its environment does not own. The socket, the log
+and the records used to be three independent variables,
 so a daemon could be pointed at one directory's records over another directory's socket, and two
 daemons could share the records that make them spawn. One root, with one daemon per root, is
 what makes a session belong to exactly one daemon.
@@ -341,16 +355,14 @@ started:  2026-09-05 14:47 (3h ago)
 agents:   5
 ```
 
-`source` is the field that matters: it names the worktree the serving code came from. A
-command that auto-starts the daemon compares that tree with its own and warns on a mismatch, so
-`MAEL_AGENT_NO_AUTOSTART=1` mutes the warning along with the auto-start. The warning names
-`mael agent daemon restart`, and never refuses — a daemon serving older code still works.
-`status` prints the tree instead of warning about it: the daemon's identity is the answer it was
-asked for, not a note in the margin.
+`source` is the field that matters: it names the worktree the serving code came from. A daemon
+holds the modules it imported at start, for days, so a command from a newer tree is served by it
+silently. That has produced a bug that looked like the feature under development.
+`mael self-env restart agent-daemon` replaces one holding stale code.
 
-A daemon too old to answer `ping` gets the same warning on the auto-start path, since a daemon
-that does not know the command predates it by construction. `status` cannot report it as a
-footnote — it has no identity to print — so it fails with the same advice.
+A daemon too old to answer `ping` has no identity to print, so `status` fails with that same
+advice rather than reporting the daemon's own confusion. A daemon that does not know `ping`
+predates it by construction.
 
 ### A daemon per environment
 
@@ -732,6 +744,18 @@ Each child also gets `CMUX_CLAUDE_HOOKS_DISABLED=1`. Inside a cmux terminal a sh
 `claude` shadows the real binary on `PATH`, and that script adds a `--settings` block of hooks
 which call back into the cmux integrated development environment (IDE). A driven agent is not an
 IDE session, so the variable tells the script to run the real binary with the argv untouched.
+
+So a child's environment is the daemon's own, with these changes:
+
+| Variable | What the daemon does | Why |
+|---|---|---|
+| `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION` | Removed | An inherited marker can suppress the transcript write |
+| `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE` | Set to `1` | Asks for the transcript outright, rather than relying on the removals |
+| `CMUX_CLAUDE_HOOKS_DISABLED` | Set to `1` | Runs the real `claude`, not cmux's shim |
+| `MAEL_AGENT_ROOT` | Set to the daemon's own root | A `mael agent …` command inside the session reaches the daemon that runs it, not whichever root the daemon's own shell named |
+
+The request's `env` is applied last, so a caller that names any of these wins. That is the
+no-allowlist contract above.
 
 ### The spawn record
 

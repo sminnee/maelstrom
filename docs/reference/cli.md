@@ -627,14 +627,11 @@ all. See [agent-daemon.md](../dev/agent-daemon.md) for the protocol.
 
 | Command | Description |
 |---|---|
-| `mael agent daemon serve` | Run the agent daemon in the foreground. `--root DIR` names the daemon root, the directory holding its socket, log and spawn records. |
-| `mael agent daemon start` | Start a detached daemon and wait for it to bind. `--root DIR` as above. |
-| `mael agent daemon status` | Print which daemon serves this root: its root, socket, pid, version, spawn-record directory, start time, agent count, and the worktree its code came from. `--root DIR`. |
-| `mael agent daemon restart` | Stop the daemon and start a fresh one, so it picks up code changed since it started. A busy agent loses the turn it is running. `--root DIR`. |
-| `mael agent daemon stop` | Stop the daemon serving this root. Its agents go with it, and their records stay resumable. Exits 0 when no daemon is running. `--root DIR`. |
-| `mael agent daemon list` | Every spawn record with its pid, whether that pid is alive, whether the daemon holds it, what it was doing at the last shutdown, and a `mismatch` column naming a stray, a crash, a retired record or a duplicate. A driven `claude` no record names is a row of its own. `--root DIR`, `--all-roots`, `--json`. |
-| `mael agent daemon reconcile` | Say what `gc` would do, doing nothing: one verdict per record and per unplaced process. Asks the daemon when one answers, else reads the records and the process table itself. `--root DIR`, `--all-roots`, `--json`. |
-| `mael agent daemon gc` | Kill the strays and duplicates, retire the older of two running records on one session, and write off the crashed. Never resumes: a stray's record stays `running` for the next daemon start. Under `--all-roots` a process no root claims is killed too. `--root DIR`, `--json`. |
+| `mael agent daemon serve` | Run the agent daemon in the foreground, on the root `MAEL_AGENT_ROOT` names. Exits 2 when that variable is unset. `mael env start` runs it as a service; you rarely run it by hand. |
+| `mael agent daemon status` | Print which daemon serves this environment's root: its root, socket, pid, version, spawn-record directory, start time, agent count, and the worktree its code came from. |
+| `mael agent daemon list` | Every spawn record with its pid, whether that pid is alive, whether the daemon holds it, what it was doing at the last shutdown, and a `mismatch` column naming a stray, a crash, a retired record or a duplicate. A driven `claude` no record names is a row of its own. `--all-roots`, `--json`. |
+| `mael agent daemon reconcile` | Say what `gc` would do, doing nothing: one verdict per record and per unplaced process. Asks the daemon when one answers, else reads the records and the process table itself. `--all-roots`, `--json`. |
+| `mael agent daemon gc` | Kill the strays and duplicates, retire the older of two running records on one session, and write off the crashed. Never resumes: a stray's record stays `running` for the next daemon start. Under `--all-roots` a process no root claims is killed too. `--all-roots`, `--json`. |
 | `mael agent start [CWD]` | Start an agent in CWD (default `.`). Takes `--prompt`, `--mode`, `--model`, `--session-id`. |
 | `mael agent list` | Show every agent, what each waiting one waits on, and what each last said. A subagent follows its parent under a dotted id (`ID.1`), with `parent` and `description` columns. `--stopped` shows sessions that have stopped and can be resumed; `--all` shows both. `-w PROJECT.WORKTREE` and `--project NAME` narrow the stopped half of the listing, and imply `--stopped` on their own. `--json` emits rows as JSON. |
 | `mael agent show ID` | Show one agent in full: the last thing it said, every question option, the plan, and the command that answers the wait. On a parent it ends with a `Subagents:` table; on a dotted id it shows that subagent. `--json` emits the detail as JSON. |
@@ -672,22 +669,35 @@ mael agent stop 1761dcf6
 mael agent resume 1761dcf6                      # after a crash: same id, same conversation
 mael agent resume 1761dcf6 --text "rerun the failing test"
 mael agent daemon status                        # which daemon is serving, running whose code
-mael agent daemon restart                       # pick up code changed since it started
 mael agent daemon list                          # every record: pid, alive, held, mismatch
 mael agent daemon reconcile                     # what gc would do
 mael agent daemon gc                            # after a daemon died: kill its strays
 ```
 
-The first command that needs the daemon starts it, in its own process group, logging to
-`~/.maelstrom/agent-daemon.log` — a foreground `mael agent daemon serve` ignores that log. Set
-`MAEL_AGENT_NO_AUTOSTART=1` to turn auto-start off. Every agent is a normal `claude` process.
-Everything the daemon owns lives under its root, `~/.maelstrom` by default; `MAEL_AGENT_ROOT` or
-`--root` moves it.
+Two commands start a daemon, and nothing else does:
 
-A daemon holds the code it started with, so a command from one worktree can be served by another
-worktree's daemon. `mael agent daemon status` names the tree serving you, and a command that
-auto-starts the daemon warns when that tree is not its own. An environment can run a daemon of
-its own instead — see [agent-daemon.md](../dev/agent-daemon.md#a-daemon-per-environment).
+```bash
+mael self-env start                             # the everyday daemon, on ~/.maelstrom/daemons/_main
+mael env start                                  # this worktree's daemon
+mael self-env restart agent-daemon              # pick up code changed since it started
+```
+
+Both run `mael agent daemon serve` as a service of an environment, so a daemon's lifetime is its
+environment's. No `mael agent` command, session launch or orchestrator poll starts one. A command
+that finds no daemon names the root it looked for and both of these commands.
+
+Everything a daemon owns lives under its root: its socket, lock, pid file, log and `agents/`
+spawn records. `MAEL_AGENT_ROOT` names that root, and the environment manager writes it into each
+worktree's `.env`. There is no fallback and no `--root` flag, so a daemon cannot be started on a
+root its environment does not own.
+
+Your shell reaches the daemon its directory names. `uv run mael` in a worktree reads that
+worktree's `.env` through `UV_ENV_FILE=.env`, a convention you set in your shell. A plain `mael`
+reaches the everyday daemon, because `mael self-update` writes that root into the `mael` on your
+PATH. A `mael agent` command inside a driven session reaches the daemon that runs the session.
+
+A daemon holds the code it started with, so `mael agent daemon status` names the tree serving
+you. See [agent-daemon.md](../dev/agent-daemon.md#a-daemon-per-environment).
 
 A crashed child shows as `exited(N)` in `mael agent list`, and `mael agent resume` brings it back
 with the conversation it had. A daemon start resumes every agent that was running, under the same
@@ -709,7 +719,7 @@ agents from the agent host, over HTTP. See
 
 | Command | Description |
 |---|---|
-| `mael orchestrator serve` | Run the orchestrator server in the foreground. `--host` (default `127.0.0.1`), `--port` (default `8765`), `--root DIR` for the agent host's daemon root. |
+| `mael orchestrator serve` | Run the orchestrator server in the foreground. `--host` (default `127.0.0.1`), `--port` (default `8765`). The agent host is the daemon `MAEL_AGENT_ROOT` names, so a worktree's orchestrator talks to that worktree's daemon. |
 
 ```bash
 mael orchestrator serve                     # http://127.0.0.1:8765
@@ -1011,16 +1021,17 @@ None of these take options beyond `--help`.
 |---|---|
 | `mael doctor [PROJECT]` | Check project health and fix issues automatically. |
 | `mael install` | Install maelstrom's Claude Code skills and hooks into `~/.claude/`. |
-| `mael self-update` | Update maelstrom to the latest version from git. |
-| `mael self-env <VERB>` | `mael env <VERB>` aimed at maelstrom's own `_main`. |
+| `mael self-update` | Update maelstrom to the latest version from git. Also points the `mael` on your PATH at the everyday daemon's root, so a bare `mael agent …` reaches it. |
+| `mael self-env <VERB>` | `mael env <VERB>` aimed at maelstrom's own `_main`. `mael self-env start` runs the everyday agent daemon, which is a service of that environment. |
 | `mael session-channel` | Launch the Bun-based session-tracking MCP channel. Invoked by Claude Code, not by humans. |
 
 ```bash
 mael install                 # skills and hooks into ~/.claude/
 mael doctor myproject        # check project health, and fix what it can
 mael self-update
-mael self-env start          # maelstrom's own orchestrator and web UI
+mael self-env start          # maelstrom's own orchestrator, web UI and the everyday daemon
 mael self-env status
+mael self-env restart agent-daemon   # the everyday daemon picks up new code
 mael self-env stop
 ```
 

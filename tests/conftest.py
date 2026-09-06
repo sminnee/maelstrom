@@ -52,22 +52,12 @@ def _block_real_cmux():
 
 
 @pytest.fixture(autouse=True)
-def _block_agent_daemon_autostart(monkeypatch):
-    """Keep any test from leaving an agent daemon running.
-
-    ``mael agent`` starts a daemon when it finds none, so an unrelated test that
-    touches the transport would spawn a real background process. The auto-start
-    tests unset this themselves.
-    """
-    monkeypatch.setenv("MAEL_AGENT_NO_AUTOSTART", "1")
-
-
-@pytest.fixture(autouse=True)
 def _isolate_agent_paths(monkeypatch, tmp_path):
-    """Keep every test off the real ``~/.maelstrom``.
+    """Keep every test off a real daemon root.
 
-    The daemon root defaults under the developer's home, so an unpinned test
-    reads the real spawn records and sees whatever agents run on the machine.
+    Every command reads ``MAEL_AGENT_ROOT``, and a developer's shell sets it to
+    a live root. An unpinned test would read the real spawn records and see
+    whatever agents run on the machine.
     """
     monkeypatch.setenv("MAEL_AGENT_ROOT", str(tmp_path / "maelstrom"))
 

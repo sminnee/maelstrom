@@ -30,10 +30,10 @@ from ..agent_model import (
 from ..agent_transport import (
     DaemonPaths,
     attach_command,
-    ensure_daemon,
     open_connection,
     request_over_socket,
     resolve_socket_path,
+    unreachable_message,
 )
 
 
@@ -248,20 +248,19 @@ class SocketAsyncDaemonClient:
     """
 
     socket_path: str = field(default_factory=resolve_socket_path)
-    autostart: bool = True
 
     async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return await request_over_socket(
-            self.socket_path, payload, autostart=self.autostart
-        )
+        return await request_over_socket(self.socket_path, payload)
 
     async def attach(
         self, agent_id: str, from_seq: int = 0, epoch: str = ""
     ) -> AsyncIterator[dict[str, Any]]:
         try:
-            reader, writer = await self._connect()
-        except (OSError, asyncio.TimeoutError) as exc:
-            yield {"error": f"agent daemon not reachable at {self.socket_path}: {exc}"}
+            reader, writer = await open_connection(self.socket_path)
+        except (OSError, asyncio.TimeoutError):
+            yield {
+                "error": unreachable_message(DaemonPaths.for_socket(self.socket_path))
+            }
             return
         try:
             command = attach_command(agent_id, from_seq, epoch)
@@ -277,8 +276,3 @@ class SocketAsyncDaemonClient:
                     continue
         finally:
             writer.close()
-
-    async def _connect(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
-        if self.autostart:
-            await ensure_daemon(DaemonPaths.for_socket(self.socket_path))
-        return await open_connection(self.socket_path)

@@ -202,9 +202,10 @@ and the worktree its code came from.
 
 **Daemon root**:
 The one directory a daemon owns: its socket, its lock, its pid file, its log and its `agents/`
-spawn records. `~/.maelstrom` by default; `MAEL_AGENT_ROOT` or `--root` names another. One
-daemon per root, enforced by the lock, so a session belongs to exactly one daemon — the socket,
-log and records can no longer be pointed at three different places.
+spawn records. `MAEL_AGENT_ROOT` names it, and nothing else does — there is no default. One
+daemon per root, enforced by the lock, so a session belongs to exactly one daemon. One owner per
+root too: the environment whose `.env` names it. `mael self-env start` runs the everyday daemon
+on `~/.maelstrom/daemons/_main`, `mael env start` runs a worktree's, and nothing else starts one.
 _Avoid_: Socket directory, spec dir, daemon home
 
 **Stray**:

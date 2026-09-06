@@ -6,9 +6,11 @@ from pathlib import Path
 
 import click
 
+from .agent_transport import ROOT_ENV
 from .claude_integration import install_claude_integration
-from .context import harden_global_config
+from .context import get_maelstrom_dir, harden_global_config
 from .env_cli import env
+from .shell import mael_path
 from .worktree_model import MAIN_WORKTREE_FOLDER
 
 
@@ -23,6 +25,60 @@ def cmd_install(no_monitor):
     messages = install_claude_integration(monitor=not no_monitor)
     for msg in messages:
         click.echo(msg)
+
+
+#: Marks a `mael` that is already a shim, so a second update replaces it
+#: rather than wrapping it again.
+SHIM_MARKER = "# maelstrom daemon-root shim"
+
+
+def _write_daemon_root_shim() -> str | None:
+    """Give the `mael` on PATH the everyday daemon's root.
+
+    That `mael` is a uv entrypoint, which reads no `.env`. `UV_ENV_FILE` only
+    reaches `uv run` in a directory that has one, so a bare `mael agent list`
+    anywhere else names no root and has no daemon to reach.
+
+    The shim supplies `_main`'s root only when nothing else has: a worktree's
+    `uv run mael` and a command inside a driven session both arrive with a root
+    already set, and overriding either would send it to the wrong daemon.
+
+    Best-effort, like the dependency sync above it: the update has already
+    landed by this point, so a `mael` that cannot be rewritten warns rather
+    than aborting.
+
+    Returns what to tell the user, or a warning when the shim could not be
+    written.
+    """
+    path = Path(mael_path())
+    root = get_maelstrom_dir() / "daemons" / MAIN_WORKTREE_FOLDER
+    real = path.with_name(f"{path.name}-real")
+    try:
+        text = path.read_text(errors="replace")
+        if SHIM_MARKER not in text:
+            # First time: move the entrypoint aside, so the shim can exec it.
+            path.replace(real)
+    except OSError as exc:
+        return (
+            f"Warning: could not point `mael` at {root} ({exc}). "
+            f"Set {ROOT_ENV} in your shell instead."
+        )
+    shim = (
+        "#!/bin/sh\n"
+        f"{SHIM_MARKER} — written by `mael self-update`.\n"
+        "# The everyday daemon's root, unless something already named one.\n"
+        f'export {ROOT_ENV}="${{{ROOT_ENV}:-{root}}}"\n'
+        f'exec "{real}" "$@"\n'
+    )
+    try:
+        path.write_text(shim)
+        path.chmod(0o755)
+    except OSError as exc:
+        return (
+            f"Warning: could not point `mael` at {root} ({exc}). "
+            f"Set {ROOT_ENV} in your shell instead."
+        )
+    return f"`mael` reaches the daemon on {root}"
 
 
 @click.command("self-update")
@@ -112,6 +168,8 @@ def cmd_self_update():
     # other place this runs, but self-update is a natural "tidy my install" hook.
     for msg in harden_global_config():
         click.echo(f"  {msg}")
+
+    click.echo(f"  {_write_daemon_root_shim()}")
 
     click.echo("Update complete.")
 
