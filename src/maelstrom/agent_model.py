@@ -15,6 +15,8 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .agent_transport import ROOT_ENV
+
 if TYPE_CHECKING:  # a runtime import would pull a module that shells out to `pgrep`
     from .session_discovery import LiveSessionSet
 
@@ -158,19 +160,27 @@ DEFAULT_RESUME_PROMPT = (
 
 
 def build_agent_env(
-    base: dict[str, str], extra: dict[str, str] | None
+    base: dict[str, str], extra: dict[str, str] | None, root: Path | None = None
 ) -> dict[str, str]:
     """The environment for a driven ``claude`` child.
 
     Takes ``base`` (the daemon's own environment), drops the two markers that
     can stop the child writing a transcript, asks for persistence outright,
-    turns off cmux's hook injection, then lets ``extra`` win — the
-    no-allowlist contract in ``docs/dev/agent-daemon.md`` stands.
+    turns off cmux's hook injection, names ``root`` as the daemon root, then
+    lets ``extra`` win — the no-allowlist contract in
+    ``docs/dev/agent-daemon.md`` stands.
+
+    ``root`` is the spawning daemon's own root, so a ``mael agent`` command run
+    inside the session reaches the daemon that holds it. Without it the child
+    inherits whatever root the daemon's shell named, which is the same root
+    only by luck.
     """
     env = dict(base)
     for marker in _CHILD_MARKERS:
         env.pop(marker, None)
     env[FORCE_PERSISTENCE_ENV] = "1"
+    if root is not None:
+        env[ROOT_ENV] = str(root)
     env[CMUX_HOOKS_DISABLED_ENV] = "1"
     env.update(extra or {})
     return env

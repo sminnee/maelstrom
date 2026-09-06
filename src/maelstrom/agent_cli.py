@@ -6,8 +6,9 @@ does no agent logic: it parses flags, sends a command, and prints the reply.
 Rendering goes through ``build_agent_row`` in the model layer, the way
 ``session_cli`` renders through ``session_view``.
 
-The first command that needs a daemon starts one, in the transport layer.
-``mael agent daemon`` is the group that runs and inspects one by hand — see
+No command starts a daemon. The environment manager does: `mael self-env
+start` runs the everyday daemon and `mael env start` runs this worktree's.
+A command that finds none says so, naming the root — see
 ``docs/dev/agent-daemon.md``.
 """
 
@@ -50,13 +51,14 @@ from .agent_server import (
 )
 from .agent_spec_store import JsonAgentSpecStore
 from .agent_transport import (
+    UNREACHABLE_MARKER,
     DaemonClient,
     DaemonPaths,
+    RootUnset,
     SocketAsyncDaemonClient,
     all_roots,
     daemon_paths,
-    ensure_daemon,
-    wait_for_daemon_gone,
+    require_root,
 )
 from .agent_transport import client as daemon_client
 from .context import resolve_context
@@ -82,15 +84,15 @@ LIST_COLUMNS = [
 SUBAGENT_COLUMNS = ["id", "state", "description", "last_message"]
 
 
-def _daemon_at(paths: DaemonPaths | None, *, autostart: bool = True) -> DaemonClient:
-    """A client for one daemon root, or the resolved default when given none.
+def _daemon_at(paths: DaemonPaths | None) -> DaemonClient:
+    """A client for one daemon root, or for this environment's when given none.
 
     Goes through ``client_factory`` either way, so a test fake still
     intercepts a command that names a root. The fake takes the socket path
     and ignores it, having no socket to reach.
     """
     socket_path = str(paths.socket) if paths is not None else None
-    return daemon_client(autostart=autostart, socket_path=socket_path)
+    return daemon_client(socket_path=socket_path)
 
 
 def _send(payload: dict[str, Any]) -> dict[str, Any]:
@@ -113,28 +115,33 @@ def agent() -> None:
     """Drive Claude agents over a stream-json pipe."""
 
 
-#: Every daemon verb takes it: a per-environment daemon is addressed by its root.
-root_option = click.option(
-    "--root",
-    default=None,
-    help="The daemon root: the directory holding its socket, log and records.",
-)
-
-
 @agent.group("daemon")
 def cmd_daemon() -> None:
-    """Run and inspect the agent daemon.
+    """Inspect the agent daemon, and run one as a service.
 
-    `serve` runs one in the foreground; `start` detaches. `status` says which
-    daemon is answering and whose code it runs, which is the question a
-    long-lived daemon makes worth asking.
+    The environment manager owns a daemon's lifetime: `mael self-env start`
+    runs the everyday daemon, and `mael env start` runs this worktree's. Both
+    run `serve` as a service, so `mael self-env restart agent-daemon` is how a
+    daemon picks up new code.
+
+    `status` says which daemon is answering and whose code it runs, which is
+    the question a long-lived daemon makes worth asking.
     """
 
 
 @cmd_daemon.command("serve")
-@root_option
-def cmd_daemon_serve(root: str | None) -> None:
-    """Run the agent daemon in the foreground."""
+def cmd_daemon_serve() -> None:
+    """Run the agent daemon in the foreground, on the root this environment names.
+
+    The root comes from ``MAEL_AGENT_ROOT`` and from nowhere else. There is no
+    flag: a flag is what let a worktree's daemon be started on the everyday
+    root, where it served that worktree's test code to every session on the
+    machine.
+    """
+    try:
+        root = require_root()
+    except RootUnset as exc:
+        raise click.UsageError(str(exc)) from exc
     daemon = AgentDaemon(root)
     try:
         asyncio.run(daemon.serve())
@@ -145,100 +152,33 @@ def cmd_daemon_serve(root: str | None) -> None:
         sys.exit(1)
 
 
-@cmd_daemon.command("stop")
-@root_option
-def cmd_daemon_stop(root: str | None) -> None:
-    """Stop the daemon serving this root.
-
-    Its agents are its children and go with it. Their records stay
-    ``running``, so the next daemon start resumes them — that is what makes
-    restarting to pick up new code cheap.
-
-    A daemon that is already gone is the desired state, not an error, so this
-    exits 0 either way.
-    """
-    paths = daemon_paths(root)
-    # No auto-start: starting a daemon in order to stop it is absurd, and the
-    # default client would do exactly that.
-    reply = _daemon_at(paths, autostart=False).request({"cmd": "shutdown"})
-    if "error" in reply:
-        click.echo(f"No daemon running at {paths.root}.")
-        return
-    click.echo(f"Stopped the daemon at {paths.root}.")
-
-
-@cmd_daemon.command("start")
-@root_option
-def cmd_daemon_start(root: str | None) -> None:
-    """Start a detached daemon and wait for it to bind.
-
-    ``ensure_daemon`` is the same spawn-and-wait auto-start uses, so a daemon
-    started by hand and one started by a command are the same process in the
-    same state.
-    """
-    paths = daemon_paths(root)
-    try:
-        asyncio.run(ensure_daemon(paths))
-    except OSError as exc:
-        click.echo(f"Error: {exc}", err=True)
-        sys.exit(1)
-    click.echo(f"Daemon listening on {paths.socket}.")
-
-
-@cmd_daemon.command("restart")
-@root_option
-def cmd_daemon_restart(root: str | None) -> None:
-    """Stop the daemon and start a fresh one, picking up the current code.
-
-    A busy agent loses the turn it is running and comes back with the resume
-    nudge; the conversation itself is in the transcript and survives.
-    """
-    paths = daemon_paths(root)
-    reply = _daemon_at(paths, autostart=False).request({"cmd": "shutdown"})
-    replaced = "error" not in reply
-    if replaced:
-        wait_for_daemon_gone(paths)
-    try:
-        asyncio.run(ensure_daemon(paths))
-    except OSError as exc:
-        click.echo(f"Error: {exc}", err=True)
-        sys.exit(1)
-    if replaced:
-        click.echo(f"Daemon restarted on {paths.root}.")
-    else:
-        # Saying "restarted" here would tell a user who expected to replace a
-        # running daemon that they did.
-        click.echo(f"No daemon was running. Started one on {paths.root}.")
-
-
 @cmd_daemon.command("status")
-@root_option
-def cmd_daemon_status(root: str | None) -> None:
+def cmd_daemon_status() -> None:
     """Say which daemon is serving this root, and what code it runs.
 
     One root can be served by a daemon spawned from any worktree, and it
     holds the modules it imported at start. So the source tree and the start
     time are the two fields worth reading here.
     """
-    paths = daemon_paths(root)
-    # No auto-start, and no skew warning: the serving tree is what this command
-    # was asked for, so it belongs in the `source` row rather than in a warning
-    # printed immediately above it.
-    reply = _daemon_at(paths, autostart=False).request({"cmd": "ping"})
+    paths = daemon_paths()
+    # No skew warning: the serving tree is what this command was asked for, so
+    # it belongs in the `source` row rather than in a warning printed
+    # immediately above it.
+    reply = _daemon_at(paths).request({"cmd": "ping"})
     if "error" in reply:
         # A daemon predating `ping` falls through to the agent lookup and
         # answers "no such agent", which reads here as a fault in this command
         # rather than in the daemon it is asking. Say what it means instead.
         error = reply["error"]
-        if "not reachable" in error:
+        if UNREACHABLE_MARKER in error:
             click.echo(f"Error: {error}", err=True)
         else:
             click.echo(
                 "Error: the daemon on "
                 f"{paths.root} is older than this "
                 "code: it does not answer `ping`.\n"
-                "       Run `mael agent daemon restart` to serve from this "
-                "tree.",
+                "       Run `mael self-env restart agent-daemon` to serve from "
+                "this tree.",
                 err=True,
             )
         sys.exit(1)
@@ -288,16 +228,16 @@ def _reconcile_root(paths: DaemonPaths, *, act: bool) -> _RootReport:
 
     Raises:
         click.ClickException: If the process table cannot be read, or the
-            daemon answered something other than "not reachable".
+            daemon answered something other than "no daemon here".
     """
-    client = _daemon_at(paths, autostart=False)
+    client = _daemon_at(paths)
     reply = client.request({"cmd": "gc" if act else "reconcile"})
     if "error" not in reply:
         rows = client.request({"cmd": "list"}).get("agents", [])
         held = {row["id"] for row in rows if not row.get("parent")}
         verdicts = [Verdict(**v) for v in reply.get("verdicts", [])]
         return _RootReport(paths, verdicts, list(reply.get("killed", [])), held, True)
-    if "not reachable" not in reply["error"]:
+    if UNREACHABLE_MARKER not in reply["error"]:
         raise click.ClickException(reply["error"])
     specs = JsonAgentSpecStore(paths.spec_dir)
     try:
@@ -316,16 +256,16 @@ def _kill_group():
     return agent_server.kill_group
 
 
-def _roots(root: str | None, every: bool) -> list[DaemonPaths]:
+def _roots(every: bool) -> list[DaemonPaths]:
     if every:
         return all_roots()
-    return [daemon_paths(root)]
+    return [daemon_paths()]
 
 
-def _reports(root: str | None, every: bool, *, act: bool) -> list[_RootReport]:
+def _reports(every: bool, *, act: bool) -> list[_RootReport]:
     """Reconcile the chosen roots. With every root, a process unknown to all of
     them has no owner anywhere and is killed too, when acting."""
-    reports = [_reconcile_root(paths, act=act) for paths in _roots(root, every)]
+    reports = [_reconcile_root(paths, act=act) for paths in _roots(every)]
     if every and act:
         orphans = _unknown_everywhere(reports)
         if orphans:
@@ -386,10 +326,9 @@ def _emit_json(reports: list[_RootReport], acted: bool) -> None:
 
 
 @cmd_daemon.command("reconcile")
-@root_option
 @all_roots_option
 @json_option
-def cmd_daemon_reconcile(root: str | None, all_roots: bool, as_json: bool) -> None:
+def cmd_daemon_reconcile(all_roots: bool, as_json: bool) -> None:
     """Say what `gc` would do, doing nothing.
 
     Each spawn record against the process table: owned, stray, duplicate,
@@ -397,7 +336,7 @@ def cmd_daemon_reconcile(root: str | None, all_roots: bool, as_json: bool) -> No
     names. Asks the daemon when one answers, else reads the records and the
     table itself.
     """
-    reports = _reports(root, all_roots, act=False)
+    reports = _reports(all_roots, act=False)
     if as_json:
         _emit_json(reports, acted=False)
         return
@@ -405,10 +344,9 @@ def cmd_daemon_reconcile(root: str | None, all_roots: bool, as_json: bool) -> No
 
 
 @cmd_daemon.command("gc")
-@root_option
 @all_roots_option
 @json_option
-def cmd_daemon_gc(root: str | None, all_roots: bool, as_json: bool) -> None:
+def cmd_daemon_gc(all_roots: bool, as_json: bool) -> None:
     """Kill the strays and duplicates, and write off the crashed records.
 
     Never resumes: a stray's record stays `running`, so the next daemon start
@@ -416,7 +354,7 @@ def cmd_daemon_gc(root: str | None, all_roots: bool, as_json: bool) -> None:
     no root's records name is killed too; from one root it is only reported,
     because it may belong to another.
     """
-    reports = _reports(root, all_roots, act=True)
+    reports = _reports(all_roots, act=True)
     if as_json:
         _emit_json(reports, acted=True)
         return
@@ -424,14 +362,13 @@ def cmd_daemon_gc(root: str | None, all_roots: bool, as_json: bool) -> None:
 
 
 @cmd_daemon.command("list")
-@root_option
 @all_roots_option
 @json_option
-def cmd_daemon_list(root: str | None, all_roots: bool, as_json: bool) -> None:
+def cmd_daemon_list(all_roots: bool, as_json: bool) -> None:
     """Every spawn record, with its pid, whether that pid is alive, and whether
     the daemon holds it — so a mismatch is read off the table, not inferred.
     """
-    reports = _reports(root, all_roots, act=False)
+    reports = _reports(all_roots, act=False)
     rows: list[dict[str, str]] = []
     for report in reports:
         records = JsonAgentSpecStore(report.paths.spec_dir).list()

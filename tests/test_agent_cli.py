@@ -577,7 +577,7 @@ class TestStopAgentsInWorktree:
     def test_an_unreachable_daemon_is_silent(self):
         # The close must not fail because the daemon is down; the pid sweep
         # that follows still tears the session down.
-        messages, client = self._stop([{"error": "not reachable"}])
+        messages, client = self._stop([{"error": "No agent daemon on /x."}])
         assert messages == []
 
     def test_a_refused_stop_is_reported_not_raised(self):
@@ -617,61 +617,10 @@ def test_daemon_status_names_the_serving_code():
     assert "5" in result.output
 
 
-def test_daemon_status_reports_a_daemon_that_is_not_running():
-    """No daemon is an answer, not a traceback."""
-    result, _ = run_cli(
-        ["daemon", "status"],
-        replies=[{"error": "agent daemon not reachable at /x.sock: nope"}],
-    )
-    assert result.exit_code == 1
-    assert "not reachable" in result.output
-
-
 def test_the_bare_daemon_command_does_not_serve():
     """`daemon` used to run one in the foreground; it must not now."""
     result, _ = run_cli(["daemon"])
     assert result.exit_code != 0
-
-
-def test_daemon_stop_asks_the_daemon_to_go():
-    result, client = run_cli(["daemon", "stop"])
-    assert result.exit_code == 0
-    assert client.calls == [{"cmd": "shutdown"}]
-
-
-def test_daemon_stop_is_quiet_about_a_daemon_already_gone():
-    """Nothing to stop is the desired state, not an error."""
-    result, _ = run_cli(
-        ["daemon", "stop"],
-        replies=[{"error": "agent daemon not reachable at /x.sock: nope"}],
-    )
-    assert result.exit_code == 0
-    assert "No daemon running" in result.output
-
-
-@pytest.mark.parametrize("verb", ["status", "stop", "restart"])
-def test_every_daemon_verb_takes_a_root(verb, monkeypatch, tmp_path):
-    """A per-environment daemon is addressed by its root, not only by env var.
-
-    Asserts the socket the command asked its transport for. Asserting the
-    printed path instead would pass on the scripted reply alone, whether or
-    not the flag reached the client.
-    """
-    monkeypatch.delenv("MAEL_AGENT_ROOT", raising=False)
-    other = tmp_path / "other"
-    monkeypatch.setattr(agent_cli, "ensure_daemon", _noop_async)
-    result, client = run_cli(
-        ["daemon", verb, "--root", str(other)],
-        replies=[{"daemon": {"pid": 1, "root": str(other), "agents": 0}}],
-    )
-    assert result.exit_code == 0
-    assert client.socket_path == str(other / "agent-daemon.sock")
-    # These three ask about a daemon; none may conjure one.
-    assert client.autostart is False
-
-
-async def _noop_async(*_args, **_kwargs) -> None:
-    """Stand in for `ensure_daemon`, which `restart` calls to respawn."""
 
 
 def test_daemon_status_explains_a_daemon_too_old_to_answer():
@@ -683,7 +632,9 @@ def test_daemon_status_explains_a_daemon_too_old_to_answer():
     result, _ = run_cli(["daemon", "status"], replies=[{"error": "no such agent: "}])
     assert result.exit_code == 1
     assert "older than this code" in result.output
-    assert "daemon restart" in result.output
+    # Names a command that exists: `mael agent daemon restart` is gone, and the
+    # environment manager owns the daemon's lifetime.
+    assert "mael self-env restart agent-daemon" in result.output
 
 
 def test_daemon_status_renders_a_timestamp_without_a_zone():
@@ -700,35 +651,6 @@ def test_daemon_status_renders_a_timestamp_without_a_zone():
     # Read as UTC and rendered in local time, so the date depends on the zone.
     # What matters is that it renders an age at all rather than raising.
     assert "ago)" in result.output
-
-
-def test_daemon_restart_says_when_there_was_nothing_to_restart():
-    """A user who meant to replace a running daemon must not be told they did."""
-    result, _ = run_cli(
-        ["daemon", "restart"],
-        replies=[{"error": "agent daemon not reachable at /x.sock: nope"}],
-    )
-    assert result.exit_code == 0
-    assert "No daemon was running" in result.output
-
-
-def test_daemon_restart_waits_before_it_spawns(tmp_path, monkeypatch):
-    """Restart waits for the old daemon on the root it was given.
-
-    That the wait tests the lock rather than the socket file is
-    `test_a_restart_waits_for_the_old_daemon_to_release_the_lock` in
-    test_agent_autostart.py, which lets a real lock go on a timer. This asserts
-    only the part that lives in the command: it waits, on the right path,
-    before it spawns.
-    """
-    root = tmp_path / "r"
-    waited = []
-    monkeypatch.setattr(
-        agent_cli, "wait_for_daemon_gone", lambda p, **k: waited.append(p)
-    )
-    result, _ = run_cli(["daemon", "restart", "--root", str(root)])
-    assert result.exit_code == 0
-    assert waited == [agent_transport.DaemonPaths(root)]
 
 
 # --- gc, list and reconcile: the records against the process table -----------
@@ -761,7 +683,6 @@ def test_reconcile_asks_a_running_daemon_and_prints_its_verdicts():
     )
     assert result.exit_code == 0, result.output
     assert [c["cmd"] for c in client.calls] == ["reconcile", "list"]
-    assert client.autostart is False
     assert "stray" in result.output and "200" in result.output
 
 
@@ -806,7 +727,8 @@ def test_gc_with_no_daemon_kills_the_strays_and_leaves_their_records_running(
     """The case `gc` exists for: `kill -9` took the daemon and left its children."""
     store, signals = _local_root(monkeypatch, [("a1", 100, "running")], [100, 200])
     result, client = run_cli(
-        ["daemon", "gc"], replies=[{"error": "agent daemon not reachable at /x: nope"}]
+        ["daemon", "gc"],
+        replies=[{"error": "No agent daemon on /x. Run `mael self-env start`."}],
     )
     assert result.exit_code == 0, result.output
     assert [s[0] for s in signals] == [100, 200]
@@ -818,7 +740,7 @@ def test_reconcile_with_no_daemon_touches_nothing(monkeypatch):
     store, signals = _local_root(monkeypatch, [("a1", 100, "running")], [])
     result, _ = run_cli(
         ["daemon", "reconcile", "--json"],
-        replies=[{"error": "agent daemon not reachable at /x: nope"}],
+        replies=[{"error": "No agent daemon on /x. Run `mael self-env start`."}],
     )
     assert result.exit_code == 0, result.output
     body = json.loads(result.output)
@@ -834,7 +756,7 @@ def test_list_shows_each_record_with_its_pid_liveness_and_holder(monkeypatch):
     )
     result, _ = run_cli(
         ["daemon", "list", "--json"],
-        replies=[{"error": "agent daemon not reachable at /x: nope"}],
+        replies=[{"error": "No agent daemon on /x. Run `mael self-env start`."}],
     )
     assert result.exit_code == 0, result.output
     rows = {row["id"]: row for row in json.loads(result.output)}
@@ -865,7 +787,8 @@ def test_an_unreadable_process_table_is_an_error_not_a_verdict(monkeypatch):
 
     monkeypatch.setattr(agent_cli, "list_claude_processes", unreadable)
     result, _ = run_cli(
-        ["daemon", "gc"], replies=[{"error": "agent daemon not reachable at /x: nope"}]
+        ["daemon", "gc"],
+        replies=[{"error": "No agent daemon on /x. Run `mael self-env start`."}],
     )
     assert result.exit_code != 0
     assert "process table" in result.output
@@ -905,3 +828,193 @@ def test_all_roots_kills_only_a_process_unknown_to_every_root(monkeypatch, tmp_p
     assert result.exit_code == 0, result.output
     assert [s[0] for s in signals] == [300]
     assert str(tmp_path / "a") in result.output and str(tmp_path / "b") in result.output
+
+
+# --- the daemon root comes from the environment ------------------------------
+
+
+class TestServeRequiresARoot:
+    """`serve` runs only on a root its environment names.
+
+    A daemon on the wrong root is the failure this prevents. It served a
+    worktree's test code as the everyday daemon for four restarts, because the
+    root came from a flag that the starting command chose. The environment
+    manager now writes the root into `.env`, and `serve` reads it there.
+    """
+
+    def test_serve_without_a_root_exits_two_and_names_the_commands(self, monkeypatch):
+        monkeypatch.delenv("MAEL_AGENT_ROOT", raising=False)
+        result, _ = run_cli(["daemon", "serve"])
+        assert result.exit_code == 2
+        assert "MAEL_AGENT_ROOT is not set" in result.output
+        assert "mael self-env start" in result.output
+        assert "mael env start" in result.output
+
+    def test_serve_without_a_root_builds_no_daemon(self, monkeypatch):
+        """Exiting is not enough: a daemon constructed on a guessed root would
+        create that directory before the error reached anyone."""
+        monkeypatch.delenv("MAEL_AGENT_ROOT", raising=False)
+        built = []
+        monkeypatch.setattr(
+            agent_cli, "AgentDaemon", lambda *a, **k: built.append(a) or object()
+        )
+        result, _ = run_cli(["daemon", "serve"])
+        assert result.exit_code == 2
+        assert built == []
+
+    def test_serve_builds_the_daemon_on_the_environments_root(
+        self, monkeypatch, tmp_path
+    ):
+        root = tmp_path / "chosen"
+        monkeypatch.setenv("MAEL_AGENT_ROOT", str(root))
+        built = []
+
+        class _Daemon:
+            def __init__(self, *args, **kwargs):
+                built.append(args[0] if args else kwargs.get("root"))
+
+            async def serve(self):
+                return None
+
+        monkeypatch.setattr(agent_cli, "AgentDaemon", _Daemon)
+        result, _ = run_cli(["daemon", "serve"])
+        assert result.exit_code == 0, result.output
+        assert built == [root]
+
+    def test_serve_takes_no_root_flag(self, tmp_path):
+        """A flag is what let the wrong root be chosen, so there is no flag."""
+        result, _ = run_cli(["daemon", "serve", "--root", str(tmp_path)])
+        assert result.exit_code == 2
+        assert "no such option" in result.output.lower()
+
+
+class TestReadOnlyVerbsReadTheEnvironment:
+    """`status`, `list`, `gc` and `reconcile` follow their own environment."""
+
+    @pytest.mark.parametrize("verb", ["status", "list", "gc", "reconcile"])
+    def test_the_verb_takes_no_root_flag(self, verb, tmp_path):
+        result, _ = run_cli(["daemon", verb, "--root", str(tmp_path)])
+        assert result.exit_code == 2
+        assert "no such option" in result.output.lower()
+
+    def test_status_asks_the_daemon_on_the_environments_root(
+        self, monkeypatch, tmp_path
+    ):
+        root = tmp_path / "chosen"
+        monkeypatch.setenv("MAEL_AGENT_ROOT", str(root))
+        result, client = run_cli(
+            ["daemon", "status"],
+            replies=[{"daemon": {"pid": 1, "root": str(root), "agents": 0}}],
+        )
+        assert result.exit_code == 0, result.output
+        assert client.socket_path == str(root / "agent-daemon.sock")
+
+
+class TestResolveRootHasNoFallback:
+    """No fallback: an unset root is an error, never a guessed directory.
+
+    `~/.maelstrom` used to be the fallback, so a command with no root reached
+    the everyday daemon. Every environment now names its own root, and a
+    command that finds none must say so rather than reach for someone else's
+    agents.
+    """
+
+    def test_an_unset_root_raises(self, monkeypatch):
+        from maelstrom.agent_transport import RootUnset, require_root
+
+        monkeypatch.delenv("MAEL_AGENT_ROOT", raising=False)
+        with pytest.raises(RootUnset):
+            require_root()
+
+    def test_a_tilde_expands(self, monkeypatch):
+        """The value is written by hand in `.env`, so `~` reaches it. An
+        unexpanded `~` makes a directory named `~` in the current directory."""
+        from maelstrom.agent_transport import require_root
+
+        monkeypatch.setenv("HOME", "/home/tester")
+        monkeypatch.setenv("MAEL_AGENT_ROOT", "~/.maelstrom/daemons/bravo")
+        assert require_root() == Path("/home/tester/.maelstrom/daemons/bravo")
+
+
+class TestOnlyTheEnvironmentManagerStartsADaemon:
+    """`daemon start|stop|restart` are gone.
+
+    Seven things used to bring a daemon into being, so no one owned any root.
+    Two do now: `mael self-env start` for the everyday daemon, and
+    `mael env start` for a worktree's. Both run `serve` as a service, so the
+    daemon's lifetime is its environment's.
+    """
+
+    @pytest.mark.parametrize("verb", ["start", "stop", "restart"])
+    def test_the_verb_is_not_a_command(self, verb):
+        result, _ = run_cli(["daemon", verb])
+        assert result.exit_code == 2
+        assert "no such command" in result.output.lower()
+
+    def test_the_group_names_the_environment_manager(self):
+        result, _ = run_cli(["daemon", "--help"])
+        assert "self-env" in result.output
+        assert "env start" in result.output
+
+
+class TestAnUnreachableDaemonIsReported:
+    """A missing daemon names the root and the command that starts one.
+
+    Distinguishing "no daemon" from "a daemon that answered badly" is what
+    lets `gc` fall back to reading the records itself, and lets `status` tell
+    a stale daemon apart from an absent one. Both match on the message, so the
+    message is behaviour.
+    """
+
+    def test_a_command_exits_one_and_prints_the_message(self, tmp_path, monkeypatch):
+        root = tmp_path / "chosen"
+        monkeypatch.setenv("MAEL_AGENT_ROOT", str(root))
+        result, _ = run_cli(
+            ["list"],
+            replies=[
+                {
+                    "error": agent_transport.unreachable_message(
+                        agent_transport.DaemonPaths(root)
+                    )
+                }
+            ],
+        )
+        assert result.exit_code == 1
+        assert f"No agent daemon on {root}" in result.output
+        assert "mael self-env start" in result.output
+
+    def test_status_reports_an_absent_daemon_rather_than_a_stale_one(
+        self, tmp_path, monkeypatch
+    ):
+        """`status` calls a daemon that cannot answer `ping` stale. An absent
+        one must not be described that way."""
+        root = tmp_path / "chosen"
+        monkeypatch.setenv("MAEL_AGENT_ROOT", str(root))
+        result, _ = run_cli(
+            ["daemon", "status"],
+            replies=[
+                {
+                    "error": agent_transport.unreachable_message(
+                        agent_transport.DaemonPaths(root)
+                    )
+                }
+            ],
+        )
+        assert result.exit_code == 1
+        assert f"No agent daemon on {root}" in result.output
+        assert "older than this code" not in result.output
+
+    def test_gc_falls_back_to_the_records_when_no_daemon_answers(
+        self, tmp_path, monkeypatch
+    ):
+        """The case `gc` exists for: a daemon that died leaving children."""
+        from maelstrom.agent_transport import DaemonPaths, unreachable_message
+
+        monkeypatch.setattr(
+            agent_cli, "list_claude_processes", lambda: [], raising=False
+        )
+        result, _ = run_cli(
+            ["daemon", "gc"],
+            replies=[{"error": unreachable_message(DaemonPaths(tmp_path))}],
+        )
+        assert result.exit_code == 0, result.output

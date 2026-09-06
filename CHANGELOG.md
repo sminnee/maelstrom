@@ -14,13 +14,22 @@ release while that section is empty, and retitles it to the version it is releas
 
 - **One daemon root replaces three variables.** `MAEL_AGENT_ROOT` names the one directory a
   daemon owns — its socket, lock, pid file, log and `agents/` spawn records — and replaces
-  `MAEL_AGENT_SOCKET`, `MAEL_AGENT_LOG` and `MAEL_AGENT_SPEC_DIR`. Every daemon verb and
-  `mael orchestrator serve` take `--root` where they took `--socket`. The default root is
-  `~/.maelstrom`, so nothing moves for a default setup. A per-environment daemon declares
-  `MAEL_AGENT_ROOT: ${HOME}/.maelstrom/daemons/<project>-${WORKTREE}` and serves with
-  `--root ${MAEL_AGENT_ROOT}`; the old `sockets/` and `agents-*` directories are abandoned, not
-  migrated. Three independent paths let a daemon be pointed at one directory's records over
-  another's socket, which is how two daemons came to spawn the same agents.
+  `MAEL_AGENT_SOCKET`, `MAEL_AGENT_LOG` and `MAEL_AGENT_SPEC_DIR`. The old `sockets/` and
+  `agents-*` directories are abandoned, not migrated. Three independent paths let a daemon be
+  pointed at one directory's records over another's socket, which is how two daemons came to
+  spawn the same agents.
+
+- **One owner per daemon root: the environment whose `.env` names it.** `mael self-env start`
+  runs the everyday daemon on `~/.maelstrom/daemons/_main`, and `mael env start` runs a
+  worktree's own. Both run `mael agent daemon serve` as an ordinary service, so a daemon's
+  lifetime is its environment's, and `mael self-env restart agent-daemon` is how one picks up new
+  code. `MAEL_AGENT_ROOT` has no default: `serve` exits 2 without it, and every other
+  `mael agent` command says which root it looked for. `mael self-update` puts the everyday root
+  into the `mael` on your PATH, so a bare `mael agent list` still reaches it, and a daemon passes
+  its own root to every agent it starts, so a session's `mael agent` commands reach the daemon
+  that runs it. **To upgrade:** run `mael self-env reset` and `mael env reset`, then
+  `mael self-env start`. Agents held by the old daemon on `~/.maelstrom` are not migrated —
+  `mael agent daemon gc --all-roots` clears what they leave behind.
 
 - **`mael agent daemon` is a command group.** Running one in the foreground is now
   `mael agent daemon serve`. The bare command prints help and exits non-zero. Anything scripted
@@ -52,16 +61,37 @@ release while that section is empty, and retitles it to the version it is releas
   serving a socket: its process id, version, spawn-record directory, start time, agent count, and
   the worktree its code was imported from. A daemon holds the modules it imported at start, so a
   command from one worktree is often served by another worktree's daemon — which has produced a
-  bug that looked like the feature under development. A command that auto-starts the daemon
-  now warns when it finds one running code from a different tree, and `mael agent daemon restart`
-  replaces the `pkill` and `rm` that fixing it used to take. `mael agent daemon start` and
-  `mael agent daemon stop` complete the set.
+  bug that looked like the feature under development. `mael self-env restart agent-daemon`
+  replaces the `pkill` and `rm` that fixing it used to take.
 
-- **An environment can run its own agent daemon.** A worktree that runs orchestrator/web to test
-  a change to the agent protocol should not drive the agents `_main` holds. Declare an
-  `agent-daemon` service in `.maelstrom.yaml` with its own `MAEL_AGENT_SOCKET` and
-  `MAEL_AGENT_SPEC_DIR`, mark it `optional: true`, and `mael env start agent-daemon` gives that
-  environment a daemon of its own. `mael env stop` takes it and its agents away again.
+- **Every environment runs its own agent daemon.** A worktree that runs orchestrator/web to test
+  a change to the agent protocol should not drive the agents another environment holds. Declare
+  an `agent-daemon` service in `.maelstrom.yaml` running `mael agent daemon serve`, and set
+  `MAEL_AGENT_ROOT` under the new top-level `env:` key. `mael env start` gives that environment a
+  daemon of its own, and `mael env stop` takes it and its agents away again.
+
+- **`env:` in `.maelstrom.yaml` reaches every worktree's `.env`.** A service's own `env:` block
+  reaches that service alone, so it cannot carry a value the whole environment needs. Values under
+  the new top-level `env:` are written into each worktree's `.env`, with `${WORKTREE}`, `${HOME}`
+  and the allocated ports resolved. `mael env reset` rewrites them. A key maelstrom generates
+  itself — `WORKTREE`, `PORT_BASE`, anything ending `_PORT` — is refused rather than silently
+  overwritten.
+
+### Removed
+
+- **Nothing auto-starts an agent daemon.** No `mael agent` command, session launch or
+  orchestrator poll starts one, and `MAEL_AGENT_NO_AUTOSTART` is gone with the behaviour it
+  turned off. Auto-start let whoever noticed a missing daemon first choose the code every session
+  on the machine then ran: a worktree's orchestrator replaced the everyday daemon with that
+  worktree's test code four times in a row, and restarted it within one poll of a deliberate
+  `kill -9`. A missing daemon is now an error naming the root and the two commands that start one.
+
+- **`mael agent daemon start`, `stop` and `restart`.** The environment manager owns a daemon's
+  lifetime. Use `mael self-env start|stop|restart` for the everyday daemon and `mael env …` for a
+  worktree's; `mael self-env restart agent-daemon` replaces `mael agent daemon restart`.
+
+- **`--root` on every daemon verb and on `mael orchestrator serve`.** The root comes from
+  `MAEL_AGENT_ROOT` alone, so a daemon cannot be started on a root its environment does not own.
 
 ### Fixed
 

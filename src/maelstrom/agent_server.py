@@ -774,7 +774,7 @@ class AgentDaemon:
             stderr=asyncio.subprocess.STDOUT,
             limit=STREAM_LIMIT,
             cwd=cwd,
-            env=build_agent_env(dict(os.environ), env),
+            env=build_agent_env(dict(os.environ), env, self.paths.root),
             start_new_session=True,
         )
         agent = Agent(

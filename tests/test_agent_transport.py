@@ -66,9 +66,7 @@ def test_a_reply_larger_than_the_default_stream_limit_round_trips(connected_pair
     async def run():
         server = connected_pair({"agents": rows})
         try:
-            return await request_over_socket(
-                "unused.sock", {"cmd": "list"}, autostart=False
-            )
+            return await request_over_socket("unused.sock", {"cmd": "list"})
         finally:
             await asyncio.wait_for(server, timeout=SERVE_TIMEOUT)
 
@@ -84,7 +82,7 @@ def test_a_large_reply_round_trips_through_the_blocking_client(connected_pair):
     async def run():
         server = connected_pair({"agents": rows})
         try:
-            client = SocketDaemonClient("unused.sock", autostart=False)
+            client = SocketDaemonClient("unused.sock")
             return await asyncio.get_running_loop().run_in_executor(
                 None, client.request, {"cmd": "list"}
             )
@@ -92,3 +90,48 @@ def test_a_large_reply_round_trips_through_the_blocking_client(connected_pair):
             await asyncio.wait_for(server, timeout=SERVE_TIMEOUT)
 
     assert len(asyncio.run(run())["agents"]) == 1000
+
+
+class TestNothingStartsADaemon:
+    """No client ever spawns a daemon.
+
+    The everyday daemon was replaced four times by a worktree's test code,
+    because the worktree's orchestrator noticed the socket was gone first and
+    started one. The starting command chose the code, so whoever noticed first
+    won. Now a missing daemon is an error that names the root and the command
+    that starts one.
+    """
+
+    def test_a_request_to_a_missing_socket_returns_an_error_reply(self, tmp_path):
+        """Unreachability is data, not an exception: the CLI, the launcher and
+        the bridge all read `reply["error"]`."""
+        missing = str(tmp_path / "gone" / "agent-daemon.sock")
+        reply = asyncio.run(request_over_socket(missing, {"cmd": "list"}))
+        assert "No agent daemon on" in reply["error"]
+        assert str(tmp_path / "gone") in reply["error"]
+        assert "mael self-env start" in reply["error"]
+        assert "mael env start" in reply["error"]
+
+    def test_a_request_to_a_missing_socket_spawns_nothing(self, tmp_path, monkeypatch):
+        spawned = []
+        monkeypatch.setattr(
+            "subprocess.Popen", lambda *a, **k: spawned.append(a) or None
+        )
+        missing = str(tmp_path / "gone" / "agent-daemon.sock")
+        asyncio.run(request_over_socket(missing, {"cmd": "list"}))
+        assert spawned == []
+
+    def test_the_transport_offers_no_way_to_start_one(self):
+        """`ensure_daemon` and `spawn_daemon` are gone, so no caller can ask."""
+        import maelstrom.agent_transport as transport
+
+        assert not hasattr(transport, "ensure_daemon")
+        assert not hasattr(transport, "spawn_daemon")
+
+    def test_a_client_takes_no_autostart_flag(self):
+        """A caller that still asks for auto-start must fail loudly, not be
+        silently ignored into starting nothing."""
+        import pytest
+
+        with pytest.raises(TypeError):
+            SocketDaemonClient("unused.sock", **{"autostart": False})

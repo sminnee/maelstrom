@@ -181,3 +181,96 @@ class TestSelfEnv:
         assert result.exit_code != 0
         assert "typo" in result.output
         assert "maelstrom._main" not in result.output
+
+
+class TestSelfUpdateWritesTheDaemonRootShim:
+    """The `mael` on PATH must know the everyday daemon's root.
+
+    That `mael` is a uv entrypoint. It reads no `.env`, and `UV_ENV_FILE` only
+    applies to `uv run` in a directory that has one. So a bare `mael agent
+    list` in any other directory has no root and no daemon to reach. The shim
+    supplies `_main`'s root, and only when nothing else already did — a
+    worktree's `.env` and the root a daemon gives its children both still win.
+    """
+
+    def _update(self, tmp_path, entrypoint_body="#!/bin/sh\nexec real\n"):
+        from maelstrom.admin_cli import cmd_self_update
+
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        entrypoint = bin_dir / "mael"
+        entrypoint.write_text(entrypoint_body)
+        entrypoint.chmod(0o755)
+        with (
+            patch("maelstrom.admin_cli.Path.exists", return_value=True),
+            patch("maelstrom.admin_cli.shutil.which", return_value="/usr/bin/uv"),
+            patch("maelstrom.admin_cli.install_claude_integration", return_value=[]),
+            patch("maelstrom.admin_cli.harden_global_config", return_value=[]),
+            patch(
+                "maelstrom.admin_cli.subprocess.run",
+                side_effect=[_ok(), _ok()],
+            ),
+            patch("maelstrom.admin_cli.mael_path", return_value=str(entrypoint)),
+        ):
+            result = CliRunner().invoke(cmd_self_update)
+        return result, entrypoint
+
+    def test_the_shim_names_the_main_worktrees_root(self, tmp_path):
+        result, entrypoint = self._update(tmp_path)
+        assert result.exit_code == 0, result.output
+        assert "MAEL_AGENT_ROOT" in entrypoint.read_text()
+        assert ".maelstrom/daemons/_main" in entrypoint.read_text()
+
+    def test_the_shim_defers_to_a_root_already_set(self, tmp_path):
+        """A worktree's `uv run mael`, and a command inside a driven session,
+        both arrive with a root already set. Overriding either would send them
+        to the wrong daemon."""
+        _, entrypoint = self._update(tmp_path)
+        assert "${MAEL_AGENT_ROOT:-" in entrypoint.read_text()
+
+    def test_the_shim_execs_the_real_entrypoint(self, tmp_path):
+        _, entrypoint = self._update(tmp_path)
+        text = entrypoint.read_text()
+        assert "exec " in text
+        assert '"$@"' in text
+
+    def test_the_shim_stays_executable(self, tmp_path):
+        _, entrypoint = self._update(tmp_path)
+        assert entrypoint.stat().st_mode & 0o111
+
+    def test_an_unwritable_entrypoint_warns_rather_than_aborting(self, tmp_path):
+        """The pull and the dependency sync have already landed by this point,
+        so a `mael` this command cannot rewrite must not fail the update."""
+        result, _ = self._update(tmp_path)
+        assert result.exit_code == 0
+
+        missing = tmp_path / "bin" / "absent"
+        with (
+            patch("maelstrom.admin_cli.Path.exists", return_value=True),
+            patch("maelstrom.admin_cli.shutil.which", return_value="/usr/bin/uv"),
+            patch("maelstrom.admin_cli.install_claude_integration", return_value=[]),
+            patch("maelstrom.admin_cli.harden_global_config", return_value=[]),
+            patch("maelstrom.admin_cli.subprocess.run", side_effect=[_ok(), _ok()]),
+            patch("maelstrom.admin_cli.mael_path", return_value=str(missing)),
+        ):
+            result = CliRunner().invoke(cmd_self_update)
+        assert result.exit_code == 0, result.output
+        assert "could not point `mael`" in result.output
+        assert "MAEL_AGENT_ROOT" in result.output
+        assert "Update complete." in result.output
+
+    def test_a_second_update_does_not_nest_the_shim(self, tmp_path):
+        """self-update runs repeatedly. A shim wrapping a shim would grow one
+        exec deeper every time."""
+        _, entrypoint = self._update(tmp_path)
+        first = entrypoint.read_text()
+        with (
+            patch("maelstrom.admin_cli.Path.exists", return_value=True),
+            patch("maelstrom.admin_cli.shutil.which", return_value="/usr/bin/uv"),
+            patch("maelstrom.admin_cli.install_claude_integration", return_value=[]),
+            patch("maelstrom.admin_cli.harden_global_config", return_value=[]),
+            patch("maelstrom.admin_cli.subprocess.run", side_effect=[_ok(), _ok()]),
+            patch("maelstrom.admin_cli.mael_path", return_value=str(entrypoint)),
+        ):
+            CliRunner().invoke(cmd_self_update)
+        assert entrypoint.read_text() == first

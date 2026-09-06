@@ -29,15 +29,14 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 
 
-def build_orchestrator(
-    root: str | None = None, *, executor: Executor | None = None
-) -> Orchestrator:
+def build_orchestrator(*, executor: Executor | None = None) -> Orchestrator:
     """An orchestrator over the real notebook, ``list-all`` and agent host.
 
-    ``root`` is the agent host's daemon root; ``None`` takes the resolved
-    default. ``executor`` runs the blocking reads; :func:`run_server` passes a
-    pool of one thread, because the SQLite index behind the notebook is bound
-    to the thread that first opens it.
+    The agent host is the daemon this environment names in ``MAEL_AGENT_ROOT``,
+    so the orchestrator a worktree runs talks to that worktree's daemon.
+    ``executor`` runs the blocking reads; :func:`run_server` passes a pool of
+    one thread, because the SQLite index behind the notebook is bound to the
+    thread that first opens it.
     """
     projects_dir = load_global_config().projects_dir
     store = GitFileStore()
@@ -68,20 +67,20 @@ def build_orchestrator(
         open_worktree=open_worktree,
     )
     worktrees = ListAllWorktreeSource(projects_dir)
-    daemon = SocketAsyncDaemonClient(str(daemon_paths(root).socket))
+    daemon = SocketAsyncDaemonClient(str(daemon_paths().socket))
     return Orchestrator(
         tasks, worktrees, daemon, desk=JsonDeskStore(), executor=executor
     )
 
 
-def run_server(host: str, port: int, root: str | None) -> None:
+def run_server(host: str, port: int) -> None:
     """Build the orchestrator and serve it until interrupted.
 
     The worker pool lives for the serve call, so an interrupt does not wait on
     a read in flight past the point the server has stopped.
     """
     with ThreadPoolExecutor(max_workers=1) as executor:
-        orchestrator = build_orchestrator(root, executor=executor)
+        orchestrator = build_orchestrator(executor=executor)
         asyncio.run(serve_app(build_app(orchestrator), host, port))
 
 
@@ -95,12 +94,15 @@ def orchestrator() -> None:
 @click.option(
     "--port", default=DEFAULT_PORT, show_default=True, type=int, help="Bind port."
 )
-@click.option("--root", default=None, help="The agent host's daemon root.")
-def cmd_serve(host: str, port: int, root: str | None) -> None:
-    """Run the orchestrator server in the foreground."""
+def cmd_serve(host: str, port: int) -> None:
+    """Run the orchestrator server in the foreground.
+
+    The agent host is the daemon ``MAEL_AGENT_ROOT`` names, so a worktree's
+    orchestrator talks to that worktree's daemon.
+    """
     click.echo(f"Serving on http://{host}:{port}", err=True)
     try:
-        run_server(host, port, root)
+        run_server(host, port)
     except KeyboardInterrupt:
         pass
     except OSError as exc:

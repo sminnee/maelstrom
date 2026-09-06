@@ -2244,3 +2244,40 @@ class TestWorktreeDomainErrorsAtTheCli:
         assert result.exit_code != 0
         assert result.exception is None or isinstance(result.exception, SystemExit)
         assert "it holds the main checkout" in result.output
+
+
+class TestMainExitCodes:
+    """`main` is what the `mael` binary calls, and `CliRunner` bypasses it.
+
+    `cli(standalone_mode=False)` hands every Click failure back as an exception,
+    so `main` decides the exit code and whether anything is printed. A test
+    through `CliRunner` sees Click's own handling instead, which is how a
+    command that tracebacks in a real shell passed its tests.
+    """
+
+    def test_a_usage_error_exits_two(self):
+        """Click reserves 2 for usage. Collapsing it to 1 makes "you typed it
+        wrong" indistinguishable from "the command failed"."""
+        from maelstrom.cli import main
+
+        assert main(["agent", "daemon", "serve", "--nonexistent"]) == 2
+
+    def test_an_unknown_command_exits_two(self):
+        from maelstrom.cli import main
+
+        assert main(["agent", "daemon", "definitely-not-a-command"]) == 2
+
+    def test_a_missing_daemon_root_is_an_error_not_a_traceback(
+        self, monkeypatch, capsys
+    ):
+        """Every `mael agent` command resolves the root. Without one they must
+        say so, rather than ending in `RootUnset` up the stack."""
+        from maelstrom.cli import main
+
+        monkeypatch.delenv("MAEL_AGENT_ROOT", raising=False)
+        code = main(["agent", "list"])
+        assert code == 1
+        err = capsys.readouterr().err
+        assert "MAEL_AGENT_ROOT is not set" in err
+        assert "mael self-env start" in err
+        assert "Traceback" not in err

@@ -681,6 +681,21 @@ class TestLaunchAgentInWorktree:
         mock_open.assert_not_called()
         assert "connection refused" in capsys.readouterr().err
 
+    def test_a_missing_daemon_names_the_command_that_starts_one(self, capsys):
+        """A launch is where a missing daemon is met most often, and nothing
+        starts one any more. The reason has to be actionable."""
+        from maelstrom.agent_transport import DaemonPaths, unreachable_message
+
+        message = unreachable_message(DaemonPaths(Path("/root/x")))
+        client = RecordingDaemonClient(replies=[{"error": message}])
+        placed, mock_open = self._launch(client)
+
+        assert placed is False
+        mock_open.assert_not_called()
+        err = capsys.readouterr().err
+        assert "No agent daemon on /root/x" in err
+        assert "mael self-env start" in err
+
     def test_reply_without_an_id_returns_false_and_says_so(self, capsys):
         client = RecordingDaemonClient(replies=[{"ok": True}])
         placed, mock_open = self._launch(client)

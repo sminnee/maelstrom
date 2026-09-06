@@ -37,7 +37,7 @@ async def _serve(handler, body):
         patch("maelstrom.orchestrator.daemon_bridge.open_connection", fake_open),
     ):
         try:
-            return await body(SocketAsyncDaemonClient("unused.sock", autostart=False))
+            return await body(SocketAsyncDaemonClient("unused.sock"))
         finally:
             for task in serving:
                 task.cancel()
@@ -74,9 +74,21 @@ def test_a_closed_connection_and_a_malformed_line_are_error_replies():
 
 
 def test_an_unreachable_socket_is_an_error_reply_not_an_exception():
-    client = SocketAsyncDaemonClient("/nonexistent/d.sock", autostart=False)
+    """The server polls the daemon, so an absent one must not raise into the
+    poll loop. It also must not start one: the worktree orchestrator that did
+    replaced the everyday daemon with its own test code."""
+    client = SocketAsyncDaemonClient("/nonexistent/d.sock")
     reply = asyncio.run(client.request({"cmd": "list"}))
-    assert "not reachable" in reply["error"]
+    assert "No agent daemon on /nonexistent" in reply["error"]
+    assert "mael self-env start" in reply["error"]
+
+
+def test_an_unreachable_socket_starts_no_daemon(monkeypatch):
+    spawned = []
+    monkeypatch.setattr("subprocess.Popen", lambda *a, **k: spawned.append(a) or None)
+    client = SocketAsyncDaemonClient("/nonexistent/d.sock")
+    asyncio.run(client.request({"cmd": "list"}))
+    assert spawned == []
 
 
 def test_attach_streams_lines_until_the_server_closes():

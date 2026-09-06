@@ -10,6 +10,7 @@ from . import __version__, session_discovery
 from .admin_cli import cmd_install, cmd_self_env, cmd_self_update
 from .agent_cli import agent as agent_cli
 from .agent_stop import stop_agents_in_worktree
+from .agent_transport import RootUnset
 from .base_store import GitConfigBaseStore
 from .cmux import mael_layout
 from .cmux.client import ensure_cmux_running, resolve_socket_path
@@ -1724,6 +1725,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except click.ClickException as e:
         e.show()
+        # Click reserves 2 for a usage error, so "you typed it wrong" stays
+        # distinguishable from "the command ran and failed".
+        return e.exit_code
+    except RootUnset as e:
+        # Every `mael agent` command resolves the daemon root, and the resolver
+        # is far below the command. Catching it here is what keeps a missing
+        # root an error message rather than a traceback, whichever command
+        # asked for it.
+        click.echo(f"Error: {e}", err=True)
         return 1
     except StaleTaskIndexError as e:
         # Handled here rather than per-command: any task command can be the one
