@@ -226,10 +226,9 @@ def resolve_stack_tip(
     - **The tip's branch is gone** (merged, or abandoned and deleted). Basing new
       work on it would fail outright, so the tip self-heals to ``main``.
     - **The tip's branch is stale** — it exists but has had no commits for a long
-      time. That is the shelved-branch case: a base that never merges means the
-      child never collapses, so it carries dead commits in its PR diff
-      indefinitely. But "stale" is a judgement call, and an unattended agent
-      session must not stall on one, so this warns and proceeds.
+      time. See ``docs/dev/stacking.md`` for why that base is a bad one. "Stale"
+      is a judgement call, and an unattended agent session must not stall on one,
+      so this warns and proceeds.
 
     Args:
         stored: The stack tip as the store holds it. Empty reads as ``main``.

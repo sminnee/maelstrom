@@ -720,8 +720,12 @@ class TestStackTipStore:
         assert tip == StackTip("feat/parent")
 
 
-class TestStackByDefault:
-    """`setup_worktree_for_branch` bases new work on the stack tip, then advances it."""
+class TestNewBranchBase:
+    """What `setup_worktree_for_branch` bases a new branch on.
+
+    New work bases on `main`. A project stacks only when someone moves the stack
+    tip, or passes an explicit base.
+    """
 
     def _new_branch(self, project_path, branch, **kwargs):
         return setup_worktree_for_branch(
@@ -750,8 +754,8 @@ class TestStackByDefault:
 
         assert "Parent commit" in _log(setup.path)
 
-    def test_the_tip_advances_to_the_new_branch(self, project_with_stack):
-        """Auto-advancing is what makes stacks form a genuine chain."""
+    def test_a_new_worktree_leaves_the_tip_where_it_was(self, project_with_stack):
+        """Only `mael stack-tip` moves the tip; `mael add` never does."""
         project_path, parent, _, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
         _push(parent, "feat/parent")
@@ -760,7 +764,7 @@ class TestStackByDefault:
 
         self._new_branch(project_path, "feat/new")
 
-        assert store.read_stack_tip() == "feat/new"
+        assert store.read_stack_tip() == "feat/parent"
 
     def test_an_explicit_base_overrides_the_tip_for_one_worktree(
         self, project_with_stack
@@ -771,11 +775,11 @@ class TestStackByDefault:
         store = GitConfigBaseStore(project_path)
         store.write_stack_tip("feat/parent")
 
-        self._new_branch(project_path, "feat/new", base="main")
+        setup = self._new_branch(project_path, "feat/new", base="main")
 
         assert store.read("feat/new") == BaseRef()
-        # The tip still advances: the next worktree stacks on this one.
-        assert store.read_stack_tip() == "feat/new"
+        # Only the override puts this branch off the tip's history.
+        assert "Parent commit" not in _log(setup.path)
 
     def test_a_main_tip_leaves_new_work_unstacked(self, project_with_stack):
         """The default project has a main tip, so nothing changes for anyone."""
@@ -785,18 +789,6 @@ class TestStackByDefault:
         self._new_branch(project_path, "feat/new")
 
         assert store.read("feat/new") == BaseRef()
-
-    def test_reusing_an_existing_worktree_does_not_move_the_tip(
-        self, project_with_stack
-    ):
-        """Reuse is a no-op path; it must not silently re-point where new work lands."""
-        project_path, _, _, _ = project_with_stack
-        store = GitConfigBaseStore(project_path)
-        store.write_stack_tip("feat/parent")
-
-        self._new_branch(project_path, "feat/child")
-
-        assert store.read_stack_tip() == "feat/parent"
 
     def test_the_base_survives_recycling_a_worktree(self, project_with_stack):
         """Worktrees are recycled; the base belongs to the branch, so it persists."""
@@ -840,9 +832,24 @@ class TestExistingBranchKeepsItsBase:
         run_git(child, "checkout", "--detach", "origin/main")
         self._reopen(project_path, "feat/child")
 
-        # The base branch survives. The tip legitimately moves: reopening syncs,
-        # and every successful rebase re-records where the base now is.
         assert store.read("feat/child").branch == "feat/parent"
+
+    def test_a_branch_the_tip_names_is_not_stacked_on_itself(self, project_with_stack):
+        """A tip naming this very branch must not stack the branch on itself.
+
+        `mael stack-tip` only accepts a branch that exists, so reaching this needs
+        that branch reopened. Both the self-base guard and the existing-branch path
+        say `main` here, so the branch is unstacked whichever one answers.
+        """
+        project_path, _, child, _ = project_with_stack
+        store = GitConfigBaseStore(project_path)
+        run_git(child, "push", "origin", "feat/child")
+        store.write_stack_tip("feat/child")
+
+        run_git(child, "checkout", "--detach", "origin/main")
+        self._reopen(project_path, "feat/child")
+
+        assert store.read("feat/child") == BaseRef()
 
     def test_an_existing_branch_with_no_base_stays_unstacked(self, project_with_stack):
         """An existing branch never had the tip's history, so it is not stacked on it."""

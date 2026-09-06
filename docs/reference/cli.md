@@ -46,7 +46,7 @@ directory.
 
 | Command | Description |
 |---|---|
-| `mael add [BRANCH]` | Add a worktree for `BRANCH`, and rebase `BRANCH` onto its base before the session starts. A new branch stacks on the project's stack tip. Recycles a closed worktree when one exists. With no `BRANCH`, creates a fresh worktree detached at `origin/main`: there is no branch to rebase, and no worktree is recycled. |
+| `mael add [BRANCH]` | Add a worktree for `BRANCH`, and rebase `BRANCH` onto its base before the session starts. A new branch bases on `main`, unless the project's stack tip has been moved. Recycles a closed worktree when one exists. With no `BRANCH`, creates a fresh worktree detached at `origin/main`: there is no branch to rebase, and no worktree is recycled. |
 | `mael add-project GIT_URL` | Clone a repository and set it up for maelstrom. |
 | `mael create-project NAME` | Create a GitHub repository with the maelstrom stub files, check it out, and open a worktree on `feat/start-project`. |
 | `mael mv-project OLD NEW` | Rename a project and everything derived from its name. |
@@ -60,7 +60,7 @@ directory.
 | `mael sync-all [PROJECT]` | Sync every worktree in the project, parents before their children. |
 | `mael tidy-branches [PROJECT]` | Rebase feature branches, delete merged ones, force-push unmerged ones. Skips any branch another branch is stacked on. |
 | `mael base [TARGET]` | Show the branch this worktree's work is stacked on. |
-| `mael stack-tip [BRANCH]` | Show or move the branch new worktrees stack on. `main` resets it. |
+| `mael stack-tip [BRANCH]` | Show or move the branch new worktrees stack on. `main` is the default tip; passing it resets. |
 | `mael promote [TARGET]` | Move this branch to the bottom of its stack so it can merge first. |
 | `mael eject [TARGET]` | Pull this branch out of its stack onto `main`, leaving the rest alone. |
 
@@ -190,14 +190,14 @@ mael base                          # "feat/child is based on feat/parent."
 
 **`mael stack-tip`**
 
-The stack tip is one pointer per project: the branch new worktrees stack on. It advances to
-each new branch, so stacks form a chain. When its branch is deleted the tip falls back to
+The stack tip is one pointer per project: the branch new worktrees stack on. It is `main`
+until you move it, so new work bases on `main`. When its branch is deleted the tip falls back to
 `main`, so new work can never stack on a merged or abandoned branch. When its branch has had
 no commits for 30 days, `mael add` warns and proceeds.
 
 ```bash
 mael stack-tip                     # show where new work will stack
-mael stack-tip feat/parent         # move it
+mael stack-tip feat/parent         # stack the next worktrees on feat/parent
 mael stack-tip main                # reset — start unrelated work
 ```
 

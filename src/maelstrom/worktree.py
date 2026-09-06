@@ -2459,8 +2459,9 @@ def _resolve_new_branch_base(
     """Decide what a brand-new ``branch`` should stack on.
 
     An explicit ``base`` wins and is validated. Otherwise the project's stack tip
-    decides, self-healing to ``main`` if its branch is gone and warning — never
-    blocking — if its branch is stale. Blocking would stall an unattended agent
+    decides, which is ``main`` unless someone moved it with ``mael stack-tip``. A
+    moved tip self-heals to ``main`` if its branch is gone, and warns — never
+    blocks — if its branch is stale. Blocking would stall an unattended agent
     session on a judgement call.
 
     Raises:
@@ -2498,19 +2499,17 @@ def setup_worktree_for_branch(
 ) -> WorktreeSetup:
     """Ensure a fully set-up worktree exists for ``branch``; return path+name+action.
 
-    New work stacks on the project's stack tip unless ``base`` says otherwise, and
-    the tip then advances to ``branch`` — so stacks form a genuine chain rather
-    than a fan of siblings. A project whose tip is ``main`` (the default) gets the
-    behaviour it always had.
+    New work bases on ``main``. It stacks only when ``base`` says so, or when
+    someone has moved the project's stack tip off ``main``. This function never
+    moves the tip.
 
     Does NOT launch anything. Idempotent: an existing worktree for ``branch`` is
-    returned as-is (no recycle/create, no install, no CLAUDE.local.md rewrite, and
-    no move of the stack tip — reuse must not silently re-point where new work
-    lands).
+    returned as-is — no recycle/create, no install, no CLAUDE.local.md rewrite.
 
     Args:
-        base: Branch to stack ``branch`` on. ``None`` uses the stack tip;
-            ``main`` opts this one worktree out.
+        base: Branch to stack ``branch`` on. ``None`` uses the stack tip, which
+            is ``main`` unless someone moved it; ``main`` opts this one worktree
+            out of a moved tip.
         announce: Callable taking one line of progress text, for the stale-tip
             warning.
 
@@ -2572,9 +2571,6 @@ def setup_worktree_for_branch(
         )
         action = "created"
 
-    # Record the base and advance the tip only once the branch really exists, so a
-    # failed create never leaves the project pointing at a branch that is not there.
-    #
     # A branch that already existed is checked out at its own tip, not the base's —
     # create_worktree and recycle_worktree both ignore `base` for it. Recording the
     # base anyway would claim a relationship its history does not have, and the next
@@ -2587,15 +2583,6 @@ def setup_worktree_for_branch(
         store.clear(branch)
     else:
         store.write(branch, BaseRef(branch=resolved_base))
-
-    # Advancing the tip is advisory: it decides where the *next* worktree stacks,
-    # and this one is already built. A store that cannot be written must not turn
-    # a working `mael add` into a failure, so this failure is reported and passed
-    # over. The base write above is not advisory and is left to raise.
-    try:
-        store.write_stack_tip(branch)
-    except RuntimeError as e:
-        announce(f"Warning: could not advance the stack tip to {branch}: {e}")
 
     name = extract_worktree_name_from_folder(project_name, worktree_path.name)
     if name is None:

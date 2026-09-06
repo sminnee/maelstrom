@@ -12,6 +12,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **Stacking is opt-in.** `mael add` bases a new branch on `main` and leaves the stack tip where
+  it is. It used to move the tip to each new branch, so the next worktree stacked on the last
+  one. Move the tip with `mael stack-tip <branch>`, or pass `--base`, to stack. A project whose
+  tip was left on a feature branch still stacks until `mael stack-tip main` resets it.
+
 - **One daemon root replaces three variables.** `MAEL_AGENT_ROOT` names the one directory a
   daemon owns — its socket, lock, pid file, log and `agents/` spawn records — and replaces
   `MAEL_AGENT_SOCKET`, `MAEL_AGENT_LOG` and `MAEL_AGENT_SPEC_DIR`. The old `sockets/` and

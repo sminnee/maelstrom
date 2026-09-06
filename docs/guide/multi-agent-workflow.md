@@ -140,7 +140,11 @@ to merge does the work of reconciling.
 
 Stacking is the answer to that. Base one chain's branch on another's, and the auto-rebase
 cascades the parent's changes into the child as they land, instead of saving the whole
-reconciliation for merge time:
+reconciliation for merge time.
+
+Chains are independent until you ask for this. Turn it on when you know two chains will touch
+the same files. Leave the tip on `main` otherwise: a stacked branch cannot merge until the branch
+below it merges.
 
 ```bash
 mael stack-tip feat/first-chain    # new worktrees stack on this branch
