@@ -59,6 +59,17 @@ Every shape below was recorded from a live agent on v2.1.252 and saved under
 `tests/fixtures/agent_events/`. `tests/test_agent_model.py` replays those transcripts through
 the state machine, so nothing here is designed from an assumed shape.
 
+`mael agent tail --raw ID` records one. The rendered form of `tail` prints only what it has a
+line for, which leaves out every `system` event, so a recording uses `--raw`. The daemon's own
+`mael_*` markers and its `mael_seq`/`mael_ts` stamp do not appear in the output.
+
+A recording of a parent holds none of its subagents' events, because the daemon routes a
+parented event to that subagent's ring. Tail each dotted id as well to capture those.
+
+A recording is the stream, not the child's own output. So a `control_response` the daemon wrote
+appears twice: once because the daemon records what it writes, and once because the child echoes
+it back. `apply_event` ignores the second, whose `request_id` is no longer the pending one.
+
 ### A turn
 
 A turn opens with `system`/`init`, which carries the `session_id`, the model and the permission
@@ -748,6 +759,17 @@ notification is running again.
 A `control_request` carries no `parent_tool_use_id`. Its `request.tool_use_id` names the
 subagent's own tool call, so the wait is the parent's, answered through the parent, and the
 detail names the subagent under `waiting_subagent`.
+
+The request also carries `request.agent_id`, which is the `task_id` of the subagent's
+`task_started`. Nothing reads that field yet. `waiting_subagent` instead comes from a scan of
+each subagent's ring for the `tool_use` block that opened the call. The scan finds nothing when
+the block has left the ring, and nothing when the ring was never filled.
+
+**Two subagents can block on a permission at the same time.** Claude Code does not serialise the
+asks. `tests/fixtures/agent_events/subagent-permission-concurrent.jsonl` records two open at
+once, each with its own `request_id` and `agent_id`. The state machine holds one pending request,
+so the second ask displaces the first and the first can no longer be answered. See
+`docs/dev/subagent-permissions-findings.md`.
 
 On the socket a dotted id works where a read does:
 

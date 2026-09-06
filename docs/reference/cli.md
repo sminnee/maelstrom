@@ -635,7 +635,7 @@ all. See [agent-daemon.md](../dev/agent-daemon.md) for the protocol.
 | `mael agent start [CWD]` | Start an agent in CWD (default `.`). Takes `--prompt`, `--mode`, `--model`, `--session-id`. |
 | `mael agent list` | Show every agent, what each waiting one waits on, and what each last said. A subagent follows its parent under a dotted id (`ID.1`), with `parent` and `description` columns. `--stopped` shows sessions that have stopped and can be resumed; `--all` shows both. `-w PROJECT.WORKTREE` and `--project NAME` narrow the stopped half of the listing, and imply `--stopped` on their own. `--json` emits rows as JSON. |
 | `mael agent show ID` | Show one agent in full: the last thing it said, every question option, the plan, and the command that answers the wait. On a parent it ends with a `Subagents:` table; on a dotted id it shows that subagent. `--json` emits the detail as JSON. |
-| `mael agent tail ID` | Print an agent's events and stop, without driving it. `-f` keeps streaming. A dotted id tails one subagent's stream; a parent's tail shows none of its subagents. The read-only half of `attach`. |
+| `mael agent tail ID` | Print an agent's events and stop, without driving it. `-f` keeps streaming. `--raw` prints each event as JSON, one per line, which is how a fixture is recorded. A dotted id tails one subagent's stream; a parent's tail shows none of its subagents. The read-only half of `attach`. |
 | `mael agent say ID TEXT` | Send TEXT to an agent as a user message. |
 | `mael agent run ID COMMAND` | Run COMMAND in the agent's directory and give it the output. Killed after 30s; output is capped. |
 | `mael agent answer ID CHOICE` | Answer an agent's pending question. CHOICE answers every question the agent asked. |
@@ -664,6 +664,7 @@ mael agent say 1761dcf6 "also update the README"
 mael agent run 1761dcf6 "git log --oneline -3"
 mael agent tail 1761dcf6                        # print the history, then stop
 mael agent tail -f 1761dcf6                     # ...and keep streaming
+mael agent tail --raw 1761dcf6 > events.jsonl   # record it as JSON
 mael agent attach 1761dcf6                      # teleport: the terminal UI
 mael agent interrupt 1761dcf6                   # abandon the turn, keep the agent
 mael agent set-mode 1761dcf6 auto               # done planning: let it work

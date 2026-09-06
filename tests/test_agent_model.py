@@ -1328,3 +1328,148 @@ def test_shell_output_message_sends_no_exit_code():
     assert (
         "bash-exit-code" not in shell_output_message("out", "err")["message"]["content"]
     )
+
+
+class TestConcurrentSubagentPermissions:
+    """Two subagents blocked on a permission at once.
+
+    Recorded in ``subagent-permission-concurrent.jsonl``: a parent launched two
+    subagents in one message, and each raised a ``can_use_tool`` for a
+    ``WebFetch``. Both asks were open together, so Claude Code does not
+    serialise them.
+
+    These tests pin what the reducer does with that stream today. Two of them
+    describe a defect, and say so: the state machine holds one wait, and the
+    second ask displaces the first. Both invert when the fix lands.
+    """
+
+    FIXTURE = "subagent-permission-concurrent.jsonl"
+
+    @pytest.fixture
+    def events(self) -> list[dict]:
+        """The fixture's events, and the guard that it still records two asks.
+
+        The class is worthless against a re-recording that lost the overlap,
+        and every test below would still pass. So the precondition is asserted
+        once, here, rather than as a test of its own.
+        """
+        events = [
+            json.loads(line)
+            for line in (FIXTURES / self.FIXTURE).read_text().splitlines()
+            if line.strip()
+        ]
+        asks = [e for e in events if e.get("type") == "control_request"]
+        assert len(asks) == 2, "the fixture no longer records two open asks"
+        assert asks[0]["request_id"] != asks[1]["request_id"]
+        return events
+
+    def replay_to_ask(self, events: list[dict], nth: int) -> AgentState:
+        """The state just after the ``nth`` ``can_use_tool`` of ``events``."""
+        state = AgentState(agent_id="a1", cwd="/tmp/x")
+        seen = 0
+        for event in events:
+            state = apply_event(state, event)
+            if event.get("type") == "control_request":
+                seen += 1
+                if seen == nth:
+                    break
+        return state
+
+    def test_each_ask_names_its_own_subagent_on_the_wire(self, events):
+        """``agent_id`` on the request is the subagent's ``task_started`` id.
+
+        This is the join that makes attribution possible. Nothing reads it yet,
+        so the assertion is against the recording rather than the reducer.
+        """
+        started = {
+            e["task_id"]
+            for e in events
+            if e.get("type") == "system" and e.get("subtype") == "task_started"
+        }
+        asked = {
+            e["request"]["agent_id"]
+            for e in events
+            if e.get("type") == "control_request"
+        }
+        assert len(asked) == 2
+        assert asked <= started
+
+    def test_the_second_ask_displaces_the_first(self, events):
+        """The defect. One ``pending`` slot cannot hold two waits.
+
+        The first request id is gone from the state, so no reply can carry it
+        and the subagent that raised it never gets an answer.
+        """
+        asks = [e for e in events if e.get("type") == "control_request"]
+        first = self.replay_to_ask(events, 1)
+        assert first.pending is not None
+        assert first.pending.request_id == asks[0]["request_id"]
+
+        second = self.replay_to_ask(events, 2)
+        assert second.pending is not None
+        assert second.pending.request_id == asks[1]["request_id"], (
+            "the first wait was displaced"
+        )
+
+    def test_answering_one_leaves_the_other_unanswerable(self, events):
+        """What the user sees: the agent looks free while a subagent hangs."""
+        state = AgentState(agent_id="a1", cwd="/tmp/x")
+        for event in events:
+            state = apply_event(state, event)
+        assert state.pending is None
+        answered = {
+            e["response"]["request_id"]
+            for e in events
+            if e.get("type") == "control_response"
+        }
+        asked = {e["request_id"] for e in events if e.get("type") == "control_request"}
+        assert asked - answered, "one ask was never answered"
+
+    def test_neither_ask_is_attributed_to_its_subagent(self, events):
+        """The second defect. ``_ring_holding_call`` finds nothing here.
+
+        It scans each subagent's ring for the ``tool_use`` block that opened
+        the call. A recording of a parent carries no parented events, so the
+        rings are empty of them and both asks read as the parent's own -- even
+        though ``agent_id`` names the subagent exactly.
+        """
+        state = self.replay_to_ask(events, 1)
+        assert state.pending is not None
+        assert state.pending.subagent == ""
+        assert build_agent_detail(state)["waiting_subagent"] == ""
+
+    def test_both_subagents_are_known_even_so(self, events):
+        """The subagents themselves open fine; only the wait loses them."""
+        state = AgentState(agent_id="a1", cwd="/tmp/x")
+        for event in events:
+            state = apply_event(state, event)
+        assert sorted(state.subagents) == ["a1.1", "a1.2"]
+
+
+class TestNestedSubagentPermission:
+    """A subagent of a subagent asking for a permission.
+
+    Recorded in ``subagent-permission-nested.jsonl``. The claim under test is
+    the one the findings document rests on: ``agent_id`` names a nested
+    subagent as exactly as it names a direct one.
+    """
+
+    FIXTURE = "subagent-permission-nested.jsonl"
+
+    def test_the_ask_names_the_nested_subagent_on_the_wire(self):
+        """``agent_id`` matches the ``task_started`` of the deeper subagent."""
+        events = [
+            json.loads(line)
+            for line in (FIXTURES / self.FIXTURE).read_text().splitlines()
+            if line.strip()
+        ]
+        started = {
+            e["task_id"]: e
+            for e in events
+            if e.get("type") == "system" and e.get("subtype") == "task_started"
+        }
+        [ask] = [e for e in events if e.get("type") == "control_request"]
+        asked = ask["request"]["agent_id"]
+        assert asked in started
+        # The deeper of the two: spawned by the subagent, not by the parent.
+        assert started[asked]["spawn_depth"] == 2
