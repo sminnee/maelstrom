@@ -2851,16 +2851,15 @@ class TestStopEnvSharedOnlyRemainder:
         mock_save.assert_not_called()
 
 
-class TestAgentDaemonServiceEnv:
-    """The daemon socket path is a config expression, not generated code.
+class TestServiceEnvExpands:
+    """A service's `env:` block is ${VAR}-expanded before the child sees it.
 
-    `WORKTREE` is already in the generated .env and a service's `env:` block is
-    ${VAR}-expanded, so a per-worktree socket needs no new machinery. This pins
-    that both vars actually expand -- an unexpanded ${HOME} would create a
-    directory literally named "${HOME}".
+    `WORKTREE` and `HOME` are both in the base environment, so a per-worktree
+    path needs no new machinery. This pins that both actually expand -- an
+    unexpanded ${HOME} would create a directory literally named "${HOME}".
     """
 
-    def test_the_root_path_expands(self, tmp_path, monkeypatch):
+    def test_a_service_env_path_expands(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", "/home/tester")
         spawned = []
 
@@ -2871,9 +2870,9 @@ class TestAgentDaemonServiceEnv:
             return proc
 
         svc = ResolvedService(
-            name="agent-daemon",
-            command="mael agent daemon serve --root ${MAEL_AGENT_ROOT}",
-            env={"MAEL_AGENT_ROOT": "${HOME}/.maelstrom/daemons/p-${WORKTREE}"},
+            name="cache",
+            command="run-cache --dir ${CACHE_DIR}",
+            env={"CACHE_DIR": "${HOME}/.cache/p-${WORKTREE}"},
         )
         with patch("maelstrom.env.Popen", fake_popen):
             _spawn_services(
@@ -2884,4 +2883,4 @@ class TestAgentDaemonServiceEnv:
                 "2026-09-05T00:00:00+00:00",
             )
         child_env = spawned[0]
-        assert child_env["MAEL_AGENT_ROOT"] == "/home/tester/.maelstrom/daemons/p-delta"
+        assert child_env["CACHE_DIR"] == "/home/tester/.cache/p-delta"

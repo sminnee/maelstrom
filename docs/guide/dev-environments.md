@@ -181,51 +181,56 @@ position instead.
 ## An agent daemon per environment
 
 The agent daemon holds driven agents and serves the control socket `mael agent` talks to.
-One daemon serves one daemon root — the directory holding its socket, log and spawn records —
-and the root defaults to `~/.maelstrom`. So one daemon normally holds every agent on the
-machine, and maelstrom's own `_main` is the worktree that runs it.
+One daemon serves one daemon root: the directory holding its socket, log and spawn records.
 
-That is the right arrangement until you change the agent protocol. A worktree running
-orchestrator/web is testing changed code, and driving the daemon `_main` holds means testing your
-change against agents that run different code.
-
-maelstrom declares a daemon of its own as an optional service:
+**Every environment has its own daemon, and its own root.** A worktree that changes the agent
+protocol drives agents running that change. A worktree that does not keeps its agents away from
+the everyday ones. maelstrom declares the daemon as an ordinary service:
 
 ```yaml
+env:
+  MAEL_AGENT_ROOT: ${HOME}/.maelstrom/daemons/${WORKTREE}
+
+services:
   agent-daemon:
-    optional: true
-    command: uv run mael agent daemon serve --root ${MAEL_AGENT_ROOT}
-    env:
-      MAEL_AGENT_ROOT: ${HOME}/.maelstrom/daemons/maelstrom-${WORKTREE}
+    command: uv run mael agent daemon serve
 ```
 
-`optional: true` keeps it out of a plain `mael env start`, so a worktree testing anything else
-keeps using the daemon `_main` runs. Start it by name when you need it:
+The root comes from the worktree's `.env`, which the `env:` block above generates. The daemon
+takes no `--root` flag, so it cannot be started on a root its environment does not own.
 
 ```bash
-mael env start agent-daemon                    # a daemon of this worktree's own
-mael agent daemon status                       # names the daemon on MAEL_AGENT_ROOT
-mael env stop                                  # takes the daemon and its agents with it
+mael env start                    # this worktree's services, the daemon among them
+uv run mael agent daemon status   # names the daemon on this worktree's root
+mael env stop                     # takes the daemon and its agents with it
 ```
 
-Three details decide whether this works.
+**`_main` runs the everyday daemon.** `_main` is a worktree name like any other, so the same line
+gives it `~/.maelstrom/daemons/_main`. Start it with `mael self-env start`, which is `mael env
+start` aimed at `_main`.
 
-**The root carries the project name.** `${WORKTREE}` alone collides: `bravo` names a worktree in
-many projects at once. Two projects would then share one daemon, which is the problem this solves
-rather than a smaller version of it.
+**Two commands start a daemon, and nothing else does.** `mael self-env start` runs the everyday
+one; `mael env start` runs this worktree's. No `mael agent` command, session launch or
+orchestrator poll ever starts one. A daemon that is not running is an error naming the root and
+the command that starts one.
+
+**Your shell reaches the daemon its directory names.** `uv run mael` in a worktree reads that
+worktree's `.env` through `UV_ENV_FILE=.env`, a convention you set in your shell rather than one
+maelstrom sets. So `uv run mael agent list` in a worktree lists that worktree's agents. A plain
+`mael` reaches the everyday daemon, because `mael self-update` writes the everyday root into the
+`mael` on your PATH.
+
+**A session reaches the daemon that runs it.** The daemon passes its own root to every agent it
+starts, so `mael agent` inside a driven session talks to the daemon holding that session.
 
 **The root holds the spawn records too.** A daemon resumes the agents whose records it finds under
 its root. With records and socket under one directory, two daemons cannot share the records that
-make them spawn, so this one never starts a second `claude` on a session the everyday daemon
+make them spawn, so one environment's daemon never starts a second `claude` on a session another
 holds.
 
-**A service's `env:` block reaches that service alone.** To point this environment's orchestrator
-at its own daemon, set `MAEL_AGENT_ROOT` in the worktree's `.env`, which every service reads.
-
-`mael agent daemon status` names the daemon answering, and `mael agent daemon restart` replaces
-one holding stale code. A `mael agent` command that auto-starts the daemon warns when it finds one
-running another worktree's code, and carries on. `MAEL_AGENT_NO_AUTOSTART=1` turns that warning
-off with the auto-start.
+`mael agent daemon status` names the daemon answering and the tree its code came from, which is
+the question a long-lived daemon makes worth asking. `mael self-env restart agent-daemon` replaces
+one holding stale code.
 
 ## Running
 

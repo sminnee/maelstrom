@@ -10,7 +10,7 @@ What maelstrom reads, and what it sets.
 
 `mael add` writes a `.env` file in the worktree. `mael env reset` regenerates it. The file
 merges the project root's `.env` (as a template, with `$VAR` substitution) with the
-generated variables below.
+generated variables below, and with any `env:` block in `.maelstrom.yaml`.
 
 | Variable | Example | Meaning |
 |---|---|---|
@@ -19,6 +19,7 @@ generated variables below.
 | `PORT_BASE` | `300` | The worktree's port base. A NATO worktree gets a 3-digit number from 300-999; `_main` gets the reserved `main_port_base`. Written whenever the project configures any port. See the caveat below. |
 | `<NAME>_PORT` | `FRONTEND_PORT=3010` | One per named port. A local port is `<local base> * 10 + index`; a shared port is `SHARED_PORT_BASE * 10 + index`. |
 | `SHARED_PORT_BASE` | `300` | The project's shared port base. Written only when shared ports are configured. |
+| `MAEL_AGENT_ROOT` | `~/.maelstrom/daemons/bravo` | This environment's agent daemon root. Written when the project sets it under `env:` in `.maelstrom.yaml`. See [`env:`](configuration.md#env). |
 
 A project with no ports at all gets neither base.
 
