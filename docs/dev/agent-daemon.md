@@ -232,11 +232,17 @@ Three consequences worth knowing:
   user turn itself. That echo needs `--replay-user-messages` — see the flag table above.
 
 Output is capped per stream at the same bound a retained message keeps, and the command is
-killed after 30 seconds. A timeout reaches the agent as `<bash-stderr>` text, and the caller
-still sees `{"ok": true}` — there is no exit code on this format to say otherwise. The
-command runs with the daemon's own privileges. That is the socket's existing trust boundary —
-`start` already takes an arbitrary `env` with no allowlist — so a shell command adds no exposure,
-and it is not a sandbox.
+killed after 30 seconds — the process group, so a pipeline dies whole. A timeout reaches the
+agent as `<bash-stderr>` text, and the caller still sees `{"ok": true}`: there is no exit code
+on this format to say otherwise. One command runs per agent at a time, and a second is refused
+rather than queued, so no client can starve the loop every agent shares.
+
+The command runs with the daemon's own privileges, and there is no allowlist. That is
+deliberate: the feature is "run what the user typed", and a filter would break it while only
+looking like safety. So the socket's mode is the whole boundary, and the daemon sets it —
+`0600` on the socket, `0700` on the root. Resting it on `~/.maelstrom` happening to be `0700`
+would leave the boundary one `mkdir` from gone. Every command also reaches `shell.py`'s logger,
+so what ran stays answerable afterwards. This is not a sandbox.
 
 ## The layers
 

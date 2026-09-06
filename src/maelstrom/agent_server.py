@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import signal
+import subprocess
 import sys
 import time
 import uuid
@@ -31,7 +32,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
-from . import __version__
+from . import __version__, shell
 from .agent_model import (
     AGENT_DETAIL,
     AGENT_EXITED,
@@ -258,45 +259,27 @@ SHELL_TIMEOUT_SECS = 30.0
 
 
 async def _run_shell(command: str, cwd: str) -> tuple[str, str]:
-    """Run one shell command in ``cwd`` and return its two streams.
+    """Run one user-typed shell command in ``cwd``, bounded, for the agent to read.
 
-    ``asyncio.create_subprocess_shell`` and not ``shell.run_cmd``: the daemon
-    runs one event loop for every agent it holds, so the sync chokepoint would
-    block all of them for the length of the command. This is that module's
-    async counterpart, not a way around it.
-
-    ``start_new_session`` puts the command in its own process group, so the
-    timeout kills a pipeline whole. Killing the ``sh`` alone would leave its
-    children holding the worktree and its ports, the way ``env`` tears a
-    service down.
+    The subprocess mechanics — the shell, the process group a timeout kills,
+    decoding, the audit line — belong to ``shell.async_run_cmd``. What is left
+    here is what the agent needs: two streams, each clipped, and a timeout
+    reported as something the agent can read rather than an exception.
     """
-    proc = await asyncio.create_subprocess_shell(
-        command,
-        cwd=cwd or None,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        start_new_session=True,
-    )
     try:
-        out, err = await asyncio.wait_for(
-            proc.communicate(), timeout=SHELL_TIMEOUT_SECS
+        out, err, _ = await shell.async_run_cmd(
+            shell.RawShell(command),
+            cwd=Path(cwd) if cwd else None,
+            timeout=SHELL_TIMEOUT_SECS,
         )
-    except asyncio.TimeoutError:
-        try:
-            # Through the module seam, not `os.killpg` directly: a test's stub
-            # pid may be a real process on the developer's machine.
-            kill_group(proc.pid, signal.SIGKILL)
-        except OSError:
-            # The group went between the timeout and the kill.
-            proc.kill()
-        await proc.wait()
+    except subprocess.TimeoutExpired:
         return "", f"command timed out after {SHELL_TIMEOUT_SECS:.0f}s"
     return _clip(out), _clip(err)
 
 
-def _clip(raw: bytes) -> str:
-    """One stream as text, bounded, saying so when it was cut."""
-    text = raw.decode("utf-8", "replace").rstrip("\n")
+def _clip(text: str) -> str:
+    """One stream, bounded, saying so when it was cut."""
+    text = text.rstrip("\n")
     if len(text) <= SHELL_OUTPUT_CHARS:
         return text
     return text[:SHELL_OUTPUT_CHARS] + "\n… output truncated"
@@ -695,6 +678,9 @@ class AgentDaemon:
         #: a test pins one clock rather than reaching into the agents it built.
         self.clock = clock
         self.agents: dict[str, Agent] = {}
+        #: Agents with a shell command in flight. One slot each: see the `run`
+        #: branch in `handle`.
+        self.running_shell: set[str] = set()
         # For `ping`: how long this daemon — and so the code it holds — has
         # been the one serving the socket.
         self.started_at = now_iso()
@@ -1108,6 +1094,17 @@ class AgentDaemon:
             shell_command = str(payload.get("command", "")).strip()
             if not shell_command:
                 return {"error": "no command given"}
+            # One at a time per agent. Each command holds a slot on the one
+            # event loop the daemon runs every agent on, so an unbounded
+            # client would starve the others. Refused rather than queued: the
+            # console's next line is a better place to wait than a backlog
+            # nobody can see.
+            if agent.state.agent_id in self.running_shell:
+                return {
+                    "error": f"a shell command is already running on "
+                    f"{agent.state.agent_id}"
+                }
+            self.running_shell.add(agent.state.agent_id)
             # The agent takes the command turn before the command runs, so a
             # child that will not take it costs nothing. Sending the pair the
             # other way round could leave a command turn with no output turn
@@ -1121,6 +1118,8 @@ class AgentDaemon:
                 # gone. Without this the exception escapes `handle`, and the
                 # connection closes with no reply for the caller to read.
                 stdout, stderr = "", f"could not run command: {exc}"
+            finally:
+                self.running_shell.discard(agent.state.agent_id)
             # Neither turn is recorded, for the reason `say` gives above.
             if not await agent.send(shell_output_message(stdout, stderr)):
                 return _unreachable(agent)
@@ -1300,6 +1299,13 @@ class AgentDaemon:
         server = await asyncio.start_unix_server(
             self._on_client, str(path), limit=STREAM_LIMIT
         )
+        # Anyone who can connect can run shell commands as this user, so the
+        # mode is the whole boundary. `start_unix_server` binds 0755, and the
+        # root is whatever the umask left. Neither is set here by accident:
+        # resting the boundary on `~/.maelstrom` being 0700 puts it one
+        # `mkdir` from gone. The spawn records set their own modes likewise.
+        os.chmod(path, 0o600)
+        os.chmod(self.paths.root, 0o700)
         # `mael env stop` sends SIGTERM to the process group, and Python's
         # default disposition would kill the daemon outright: the teardown
         # below would not run, so the socket would stay and each record would

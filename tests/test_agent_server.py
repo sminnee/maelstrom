@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import signal
+import stat
 import tempfile
 import time
 from contextlib import suppress
@@ -1984,6 +1985,34 @@ def test_a_shell_command_survives_a_working_directory_that_is_gone():
     assert "could not run command" in sent[-1]["message"]["content"]
 
 
+def test_one_shell_command_per_agent_at_a_time(tmp_path):
+    """A second command while one runs is refused, not queued.
+
+    Each command holds a slot on the daemon's one event loop until it finishes
+    or times out. Without this, a client can start as many as it likes and
+    starve every other agent the daemon holds.
+    """
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent, _ = _sending_agent()
+    agent.state = replace(agent.state, cwd=str(tmp_path))
+    daemon.agents["a1"] = agent
+
+    async def two_at_once():
+        slow = asyncio.create_task(
+            daemon.handle({"cmd": "run", "id": "a1", "command": "sleep 0.4"})
+        )
+        await asyncio.sleep(0.05)
+        second = await daemon.handle({"cmd": "run", "id": "a1", "command": "echo hi"})
+        return second, await slow
+
+    second, first = asyncio.run(two_at_once())
+    assert "already running" in second["error"]
+    assert first["ok"] is True
+    # The slot frees when the command ends, so the agent is not wedged.
+    again = asyncio.run(daemon.handle({"cmd": "run", "id": "a1", "command": "echo hi"}))
+    assert again["ok"] is True
+
+
 def test_a_shell_command_must_not_be_empty():
     """A bare ``!`` sends nothing rather than running the empty command."""
     daemon = AgentDaemon("/tmp/x.sock")
@@ -2722,6 +2751,45 @@ def test_the_lock_is_owner_only(tmp_path):
 
 
 @pytest.mark.binds_socket
+def test_the_socket_and_its_root_are_owner_only():
+    """Anyone who can connect can run shell commands as the owner.
+
+    `run` executes what it is given, so the socket's mode is the whole
+    boundary. `~/.maelstrom` happens to be 0700 today, but a boundary that
+    rests on one ancestor nobody re-checks is one `mkdir` from being gone.
+    The spawn records already set their own modes for the same reason.
+    """
+    paths = DaemonPaths(Path(tempfile.mkdtemp(prefix="mael-perm-")))
+    # `mkdtemp` gives 0700, which would mask the defect: a real root is made
+    # by `mkdir` under the process umask, so start from what that leaves.
+    os.chmod(paths.root, 0o755)
+
+    async def serve_briefly():
+        daemon = AgentDaemon(paths.root, InMemoryAgentSpecStore())
+        task = asyncio.create_task(daemon.serve())
+        for _ in range(100):
+            await asyncio.sleep(0.01)
+            if paths.socket.exists():
+                break
+        else:
+            task.cancel()
+            pytest.fail("the daemon never bound its socket")
+        modes = (
+            stat.S_IMODE(paths.socket.stat().st_mode),
+            stat.S_IMODE(paths.root.stat().st_mode),
+        )
+        os.kill(os.getpid(), signal.SIGTERM)
+        await asyncio.wait_for(task, timeout=5)
+        return modes
+
+    try:
+        socket_mode, root_mode = asyncio.run(serve_briefly())
+        assert socket_mode == 0o600, f"socket is {socket_mode:o}, not owner-only"
+        assert root_mode == 0o700, f"root is {root_mode:o}, not owner-only"
+    finally:
+        shutil.rmtree(paths.root, ignore_errors=True)
+
+
 def test_a_signal_stops_the_daemon_the_way_the_command_does(tmp_path):
     """`mael env stop` sends SIGTERM, so the signal path must be the tidy one.
 
