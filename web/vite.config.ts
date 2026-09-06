@@ -13,8 +13,15 @@ const orchestratorUrl = process.env.ORCHESTRATOR_URL ?? 'http://localhost:8765';
 export default defineConfig({
   plugins: [react()],
   server: {
+    // Every interface, so the tailnet reaches the dev server and localhost
+    // still works. Vite takes one address and Node cannot listen on two, so
+    // binding the tailnet alone would cost us localhost. This also serves
+    // whatever wifi the machine joins — close that off at the firewall.
+    host: true,
     port,
     strictPort: true,
+    // Only the port here. HMR has no host of its own: the client dials the
+    // address it loaded the page from, which is the one we want.
     hmr: hmrPort ? { port: hmrPort } : undefined,
     proxy: {
       '/api': { target: orchestratorUrl, ws: true },
