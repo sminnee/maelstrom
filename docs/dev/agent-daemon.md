@@ -354,34 +354,35 @@ footnote — it has no identity to print — so it fails with the same advice.
 
 ### A daemon per environment
 
-An environment can run a daemon of its own, on its own root. A worktree that runs
+Every environment runs a daemon of its own, on its own root. A worktree that runs
 orchestrator/web is testing changed code; if that change touches the agent protocol, driving the
-daemon `_main` holds is the bug rather than the accident.
+daemon another environment holds is the bug rather than the accident.
 
-maelstrom's own `.maelstrom.yaml` declares one as an optional service:
+maelstrom's own `.maelstrom.yaml` declares it as an ordinary service:
 
 ```yaml
+env:
+  MAEL_AGENT_ROOT: ${HOME}/.maelstrom/daemons/${WORKTREE}
+
+services:
   agent-daemon:
-    optional: true
-    command: uv run mael agent daemon serve --root ${MAEL_AGENT_ROOT}
-    env:
-      MAEL_AGENT_ROOT: ${HOME}/.maelstrom/daemons/maelstrom-${WORKTREE}
+    command: uv run mael agent daemon serve
 ```
 
-`optional: true` keeps it out of a plain `mael env start`. Start it by name, and stop it with the
-environment:
+The `env:` block writes the root into each worktree's `.env`, resolved. `serve` reads it from the
+environment and takes no `--root` flag, so a daemon cannot be started on a root its environment
+does not own.
 
 ```bash
-mael env start agent-daemon
-mael env stop                                         # takes the daemon and its agents with it
+mael env start                     # this worktree's services, the daemon among them
+mael env stop                      # takes the daemon and its agents with it
 ```
 
-The root carries the project name because `${WORKTREE}` alone collides across projects. Its
-spawn records come with it, so this daemon cannot restore the records the everyday daemon holds
-and start a second `claude` on each of its sessions.
+`_main` is a worktree name like any other, so the same line gives it
+`~/.maelstrom/daemons/_main`. That is the everyday daemon, and `mael self-env start` runs it.
 
-A service's `env:` block reaches that service only. To point the environment's orchestrator at
-its own daemon, set `MAEL_AGENT_ROOT` in the worktree's `.env`, which every service reads.
+Each root holds its own spawn records, so one environment's daemon cannot restore the records
+another holds and start a second `claude` on each of its sessions.
 
 `mael agent list` names what each waiting agent waits on, which is the point of the whole
 mechanism:

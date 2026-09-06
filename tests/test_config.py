@@ -542,26 +542,31 @@ class TestBoolKeyParsing:
 
 
 class TestAgentDaemonService:
-    """The daemon as an opt-in env service.
+    """The daemon as an env service — the only way one is started.
 
     A worktree testing a protocol change must not drive the everyday daemon:
-    its agents run different code. Declaring the daemon as an optional service
-    gives that worktree its own, and `mael env stop` takes it away again.
+    its agents run different code. Every environment declares the service, and
+    its root comes from `MAEL_AGENT_ROOT` in the worktree's `.env`, so the
+    daemon a worktree starts is its own.
     """
 
-    def test_the_daemon_service_parses_as_optional(self, tmp_path):
+    def test_the_daemon_service_takes_its_root_from_the_environment(self, tmp_path):
+        """No `--root` flag: a daemon on the wrong root through a mistyped
+        flag is what the environment variable exists to prevent."""
         (tmp_path / ".maelstrom.yaml").write_text(
+            "env:\n"
+            "  MAEL_AGENT_ROOT: ${HOME}/.maelstrom/daemons/${WORKTREE}\n"
             "services:\n"
             "  agent-daemon:\n"
-            "    optional: true\n"
-            "    command: uv run mael agent daemon serve --root ${MAEL_AGENT_ROOT}\n"
-            "    env:\n"
-            "      MAEL_AGENT_ROOT: ${HOME}/.maelstrom/daemons/proj-${WORKTREE}\n"
+            "    command: uv run mael agent daemon serve\n"
         )
         config = load_config(tmp_path)
         daemon = next(s for s in config.services if s.name == "agent-daemon")
-        assert daemon.optional is True
+        assert daemon.command == "uv run mael agent daemon serve"
         # No ports: the socket is a path, not an allocation.
         assert daemon.ports == []
-        assert "${MAEL_AGENT_ROOT}" in daemon.command
-        assert daemon.env["MAEL_AGENT_ROOT"].endswith("daemons/proj-${WORKTREE}")
+        # Not optional: an environment without its daemon has no agent host.
+        assert daemon.optional is False
+        # The root reaches it through the environment's `.env`, not a service
+        # `env:` block, which would reach this service alone.
+        assert daemon.env == {}
