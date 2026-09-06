@@ -15,18 +15,21 @@
         "permissionMode": "normal",
         "waitingOn": "",
         "lastMessage": "Red and blue.",
+        "lastMessageAt": "2026-09-05T08:31:50.614Z",
         "costUsd": 0.1100315,
         "taskId": "NORT-7",
         "project": "northwind",
         "worktreeId": "northwind-alpha",
         "exitCode": null,
-        "pendingRequestId": null
+        "pendingRequestId": null,
+        "pid": null
       }
     },
     "documents": {},
     "comments": {},
     "attention": {},
-    "desk": {}
+    "desk": {},
+    "host": {}
   },
   "transcripts": {
     "ag1": {
@@ -38,21 +41,21 @@
           "sessionId": "7c2d9e14-3a8b-4f52-9d16-2b7e5c1a08f4",
           "model": "claude-opus-5",
           "id": "ag1-1",
-          "ts": "2026-09-01T00:00:00Z"
+          "ts": "2026-09-02T00:00:00Z"
         },
         {
           "type": "message",
           "role": "user",
           "markdown": "What two colours are in this image? Answer in one short sentence.",
           "id": "ag1-2",
-          "ts": "2026-09-01T00:00:00Z"
+          "ts": "2026-09-05T08:31:44.175Z"
         },
         {
           "type": "message",
           "role": "assistant",
           "markdown": "Red and blue.",
           "id": "ag1-3",
-          "ts": "2026-09-01T00:00:00Z"
+          "ts": "2026-09-05T08:31:50.614Z"
         },
         {
           "type": "turn_result",
@@ -60,7 +63,7 @@
           "costUsd": 0.1100315,
           "durationMs": 11831,
           "id": "ag1-4",
-          "ts": "2026-09-01T00:00:00Z"
+          "ts": "2026-09-02T00:00:00Z"
         }
       ],
       "truncatedBefore": false
