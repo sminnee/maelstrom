@@ -27,7 +27,8 @@ release while that section is empty, and retitles it to the version it is releas
   `mael agent` command says which root it looked for. `mael self-update` puts the everyday root
   into the `mael` on your PATH, so a bare `mael agent list` still reaches it, and a daemon passes
   its own root to every agent it starts, so a session's `mael agent` commands reach the daemon
-  that runs it. **To upgrade:** run `mael self-env reset` and `mael env reset`, then
+  that runs it. **To upgrade:** add `MAEL_AGENT_ROOT` to the project root's `.env`, run
+  `mael self-env reset` and `mael env reset`, then
   `mael self-env start`. Agents held by the old daemon on `~/.maelstrom` are not migrated —
   `mael agent daemon gc --all-roots` clears what they leave behind.
 
@@ -66,16 +67,10 @@ release while that section is empty, and retitles it to the version it is releas
 
 - **Every environment runs its own agent daemon.** A worktree that runs orchestrator/web to test
   a change to the agent protocol should not drive the agents another environment holds. Declare
-  an `agent-daemon` service in `.maelstrom.yaml` running `mael agent daemon serve`, and set
-  `MAEL_AGENT_ROOT` under the new top-level `env:` key. `mael env start` gives that environment a
-  daemon of its own, and `mael env stop` takes it and its agents away again.
-
-- **`env:` in `.maelstrom.yaml` reaches every worktree's `.env`.** A service's own `env:` block
-  reaches that service alone, so it cannot carry a value the whole environment needs. Values under
-  the new top-level `env:` are written into each worktree's `.env`, with `${WORKTREE}`, `${HOME}`
-  and the allocated ports resolved. `mael env reset` rewrites them. A key maelstrom generates
-  itself — `WORKTREE`, `PORT_BASE`, anything ending `_PORT` — is refused rather than silently
-  overwritten.
+  an `agent-daemon` service in `.maelstrom.yaml` running `mael agent daemon serve`, and put
+  `MAEL_AGENT_ROOT=~/.maelstrom/daemons/${WORKTREE}` in the project root's `.env`, which every
+  worktree's `.env` is substituted from. `mael env start` gives that environment a daemon of its
+  own, and `mael env stop` takes it and its agents away again.
 
 ### Removed
 

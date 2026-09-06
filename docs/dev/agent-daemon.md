@@ -305,11 +305,6 @@ No agent daemon on /Users/you/.maelstrom/daemons/_main. Run `mael self-env start
 (everyday daemon) or `mael env start` (this worktree's).
 ```
 
-Auto-start used to fill that gap, and it is what made the everyday daemon serve a worktree's test
-code. The worktree's orchestrator polled the socket, found it gone, and started a daemon from its
-own tree — four times over. Whoever noticed a missing daemon first chose the code every session on
-the machine then ran.
-
 ### The daemon root
 
 Everything a daemon owns lives under one directory:
@@ -373,17 +368,19 @@ daemon another environment holds is the bug rather than the accident.
 maelstrom's own `.maelstrom.yaml` declares it as an ordinary service:
 
 ```yaml
-env:
-  MAEL_AGENT_ROOT: ${HOME}/.maelstrom/daemons/${WORKTREE}
-
 services:
   agent-daemon:
     command: uv run mael agent daemon serve
 ```
 
-The `env:` block writes the root into each worktree's `.env`, resolved. `serve` reads it from the
-environment and takes no `--root` flag, so a daemon cannot be started on a root its environment
-does not own.
+The root comes from the project root's `.env`, which each worktree's `.env` is substituted from:
+
+```bash
+MAEL_AGENT_ROOT=~/.maelstrom/daemons/${WORKTREE}
+```
+
+`serve` reads the root from the environment and takes no `--root` flag, so a daemon cannot be
+started on a root its environment does not own.
 
 ```bash
 mael env start                     # this worktree's services, the daemon among them
@@ -847,9 +844,10 @@ mismatch is read off one table.
 
 A session belongs to one root. `unknown` is never killed from one root because the same driven
 `claude` may be another root's `owned`: a task keeps its session id across roots, so a task
-relaunched under a per-environment daemon runs on a session the default root's old records also
-name. `--all-roots` reconciles every root (`~/.maelstrom` and `~/.maelstrom/daemons/*`) and kills
-only what none of them claims.
+relaunched under one environment's daemon runs on a session another environment's records also
+name. `--all-roots` reconciles every root under `~/.maelstrom` — the directory itself, where the
+everyday daemon used to live, and each `~/.maelstrom/daemons/*` — and kills only what none of
+them claims.
 
 A kill goes to the process group and escalates, SIGTERM then SIGKILL after 3 seconds, as "Ending
 an agent" describes. The `ps` snapshot is stale by milliseconds; a process that leaves in between

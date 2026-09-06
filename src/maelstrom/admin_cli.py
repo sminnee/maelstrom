@@ -31,8 +31,12 @@ def cmd_install(no_monitor):
 #: rather than wrapping it again.
 SHIM_MARKER = "# maelstrom daemon-root shim"
 
+#: A `mael` under this directory belongs to a virtualenv, not to the PATH
+#: install. Under `uv run` that is what the name resolves to.
+VENV_DIR = ".venv"
 
-def _write_daemon_root_shim() -> str | None:
+
+def _write_daemon_root_shim() -> str:
     """Give the `mael` on PATH the everyday daemon's root.
 
     That `mael` is a uv entrypoint, which reads no `.env`. `UV_ENV_FILE` only
@@ -43,26 +47,36 @@ def _write_daemon_root_shim() -> str | None:
     `uv run mael` and a command inside a driven session both arrive with a root
     already set, and overriding either would send it to the wrong daemon.
 
-    Best-effort, like the dependency sync above it: the update has already
-    landed by this point, so a `mael` that cannot be rewritten warns rather
-    than aborting.
+    A `mael` inside a virtualenv is left alone. Under `uv run` the name resolves
+    to the worktree's own `.venv/bin/mael`, and shimming there would corrupt
+    that venv while leaving the real PATH entrypoint rootless.
 
-    Returns what to tell the user, or a warning when the shim could not be
-    written.
+    Best-effort, like the dependency sync above it: the update has already
+    landed by this point, so a `mael` that cannot be rewritten warns rather than
+    aborting, and the entrypoint is put back the way it was.
+
+    Returns what to tell the user.
     """
     path = Path(mael_path())
     root = get_maelstrom_dir() / "daemons" / MAIN_WORKTREE_FOLDER
+    if VENV_DIR in path.parts:
+        return (
+            f"`mael` at {path} is a virtualenv entrypoint, not the `mael` on "
+            "your PATH, so it was left alone. Run `mael self-update` outside a "
+            "worktree to point your PATH `mael` at a daemon root."
+        )
+    advice = (
+        f"Warning: could not point `mael` at {root}. "
+        f"Set {ROOT_ENV} in your shell instead."
+    )
     real = path.with_name(f"{path.name}-real")
     try:
-        text = path.read_text(errors="replace")
-        if SHIM_MARKER not in text:
+        moved = SHIM_MARKER not in path.read_text(errors="replace")
+        if moved:
             # First time: move the entrypoint aside, so the shim can exec it.
             path.replace(real)
-    except OSError as exc:
-        return (
-            f"Warning: could not point `mael` at {root} ({exc}). "
-            f"Set {ROOT_ENV} in your shell instead."
-        )
+    except OSError:
+        return advice
     shim = (
         "#!/bin/sh\n"
         f"{SHIM_MARKER} — written by `mael self-update`.\n"
@@ -73,11 +87,12 @@ def _write_daemon_root_shim() -> str | None:
     try:
         path.write_text(shim)
         path.chmod(0o755)
-    except OSError as exc:
-        return (
-            f"Warning: could not point `mael` at {root} ({exc}). "
-            f"Set {ROOT_ENV} in your shell instead."
-        )
+    except OSError:
+        # The rename already happened, so returning here would leave the user
+        # with no `mael` at all — and no way to act on the advice.
+        if moved:
+            real.replace(path)
+        return advice
     return f"`mael` reaches the daemon on {root}"
 
 

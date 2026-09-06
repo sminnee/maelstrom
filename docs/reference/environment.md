@@ -10,7 +10,7 @@ What maelstrom reads, and what it sets.
 
 `mael add` writes a `.env` file in the worktree. `mael env reset` regenerates it. The file
 merges the project root's `.env` (as a template, with `$VAR` substitution) with the
-generated variables below, and with any `env:` block in `.maelstrom.yaml`.
+generated variables below.
 
 | Variable | Example | Meaning |
 |---|---|---|
@@ -19,7 +19,6 @@ generated variables below, and with any `env:` block in `.maelstrom.yaml`.
 | `PORT_BASE` | `300` | The worktree's port base. A NATO worktree gets a 3-digit number from 300-999; `_main` gets the reserved `main_port_base`. Written whenever the project configures any port. See the caveat below. |
 | `<NAME>_PORT` | `FRONTEND_PORT=3010` | One per named port. A local port is `<local base> * 10 + index`; a shared port is `SHARED_PORT_BASE * 10 + index`. |
 | `SHARED_PORT_BASE` | `300` | The project's shared port base. Written only when shared ports are configured. |
-| `MAEL_AGENT_ROOT` | `~/.maelstrom/daemons/bravo` | This environment's agent daemon root. Written when the project sets it under `env:` in `.maelstrom.yaml`. See [`env:`](configuration.md#env). |
 
 A project with no ports at all gets neither base.
 
@@ -148,7 +147,7 @@ that lack the key.
 | Variable | Default | Meaning |
 |---|---|---|
 | `CMUX_SOCKET_PATH` | `/tmp/cmux.sock` | Socket maelstrom uses to drive cmux. Set it when cmux listens elsewhere. |
-| `MAEL_AGENT_ROOT` | `~/.maelstrom/daemons/_main` | The agent daemon's root: the one directory holding its socket (`agent-daemon.sock`), lock, pid file, log and `agents/` spawn records. There is no default. `mael agent daemon serve` exits 2 without it, and every other `mael agent` command reports that it has no daemon to reach. The environment manager writes it into each worktree's `.env` from the project's `env:` block; a daemon exports its own root to every agent it starts; and `mael self-update` puts the everyday root into the `mael` on your PATH. Replaces `MAEL_AGENT_SOCKET`, `MAEL_AGENT_LOG` and `MAEL_AGENT_SPEC_DIR`. |
+| `MAEL_AGENT_ROOT` | — | The agent daemon's root: the one directory holding its socket (`agent-daemon.sock`), lock, pid file, log and `agents/` spawn records. There is no default. `mael agent daemon serve` exits 2 without it, and every other `mael agent` command reports that it has no daemon to reach. Each worktree's `.env` carries it, substituted from the project root's `.env` template; a daemon exports its own root to every agent it starts; and `mael self-update` puts the everyday root into the `mael` on your PATH. Replaces `MAEL_AGENT_SOCKET`, `MAEL_AGENT_LOG` and `MAEL_AGENT_SPEC_DIR`. |
 | `ORCHESTRATOR_URL` | `http://localhost:8765` | Where the web dev server proxies `/api` to: the orchestrator's REST routes, its change stream and its per-agent sockets. Read by `vite.config.ts`, not by the bundle, so the built app carries no address. |
 | `EDITOR` | `vi` | Editor for `mael task edit` and `mael task add --edit`. |
 | `TMPDIR` | system temp | Scratch directory for artifact downloads. |

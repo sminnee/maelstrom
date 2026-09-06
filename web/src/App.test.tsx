@@ -1120,7 +1120,7 @@ describe('the agent host', () => {
     const banner = await screen.findByRole('status');
     expect(banner).toHaveTextContent('Agent host unreachable since');
     expect(banner).toHaveTextContent('showing the last known agents');
-    expect(banner).toHaveTextContent('mael agent daemon restart');
+    expect(banner).toHaveTextContent('mael self-env start');
     // The agents are the last known ones, still drawn.
     expect(screen.getAllByTestId('task-node').length).toBeGreaterThan(0);
     await act(async () => {

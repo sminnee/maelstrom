@@ -188,15 +188,19 @@ protocol drives agents running that change. A worktree that does not keeps its a
 the everyday ones. maelstrom declares the daemon as an ordinary service:
 
 ```yaml
-env:
-  MAEL_AGENT_ROOT: ${HOME}/.maelstrom/daemons/${WORKTREE}
-
 services:
   agent-daemon:
     command: uv run mael agent daemon serve
 ```
 
-The root comes from the worktree's `.env`, which the `env:` block above generates. The daemon
+The root comes from `MAEL_AGENT_ROOT` in the worktree's `.env`. Put it in the project root's
+`.env`, which every worktree's `.env` is substituted from:
+
+```bash
+MAEL_AGENT_ROOT=~/.maelstrom/daemons/${WORKTREE}
+```
+
+`${WORKTREE}` resolves per worktree, so one line gives each environment its own root. The daemon
 takes no `--root` flag, so it cannot be started on a root its environment does not own.
 
 ```bash

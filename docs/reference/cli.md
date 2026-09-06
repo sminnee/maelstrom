@@ -691,10 +691,8 @@ spawn records. `MAEL_AGENT_ROOT` names that root, and the environment manager wr
 worktree's `.env`. There is no fallback and no `--root` flag, so a daemon cannot be started on a
 root its environment does not own.
 
-Your shell reaches the daemon its directory names. `uv run mael` in a worktree reads that
-worktree's `.env` through `UV_ENV_FILE=.env`, a convention you set in your shell. A plain `mael`
-reaches the everyday daemon, because `mael self-update` writes that root into the `mael` on your
-PATH. A `mael agent` command inside a driven session reaches the daemon that runs the session.
+Which daemon your shell reaches depends on the directory you stand in — see
+[dev-environments.md](../guide/dev-environments.md#an-agent-daemon-per-environment).
 
 A daemon holds the code it started with, so `mael agent daemon status` names the tree serving
 you. See [agent-daemon.md](../dev/agent-daemon.md#a-daemon-per-environment).
