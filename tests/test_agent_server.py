@@ -45,6 +45,7 @@ from maelstrom.session_discovery import (
     LiveSessionSet,
     ProcessInfo,
     ProcessTableUnavailable,
+    list_claude_processes,
 )
 from maelstrom.task_index import TaskMeta
 from maelstrom.transcript_store import InMemoryTranscriptStore
@@ -1531,7 +1532,15 @@ def test_a_stray_left_by_a_dead_daemon_is_killed_and_resumed_exactly_once(
 
     pid = asyncio.run(first_life())
     try:
-        os.kill(pid, 0)  # the stray survived its daemon
+        # The precondition is the one `restore` actually depends on: the stray
+        # is in the process table `list_claude_processes` reads. `kill(pid, 0)`
+        # is weaker — it is satisfied by an unreaped zombie, which has no
+        # command line for `pgrep -f` to match. The daemon would then call the
+        # record `crashed` rather than `stray` and resume nothing, failing far
+        # from the cause. See `_reap` for why a zombie is likely here.
+        assert pid in {p.pid for p in list_claude_processes()}, (
+            "the stray is not in the process table, so no daemon can find it"
+        )
         assert store.list()[0].pid == pid
 
         spawned = _spawn_stub()
