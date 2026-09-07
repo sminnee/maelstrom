@@ -23,7 +23,7 @@ Each feature is split into three files with one responsibility each:
 Dependencies point one way: CLI → model → store. The model never imports the CLI;
 the store never imports the model.
 
-## The six conventions
+## The seven conventions
 
 ### 1. Three layers per feature
 
@@ -146,6 +146,53 @@ the rule is easy to break by accident. Module-level imports keep dependencies
 visible and avoid per-call import cost. New and refactored code must not
 reintroduce them, whatever the surrounding module already does.
 
+### 7. Async where the I/O is, and nowhere else
+
+The orchestrator server and the agent daemon run on an event loop. A call that
+blocks that loop stops every socket it serves, so anything doing I/O on their
+paths is a coroutine.
+
+That rule stops at the I/O. **The model layer is sync**, because convention 2
+already made it pure — and a pure function has no await point to yield at, so
+`async def` on it buys nothing and costs an `await` at every call site. The
+storage layer is sync for a stronger reason: `SqliteTaskIndex` binds its
+connection to one thread and `GitFileStore` holds a cross-process `flock`.
+Neither is a bottleneck, and both are hostile to being made async.
+
+Where the I/O actually is. Re-derive the counts with:
+
+```bash
+grep -cE '\b(run_cmd|run_git)\w*\(' src/maelstrom/<module>.py
+```
+
+| Module | `run_cmd` / `run_git` call sites |
+|--------|----------------------------------|
+| [`worktree.py`](../../src/maelstrom/worktree.py) | 100 |
+| [`github.py`](../../src/maelstrom/github.py) | 26 |
+| [`task.py`](../../src/maelstrom/task.py) | 1 — the `$EDITOR` launch, a convention 2 exception |
+| [`worktree_model.py`](../../src/maelstrom/worktree_model.py), [`github_model.py`](../../src/maelstrom/github_model.py), [`task_actions.py`](../../src/maelstrom/task_actions.py), [`task_launch.py`](../../src/maelstrom/task_launch.py), [`orchestrator/normalise.py`](../../src/maelstrom/orchestrator/normalise.py), [`orchestrator/world.py`](../../src/maelstrom/orchestrator/world.py) | 0 |
+
+The count includes the `run_cmd_async` sites, which are the already-converted
+ones — it measures where the I/O is, not how much of it still blocks.
+
+So a converted function is one that shells out, or awaits something that does.
+
+**One loop per process.** [`cli_async.py`](../../src/maelstrom/cli_async.py)
+holds `AsyncGroup`/`AsyncCommand`; a `mael` group built with it may have
+coroutine commands, and the loop is opened once around the invocation. A
+command converts by adding `async` and nothing else.
+
+This is what makes a sync twin unnecessary. `asyncio.run` cannot nest, so a
+codebase that opens a loop per call site needs a blocking copy of everything a
+command might reach — which is what `github.py`'s `*_async` pairs and the sync
+`DaemonClient` were. Do not add a `foo_async` beside a `foo`: convert `foo`,
+and let its callers await it.
+
+One twin survives: `session_discovery._sweep_blocking`, reached from the
+`LiveSessionSet.sessions` property. It goes when its remaining synchronous
+callers — in `task_cli`, `worktree` and `agent_server` — move to
+`await sweep()`, which is part of converting `worktree.py`.
+
 ## Applying this
 
 When adding or refactoring a feature, ask:
@@ -156,5 +203,6 @@ When adding or refactoring a feature, ask:
 3. Does the model raise typed domain errors, and is the `*_cli.py` the only place
    that turns them into `ClickException` / exit codes?
 4. Are all imports public, top-of-file, and from concrete submodules?
+5. Is anything that shells out a coroutine, and is everything pure left sync?
 
-If yes to all four, it matches the task subsystem and this document.
+If yes to all five, it matches the task subsystem and this document.

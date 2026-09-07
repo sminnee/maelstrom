@@ -29,6 +29,6 @@ echo "== vulture: test pass (the gate) =="
 uv run vulture \
   --min-confidence=60 \
   --ignore-decorators='@click.*,@*.command,@*.group,@*.result_callback,@property,@dataclass,@staticmethod,@classmethod,@overload,@routes.*,@pytest.*' \
-  --ignore-names='compose,on_*,action_*,BINDINGS,CSS,list_commands,get_command,InMemory*,test_*,pytest_*,mock_*' \
+  --ignore-names='compose,on_*,action_*,BINDINGS,CSS,list_commands,get_command,command_class,group_class,InMemory*,test_*,pytest_*,mock_*' \
   src tests .vulture_whitelist.py
 echo "No dead code."
