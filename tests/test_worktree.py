@@ -1,5 +1,7 @@
 """Tests for maelstrom.worktree module."""
 
+import asyncio
+import inspect
 import json
 import os
 import subprocess
@@ -28,7 +30,13 @@ from maelstrom.worktree import (
     find_closed_worktree,
     find_worktree_by_branch,
     get_commits_ahead,
+    get_commits_ahead_async,
+    get_local_only_commits,
+    get_local_only_commits_async,
+    get_pushed_commit_count,
+    get_pushed_commit_count_async,
     get_worktree_dirty_files,
+    get_worktree_dirty_files_async,
     is_worktree_closed,
     list_worktrees,
     managed_keys_in_env,
@@ -1727,18 +1735,38 @@ class TestRegenerateEnvFile:
         assert env_file.stat().st_mode & 0o777 == 0o600
 
 
+# The four readers `list-all` calls per worktree row, each with the value it
+# answers for a directory that has gone. Both forms of each are listed: a
+# worktree can vanish between the listing and the read whichever one is asked,
+# so the guard has to hold on both sides.
+MISSING_PATH_READERS = [
+    (get_worktree_dirty_files, []),
+    (get_worktree_dirty_files_async, []),
+    (get_commits_ahead, 0),
+    (get_commits_ahead_async, 0),
+    (lambda p: get_local_only_commits(p, "feature/work"), 0),
+    (lambda p: get_local_only_commits_async(p, "feature/work"), 0),
+    (lambda p: get_pushed_commit_count(p, "feature/work"), None),
+    (lambda p: get_pushed_commit_count_async(p, "feature/work"), None),
+]
+
+
 class TestStaleWorktreeHandling:
     """Tests for handling worktrees whose directories no longer exist."""
 
-    def test_get_worktree_dirty_files_nonexistent_path(self):
-        """get_worktree_dirty_files returns [] for a non-existent path."""
-        result = get_worktree_dirty_files(Path("/nonexistent/worktree/path"))
-        assert result == []
+    @pytest.mark.parametrize("read, expected", MISSING_PATH_READERS)
+    def test_a_reader_answers_for_a_worktree_that_has_gone(self, read, expected):
+        """Each per-row reader degrades to its empty answer, sync or async.
 
-    def test_get_commits_ahead_nonexistent_path(self):
-        """get_commits_ahead returns 0 for a non-existent path."""
-        result = get_commits_ahead(Path("/nonexistent/worktree/path"))
-        assert result == 0
+        ``list-all`` reads these on a 15-second poll, and a worktree directory
+        can go between the listing and the read. Without the guard the reader
+        raises ``FileNotFoundError`` from the subprocess spawn — which
+        ``check=False`` does not suppress — and costs the whole project row.
+        """
+        result = read(Path("/nonexistent/worktree/path"))
+        if inspect.isawaitable(result):
+            result = asyncio.run(result)
+        assert result == expected
 
     def test_list_worktrees_filters_stale_entries(self, tmp_path, capsys):
         """list_worktrees filters out worktrees whose directories are missing."""
