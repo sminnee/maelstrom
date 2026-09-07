@@ -408,6 +408,28 @@ daemons can both find the socket free, and the loser then binds a path no client
 it still holds its children. A stale socket file left by a killed daemon refuses connections, so
 it reads as free and is replaced; the kernel releases that daemon's lock when the process dies.
 
+### A sandbox can deny the socket
+
+A sandbox allows a Unix domain socket only if the socket is on its allowlist, and the daemon
+socket usually is not. The connect then fails with `EPERM`, and the agent daemon is alive the
+whole time.
+
+Two error messages tell the two cases apart:
+
+| The connect fails with | The reply says | It means |
+| --- | --- | --- |
+| `ENOENT`, `ECONNREFUSED` | `No agent daemon on <root>` | No daemon holds this root |
+| `EPERM`, `EACCES` | `Cannot connect to the agent daemon socket at <path>: permission denied` | A daemon may hold this root, and something refused the connect |
+
+The split matters beyond the wording. `mael agent daemon gc` reads the `No agent daemon on`
+marker as "no daemon holds these agents", then falls back to the spawn records and kills the
+strays it finds. Under a denial that reasoning is wrong: the daemon still holds those agents. So
+a denial never carries the marker.
+
+The reply names the fix: add `mael task:*` to `sandbox.excludedCommands` in
+`~/.claude/settings.json`, next to the entries that already run `mael sync` and `mael gh`
+outside the sandbox.
+
 ### Which daemon is answering
 
 A daemon holds the modules it imported at start, for days. So a command from a worktree is

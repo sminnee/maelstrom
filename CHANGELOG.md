@@ -22,6 +22,11 @@ release while that section is empty, and retitles it to the version it is releas
   because deleting the remote branch is a push. **To upgrade:** replace `mael git squash` with
   `mael sync --squash --no-push`.
 
+- **A denied socket connect no longer reads as an absent daemon.** Where a sandbox refuses the
+  connect, `mael agent` names the denial and the socket path. It used to say "No agent daemon
+  on \<root>" and tell you to start a daemon that was already running. `mael agent daemon gc`
+  now stops on a denial instead of killing the agents that daemon holds.
+
 - **Stacking is opt-in.** `mael add` bases a new branch on `main` and leaves the stack tip where
   it is. It used to move the tip to each new branch, so the next worktree stacked on the last
   one. Move the tip with `mael stack-tip <branch>`, or pass `--base`, to stack. A project whose

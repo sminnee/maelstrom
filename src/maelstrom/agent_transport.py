@@ -181,6 +181,22 @@ async def open_connection(
 UNREACHABLE_MARKER = "No agent daemon on"
 
 
+def denied_message(socket_path: str) -> str:
+    """What to say when the connect itself was refused.
+
+    Carries no :data:`UNREACHABLE_MARKER`: a denial is not an absent daemon,
+    and the callers that match on the marker would kill agents a live daemon
+    still holds. See "A sandbox can deny the socket" in
+    ``docs/dev/agent-daemon.md``.
+    """
+    return (
+        f"Cannot connect to the agent daemon socket at {socket_path}: "
+        "permission denied. The daemon may well be running — a sandbox can "
+        "deny a socket connect. Check with `mael agent daemon status` outside "
+        "the sandbox, and add `mael task:*` to `sandbox.excludedCommands` if so."
+    )
+
+
 def unreachable_message(paths: DaemonPaths) -> str:
     """What to say when no daemon answers on ``paths``' socket.
 
@@ -194,6 +210,17 @@ def unreachable_message(paths: DaemonPaths) -> str:
     )
 
 
+def connect_failure(socket_path: str, error: OSError) -> str:
+    """The message for a connect that did not land.
+
+    Every connect site maps its failure here, so a denial cannot read as an
+    absent daemon at one call site and correctly at another.
+    """
+    if isinstance(error, PermissionError):
+        return denied_message(socket_path)
+    return unreachable_message(DaemonPaths.for_socket(socket_path))
+
+
 async def request_over_socket(
     socket_path: str, payload: dict[str, Any]
 ) -> dict[str, Any]:
@@ -204,13 +231,13 @@ async def request_over_socket(
     malformed line all come back as a reply whose ``error`` explains them,
     never an exception — the same non-fatal contract as ``CmuxResult``.
 
-    No daemon is started. A missing one is the error reply
-    :func:`unreachable_message` describes.
+    No daemon is started. A connection failure comes back as the reply
+    :func:`unreachable_message` or :func:`denied_message` describes.
     """
     try:
         reader, writer = await open_connection(socket_path)
-    except (OSError, asyncio.TimeoutError):
-        return {"error": unreachable_message(DaemonPaths.for_socket(socket_path))}
+    except (OSError, asyncio.TimeoutError) as error:
+        return {"error": connect_failure(socket_path, error)}
     try:
         writer.write((json.dumps(payload) + "\n").encode())
         await writer.drain()
@@ -354,10 +381,8 @@ class SocketAsyncDaemonClient:
         """
         try:
             reader, writer = await open_connection(self.socket_path)
-        except (OSError, asyncio.TimeoutError):
-            yield {
-                "error": unreachable_message(DaemonPaths.for_socket(self.socket_path))
-            }
+        except (OSError, asyncio.TimeoutError) as error:
+            yield {"error": connect_failure(self.socket_path, error)}
             return
         try:
             writer.write(
