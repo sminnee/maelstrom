@@ -1381,6 +1381,12 @@ class TestDraft:
         assert t.created == ""
         assert t.follows == []
 
+    def test_draft_creates_the_parent_directory(self, runner, tmp_path):
+        f = tmp_path / ".drafts" / "iter1.md"
+        result = runner.invoke(task_cli.task, ["draft", str(f), "Execute: demo"])
+        assert result.exit_code == 0, result.output
+        assert model.Task.from_markdown(f.read_text()).title == "Execute: demo"
+
     def test_draft_requires_title(self, runner, tmp_path):
         result = runner.invoke(task_cli.task, ["draft", str(tmp_path / "d.md")])
         assert result.exit_code != 0

@@ -7,7 +7,7 @@ Two forms::
     - the markdown body, inline
     </doc-content>
 
-    <doc-file kind="tasks" filename="draft-iter1.md" title="Iteration 1">
+    <doc-file kind="tasks" filename=".drafts/iter1.md" title="Iteration 1">
 
 See ``docs/dev/orchestrator-server.md``, "A tagged document", for the design.
 """

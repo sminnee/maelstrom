@@ -72,10 +72,10 @@ reality, plan the top item, and hand the next planner an updated tail.
 
    ```bash
    # The execute step (always):
-   mael task draft draft-step.md "Execute: <next step desc>" --mode auto --pre-action linear.in-progress
+   mael task draft .drafts/step.md "Execute: <next step desc>" --mode auto --pre-action linear.in-progress
 
    # Only when work remains beyond this step — the refreshed tail:
-   mael task draft draft-tail.md "Plan next step" --command plan-next-step --mode normal --model opus
+   mael task draft .drafts/tail.md "Plan next step" --command plan-next-step --mode normal --model opus
    ```
 
    Tag each draft the moment it exists, so the user reads it as a document — see the `planning`
@@ -85,8 +85,8 @@ reality, plan the top item, and hand the next planner an updated tail.
 4. **Promote on approval**: once the user approves the drafts, run — in this order:
 
    ```bash
-   mael task promote draft-step.md --follow-end '*'    # creates the step; echoes its id
-   mael task promote draft-tail.md --follow <id1>      # only if a tail exists; <id1> = the echoed step id
+   mael task promote .drafts/step.md --follow-end '*'    # creates the step; echoes its id
+   mael task promote .drafts/tail.md --follow <id1>      # only if a tail exists; <id1> = the echoed step id
    mael task status done                           # close this planning task ($MAEL_TASK_ID)
    mael task next --run --parent "$MAEL_TASK_PARENT"   # step now actionable — launches it
    mael session end                                # stop this planning session

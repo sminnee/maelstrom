@@ -13,20 +13,22 @@ that loaded this one.
 ## What a draft is
 
 A draft is a task file **outside the notebook** — plain markdown in the task-file format (YAML
-frontmatter + Content/Steps/Log sections), sitting in the worktree cwd. It is inert: invisible
-to `mael task list`, `mael task next`, and follow-end resolution. It becomes a real task only
-when `mael task promote` loads it into the store. That structural gap *is* the approval gate —
-nothing you draft can run until the user approves promotion.
+frontmatter + Content/Steps/Log sections), sitting in the worktree's `.drafts/` directory. It is
+inert: invisible to `mael task list`, `mael task next`, and follow-end resolution. It becomes a
+real task only when `mael task promote` loads it into the store. That structural gap *is* the
+approval gate — nothing you draft can run until the user approves promotion.
+
+`.drafts/` is gitignored, so an abandoned draft cannot reach a commit.
 
 ## Create drafts early
 
 The moment a task's shape emerges, create its draft — don't hold the plan in conversation:
 
 ```bash
-mael task draft draft-<name>.md "<title>" --mode auto --pre-action linear.in-progress
+mael task draft .drafts/<name>.md "<title>" --mode auto --pre-action linear.in-progress
 ```
 
-One file per future task, named `draft-*.md`, in the worktree cwd. The command takes the same
+One file per future task, in the worktree's `.drafts/` directory. The command takes the same
 recipe flags as `mael task add` (`--command`, `--mode`, `--model`, `--priority`,
 `--pre-action`, `--post-action`, `--content-file`, …) and writes a valid task file with the
 identity fields (`id`, `project`, `created`, `follows`) empty. It refuses to overwrite an
@@ -40,7 +42,7 @@ front of the user as a document in the orchestrator UI, so the user reads it for
 of as a diff:
 
 ```
-<doc-file kind="tasks" filename="draft-iter1.md" title="Iteration 1">
+<doc-file kind="tasks" filename=".drafts/iter1.md" title="Iteration 1">
 ```
 
 `filename` is a path in this worktree. `kind` is `tasks` for a draft task file. `title` is what
@@ -60,8 +62,8 @@ recipe (`mode`, `command`, `model`, actions); edit it like any other line.
 On approval, promote each draft **in dependency order**, wiring the chain as you go:
 
 ```bash
-mael task promote draft-first.md --follow-end '*'   # echoes the new id
-mael task promote draft-second.md --follow <id-from-first>
+mael task promote .drafts/first.md --follow-end '*'   # echoes the new id
+mael task promote .drafts/second.md --follow <id-from-first>
 ```
 
 `promote` creates the task (todo), echoes its id, and **deletes the file** — capture each

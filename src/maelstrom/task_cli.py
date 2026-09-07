@@ -841,6 +841,8 @@ def task_draft(
         )
     except ValueError as e:
         raise click.ClickException(str(e))
+    # Drafts live in `.drafts/`, which a clean worktree does not have.
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
     click.echo(file)
 

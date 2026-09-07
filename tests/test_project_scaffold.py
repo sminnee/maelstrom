@@ -1,15 +1,25 @@
 """Tests for the new-project stub files."""
 
+import json
+
 import yaml
 
 from maelstrom.project_scaffold import scaffold_files
 
 
 class TestScaffoldFiles:
-    def test_gitignore_covers_both_generated_files(self):
+    def test_gitignore_covers_the_generated_files(self):
         lines = scaffold_files("proj")[".gitignore"].splitlines()
         assert ".env" in lines
         assert ".claude/CLAUDE.local.md" in lines
+        assert ".drafts/" in lines
+
+    def test_settings_allow_writes_to_the_drafts_directory(self):
+        """A planning session sculpts drafts; each edit must not cost a prompt."""
+        settings = json.loads(scaffold_files("proj")[".claude/settings.json"])
+        allow = settings["permissions"]["allow"]
+        assert "Write(.drafts/**)" in allow
+        assert "Edit(.drafts/**)" in allow
 
     def test_maelstrom_yaml_is_all_comments(self):
         """A fully commented stub parses to None, which the loader accepts."""

@@ -1,6 +1,7 @@
 """Worktree management for maelstrom projects."""
 
 import dataclasses
+import json
 import re
 import shutil
 import subprocess
@@ -28,6 +29,7 @@ from .ports import (
 )
 from .rebase_repair import run_resolve_rebase_session
 from .shell import run_cmd
+from .task import DRAFT_WRITE_RULES, DRAFTS_DIR
 from .util import locked_file
 from .worktree_model import (
     ENV_SECTION_END,
@@ -2763,6 +2765,38 @@ def _ensure_gitignore_entry(worktree_path: Path, entry: str) -> None:
         gitignore.write_text(entry + "\n")
 
 
+def _ensure_draft_write_rules(worktree_path: Path) -> None:
+    """Let an agent write `.drafts/` without asking.
+
+    A planning session edits a draft many times, and each edit would otherwise
+    raise a permission ask. The rules are added, never removed: the file
+    belongs to the project, so anything already in it survives. A file that is
+    not valid JSON is left alone rather than overwritten.
+    """
+    claude_dir = worktree_path / ".claude"
+    claude_dir.mkdir(exist_ok=True)
+    settings_path = claude_dir / "settings.json"
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return
+        if not isinstance(settings, dict):
+            return
+    else:
+        settings = {}
+
+    permissions = settings.setdefault("permissions", {})
+    allow = permissions.setdefault("allow", [])
+    if not isinstance(allow, list):
+        return
+    missing = [rule for rule in DRAFT_WRITE_RULES if rule not in allow]
+    if not missing:
+        return
+    allow.extend(missing)
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+
 def update_claude_local_md(
     project_path: Path, worktree_path: Path, worktree_name: str
 ) -> bool:
@@ -2819,6 +2853,10 @@ def update_claude_local_md(
 
     # Ensure .gitignore excludes the generated file
     _ensure_gitignore_entry(worktree_path, ".claude/CLAUDE.local.md")
+
+    # Drafts are scratch — an abandoned one must not reach a commit.
+    _ensure_gitignore_entry(worktree_path, DRAFTS_DIR)
+    _ensure_draft_write_rules(worktree_path)
 
     # Regenerate AGENTS.md so it picks up the local context just written
     _write_agents_md(worktree_path)

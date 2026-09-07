@@ -88,7 +88,7 @@ Two forms, both read by `document_tags.read_tags`:
 - the markdown body, inline
 </doc-content>
 
-<doc-file kind="tasks" filename="draft-iter1.md" title="Iteration 1">
+<doc-file kind="tasks" filename=".drafts/iter1.md" title="Iteration 1">
 ```
 
 `<doc-content>` carries the body inline, so the server reads no file and the form works for a

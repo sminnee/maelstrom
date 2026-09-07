@@ -64,8 +64,8 @@ advance the chain.
 - `mael linear plan PROJ-XXX` is a thin wrapper over `mael task add` that seeds a `plan-task`
   task with the Linear brief as content, parented under `linear.PROJ-XXX`. It runs by default.
   It launches the `plan-task` skill in normal mode, holding the brief.
-- That session sculpts **draft task files** with the user — inert task files in the worktree
-  cwd (see the `planning` skill). On approval it runs `mael task promote <draft>` per file to
+- That session sculpts **draft task files** with the user — inert task files in the worktree's
+  `.drafts/` directory (see the `planning` skill). On approval it runs `mael task promote <draft>` per file to
   create the chain, closes its own planning task (`mael task status done`), then
   `mael task next --run --parent "$MAEL_TASK_PARENT"` launches the head. Closing the planning
   task first is what makes the head actionable — the head follows it via `--follow-end '*'`.
