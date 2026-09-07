@@ -882,6 +882,51 @@ describe('the session tab', () => {
     expect(server.sockets.filter((s) => s.agentId === 'd9a4c7f1.1')).toHaveLength(1);
   });
 
+  it('drops a subagent from the strip once it finishes', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('NORT-9');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+    const strip = await screen.findByTestId('subagent-strip');
+    expect(within(strip).getAllByRole('link')).toHaveLength(1);
+
+    server.change({ kind: 'agent', ids: ['d9a4c7f1.1'] }, (w) => {
+      w.agents['d9a4c7f1.1'] = {
+        ...w.agents['d9a4c7f1.1']!,
+        state: 'exited',
+        exitCode: 0,
+      };
+    });
+    await waitFor(() => expect(screen.queryByTestId('subagent-strip')).toBeNull());
+  });
+
+  it('reaches a finished subagent through the fold', async () => {
+    // The strip is the only way into a subagent's tab, so hiding one outright
+    // would strand its transcript.
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('NORT-9');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+    await screen.findByTestId('subagent-strip');
+    expect(screen.queryByTestId('finished-subagents')).toBeNull();
+
+    server.change({ kind: 'agent', ids: ['d9a4c7f1.1'] }, (w) => {
+      w.agents['d9a4c7f1.1'] = { ...w.agents['d9a4c7f1.1']!, state: 'exited', exitCode: 0 };
+    });
+    const fold = await screen.findByTestId('finished-subagents');
+    expect(fold).toHaveTextContent('1 finished');
+    // Folded by default: the escape hatch must not compete with live work.
+    // jsdom lays nothing out, so the `open` attribute is the readable signal.
+    expect(fold).not.toHaveAttribute('open');
+
+    await user.click(within(fold).getByText('1 finished'));
+    expect(fold).toHaveAttribute('open');
+    const link = within(fold).getByRole('link', { name: /Find every collation-sensitive query/ });
+    await user.click(link);
+    const panel = screen.getByRole('tabpanel');
+    await within(panel).findByText('Three queries order by name without a collation.');
+  });
+
   it('draws no subagent strip for an agent that has none', async () => {
     const user = userEvent.setup();
     await renderApp();

@@ -4,7 +4,7 @@ import { useWorld } from '../api/useWorld';
 import { useAgentStream } from '../live/useAgentStream';
 import type { Agent } from '../protocol/entities';
 import { nextMode } from '../protocol/modes';
-import { subagentsOf } from '../selectors/agents';
+import { finishedSubagentsOf, subagentsOf } from '../selectors/agents';
 import { progressOf } from '../protocol/progress';
 import { sessionTab } from '../selectors/tabs';
 import { answeredOnCanvas } from '../selectors/transcript';
@@ -33,6 +33,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
   const task = agent ? world.tasks[agent.taskId] : undefined;
   const isChild = Boolean(agent?.parent);
   const children = subagentsOf(world, agentId);
+  const finished = finishedSubagentsOf(world, agentId);
   const transcript = useAgentStream(agentId);
   const bottom = useRef<HTMLDivElement>(null);
   const count = transcript.items.length;
@@ -101,6 +102,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
         <div ref={bottom} />
       </div>
       {children.length > 0 && <SubagentStrip agents={children} />}
+      {finished.length > 0 && <FinishedSubagents agents={finished} />}
       {!isChild && (
         <MessageInput
           project={agent.project}
@@ -115,8 +117,9 @@ export function SessionTab({ agentId }: { agentId: string }) {
 }
 
 /**
- * One line per subagent: a state dot, its description, what it waits on, and
- * its summary once it has ended.
+ * One line per running subagent: a state dot, its description, and what it
+ * waits on. A subagent that has finished is not drawn — see `subagentsOf` in
+ * `selectors/agents.ts`.
  *
  * A blocked subagent says so here rather than in the parent's stream, so the
  * ask sits beside the subagent that raised it. The decision itself is the
@@ -136,11 +139,30 @@ function SubagentStrip({ agents }: { agents: Agent[] }) {
               {child.waitingOn || 'needs you'}
             </span>
           )}
-          {child.state === 'exited' && child.lastMessage && (
-            <span className={styles.subagentSummary}>{child.lastMessage}</span>
-          )}
         </PanelLink>
       ))}
     </div>
+  );
+}
+
+/**
+ * The way back to a subagent that has finished, folded away. The strip is the
+ * only route into a subagent's tab, so hiding a finished one outright would
+ * strand its transcript.
+ *
+ * It stays folded and unadorned: an escape hatch does not compete with the
+ * running work above it.
+ */
+function FinishedSubagents({ agents }: { agents: Agent[] }) {
+  return (
+    <details className={styles.finished} data-testid="finished-subagents">
+      <summary>{agents.length} finished</summary>
+      {agents.map((child) => (
+        <PanelLink key={child.id} tab={sessionTab(child.id)} className={styles.subagent}>
+          <span className={styles.subagentId}>{child.id}</span>
+          <span className={styles.subagentDescription}>{child.description}</span>
+        </PanelLink>
+      ))}
+    </details>
   );
 }
