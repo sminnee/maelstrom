@@ -62,3 +62,30 @@ def test_the_test_pass_reads_the_whitelist() -> None:
     assert whitelist in SCRIPT.read_text(), (
         f"bin/vulture-check does not pass {whitelist} to the test pass."
     )
+
+
+def test_the_knip_passes_differ_only_by_what_the_production_pass_ignores() -> None:
+    """The two knip configs have the same silent failure mode as the two vulture passes.
+
+    Knip 6 has no ``extends``, so ``web/knip.production.json`` restates
+    ``web/knip.json`` and adds the test-support ignores. Add an entry to one and
+    forget the other, and the production pass reports a whole category of files
+    as unused. It never fails the build, so nobody is made to look.
+    """
+    import json
+
+    web = REPO_ROOT / "web"
+    with open(web / "knip.json") as handle:
+        base = json.load(handle)
+    with open(web / "knip.production.json") as handle:
+        production = json.load(handle)
+
+    assert "ignore" in production, (
+        "web/knip.production.json drops the test-support ignores, so the "
+        "production pass reports every test helper as an unused file."
+    )
+    shared = {key: value for key, value in production.items() if key != "ignore"}
+    assert shared == base, (
+        "web/knip.json and web/knip.production.json disagree on more than "
+        "`ignore`. The production pass is meant to differ only by what it skips."
+    )

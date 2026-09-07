@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# The TypeScript dead-code gate. Knip runs twice: the production pass drops the
+# test files and only reports, the test pass reads everything and fails the
+# build. See docs/dev/dead-code.md.
+#
+# CI calls this script rather than repeating the commands, so the two cannot
+# drift.
+set -euo pipefail
+cd "$(dirname "$0")/../web"
+
+echo "== knip: production pass (report only) =="
+echo "Reached from tests but not from the app. Read it; it does not fail the build."
+# Knip exits 1 when it finds something and 2 when it fails to run. Only the
+# first is expected here, so anything else still stops the script: a pass that
+# crashes must not read as a pass that found nothing.
+status=0
+pnpm exec knip --production --config knip.production.json || status=$?
+if [ "$status" -ne 0 ] && [ "$status" -ne 1 ]; then
+  echo "knip failed to run (exit $status)" >&2
+  exit "$status"
+fi
+
+echo
+echo "== knip: test pass (the gate) =="
+pnpm exec knip
+echo "No dead code."
