@@ -23,6 +23,7 @@ dev = [
     "pytest-xdist>=3.0",
     "ruff>=0.15,<0.17",
     "pyright>=1.1",
+    "vulture>=2.14,<3",
 ]
 
 [project.urls]
@@ -53,10 +54,12 @@ dev = [
     "pytest>=9.0.2",
     "pytest-xdist>=3.0",
     "pyright>=1.1",
+    "vulture>=2.14,<3",
 ]
 
 [tool.pyright]
 include = ["src"]
+exclude = [".vulture_whitelist.py"]
 pythonVersion = "3.11"
 typeCheckingMode = "basic"
 useLibraryCodeForTypes = true
@@ -65,6 +68,11 @@ reportUnusedVariable = true
 reportDuplicateImport = true
 reportMissingTypeStubs = false
 
+[tool.ruff]
+# The vulture whitelist is a list of bare names, not a program. Every line is
+# an undefined name by design, so ruff and pyright must both skip it.
+extend-exclude = [".vulture_whitelist.py"]
+
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I"]
 
@@ -72,3 +80,48 @@ select = ["E4", "E7", "E9", "F", "I"]
 # `project_with_worktree` is a pytest fixture imported for its side effect, then
 # shadowed by the test parameter of the same name. Not a real redefinition.
 "tests/test_close_force.py" = ["F811"]
+
+[tool.vulture]
+# Configures the production pass alone. Run the gate through bin/vulture-check,
+# never bare — the test pass needs the flags that script adds.
+# See docs/dev/dead-code.md.
+paths = ["src", ".vulture_whitelist.py"]
+min_confidence = 60
+
+# A framework holds the reference to these, so no call site exists to find.
+ignore_decorators = [
+    # Click. Every command and group is reached through the CLI tree. This one
+    # family removes about half of all findings, which is why it belongs here
+    # and not in the whitelist: a whitelist would need a line per command, and
+    # every new command would break the gate.
+    "@click.*",
+    "@*.command",
+    "@*.group",
+    "@*.result_callback",
+    # Descriptors and generated methods.
+    "@property",
+    "@dataclass",
+    "@staticmethod",
+    "@classmethod",
+    "@overload",
+    # aiohttp: the router holds the handler.
+    "@routes.*",
+]
+
+# Names a framework resolves at run time, or that name a repository convention.
+ignore_names = [
+    # Textual resolves these off the widget by name: compose builds the widget
+    # tree, on_* handle events, action_* back the key bindings. They carry no
+    # decorator, so only a name pattern reaches them.
+    "compose",
+    "on_*",
+    "action_*",
+    "BINDINGS",
+    "CSS",
+    # Click calls these on a Group subclass when it renders help.
+    "list_commands",
+    "get_command",
+    # The storage layer's test seam. docs/dev/architecture-patterns.md makes
+    # the in-memory backend a convention, so the gate follows the convention.
+    "InMemory*",
+]

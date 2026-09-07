@@ -14,7 +14,7 @@ dependency).
 
 import json
 from dataclasses import dataclass, field
-from typing import Literal, get_args
+from typing import Literal
 
 from .worktree_model import MAIN_BRANCH
 
@@ -195,9 +195,6 @@ def stack_chain(branch: str, bases: dict[str, str]) -> list[str]:
 #: The web UI mirrors this union in ``web/src/protocol/entities.ts``.
 PrState = Literal["merged", "ci-failed", "ci-running", "conflict", "unknown", "ready"]
 
-#: Every value :data:`PrState` can take, in reading order.
-PR_STATES: tuple[PrState, ...] = get_args(PrState)
-
 
 def is_open_pr(pr: "PrStatus | None") -> bool:
     """Whether ``pr`` is a pull request still waiting to merge.
@@ -213,7 +210,7 @@ def is_open_pr(pr: "PrStatus | None") -> bool:
 class PrStatus:
     """A branch's pull request, and how close it is to merging.
 
-    ``state`` is one of :data:`PR_STATES`.
+    ``state`` is one of :data:`PrState`.
     """
 
     number: int
@@ -391,7 +388,7 @@ _CI_FAILED = frozenset({"FAILURE", "ERROR"})
 def _pr_state(node: dict, *, rollup_readable: bool = True) -> PrState:
     """How close ``node``'s pull request is to merging.
 
-    One of :data:`PR_STATES`, tested in the order they are listed — see
+    One of :data:`PrState`, tested in the order they are listed — see
     **PR state** in ``CONTEXT.md`` for why that order.
 
     ``rollup_readable`` is false when GitHub refused ``statusCheckRollup``. A

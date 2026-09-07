@@ -23,12 +23,10 @@ class PortSpec:
     """A named port a service owns.
 
     ``name`` is the port-name (e.g. ``"FRONTEND"``) whose ``${FRONTEND_PORT}``
-    the existing allocator generates. ``container`` is the container-side port
-    for a publish mapping, or ``None`` for a command service.
+    the existing allocator generates.
     """
 
     name: str
-    container: int | None = None
 
 
 @dataclass

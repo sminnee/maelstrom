@@ -1,7 +1,7 @@
 """Generate descriptive git branch names from a task's title/content.
 
 A branch name has the shape ``<type>/<desc>`` where ``<type>`` is one of
-:data:`TYPES` and ``<desc>`` is a 2–4 word kebab-case summary of the work.
+``fix``/``feat``/``chore``/``refactor`` and ``<desc>`` is a 2–4 word kebab-case summary of the work.
 
 The descriptive slug + type are picked by shelling out to the local ``claude``
 CLI in print mode (``claude -p``) — no new dependency, no API key, reusing the
@@ -27,8 +27,6 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
-
-TYPES = ("fix", "feat", "chore", "refactor")
 
 # Minimal system prompt forced onto the headless call so an inherited project
 # ``CLAUDE.md`` / SessionStart hook can't frame the model as mid-workflow and
