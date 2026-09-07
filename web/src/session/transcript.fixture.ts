@@ -1,5 +1,5 @@
 import type { TranscriptItem } from '../protocol/transcript';
-import type { RequestId, TranscriptItemId } from '../protocol/ids';
+import type { TranscriptItemId } from '../protocol/ids';
 
 /**
  * A transcript to look at without a server.
@@ -112,28 +112,3 @@ transformed. Inline literals like \`--measure-prose\` sit inside prose.
 | \`--text-md\` | 16px |
 | \`--measure-prose\` | 80ch |
 `;
-
-/** The three waits a decision can be, without an agent to raise them. */
-export const questionItem = {
-  id: id(),
-  ts: at(30),
-  type: 'question' as const,
-  requestId: 'req-1' as RequestId,
-  questions: [
-    {
-      question: 'Two grouping defaults are plausible. Which should the board open on?',
-      header: 'Grouping',
-      multiSelect: false,
-      options: [
-        {
-          label: 'By project',
-          description: 'One lane per project, which is how the desk is usually read.',
-        },
-        {
-          label: 'By branch',
-          description: 'One lane per branch, which suits a single project in depth.',
-        },
-      ],
-    },
-  ],
-};

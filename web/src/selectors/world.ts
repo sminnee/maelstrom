@@ -31,18 +31,6 @@ export interface WorldView {
   desk: Record<DeskId, DeskEntry>;
 }
 
-export function emptyWorldView(): WorldView {
-  return {
-    projects: {},
-    worktrees: {},
-    tasks: {},
-    agents: {},
-    documents: {},
-    attention: {},
-    desk: {},
-  };
-}
-
 /** A list as a table keyed by id. */
 export function byId<T extends { id: string }>(items: readonly T[] | undefined): Record<string, T> {
   const table: Record<string, T> = {};
