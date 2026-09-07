@@ -1,5 +1,6 @@
 """Tests for maelstrom.cli module."""
 
+import asyncio
 import dataclasses
 import json
 import os
@@ -75,32 +76,38 @@ class TestResolvePr:
 
     def test_a_hit_in_the_batch_needs_no_further_call(self):
         batch = {"feat/x": _pr(42, commits=5)}
-        with patch("maelstrom.list_all.get_pr_for_branch") as per_branch:
-            assert resolve_pr(batch, Path("/p"), "feat/x") == _pr(42, commits=5)
+        with patch("maelstrom.list_all.get_pr_for_branch_async") as per_branch:
+            assert asyncio.run(resolve_pr(batch, Path("/p"), "feat/x")) == _pr(
+                42, commits=5
+            )
         per_branch.assert_not_called()
 
     def test_a_miss_in_a_good_batch_is_no_pr_not_a_lookup(self):
-        with patch("maelstrom.list_all.get_pr_for_branch") as per_branch:
-            assert resolve_pr({"other": _pr(1)}, Path("/p"), "feat/x") is None
+        with patch("maelstrom.list_all.get_pr_for_branch_async") as per_branch:
+            assert (
+                asyncio.run(resolve_pr({"other": _pr(1)}, Path("/p"), "feat/x")) is None
+            )
         per_branch.assert_not_called()
 
     def test_an_empty_batch_still_answers_without_a_lookup(self):
-        with patch("maelstrom.list_all.get_pr_for_branch") as per_branch:
-            assert resolve_pr({}, Path("/p"), "feat/x") is None
+        with patch("maelstrom.list_all.get_pr_for_branch_async") as per_branch:
+            assert asyncio.run(resolve_pr({}, Path("/p"), "feat/x")) is None
         per_branch.assert_not_called()
 
     def test_a_failed_batch_falls_back_to_the_per_branch_call(self):
         with patch(
-            "maelstrom.list_all.get_pr_for_branch",
+            "maelstrom.list_all.get_pr_for_branch_async",
             return_value=_pr(7, commits=3),
         ) as per_branch:
-            assert resolve_pr(None, Path("/p"), "feat/x") == _pr(7, commits=3)
+            assert asyncio.run(resolve_pr(None, Path("/p"), "feat/x")) == _pr(
+                7, commits=3
+            )
         per_branch.assert_called_once_with(Path("/p"), "feat/x")
 
     def test_a_detached_worktree_is_never_looked_up(self):
         """Both PR columns key on the branch name, so there is nothing to ask."""
-        with patch("maelstrom.list_all.get_pr_for_branch") as per_branch:
-            assert resolve_pr(None, Path("/p"), None) is None
+        with patch("maelstrom.list_all.get_pr_for_branch_async") as per_branch:
+            assert asyncio.run(resolve_pr(None, Path("/p"), None)) is None
         per_branch.assert_not_called()
 
     def test_list_all_reads_the_batch_not_one_call_per_row(self):
@@ -131,15 +138,21 @@ class TestResolvePr:
                 patch(
                     "maelstrom.list_all.find_all_projects", return_value=[project_path]
                 ),
-                patch("maelstrom.list_all.list_worktrees", return_value=[mock_wt]),
-                patch("maelstrom.list_all.closed_worktrees", return_value=set()),
-                patch("maelstrom.list_all.get_worktree_dirty_files", return_value=[]),
-                patch("maelstrom.list_all.get_local_only_commits", return_value=0),
                 patch(
-                    "maelstrom.list_all.get_open_prs",
+                    "maelstrom.list_all.list_worktrees_async", return_value=[mock_wt]
+                ),
+                patch("maelstrom.list_all.closed_worktrees_async", return_value=set()),
+                patch(
+                    "maelstrom.list_all.get_worktree_dirty_files_async", return_value=[]
+                ),
+                patch(
+                    "maelstrom.list_all.get_local_only_commits_async", return_value=0
+                ),
+                patch(
+                    "maelstrom.list_all.get_open_prs_async",
                     return_value={"feat/test": _pr(99, commits=7)},
                 ),
-                patch("maelstrom.list_all.get_pr_for_branch", side_effect=boom),
+                patch("maelstrom.list_all.get_pr_for_branch_async", side_effect=boom),
                 patch(
                     "maelstrom.session_discovery.LiveSessionSet.count_for",
                     return_value=0,
@@ -175,11 +188,17 @@ class TestResolvePr:
                 patch(
                     "maelstrom.list_all.find_all_projects", return_value=[project_path]
                 ),
-                patch("maelstrom.list_all.list_worktrees", return_value=[detached]),
-                patch("maelstrom.list_all.closed_worktrees", return_value=set()),
-                patch("maelstrom.list_all.get_worktree_dirty_files", return_value=[]),
-                patch("maelstrom.list_all.get_local_only_commits", return_value=0),
-                patch("maelstrom.list_all.get_open_prs") as batch,
+                patch(
+                    "maelstrom.list_all.list_worktrees_async", return_value=[detached]
+                ),
+                patch("maelstrom.list_all.closed_worktrees_async", return_value=set()),
+                patch(
+                    "maelstrom.list_all.get_worktree_dirty_files_async", return_value=[]
+                ),
+                patch(
+                    "maelstrom.list_all.get_local_only_commits_async", return_value=0
+                ),
+                patch("maelstrom.list_all.get_open_prs_async") as batch,
                 patch(
                     "maelstrom.session_discovery.LiveSessionSet.count_for",
                     return_value=0,
@@ -212,12 +231,22 @@ class TestResolvePr:
                 patch(
                     "maelstrom.list_all.find_all_projects", return_value=[project_path]
                 ),
-                patch("maelstrom.list_all.list_worktrees", return_value=worktrees),
-                patch("maelstrom.list_all.closed_worktrees", return_value=set()),
-                patch("maelstrom.list_all.get_worktree_dirty_files", return_value=[]),
-                patch("maelstrom.list_all.get_local_only_commits", return_value=0),
-                patch("maelstrom.list_all.get_open_prs", return_value={}) as batch,
-                patch("maelstrom.list_all.get_pushed_commit_count", return_value=0),
+                patch(
+                    "maelstrom.list_all.list_worktrees_async", return_value=worktrees
+                ),
+                patch("maelstrom.list_all.closed_worktrees_async", return_value=set()),
+                patch(
+                    "maelstrom.list_all.get_worktree_dirty_files_async", return_value=[]
+                ),
+                patch(
+                    "maelstrom.list_all.get_local_only_commits_async", return_value=0
+                ),
+                patch(
+                    "maelstrom.list_all.get_open_prs_async", return_value={}
+                ) as batch,
+                patch(
+                    "maelstrom.list_all.get_pushed_commit_count_async", return_value=0
+                ),
                 patch(
                     "maelstrom.session_discovery.LiveSessionSet.count_for",
                     return_value=0,
@@ -281,20 +310,22 @@ class TestListAllJson:
             with patch(
                 "maelstrom.list_all.find_all_projects", return_value=[project_path]
             ):
-                with patch("maelstrom.list_all.list_worktrees", return_value=[mock_wt]):
+                with patch(
+                    "maelstrom.list_all.list_worktrees_async", return_value=[mock_wt]
+                ):
                     with patch(
-                        "maelstrom.list_all.closed_worktrees", return_value=set()
+                        "maelstrom.list_all.closed_worktrees_async", return_value=set()
                     ):
                         with patch(
-                            "maelstrom.list_all.get_worktree_dirty_files",
+                            "maelstrom.list_all.get_worktree_dirty_files_async",
                             return_value=["file.txt"],
                         ):
                             with patch(
-                                "maelstrom.list_all.get_local_only_commits",
+                                "maelstrom.list_all.get_local_only_commits_async",
                                 return_value=2,
                             ):
                                 with patch(
-                                    "maelstrom.list_all.get_pr_for_branch",
+                                    "maelstrom.list_all.get_pr_for_branch_async",
                                     return_value=_pr(42, commits=5),
                                 ):
                                     with patch(
@@ -346,24 +377,26 @@ class TestListAllJson:
             with patch(
                 "maelstrom.list_all.find_all_projects", return_value=[project_path]
             ):
-                with patch("maelstrom.list_all.list_worktrees", return_value=[mock_wt]):
+                with patch(
+                    "maelstrom.list_all.list_worktrees_async", return_value=[mock_wt]
+                ):
                     with patch(
-                        "maelstrom.list_all.closed_worktrees", return_value=set()
+                        "maelstrom.list_all.closed_worktrees_async", return_value=set()
                     ):
                         with patch(
-                            "maelstrom.list_all.get_worktree_dirty_files",
+                            "maelstrom.list_all.get_worktree_dirty_files_async",
                             return_value=[],
                         ):
                             with patch(
-                                "maelstrom.list_all.get_local_only_commits",
+                                "maelstrom.list_all.get_local_only_commits_async",
                                 return_value=0,
                             ):
                                 with patch(
-                                    "maelstrom.list_all.get_pr_for_branch",
+                                    "maelstrom.list_all.get_pr_for_branch_async",
                                     return_value=None,
                                 ):
                                     with patch(
-                                        "maelstrom.list_all.get_pushed_commit_count",
+                                        "maelstrom.list_all.get_pushed_commit_count_async",
                                         return_value=0,
                                     ):
                                         with patch(
@@ -398,12 +431,15 @@ class TestListAllJson:
             with patch(
                 "maelstrom.list_all.find_all_projects", return_value=[project_path]
             ):
-                with patch("maelstrom.list_all.list_worktrees", return_value=[mock_wt]):
+                with patch(
+                    "maelstrom.list_all.list_worktrees_async", return_value=[mock_wt]
+                ):
                     with patch(
-                        "maelstrom.list_all.closed_worktrees", return_value={wt_path}
+                        "maelstrom.list_all.closed_worktrees_async",
+                        return_value={wt_path},
                     ):
                         with patch(
-                            "maelstrom.list_all.get_worktree_dirty_files",
+                            "maelstrom.list_all.get_worktree_dirty_files_async",
                             return_value=[],
                         ):
                             with patch(

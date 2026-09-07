@@ -4,6 +4,7 @@ The rows feed both ``mael list-all`` and the orchestrator server, so they are
 checked here once, against the bare-clone-plus-worktree fixture.
 """
 
+import asyncio
 import dataclasses
 from pathlib import Path
 from unittest.mock import patch
@@ -37,10 +38,10 @@ def test_build_list_all_data_reads_the_project_and_its_worktree(
     project_path, worktree_path, _remote = project_with_worktree
     (project_path / ".mael").touch()
     with (
-        patch("maelstrom.list_all.get_open_prs", return_value={}),
+        patch("maelstrom.list_all.get_open_prs_async", return_value={}),
         patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
-        data = build_list_all_data(project_path.parent)
+        data = asyncio.run(build_list_all_data(project_path.parent))
 
     assert [p["name"] for p in data["projects"]] == ["test-repo"]
     project = data["projects"][0]
@@ -89,10 +90,10 @@ def test_the_project_row_carries_its_repo_url(
         cwd=project_path,
     )
     with (
-        patch("maelstrom.list_all.get_open_prs", return_value={}),
+        patch("maelstrom.list_all.get_open_prs_async", return_value={}),
         patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
-        data = build_list_all_data(project_path.parent)
+        data = asyncio.run(build_list_all_data(project_path.parent))
 
     assert data["projects"][0]["repo_url"] == "https://github.com/test/test-repo"
 
@@ -109,10 +110,10 @@ def _row_for(project_path, pr):
     branches = {wt.branch for wt in list_worktrees(project_path) if wt.branch}
     batch = {branch: pr for branch in branches} if pr else {}
     with (
-        patch("maelstrom.list_all.get_open_prs", return_value=batch),
+        patch("maelstrom.list_all.get_open_prs_async", return_value=batch),
         patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
-        data = build_list_all_data(project_path.parent)
+        data = asyncio.run(build_list_all_data(project_path.parent))
     return data["projects"][0]["worktrees"][0]
 
 
@@ -158,7 +159,7 @@ def test_a_merged_pr_still_counts_the_pushed_commits(
     pushed count that says how much is waiting. Only an open PR replaces it."""
     project_path, _worktree_path, _remote = project_with_worktree
     (project_path / ".mael").touch()
-    with patch("maelstrom.list_all.get_pushed_commit_count", return_value=4):
+    with patch("maelstrom.list_all.get_pushed_commit_count_async", return_value=4):
         row = _row_for(project_path, _pr(42, state="merged"))
     assert row["pushed_commits"] == 4
 
@@ -168,7 +169,7 @@ def test_an_open_pr_replaces_the_pushed_commit_count(
 ):
     project_path, _worktree_path, _remote = project_with_worktree
     (project_path / ".mael").touch()
-    with patch("maelstrom.list_all.get_pushed_commit_count", return_value=4):
+    with patch("maelstrom.list_all.get_pushed_commit_count_async", return_value=4):
         row = _row_for(project_path, _pr(42, state="ready"))
     assert row["pushed_commits"] is None
 
@@ -193,10 +194,10 @@ def test_a_worktree_row_with_no_pr_carries_no_pr_url(
         cwd=project_path,
     )
     with (
-        patch("maelstrom.list_all.get_open_prs", return_value={}),
+        patch("maelstrom.list_all.get_open_prs_async", return_value={}),
         patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
-        data = build_list_all_data(project_path.parent)
+        data = asyncio.run(build_list_all_data(project_path.parent))
 
     assert data["projects"][0]["worktrees"][0]["pr_url"] is None
 
@@ -207,10 +208,10 @@ def test_a_project_dir_that_is_not_a_git_repo_carries_no_repo_url(tmp_path):
     project_path.mkdir()
     (project_path / ".mael").touch()
     with (
-        patch("maelstrom.list_all.get_open_prs", return_value={}),
+        patch("maelstrom.list_all.get_open_prs_async", return_value={}),
         patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
-        data = build_list_all_data(tmp_path)
+        data = asyncio.run(build_list_all_data(tmp_path))
 
     assert data["projects"][0]["repo_url"] is None
 
@@ -218,7 +219,7 @@ def test_a_project_dir_that_is_not_a_git_repo_carries_no_repo_url(tmp_path):
 def test_a_project_path_that_does_not_exist_carries_no_repo_url(tmp_path):
     """A project dir can vanish between the scan and the read. That is not a crash."""
     missing = tmp_path / "gone"
-    assert project_repo_url(missing) is None
+    assert asyncio.run(project_repo_url(missing)) is None
 
 
 def test_a_project_with_no_remote_carries_no_repo_url(tmp_path, monkeypatch):
@@ -228,16 +229,16 @@ def test_a_project_with_no_remote_carries_no_repo_url(tmp_path, monkeypatch):
     (project_path / ".mael").touch()
     run_git(["init", "-q", str(project_path)])
     with (
-        patch("maelstrom.list_all.get_open_prs", return_value={}),
+        patch("maelstrom.list_all.get_open_prs_async", return_value={}),
         patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
-        data = build_list_all_data(tmp_path)
+        data = asyncio.run(build_list_all_data(tmp_path))
 
     assert data["projects"][0]["repo_url"] is None
 
 
 def test_a_projects_dir_with_no_projects_is_empty(tmp_path):
-    assert build_list_all_data(tmp_path) == {"projects": []}
+    assert asyncio.run(build_list_all_data(tmp_path)) == {"projects": []}
 
 
 def test_the_project_root_is_excluded_under_a_symlinked_projects_dir(
@@ -250,8 +251,8 @@ def test_the_project_root_is_excluded_under_a_symlinked_projects_dir(
     link = tmp_path / "link"
     link.symlink_to(project_path.parent)
     with (
-        patch("maelstrom.list_all.get_open_prs", return_value={}),
+        patch("maelstrom.list_all.get_open_prs_async", return_value={}),
         patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
-        data = build_list_all_data(link)
+        data = asyncio.run(build_list_all_data(link))
     assert [row["name"] for row in data["projects"][0]["worktrees"]] == ["alpha"]

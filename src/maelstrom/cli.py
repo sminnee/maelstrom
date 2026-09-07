@@ -1,5 +1,6 @@
 """Command-line interface for maelstrom."""
 
+import asyncio
 import subprocess
 import sys
 from pathlib import Path
@@ -666,8 +667,10 @@ def cmd_list(project):
         local_commits = get_local_only_commits(wt.path, wt.branch)
         local_display = str(local_commits) if local_commits > 0 else ""
 
-        # PR info (number, state and commit count)
-        pr = resolve_pr(open_prs, project_path, wt.branch)
+        # PR info (number, state and commit count). `resolve_pr` is async for
+        # the orchestrator's sake; here it is a leaf, so one loop per row is
+        # all it costs — and only a failed batch makes it shell out at all.
+        pr = asyncio.run(resolve_pr(open_prs, project_path, wt.branch))
         pushed = (
             get_pushed_commit_count(wt.path, wt.branch) or 0
             if wt.branch and not is_open_pr(pr)
@@ -767,7 +770,9 @@ def cmd_list_all():
     output_json = click.get_current_context().obj.get("json", False)
     global_config = load_global_config()
 
-    data = build_list_all_data(global_config.projects_dir)
+    # A leaf call: the whole read is inside it, so this is the one loop the
+    # command opens and nothing under it re-enters asyncio.
+    data = asyncio.run(build_list_all_data(global_config.projects_dir))
     if output_json:
         import json as json_mod
 

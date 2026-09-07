@@ -29,7 +29,7 @@ from .ports import (
 )
 from .rebase_repair import run_resolve_rebase_session
 from .session_discovery import LiveSessionSet
-from .shell import run_cmd
+from .shell import run_cmd, run_cmd_async
 from .task import DRAFT_WRITE_RULES, DRAFTS_DIR
 from .util import locked_file
 from .worktree_model import (
@@ -93,6 +93,18 @@ def run_git(
     resolves is a question, not an error.
     """
     return run_cmd(["git"] + args, cwd=cwd, quiet=quiet, check=check)
+
+
+async def run_git_async(
+    args: list[str], cwd: Path | None = None, quiet: bool = False, check: bool = True
+) -> subprocess.CompletedProcess:
+    """:func:`run_git`'s contract, without blocking the calling thread.
+
+    Same arguments and same result, so a caller converts by adding ``await``.
+    The orchestrator server reads git on every poll, and a blocking read there
+    stalls every socket it is serving for the length of the command.
+    """
+    return await run_cmd_async(["git"] + args, cwd=cwd, quiet=quiet, check=check)
 
 
 class UpdateMainResult:
@@ -204,6 +216,26 @@ def get_worktree_dirty_files(worktree_path: Path) -> list[str]:
     result = run_cmd(
         ["git", "status", "--porcelain"], cwd=worktree_path, quiet=True, check=False
     )
+    return _parse_dirty_files(result)
+
+
+async def get_worktree_dirty_files_async(worktree_path: Path) -> list[str]:
+    """:func:`get_worktree_dirty_files`, without blocking the calling thread."""
+    if not worktree_path.is_dir():
+        return []
+
+    result = await run_cmd_async(
+        ["git", "status", "--porcelain"], cwd=worktree_path, quiet=True, check=False
+    )
+    return _parse_dirty_files(result)
+
+
+def _parse_dirty_files(result: subprocess.CompletedProcess) -> list[str]:
+    """The dirty files in a ``git status --porcelain`` result.
+
+    Shared by the two :func:`get_worktree_dirty_files` forms, so the exclusion
+    of maelstrom-managed files is stated once and cannot drift between them.
+    """
     if result.returncode != 0:
         return []
 
@@ -243,6 +275,32 @@ def get_commits_ahead(worktree_path: Path, base_branch: str = "origin/main") -> 
         quiet=True,
         check=False,
     )
+    return _parse_count(result)
+
+
+async def get_commits_ahead_async(
+    worktree_path: Path, base_branch: str = "origin/main"
+) -> int:
+    """:func:`get_commits_ahead`, without blocking the calling thread."""
+    if not worktree_path.is_dir():
+        return 0
+
+    result = await run_cmd_async(
+        ["git", "rev-list", "--count", f"{base_branch}..HEAD"],
+        cwd=worktree_path,
+        quiet=True,
+        check=False,
+    )
+    return _parse_count(result)
+
+
+def _parse_count(result: subprocess.CompletedProcess) -> int:
+    """The number a ``git rev-list --count`` printed, or 0 when it printed none.
+
+    A failed call and unreadable output both answer 0: the counts this serves
+    are display figures, and a column that reads zero is better than a read
+    that raises.
+    """
     if result.returncode != 0:
         return 0
     try:
@@ -275,21 +333,42 @@ def get_local_only_commits(worktree_path: Path, branch: str | None) -> int:
 
     if result.returncode == 0:
         # Remote exists, count commits not on remote
-        result = run_cmd(
-            ["git", "rev-list", "--count", f"{remote_branch}..HEAD"],
-            cwd=worktree_path,
-            quiet=True,
-            check=False,
+        return _parse_count(
+            run_cmd(
+                ["git", "rev-list", "--count", f"{remote_branch}..HEAD"],
+                cwd=worktree_path,
+                quiet=True,
+                check=False,
+            )
         )
-        if result.returncode == 0:
-            try:
-                return int(result.stdout.strip())
-            except ValueError:
-                return 0
-        return 0
     else:
         # No remote branch - count all commits ahead of main
         return get_commits_ahead(worktree_path)
+
+
+async def get_local_only_commits_async(worktree_path: Path, branch: str | None) -> int:
+    """:func:`get_local_only_commits`, without blocking the calling thread."""
+    if not branch:
+        return 0
+
+    remote_branch = f"origin/{branch}"
+    result = await run_cmd_async(
+        ["git", "rev-parse", "--verify", remote_branch],
+        cwd=worktree_path,
+        quiet=True,
+        check=False,
+    )
+
+    if result.returncode == 0:
+        return _parse_count(
+            await run_cmd_async(
+                ["git", "rev-list", "--count", f"{remote_branch}..HEAD"],
+                cwd=worktree_path,
+                quiet=True,
+                check=False,
+            )
+        )
+    return await get_commits_ahead_async(worktree_path)
 
 
 def get_pushed_commit_count(worktree_path: Path, branch: str) -> int | None:
@@ -316,19 +395,38 @@ def get_pushed_commit_count(worktree_path: Path, branch: str) -> int | None:
         return None  # Not pushed
 
     # Count commits on remote branch ahead of main
-    result = run_cmd(
-        ["git", "rev-list", "--count", f"origin/{MAIN_BRANCH}..{remote_branch}"],
+    return _parse_count(
+        run_cmd(
+            ["git", "rev-list", "--count", f"origin/{MAIN_BRANCH}..{remote_branch}"],
+            cwd=worktree_path,
+            quiet=True,
+            check=False,
+        )
+    )
+
+
+async def get_pushed_commit_count_async(worktree_path: Path, branch: str) -> int | None:
+    """:func:`get_pushed_commit_count`, without blocking the calling thread."""
+    remote_branch = f"origin/{branch}"
+
+    result = await run_cmd_async(
+        ["git", "rev-parse", "--verify", remote_branch],
         cwd=worktree_path,
         quiet=True,
         check=False,
     )
 
-    if result.returncode == 0:
-        try:
-            return int(result.stdout.strip())
-        except ValueError:
-            return 0
-    return 0
+    if result.returncode != 0:
+        return None  # Not pushed
+
+    return _parse_count(
+        await run_cmd_async(
+            ["git", "rev-list", "--count", f"origin/{MAIN_BRANCH}..{remote_branch}"],
+            cwd=worktree_path,
+            quiet=True,
+            check=False,
+        )
+    )
 
 
 def has_root_worktree(project_path: Path) -> bool:
@@ -448,6 +546,17 @@ def _has_origin_main(project_path: Path) -> bool:
     return result.returncode == 0
 
 
+async def _has_origin_main_async(project_path: Path) -> bool:
+    """:func:`_has_origin_main`, without blocking the calling thread."""
+    result = await run_cmd_async(
+        ["git", "rev-parse", "--verify", "--quiet", f"origin/{MAIN_BRANCH}"],
+        cwd=project_path,
+        quiet=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 def _commits_ahead_batch(project_path: Path, commits: list[str]) -> dict[str, int]:
     """Classify each commit as ahead of ``origin/main`` or not, in one call.
 
@@ -469,7 +578,7 @@ def _commits_ahead_batch(project_path: Path, commits: list[str]) -> dict[str, in
     # ``git worktree list`` reports the bare project root with no HEAD. An empty
     # string reaching rev-list fails the whole call ("ambiguous argument"), which
     # would leave every other worktree in the project unclassified.
-    unique = [c for c in dict.fromkeys(commits) if c]
+    unique = _unique_commits(commits)
     if not unique:
         return {}
     result = run_cmd(
@@ -487,8 +596,37 @@ def _commits_ahead_batch(project_path: Path, commits: list[str]) -> dict[str, in
         # Anything else is a real failure. Classify nothing; the caller falls
         # back to "not closed", which keeps the row visible.
         return {}
+    return _classify_ahead(result.stdout, unique)
 
-    ahead = set(result.stdout.split())
+
+async def _commits_ahead_batch_async(
+    project_path: Path, commits: list[str]
+) -> dict[str, int]:
+    """:func:`_commits_ahead_batch`, without blocking the calling thread."""
+    unique = _unique_commits(commits)
+    if not unique:
+        return {}
+    result = await run_cmd_async(
+        ["git", "rev-list", *unique, "--not", f"origin/{MAIN_BRANCH}"],
+        cwd=project_path,
+        quiet=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        if not await _has_origin_main_async(project_path):
+            return {commit: 0 for commit in unique}
+        return {}
+    return _classify_ahead(result.stdout, unique)
+
+
+def _unique_commits(commits: list[str]) -> list[str]:
+    """``commits`` de-duplicated, in order, with the empty ones dropped."""
+    return [c for c in dict.fromkeys(commits) if c]
+
+
+def _classify_ahead(stdout: str, unique: list[str]) -> dict[str, int]:
+    """Read a ``rev-list`` listing back as ``{commit: 0 | 1}``."""
+    ahead = set(stdout.split())
     # rev-list walks history, so it prints ancestors of the given commits too.
     # Only the commits we asked about are ours to classify.
     return {commit: (1 if commit in ahead else 0) for commit in unique}
@@ -525,6 +663,28 @@ def closed_worktrees(project_path: Path, worktrees: list[WorktreeInfo]) -> set[P
         if ahead.get(wt.commit, 1) > 0:
             continue
         if get_worktree_dirty_files(wt.path):
+            continue
+        closed.add(wt.path)
+    return closed
+
+
+async def closed_worktrees_async(
+    project_path: Path, worktrees: list[WorktreeInfo]
+) -> set[Path]:
+    """:func:`closed_worktrees`, without blocking the calling thread."""
+    detached = [wt for wt in worktrees if not wt.branch]
+    if not detached:
+        return set()
+
+    ahead = await _commits_ahead_batch_async(
+        project_path, [wt.commit for wt in detached]
+    )
+
+    closed = set()
+    for wt in detached:
+        if ahead.get(wt.commit, 1) > 0:
+            continue
+        if await get_worktree_dirty_files_async(wt.path):
             continue
         closed.add(wt.path)
     return closed
@@ -1501,11 +1661,31 @@ def list_worktrees(project_path: Path) -> list[WorktreeInfo]:
         )
     except subprocess.CalledProcessError:
         return []
+    return _parse_worktree_list(result.stdout, project_path)
 
+
+async def list_worktrees_async(project_path: Path) -> list[WorktreeInfo]:
+    """:func:`list_worktrees`, without blocking the calling thread."""
+    try:
+        result = await run_git_async(
+            ["worktree", "list", "--porcelain"], cwd=project_path, quiet=True
+        )
+    except subprocess.CalledProcessError:
+        return []
+    return _parse_worktree_list(result.stdout, project_path)
+
+
+def _parse_worktree_list(stdout: str, project_path: Path) -> list[WorktreeInfo]:
+    """``git worktree list --porcelain`` output as :class:`WorktreeInfo` rows.
+
+    A worktree git still registers but whose directory has gone is dropped, with
+    a warning naming the prune that clears it. Shared by the two
+    :func:`list_worktrees` forms so that rule is stated once.
+    """
     worktrees = []
     current: dict[str, str] = {}
 
-    for line in result.stdout.strip().split("\n"):
+    for line in stdout.strip().split("\n"):
         if not line:
             if current:
                 worktrees.append(

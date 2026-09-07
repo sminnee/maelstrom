@@ -7,7 +7,7 @@ socket. Both return wire entities built by :mod:`.world_build`, so the server
 holds one shape of the world and diffs readings of it.
 """
 
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -149,9 +149,20 @@ class TaskSource(Protocol):
 
 
 class WorktreeSource(Protocol):
-    """``list-all``, as projects and their worktrees, and the close over them."""
+    """``list-all``, as projects and their worktrees, and the close over them.
 
-    def read(self) -> tuple[list[Project], list[Worktree]]: ...
+    ``read`` may answer directly or return an awaitable. The production source
+    shells out to git and ``gh``, so it is a coroutine and never blocks the
+    server's loop; a test double answers from a list it holds. The server takes
+    either.
+    """
+
+    def read(
+        self,
+    ) -> (
+        tuple[list[Project], list[Worktree]]
+        | Awaitable[tuple[list[Project], list[Worktree]]]
+    ): ...
 
     #: Closes a worktree, or ``None`` on a source that cannot.
     close: CloseWorktree | None
@@ -354,8 +365,8 @@ class ListAllWorktreeSource:
         self.projects_dir = projects_dir
         self.close = close
 
-    def read(self) -> tuple[list[Project], list[Worktree]]:
-        data = build_list_all_data(self.projects_dir)
+    async def read(self) -> tuple[list[Project], list[Worktree]]:
+        data = await build_list_all_data(self.projects_dir)
         projects = [project_entity(p) for p in data["projects"]]
         worktrees = [
             worktree_entity(p["name"], row)
