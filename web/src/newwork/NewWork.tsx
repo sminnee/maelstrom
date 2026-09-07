@@ -13,6 +13,7 @@ import { ModeSelect, ModelSelect, TaskFields } from '../tasklist/TaskFields';
 import { useWorktrees } from '../api/worktrees';
 import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
+import { ComboBox } from '../ui/ComboBox';
 import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
 import { Spinner } from '../ui/Spinner';
 import dialog from '../ui/Dialog.module.css';
@@ -244,8 +245,8 @@ function Capture({
 }) {
   // Document-global, so nothing else on the page may share them.
   const kindName = useId();
-  const branchList = useId();
   const draftId = useId();
+  const branchOptions = useMemo(() => branches.map((value) => ({ value })), [branches]);
   return (
     <>
       <label className={dialog.field}>
@@ -308,12 +309,7 @@ function Capture({
         <>
           <label className={dialog.field}>
             <span>Branch</span>
-            <input list={branchList} value={branch} onChange={(e) => setBranch(e.target.value)} />
-            <datalist id={branchList}>
-              {branches.map((b) => (
-                <option key={b} value={b} />
-              ))}
-            </datalist>
+            <ComboBox value={branch} options={branchOptions} onChange={setBranch} />
           </label>
           <label className={dialog.field}>
             <span>Mode</span>

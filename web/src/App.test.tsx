@@ -1596,6 +1596,21 @@ describe('new work', () => {
     expect(screen.getByRole('button', { name: 'New' })).toBeVisible();
   });
 
+  it('dismisses the combo box on Escape without closing the dialog', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const form = await openNewWork(user);
+    await user.click(within(form).getByRole('radio', { name: 'Free agent' }));
+    await user.click(within(form).getByLabelText('Branch'));
+    expect(await screen.findByRole('listbox')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    // One press dismisses the offer. A second is what closes the dialog --
+    // otherwise the press throws away everything typed so far.
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'New work' })).toBeInTheDocument();
+  });
+
   it('holds Next back until the draft has something in it', async () => {
     const user = userEvent.setup();
     await renderApp();
