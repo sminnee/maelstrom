@@ -34,12 +34,14 @@ off that shared list — each session attributing itself to a worktree via
 with no import cycle: ``session_store`` never imports this module.
 """
 
+import asyncio
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path, PurePath
 
-from .shell import run_cmd
+from .shell import run_cmd_async
 
 # ``mael`` launches ``claude --session-id <uuid>``, and continues an existing
 # session with ``claude --resume <uuid>``; recover that uuid from either.
@@ -87,7 +89,7 @@ class LiveSession:
         return None
 
 
-def all_live_sessions() -> list[LiveSession]:
+async def all_live_sessions() -> list[LiveSession]:
     """Every running Claude CLI session, its cwd, and its session-id.
 
     1. ``pgrep -x claude`` → the pids of the real CLI. ``-x`` matches the exact
@@ -105,17 +107,17 @@ def all_live_sessions() -> list[LiveSession]:
     without ``pgrep``/``lsof``/``ps``) reports ``[]`` — and a missing ``ps`` only
     costs the session-ids, not the sweep.
     """
-    pids = _claude_pids()
+    pids = await _claude_pids()
     if not pids:
         return []
-    sessions = _cwds_for_pids(pids)
-    session_ids = _session_ids_for_pids(pids)
+    sessions = await _cwds_for_pids(pids)
+    session_ids = await _session_ids_for_pids(pids)
     for s in sessions:
         s.session_id = session_ids.get(s.pid)
     return sessions
 
 
-def session_for_pid(pid: int) -> LiveSession | None:
+async def session_for_pid(pid: int) -> LiveSession | None:
     """The live session for ``pid``, built from the process rather than a sweep.
 
     ``all_live_sessions`` finds sessions with ``pgrep``, which does not report
@@ -130,10 +132,10 @@ def session_for_pid(pid: int) -> LiveSession | None:
     so a mistyped pid must not reach an unrelated process, and a missing cwd
     would otherwise be reported as the caller's own.
     """
-    command = _commands_for_pids([pid]).get(pid)
+    command = (await _commands_for_pids([pid])).get(pid)
     if command is None or not _is_claude_command(command):
         return None
-    sessions = _cwds_for_pids([pid])
+    sessions = await _cwds_for_pids([pid])
     found = next((s for s in sessions if s.pid == pid), None)
     if found is None:
         return None
@@ -142,7 +144,7 @@ def session_for_pid(pid: int) -> LiveSession | None:
     return found
 
 
-def _claude_pids() -> list[int]:
+async def _claude_pids() -> list[int]:
     """Pids of the running ``claude`` CLI, via ``pgrep -x claude``.
 
     ``check=False`` because ``pgrep`` exits 1 when nothing matches — that is a
@@ -150,7 +152,7 @@ def _claude_pids() -> list[int]:
     other failure also yields ``[]``.
     """
     try:
-        result = run_cmd(["pgrep", "-x", "claude"], quiet=True, check=False)
+        result = await run_cmd_async(["pgrep", "-x", "claude"], quiet=True, check=False)
     except (OSError, ValueError):
         return []
     pids: list[int] = []
@@ -162,7 +164,7 @@ def _claude_pids() -> list[int]:
     return pids
 
 
-def _cwds_for_pids(pids: list[int]) -> list[LiveSession]:
+async def _cwds_for_pids(pids: list[int]) -> list[LiveSession]:
     """Resolve each pid's cwd with one batched ``lsof -a -d cwd``.
 
     ``-F pn`` prints machine-readable records: ``p<pid>`` starts a process
@@ -172,7 +174,7 @@ def _cwds_for_pids(pids: list[int]) -> list[LiveSession]:
     """
     args = ["lsof", "-a", "-d", "cwd", "-p", ",".join(str(p) for p in pids), "-F", "pn"]
     try:
-        result = run_cmd(args, quiet=True, check=False)
+        result = await run_cmd_async(args, quiet=True, check=False)
     except (OSError, ValueError):
         return []
     sessions: list[LiveSession] = []
@@ -192,7 +194,7 @@ def _cwds_for_pids(pids: list[int]) -> list[LiveSession]:
     return sessions
 
 
-def _commands_for_pids(pids: list[int]) -> dict[int, str]:
+async def _commands_for_pids(pids: list[int]) -> dict[int, str]:
     """Map ``pid -> command line`` with one batched ``ps``.
 
     ``ps -ww -o pid=,command= -p <pids>`` gives one ``<pid> <cmd…>`` line per
@@ -203,7 +205,7 @@ def _commands_for_pids(pids: list[int]) -> dict[int, str]:
     """
     args = ["ps", "-ww", "-o", "pid=,command=", "-p", ",".join(str(p) for p in pids)]
     try:
-        result = run_cmd(args, quiet=True, check=False)
+        result = await run_cmd_async(args, quiet=True, check=False)
     except (OSError, ValueError):
         return {}
     mapping: dict[int, str] = {}
@@ -232,7 +234,7 @@ def _is_claude_command(command: str) -> bool:
     return PurePath(head).name == "claude"
 
 
-def _session_ids_for_pids(pids: list[int]) -> dict[int, str]:
+async def _session_ids_for_pids(pids: list[int]) -> dict[int, str]:
     """Map ``pid -> session-id``, read from each pid's command line.
 
     The id comes from the ``--session-id`` flag the launcher passes. A pid whose
@@ -240,7 +242,7 @@ def _session_ids_for_pids(pids: list[int]) -> dict[int, str]:
     a bare ``claude`` the user started carries no id.
     """
     mapping: dict[int, str] = {}
-    for pid, command in _commands_for_pids(pids).items():
+    for pid, command in (await _commands_for_pids(pids)).items():
         m = _SESSION_ID_RE.search(command)
         if m:
             mapping[pid] = m.group(1)
@@ -289,7 +291,7 @@ def is_driven(command: str) -> bool:
     return all(flag in command for flag in _DRIVEN_FLAGS)
 
 
-def list_claude_processes() -> list[ProcessInfo]:
+async def list_claude_processes() -> list[ProcessInfo]:
     """Every ``claude`` process on the machine, with its group and its argv.
 
     The union of ``pgrep -x claude`` (the CLI by name) and
@@ -310,7 +312,7 @@ def list_claude_processes() -> list[ProcessInfo]:
         ["pgrep", "-f", "--", "--permission-prompt-tool stdio"],
     ):
         try:
-            result = run_cmd(argv, quiet=True, check=False)
+            result = await run_cmd_async(argv, quiet=True, check=False)
         except (OSError, ValueError) as exc:
             raise ProcessTableUnavailable(f"pgrep failed: {exc}") from exc
         if result.returncode not in (0, 1):
@@ -326,7 +328,7 @@ def list_claude_processes() -> list[ProcessInfo]:
         return []
     args = ["ps", "-ww", "-o", "pid=,pgid=,command=", "-p", ",".join(map(str, pids))]
     try:
-        result = run_cmd(args, quiet=True, check=False)
+        result = await run_cmd_async(args, quiet=True, check=False)
     except (OSError, ValueError) as exc:
         raise ProcessTableUnavailable(f"ps failed: {exc}") from exc
     if result.returncode not in (0, 1):
@@ -357,6 +359,28 @@ def parse_process_table(text: str) -> list[ProcessInfo]:
     return rows
 
 
+def _sweep_blocking() -> list[LiveSession]:
+    """Take the sweep from synchronous code, whatever loop the caller holds.
+
+    :func:`all_live_sessions` is a coroutine, so a synchronous caller needs a
+    loop to drive it. ``asyncio.run`` is that loop, and it raises when one is
+    already running — which happens whenever the orchestrator server runs a
+    source with no executor to offload to. So a caller on a running loop gets
+    a short-lived thread with a loop of its own instead of an exception.
+
+    That thread blocks the caller for the length of the sweep, exactly as the
+    old synchronous code did. Nothing regresses; it is simply the fallback for
+    a caller that has not yet moved to ``await``ing
+    :meth:`LiveSessionSet.sweep`, which is the path that never blocks.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(all_live_sessions())
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(lambda: asyncio.run(all_live_sessions())).result()
+
+
 class LiveSessionSet:
     """One live-``claude`` sweep plus the per-worktree questions asked of it.
 
@@ -373,11 +397,30 @@ class LiveSessionSet:
     def __init__(self, sessions: list[LiveSession] | None = None) -> None:
         self._sessions = sessions
 
+    async def sweep(self) -> "LiveSessionSet":
+        """Take the sweep now, off the caller's event loop, and return self.
+
+        The async entry point. An ``await``ing caller — the orchestrator
+        server, a daemon handler — sweeps through this so ``pgrep``/``lsof``/
+        ``ps`` never block its loop, then reads the cached answers off the
+        synchronous accessors below. Sweeping twice is a no-op.
+        """
+        if self._sessions is None:
+            self._sessions = await all_live_sessions()
+        return self
+
     @property
     def sessions(self) -> list[LiveSession]:
-        """The swept live sessions, taking the sweep on first access."""
+        """The swept live sessions, taking the sweep on first access.
+
+        Prefer ``await``ing :meth:`sweep`; this property is what the many
+        synchronous CLI callers keep using. It sweeps on a private loop, so it
+        works in a script, in a worker thread, and — through a short-lived
+        thread of its own — on a caller that already holds a running loop.
+        After the first access it only reads the cache and costs nothing.
+        """
         if self._sessions is None:
-            self._sessions = all_live_sessions()
+            self._sessions = _sweep_blocking()
         return self._sessions
 
     def all_for(self, worktree_path: Path) -> list[LiveSession]:

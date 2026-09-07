@@ -427,9 +427,12 @@ def _patch_live(sessions):
     """Patch the live-process sweep `session list` drives off."""
     from maelstrom import session_discovery
 
-    return patch.object(
-        session_discovery, "all_live_sessions", return_value=list(sessions)
-    )
+    swept = list(sessions)
+
+    async def sweep():
+        return list(swept)
+
+    return patch.object(session_discovery, "all_live_sessions", sweep)
 
 
 def _patch_pid_lookup(pid, cwd="/w/alpha"):
@@ -442,7 +445,11 @@ def _patch_pid_lookup(pid, cwd="/w/alpha"):
     from maelstrom import session_discovery
 
     found = None if pid is None else _live(pid, cwd)
-    return patch.object(session_discovery, "session_for_pid", return_value=found)
+
+    async def lookup(_pid):
+        return found
+
+    return patch.object(session_discovery, "session_for_pid", lookup)
 
 
 def _live(pid, cwd):

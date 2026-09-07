@@ -1,5 +1,6 @@
 """Session-tracking CLI: `mael session record`, `mael session list`, and `mael session-channel`."""
 
+import asyncio
 import json
 import os
 import sys
@@ -309,7 +310,7 @@ def session_list() -> None:
     GC'd in the same single scan.
     """
     registry = _scan_registry()
-    sessions = session_discovery.all_live_sessions()
+    sessions = asyncio.run(session_discovery.all_live_sessions())
     index = _task_index()
 
     rows = []
@@ -399,7 +400,7 @@ def _find_session(id: str | None) -> session_discovery.LiveSession:
             raise click.ClickException(str(e))
         except KeyError:
             if handle.isdigit():
-                found = session_discovery.session_for_pid(int(handle))
+                found = asyncio.run(session_discovery.session_for_pid(int(handle)))
                 if found is not None:
                     return found
             continue

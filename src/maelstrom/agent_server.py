@@ -30,7 +30,7 @@ import uuid
 from contextlib import suppress
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from . import __version__, shell
 from .agent_model import (
@@ -733,7 +733,7 @@ class AgentDaemon:
         live: LiveSessionSet | None = None,
         open_task_index: Callable[[], TaskLookup] = _open_task_index,
         clock: "Callable[[], str]" = now_iso,
-        processes: Callable[[], list[ProcessInfo]] = list_claude_processes,
+        processes: Callable[[], Awaitable[list[ProcessInfo]]] = list_claude_processes,
         kill_group: Callable[[int, int], None] | None = None,
     ):
         #: The one directory this daemon owns; see ``DaemonPaths``.
@@ -776,7 +776,7 @@ class AgentDaemon:
             self._transcripts = ClaudeTranscriptStore()
         return self._transcripts
 
-    def stopped_rows(self, cwd: str | None) -> list[dict[str, Any]]:
+    async def stopped_rows(self, cwd: str | None) -> list[dict[str, Any]]:
         """Every session that can be resumed, optionally under ``cwd``.
 
         The three sources are merged in the model layer: Claude's transcripts
@@ -788,6 +788,7 @@ class AgentDaemon:
         metas = self.transcripts.list(cwds)
         specs = _specs_by_session(self.specs.list())
         live = self._live if self._live is not None else LiveSessionSet()
+        await live.sweep()
         return build_stopped_rows(
             metas, specs, self._task_ids(metas), live, now=time.time()
         )
@@ -971,7 +972,7 @@ class AgentDaemon:
             record_prompt=spec.prompt,
         )
 
-    def _gc(self, *, resume_strays: bool) -> Reconciliation:
+    async def _gc(self, *, resume_strays: bool) -> Reconciliation:
         """Reconcile the records with the process table and act on the result.
 
         Raises:
@@ -981,7 +982,7 @@ class AgentDaemon:
         """
         result = reconcile(
             self.specs.list(),
-            self._processes(),
+            await self._processes(),
             set(self.agents),
             resume_strays=resume_strays,
         )
@@ -1018,7 +1019,9 @@ class AgentDaemon:
         next gc can clear than every agent written off.
         """
         try:
-            to_resume: list[AgentSpec] = list(self._gc(resume_strays=True).resume)
+            to_resume: list[AgentSpec] = list(
+                (await self._gc(resume_strays=True)).resume
+            )
         except ProcessTableUnavailable as exc:
             log.warning("gc skipped, the process table is unavailable: %s", exc)
             to_resume = [s for s in self.specs.list() if s.status == SPEC_RUNNING]
@@ -1079,11 +1082,11 @@ class AgentDaemon:
             # left `running` for the next one.
             try:
                 if command == "gc":
-                    result = self._gc(resume_strays=False)
+                    result = await self._gc(resume_strays=False)
                 else:
                     result = reconcile(
                         self.specs.list(),
-                        self._processes(),
+                        await self._processes(),
                         set(self.agents),
                         resume_strays=False,
                     )
@@ -1105,7 +1108,7 @@ class AgentDaemon:
                     rows.append(build_agent_row(a.state))
                     rows += build_subagent_rows(a.state)
             if scope in (SCOPE_STOPPED, SCOPE_ALL):
-                rows += self.stopped_rows(payload.get("cwd") or None)
+                rows += await self.stopped_rows(payload.get("cwd") or None)
             return {"agents": rows}
 
         agent, dotted = self._resolve(payload.get("id", ""))
