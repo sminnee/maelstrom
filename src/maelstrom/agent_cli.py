@@ -655,24 +655,42 @@ def cmd_run(agent_id: str, command: str) -> None:
 @agent.command("answer")
 @click.argument("agent_id")
 @click.argument("choice")
-def cmd_answer(agent_id: str, choice: str) -> None:
+@click.option(
+    "--request",
+    "request_id",
+    default="",
+    help="Which wait to answer. Needed only when several are open.",
+)
+def cmd_answer(agent_id: str, choice: str, request_id: str) -> None:
     """Answer an agent's pending question with CHOICE."""
-    _send({"cmd": "answer", "id": agent_id, "choice": choice})
+    _send({"cmd": "answer", "id": agent_id, "choice": choice, "request": request_id})
 
 
 @agent.command("approve")
 @click.argument("agent_id")
-def cmd_approve(agent_id: str) -> None:
+@click.option(
+    "--request",
+    "request_id",
+    default="",
+    help="Which wait to answer. Needed only when several are open.",
+)
+def cmd_approve(agent_id: str, request_id: str) -> None:
     """Approve an agent's pending plan or tool call."""
-    _send({"cmd": "approve", "id": agent_id})
+    _send({"cmd": "approve", "id": agent_id, "request": request_id})
 
 
 @agent.command("deny")
 @click.argument("agent_id")
 @click.option("--reason", "-r", default="", help="Why, shown to the agent.")
-def cmd_deny(agent_id: str, reason: str) -> None:
+@click.option(
+    "--request",
+    "request_id",
+    default="",
+    help="Which wait to answer. Needed only when several are open.",
+)
+def cmd_deny(agent_id: str, reason: str, request_id: str) -> None:
     """Deny an agent's pending plan or tool call."""
-    _send({"cmd": "deny", "id": agent_id, "reason": reason})
+    _send({"cmd": "deny", "id": agent_id, "reason": reason, "request": request_id})
 
 
 @agent.command("interrupt")

@@ -809,12 +809,17 @@ def test_approve_reaches_the_host_and_resolves_the_wait(harness):
                     lambda a: a["state"] == "processing",
                 )
                 attention = await api.get_json("/api/attention")
-                return reply, agent, attention["attention"]
+                return reply, agent, attention["attention"], request_id
 
-    reply, agent, attention = run(scenario())
+    reply, agent, attention, request_id = run(scenario())
     assert reply.status == 200
     assert reply.body == {}
-    assert {"cmd": "approve", "id": "ag1"} in harness.daemon.calls
+    # The id the user answered, not merely "whatever ag1 is waiting on".
+    assert {
+        "cmd": "approve",
+        "id": "ag1",
+        "request": request_id,
+    } in harness.daemon.calls
     assert agent["pendingRequestId"] is None
     assert agent["pendingRequest"] is None
     assert [a["clearedAt"] is not None for a in attention] == [True]
@@ -839,13 +844,14 @@ def test_deny_sends_the_reason_and_records_it(harness):
                     "/api/agents/ag1",
                     lambda a: a["state"] == "processing",
                 )
-                return reply, (await transcript_of(api))["items"]
+                return reply, (await transcript_of(api))["items"], request_id
 
-    reply, items = run(scenario())
+    reply, items, request_id = run(scenario())
     assert reply.status == 200
     assert {
         "cmd": "deny",
         "id": "ag1",
+        "request": request_id,
         "reason": "not on this network",
     } in harness.daemon.calls
     request = next(i for i in items if i["type"] == "permission_request")
@@ -873,11 +879,16 @@ def test_answer_sends_the_answers_map_and_files_it_on_the_question(harness):
                     "/api/agents/ag1",
                     lambda a: a["state"] == "processing",
                 )
-                return reply, (await transcript_of(api))["items"]
+                return reply, (await transcript_of(api))["items"], request_id
 
-    reply, items = run(scenario())
+    reply, items, request_id = run(scenario())
     assert reply.status == 200
-    assert {"cmd": "answer", "id": "ag1", "answers": answers} in harness.daemon.calls
+    assert {
+        "cmd": "answer",
+        "id": "ag1",
+        "request": request_id,
+        "answers": answers,
+    } in harness.daemon.calls
     question = next(i for i in items if i["type"] == "question")
     assert question["answers"] == answers
 

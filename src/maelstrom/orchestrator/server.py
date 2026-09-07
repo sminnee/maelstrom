@@ -792,11 +792,22 @@ class Orchestrator:
         return None
 
     async def _approve(self, command: dict[str, Any]) -> dict[str, Any]:
-        return await self._relay({"cmd": "approve", "id": command["agentId"]})
+        return await self._relay(
+            {
+                "cmd": "approve",
+                "id": command["agentId"],
+                "request": command.get("requestId", ""),
+            }
+        )
 
     async def _deny(self, command: dict[str, Any]) -> dict[str, Any]:
         return await self._relay(
-            {"cmd": "deny", "id": command["agentId"], "reason": command["reason"]}
+            {
+                "cmd": "deny",
+                "id": command["agentId"],
+                "request": command.get("requestId", ""),
+                "reason": command["reason"],
+            }
         )
 
     async def _answer(self, command: dict[str, Any]) -> dict[str, Any]:
@@ -804,6 +815,7 @@ class Orchestrator:
             {
                 "cmd": "answer",
                 "id": command["agentId"],
+                "request": command.get("requestId", ""),
                 "answers": dict(command["answers"]),
             }
         )

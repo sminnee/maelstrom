@@ -41,6 +41,7 @@ from .agent_model import (
     AWAITING_QUESTION,
     BACKLOG_END,
     DEFAULT_RESUME_PROMPT,
+    ENDED_REASON,
     EXITED,
     IDLE,
     INTERRUPTED_REASON,
@@ -57,6 +58,7 @@ from .agent_model import (
     AgentSpec,
     AgentState,
     DaemonIdentity,
+    PendingRequest,
     SubagentState,
     TranscriptMeta,
     apply_event,
@@ -70,6 +72,7 @@ from .agent_model import (
     build_subagent_rows,
     interrupt_request,
     mark_exited,
+    open_asks,
     reply_for_answer,
     reply_for_answers,
     reply_for_approval,
@@ -225,6 +228,18 @@ def _exit_marker(exit_code: int | None) -> dict[str, Any]:
 def _subagent_exit_code(sub: SubagentState) -> int:
     """The exit code a subagent's stream ends with: 0 completed, else 1."""
     return 0 if sub.status == SUB_COMPLETED else 1
+
+
+def _oldest_pending(state: AgentState) -> PendingRequest | None:
+    """The ask a command answers when it names no request id.
+
+    Spans the agent's own waits and its subagents': a reply goes to this
+    agent's pipe whoever raised it. With several open a caller must name one,
+    so this is the answer only when there is exactly one.
+    """
+    for request in open_asks(state).values():
+        return request
+    return None
 
 
 def _subagent_refusal(dotted: str, agent_id: str) -> dict[str, Any]:
@@ -393,7 +408,7 @@ class Agent:
         await self.proc.stdin.drain()
         return True
 
-    def record(self, message: dict[str, Any]) -> None:
+    def record(self, message: dict[str, Any]) -> list[PendingRequest]:
         """Put one message into the agent's stream: reduce it, then fan it out.
 
         Only what the child will not repeat goes through here — a
@@ -404,6 +419,10 @@ class Agent:
         marked ``isReplay``, so recording it here would put one turn on the
         stream twice. The orchestrator's normaliser mints a fresh item id
         per copy, so the user's own message would render twice.
+
+        Returns the asks the message orphaned: a subagent that ends holding one
+        leaves its request id live on the child's control channel, and only the
+        caller can deny it. Empty for every other message.
         """
         before = self.state
         self.state = apply_event(self.state, message, now=self.clock())
@@ -418,11 +437,14 @@ class Agent:
         # more will fill, so its stream ends the way the parent's does. Only a
         # notification ends one, so only a notification is worth the scan.
         if message.get("subtype") != "task_notification":
-            return
+            return []
+        orphaned: list[PendingRequest] = []
         for ended, sub in self.state.subagents.items():
             was = before.subagents.get(ended)
             if was is not None and was.status == SUB_RUNNING != sub.status:
                 self._fan_out(ended, _exit_marker(_subagent_exit_code(sub)))
+                orphaned += was.pending.values()
+        return orphaned
 
     def _fan_out(self, subagent: str, event: dict[str, Any]) -> None:
         """Offer ``event`` to every watcher of ``subagent``'s stream."""
@@ -509,7 +531,10 @@ class Agent:
                     event = json.loads(line)
                 except json.JSONDecodeError:
                     continue  # a non-JSON line is noise, not a state change
-                self.record(event)
+                for orphan in self.record(event):
+                    # Its subagent has gone, so nothing else will ever answer
+                    # it. Undenied, the child holds the ask for ever.
+                    await self.send(reply_for_denial(orphan, ENDED_REASON))
             unexpected = False
 
         except asyncio.CancelledError:
@@ -1203,13 +1228,15 @@ class AgentDaemon:
             error = await self._set_mode(agent, mode)
             return error if error is not None else {"ok": True, "mode": mode}
 
-        pending = agent.state.pending
+        asks = open_asks(agent.state)
+        pending = _oldest_pending(agent.state)
 
         if command == "interrupt":
             if agent.state.status not in INTERRUPTIBLE:
                 return {"error": f"agent {agent.state.agent_id} is not running a turn"}
-            if pending is not None:
-                reply = reply_for_denial(pending, INTERRUPTED_REASON)
+            # An undenied ask leaves its caller blocked forever.
+            for open_ask in list(asks.values()):
+                reply = reply_for_denial(open_ask, INTERRUPTED_REASON)
                 if not await agent.send(reply):
                     return _unreachable(agent)
                 agent.record(reply)
@@ -1220,6 +1247,24 @@ class AgentDaemon:
             return {"ok": True}
 
         if command in ("answer", "approve", "deny"):
+            named = str(payload.get("request") or "")
+            if named:
+                # A stale id must not silently answer a different wait.
+                if named not in asks:
+                    return {
+                        "error": (
+                            f"agent {agent.state.agent_id} is not waiting on "
+                            f"request {named}"
+                        )
+                    }
+                pending = asks[named]
+            elif len(asks) > 1:
+                return {
+                    "error": (
+                        f"agent {agent.state.agent_id} is waiting on "
+                        f"{len(asks)} requests; name one with `request`"
+                    )
+                }
             if pending is None:
                 return {"error": f"agent {agent.state.agent_id} is not waiting"}
             if command == "answer":

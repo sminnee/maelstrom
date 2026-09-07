@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from maelstrom.agent_model import (
+    AWAITING_PERMISSION,
     EXITED,
     IDLE,
     MESSAGE_CHARS,
@@ -33,6 +34,7 @@ from maelstrom.agent_model import (
     TS_KEY,
     AgentSpec,
     AgentState,
+    PendingRequest,
     TranscriptMeta,
     apply_event,
     build_agent_argv,
@@ -60,6 +62,18 @@ from maelstrom.agent_model import (
 from maelstrom.session_discovery import LiveSession, LiveSessionSet
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
+
+
+def only_pending(state: AgentState) -> PendingRequest:
+    """The one ask ``state`` holds, for a test about a single wait.
+
+    An agent can hold several. A test that means "the wait" says so through
+    this, and fails loudly rather than silently reading the first of many.
+    """
+    assert len(state.own_pending) == 1, (
+        f"expected one wait, found {len(state.own_pending)}"
+    )
+    return next(iter(state.own_pending.values()))
 
 
 def replay(name: str, stop_before_control: bool = False) -> AgentState:
@@ -97,23 +111,20 @@ def test_an_assistant_message_marks_the_agent_processing():
 def test_a_permission_request_awaits_permission():
     state = replay("permission-request.jsonl", stop_before_control=True)
     assert state.status == "awaiting-permission"
-    assert state.pending is not None
-    assert state.pending.tool_name == "WebFetch"
+    assert only_pending(state).tool_name == "WebFetch"
 
 
 def test_a_question_awaits_a_question_not_a_permission():
     """The tool name is what separates the two wait kinds."""
     state = replay("question-unanswered.jsonl", stop_before_control=True)
     assert state.status == "awaiting-question"
-    assert state.pending is not None
-    assert state.pending.questions == ["Which colour do you prefer?"]
+    assert only_pending(state).questions == ["Which colour do you prefer?"]
 
 
 def test_an_exit_plan_mode_awaits_plan_review():
     state = replay("plan-review.jsonl", stop_before_control=True)
     assert state.status == "awaiting-plan-review"
-    assert state.pending is not None
-    assert state.pending.tool_name == "ExitPlanMode"
+    assert only_pending(state).tool_name == "ExitPlanMode"
 
 
 def test_an_assistant_event_does_not_wipe_a_pending_wait():
@@ -121,20 +132,19 @@ def test_an_assistant_event_does_not_wipe_a_pending_wait():
     state = replay("question-unanswered.jsonl", stop_before_control=True)
     state = apply_event(state, {"type": "assistant", "message": {"content": []}})
     assert state.status == "awaiting-question"
-    assert state.pending is not None
 
 
 def test_answering_the_pending_request_clears_the_wait():
     state = replay("question-answered.jsonl")
     assert state.status == "idle"
-    assert state.pending is None
+    assert state.own_pending == {}
 
 
 def test_a_denied_tool_does_not_leave_the_agent_waiting():
     """A hard deny is terminal — the agent carries on, it does not wait."""
     state = replay("permission-denied.jsonl")
     assert state.status == "idle"
-    assert state.pending is None
+    assert state.own_pending == {}
 
 
 def test_a_result_event_records_the_cost():
@@ -147,7 +157,7 @@ def test_a_dead_agent_is_not_left_looking_like_it_waits():
     state = replay("question-unanswered.jsonl", stop_before_control=True)
     state = mark_exited(state, 1)
     assert state.status == EXITED
-    assert state.pending is None
+    assert state.own_pending == {}
     assert build_agent_row(state)["waiting_on"] == ""
 
 
@@ -162,29 +172,26 @@ def test_an_exited_row_reports_the_exit_code():
 def test_reply_for_answer_puts_the_choice_in_updated_input():
     """The agent reads answers from ``updatedInput['answers']``, keyed by question."""
     state = replay("question-unanswered.jsonl", stop_before_control=True)
-    assert state.pending is not None
-    reply = reply_for_answer(state.pending, "Green")
+    reply = reply_for_answer(only_pending(state), "Green")
     payload = reply["response"]["response"]
     assert payload["behavior"] == "allow"
     assert payload["updatedInput"]["answers"] == {
         "Which colour do you prefer?": "Green"
     }
-    assert reply["response"]["request_id"] == state.pending.request_id
+    assert reply["response"]["request_id"] == only_pending(state).request_id
 
 
 def test_reply_for_approval_allows_with_the_input_unchanged():
     state = replay("permission-request.jsonl", stop_before_control=True)
-    assert state.pending is not None
-    reply = reply_for_approval(state.pending)
+    reply = reply_for_approval(only_pending(state))
     payload = reply["response"]["response"]
     assert payload["behavior"] == "allow"
-    assert payload["updatedInput"] == state.pending.input
+    assert payload["updatedInput"] == only_pending(state).input
 
 
 def test_reply_for_denial_carries_the_reason():
     state = replay("permission-request.jsonl", stop_before_control=True)
-    assert state.pending is not None
-    reply = reply_for_denial(state.pending, "not on a public network")
+    reply = reply_for_denial(only_pending(state), "not on a public network")
     payload = reply["response"]["response"]
     assert payload["behavior"] == "deny"
     assert payload["message"] == "not on a public network"
@@ -496,15 +503,14 @@ def test_detail_reads_the_plan_the_request_carries():
     state = replay("plan-review-with-plan.jsonl", stop_before_control=True)
     detail = build_agent_detail(state)
     assert "## Verification" in detail["plan"]
-    assert detail["plan"] == state.pending.input["plan"]
+    assert detail["plan"] == only_pending(state).input["plan"]
     assert detail["plan_file"].endswith(".md")
 
 
 def test_detail_falls_back_to_the_last_message_when_the_request_is_bare():
     """A sandboxed plan write leaves an empty input, and the text in a message."""
     state = replay("plan-review.jsonl", stop_before_control=True)
-    assert state.pending is not None
-    assert state.pending.input == {}
+    assert only_pending(state).input == {}
     detail = build_agent_detail(state)
     assert "Verification" in detail["plan"]
     assert detail["plan_file"] == ""
@@ -530,13 +536,14 @@ def test_detail_of_an_idle_agent_still_has_every_key():
 def test_reply_for_answers_files_each_answer_under_its_question():
     """The orchestrator UI answers every question at once, each by its text."""
     state = replay("question-unanswered.jsonl", stop_before_control=True)
-    assert state.pending is not None
     answers = {"Which colour do you prefer?": "Blue"}
-    reply = reply_for_answers(state.pending, answers)
+    reply = reply_for_answers(only_pending(state), answers)
     payload = reply["response"]["response"]
     assert payload["behavior"] == "allow"
     assert payload["updatedInput"]["answers"] == answers
-    assert payload["updatedInput"]["questions"] == state.pending.input["questions"]
+    assert (
+        payload["updatedInput"]["questions"] == only_pending(state).input["questions"]
+    )
 
 
 def test_interrupt_request_is_a_control_request_with_the_interrupt_subtype():
@@ -551,23 +558,25 @@ def test_an_interrupted_turn_ends_idle():
     """The child answers the interrupt, then closes the turn with an error result."""
     state = replay("interrupt.jsonl")
     assert state.status == IDLE
-    assert state.pending is None
+    assert state.own_pending == {}
 
 
 def test_an_interrupt_while_waiting_clears_the_wait():
     """The denial the daemon sends first is what releases the blocked request."""
     state = replay("interrupt-while-waiting.jsonl")
     assert state.status == IDLE
-    assert state.pending is None
+    assert state.own_pending == {}
 
 
 def test_a_cancelled_request_stops_being_pending():
     """The child withdrew the ask, so nothing can answer it any more."""
     state = replay("interrupt-while-waiting.jsonl", stop_before_control=True)
-    assert state.pending is not None
-    cancel = {"type": "control_cancel_request", "request_id": state.pending.request_id}
+    cancel = {
+        "type": "control_cancel_request",
+        "request_id": only_pending(state).request_id,
+    }
     state = apply_event(state, cancel)
-    assert state.pending is None
+    assert state.own_pending == {}
     assert state.status == PROCESSING
 
 
@@ -576,7 +585,6 @@ def test_a_cancel_for_another_request_is_ignored():
     state = apply_event(
         state, {"type": "control_cancel_request", "request_id": "other"}
     )
-    assert state.pending is not None
 
 
 def test_apply_event_stamps_each_event_with_its_seq_and_leaves_the_input_alone():
@@ -1119,18 +1127,23 @@ def test_an_evicted_subagent_that_speaks_again_comes_back_under_its_old_id():
 
 
 def test_a_permission_a_subagent_asks_for_names_the_subagent():
-    """The wait belongs to the parent; the detail says which subagent raised it."""
+    """The wait is the subagent's; the parent still reports it.
+
+    The reply goes to the parent's pipe, so a user looking at the parent has
+    to see that something under it is blocked. A parent reading `processing`
+    while a subagent waits is the failure this whole mechanism exists to stop.
+    """
     state = replay("subagent-permission.jsonl", stop_before_control=True)
-    assert state.status == "awaiting-permission"
-    assert state.pending is not None
-    assert state.pending.tool_name == "WebFetch"
-    assert state.pending.subagent == "a1.1"
+    assert state.own_pending == {}, "the wait belongs to the subagent"
+    assert state.subagents["a1.1"].pending
+    row = build_agent_row(state)
+    assert row["state"] == "awaiting-permission"
+    assert row["waiting_on"] == "https://example.com"
 
 
 def test_a_permission_the_parent_asks_for_names_no_subagent():
     state = replay("permission-request.jsonl", stop_before_control=True)
-    assert state.pending is not None
-    assert state.pending.subagent == ""
+    assert only_pending(state).subagent == ""
 
 
 def test_mark_exited_leaves_the_subagents_alone():
@@ -1364,6 +1377,17 @@ class TestConcurrentSubagentPermissions:
         assert asks[0]["request_id"] != asks[1]["request_id"]
         return events
 
+    def open_asks(self, state: AgentState) -> dict[str, PendingRequest]:
+        """Every ask ``state`` holds, the agent's own and its subagents'.
+
+        A reply names a request, not who raised it, so a reader that wants
+        "what can be answered" wants both maps.
+        """
+        asks = dict(state.own_pending)
+        for sub in state.subagents.values():
+            asks.update(sub.pending)
+        return asks
+
     def replay_to_ask(self, events: list[dict], nth: int) -> AgentState:
         """The state just after the ``nth`` ``can_use_tool`` of ``events``."""
         state = AgentState(agent_id="a1", cwd="/tmp/x")
@@ -1395,36 +1419,35 @@ class TestConcurrentSubagentPermissions:
         assert len(asked) == 2
         assert asked <= started
 
-    def test_the_second_ask_displaces_the_first(self, events):
-        """The defect. One ``pending`` slot cannot hold two waits.
-
-        The first request id is gone from the state, so no reply can carry it
-        and the subagent that raised it never gets an answer.
-        """
-        asks = [e for e in events if e.get("type") == "control_request"]
+    def test_the_second_ask_does_not_displace_the_first(self, events):
+        """Both waits are held, so either can still be answered."""
+        asks = [e["request_id"] for e in events if e.get("type") == "control_request"]
         first = self.replay_to_ask(events, 1)
-        assert first.pending is not None
-        assert first.pending.request_id == asks[0]["request_id"]
+        assert list(self.open_asks(first)) == asks[:1]
 
         second = self.replay_to_ask(events, 2)
-        assert second.pending is not None
-        assert second.pending.request_id == asks[1]["request_id"], (
-            "the first wait was displaced"
-        )
+        assert list(self.open_asks(second)) == asks, "the first wait was displaced"
 
-    def test_answering_one_leaves_the_other_unanswerable(self, events):
-        """What the user sees: the agent looks free while a subagent hangs."""
-        state = AgentState(agent_id="a1", cwd="/tmp/x")
-        for event in events:
-            state = apply_event(state, event)
-        assert state.pending is None
+    def test_answering_one_leaves_the_other_answerable(self, events):
+        """The point of the change: one answer releases one subagent.
+
+        The fixture answers only the second ask. The first must survive as a
+        wait the user can still act on, rather than being cleared with it.
+        """
         answered = {
             e["response"]["request_id"]
             for e in events
             if e.get("type") == "control_response"
         }
-        asked = {e["request_id"] for e in events if e.get("type") == "control_request"}
-        assert asked - answered, "one ask was never answered"
+        asked = [e["request_id"] for e in events if e.get("type") == "control_request"]
+        unanswered = [r for r in asked if r not in answered]
+        assert unanswered, "the fixture answers every ask"
+
+        state = AgentState(agent_id="a1", cwd="/tmp/x")
+        for event in events:
+            state = apply_event(state, event)
+        assert list(self.open_asks(state)) == unanswered
+        assert state.subagents["a1.1"].pending, "the unanswered ask was cleared with it"
 
     def test_each_ask_is_attributed_to_the_subagent_that_raised_it(self, events):
         """``agent_id`` names the subagent, so a ring scan is not needed.
@@ -1433,13 +1456,10 @@ class TestConcurrentSubagentPermissions:
         rings hold no ``tool_use`` block to scan. The ask says whose it is.
         """
         first = self.replay_to_ask(events, 1)
-        assert first.pending is not None
-        assert first.pending.subagent == "a1.1"
-        assert build_agent_detail(first)["waiting_subagent"] == "a1.1"
+        assert [p.subagent for p in self.open_asks(first).values()] == ["a1.1"]
 
         second = self.replay_to_ask(events, 2)
-        assert second.pending is not None
-        assert second.pending.subagent == "a1.2"
+        assert [p.subagent for p in self.open_asks(second).values()] == ["a1.1", "a1.2"]
 
     def test_an_evicted_subagent_is_not_named(self, events):
         """``subagent_tasks`` outlives eviction, as ``subagent_ids`` does.
@@ -1448,8 +1468,7 @@ class TestConcurrentSubagentPermissions:
         so the ask reads as the parent's own rather than pointing at nothing.
         """
         state = self.replay_to_ask(events, 1)
-        assert state.pending is not None
-        assert state.pending.subagent == "a1.1"
+        assert [p.subagent for p in self.open_asks(state).values()] == ["a1.1"]
 
         # Evict the subagent the ask named, keeping the task map.
         gone = replace(state, subagents={})
@@ -1465,8 +1484,72 @@ class TestConcurrentSubagentPermissions:
                 },
             },
         )
-        assert again.pending is not None
-        assert again.pending.subagent == ""
+        assert again.own_pending["r-late"].subagent == ""
+
+    def test_each_subagents_wait_is_its_own(self, events):
+        """The wait is recorded on the subagent that raised it.
+
+        A subagent has no process, so the reply still goes to the parent. The
+        record is the subagent's, which is what lets its row say what it waits
+        on rather than looking merely busy.
+        """
+        asks = [e["request_id"] for e in events if e.get("type") == "control_request"]
+        state = self.replay_to_ask(events, 2)
+        assert list(state.subagents["a1.1"].pending) == asks[:1]
+        assert list(state.subagents["a1.2"].pending) == asks[1:]
+
+    def test_a_waiting_subagents_row_says_what_it_waits_on(self, events):
+        """`processing` would read as busy, and hide a subagent that is stuck."""
+        state = self.replay_to_ask(events, 2)
+        rows = {r["id"]: r for r in build_subagent_rows(state)}
+        assert rows["a1.1"]["state"] == AWAITING_PERMISSION
+        assert rows["a1.1"]["waiting_on"] == "https://example.com"
+        assert rows["a1.2"]["state"] == AWAITING_PERMISSION
+
+    def test_a_notified_subagent_stops_advertising_its_wait(self, events):
+        """An ended subagent holds nothing a reply could reach.
+
+        Claude Code should not notify a blocked subagent, but a wait left on
+        an `exited` row would be advertised for ever and answerable never.
+        """
+        state = self.replay_to_ask(events, 2)
+        assert state.subagents["a1.1"].pending
+        ended = apply_event(
+            state,
+            {
+                "type": "system",
+                "subtype": "task_notification",
+                "tool_use_id": state.subagents["a1.1"].tool_use_id,
+                "status": "completed",
+                "summary": "done",
+            },
+        )
+        assert ended.subagents["a1.1"].pending == {}
+
+    def test_a_waiting_subagents_detail_names_the_request(self, events):
+        """`show` on the dotted id is how a user learns what to answer."""
+        state = self.replay_to_ask(events, 1)
+        detail = build_subagent_detail(state, "a1.1")
+        [ask] = state.subagents["a1.1"].pending.values()
+        assert detail["request_id"] == ask.request_id
+        assert detail["waiting_kind"] == AWAITING_PERMISSION
+        assert detail["waiting_tool"] == "WebFetch"
+        # The asker is this subagent, so it names no other.
+        assert detail["waiting_subagent"] == ""
+
+    def test_a_dead_agent_does_not_report_a_subagents_wait(self, events):
+        """An exited agent answers nothing, whoever was waiting under it.
+
+        `mark_exited` clears the agent's own asks. A subagent's would
+        otherwise still be reported, so a dead agent would render as
+        answerable and every reply to it be refused.
+        """
+        state = self.replay_to_ask(events, 2)
+        assert build_agent_row(state)["state"] == AWAITING_PERMISSION
+        dead = mark_exited(state, 1)
+        row = build_agent_row(dead)
+        assert row["state"] == "exited(1)"
+        assert row["waiting_on"] == ""
 
     def test_both_subagents_are_known_even_so(self, events):
         """The subagents themselves open fine; only the wait loses them."""

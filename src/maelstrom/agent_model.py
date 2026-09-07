@@ -504,6 +504,9 @@ class SubagentState:
     last_message: str = ""
     #: When that last message happened. See :attr:`AgentState.last_message_at`.
     last_message_at: str = ""
+    #: The asks this subagent is blocked on, by request id, oldest first. Its
+    #: own, not the parent's, though the parent's pipe takes the reply.
+    pending: dict[str, PendingRequest] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -519,7 +522,11 @@ class AgentState:
     cwd: str
     session_id: str = ""
     status: str = IDLE
-    pending: PendingRequest | None = None
+    #: The asks this agent raised itself, by request id, oldest first. Not its
+    #: subagents' — :func:`open_asks` is what spans both, and is what a reader
+    #: answering or reporting a wait wants. Claude Code does not serialise the
+    #: asks; see ``docs/dev/agent-daemon.md``, "A subagent's permission ask".
+    own_pending: dict[str, PendingRequest] = field(default_factory=dict)
     model: str = ""
     #: The mode the child runs in, in maelstrom's words. Read off the stream,
     #: never from the spawn record.
@@ -736,26 +743,21 @@ def apply_event(
             description=request.get("description", "") or "",
             subagent=_asker(state, str(request.get("agent_id") or "")),
         )
-        return replace(state, status=pending.wait_kind, pending=pending)
+        if pending.subagent:
+            return _with_subagent_pending(state, pending)
+        return _with_pending(state, {**state.own_pending, pending.request_id: pending})
 
     if kind == "control_cancel_request":
         # The child withdrew the ask, so nothing can answer it any more.
         # Without this the agent goes on advertising a wait the child no
         # longer holds, and a reply would carry a dead request id.
-        if (
-            state.pending is not None
-            and event.get("request_id") == state.pending.request_id
-        ):
-            return replace(state, status=PROCESSING, pending=None)
-        return state
+        return _without_pending(state, str(event.get("request_id") or ""))
 
     if kind == "control_response":
-        # The wait is over: either we answered, or another client did. Either
-        # way the agent is running again.
+        # The wait is over: either we answered, or another client did. The
+        # agent runs again only once nothing else is outstanding.
         answered = (event.get("response") or {}).get("request_id")
-        if state.pending is not None and answered == state.pending.request_id:
-            return replace(state, status=PROCESSING, pending=None)
-        return state
+        return _without_pending(state, str(answered or ""))
 
     if kind == "assistant":
         # Capture above the guard: the guard protects the status, not the words,
@@ -765,7 +767,7 @@ def apply_event(
         # parallel tool blocks can arrive after a request opens, and letting one
         # set PROCESSING would render a row saying "processing" that still names
         # what it waits on.
-        if state.pending is not None:
+        if state.own_pending:
             return state
         return replace(state, status=PROCESSING)
 
@@ -773,7 +775,7 @@ def apply_event(
         return replace(
             state,
             status=IDLE,
-            pending=None,
+            own_pending={},
             total_cost_usd=float(event.get("total_cost_usd") or 0.0),
             session_id=event.get("session_id", "") or state.session_id,
         )
@@ -793,6 +795,79 @@ def subagent_of(state: AgentState, event: dict[str, Any]) -> str:
         return ""
     dotted = state.subagent_ids.get(str(parent), "")
     return dotted if dotted in state.subagents else ""
+
+
+def _oldest(pending: dict[str, PendingRequest]) -> PendingRequest | None:
+    """The ask that opened first, or ``None`` when none is open.
+
+    A row and a detail report one wait, so they report this one. A client that
+    wants them all reads ``pending`` itself.
+    """
+    for request in pending.values():
+        return request
+    return None
+
+
+def open_asks(state: AgentState) -> dict[str, PendingRequest]:
+    """Every ask blocked under ``state``, by request id, oldest first.
+
+    The agent's own and its subagents'. A reply names a request, not who
+    raised it, and it goes to this agent's pipe either way — so a caller
+    answering a wait, or reporting one, wants both.
+    """
+    asks = dict(state.own_pending)
+    for sub in state.subagents.values():
+        asks.update(sub.pending)
+    return asks
+
+
+def _wait_status(pending: dict[str, PendingRequest], fallback: str) -> str:
+    """The status an agent holding ``pending`` reports.
+
+    The oldest open ask decides. An agent has one status but may hold a
+    question and a permission at once, and the oldest is the one a user is
+    asked to clear first.
+    """
+    for request in pending.values():
+        return request.wait_kind
+    return fallback
+
+
+def _with_pending(state: AgentState, pending: dict[str, PendingRequest]) -> AgentState:
+    """``state`` holding ``pending``, with the status that follows from it."""
+    return replace(state, own_pending=pending, status=_wait_status(pending, PROCESSING))
+
+
+def _with_subagent_pending(state: AgentState, pending: PendingRequest) -> AgentState:
+    """``state`` with ``pending`` filed on the subagent that raised it."""
+    sub = state.subagents[pending.subagent]
+    held = {**sub.pending, pending.request_id: pending}
+    return replace(
+        state,
+        subagents={**state.subagents, pending.subagent: replace(sub, pending=held)},
+    )
+
+
+def _without_pending(state: AgentState, request_id: str) -> AgentState:
+    """``state`` with ``request_id`` answered, withdrawn or otherwise retired.
+
+    Looks on the agent and on every subagent: a reply names a request, not who
+    raised it. An id nothing holds changes nothing — a response whose request
+    was never ours is not our wait ending.
+    """
+    if not request_id:
+        return state
+    if request_id in state.own_pending:
+        rest = {k: v for k, v in state.own_pending.items() if k != request_id}
+        return _with_pending(state, rest)
+    for dotted, sub in state.subagents.items():
+        if request_id in sub.pending:
+            rest = {k: v for k, v in sub.pending.items() if k != request_id}
+            return replace(
+                state,
+                subagents={**state.subagents, dotted: replace(sub, pending=rest)},
+            )
+    return state
 
 
 def _asker(state: AgentState, task_id: str) -> str:
@@ -832,6 +907,12 @@ def _ring_holding_call(state: AgentState, tool_use_id: str) -> str:
     level. A ``can_use_tool`` names its asker under ``agent_id`` and needs no
     scan; ``task_started`` gives a depth but not a parent, so a spawn still
     does.
+
+    Placement is best effort, and carries the blind spot attribution no longer
+    has. A parent's own recording holds none of its subagents' events, and a
+    ring holds :data:`RECENT_LIMIT`, so a nested spawn whose parented events
+    are missing opens flat — ``X.2`` where ``X.1.1`` was meant. The dotted id
+    then understates the tree.
     """
     if not tool_use_id:
         return ""
@@ -927,6 +1008,8 @@ def _end_subagent(state: AgentState, event: dict[str, Any], now: str) -> AgentSt
         status=status,
         summary=summary,
         last_message_at=_stamp(event, now) if summary else sub.last_message_at,
+        # A subagent that has gone holds nothing a reply could reach.
+        pending={},
     )
     return replace(state, subagents={**state.subagents, dotted: ended})
 
@@ -979,7 +1062,7 @@ def mark_exited(state: AgentState, exit_code: int | None) -> AgentState:
     Clears ``pid`` too: the process is gone, and the number may be reused.
     The subagents stay as they are: their rings are still worth reading.
     """
-    return replace(state, status=EXITED, pending=None, exit_code=exit_code, pid=None)
+    return replace(state, status=EXITED, own_pending={}, exit_code=exit_code, pid=None)
 
 
 def build_agent_row(state: AgentState) -> dict[str, Any]:
@@ -996,9 +1079,16 @@ def build_agent_row(state: AgentState) -> dict[str, Any]:
     parent, and its prompt is not a description. :func:`build_subagent_rows`
     fills both.
     """
-    status = state.status
-    if status == EXITED and state.exit_code is not None:
-        status = f"{EXITED}({state.exit_code})"
+    # An exited agent answers nothing, whoever was waiting under it: a reply
+    # needs a live pipe. So the exit outranks any ask still on file.
+    if state.status == EXITED:
+        status = state.status
+        if state.exit_code is not None:
+            status = f"{EXITED}({state.exit_code})"
+        asks: dict[str, PendingRequest] = {}
+    else:
+        asks = open_asks(state)
+        status = _wait_status(asks, state.status)
     return {
         "id": state.agent_id,
         "parent": "",
@@ -1009,7 +1099,7 @@ def build_agent_row(state: AgentState) -> dict[str, Any]:
         "pid": state.pid,
         "model": state.model,
         "mode": state.permission_mode,
-        "waiting_on": state.pending.summary if state.pending else "",
+        "waiting_on": oldest.summary if (oldest := _oldest(asks)) else "",
         "last_message": _one_line(state.last_message),
         "last_message_at": state.last_message_at,
         "cost": f"{state.total_cost_usd:.4f}" if state.total_cost_usd else "",
@@ -1019,12 +1109,12 @@ def build_agent_row(state: AgentState) -> dict[str, Any]:
 def _subagent_status(sub: SubagentState) -> str:
     """A subagent's status in the words a row uses for an agent.
 
-    ``processing`` while it runs. A finished one is ``exited``, with 0 for
-    completed and 1 for failed or stopped, so a reader of ``list`` needs no
-    second vocabulary — a subagent never waits, so it is never anything else.
+    ``processing`` while it runs, or the wait it is blocked on. A finished one
+    is ``exited``, with 0 for completed and 1 for failed or stopped, so a
+    reader of ``list`` needs no second vocabulary.
     """
     if sub.status == SUB_RUNNING:
-        return PROCESSING
+        return _wait_status(sub.pending, PROCESSING)
     return f"{EXITED}({0 if sub.status == SUB_COMPLETED else 1})"
 
 
@@ -1042,8 +1132,9 @@ def build_subagent_row(state: AgentState, dotted: str) -> dict[str, Any]:
     agent, even for a nested subagent, because that is whose child process
     carries it. ``session``, ``cwd``, ``pid``, ``model`` and ``mode`` are the
     parent's: a subagent runs inside the parent's process, in its directory,
-    under its mode. ``waiting_on`` and ``cost`` are empty: a subagent's asks
-    are the parent's waits, and its spend is in the parent's total.
+    under its mode. ``cost`` is empty: its spend is in the parent's total.
+    ``waiting_on`` is its own — a subagent that asks is blocked itself, and a
+    row saying only ``processing`` would hide that.
     """
     sub = state.subagents[dotted]
     return {
@@ -1056,7 +1147,7 @@ def build_subagent_row(state: AgentState, dotted: str) -> dict[str, Any]:
         "pid": state.pid,
         "model": state.model,
         "mode": state.permission_mode,
-        "waiting_on": "",
+        "waiting_on": oldest.summary if (oldest := _oldest(sub.pending)) else "",
         "last_message": _one_line(_subagent_message(sub)),
         "last_message_at": sub.last_message_at,
         "cost": "",
@@ -1179,7 +1270,7 @@ def build_agent_detail(state: AgentState) -> dict[str, Any]:
     else ``""``. ``subagents`` lists every subagent as a row, so ``show`` on a
     parent is where a user learns the dotted ids ``attach`` and ``tail`` take.
     """
-    pending = state.pending
+    pending = _oldest(open_asks(state))
     plan, plan_file = _plan_details(pending, state.last_message)
     return {
         **build_agent_row(state),
@@ -1200,22 +1291,25 @@ def build_subagent_detail(state: AgentState, dotted: str) -> dict[str, Any]:
     """Everything ``mael agent show`` reports about one subagent.
 
     Its row, plus ``message``: the summary in full once it has ended, else the
-    last thing it said. The other keys of :func:`build_agent_detail` are
-    present and empty, so the two details share one shape — a subagent never
-    waits, never plans and spawns nothing this detail lists.
+    last thing it said, and whatever it waits on. ``waiting_subagent`` and
+    ``subagents`` are always empty: the asker is this subagent, and a nested
+    one is the parent's sibling, not this one's child.
     """
     sub = state.subagents[dotted]
+    pending = _oldest(sub.pending)
+    plan, plan_file = _plan_details(pending, sub.last_message)
     return {
         **build_subagent_row(state, dotted),
         "message": _subagent_message(sub),
-        "request_id": "",
-        "waiting_kind": "",
-        "waiting_tool": "",
-        "waiting_input": {},
+        "request_id": pending.request_id if pending else "",
+        "waiting_kind": pending.wait_kind if pending else "",
+        "waiting_tool": pending.tool_name if pending else "",
+        "waiting_input": dict(pending.input) if pending else {},
+        # The asker is this subagent, so its detail names no other.
         "waiting_subagent": "",
-        "questions": [],
-        "plan": "",
-        "plan_file": "",
+        "questions": _question_details(pending),
+        "plan": plan,
+        "plan_file": plan_file,
         "subagents": [],
     }
 
@@ -1364,6 +1458,10 @@ def _control_response(request_id: str, payload: dict[str, Any]) -> dict[str, Any
 
 #: What an interrupted tool call is told, and what the turn's error says.
 INTERRUPTED_REASON = "Interrupted by user"
+
+#: What a subagent's orphaned ask is denied with. Its subagent ended while it
+#: was open, so nothing can approve it and the caller has to be told.
+ENDED_REASON = "The subagent that asked has ended"
 
 
 def interrupt_request(request_id: str) -> dict[str, Any]:
