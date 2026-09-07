@@ -83,6 +83,9 @@ class ScriptedAsyncDaemonClient:
     next_start_id: str = "new1"
     #: Agent ids whose next attach answers with an error instead of a stream.
     attach_failures: set[str] = field(default_factory=set)
+    #: Agent ids whose attach opens a live stream but withholds the backlog
+    #: marker, as a host that is slow to replay does.
+    hold_backlog: set[str] = field(default_factory=set)
     #: What each agent is waiting on, so an answer can be echoed as the host
     #: builds it. Kept by the fake because the real host derives it from the
     #: stream it already reads.
@@ -155,11 +158,12 @@ class ScriptedAsyncDaemonClient:
             for event in backlog:
                 if event[SEQ_KEY] > from_seq:
                     yield event
-            yield {
-                "type": BACKLOG_END,
-                "epoch": own_epoch,
-                "seq": self._seqs.get(agent_id, 0),
-            }
+            if agent_id not in self.hold_backlog:
+                yield {
+                    "type": BACKLOG_END,
+                    "epoch": own_epoch,
+                    "seq": self._seqs.get(agent_id, 0),
+                }
             while True:
                 event = await queue.get()
                 if event is _END:

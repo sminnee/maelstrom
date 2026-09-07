@@ -17,6 +17,7 @@ import pytest
 from maelstrom import task as model
 from maelstrom.agent_model import PendingRequest, reply_for_approval
 from maelstrom.branch_name import TaskNames
+from maelstrom.orchestrator import server
 from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
 from maelstrom.orchestrator.routes import build_app, serving
 from maelstrom.orchestrator.server import Orchestrator
@@ -2440,6 +2441,74 @@ def test_closing_the_last_socket_on_a_subagent_detaches_after_the_grace(store):
     assert "from" not in attaches[0]
     assert attaches[1]["from"] == len(child_events())
     assert attaches[1]["epoch"] == "epoch-ag1.1"
+
+
+def _parked_next_tasks() -> list:
+    """Tasks still parked in ``TranscriptSubscriber.next``, whoever owns them."""
+    return [
+        task
+        for task in asyncio.all_tasks()
+        if "TranscriptSubscriber.next" in repr(task.get_coro()) and not task.done()
+    ]
+
+
+def test_a_socket_the_client_drops_leaves_no_task_parked_on_its_queue(harness):
+    """A dropped socket must not orphan the task waiting for its next frame.
+
+    ``asyncio.wait`` does not cancel what it waits on, so a handler cancelled
+    mid-wait — which is what ``handler_cancellation`` does when the client goes
+    away — used to leave ``TranscriptSubscriber.next`` parked on a queue that
+    nothing would ever fill again. Python reports each one as "Task was
+    destroyed but it is pending" when it is collected.
+    """
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            for _ in range(3):
+                ws = await api.transcript_stream("ag1").__aenter__()
+                await ws_next(ws)
+                # Drop it the way a closed tab does: no close handshake.
+                ws._writer.transport.abort()
+            await wait_until(lambda: not _parked_next_tasks())
+            return _parked_next_tasks()
+
+    assert run(scenario()) == []
+
+
+def test_a_client_that_leaves_while_attaching_does_not_strand_the_watch(
+    store, monkeypatch
+):
+    """A watch opened for a client that never subscribes is still released.
+
+    ``ensure_attached`` runs before the socket subscribes, so a client that
+    goes away inside it leaves a watch that ``_transcript_idle`` never hears
+    about — it fires from the subscribe block's exit, which was never entered.
+    The subagent's stream would then be followed for the life of the server.
+    """
+    monkeypatch.setattr(server, "BACKLOG_TIMEOUT_SECS", 0.5)
+    harness = Harness(store, child_detach=0.05)
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.rows["ag1.1"] = child_row()
+    # The stream opens but withholds its marker, so ``ensure_attached`` waits
+    # out the timeout and the client has a window to leave inside it.
+    harness.daemon.hold_backlog.add("ag1.1")
+
+    async def scenario():
+        async with harness.client() as api:
+            # Drop the connection itself, mid-attach: cancelling the client's
+            # connect leaves the socket open, so the handler never hears it.
+            opening = asyncio.create_task(api.transcript_stream("ag1.1").__aenter__())
+            await asyncio.sleep(0.1)
+            opening.cancel()
+            await asyncio.gather(opening, return_exceptions=True)
+            await api.session.close()
+            await wait_until(
+                lambda: "ag1.1" not in harness.daemon.attached, timeout=3.0
+            )
+            return list(harness.daemon.attached)
+
+    assert "ag1.1" not in run(scenario())
 
 
 def test_a_socket_that_reopens_within_the_grace_keeps_the_watch(store):
