@@ -52,6 +52,7 @@ export function MessageInput({
   return (
     <div className={styles.form}>
       <AttachField
+        className={styles.attach}
         project={project}
         bucket={bucket}
         attached={attached}

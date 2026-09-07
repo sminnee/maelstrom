@@ -22,6 +22,7 @@ export function AttachField({
   onAttach,
   onRemove,
   disabled,
+  className,
   children,
 }: {
   project: string;
@@ -32,6 +33,8 @@ export function AttachField({
   /** The whole image, so the caller can strip its ref from the text too. */
   onRemove: (image: Attachment) => void;
   disabled?: boolean;
+  /** The caller's own layout for the wrapper: it sits in the caller's flow. */
+  className?: string;
   /** The surface's own textarea. */
   children: ReactNode;
 }) {
@@ -58,7 +61,7 @@ export function AttachField({
 
   return (
     <div
-      className={styles.field}
+      className={[styles.field, className].filter(Boolean).join(' ')}
       onPaste={(e) => {
         // A screenshot on the clipboard is a file item. Text pasted alongside
         // it must still reach the textarea, so only an image stops the event.
