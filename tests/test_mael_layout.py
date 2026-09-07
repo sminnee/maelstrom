@@ -277,24 +277,6 @@ class TestShowPrBrowser:
             assert mael_layout.show_pr_browser("https://github.com/x") is None
 
 
-class TestStatus:
-    def test_set_status(self):
-        _, patcher = _patch_current(
-            {("set-status", "task", "Working", "--icon", "hammer"): "OK"},
-        )
-        with patcher:
-            assert mael_layout.set_status("Working") is True
-
-    def test_clear_status(self):
-        _, patcher = _patch_current({("clear-status", "task"): "OK"})
-        with patcher:
-            assert mael_layout.clear_status() is True
-
-    def test_set_status_false_outside_cmux(self):
-        with patch.object(CmuxLayout, "current", staticmethod(lambda n: None)):
-            assert mael_layout.set_status("Working") is False
-
-
 class TestCloseWorkspace:
     def test_closes_matching(self):
         def fn(*args):

@@ -103,22 +103,6 @@ def show_pr_browser(url: str) -> str | None:
     )
 
 
-def set_status(text: str) -> bool:
-    """Set the cmux task status line. No-op (False) outside cmux."""
-    lay = _current_layout()
-    if lay is None:
-        return False
-    return lay.set_status(text)
-
-
-def clear_status() -> bool:
-    """Clear the cmux task status line. No-op (False) outside cmux."""
-    lay = _current_layout()
-    if lay is None:
-        return False
-    return lay.clear_status()
-
-
 def close_workspace(project: str, worktree: str) -> bool:
     """Close the worktree's workspace, if present. No-op (False) otherwise."""
     lay = CmuxLayout.current(workspace_name(project, worktree))

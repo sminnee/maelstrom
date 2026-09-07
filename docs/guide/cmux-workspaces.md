@@ -83,15 +83,6 @@ mael env open        # browser pane for this worktree's app
 Pull request URLs recycle a single `github.com` tab, so opening a second PR replaces the
 first rather than piling up tabs.
 
-## The status bar
-
-Set text against the workspace so you can see at a glance what an agent is doing:
-
-```bash
-mael status set "Working on PROJ-123"
-mael status clear
-```
-
 ## Outside cmux
 
 Every cmux call degrades silently when there is no cmux workspace to act on. So maelstrom
