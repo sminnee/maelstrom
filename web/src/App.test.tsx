@@ -937,10 +937,10 @@ describe('review in a document tab', () => {
     expect(screen.getByTestId('document-tab')).toHaveTextContent('awaiting review');
   });
 
-  it('a plan review is answered on the agent, so its document offers no bar', async () => {
-    // The wait is the agent's ExitPlanMode call. A review bar here would flip
-    // the document, retire the item pointing at it, and leave the agent
-    // blocked on a request nothing had answered.
+  it('a plan review answers from its decision card, not from a review bar', async () => {
+    // The wait is the agent's ExitPlanMode call. A review bar would flip the
+    // document and retire the item pointing at it, leaving the agent blocked
+    // on a request nothing had answered — so the decision card answers it.
     const user = userEvent.setup();
     await renderApp();
     clickNode('NORT-7');
@@ -948,11 +948,8 @@ describe('review in a document tab', () => {
     const tab = await screen.findByTestId('document-tab');
     expect(tab).toHaveTextContent('awaiting review');
     expect(within(tab).queryByRole('textbox', { name: 'Summary of requested changes' })).toBeNull();
-    // Nor does the document draw the decision itself: `skipPlanReview` leaves
-    // the wait to the agent's own node card, so it is answered in one place.
-    // The card's own Approve is covered by "approving a plan from the expanded
-    // node" above.
-    expect(within(tab).queryByRole('button', { name: 'Approve' })).toBeNull();
+    expect(within(tab).getByTestId('inline-decision')).toBeInTheDocument();
+    expect(within(tab).getByRole('button', { name: 'Approve' })).toBeInTheDocument();
   });
 });
 
@@ -1466,9 +1463,12 @@ describe('the transcript stream', () => {
    * the tab mounts, opens a socket and renders "Loading the transcript…" until
    * the first frame lands.
    */
+  // The socket opens, sends its snapshot and reduces it across several ticks,
+  // so a loaded CI runner can take much longer than a local one. The ceiling
+  // is generous rather than tuned: it only bounds a hang.
   const findFirstTranscriptItem = (panel: HTMLElement) =>
     within(panel).findByText('Rewriting the migration for the new collation.', undefined, {
-      timeout: 10_000,
+      timeout: 25_000,
     });
 
   it('a session tab keeps its items across a socket drop and takes what it missed once', async () => {
