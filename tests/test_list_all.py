@@ -6,6 +6,7 @@ checked here once, against the bare-clone-plus-worktree fixture.
 
 import asyncio
 import dataclasses
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -17,7 +18,7 @@ from maelstrom.list_all import (
     project_repo_url,
     repo_url_from_remote,
 )
-from maelstrom.worktree import list_worktrees, run_git
+from maelstrom.worktree import WorktreeInfo, list_worktrees, run_git
 from tests.test_sync_flags import project_with_worktree  # noqa: F401  (fixture)
 
 
@@ -305,3 +306,160 @@ def test_one_unreadable_project_does_not_blank_the_others(tmp_path):
         data = asyncio.run(build_list_all_data(tmp_path))
 
     assert [p["name"] for p in data["projects"]] == ["alpha", "charlie"]
+
+
+def _fake_worktrees(project_path: Path, count: int) -> list[WorktreeInfo]:
+    """``count`` open worktrees under ``project_path``, as git would report them."""
+    return [
+        WorktreeInfo(
+            path=project_path / f"{project_path.name}-{n}",
+            branch=f"branch-{project_path.name}-{n}",
+            commit="deadbeef",
+        )
+        for n in range(count)
+    ]
+
+
+@contextmanager
+def _quiet_worktree_reads(**overrides):
+    """Stop a fake worktree row reaching git, ``gh`` or the ports file.
+
+    ``overrides`` names the read the test is actually about, so each test
+    patches one function itself and lets the rest answer nothing.
+    """
+    quiet = {
+        "get_open_prs_async": {},
+        "closed_worktrees_async": set(),
+        "project_repo_url": None,
+        "get_worktree_dirty_files_async": [],
+        "get_local_only_commits_async": 0,
+        "get_pushed_commit_count_async": 0,
+        "get_app_url": None,
+        "branch_session_ids": {},
+    }
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch(
+                "maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0
+            )
+        )
+        for name in {**quiet, **overrides}:
+            target = f"maelstrom.list_all.{name}"
+            if name in overrides:
+                stack.enter_context(patch(target, overrides[name]))
+            else:
+                stack.enter_context(patch(target, return_value=quiet[name]))
+        yield
+
+
+class _ConcurrencyProbe:
+    """Records how many patched reads overlap, and the highest number seen.
+
+    One probe can stand in for several reads at once, so a test can count a
+    project-level read and a worktree-level one against the same budget.
+    :meth:`answering` fixes what a given read hands back.
+    """
+
+    def __init__(self, delay=0.02):
+        self.running = 0
+        self.peak = 0
+        self.delay = delay
+
+    def answering(self, value):
+        """A read that answers ``value``, counted like every other."""
+
+        async def read(*args, **kwargs):
+            self.running += 1
+            self.peak = max(self.peak, self.running)
+            await asyncio.sleep(self.delay)
+            self.running -= 1
+            return value
+
+        return read
+
+    @property
+    def read(self):
+        """A read that answers an empty list — the common case."""
+        return self.answering([])
+
+
+def test_the_worktrees_of_a_project_are_read_at_the_same_time(tmp_path):
+    """A project's worktree rows are independent, so they must not queue.
+
+    The projects already read together, so the read is now bounded by the
+    slowest single project. A user who adds worktrees to one project would
+    otherwise see the whole poll slow down.
+    """
+    (tmp_path / "alpha" / ".mael").mkdir(parents=True)
+    probe = _ConcurrencyProbe()
+
+    async def four_worktrees(project_path):
+        return _fake_worktrees(project_path, 4)
+
+    with _quiet_worktree_reads(
+        list_worktrees_async=four_worktrees,
+        get_worktree_dirty_files_async=probe.read,
+    ):
+        data = asyncio.run(build_list_all_data(tmp_path))
+
+    assert len(data["projects"][0]["worktrees"]) == 4
+    assert probe.peak > 1, "the worktrees were read one after another"
+
+
+def test_no_more_reads_run_at_once_than_the_cap_allows(tmp_path):
+    """Two unbounded levels multiply, so both share one cap.
+
+    16 projects times 90 worktrees times three subprocesses is enough
+    concurrent work to trip ``gh`` secondary rate limits. A rate-limited
+    batch returns ``None``, and every row then falls back to the slower
+    per-branch lookup — so the failure is silent and backwards.
+
+    ``get_open_prs_async`` is that ``gh`` call, so the probe counts it
+    alongside a worktree read: one budget has to cover both levels, or the
+    level the cap exists for is the one still running unbounded.
+    """
+    # More projects than the cap, so the project level alone can exceed it.
+    for n in range(8):
+        (tmp_path / f"project-{n}" / ".mael").mkdir(parents=True)
+    probe = _ConcurrencyProbe()
+
+    async def four_worktrees(project_path):
+        return _fake_worktrees(project_path, 4)
+
+    with _quiet_worktree_reads(
+        list_worktrees_async=four_worktrees,
+        get_open_prs_async=probe.answering({}),
+        get_worktree_dirty_files_async=probe.read,
+    ):
+        data = asyncio.run(build_list_all_data(tmp_path, concurrency=3))
+
+    assert sum(len(p["worktrees"]) for p in data["projects"]) == 32
+    assert probe.peak <= 3, f"{probe.peak} reads ran at once, cap was 3"
+
+
+def test_one_unreadable_worktree_does_not_blank_the_others(tmp_path):
+    """A worktree that cannot be read costs its own row, not the project's.
+
+    A worktree directory can go between the listing and the row read, and the
+    server polls this every 15s.
+    """
+    (tmp_path / "alpha" / ".mael").mkdir(parents=True)
+
+    async def three_worktrees(project_path):
+        return _fake_worktrees(project_path, 3)
+
+    async def one_worktree_is_gone(worktree_path, *args, **kwargs):
+        if worktree_path.name.endswith("-1"):
+            raise FileNotFoundError(worktree_path)
+        return []
+
+    with _quiet_worktree_reads(
+        list_worktrees_async=three_worktrees,
+        get_worktree_dirty_files_async=one_worktree_is_gone,
+    ):
+        data = asyncio.run(build_list_all_data(tmp_path))
+
+    assert [row["name"] for row in data["projects"][0]["worktrees"]] == [
+        "alpha-0",
+        "alpha-2",
+    ]
