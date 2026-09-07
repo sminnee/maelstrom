@@ -114,6 +114,11 @@ would leave the agent believing it showed something.
 Reading that file is the normaliser's one piece of I/O, and it is injected as `read_file`, so a
 golden does not depend on a directory this machine has.
 
+A `tasks` document is rendered rather than shown raw, by `normalise._as_plan`: each draft becomes
+its title, its recipe, and its plan. Every other kind is shown as written. Only a task file has a
+recipe to read off, and a changelog opening with a horizontal rule would lose its newest entry to
+a blind frontmatter strip.
+
 A tagged document opens at `draft`, not `awaiting-review`: a plan review is `awaiting-review`
 because a real wait blocks behind it, and a tag blocks nothing. A changelog the user was asked to
 read must not present as a decision. `review="true"` is how an agent asks for a verdict, and only
