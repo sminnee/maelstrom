@@ -88,6 +88,40 @@ def _write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n")
 
 
+#: The `mael` command groups that must run outside Claude Code's sandbox.
+#:
+#: `mael task` is the launch path: it connects to the agent daemon's Unix
+#: domain socket, writes the port allocations under `~/.maelstrom`, and creates
+#: a sibling worktree. A sandbox denies all three, and the denial surfaces as
+#: "No agent daemon", so a session cannot start the next task in its own chain.
+SANDBOX_EXCLUSIONS = ("mael task:*",)
+
+
+def install_sandbox_exclusions(path: Path | None = None) -> list[str]:
+    """Add :data:`SANDBOX_EXCLUSIONS` to `sandbox.excludedCommands`.
+
+    Merges into whatever the file holds: the entries already there keep their
+    order, and a second run adds nothing. `path` defaults to the real
+    `~/.claude/settings.json` and exists for the tests.
+    """
+    path = path if path is not None else Path.home() / ".claude" / "settings.json"
+    data = read_json(path)
+
+    sandbox = data.setdefault("sandbox", {})
+    if not isinstance(sandbox, dict):
+        return [f"Cannot install: {path} has non-object sandbox"]
+    excluded = sandbox.setdefault("excludedCommands", [])
+    if not isinstance(excluded, list):
+        return [f"Cannot install: {path} has non-list sandbox.excludedCommands"]
+
+    added = [rule for rule in SANDBOX_EXCLUSIONS if rule not in excluded]
+    if not added:
+        return [f"Sandbox exclusions already installed in {path}"]
+    excluded.extend(added)
+    _write_json(path, data)
+    return [f"Installed sandbox exclusions in {path}: {', '.join(added)}"]
+
+
 def install_session_channel() -> list[str]:
     """Register the mael-session MCP channel in ~/.claude.json."""
     path = Path.home() / ".claude.json"
@@ -247,6 +281,8 @@ def install_claude_integration(*, monitor: bool = True) -> list[str]:
     hooks_source = shared / "hooks"
     if hooks_source.exists():
         messages.extend(_symlink_items(hooks_source, claude_dir / "hooks"))
+
+    messages.extend(install_sandbox_exclusions())
 
     if monitor:
         messages.extend(install_session_channel())

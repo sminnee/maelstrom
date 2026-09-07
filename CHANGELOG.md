@@ -22,6 +22,11 @@ release while that section is empty, and retitles it to the version it is releas
   because deleting the remote branch is a push. **To upgrade:** replace `mael git squash` with
   `mael sync --squash --no-push`.
 
+- **`mael admin install` excludes `mael task` from the Claude Code sandbox.** The launch verbs
+  reach the agent daemon socket, the port allocations and a sibling worktree, which a sandbox
+  denies. Without the exclusion a session cannot start the next task in its own chain. The
+  install merges into `sandbox.excludedCommands` and leaves the rest of the file alone.
+
 - **A denied socket connect no longer reads as an absent daemon.** Where a sandbox refuses the
   connect, `mael agent` names the denial and the socket path. It used to say "No agent daemon
   on \<root>" and tell you to start a daemon that was already running. `mael agent daemon gc`

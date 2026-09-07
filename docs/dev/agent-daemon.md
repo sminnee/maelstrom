@@ -426,9 +426,9 @@ marker as "no daemon holds these agents", then falls back to the spawn records a
 strays it finds. Under a denial that reasoning is wrong: the daemon still holds those agents. So
 a denial never carries the marker.
 
-The reply names the fix: add `mael task:*` to `sandbox.excludedCommands` in
-`~/.claude/settings.json`, next to the entries that already run `mael sync` and `mael gh`
-outside the sandbox.
+`mael admin install` adds `mael task:*` to `sandbox.excludedCommands` in
+`~/.claude/settings.json`, so the launch verbs run outside the sandbox. Run it on a machine
+that still shows the denial.
 
 ### Which daemon is answering
 
