@@ -7,7 +7,6 @@ session-tracking channel that wrote one is gone, and ``mael agent list`` is
 where a driven agent's state lives.
 """
 
-import asyncio
 import json
 import os
 from pathlib import Path
@@ -15,6 +14,7 @@ from pathlib import Path
 import click
 
 from . import session_discovery
+from .cli_async import AsyncGroup
 from .context import resolve_context
 from .env import stop_sessions
 from .table import draw_table
@@ -23,7 +23,7 @@ from .task_index import SqliteTaskIndex
 from .task_store import GitFileStore
 
 
-@click.group("session")
+@click.group("session", cls=AsyncGroup)
 def session() -> None:
     """Inspect and stop Claude Code sessions."""
 
@@ -90,7 +90,7 @@ def build_session_row(
 
 
 @session.command("list")
-def session_list() -> None:
+async def session_list() -> None:
     """List running Claude Code sessions.
 
     Sessions come from running ``claude`` processes and their cwd — the same
@@ -103,7 +103,7 @@ def session_list() -> None:
     daemon, so ``mael agent list`` shows it, including what a waiting one waits
     on.
     """
-    sessions = asyncio.run(session_discovery.all_live_sessions())
+    sessions = await session_discovery.all_live_sessions()
     index = _task_index()
 
     rows = []
@@ -162,7 +162,7 @@ def _session_handles(id: str | None) -> list[str]:
     return [h for h in found if h]
 
 
-def _find_session(id: str | None) -> session_discovery.LiveSession:
+async def _find_session(id: str | None) -> session_discovery.LiveSession:
     """Resolve ``id`` (or the current session) to one live session.
 
     Tries each handle :func:`_session_handles` gives, and returns the first that
@@ -191,7 +191,7 @@ def _find_session(id: str | None) -> session_discovery.LiveSession:
             raise click.ClickException(str(e))
         except KeyError:
             if handle.isdigit():
-                found = asyncio.run(session_discovery.session_for_pid(int(handle)))
+                found = await session_discovery.session_for_pid(int(handle))
                 if found is not None:
                     return found
             continue
@@ -201,7 +201,7 @@ def _find_session(id: str | None) -> session_discovery.LiveSession:
 @session.command("info")
 @click.argument("id", required=False)
 @click.pass_context
-def session_info(ctx, id: str | None) -> None:
+async def session_info(ctx, id: str | None) -> None:
     """Show the fields of one live session.
 
     ID is a session id, a unique prefix of one, or a pid — the ID and PID columns
@@ -211,7 +211,7 @@ def session_info(ctx, id: str | None) -> None:
     omits a field with nothing to report; the JSON form always carries every key,
     so a script can rely on the shape.
     """
-    sess = _find_session(id)
+    sess = await _find_session(id)
     row = build_session_row(sess, _task_index())
 
     if ctx.obj.get("json", False) if ctx.obj else False:
@@ -234,7 +234,7 @@ def session_info(ctx, id: str | None) -> None:
 
 @session.command("end")
 @click.argument("id", required=False)
-def session_end(id: str | None) -> None:
+async def session_end(id: str | None) -> None:
     """Stop a live session, leaving its worktree in place.
 
     ID takes the same forms as ``mael session info``. Without it, the session you
@@ -248,7 +248,7 @@ def session_end(id: str | None) -> None:
     This does not close the task the session was launched for. Close it with
     ``mael task status done``; ``mael task reconcile`` finds one left behind.
     """
-    sess = _find_session(id)
+    sess = await _find_session(id)
 
     # Refuse to signal the `mael` process itself. Only a handle naming `mael`
     # directly reaches here; the enclosing session resolves to the parent pid.
