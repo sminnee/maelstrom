@@ -1,0 +1,6 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["src/**/*.stories.tsx"],
+  "ignore": ["src/test/**", "src/session/transcript.fixture.ts"],
+  "ignoreExportsUsedInFile": true
+}

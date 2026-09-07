@@ -34,10 +34,10 @@ jobs:
              [ -n "$changed" ]; then
             echo "Changed files:"
             echo "$changed"
-            if ! echo "$changed" | grep -Eq '^(src/|tests/|bin/|pyproject\.toml$|\.github/workflows/test\.yml$)'; then
+            if ! echo "$changed" | grep -Eq '^(src/|tests/|bin/|pyproject\.toml$|\.vulture_whitelist\.py$|\.github/workflows/test\.yml$)'; then
               code=false
             fi
-            if ! echo "$changed" | grep -Eq '^(web/|\.github/workflows/test\.yml$)'; then
+            if ! echo "$changed" | grep -Eq '^(web/|bin/|src/maelstrom/orchestrator/protocol\.py$|\.github/workflows/test\.yml$)'; then
               web=false
             fi
           else
@@ -136,6 +136,14 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Dead code
+        # Knip resolves imports through the TypeScript program, so it runs
+        # after the typecheck: on a broken graph an unresolved import makes the
+        # export it points at look unused. Runs from the repository root, so
+        # drop out of `working-directory`.
+        working-directory: .
+        run: bin/knip-check
 
       - name: Test
         run: pnpm test
