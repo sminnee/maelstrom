@@ -21,6 +21,17 @@ release while that section is empty, and retitles it to the version it is releas
   in a message, and the picture appears where it wrote it. A file outside its worktree, or one
   that is not there, is refused and the message says so.
 
+- **Two gates find code nothing calls.** `bin/lint` runs vulture over the Python, and
+  `bin/knip-check` runs knip over `web/`. See [dead-code.md](docs/dev/dead-code.md).
+
+### Removed
+
+- **Ten unused symbols.** Nothing referenced any of them. The functions `get_pr_url` and
+  `get_pr_number_for_branch` (`github.py`), `create_attachment` (`integrations/linear.py`),
+  `has_root_worktree` (`worktree.py`) and `of_kind` (`agent_reconcile.py`); the constants `TYPES`
+  (`branch_name.py`) and `PR_STATES` (`github_model.py`); the `PortSpec.container` field; and the
+  web exports `emptyWorldView` and `questionItem`.
+
 ### Changed
 
 - **A service restart appends to its log rather than truncating it.** A service that died left

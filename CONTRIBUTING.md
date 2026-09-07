@@ -23,17 +23,32 @@ skills and hooks in place if you want to use maelstrom on itself.
 ```bash
 uv run pytest --ignore=tests/e2e   # unit tests
 uv run pytest tests/e2e/ -v        # end-to-end tests
-bin/lint                           # ruff lint, ruff format check, pyright
+bin/lint                           # ruff lint, ruff format check, pyright, vulture
 ```
 
-These are the three gates `.github/workflows/test.yml` enforces, and `bin/publish` runs the same
-three before it uploads anything. They run when the change touches code. A change that touches
-none skips all three, and a skipped job reports success, so the merge gate is always satisfied.
-During development `uv run pytest -m 'not slow'` skips the slow tests for a faster loop, but run
-the full set before you push.
+These are the three Python gates `.github/workflows/test.yml` enforces, and `bin/publish` runs the
+same three before it uploads anything. They run when the change touches code. A change that
+touches none skips all three, and a skipped job reports success, so the merge gate is always
+satisfied. During development `uv run pytest -m 'not slow'` skips the slow tests for a faster
+loop, but run the full set before you push.
 
 `ruff format` decides the layout, so let it. `bin/lint` only checks; run
 `uv run ruff format src/ tests/` to apply it.
+
+A change under `web/` runs its own gates, which CI keeps in a separate job:
+
+```bash
+cd web && pnpm lint && pnpm typecheck && pnpm test && pnpm build
+bin/knip-check                     # dead code in web/
+```
+
+CI runs those web gates as a fourth job, on its own path filter, so a change under `web/` alone
+still gets checked.
+
+`bin/lint` runs vulture and `bin/knip-check` runs knip. Each finds code nothing calls. See
+[dead code](docs/dev/dead-code.md) for how the two passes differ, what to do with a finding, and
+where a false positive goes. `bin/publish` runs vulture but not knip: it ships the Python wheel,
+and the web app is not in it.
 
 ### Tests in an agent sandbox
 

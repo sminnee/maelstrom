@@ -413,6 +413,7 @@ mael env start                  # this worktree's own copy, on its floating port
 cd web && pnpm dev              # the web app alone, on port 5173, against localhost:8765
 cd web && pnpm test             # vitest, jsdom
 cd web && pnpm lint && pnpm typecheck && pnpm build
+bin/knip-check                  # dead code, both passes
 ```
 
 `mael self-env` runs the app from maelstrom's own `_main` worktree, on a reserved port base, so

@@ -15,7 +15,8 @@ uv run pytest tests/test_ports.py  # Run a single test file
 uv run pytest -k "test_name"       # Run tests matching a pattern
 uv run pytest --cov=maelstrom      # Run with coverage
 uv run python -m maelstrom         # Run the module
-bin/lint                           # Run ruff lint, ruff format check, pyright (gate before commit)
+bin/lint                           # ruff lint, ruff format check, pyright, vulture (gate before commit)
+bin/knip-check                     # dead code in web/
 ```
 
 ## Developer Documentation
@@ -28,6 +29,8 @@ See `docs/dev/` for architecture and design docs:
 - `docs/dev/stacking.md` — stacked branches: what a base is, why the base tip is stored, the
   stack tip, and why only `gh stack link` is used.
 - `docs/dev/scheduled-tasks.md` — launchd firing mechanics for template tasks.
+- `docs/dev/dead-code.md` — the vulture and knip gates: why each runs twice, and where a false
+  positive goes.
 - `docs/dev/cmux.md` — how the `cmux/` package drives cmux: the three layers, the idempotent
   `ensure_*` verbs, and the pane 0/1/2 convention.
 - `docs/dev/agent-daemon.md` — driving agents over a stream-json pipe: the flags, the event
