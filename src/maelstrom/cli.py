@@ -1,6 +1,6 @@
 """Command-line interface for maelstrom."""
 
-import asyncio
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -12,6 +12,7 @@ from .admin_cli import cmd_install, cmd_self_env, cmd_self_update
 from .agent_cli import agent as agent_cli
 from .agent_transport import RootUnset
 from .base_store import GitConfigBaseStore
+from .cli_async import AsyncGroup
 from .cmux.client import ensure_cmux_running, resolve_socket_path
 from .context import load_global_config, resolve_context, validate_project_name
 from .env import (
@@ -165,7 +166,7 @@ def _report_open_sync(sync: SyncResult | None) -> None:
         click.echo(sync.push_message, err=not sync.pushed)
 
 
-@click.group()
+@click.group(cls=AsyncGroup)
 @click.version_option(version=__version__, prog_name="mael")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 @click.pass_context
@@ -586,7 +587,7 @@ def pr_display(pr: PrStatus | None, pushed: int) -> str:
 
 @cli.command("list")
 @click.argument("project", required=False, default=None)
-def cmd_list(project):
+async def cmd_list(project):
     """List all worktrees with status information."""
     try:
         ctx = resolve_context(
@@ -642,7 +643,7 @@ def cmd_list(project):
     # rather than a system-wide scan per worktree. The instance also memoises the
     # per-session worktree-list lookup so `git worktree list` runs once, not
     # once per (worktree row × session).
-    live_sessions = session_discovery.LiveSessionSet()
+    live_sessions = await session_discovery.LiveSessionSet().sweep()
     # Branch → task session ids, built once, so the SESSION column can show a
     # stopped marker (transcript exists, no live session) vs blank (never run).
     branch_sessions = branch_session_ids(project_name)
@@ -665,10 +666,9 @@ def cmd_list(project):
         local_commits = get_local_only_commits(wt.path, wt.branch)
         local_display = str(local_commits) if local_commits > 0 else ""
 
-        # PR info (number, state and commit count). `resolve_pr` is async for
-        # the orchestrator's sake; here it is a leaf, so one loop per row is
-        # all it costs — and only a failed batch makes it shell out at all.
-        pr = asyncio.run(resolve_pr(open_prs, project_path, wt.branch))
+        # PR info (number, state and commit count). Only a failed batch makes
+        # this shell out at all.
+        pr = await resolve_pr(open_prs, project_path, wt.branch)
         pushed = (
             get_pushed_commit_count(wt.path, wt.branch) or 0
             if wt.branch and not is_open_pr(pr)
@@ -763,18 +763,14 @@ def _list_all_row(project_name: str, wt: dict) -> dict:
 
 
 @cli.command("list-all")
-def cmd_list_all():
+async def cmd_list_all():
     """List all worktrees across all projects."""
     output_json = click.get_current_context().obj.get("json", False)
     global_config = load_global_config()
 
-    # A leaf call: the whole read is inside it, so this is the one loop the
-    # command opens and nothing under it re-enters asyncio.
-    data = asyncio.run(build_list_all_data(global_config.projects_dir))
+    data = await build_list_all_data(global_config.projects_dir)
     if output_json:
-        import json as json_mod
-
-        click.echo(json_mod.dumps(data))
+        click.echo(json.dumps(data))
         return
     if not data["projects"]:
         click.echo("No projects found.")

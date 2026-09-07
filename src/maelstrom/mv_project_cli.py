@@ -11,7 +11,6 @@ rename orphans existing sessions. This command handles the first and warns
 loudly about the second.
 """
 
-import asyncio
 import json
 import os
 import subprocess
@@ -21,6 +20,7 @@ import click
 
 from . import task as task_model
 from .claude_integration import read_json
+from .cli_async import AsyncCommand
 from .context import get_maelstrom_dir, load_global_config, validate_project_name
 from .env import (
     load_env_state,
@@ -78,7 +78,7 @@ def _global_symlinks(home: Path) -> list[tuple[Path, Path]]:
     return pairs
 
 
-def check_preconditions(
+async def check_preconditions(
     project_path: Path, new_project_path: Path, *, force: bool
 ) -> tuple[list[str], list[LiveSession]]:
     """Refuse the rename unless the project is quiet. Changes nothing.
@@ -115,9 +115,7 @@ def check_preconditions(
     ]
     shared_running = load_shared_state(env_store, project) is not None
 
-    live = [
-        s for s in asyncio.run(all_live_sessions()) if _is_under(s.cwd, project_path)
-    ]
+    live = [s for s in await all_live_sessions() if _is_under(s.cwd, project_path)]
 
     if not force:
         blockers: list[str] = []
@@ -579,7 +577,7 @@ def render_plan(plan: MovePlan, home: Path, *, git_url: str | None) -> None:
         )
 
 
-@click.command("mv-project")
+@click.command("mv-project", cls=AsyncCommand)
 @click.argument("old")
 @click.argument("new")
 @click.option("--dry-run", is_flag=True, help="Show the plan without changing anything")
@@ -590,7 +588,7 @@ def render_plan(plan: MovePlan, home: Path, *, git_url: str | None) -> None:
     help="Stop running envs and sessions instead of refusing",
 )
 @click.option("--git-url", default=None, help="Also point origin at this URL")
-def cmd_mv_project(
+async def cmd_mv_project(
     old: str, new: str, dry_run: bool, force: bool, git_url: str | None
 ) -> None:
     """Rename a maelstrom project and everything derived from its name.
@@ -615,7 +613,7 @@ def cmd_mv_project(
     old_project_path = projects_dir / old
     new_project_path = projects_dir / new
 
-    running_worktrees, live = check_preconditions(
+    running_worktrees, live = await check_preconditions(
         old_project_path, new_project_path, force=force
     )
     plan = gather_plan(old, new, projects_dir, home)
