@@ -177,6 +177,11 @@
   content: '·';
   margin-right: 6px;
 }
+.pr {
+  flex: none;
+  font-family: var(--mono);
+  white-space: nowrap;
+}
 .phase {
   flex: none;
   margin-left: auto;

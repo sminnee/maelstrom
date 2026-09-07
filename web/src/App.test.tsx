@@ -156,6 +156,16 @@ describe('App', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('reads the PR number in the collapsed node identity', async () => {
+    await renderApp();
+    const node = document.querySelector('[data-task-id="NORT-12"]');
+    // The meta row is a reading, not a link: the whole node is already a click target.
+    expect(node).toHaveTextContent('#118');
+    expect(within(node as HTMLElement).queryByRole('link', { name: /#118/ })).toBeNull();
+    // A task on a worktree with no PR says nothing.
+    expect(document.querySelector('[data-task-id="NORT-9"]')).not.toHaveTextContent('#118');
+  });
+
   it('draws a free agent once, named by the worktree it runs in', async () => {
     await renderApp();
     const node = document.querySelector('[data-task-id="f2c6a9d4"]');
@@ -253,6 +263,38 @@ describe('the expanded node', () => {
     clickNode('NORT-7');
     pressKey('Escape');
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  describe('external links', () => {
+    it('links the PR at the repo pull URL, in a new tab', async () => {
+      await renderApp();
+      clickNode('NORT-12');
+      const link = within(expanded()).getByRole('link', { name: 'PR #118' });
+      expect(link).toHaveAttribute('href', 'https://github.com/acme/northwind/pull/118');
+      expect(link).toHaveAttribute('target', '_blank');
+    });
+
+    it('links the dev env only while it runs, and drops the link when it stops', async () => {
+      const { server } = await renderApp();
+      clickNode('NORT-12');
+      expect(within(expanded()).getByRole('link', { name: 'Dev env' })).toHaveAttribute(
+        'href',
+        'http://localhost:4210',
+      );
+      act(() => {
+        server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {
+          w.worktrees['northwind-delta'] = {
+            ...w.worktrees['northwind-delta']!,
+            appRunning: false,
+          };
+        });
+      });
+      await waitFor(() =>
+        expect(within(expanded()).queryByRole('link', { name: 'Dev env' })).toBeNull(),
+      );
+      // The PR link is not the dev env's: it stays.
+      expect(within(expanded()).getByRole('link', { name: 'PR #118' })).toBeInTheDocument();
+    });
   });
 
   it('shows the task brief as markdown, collapsed', async () => {
@@ -1586,6 +1628,12 @@ describe('the narrow layout', () => {
     expect(screen.getByTestId('deck-list')).toBeInTheDocument();
     expect(screen.queryByTestId('canvas')).not.toBeInTheDocument();
     expect(screen.queryByTestId('panel')).not.toBeInTheDocument();
+  });
+
+  it('reads the PR number on a deck row, as the canvas node does', async () => {
+    await renderApp({ viewport: 'narrow' });
+    const row = screen.getByTestId('deck-list').querySelector('[data-task-id="NORT-12"]');
+    expect(row).toHaveTextContent('#118');
   });
 
   it('opens on the running zone, and a task that finishes moves to the done tab', async () => {

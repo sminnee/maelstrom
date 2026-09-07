@@ -240,6 +240,17 @@ a tab; `shell/PanelLink.tsx` says why links, not buttons. Every tab carries a ph
 its task id, so two agents' tabs are told apart. A node card lists every document its node has,
 whatever raised it — a plan review, or a tag the agent wrote in its own message.
 
+The same links row carries two external links, which open a new browser tab instead of a
+panel tab. `shell/ExternalLink.tsx` is the control, and its arrow-leaving-a-box icon is the
+whole difference a reader sees. The wire carries a ready `prUrl`, so the card links a pull
+request without joining two fields; a worktree with no PR draws none. The dev env link draws
+only while the environment runs, and the 15-second worktree poll makes it appear and
+disappear on its own.
+
+A node resolves its worktree from its agent first, then from the open worktree on its branch,
+which is what keeps a finished task showing its pull request. `selectors/graph.ts` holds both
+steps.
+
 Group by `project` and `branch` draw one hairline lane per group. Group by `none` draws no
 lanes. Whatever the grouping, the board runs left to right in three progress zones — done,
 running, not started — whose boundaries line up across every lane. One strip of labels names

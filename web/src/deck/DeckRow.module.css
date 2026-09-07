@@ -71,7 +71,8 @@
 }
 .project,
 .id,
-.worktree {
+.worktree,
+.pr {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;

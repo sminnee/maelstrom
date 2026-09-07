@@ -13,6 +13,7 @@ import { isLive, nodeTitle } from '../selectors/graph';
 import { describeDocumentStatus } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { toolCallTitle } from '../session/toolCards';
+import { ExternalLink } from '../shell/ExternalLink';
 import { PanelLink } from '../shell/PanelLink';
 import { phaseLabel } from '../protocol/phase';
 import { ago, clockTime, silentFor } from '../protocol/time';
@@ -91,6 +92,9 @@ export function NodeCardBody({
     agent?.permissionMode || '',
     agent?.costUsd ? `$${agent.costUsd.toFixed(2)}` : '',
   ].filter(Boolean);
+  const prUrl = where?.prUrl ?? '';
+  // A stopped env, or a worktree with no web-facing port, draws nothing.
+  const appUrl = where?.appRunning && where.appUrl ? where.appUrl : '';
   const title = nodeTitle(node);
   const deciding = !!agent && agent.pendingRequestIds.length > 0;
   const running = [...transcript.items]
@@ -225,6 +229,8 @@ export function NodeCardBody({
               {d.title} v{d.version} · {describeDocumentStatus(d.status)}
             </PanelLink>
           ))}
+          {prUrl && <ExternalLink href={prUrl}>PR #{where?.prNumber}</ExternalLink>}
+          {appUrl && <ExternalLink href={appUrl}>Dev env</ExternalLink>}
         </div>
         <div className={styles.commands}>
           {!agent && task?.actionable && (

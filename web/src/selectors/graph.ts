@@ -177,7 +177,12 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
       kind: 'task',
       task,
       agent,
-      worktree: agent ? world.worktrees[agent.worktreeId] : undefined,
+      // The agent knows which worktree it is in; the branch index only guesses.
+      // The guess is what keeps a finished task naming the worktree — and so
+      // the PR — after its agent has stopped.
+      worktree:
+        (agent ? world.worktrees[agent.worktreeId] : undefined) ??
+        worktreeByBranch.get(branchKey(task.project, task.branch)),
       progress: progressOf(task, agent, attention),
       phase: phaseForCommand(task.command),
       groupId,
