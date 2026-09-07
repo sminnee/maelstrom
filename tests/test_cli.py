@@ -23,6 +23,11 @@ from maelstrom.worktree_model import (
 )
 
 
+async def _async_none(*args, **kwargs):
+    """An async stand-in for a sweep that finds nothing."""
+    return []
+
+
 def _pr(number, *, commits=1, state="ready"):
     """A `PrStatus` for a row that only cares which PR it is."""
     return PrStatus(
@@ -1833,7 +1838,7 @@ class TestMvProjectIntegration:
             patch("maelstrom.mv_project_cli.get_maelstrom_dir", return_value=mael_dir),
             patch("maelstrom.task_store.get_maelstrom_dir", return_value=mael_dir),
             patch("pathlib.Path.home", return_value=home),
-            patch("maelstrom.mv_project_cli.all_live_sessions", return_value=[]),
+            patch("maelstrom.mv_project_cli.all_live_sessions", _async_none),
             patch("maelstrom.mv_project_cli.update_claude_local_md"),
         ):
             return CliRunner().invoke(cli, ["mv-project"] + args)

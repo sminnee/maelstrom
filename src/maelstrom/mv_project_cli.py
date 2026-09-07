@@ -11,6 +11,7 @@ rename orphans existing sessions. This command handles the first and warns
 loudly about the second.
 """
 
+import asyncio
 import json
 import os
 import subprocess
@@ -115,7 +116,9 @@ def check_preconditions(
     ]
     shared_running = load_shared_state(env_store, project) is not None
 
-    live = [s for s in all_live_sessions() if _is_under(s.cwd, project_path)]
+    live = [
+        s for s in asyncio.run(all_live_sessions()) if _is_under(s.cwd, project_path)
+    ]
 
     if not force:
         blockers: list[str] = []

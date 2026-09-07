@@ -247,7 +247,7 @@ def _reconcile_root(paths: DaemonPaths, *, act: bool) -> _RootReport:
         raise click.ClickException(reply["error"])
     specs = JsonAgentSpecStore(paths.spec_dir)
     try:
-        processes = list_claude_processes()
+        processes = asyncio.run(list_claude_processes())
     except ProcessTableUnavailable as exc:
         raise click.ClickException(f"the process table is unavailable: {exc}") from exc
     result = reconcile(specs.list(), processes, set(), resume_strays=False)

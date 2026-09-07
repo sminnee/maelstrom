@@ -741,7 +741,16 @@ def _daemon_with_specs(*, has_transcript: bool = True):
     what decides whether a resume replays or starts fresh.
     """
     specs = InMemoryAgentSpecStore()
-    daemon = AgentDaemon(specs=specs, has_transcript=lambda path, sid: has_transcript)
+
+    async def _no_processes():
+        """An empty process table, so no test reads the real machine's."""
+        return []
+
+    daemon = AgentDaemon(
+        specs=specs,
+        has_transcript=lambda path, sid: has_transcript,
+        processes=_no_processes,
+    )
     return daemon, specs
 
 
@@ -1279,7 +1288,11 @@ def _gc_daemon(records, processes, *, has_transcript=True):
     for record in records:
         specs.write(record)
     signals: list[tuple[int, int]] = []
-    table = processes if callable(processes) else (lambda: list(processes))
+    make = processes if callable(processes) else (lambda: list(processes))
+
+    async def table():
+        return make()
+
     daemon = AgentDaemon(
         "/tmp/x",
         specs=specs,

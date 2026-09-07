@@ -97,11 +97,12 @@ def _patch_live_sessions(monkeypatch, sessions):
     for cases where the session ids aren't known until the command under test has
     created the tasks (see the load-many batch tests).
     """
-    monkeypatch.setattr(
-        task_cli.session_discovery,
-        "all_live_sessions",
-        sessions if callable(sessions) else lambda: list(sessions),
-    )
+    make = sessions if callable(sessions) else (lambda: list(sessions))
+
+    async def sweep():
+        return make()
+
+    monkeypatch.setattr(task_cli.session_discovery, "all_live_sessions", sweep)
 
 
 # --- add: branch defaulting / override ---

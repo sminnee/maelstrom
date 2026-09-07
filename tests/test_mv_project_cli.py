@@ -70,9 +70,13 @@ class MvProjectHarness:
             )
             stack.enter_context(patch("pathlib.Path.home", return_value=home))
             mock("maelstrom.mv_project_cli.list_worktrees", return_value=worktrees)
-            mock(
-                "maelstrom.mv_project_cli.all_live_sessions",
-                return_value=self.live_sessions,
+            live = self.live_sessions
+
+            async def _sweep():
+                return list(live)
+
+            stack.enter_context(
+                patch("maelstrom.mv_project_cli.all_live_sessions", _sweep)
             )
             mock("maelstrom.mv_project_cli.load_env_state", return_value=self.env_state)
             mock(

@@ -740,7 +740,11 @@ def _local_root(monkeypatch, records, processes):
             )
         )
     table = [ProcessInfo(pid, pid, f"{_DRIVEN}{_S1}") for pid in processes]
-    monkeypatch.setattr(agent_cli, "list_claude_processes", lambda: list(table))
+
+    async def _table():
+        return list(table)
+
+    monkeypatch.setattr(agent_cli, "list_claude_processes", _table)
     signals: list[tuple[int, int]] = []
     monkeypatch.setattr(
         "maelstrom.agent_server.kill_group",
@@ -811,7 +815,7 @@ def test_list_marks_held_from_the_daemons_own_listing():
 def test_an_unreadable_process_table_is_an_error_not_a_verdict(monkeypatch):
     from maelstrom.session_discovery import ProcessTableUnavailable
 
-    def unreadable():
+    async def unreadable():
         raise ProcessTableUnavailable("pgrep exited 3")
 
     monkeypatch.setattr(agent_cli, "list_claude_processes", unreadable)
@@ -1025,9 +1029,11 @@ class TestAnUnreachableDaemonIsReported:
         self, tmp_path, monkeypatch
     ):
         """The case `gc` exists for: a daemon that died leaving children."""
-        monkeypatch.setattr(
-            agent_cli, "list_claude_processes", lambda: [], raising=False
-        )
+
+        async def _empty():
+            return []
+
+        monkeypatch.setattr(agent_cli, "list_claude_processes", _empty, raising=False)
         result, _ = run_cli(
             ["daemon", "gc"],
             replies=[_unreachable(tmp_path)],
