@@ -160,40 +160,6 @@ def create_project_repo(
         raise GitHubCliMissing("gh")
 
 
-def get_pr_number_for_branch(cwd: Path, branch: str) -> int | None:
-    """Get the PR number for a given branch, if one exists.
-
-    Args:
-        cwd: Working directory (must be in a git repo).
-        branch: Branch name to look up.
-
-    Returns:
-        PR number if found, None otherwise.
-    """
-    try:
-        result = run_cmd(
-            [
-                "gh",
-                "pr",
-                "list",
-                "--head",
-                branch,
-                "--json",
-                "number",
-                "-q",
-                ".[0].number",
-            ],
-            cwd=cwd,
-            quiet=True,
-            check=False,
-        )
-        if result.returncode != 0 or not result.stdout.strip():
-            return None
-        return int(result.stdout.strip())
-    except (ValueError, FileNotFoundError):
-        return None
-
-
 def get_pr_for_branch(cwd: Path, branch: str) -> PrStatus | None:
     """One branch's pull request, looked up alone when the batch call failed.
 
@@ -379,39 +345,6 @@ def _open_prs_argv(query: str) -> list[str]:
         "-F",
         "repo=:repo",
     ]
-
-
-def get_pr_url(cwd: Path) -> str:
-    """Get the PR URL for the current branch.
-
-    Args:
-        cwd: Working directory (must be in a git repo with a PR).
-
-    Returns:
-        The PR URL.
-
-    Raises:
-        NoPullRequest: If the branch has no PR.
-        GitHubCommandFailed: If gh fails for any other reason.
-        GitHubCliMissing: If gh is not installed.
-    """
-    try:
-        result = run_cmd(
-            ["gh", "pr", "view", "--json", "url", "-q", ".url"],
-            cwd=cwd,
-            quiet=True,
-            check=True,
-        )
-        url = result.stdout.strip()
-        if not url:
-            raise NoPullRequest()
-        return url
-    except subprocess.CalledProcessError as e:
-        if is_missing_pr_error(e.stderr):
-            raise NoPullRequest()
-        raise GitHubCommandFailed("get PR URL", e.stderr)
-    except FileNotFoundError:
-        raise GitHubCliMissing("gh")
 
 
 def create_pr(

@@ -224,15 +224,3 @@ def ensure_cmux_running(*, timeout_s: float = 8.0) -> bool:
             return True
         time.sleep(0.25)
     return False
-
-
-def is_cmux_mode() -> bool:
-    """Return True if running inside cmux with a usable client.
-
-    Not a cheap env check: since ``current_client()`` now ping-probes the
-    socket, each call fires one ``cmux ping`` subprocess. Callers that run per
-    status update (e.g. ``set_status``) or per layout verb pay that probe —
-    acceptable because these paths are interactive/rare, but do not call this in
-    a hot loop.
-    """
-    return current_client() is not None

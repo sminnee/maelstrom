@@ -7,7 +7,7 @@ sending a command to a terminal — use the `cmux` skill instead.
 [architecture-patterns.md](architecture-patterns.md):
 
 - `client.py` — transport. The `CmuxClient` Protocol, the real `SubprocessCmuxClient`, the
-  fake `RecordingCmuxClient`, `CmuxResult` parsing, and `current_client` / `is_cmux_mode`.
+  fake `RecordingCmuxClient`, `CmuxResult` parsing, and `current_client`.
 - `model.py` — `CmuxLayout`: pure cmux mechanics over a client.
 - `mael_layout.py` — policy. The only layer that knows the `{project}-{worktree}` workspace
   name and the pane 0/1/2 convention. CLI call sites use these functions.
