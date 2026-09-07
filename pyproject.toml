@@ -16,10 +16,13 @@ dependencies = [
     "textual>=8.2.8,<9",
 ]
 
+# The one dev list. CI installs it with `uv sync --extra dev`, so anything a
+# gate needs belongs here — `bin/lint` runs ruff, pyright and vulture, and the
+# suite needs pytest-asyncio to collect an `async def` test at all.
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0",
-    "pytest-cov>=4.0",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.4.0",
     "pytest-xdist>=3.0",
     "ruff>=0.15,<0.17",
     "pyright>=1.1",
@@ -43,18 +46,17 @@ packages = ["src/maelstrom"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+# Async tests are plain `async def`, with no per-test decorator: an awaiting
+# test is the normal case now, not the exception.
+asyncio_mode = "auto"
+# Pinned rather than left to the default, which pytest-asyncio plans to change.
+# One loop per test keeps a fixture's loop-bound state from leaking into the
+# next one.
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "e2e: end-to-end tests that spawn real processes or use real git repos",
     "slow: tests that take >10s (skip with -m 'not slow')",
     "binds_socket: needs bind() on a Unix socket, which an agent sandbox denies",
-]
-
-[dependency-groups]
-dev = [
-    "pytest>=9.0.2",
-    "pytest-xdist>=3.0",
-    "pyright>=1.1",
-    "vulture>=2.14,<3",
 ]
 
 [tool.pyright]
@@ -121,6 +123,11 @@ ignore_names = [
     # Click calls these on a Group subclass when it renders help.
     "list_commands",
     "get_command",
+    # Click reads these off a Group/Command subclass to decide what class a
+    # decorator builds. `AsyncGroup` sets both so its subcommands are async
+    # too; nothing calls them by name.
+    "command_class",
+    "group_class",
     # The storage layer's test seam. docs/dev/architecture-patterns.md makes
     # the in-memory backend a convention, so the gate follows the convention.
     "InMemory*",
