@@ -16,8 +16,16 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from ..agent_model import PLAN_TOOL, QUESTION_TOOL, TS_KEY, from_wire_mode
+from ..attachments import markdown_ref
 from ..task import parse_draft
-from .document_tags import DocumentTag, read_tags, read_worktree_file, stays_within
+from .document_tags import (
+    DocumentTag,
+    ImageTag,
+    read_tags,
+    read_worktree_file,
+    stays_within,
+)
+from .file_registry import FileRegistry
 from .protocol import Agent, Attention, ClientState, Document, ServerEvent
 
 Dict = dict[str, Any]
@@ -191,6 +199,7 @@ def normalise_stream_event(
     now: str,
     *,
     read_file: ReadFile = read_worktree_file,
+    files: FileRegistry | None = None,
 ) -> Normalised:
     """One raw agent-host event, as the events the UI wants.
 
@@ -206,6 +215,10 @@ def normalise_stream_event(
 
     ``read_file`` reads the file a ``<doc-file>`` tag names, against the
     agent's own ``cwd``.
+
+    ``files`` registers every file an agent names, so an ``<image>`` can be
+    served by id later. A caller that passes none gets a registry of its own
+    and the ids go nowhere, which is what a golden wants.
     """
     agent = state["world"]["agents"].get(ctx.agent_id)
     if agent is None:
@@ -216,7 +229,13 @@ def normalise_stream_event(
     if raw.get("parent_tool_use_id") and not is_child:
         return Normalised([], ctx)
     out = _Emitter(
-        state, agent, ctx, now, message_only=is_child, event_ts=_str(raw.get(TS_KEY))
+        state,
+        agent,
+        ctx,
+        now,
+        message_only=is_child,
+        event_ts=_str(raw.get(TS_KEY)),
+        files=files if files is not None else FileRegistry(),
     )
     kind = raw.get("type")
 
@@ -314,8 +333,13 @@ def normalise_stream_event(
     elif kind == "assistant":
         for block in _blocks(raw):
             if block.get("type") == "text" and _str(block.get("text")):
-                # A subagent writes no document, so its tags stay as text.
-                tagged = read_tags(_str(block["text"])) if not is_child else None
+                # A subagent writes no document and shows no picture, so its
+                # tags stay as text.
+                tagged = (
+                    read_tags(_str(block["text"]), out.show_image)
+                    if not is_child
+                    else None
+                )
                 text = tagged.text if tagged else _str(block["text"])
                 item_id = out.append(
                     {"type": "message", "role": "assistant", "markdown": text}
@@ -468,8 +492,13 @@ class _Emitter:
         *,
         message_only: bool = False,
         event_ts: str = "",
+        files: FileRegistry | None = None,
     ):
         self.state = state
+        #: Where a file an agent named gets its id. An emitter built without
+        #: one keeps a registry nothing else can see, which suits a caller
+        #: that only wants the events.
+        self.files = files if files is not None else FileRegistry()
         self.now = now
         #: When the event being normalised happened, as the daemon stamped it.
         #: An item takes this over ``now``, so a replayed backlog keeps its own
@@ -575,7 +604,20 @@ class _Emitter:
         """
         if tag.filenames:
             markdown = self._file_bodies(tag.kind, tag.filenames, read_file)
-            source: Dict = {"type": "draft_files", "paths": list(tag.filenames)}
+            # Every file an agent names is registered, whichever tag named it,
+            # so there is one answer to "may this file be shown". A refused
+            # path keeps its own name here: the body already says it could not
+            # be read, and a missing id must not read as a different file.
+            source: Dict = {
+                "type": "draft_files",
+                "paths": [
+                    self.files.register(
+                        self.new_id(), self.agent_entity["cwd"], filename
+                    )
+                    or filename
+                    for filename in tag.filenames
+                ],
+            }
         else:
             markdown = tag.markdown
             source = {"type": "message", "transcriptItemId": item_id}
@@ -615,6 +657,21 @@ class _Emitter:
         if len(bodies) == 1:
             return bodies[0][1]
         return "\n\n".join(f"## {name}\n\n{body}" for name, body in bodies)
+
+    def show_image(self, image: ImageTag) -> str | None:
+        """The markdown that shows one ``<image>``, or ``None`` to refuse it.
+
+        Registering the file is what makes it reachable, so a path the registry
+        refuses yields no URL and the reader is told the picture is missing.
+        The bytes are not read here: an image's body must stay out of the
+        world, so only a pointer to it goes in.
+        """
+        file_id = self.files.register(
+            self.new_id(), self.agent_entity["cwd"], image.src
+        )
+        if file_id is None:
+            return None
+        return markdown_ref(image.alt, f"/api/files/{file_id}")
 
     def _file_body(self, filename: str, read_file: ReadFile) -> str:
         """``filename``'s content, or prose saying why the user is not reading it."""

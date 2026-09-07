@@ -16,6 +16,7 @@ import pytest
 
 from maelstrom import task as task_model
 from maelstrom.orchestrator.document_tags import read_worktree_file
+from maelstrom.orchestrator.file_registry import FileRegistry
 from maelstrom.orchestrator.normalise import (
     NormaliseContext,
     _skill_loaded,
@@ -147,6 +148,17 @@ DRAFT_FILES = {
 }
 
 
+#: The files the fixtures name, as the registry sees them. The names the
+#: reader serves are present; anything else is missing, so a tag naming a file
+#: that is not there is refused exactly as it would be on a real worktree.
+FIXTURE_FILES = frozenset(DRAFT_FILES) | {"shot.png"}
+
+
+def fake_registry(names=FIXTURE_FILES) -> FileRegistry:
+    """A registry that treats ``names`` as the files that exist."""
+    return FileRegistry(is_file=lambda path: path.name in names)
+
+
 def fake_reader(files: dict[str, str] | None = None):
     """A ``read_file`` serving ``files`` by name, and nothing else."""
     served = DRAFT_FILES if files is None else files
@@ -157,6 +169,21 @@ def fake_reader(files: dict[str, str] | None = None):
     return read
 
 
+def file_ids_of(doc) -> list[str]:
+    """The files a document names, by name alone.
+
+    A ``draft_files`` source carries a registered id, which is an item id and
+    the filename. The id is the registry's business, so a test asks which file
+    the document names, not how the source spells it.
+    """
+    # An id is `<agent>-<n>-<filename>`, and a filename may itself hold a `-`,
+    # so only the two id fields are dropped.
+    return [
+        path.rsplit("/", 1)[-1].split("-", 2)[-1] if path.count("-") >= 2 else path
+        for path in doc["source"].get("paths", [])
+    ]
+
+
 def replay(
     name: str,
     *,
@@ -164,14 +191,17 @@ def replay(
     parent_tool_use_id: str | None = None,
     agent: dict | None = None,
     read_file=None,
+    files: FileRegistry | None = None,
 ) -> Replayed:
     """Replay ``name`` into ``agent`` (a seed idle agent by default).
 
     ``parent_tool_use_id`` keeps only the lines a subagent produced under that
     call — the stream the host serves for an ``attach`` to its dotted id.
 
-    ``read_file`` stands in for the worktree a ``<doc-file>`` tag names.
+    ``read_file`` stands in for the worktree a ``<doc-file>`` tag names, and
+    ``files`` for which of that worktree's files are there.
     """
+    files = files if files is not None else fake_registry()
     out_state = Replayed(seed([agent or make_agent(id="ag1", state="idle")]))
     ctx = context_for_agent("ag1")
     for raw in read_fixture(name):
@@ -187,7 +217,12 @@ def replay(
         ):
             break
         out = normalise_stream_event(
-            out_state.state, ctx, raw, NOW, read_file=read_file or fake_reader()
+            out_state.state,
+            ctx,
+            raw,
+            NOW,
+            read_file=read_file or fake_reader(),
+            files=files,
         )
         ctx = out.ctx
         out_state.take(out.events)
@@ -1004,7 +1039,8 @@ def test_a_doc_file_tag_mints_a_document_holding_the_files_content():
     assert doc["kind"] == "tasks"
     assert doc["title"] == "Iteration 1"
     assert doc["markdown"] == DRAFT_FILES["draft-iter1.md"]
-    assert doc["source"] == {"type": "draft_files", "paths": ["draft-iter1.md"]}
+    assert doc["source"]["type"] == "draft_files"
+    assert file_ids_of(doc) == ["draft-iter1.md"]
 
 
 def test_a_doc_file_tag_may_name_a_whole_set_of_files():
@@ -1272,6 +1308,51 @@ def test_the_real_reader_serves_a_file_in_the_worktree_and_refuses_one_outside(
     assert read_worktree_file("", "draft.md") is None
 
 
+def test_an_image_tag_becomes_a_picture_in_the_message_it_was_written_in():
+    """An image is shown where the agent put it, not cut out into a document."""
+    state = replay("image-worktree.jsonl")
+    [message] = items_of(state, "message")
+    assert "<image" not in message["markdown"]
+    assert "![The failing dialog](/api/files/" in message["markdown"]
+    # The prose either side is kept, and the image sits between it.
+    assert message["markdown"].index("Here is the failing dialog") < message[
+        "markdown"
+    ].index("![The failing dialog]")
+    assert message["markdown"].index("![The failing dialog]") < message[
+        "markdown"
+    ].index("The button is cut off")
+
+
+def test_an_image_tag_mints_no_document():
+    """An image is not a versioned artefact, so it raises nothing to review."""
+    state = replay("image-worktree.jsonl")
+    assert documents_of(state) == []
+
+
+def test_an_image_whose_path_escapes_the_worktree_is_not_shown():
+    """No URL is minted, and the message says so rather than breaking."""
+    state = replay("image-escaping.jsonl")
+    [message] = items_of(state, "message")
+    assert "/api/files/" not in message["markdown"]
+    assert "could not be shown" in message["markdown"]
+    assert "passwd" in message["markdown"]
+
+
+def test_a_subagents_image_tag_stays_as_text():
+    """A subagent writes no document and shows no picture."""
+    state = seed([make_agent(id="ag1", parent="ag0", state="idle")])
+    replayed = Replayed(state)
+    out = normalise_stream_event(
+        state,
+        context_for_agent("ag1"),
+        tag_message('<image src="docs/shot.png" alt="Shot">'),
+        NOW,
+        read_file=fake_reader(),
+    )
+    replayed.take(out.events)
+    assert "<image" in items_of(replayed, "message")[0]["markdown"]
+
+
 def test_an_attribute_value_may_hold_an_angle_bracket():
     """A tag ends at the `>` that closes it, not at one inside a quoted value.
 
@@ -1290,7 +1371,7 @@ def test_an_attribute_value_may_hold_an_angle_bracket():
     replayed.take(out.events)
     [doc] = documents_of(replayed)
     assert doc["title"] == "A > B"
-    assert doc["source"]["paths"] == ["draft-iter1.md"]
+    assert file_ids_of(doc) == ["draft-iter1.md"]
     assert doc["markdown"] == DRAFT_FILES["draft-iter1.md"]
     assert items_of(replayed, "message")[0]["markdown"] == ""
 

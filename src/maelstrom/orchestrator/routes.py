@@ -94,6 +94,7 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/tasks", _create_task)
     app.router.add_post("/api/attachments", _upload_attachment)
     app.router.add_get("/api/attachments/{project}/{bucket}/{name}", _serve_attachment)
+    app.router.add_get("/api/files/{id}", _serve_file)
     app.router.add_post("/api/desk", _desk_add)
     app.router.add_delete("/api/desk/{desk_id:.+}", _desk_remove)
     app.router.add_post("/api/documents/{id}/approve", _approve_document)
@@ -422,6 +423,23 @@ async def _serve_attachment(request: web.Request) -> web.StreamResponse:
         return error_response("invalid", str(exc))
     except KeyError as exc:
         return error_response("unknown_id", str(exc))
+    return web.FileResponse(found)
+
+
+async def _serve_file(request: web.Request) -> web.StreamResponse:
+    """Serve one file an agent showed, by the id that stands for it.
+
+    The lookup is the whole authorisation step. Nothing here parses a path or
+    joins one, so the route can only reach what an agent deliberately showed —
+    an unregistered file is unreachable because it is absent, not because a
+    check caught it.
+    """
+    orch = await _ready(request)
+    found = orch.files.resolve(request.match_info["id"])
+    if found is None or not found.is_file():
+        # A missing entry and a file since deleted read the same to the caller:
+        # there is nothing to serve under that id.
+        return error_response("unknown_id", "no such file")
     return web.FileResponse(found)
 
 

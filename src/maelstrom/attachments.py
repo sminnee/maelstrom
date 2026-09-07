@@ -133,8 +133,22 @@ def _free_name(directory: Path, stem: str, ext: str) -> str:
 
 
 def markdown_ref(alt: str, target: str) -> str:
-    """A markdown image ref, so the callers that write one cannot drift."""
-    return f"![{alt}]({target})"
+    """A markdown image ref, so the callers that write one cannot drift.
+
+    ``alt`` is escaped. It comes from an agent's tag or an uploaded filename,
+    so a ``]`` in it would close the ref early and let the rest of the text
+    name any URL the browser would then fetch.
+    """
+    return f"![{_escape_alt(alt)}]({target})"
+
+
+def _escape_alt(alt: str) -> str:
+    """``alt`` with the characters that would end it or the ref made literal."""
+    for char in ("\\", "[", "]", "(", ")"):
+        alt = alt.replace(char, f"\\{char}")
+    # A ref is one line. A newline would leave the tail of the alt behind it as
+    # markdown of its own.
+    return " ".join(alt.split())
 
 
 def resolve_attachment(project: str, bucket: str, name: str) -> Path:
