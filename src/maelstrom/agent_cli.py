@@ -64,6 +64,7 @@ from .agent_transport import (
     require_root,
 )
 from .agent_transport import client as daemon_client
+from .cli_async import AsyncGroup
 from .context import resolve_context
 from .env import format_uptime
 from .session_discovery import ProcessTableUnavailable, list_claude_processes
@@ -113,7 +114,7 @@ def _send(payload: dict[str, Any]) -> dict[str, Any]:
     return reply
 
 
-@click.group()
+@click.group(cls=AsyncGroup)
 def agent() -> None:
     """Drive Claude agents over a stream-json pipe."""
 
@@ -133,7 +134,7 @@ def cmd_daemon() -> None:
 
 
 @cmd_daemon.command("serve")
-def cmd_daemon_serve() -> None:
+async def cmd_daemon_serve() -> None:
     """Run the agent daemon in the foreground, on the root this environment names.
 
     The root comes from ``MAEL_AGENT_ROOT`` and from nowhere else. There is no
@@ -147,9 +148,9 @@ def cmd_daemon_serve() -> None:
         raise click.UsageError(str(exc)) from exc
     daemon = AgentDaemon(root)
     try:
-        asyncio.run(daemon.serve())
-    except KeyboardInterrupt:
-        pass
+        # Ctrl-C is not caught here: asyncio re-raises it from the loop, which
+        # `cli_async` owns and ends cleanly on. See its `_run`.
+        await daemon.serve()
     except RuntimeError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
@@ -221,7 +222,7 @@ class _RootReport:
     reachable: bool
 
 
-def _reconcile_root(paths: DaemonPaths, *, act: bool) -> _RootReport:
+async def _reconcile_root(paths: DaemonPaths, *, act: bool) -> _RootReport:
     """Reconcile one root, through its daemon when one answers, else locally.
 
     The daemon knows which agents it holds, so its verdict is the better one.
@@ -247,7 +248,7 @@ def _reconcile_root(paths: DaemonPaths, *, act: bool) -> _RootReport:
         raise click.ClickException(reply["error"])
     specs = JsonAgentSpecStore(paths.spec_dir)
     try:
-        processes = asyncio.run(list_claude_processes())
+        processes = await list_claude_processes()
     except ProcessTableUnavailable as exc:
         raise click.ClickException(f"the process table is unavailable: {exc}") from exc
     result = reconcile(specs.list(), processes, set(), resume_strays=False)
@@ -268,10 +269,10 @@ def _roots(every: bool) -> list[DaemonPaths]:
     return [daemon_paths()]
 
 
-def _reports(every: bool, *, act: bool) -> list[_RootReport]:
+async def _reports(every: bool, *, act: bool) -> list[_RootReport]:
     """Reconcile the chosen roots. With every root, a process unknown to all of
     them has no owner anywhere and is killed too, when acting."""
-    reports = [_reconcile_root(paths, act=act) for paths in _roots(every)]
+    reports = [await _reconcile_root(paths, act=act) for paths in _roots(every)]
     if every and act:
         orphans = _unknown_everywhere(reports)
         if orphans:
@@ -334,7 +335,7 @@ def _emit_json(reports: list[_RootReport], acted: bool) -> None:
 @cmd_daemon.command("reconcile")
 @all_roots_option
 @json_option
-def cmd_daemon_reconcile(all_roots: bool, as_json: bool) -> None:
+async def cmd_daemon_reconcile(all_roots: bool, as_json: bool) -> None:
     """Say what `gc` would do, doing nothing.
 
     Each spawn record against the process table: owned, stray, duplicate,
@@ -342,7 +343,7 @@ def cmd_daemon_reconcile(all_roots: bool, as_json: bool) -> None:
     names. Asks the daemon when one answers, else reads the records and the
     table itself.
     """
-    reports = _reports(all_roots, act=False)
+    reports = await _reports(all_roots, act=False)
     if as_json:
         _emit_json(reports, acted=False)
         return
@@ -352,7 +353,7 @@ def cmd_daemon_reconcile(all_roots: bool, as_json: bool) -> None:
 @cmd_daemon.command("gc")
 @all_roots_option
 @json_option
-def cmd_daemon_gc(all_roots: bool, as_json: bool) -> None:
+async def cmd_daemon_gc(all_roots: bool, as_json: bool) -> None:
     """Kill the strays and duplicates, and write off the crashed records.
 
     Never resumes: a stray's record stays `running`, so the next daemon start
@@ -360,7 +361,7 @@ def cmd_daemon_gc(all_roots: bool, as_json: bool) -> None:
     no root's records name is killed too; from one root it is only reported,
     because it may belong to another.
     """
-    reports = _reports(all_roots, act=True)
+    reports = await _reports(all_roots, act=True)
     if as_json:
         _emit_json(reports, acted=True)
         return
@@ -370,11 +371,11 @@ def cmd_daemon_gc(all_roots: bool, as_json: bool) -> None:
 @cmd_daemon.command("list")
 @all_roots_option
 @json_option
-def cmd_daemon_list(all_roots: bool, as_json: bool) -> None:
+async def cmd_daemon_list(all_roots: bool, as_json: bool) -> None:
     """Every spawn record, with its pid, whether that pid is alive, and whether
     the daemon holds it — so a mismatch is read off the table, not inferred.
     """
-    reports = _reports(all_roots, act=False)
+    reports = await _reports(all_roots, act=False)
     rows: list[dict[str, str]] = []
     for report in reports:
         records = JsonAgentSpecStore(report.paths.spec_dir).list()
@@ -766,7 +767,7 @@ def cmd_attach(agent_id: str) -> None:
     is_flag=True,
     help="Print each event as JSON, one per line, for recording a fixture.",
 )
-def cmd_tail(agent_id: str, follow: bool, raw: bool) -> None:
+async def cmd_tail(agent_id: str, follow: bool, raw: bool) -> None:
     """Read an agent without driving it: print its events, and stop.
 
     The read-only half of ``attach``. With ``-f`` it keeps streaming; without
@@ -778,10 +779,9 @@ def cmd_tail(agent_id: str, follow: bool, raw: bool) -> None:
     ``system`` events a subagent's life is told in, so a fixture is recorded
     with ``--raw``. See ``docs/dev/agent-daemon.md``.
     """
-    try:
-        asyncio.run(_tail(agent_id, follow, raw))
-    except KeyboardInterrupt:
-        pass
+    # Ctrl-C ends a follow; `cli_async` catches it where the loop is opened,
+    # because a cancelled await never re-raises inside the command.
+    await _tail(agent_id, follow, raw)
 
 
 #: How long ``tail`` waits for one line before giving up.

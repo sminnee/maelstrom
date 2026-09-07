@@ -38,7 +38,15 @@ def _run(result: Any) -> Any:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         # No loop yet: this is the outermost command, so it owns one.
-        return asyncio.run(result)
+        try:
+            return asyncio.run(result)
+        except KeyboardInterrupt:
+            # A real Ctrl-C during an await never reaches the command: asyncio
+            # cancels the task and re-raises here, outside it. So a command
+            # cannot catch its own interrupt, and this is the only place that
+            # can. `daemon serve` and `tail -f` end this way normally, so it
+            # is a clean exit rather than an `Aborted!` and a non-zero code.
+            return None
     # A loop is already running, so a group above already opened it. Handing
     # the coroutine back unawaited would be a silent no-op, so this is a bug
     # in the caller rather than a case to paper over.
