@@ -2,7 +2,9 @@
 
 import asyncio
 import logging
+import os
 import re
+import signal
 from unittest.mock import patch
 
 from click.testing import CliRunner
@@ -156,3 +158,35 @@ def test_an_exception_that_escapes_a_task_is_logged(capsys):
         loop.close()
     # Stderr, because that is the stream ``mael env`` captures to the log file.
     assert "task blew up" in capsys.readouterr().err
+
+
+def test_a_sigterm_shuts_the_server_down_cleanly():
+    """A supervised restart sends SIGTERM, not Ctrl-C.
+
+    Without a handler the default terminates the process outright, so
+    ``runner.cleanup`` never runs and the orchestrator never stops: pollers
+    are left running and the desk is never flushed.
+    """
+    stopped = []
+
+    async def scenario(*_args):
+        loop = asyncio.get_running_loop()
+        # The handler must be installed by the time the server is serving.
+        assert loop._signal_handlers.get(signal.SIGTERM) is not None, (
+            "SIGTERM is not handled"
+        )
+        os.kill(os.getpid(), signal.SIGTERM)
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            stopped.append("cancelled")
+            raise
+
+    with (
+        patch("maelstrom.orchestrator_cli.build_orchestrator"),
+        patch("maelstrom.orchestrator_cli.build_app"),
+        patch("maelstrom.orchestrator_cli.serve_app", new=scenario),
+    ):
+        run_server(DEFAULT_HOST, DEFAULT_PORT)
+
+    assert stopped == ["cancelled"]

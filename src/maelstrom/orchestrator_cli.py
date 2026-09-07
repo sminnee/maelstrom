@@ -8,8 +8,10 @@ an :class:`~maelstrom.orchestrator.server.Orchestrator` and serves it. See
 
 import asyncio
 import logging
+import signal
 import sys
 from concurrent.futures import Executor, ThreadPoolExecutor
+from contextlib import suppress
 from pathlib import Path
 
 import click
@@ -135,8 +137,17 @@ def run_server(host: str, port: int, log_level: str = DEFAULT_LOG_LEVEL) -> None
     setup_logging(log_level)
 
     async def serve() -> None:
-        asyncio.get_running_loop().set_exception_handler(_log_unhandled)
-        await serve_app(build_app(orchestrator), host, port)
+        loop = asyncio.get_running_loop()
+        loop.set_exception_handler(_log_unhandled)
+        serving = asyncio.ensure_future(serve_app(build_app(orchestrator), host, port))
+        # A supervisor stops the server with SIGTERM. Without a handler the
+        # default terminates the process outright, so the app never cleans up
+        # and the orchestrator never stops its pollers or flushes the desk.
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            with suppress(NotImplementedError):
+                loop.add_signal_handler(signum, serving.cancel)
+        with suppress(asyncio.CancelledError):
+            await serving
 
     with ThreadPoolExecutor(max_workers=1) as executor:
         orchestrator = build_orchestrator(executor=executor)
@@ -170,6 +181,8 @@ def cmd_serve(host: str, port: int, log_level: str) -> None:
     try:
         run_server(host, port, log_level)
     except KeyboardInterrupt:
+        # Only a Ctrl-C before the loop starts reaches here. Once it is
+        # running, the SIGINT handler cancels the serve task instead.
         pass
     except OSError as exc:
         click.echo(f"Error: {exc}", err=True)
