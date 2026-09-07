@@ -169,6 +169,64 @@ it, not a reimplementation. Three things make the failure path safe:
 The task refresh is forced afterwards, as every other notebook write forces it: the poll is 2 s
 away, and the user who approved would otherwise see nothing until it came round.
 
+## A shown image
+
+An agent shows the user a picture with a third tag, which mints no document:
+
+```
+<image src="docs/shot.png" alt="The failing dialog">
+```
+
+The tag becomes a markdown image ref **in place**, so the picture sits where the agent wrote it. A
+document tag is cut out because the user reads a document in its own tab. An image is read in the
+flow of the message, so cutting it out would lose the point of it. `attachments.markdown_ref` mints
+the ref, so an image an agent showed and one the user pasted cannot drift apart.
+
+An image is not a document. A document is versioned, reviewed and commented on; a picture is none
+of those. More to the point, a document's body **is** world data: `Document.markdown` holds the
+whole file, and the world goes to every connected client and stays in memory for the session. A
+screenshot cannot go there — see the base64 comment in `normalise.py`. So an image's bytes stay on
+disk and only a pointer goes in the world.
+
+### The file registry
+
+The pointer is an **id**, never a path.
+
+One rule covers every file an agent names, whichever tag named it: the path is validated once, and
+the registry is the only way that file's bytes reach the client. `<doc-file>` registers its file
+too. One place answers "may this file be shown", so a later fix to that answer cannot reach one tag
+and miss the other.
+
+A URL that carried a path would be a capability to read any file, and its safety would rest on
+re-deriving the guard correctly on every fetch — for every `..`, symlink and absolute path, now and
+later. An id inverts that. A file nobody registered is unreachable because it is **absent**, not
+because a check caught it on the way out.
+
+`FileRegistry.register` validates with `document_tags.stays_within` and requires the file to be
+there, so an escaping path, an unwalkable one and a typo all yield no id. The message then says so
+in place of the picture.
+
+An id is the item id and the filename — `ag1-3-shot.png` — so a URL in a log says which file it
+was. `resolve` is a dict lookup and **never a path join**. That is the property the design protects.
+
+The registry is keyed on the **resolved path**, so registering one file twice returns the id it
+already has. A replayed transcript would otherwise add an entry per replay, and the same picture
+would change id under a re-attach.
+
+Ids are guessable on purpose. An id is a counter and a name, not a secret. A guessed id names a file
+some agent already chose to show, and no id can name a file nobody registered. Do not make ids
+random and then rely on them being unguessable.
+
+The registry is not persisted. It dies with a server restart, exactly as a document does, and a
+re-normalised transcript registers its files again. An image URL from before a restart is a 404.
+
+| Route | Serves |
+| --- | --- |
+| `GET /api/files/{id}` | The bytes of one registered file, or `unknown_id` |
+
+The lookup is the whole authorisation step: the handler parses no path and joins no string. A file
+since deleted reads as `unknown_id` too — the id was real, the bytes are not.
+
 ## Keeping the world fresh
 
 The server holds one `WorldState`. Every change to the world is an event applied through

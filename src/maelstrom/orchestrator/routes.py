@@ -429,10 +429,8 @@ async def _serve_attachment(request: web.Request) -> web.StreamResponse:
 async def _serve_file(request: web.Request) -> web.StreamResponse:
     """Serve one file an agent showed, by the id that stands for it.
 
-    The lookup is the whole authorisation step. Nothing here parses a path or
-    joins one, so the route can only reach what an agent deliberately showed —
-    an unregistered file is unreachable because it is absent, not because a
-    check caught it.
+    The lookup is the whole authorisation step: nothing here parses or joins
+    a path.
     """
     orch = await _ready(request)
     found = orch.files.resolve(request.match_info["id"])

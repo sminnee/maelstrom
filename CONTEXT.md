@@ -448,6 +448,21 @@ raises an attention item. The names carry nothing maelstrom-specific, so another
 render them its own way.
 _Avoid_: Directive, macro, shortcode
 
+**Image tag**:
+The marker an agent writes in the text of an ordinary message to show the user a picture:
+`<image src="docs/shot.png" alt="The failing dialog">`. The tag becomes a picture where it was
+written, so an image is read in the flow of the message and is not a document. `src` names a file
+in the agent's worktree; `alt` describes the picture and defaults to the filename. A file the agent
+may not show, or one that is not there, leaves prose saying so, never a broken picture.
+_Avoid_: Screenshot tag, figure, embed
+
+**File registry**:
+The ids that stand for the files agents named, and the only route to a file's bytes. A `<doc-file>`
+or an `<image>` registers its file, and the URL carries the id and never a path, so a file nobody
+registered cannot be reached. An id is not a secret — it is guessable, and what it cannot do is
+name a file nobody registered. Not persisted, as a document is not.
+_Avoid_: File table, allow-list, handle
+
 **Comment**:
 Feedback anchored to a span of one document version. Requesting changes sends the unresolved
 comments back to the agent.

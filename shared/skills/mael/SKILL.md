@@ -119,6 +119,24 @@ In Review -> Unreleased      (set-status … done)
 Unreleased -> Done           (release)
 ```
 
+## Showing the user a picture
+
+Write an `<image>` tag in your message to put a picture in front of the user:
+
+```
+<image src="docs/shot.png" alt="The failing dialog">
+```
+
+The picture appears where you wrote the tag, so put it where it belongs in what you are saying.
+`src` is a path in this worktree. `alt` describes the picture and defaults to the filename.
+
+Use it for a screenshot, a diagram, or a chart the user should see. A file outside the worktree,
+or one that is not there, cannot be shown. The message then says so instead of showing a broken
+picture, so check the message if you expected a picture and did not get one.
+
+An image is not a document: it renders in the message and raises nothing to review. Use
+`<doc-file>` for a document the user should read whole.
+
 ## Testing work
 
 **Build test-first with the `tdd` skill** — the always-on rule covers when to load it and where

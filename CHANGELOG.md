@@ -10,6 +10,12 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+### Added
+
+- **An agent can show you a picture.** It writes `<image src="docs/shot.png" alt="What it is">`
+  in a message, and the picture appears where it wrote it. A file outside its worktree, or one
+  that is not there, is refused and the message says so.
+
 ### Changed
 
 - **Reopening a worktree rebases it.** `mael add` and `mael task run` already rebased a worktree
@@ -31,6 +37,10 @@ release while that section is empty, and retitles it to the version it is releas
   connect, `mael agent` names the denial and the socket path. It used to say "No agent daemon
   on \<root>" and tell you to start a daemon that was already running. `mael agent daemon gc`
   now stops on a denial instead of killing the agents that daemon holds.
+
+- **An image in a message is a thumbnail.** Every picture the orchestrator UI shows, including one
+  you pasted, is capped and opens full size on a click. A screenshot used to render at full size
+  and push the words off the screen.
 
 - **Stacking is opt-in.** `mael add` bases a new branch on `main` and leaves the stack tip where
   it is. It used to move the tip to each new branch, so the next worktree stacked on the last

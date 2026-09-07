@@ -1,23 +1,12 @@
 """The files an agent named, and the ids that stand for them.
 
-One rule holds for every file an agent names, whichever tag named it: the path
-is validated once, here, and the registry is the only way its bytes reach the
-client. A URL carries an id and never a path, so a file that was never
-registered is unreachable because it is **absent**, not because a check caught
-it on the way out.
+A URL carries an id and never a path: a file nobody registered is unreachable
+because it is absent, not because a check caught it. Ids are guessable on
+purpose — do not make them random and rely on that.
 
-The id is derived from the filename so a URL in a log says which file it was,
-and it is looked up by exact match. Nothing here ever joins an id onto a
-directory: that is the property the whole design protects.
+The registry is not persisted, exactly as a document is not.
 
-An id is not a secret. It is a counter and a name, and it is guessable on
-purpose — a guessed id names a file some agent already chose to show. What no
-id can do is name a file nobody registered. Do not "harden" this by making ids
-random and then rely on them being unguessable.
-
-The registry is not persisted. It lives beside the world and dies with a server
-restart, exactly as a document does, and a re-normalised transcript registers
-its files again.
+See ``docs/dev/orchestrator-server.md``, "The file registry", for the design.
 """
 
 from collections.abc import Callable

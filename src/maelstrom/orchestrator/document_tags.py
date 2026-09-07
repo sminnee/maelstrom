@@ -83,8 +83,8 @@ class ImageTag:
 class TaggedMessage:
     """A message split into the text the transcript shows and the tags it carried.
 
-    An image leaves no entry here. ``show_image`` has already put it in the
-    text, which is the only place an image goes.
+    An image leaves no entry: ``show_image`` has already put it in the text,
+    which is the only place an image goes.
     """
 
     text: str
