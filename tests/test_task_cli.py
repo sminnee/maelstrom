@@ -13,8 +13,8 @@ import click
 import pytest
 from click.testing import CliRunner
 
+from maelstrom import session_discovery, task_cli
 from maelstrom import task as model
-from maelstrom import task_cli
 from maelstrom.integrations.linear import cmd_plan
 from maelstrom.shell import describe
 from maelstrom.task_store import InMemoryStore
@@ -195,13 +195,26 @@ class TestActionFlags:
         assert model.load(store, "p", new_id).post_action == "linear.done"
 
 
+#: The real sweep class, bound at import. `_patch_sweep` replaces the name on
+#: the module, so it must build from this rather than re-reading the attribute
+#: it just overwrote — an autouse fixture patches once before each test does.
+_REAL_SESSION_SET = session_discovery.LiveSessionSet
+
+
 class TestUpdateRename:
     @pytest.fixture(autouse=True)
     def _no_live_session(self, monkeypatch):
-        # The --id re-key path consults the session registry; default to "no
-        # live session" so it doesn't read the real ~/.maelstrom registry.
+        # The --id re-key path sweeps for live claude processes. Inject an empty
+        # sweep through the documented seam — LiveSessionSet(sessions=...) — so
+        # no test shells out to `pgrep`/`lsof` and reads the real machine.
+        self._patch_sweep(monkeypatch, [])
+
+    @staticmethod
+    def _patch_sweep(monkeypatch, sessions):
         monkeypatch.setattr(
-            task_cli.session_store, "find_live_session_for_task", lambda *a, **k: None
+            task_cli.session_discovery,
+            "LiveSessionSet",
+            lambda *a, **kw: _REAL_SESSION_SET(sessions),
         )
 
     def test_update_id_rekeys_task(self, runner, store):
@@ -247,15 +260,43 @@ class TestUpdateRename:
 
     def test_update_id_refuses_live_session(self, runner, store, monkeypatch):
         old_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
-        monkeypatch.setattr(
-            task_cli.session_store,
-            "find_live_session_for_task",
-            lambda *a, **k: {"pid": 123},
+        # A live claude carrying this task's deterministic session id.
+        self._patch_sweep(
+            monkeypatch,
+            [
+                session_discovery.LiveSession(
+                    pid=123,
+                    cwd=Path("/tmp/wt"),
+                    session_id=model.session_id_for("p", old_id),
+                )
+            ],
         )
         result = runner.invoke(task_cli.task, ["update", old_id, "--id", "new-id"])
         assert result.exit_code != 0
-        assert "open Claude session" in result.output
+        assert "live Claude session" in result.output
+        assert "123" in result.output  # names the pid to close
+        assert "changing its id" in result.output  # the action it refused
         assert model.load(store, "p", old_id).id == old_id
+
+    def test_update_id_allows_a_live_session_of_another_task(
+        self, runner, store, monkeypatch
+    ):
+        # Keyed on this task's own session id, not on worktree occupancy: a
+        # sibling task's session shares the worktree and must not block.
+        old_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
+        self._patch_sweep(
+            monkeypatch,
+            [
+                session_discovery.LiveSession(
+                    pid=123,
+                    cwd=Path("/tmp/wt"),
+                    session_id=model.session_id_for("p", "some-other-task"),
+                )
+            ],
+        )
+        result = runner.invoke(task_cli.task, ["update", old_id, "--id", "new-id"])
+        assert result.exit_code == 0, result.output
+        assert model.load(store, "p", "new-id").id == "new-id"
 
     def test_update_same_id_applies_field_changes(self, runner, store):
         old_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
