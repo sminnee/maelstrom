@@ -135,6 +135,24 @@ def test_a_running_record_with_a_dead_pid_and_no_shutdown_is_crashed():
     assert result.resume == ()
 
 
+def test_a_crashed_child_is_written_off_even_though_it_was_running():
+    """A crashed child does not restart itself, whatever it was last doing.
+
+    The record carries a ``last_status`` for every agent that ever ran, so the
+    status cannot say whether the daemon stopped this child or it died. Only
+    ``stopped_at_shutdown`` says that. Without the distinction a crash loop
+    respawns itself: the night that made twenty-one duplicates.
+    """
+    result = reconcile(
+        [running("a1", S1, 100, last_status="processing")],
+        [],
+        set(),
+        resume_strays=True,
+    )
+    assert kinds(result) == {"a1": CRASHED}
+    assert result.resume == ()
+
+
 def test_a_reused_pid_that_is_not_this_sessions_claude_reads_as_crashed():
     """Identity is the session id in argv, so a reused number cannot pass as the child."""
     result = reconcile(
@@ -154,7 +172,10 @@ def test_a_record_the_last_daemon_stopped_at_shutdown_is_resumable():
     daemon to pick up new code" free.
     """
     result = reconcile(
-        [running("a1", S1, 100, last_status="idle")], [], set(), resume_strays=True
+        [running("a1", S1, 100, last_status="idle", stopped_at_shutdown=True)],
+        [],
+        set(),
+        resume_strays=True,
     )
     assert kinds(result) == {"a1": RESUMABLE}
     assert result.kill == ()

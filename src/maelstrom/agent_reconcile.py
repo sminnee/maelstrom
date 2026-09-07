@@ -100,9 +100,10 @@ def reconcile(
     3. Any other driven process naming a surviving record's session is a
        DUPLICATE.
     4. A surviving record with no such process, and not held, is RESUMABLE
-       when the last daemon recorded a shutdown (``last_status`` set) or
-       never recorded a pid at all; otherwise CRASHED. A held record with a
-       dead pid gets no verdict: its pump owns it.
+       when the last daemon stopped it on its way out
+       (``stopped_at_shutdown``) or never recorded a pid at all; otherwise
+       CRASHED. A held record with a dead pid gets no verdict: its pump owns
+       it.
     5. A driven process matching no surviving record's session is UNKNOWN.
     """
     driven = [p for p in processes if is_driven(p.command)]
@@ -169,7 +170,7 @@ def reconcile(
                 if resume_strays:
                     resume.append(spec)
         elif spec.agent_id not in held:
-            if spec.last_status or spec.pid is None:
+            if spec.stopped_at_shutdown or spec.pid is None:
                 verdicts.append(
                     Verdict(
                         RESUMABLE,
@@ -178,7 +179,7 @@ def reconcile(
                         spec.pid,
                         None,
                         "stopped by the last daemon's shutdown"
-                        if spec.last_status
+                        if spec.stopped_at_shutdown
                         else "no pid recorded",
                     )
                 )

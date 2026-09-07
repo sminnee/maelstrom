@@ -20,10 +20,14 @@ from maelstrom import agent_server
 from maelstrom.agent_model import (
     AGENT_DETAIL,
     AGENT_EXITED,
+    AWAITING_PERMISSION,
+    AWAITING_PLAN_REVIEW,
+    AWAITING_QUESTION,
     BACKLOG_END,
     DEFAULT_RESUME_PROMPT,
     EXITED,
     INTERRUPTED_REASON,
+    LOST_ASK_RESUME_PROMPT,
     PROCESSING,
     SPEC_EXITED,
     SPEC_STOPPED,
@@ -1227,16 +1231,8 @@ def _shut_down_holding(daemon, specs, *, status: str) -> None:
     asyncio.run(asyncio.wait_for(scenario(), timeout=5))
 
 
-def test_an_agent_idle_at_shutdown_comes_back_without_a_nudge():
-    """A restart to pick up new code must not wake every idle agent.
-
-    The nudge exists for a turn that was cut short. An agent that had nothing
-    in flight has nothing to be told, and a turn costs money and attention.
-    """
-    daemon, specs = _daemon_with_specs(has_transcript=True)
-    _shut_down_holding(daemon, specs, status="idle")
-    assert specs.list()[0].last_status == "idle"
-
+def _resume_holding(specs) -> MagicMock:
+    """Restart a daemon over ``specs`` and return the resumed child's stub."""
     proc = _spawn_stub()
     fresh, _ = _daemon_with_specs(has_transcript=True)
     fresh.specs = specs
@@ -1244,25 +1240,131 @@ def test_an_agent_idle_at_shutdown_comes_back_without_a_nudge():
         agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
     ):
         asyncio.run(fresh.restore())
-    proc.stdin.write.assert_not_called()
+    return proc
+
+
+def _nudge_sent(proc) -> str | None:
+    """The text of the turn the resume sent, or ``None`` when it sent none."""
+    if not proc.stdin.write.call_args:
+        return None
+    return json.loads(proc.stdin.write.call_args.args[0])["message"]["content"][0][
+        "text"
+    ]
+
+
+@pytest.mark.parametrize(
+    "last_status, expected",
+    [
+        # An agent that had nothing in flight has nothing to be told, and a
+        # restart to pick up new code must not spend a turn on every agent.
+        ("idle", None),
+        (PROCESSING, DEFAULT_RESUME_PROMPT),
+        # A blocked agent had nothing of its own in flight, but the ask it was
+        # holding did not survive. Left silent it would wait for ever on a
+        # reply nobody can now give, so it is told the ask is gone.
+        (AWAITING_PERMISSION, LOST_ASK_RESUME_PROMPT),
+        (AWAITING_QUESTION, LOST_ASK_RESUME_PROMPT),
+        (AWAITING_PLAN_REVIEW, LOST_ASK_RESUME_PROMPT),
+    ],
+)
+def test_what_a_resumed_agent_is_told_follows_what_it_was_doing(last_status, expected):
+    daemon, specs = _daemon_with_specs(has_transcript=True)
+    _shut_down_holding(daemon, specs, status=last_status)
+    assert specs.list()[0].last_status == last_status
+
+    proc = _resume_holding(specs)
+    assert _nudge_sent(proc) == expected
     # The status the last daemon saw is spent: the next shutdown writes its own.
     assert specs.list()[0].last_status == ""
 
 
-def test_an_agent_mid_turn_at_shutdown_comes_back_with_the_nudge():
-    daemon, specs = _daemon_with_specs(has_transcript=True)
-    _shut_down_holding(daemon, specs, status=PROCESSING)
-    assert specs.list()[0].last_status == PROCESSING
+def _run_a_turn_to_idle(daemon) -> MagicMock:
+    """Spawn an agent and let a whole turn stream through its pump.
 
+    The events are the child's own, so the status the record ends up with is
+    one the daemon observed rather than one the test assigned.
+    """
+    turn = [
+        json.dumps({"type": "assistant", "message": {"content": []}}).encode() + b"\n",
+        json.dumps({"type": "result", "subtype": "success"}).encode() + b"\n",
+        b"",
+    ]
     proc = _spawn_stub()
-    fresh, _ = _daemon_with_specs(has_transcript=True)
-    fresh.specs = specs
-    with patch.object(
-        agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
-    ):
-        asyncio.run(fresh.restore())
-    sent = json.loads(proc.stdin.write.call_args.args[0])
-    assert sent["message"]["content"][0]["text"] == DEFAULT_RESUME_PROMPT
+    proc.stdout.readline = AsyncMock(side_effect=turn)
+
+    async def scenario():
+        with patch.object(
+            agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
+        ):
+            await daemon.handle(
+                {"cmd": "start", "cwd": "/tmp/x", "prompt": "go", "session": "sid-1"}
+            )
+        (agent,) = daemon.agents.values()
+        assert agent.pump_task is not None
+        await agent.pump_task
+
+    asyncio.run(asyncio.wait_for(scenario(), timeout=5))
+    return proc
+
+
+@pytest.mark.parametrize(
+    "tool_name, expected",
+    [
+        ("WebFetch", AWAITING_PERMISSION),
+        ("AskUserQuestion", AWAITING_QUESTION),
+        ("ExitPlanMode", AWAITING_PLAN_REVIEW),
+    ],
+)
+def test_a_blocked_agent_records_what_it_is_blocked_on_as_it_happens(
+    tool_name, expected
+):
+    """The record has to carry the wait before any shutdown writes it.
+
+    A daemon that is killed while an agent holds an ask never gets to write
+    the status, so the ask must already be on the record when it arrives.
+    """
+    ask = {
+        "type": "control_request",
+        "request_id": "r1",
+        "request": {
+            "subtype": "can_use_tool",
+            "tool_name": tool_name,
+            "input": {},
+        },
+    }
+    daemon, specs = _daemon_with_specs(has_transcript=True)
+    proc = _spawn_stub()
+    proc.stdout.readline = AsyncMock(
+        side_effect=[json.dumps(ask).encode() + b"\n", b""]
+    )
+
+    async def scenario():
+        with patch.object(
+            agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
+        ):
+            await daemon.handle({"cmd": "start", "cwd": "/tmp/x", "prompt": "go"})
+        (agent,) = daemon.agents.values()
+        assert agent.pump_task is not None
+        await agent.pump_task
+
+    asyncio.run(asyncio.wait_for(scenario(), timeout=5))
+    assert specs.list()[0].last_status == expected
+
+
+def test_an_idle_agent_stays_silent_when_its_daemon_died_without_shutting_down():
+    """The live failure: a daemon that is SIGKILLed writes no `last_status`.
+
+    Shutdown is not the only way a daemon ends. One that crashes or is killed
+    never runs it, so a record whose status is only written there comes back
+    empty and every agent gets the nudge — including the idle ones, which then
+    pick up work nobody asked for.
+    """
+    daemon, specs = _daemon_with_specs(has_transcript=True)
+    _run_a_turn_to_idle(daemon)
+    # No `shutdown()`: this daemon is simply gone, as a SIGKILLed one is.
+    assert specs.list()[0].last_status == "idle"
+
+    assert _nudge_sent(_resume_holding(specs)) is None
 
 
 # --- gc: the process table against the records, before anything is resumed ---
