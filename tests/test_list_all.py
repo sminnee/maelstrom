@@ -485,6 +485,29 @@ class _BlockingProbe:
             self.running -= 1
 
 
+def test_the_task_scan_does_not_block_the_other_projects(tmp_path):
+    """``branch_session_ids`` parses every task file, so it must not run inline.
+
+    The scan passes ``no_index=True``, so it reads and parses each task file
+    rather than answering from the index: measured at 2.4s across 16 projects,
+    the largest single blocking call left on this path. Held on the event loop
+    it serialises every other project behind it.
+    """
+    for n in range(4):
+        (tmp_path / f"project-{n}" / ".mael").mkdir(parents=True)
+    probe = _BlockingProbe()
+
+    def slow_scan(_project_name):
+        probe.read()
+        return {}
+
+    with _quiet_worktree_reads(branch_session_ids=slow_scan):
+        data = asyncio.run(build_list_all_data(tmp_path))
+
+    assert len(data["projects"]) == 4
+    assert probe.peak > 1, "the task scans ran one after another"
+
+
 def test_the_project_store_reads_do_not_block_the_other_projects(tmp_path):
     """``GitConfigBaseStore`` runs ``git config``, so it must not run inline.
 
