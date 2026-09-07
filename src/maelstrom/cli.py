@@ -874,33 +874,6 @@ def cmd_ide(target):
         raise click.ClickException(str(e))
 
 
-@cli.command("claude")
-@_harness_flags()
-@click.argument("target", required=False, default=None)
-def cmd_claude(target, harness: str | None, opencode_flag: bool, claude_flag: bool):
-    """Start a Claude Code CLI session in a worktree."""
-    try:
-        ctx = resolve_context(
-            target,
-            require_project=True,
-            require_worktree=True,
-        )
-    except ValueError as e:
-        raise click.ClickException(str(e))
-
-    worktree_path = ctx.worktree_path
-
-    if worktree_path is None or not worktree_path.exists():
-        raise click.ClickException(f"Worktree not found at {worktree_path}")
-
-    _launch_claude_or_raise(
-        worktree_path,
-        ctx.project,
-        ctx.worktree,
-        harness=resolve_harness_or_fail(harness, opencode_flag, claude_flag),
-    )
-
-
 def _base_store_for(worktree_path: Path) -> GitConfigBaseStore:
     """The base store for ``worktree_path``'s project.
 

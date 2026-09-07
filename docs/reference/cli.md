@@ -229,7 +229,6 @@ resolves its own conflicts instead.
 | Command | Description |
 |---|---|
 | `mael open [TARGET]` | Start a Claude Code session in a worktree. `--harness daemon\|claude\|opencode`, or the `--claude` / `--opencode` shorthands, picks the runner. |
-| `mael claude [TARGET]` | Same as `mael open`. |
 | `mael add [BRANCH]` | Add a worktree for a branch and start a session in it. Takes the same harness flags. |
 | `mael ide [TARGET]` | Open a worktree in the configured editor. |
 | `mael session list` | List active Claude Code sessions. |
@@ -251,7 +250,7 @@ mael --json session info 97894d02  # the same fields as JSON
 mael session end 97894d02          # stop that session
 ```
 
-**Harness choice.** `mael add`, `mael open`, `mael claude`, `mael task run` and `mael task next --run`
+**Harness choice.** `mael add`, `mael open`, `mael task run` and `mael task next --run`
 take `--harness daemon|claude|opencode` (default `daemon`), or the `--claude` and `--opencode`
 shorthands.
 

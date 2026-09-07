@@ -10,6 +10,12 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+### Removed
+
+- **`mael claude`.** It was a duplicate of `mael open` and the name had stopped being true: the
+  default harness is the daemon, and `--opencode` launches something that is not Claude at all.
+  Use `mael open`.
+
 ### Added
 
 - **The orchestrator server says what it is doing.** It writes timestamped logs to stderr, which
