@@ -17,16 +17,15 @@ The public entry points, all owned here so callers stay shell-agnostic:
 - ``exec_cmd`` — exec-replace, never returning. Split from ``run_cmd`` because an
   exec has no result to check, no output to capture, and no wait to bound, so
   those options would be dead weight on one of the two paths.
-- ``async_run_cmd`` — the same wait on an event loop, for a caller that holds
-  one for many jobs. It returns the exit code rather than raising on it, and
-  always captures: a server has no script to abort and no stdout to itself.
-- ``run_cmd_async`` — ``run_cmd``'s contract on an event loop: same arguments,
-  same ``CompletedProcess``, same raise on a non-zero exit. A blocking caller
-  converts by adding ``await``.
+- ``run_cmd_async`` — ``run_cmd``'s contract on an event loop, for a caller
+  that holds one for many jobs: same arguments, same ``CompletedProcess``,
+  same raise on a non-zero exit. A blocking caller converts by adding
+  ``await``. It is the only async runner, so no call site has to work out
+  which of two near-identical names it is looking at.
 
-``run_cmd``, ``exec_cmd``, ``async_run_cmd`` and ``run_cmd_async`` together are
-the execution chokepoint: every command in the codebase routes through one of
-them, so they are the seam to mock / log / intercept. Each writes the command it runs to this
+``run_cmd``, ``exec_cmd`` and ``run_cmd_async`` together are the execution
+chokepoint: every command in the codebase routes through one of them, so they
+are the seam to mock / log / intercept. Each writes the command it runs to this
 module's logger, so one handler sees every command whatever the caller.
 
 These functions own the accidental complexity of running a command — quoting,
@@ -167,36 +166,27 @@ def to_argv(expr: ShellExpr, *, replace_process: bool = False) -> list[str]:
             assert_never(expr)
 
 
-async def async_run_cmd(
+async def _run_cmd_streams(
     cmd: ShellExpr,
     *,
     cwd: Path | None = None,
     env: dict | None = None,
     timeout: float | None = None,
-) -> tuple[str, str, int]:
-    """Run a ``ShellExpr`` on the caller's event loop, returning its two streams.
+) -> tuple[list[str], str, str, int]:
+    """Spawn ``cmd`` on the caller's loop; return the argv it ran, its output and code.
 
-    The async half of the chokepoint. :func:`run_cmd` blocks the calling
-    thread, which a caller holding one loop for many jobs cannot afford — the
-    agent daemon runs every agent on one loop, so a blocking wait would stall
-    all of them for the length of the command.
+    The subprocess mechanics of :func:`run_cmd_async`, kept separate only so
+    that function reads as its contract rather than as its plumbing. Private:
+    ``run_cmd_async`` is the one public async runner, and a second name that
+    swallowed a non-zero exit is exactly the trap this split must not reopen.
 
-    Differs from :func:`run_cmd` in two ways, both because the caller is a
-    server rather than a script:
-
-    - **Never raises on a non-zero exit.** The exit code comes back for the
-      caller to read. A failing command is often the point, and there is no
-      script to abort.
-    - **Always captures.** Streaming to this process's stdout would interleave
-      output from every concurrent job.
-
-    ``timeout`` raises ``subprocess.TimeoutExpired``. The child gets its own
-    process group, so a timeout kills a pipeline whole rather than leaving the
-    stages behind their dead ``sh``.
+    The argv comes back rather than being built twice, so the argv on the
+    ``CompletedProcess`` is by construction the one that ran — the caller
+    cannot pair a result with an argv the child never saw.
     """
-    _audit(cmd, cwd)
+    argv = to_argv(cmd)
     proc = await asyncio.create_subprocess_exec(
-        *to_argv(cmd),
+        *argv,
         cwd=cwd,
         env={**os.environ, **env} if env is not None else None,
         stdout=asyncio.subprocess.PIPE,
@@ -210,6 +200,7 @@ async def async_run_cmd(
         await proc.wait()
         raise subprocess.TimeoutExpired(describe(cmd), timeout or 0) from None
     return (
+        argv,
         out.decode("utf-8", "replace"),
         err.decode("utf-8", "replace"),
         proc.returncode if proc.returncode is not None else -1,
@@ -233,12 +224,20 @@ async def run_cmd_async(
     stays the right call in a script, where blocking is what you want.
 
     There is no ``stream``: streaming interleaves output from every concurrent
-    job, so a caller that wants it wants :func:`run_cmd`.
+    job, so a caller that wants it wants :func:`run_cmd`. Output is therefore
+    always captured.
+
+    ``timeout`` raises ``subprocess.TimeoutExpired``. The child gets its own
+    process group, so a timeout kills a pipeline whole rather than leaving the
+    stages behind their dead ``sh``.
     """
+    _audit(cmd, cwd)
     if not quiet:
         _echo(cmd)
-    out, err, code = await async_run_cmd(cmd, cwd=cwd, env=env, timeout=timeout)
-    result = subprocess.CompletedProcess(to_argv(cmd), code, out, err)
+    argv, out, err, code = await _run_cmd_streams(
+        cmd, cwd=cwd, env=env, timeout=timeout
+    )
+    result = subprocess.CompletedProcess(argv, code, out, err)
     if check:
         result.check_returncode()
     return result
@@ -314,9 +313,9 @@ def exec_cmd(
     If ``env`` is provided, its keys are merged over the current process
     environment (``os.environ``) rather than replacing it wholesale.
     """
+    _audit(cmd, cwd)
     if not quiet:
         _echo(cmd)
-    _audit(cmd, cwd)
     if cwd is not None:
         os.chdir(cwd)
     if env:

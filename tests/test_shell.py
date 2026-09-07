@@ -6,12 +6,13 @@ import sys
 
 import pytest
 
+from maelstrom import shell
 from maelstrom.shell import (
     Command,
     Pipeline,
     RawShell,
-    async_run_cmd,
     describe,
+    exec_cmd,
     run_cmd,
     run_cmd_async,
     to_argv,
@@ -196,50 +197,14 @@ class TestRunCmdEnv:
         assert result.stdout.strip() == "inherited"
 
 
-class TestAsyncRunCmd:
-    """The async half of the chokepoint, for callers that own an event loop."""
-
-    def test_it_runs_a_shell_expr_and_captures_both_streams(self):
-        out, err, code = asyncio.run(
-            async_run_cmd(["sh", "-c", "printf out; printf err >&2; exit 3"])
-        )
-        assert (out, err, code) == ("out", "err", 3)
-
-    def test_it_does_not_raise_on_a_non_zero_exit(self):
-        """The caller reads the code. An async caller has no CalledProcessError
-        to catch mid-turn, and a failing command is often the point."""
-        _, _, code = asyncio.run(async_run_cmd(["false"]))
-        assert code != 0
-
-    def test_a_raw_string_goes_through_a_shell(self):
-        """``RawShell`` is the one way a raw string reaches the chokepoint, so
-        a grep for it finds every place user text is executed."""
-        out, _, _ = asyncio.run(async_run_cmd(RawShell("echo a | tr a b")))
-        assert out.strip() == "b"
-
-    def test_a_bare_argv_takes_no_shell(self):
-        """The ShellExpr guarantee holds on the async path: no shell, so a
-        metacharacter in an argument is data, not syntax."""
-        out, _, _ = asyncio.run(async_run_cmd(["echo", "a; whoami"]))
-        assert out.strip() == "a; whoami"
-
-    def test_it_runs_in_the_given_directory(self, tmp_path):
-        (tmp_path / "marker.txt").write_text("x")
-        out, _, _ = asyncio.run(async_run_cmd(["ls"], cwd=tmp_path))
-        assert "marker.txt" in out
-
-    def test_a_timeout_kills_the_whole_process_group(self):
-        """A pipeline's children must die with it, or they hold the worktree."""
-        with pytest.raises(subprocess.TimeoutExpired):
-            asyncio.run(async_run_cmd(RawShell("sleep 30 | cat"), timeout=0.3))
-
-
 class TestRunCmdAsync:
     """``run_cmd_async`` is ``run_cmd``'s contract, off the calling thread.
 
     The model shells out from a server that holds one loop for every client,
     so a blocking wait stalls all of them. Keeping the contract identical is
-    what lets a call site convert by adding ``await`` and nothing else.
+    what lets a call site convert by adding ``await`` and nothing else. It is
+    the only public async runner, so every async command in the codebase is
+    one grep away.
     """
 
     def test_it_returns_a_completed_process_like_run_cmd(self):
@@ -257,20 +222,49 @@ class TestRunCmdAsync:
             asyncio.run(run_cmd_async(["false"], quiet=True))
 
     def test_check_false_returns_the_failure_instead_of_raising(self):
-        result = asyncio.run(run_cmd_async(["false"], quiet=True, check=False))
-        assert result.returncode != 0
+        """A server has no script to abort, so it reads the code instead."""
+        result = asyncio.run(
+            run_cmd_async(["sh", "-c", "exit 3"], quiet=True, check=False)
+        )
+        assert result.returncode == 3
+
+    def test_it_captures_both_streams(self):
+        result = asyncio.run(
+            run_cmd_async(
+                ["sh", "-c", "printf out; printf err >&2; exit 3"],
+                quiet=True,
+                check=False,
+            )
+        )
+        assert (result.stdout, result.stderr, result.returncode) == ("out", "err", 3)
+
+    def test_a_raw_string_goes_through_a_shell(self):
+        """``RawShell`` is the one way a raw string reaches the chokepoint, so
+        a grep for it finds every place user text is executed."""
+        result = asyncio.run(run_cmd_async(RawShell("echo a | tr a b"), quiet=True))
+        assert result.stdout.strip() == "b"
+
+    def test_a_bare_argv_takes_no_shell(self):
+        """The ShellExpr guarantee holds on the async path: no shell, so a
+        metacharacter in an argument is data, not syntax."""
+        result = asyncio.run(run_cmd_async(["echo", "a; whoami"], quiet=True))
+        assert result.stdout.strip() == "a; whoami"
+        assert result.args == ["echo", "a; whoami"]
 
     def test_it_runs_in_the_given_directory(self, tmp_path):
         (tmp_path / "marker.txt").write_text("x")
         result = asyncio.run(run_cmd_async(["ls"], cwd=tmp_path, quiet=True))
         assert "marker.txt" in result.stdout
 
-    def test_a_bare_argv_takes_no_shell(self):
-        result = asyncio.run(run_cmd_async(["echo", "a; whoami"], quiet=True))
-        assert result.stdout.strip() == "a; whoami"
+    def test_a_timeout_kills_the_whole_process_group(self):
+        """A pipeline's children must die with it, or they hold the worktree."""
+        with pytest.raises(subprocess.TimeoutExpired):
+            asyncio.run(
+                run_cmd_async(RawShell("sleep 30 | cat"), quiet=True, timeout=0.3)
+            )
 
     def test_it_does_not_block_the_loop(self):
-        """The point of the twin: other work runs while the child does."""
+        """The point of the async twin: other work runs while the child does."""
         ticks = []
 
         async def scenario():
@@ -285,3 +279,42 @@ class TestRunCmdAsync:
 
         asyncio.run(scenario())
         assert len(ticks) > 1, "the loop was blocked for the whole command"
+
+
+class TestAuditPrecedesEcho:
+    """Every entry point audits before it echoes.
+
+    The audit log and the console are read side by side, so an entry point
+    that reversed the two would make one command appear in a different order
+    from the next depending only on which runner the caller picked.
+    """
+
+    def _order(self, monkeypatch):
+        order = []
+        monkeypatch.setattr(shell, "_audit", lambda cmd, cwd: order.append("audit"))
+        monkeypatch.setattr(shell, "_echo", lambda cmd: order.append("echo"))
+        return order
+
+    def test_run_cmd_audits_first(self, monkeypatch):
+        order = self._order(monkeypatch)
+        run_cmd(["true"])
+        assert order == ["audit", "echo"]
+
+    def test_run_cmd_async_audits_first(self, monkeypatch):
+        order = self._order(monkeypatch)
+        asyncio.run(run_cmd_async(["true"]))
+        assert order == ["audit", "echo"]
+
+    def test_exec_cmd_audits_first(self, monkeypatch):
+        """``exec_cmd`` never returns, so the exec is stubbed to end the call."""
+        order = self._order(monkeypatch)
+        monkeypatch.setattr(
+            shell.os, "execvp", lambda *a: (_ for _ in ()).throw(_ExecCalled())
+        )
+        with pytest.raises(_ExecCalled):
+            exec_cmd(["true"])
+        assert order == ["audit", "echo"]
+
+
+class _ExecCalled(Exception):
+    """Stands in for the exec that would replace this process."""
