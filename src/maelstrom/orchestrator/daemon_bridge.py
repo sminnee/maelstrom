@@ -261,7 +261,7 @@ class SocketAsyncDaemonClient:
         try:
             reader, writer = await open_connection(self.socket_path)
         except (OSError, asyncio.TimeoutError) as error:
-            yield {"error": connect_failure(self.socket_path, error)}
+            yield connect_failure(self.socket_path, error)
             return
         try:
             command = attach_command(agent_id, from_seq, epoch)

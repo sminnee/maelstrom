@@ -17,6 +17,8 @@ import socket
 import pytest
 
 from maelstrom.agent_transport import (
+    KIND_DENIED,
+    KIND_UNREACHABLE,
     STREAM_LIMIT,
     UNREACHABLE_MARKER,
     SocketAsyncDaemonClient,
@@ -209,3 +211,50 @@ class TestEveryConnectSiteTellsTheCasesApart:
 
         reply = asyncio.run(first_line())
         assert UNREACHABLE_MARKER in reply["error"]
+
+
+class TestTheReplyCarriesTheKind:
+    """Callers branch on `kind`, not on the wording of `error`.
+
+    `agent_cli` used to decide "does a daemon hold these agents?" by looking
+    for a substring in the message. Rewording any transport error could put
+    that substring where it did not belong, and `gc` would kill live agents.
+    """
+
+    def test_a_denial_is_kind_denied(self, tmp_path, deny_connect):
+        deny_connect(errno.EPERM)
+        reply = asyncio.run(
+            request_over_socket(str(tmp_path / "agent-daemon.sock"), {"cmd": "list"})
+        )
+        assert reply["kind"] == KIND_DENIED
+
+    def test_an_absent_daemon_is_kind_unreachable(self, tmp_path):
+        missing = str(tmp_path / "gone" / "agent-daemon.sock")
+        reply = asyncio.run(request_over_socket(missing, {"cmd": "list"}))
+        assert reply["kind"] == KIND_UNREACHABLE
+
+    def test_the_async_attach_carries_the_kind_too(self, tmp_path, deny_connect):
+        deny_connect(errno.EPERM)
+
+        async def first_line():
+            async for line in SocketAsyncDaemonClient(
+                str(tmp_path / "agent-daemon.sock")
+            ).attach("a1"):
+                return line
+            return {}
+
+        assert asyncio.run(first_line())["kind"] == KIND_DENIED
+
+    def test_a_daemon_error_carries_no_kind(self, connected_pair):
+        """Only a connect failure has a kind; a daemon's own error is its own."""
+
+        async def run():
+            server = connected_pair({"error": "no such agent: a1"})
+            try:
+                return await request_over_socket("unused.sock", {"cmd": "show"})
+            finally:
+                await asyncio.wait_for(server, timeout=SERVE_TIMEOUT)
+
+        reply = asyncio.run(run())
+        assert reply["error"] == "no such agent: a1"
+        assert "kind" not in reply

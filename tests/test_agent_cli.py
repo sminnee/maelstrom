@@ -27,6 +27,20 @@ from maelstrom.agent_transport import (
     SocketDaemonClient,
 )
 
+
+def _unreachable(root) -> dict:
+    """The reply a client gets when nothing is listening on `root`'s socket.
+
+    Built by the transport rather than written out here: these fakes stand in
+    for a real connect failure, and a hand-written copy stops matching the
+    moment the reply grows a field.
+    """
+    socket_path = str(agent_transport.DaemonPaths(Path(root)).socket)
+    return agent_transport.connect_failure(
+        socket_path, FileNotFoundError(2, "No such file")
+    )
+
+
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
 
 
@@ -592,7 +606,7 @@ class TestStopAgentsInWorktree:
     def test_an_unreachable_daemon_is_silent(self):
         # The close must not fail because the daemon is down; the pid sweep
         # that follows still tears the session down.
-        messages, client = self._stop([{"error": "No agent daemon on /x."}])
+        messages, client = self._stop([_unreachable("/x")])
         assert messages == []
 
     def test_a_refused_stop_is_reported_not_raised(self):
@@ -743,7 +757,7 @@ def test_gc_with_no_daemon_kills_the_strays_and_leaves_their_records_running(
     store, signals = _local_root(monkeypatch, [("a1", 100, "running")], [100, 200])
     result, client = run_cli(
         ["daemon", "gc"],
-        replies=[{"error": "No agent daemon on /x. Run `mael self-env start`."}],
+        replies=[_unreachable("/x")],
     )
     assert result.exit_code == 0, result.output
     assert [s[0] for s in signals] == [100, 200]
@@ -755,7 +769,7 @@ def test_reconcile_with_no_daemon_touches_nothing(monkeypatch):
     store, signals = _local_root(monkeypatch, [("a1", 100, "running")], [])
     result, _ = run_cli(
         ["daemon", "reconcile", "--json"],
-        replies=[{"error": "No agent daemon on /x. Run `mael self-env start`."}],
+        replies=[_unreachable("/x")],
     )
     assert result.exit_code == 0, result.output
     body = json.loads(result.output)
@@ -771,7 +785,7 @@ def test_list_shows_each_record_with_its_pid_liveness_and_holder(monkeypatch):
     )
     result, _ = run_cli(
         ["daemon", "list", "--json"],
-        replies=[{"error": "No agent daemon on /x. Run `mael self-env start`."}],
+        replies=[_unreachable("/x")],
     )
     assert result.exit_code == 0, result.output
     rows = {row["id"]: row for row in json.loads(result.output)}
@@ -803,7 +817,7 @@ def test_an_unreadable_process_table_is_an_error_not_a_verdict(monkeypatch):
     monkeypatch.setattr(agent_cli, "list_claude_processes", unreadable)
     result, _ = run_cli(
         ["daemon", "gc"],
-        replies=[{"error": "No agent daemon on /x. Run `mael self-env start`."}],
+        replies=[_unreachable("/x")],
     )
     assert result.exit_code != 0
     assert "process table" in result.output
@@ -986,13 +1000,7 @@ class TestAnUnreachableDaemonIsReported:
         monkeypatch.setenv("MAEL_AGENT_ROOT", str(root))
         result, _ = run_cli(
             ["list"],
-            replies=[
-                {
-                    "error": agent_transport.unreachable_message(
-                        agent_transport.DaemonPaths(root)
-                    )
-                }
-            ],
+            replies=[_unreachable(root)],
         )
         assert result.exit_code == 1
         assert f"No agent daemon on {root}" in result.output
@@ -1007,13 +1015,7 @@ class TestAnUnreachableDaemonIsReported:
         monkeypatch.setenv("MAEL_AGENT_ROOT", str(root))
         result, _ = run_cli(
             ["daemon", "status"],
-            replies=[
-                {
-                    "error": agent_transport.unreachable_message(
-                        agent_transport.DaemonPaths(root)
-                    )
-                }
-            ],
+            replies=[_unreachable(root)],
         )
         assert result.exit_code == 1
         assert f"No agent daemon on {root}" in result.output
@@ -1023,14 +1025,12 @@ class TestAnUnreachableDaemonIsReported:
         self, tmp_path, monkeypatch
     ):
         """The case `gc` exists for: a daemon that died leaving children."""
-        from maelstrom.agent_transport import DaemonPaths, unreachable_message
-
         monkeypatch.setattr(
             agent_cli, "list_claude_processes", lambda: [], raising=False
         )
         result, _ = run_cli(
             ["daemon", "gc"],
-            replies=[{"error": unreachable_message(DaemonPaths(tmp_path))}],
+            replies=[_unreachable(tmp_path)],
         )
         assert result.exit_code == 0, result.output
 
