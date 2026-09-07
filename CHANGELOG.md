@@ -12,6 +12,31 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Removed
 
+- **Session tracking is gone: the registry, its MCP channel, and its eleven hooks.** A Bun MCP
+  server ran beside every session and wrote a file under `~/.maelstrom/sessions`, and eleven
+  hooks in your global `settings.json` kept it current. Nothing load-bearing read it: liveness
+  has come from the process table for some time, and what a driven agent is doing comes from
+  the agent daemon. The channel also shipped only in a git checkout, so on a `uv tool install`
+  it could never start.
+
+  **Run `mael install` once after upgrading.** It clears the stale `mael-session` MCP entry
+  from `~/.claude.json` and the `mael session record` hooks from `~/.claude/settings.json`,
+  which would otherwise keep launching a command that no longer exists. Hooks you added
+  yourself are left alone.
+
+  `bun` is no longer a prerequisite. `mael session record`, `mael session-channel` and
+  `mael install --no-monitor` are gone. `mael session list` keeps its rows but drops the
+  `STATE` and `AGE` columns, and `mael session info` drops its `state`, `age` and `model`
+  fields. Only the registry could fill those — `mael agent list` reports agent state, including
+  what a waiting agent waits on.
+
+- **A task no longer closes itself when its session ends.** That was the `SessionEnd` hook's
+  doing, and it went with the rest. Close a task with `mael task status done` — the
+  task-completion flow already requires this. If a session dies before it gets there,
+  `mael task reconcile --fix` finds the task and closes it.
+
+- **`mael status set` / `mael status clear`.** The cmux status line never found a use.
+
 - **`mael claude`.** It was a duplicate of `mael open` and the name had stopped being true: the
   default harness is the daemon, and `--opencode` launches something that is not Claude at all.
   Use `mael open`.
