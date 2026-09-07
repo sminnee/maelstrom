@@ -317,9 +317,10 @@ def get_local_only_commits(worktree_path: Path, branch: str | None) -> int:
         branch: Branch name (or None if detached).
 
     Returns:
-        Number of local-only commits.
+        Number of local-only commits, or 0 when the branch is detached or the
+        worktree directory has gone.
     """
-    if not branch:
+    if not branch or not worktree_path.is_dir():
         return 0
 
     # Check if remote branch exists
@@ -348,7 +349,7 @@ def get_local_only_commits(worktree_path: Path, branch: str | None) -> int:
 
 async def get_local_only_commits_async(worktree_path: Path, branch: str | None) -> int:
     """:func:`get_local_only_commits`, without blocking the calling thread."""
-    if not branch:
+    if not branch or not worktree_path.is_dir():
         return 0
 
     remote_branch = f"origin/{branch}"
@@ -379,8 +380,12 @@ def get_pushed_commit_count(worktree_path: Path, branch: str) -> int | None:
         branch: Branch name.
 
     Returns:
-        Number of pushed commits, or None if branch not pushed.
+        Number of pushed commits, or None when the branch is not pushed or the
+        worktree directory has gone.
     """
+    if not worktree_path.is_dir():
+        return None
+
     remote_branch = f"origin/{branch}"
 
     # Check if remote branch exists
@@ -407,6 +412,9 @@ def get_pushed_commit_count(worktree_path: Path, branch: str) -> int | None:
 
 async def get_pushed_commit_count_async(worktree_path: Path, branch: str) -> int | None:
     """:func:`get_pushed_commit_count`, without blocking the calling thread."""
+    if not worktree_path.is_dir():
+        return None
+
     remote_branch = f"origin/{branch}"
 
     result = await run_cmd_async(
