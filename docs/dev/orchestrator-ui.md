@@ -193,8 +193,8 @@ agent to the next mode: plan, then auto, then normal. The chip shows the mode th
 announced, so a refused change leaves it where it was.
 
 A session tab on an agent with subagents draws a strip under the transcript: one link per
-subagent, with a state dot that pulses while it runs, its description, what it waits on when it
-is blocked, and its summary once it has ended. A blocked subagent says so here rather than in the
+subagent, with a state dot that pulses while it runs, its description, and what it waits on when
+it is blocked. A blocked subagent says so here rather than in the
 parent's stream, so the ask sits beside the subagent that raised it; the decision itself is made
 on the parent, whose pipe takes the reply. The link opens the subagent as a session tab of its own, `session:X.1`. That tab is
 the same component, read-only: it heads with the id and the description, and has no message
@@ -202,6 +202,13 @@ input, no mode chip and no decision handlers, because a subagent's asks are answ
 parent.
 Opening the tab opens the transcript socket, which is what makes the server attach to the
 subagent; closing it releases the socket after the usual 5-second grace, and the server detaches.
+
+The strip lists the running subagents only, because it says what is happening now, and the strip
+goes with the last of them. A fold under it counts the finished ones and opens to the same links.
+The strip is the only way into a subagent's tab, so the fold is what keeps a finished subagent's
+transcript reachable; it stays closed and unadorned, because an escape hatch must not compete
+with the running work above it. The state is read as it stands, so a subagent that speaks after
+its notification comes back to the strip — see [agent-daemon.md](agent-daemon.md).
 
 Every tool card starts folded. The summary line names the tool, its title and its status, and a
 click opens the body. An agent that makes hundreds of calls is a list, not a wall of text. A

@@ -72,6 +72,21 @@
   font-size: var(--text-xs);
   font-family: var(--mono);
 }
+/* An escape hatch, not a feature: pale, and quieter than the strip above it. */
+.finished {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  font-size: var(--text-xs);
+  font-family: var(--mono);
+  color: var(--fg-muted);
+}
+.finished > summary {
+  cursor: pointer;
+  color: var(--fg-muted);
+}
 .subagent {
   display: flex;
   gap: 8px;
@@ -88,9 +103,6 @@
 .dot[data-state='processing'] {
   background: var(--accent);
   animation: pulse 1.6s ease-in-out infinite;
-}
-.dot[data-state='exited'] {
-  background: var(--fg-muted);
 }
 @keyframes pulse {
   0%,
@@ -113,14 +125,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.subagentSummary {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--fg-muted);
 }
 /* What a blocked subagent waits on. Reads as the attention colour, because
    this row is where the user learns which subagent needs them. */
