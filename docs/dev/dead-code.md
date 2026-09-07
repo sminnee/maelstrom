@@ -60,7 +60,12 @@ cannot be told apart from real dead code, and the next reader cannot tell whethe
 safe.
 
 Vulture matches a whitelist name anywhere, not in one file. Before you add a name, check that no
-other module has a finding of the same name.
+other module has a finding of the same name. A generic name such as `id` or `status` hides every
+finding of that name in the codebase, so keep the whitelist to names that earn their place.
+
+**Audit the whitelist by deleting from it.** Remove an entry and run the gate. A gate that stays
+green means the entry was doing nothing, and a dead entry is worse than none: it hides any future
+finding of that name. The whitelist went from 98 entries to 43 this way.
 
 ## Python
 
@@ -69,8 +74,9 @@ such table and has no profiles, so `bin/vulture-check` spells the test pass out 
 flags. Those flags replace the table rather than adding to it, so the test pass restates every
 setting.
 
-That duplication fails silently. `tests/test_dead_code_config.py` holds the flags to the table, and
-it is what makes the duplication safe to keep.
+That duplication fails silently, and nothing checks it. Change `[tool.vulture]` and change
+`bin/vulture-check` in the same edit. A setting added to one alone changes what the test pass
+reports, and no gate says so.
 
 The whitelist carries the wire fields of `orchestrator/protocol.py`. Python writes each field and
 TypeScript reads it, so no Python call site exists. Regenerate the entries with:
