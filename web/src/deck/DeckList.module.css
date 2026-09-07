@@ -56,7 +56,7 @@
   margin: 0;
   padding: var(--space-5) var(--space-4);
   color: var(--fg-faint);
-  font-size: var(--text-md);
+  font-size: var(--text-ui);
   text-align: center;
 }
 .frame {

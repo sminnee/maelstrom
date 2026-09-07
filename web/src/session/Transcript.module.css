@@ -128,11 +128,12 @@
 .skill {
   border: 1px solid transparent;
   border-radius: var(--radius);
-  border-bottom-color: var(--border);
+  color: var(--fg-faint);
 }
 .skill[open] {
   border-color: var(--border);
   background: var(--bg-sunken);
+  color: var(--fg-muted);
 }
 .skillHead {
   display: flex;

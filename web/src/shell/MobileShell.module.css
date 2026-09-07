@@ -31,7 +31,7 @@
   min-height: var(--touch);
   padding: 0 var(--space-3);
   font: inherit;
-  font-size: var(--text-md);
+  font-size: var(--text-ui);
   color: var(--accent);
   background: none;
   border: none;

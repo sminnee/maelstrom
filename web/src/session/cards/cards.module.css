@@ -21,35 +21,39 @@
   color: var(--fg-faint);
   margin-bottom: 2px;
 }
-/* Closed, a hairline only, so a run of calls reads as one ledger rather than a
-   stack of cards. Open, it holds content, so the box comes back. */
+/*
+ * Closed, no chrome at all: a rule under the row was still a line the eye had to
+ * dismiss on every call, and a run of them read as ruled paper. What separates a
+ * tool call from the prose around it is tone, not structure — the whole row sits
+ * in `--fg-faint` and only comes forward on hover or when it is opened.
+ */
 .tool {
   border: 1px solid transparent;
   border-radius: var(--radius);
-  border-bottom-color: var(--border);
+  color: var(--fg-faint);
 }
 .tool[open] {
   border-color: var(--border);
   background: var(--bg-sunken);
+  color: var(--fg-muted);
 }
 .toolHead {
   display: flex;
   gap: var(--space-2);
   align-items: baseline;
-  padding: 3px var(--space-2);
+  padding: 2px var(--space-2);
   font-size: var(--text-xs);
   font-family: var(--mono);
   line-height: var(--leading-ui);
 }
 .toolHead:hover {
-  color: var(--fg);
+  color: var(--fg-muted);
 }
 .toolName {
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-medium);
 }
 .toolTitle {
   flex: 1;
-  color: var(--fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
