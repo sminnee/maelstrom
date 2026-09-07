@@ -4,9 +4,10 @@
 # build. See docs/dev/dead-code.md for why, and for what to do with a finding.
 #
 # Run this rather than vulture directly. [tool.vulture] configures the
-# production pass alone; the test pass is the flags below. CI calls this script
-# too, so the two cannot drift, and tests/test_dead_code_config.py holds the
-# flags to the table.
+# production pass alone; the test pass is the flags below. Keep the two in
+# step by hand: command-line values replace the table rather than adding to
+# it, so a setting added to one and not the other changes what this pass
+# reports without failing anything.
 set -euo pipefail
 
 echo "== vulture: production pass (report only) =="
