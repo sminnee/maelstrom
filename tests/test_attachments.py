@@ -98,6 +98,25 @@ class TestMarkdownRef:
         ref = attachments.markdown_ref("shot.png", "{{MAEL_TASK_DIR}}/images/t1/a.png")
         assert ref == "![shot.png]({{MAEL_TASK_DIR}}/images/t1/a.png)"
 
+    def test_alt_text_cannot_close_the_ref_and_name_another_target(self):
+        """The alt text is written by an agent or a client, so it is not trusted.
+
+        A `]` that ended the alt would let the rest of the text name any URL,
+        and the browser would fetch it: the registry would no longer be the
+        only route to what the reader sees.
+        """
+        ref = attachments.markdown_ref(
+            "x](https://evil.example/beacon.png)", "/api/files/ag1-2-shot.png"
+        )
+        assert ref.endswith("(/api/files/ag1-2-shot.png)")
+        assert "https://evil.example" not in ref.split("](")[-1]
+        assert ref.count("](") == 1
+
+    def test_a_newline_in_alt_text_cannot_break_out_of_the_ref(self):
+        """A ref is one line, so a newline would leave markdown behind it."""
+        ref = attachments.markdown_ref("one\ntwo", "/api/files/ag1-2-shot.png")
+        assert "\n" not in ref
+
 
 class TestSizeAndFormatGuards:
     """One paste must not be able to fill the notebook repo."""

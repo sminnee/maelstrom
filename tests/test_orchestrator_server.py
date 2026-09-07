@@ -3521,3 +3521,98 @@ def test_a_server_that_cannot_close_worktrees_says_so(harness):
     reply = run(scenario())
     assert reply.status == 400
     assert "cannot close worktrees" in reply.body["error"]["message"]
+
+
+# --- files -------------------------------------------------------------------
+
+
+IMAGE_BYTES = b"\x89PNG\r\n\x1a\n" + b"fake png body"
+
+
+def image_tag(src: str) -> str:
+    return f'Look at this.\n\n<image src="{src}" alt="A shot">'
+
+
+def served_file_id(markdown: str) -> str:
+    """The file id out of the ref an ``<image>`` tag left in the message."""
+    return markdown.split("/api/files/", 1)[1].split(")", 1)[0]
+
+
+async def shown_file_id(api: Api) -> str:
+    """The id of the file ``ag1``'s last message showed.
+
+    A transcript raises no change notice — it travels on its own stream — so
+    this polls rather than waiting on one.
+    """
+    body = await until(
+        api,
+        "/api/agents/ag1/transcript",
+        lambda b: any("/api/files/" in i.get("markdown", "") for i in b["items"]),
+    )
+    return served_file_id(
+        next(
+            i["markdown"]
+            for i in body["items"]
+            if "/api/files/" in i.get("markdown", "")
+        )
+    )
+
+
+def test_an_id_a_tag_minted_serves_the_file(harness, tmp_path):
+    """The one route to a file's bytes, keyed by what the agent showed."""
+    (tmp_path / "shot.png").write_bytes(IMAGE_BYTES)
+    harness.daemon.rows["ag1"] = agent_row(cwd=str(tmp_path))
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event(image_tag("shot.png")))
+                file_id = await shown_file_id(api)
+                # Read the raw bytes: the shared reply helper decodes text,
+                # and a PNG is not text.
+                async with api.session.get(f"/api/files/{file_id}") as response:
+                    return (
+                        response.status,
+                        response.headers["Content-Type"],
+                        (await response.read()),
+                    )
+
+    status, content_type, body = run(scenario())
+    assert status == 200
+    assert content_type == "image/png"
+    assert body == IMAGE_BYTES
+
+
+def test_an_id_that_was_never_minted_is_unknown(harness, tmp_path):
+    """The route authorises by lookup, so a well-shaped id reaches nothing."""
+    harness.daemon.rows["ag1"] = agent_row(cwd=str(tmp_path))
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                return await api.get("/api/files/ag1-2-shot.png")
+
+    reply = run(scenario())
+    assert reply.status == 404
+    assert reply.body["error"]["code"] == "unknown_id"
+
+
+def test_a_registered_file_that_is_gone_is_unknown(harness, tmp_path):
+    """The id was real; the bytes are not."""
+    (tmp_path / "shot.png").write_bytes(IMAGE_BYTES)
+    harness.daemon.rows["ag1"] = agent_row(cwd=str(tmp_path))
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event(image_tag("shot.png")))
+                file_id = await shown_file_id(api)
+                (tmp_path / "shot.png").unlink()
+                return await api.get(f"/api/files/{file_id}")
+
+    reply = run(scenario())
+    assert reply.status == 404
+    assert reply.body["error"]["code"] == "unknown_id"

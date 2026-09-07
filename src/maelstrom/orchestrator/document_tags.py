@@ -12,12 +12,22 @@ Two forms::
 ``filename`` may name several files, comma-separated. A task set is one
 document holding the whole chain, so one tag names every draft in it.
 
+An agent shows a picture with a third tag, which mints no document at all::
+
+    <image src="docs/shot.png" alt="The failing dialog">
+
 See ``docs/dev/orchestrator-server.md``, "A tagged document", for the design.
 """
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+#: Turns one image tag into the markdown that replaces it, or ``None`` when the
+#: file may not be shown. The registry is what decides, so the decision is
+#: injected rather than made here.
+ShowImage = Callable[["ImageTag"], str | None]
 
 #: The document kinds the protocol declares. Anything else reads as ``other``,
 #: so a typo shows a document rather than dropping it.
@@ -34,6 +44,7 @@ _CONTENT_TAG = re.compile(
     rf"<doc-content\b{_ATTRIBUTES}>\n?(.*?)\n?</doc-content>", re.DOTALL
 )
 _FILE_TAG = re.compile(rf"<doc-file\b{_ATTRIBUTES}>")
+_IMAGE_TAG = re.compile(rf"<image\b{_ATTRIBUTES}>")
 
 
 @dataclass(frozen=True)
@@ -54,18 +65,43 @@ class DocumentTag:
 
 
 @dataclass(frozen=True)
+class ImageTag:
+    """One picture an agent asked to show, and where in the text it sits.
+
+    ``start`` and ``end`` are the span the tag occupied. An image is shown
+    where it was written, so the caller replaces that span rather than cutting
+    it out the way a document tag is cut out.
+    """
+
+    src: str
+    alt: str
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
 class TaggedMessage:
-    """A message split into the text the transcript shows and the tags it carried."""
+    """A message split into the text the transcript shows and the tags it carried.
+
+    An image leaves no entry here. ``show_image`` has already put it in the
+    text, which is the only place an image goes.
+    """
 
     text: str
     tags: tuple[DocumentTag, ...]
 
 
-def read_tags(text: str) -> TaggedMessage:
+def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
     """Split ``text`` into what the user reads and the documents it asks for.
 
     The tags come out in the order they were written, and the text keeps the
     prose around them.
+
+    ``show_image`` turns one :class:`ImageTag` into the markdown that replaces
+    it, and returns ``None`` for an image that may not be shown. It runs in the
+    same pass that cuts the document tags out, because an offset taken before
+    that cut would not survive it. It is required: a default would quietly
+    rewrite every image to "could not be shown".
     """
     tags: list[tuple[int, DocumentTag]] = []
     spans: list[tuple[int, int]] = []
@@ -110,18 +146,57 @@ def read_tags(text: str) -> TaggedMessage:
         )
         spans.append(match.span())
 
-    if not tags:
-        return TaggedMessage(text=text, tags=())
+    replacements: list[tuple[int, int, str]] = []
+    for match in _IMAGE_TAG.finditer(text):
+        # An `<image>` inside a `<doc-content>` body is that body's text.
+        if any(start <= match.start() < end for start, end in spans):
+            continue
+        attributes = _attributes(match.group(1))
+        src = attributes.get("src", "")
+        image = ImageTag(
+            src=src,
+            alt=attributes.get("alt", "") or src,
+            start=match.start(),
+            end=match.end(),
+        )
+        shown = show_image(image)
+        replacements.append((match.start(), match.end(), shown or _not_shown(src)))
+
     tags.sort(key=lambda pair: pair[0])
-    return TaggedMessage(text=_without(text, spans), tags=tuple(tag for _, tag in tags))
+    return TaggedMessage(
+        text=_rewritten(text, spans, replacements),
+        tags=tuple(tag for _, tag in tags),
+    )
 
 
-def _without(text: str, spans: list[tuple[int, int]]) -> str:
-    """``text`` with ``spans`` cut out, and the blank lines they left tidied."""
+def _not_shown(src: str) -> str:
+    """What stands in for an image the user is not going to see.
+
+    A broken picture would leave the agent believing it showed something, so
+    the message says which file and that it was refused.
+    """
+    return f"_`{src}` could not be shown._"
+
+
+def _rewritten(
+    text: str,
+    spans: list[tuple[int, int]],
+    replacements: list[tuple[int, int, str]],
+) -> str:
+    """``text`` with document spans cut and image spans replaced.
+
+    One ordered pass over both, because a cut moves every offset after it and
+    an image's span is an offset into the original text.
+    """
+    edits = sorted(
+        [(start, stop, "") for start, stop in spans] + replacements,
+        key=lambda edit: edit[0],
+    )
     kept = []
     end = 0
-    for start, stop in sorted(spans):
+    for start, stop, insert in edits:
         kept.append(text[end:start])
+        kept.append(insert)
         end = stop
     kept.append(text[end:])
     return re.sub(r"\n{3,}", "\n\n", "".join(kept)).strip()

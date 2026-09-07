@@ -25,7 +25,7 @@ from ..util import now_iso
 from . import desk as desk_model
 from .daemon_bridge import AsyncDaemonClient
 from .desk import DeskTable, desk_id_for_agent, desk_id_for_task
-from .document_tags import stays_within
+from .file_registry import FileRegistry
 from .hubs import COALESCE_SECS, WS_QUEUE_LIMIT, NoticeHub, TranscriptHub
 from .normalise import (
     NormaliseContext,
@@ -144,6 +144,10 @@ class Orchestrator:
         self.clock = clock
         self.executor = executor
         self.state = WorldState()
+        #: Every file an agent named, by the id that stands for it. The only
+        #: route to a file's bytes, so a file nobody registered is unreachable.
+        #: Not persisted, exactly as a document is not.
+        self.files = FileRegistry()
         #: Minted per server life, so a client can tell a restart from a reconnect.
         self.epoch = uuid.uuid4().hex[:8]
         self.notices = NoticeHub(notice_coalesce)
@@ -750,7 +754,9 @@ class Orchestrator:
         await self._emit(watch, out)
 
     async def _normalise(self, watch: AgentWatch, raw: dict[str, Any]) -> None:
-        out = normalise_stream_event(self.state.state, watch.ctx, raw, self.clock())
+        out = normalise_stream_event(
+            self.state.state, watch.ctx, raw, self.clock(), files=self.files
+        )
         await self._emit(watch, out)
 
     async def _emit(self, watch: AgentWatch, out: Normalised) -> None:
@@ -1114,7 +1120,6 @@ class Orchestrator:
         as reading them did.
         """
         agent = self.world["agents"].get(document["agentId"])
-        cwd = agent["cwd"] if agent else ""
         # The agent's project, not the task's: a free agent may plan a chain
         # too, and its worktree is what says where the tasks belong.
         project = agent["project"] if agent else ""
@@ -1122,9 +1127,14 @@ class Orchestrator:
             return [], _refused("invalid", "The agent is in no project's worktree")
         paths: list[Path] = []
         for name in document["source"].get("paths", []):
-            if not stays_within(cwd, name):
+            # A `<doc-file>` registers every file it names, so the id resolves
+            # to the path the registry already validated. A name that is not a
+            # registered id belongs to a document minted before the file was
+            # readable, and there is nothing to promote.
+            found = self.files.resolve(name)
+            if found is None:
                 return [], _refused("invalid", f"{name} is not a file in the worktree")
-            paths.append(Path(cwd) / name)
+            paths.append(found)
         try:
             created = await self._run(
                 self.tasks.promote, project, paths, self._chain_parent(document)

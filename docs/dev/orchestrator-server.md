@@ -139,10 +139,11 @@ user saying yes in the chat. The orchestrator UI has no chat, so the document's 
 what runs the promote; otherwise approval would be advice the agent may ignore rather than a gate.
 
 So approving a `tasks` document whose `source` is `draft_files` promotes every path it names, in
-order, and every other kind stays the verdict alone. The paths resolve against the agent's `cwd`
-through the same `stays_within` that read them. The first task follows the end of its parent's
-child-chain — `--follow-end '*'`, as the skill wires it by hand — and each later one follows the
-one before, so the chain lands as the document listed it. The reply carries the created ids,
+order, and every other kind stays the verdict alone. A `source` names registry ids, so the paths
+come back from the registry that validated them when the tag was read — see "The file registry".
+The first task follows the end of its parent's child-chain — `--follow-end '*'`, as the skill
+wires it by hand — and each later one follows the one before, so the chain lands as the document
+listed it. The reply carries the created ids,
 because an approve that reports nothing reads as an approve that did nothing.
 
 The head is **not** launched: the task list and node cards already offer Launch. The agent is told

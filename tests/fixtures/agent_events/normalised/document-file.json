@@ -26,8 +26,8 @@
       }
     },
     "documents": {
-      "ag1-3": {
-        "id": "ag1-3",
+      "ag1-4": {
+        "id": "ag1-4",
         "agentId": "ag1",
         "taskId": "NORT-7",
         "kind": "tasks",
@@ -38,7 +38,7 @@
         "source": {
           "type": "draft_files",
           "paths": [
-            "draft-iter1.md"
+            "ag1-3-draft-iter1.md"
           ]
         }
       }
@@ -72,7 +72,7 @@
           "subtype": "success",
           "costUsd": 0.0312,
           "durationMs": 1500,
-          "id": "ag1-4",
+          "id": "ag1-5",
           "ts": "2026-09-05T03:00:05.000Z"
         }
       ],
