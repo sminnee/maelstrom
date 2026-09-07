@@ -466,3 +466,50 @@ def test_one_unreadable_worktree_does_not_blank_the_others(tmp_path):
         "alpha-2",
     ]
 
+
+class _BlockingProbe:
+    """Records overlap between *synchronous* reads, across threads."""
+
+    def __init__(self, delay=0.05):
+        self.running = 0
+        self.peak = 0
+        self.delay = delay
+        self.lock = threading.Lock()
+
+    def read(self):
+        with self.lock:
+            self.running += 1
+            self.peak = max(self.peak, self.running)
+        time.sleep(self.delay)
+        with self.lock:
+            self.running -= 1
+
+
+def test_the_project_store_reads_do_not_block_the_other_projects(tmp_path):
+    """``GitConfigBaseStore`` runs ``git config``, so it must not run inline.
+
+    Both its calls are subprocesses. Run on the event loop they serialise
+    every other project's reads behind them, which gives back the
+    concurrency the gather above buys.
+    """
+    for n in range(4):
+        (tmp_path / f"project-{n}" / ".mael").mkdir(parents=True)
+    probe = _BlockingProbe()
+
+    class SlowStore:
+        def __init__(self, project_path):
+            pass
+
+        def all(self):
+            probe.read()
+            return {}
+
+        def read_stack_tip(self):
+            probe.read()
+            return "main"
+
+    with _quiet_worktree_reads(GitConfigBaseStore=SlowStore):
+        data = asyncio.run(build_list_all_data(tmp_path))
+
+    assert len(data["projects"]) == 4
+    assert probe.peak > 1, "the store reads ran one after another"

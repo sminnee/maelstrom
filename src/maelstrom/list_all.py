@@ -282,9 +282,14 @@ async def _project_data(
         closed_paths = await closed_worktrees_async(project_path, worktrees)
         # One repo lookup per project answers the PR URL for every row.
         repo_url = await project_repo_url(project_path)
-    # One store read per project answers the base for every row.
+    # One store read per project answers the base for every row. Both store
+    # calls shell out to `git config`, so they go to a thread: run inline they
+    # would block every other project's reads behind this one.
     base_store = GitConfigBaseStore(project_path)
-    bases = base_store.all()
+    bases, stack_tip = await asyncio.gather(
+        asyncio.to_thread(base_store.all),
+        asyncio.to_thread(base_store.read_stack_tip),
+    )
 
     # Skip the project root (bare repo). Resolved, because git reports the
     # real path and a symlinked projects dir would never match.
@@ -322,7 +327,7 @@ async def _project_data(
     return {
         "name": project_name,
         "path": str(project_path),
-        "stack_tip": base_store.read_stack_tip(),
+        "stack_tip": stack_tip,
         "repo_url": repo_url,
         "worktrees": worktree_data,
     }
