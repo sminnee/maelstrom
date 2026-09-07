@@ -13,6 +13,7 @@ from maelstrom.shell import (
     async_run_cmd,
     describe,
     run_cmd,
+    run_cmd_async,
     to_argv,
 )
 
@@ -231,3 +232,56 @@ class TestAsyncRunCmd:
         """A pipeline's children must die with it, or they hold the worktree."""
         with pytest.raises(subprocess.TimeoutExpired):
             asyncio.run(async_run_cmd(RawShell("sleep 30 | cat"), timeout=0.3))
+
+
+class TestRunCmdAsync:
+    """``run_cmd_async`` is ``run_cmd``'s contract, off the calling thread.
+
+    The model shells out from a server that holds one loop for every client,
+    so a blocking wait stalls all of them. Keeping the contract identical is
+    what lets a call site convert by adding ``await`` and nothing else.
+    """
+
+    def test_it_returns_a_completed_process_like_run_cmd(self):
+        result = asyncio.run(
+            run_cmd_async(["sh", "-c", "printf out; printf err >&2"], quiet=True)
+        )
+        assert result.stdout == "out"
+        assert result.stderr == "err"
+        assert result.returncode == 0
+
+    def test_it_raises_on_a_non_zero_exit_like_run_cmd(self):
+        """``check=True`` is the default on both, so a converted caller keeps
+        the error handling it already had."""
+        with pytest.raises(subprocess.CalledProcessError):
+            asyncio.run(run_cmd_async(["false"], quiet=True))
+
+    def test_check_false_returns_the_failure_instead_of_raising(self):
+        result = asyncio.run(run_cmd_async(["false"], quiet=True, check=False))
+        assert result.returncode != 0
+
+    def test_it_runs_in_the_given_directory(self, tmp_path):
+        (tmp_path / "marker.txt").write_text("x")
+        result = asyncio.run(run_cmd_async(["ls"], cwd=tmp_path, quiet=True))
+        assert "marker.txt" in result.stdout
+
+    def test_a_bare_argv_takes_no_shell(self):
+        result = asyncio.run(run_cmd_async(["echo", "a; whoami"], quiet=True))
+        assert result.stdout.strip() == "a; whoami"
+
+    def test_it_does_not_block_the_loop(self):
+        """The point of the twin: other work runs while the child does."""
+        ticks = []
+
+        async def scenario():
+            async def tick():
+                for _ in range(5):
+                    ticks.append(1)
+                    await asyncio.sleep(0.01)
+
+            ticker = asyncio.create_task(tick())
+            await run_cmd_async(["sh", "-c", "sleep 0.2"], quiet=True)
+            ticker.cancel()
+
+        asyncio.run(scenario())
+        assert len(ticks) > 1, "the loop was blocked for the whole command"
