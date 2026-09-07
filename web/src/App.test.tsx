@@ -160,12 +160,11 @@ describe('App', () => {
   it('reads the PR number and its state in the collapsed node identity', async () => {
     await renderApp();
     const node = document.querySelector('[data-task-id="NORT-12"]') as HTMLElement;
-    // The meta row is a reading, not a link: the whole node is already a click target.
     expect(node).toHaveTextContent('#118');
-    expect(within(node).queryByRole('link', { name: /#118/ })).toBeNull();
-    // The chip carries the state too, so the board reads without expanding a node.
-    const chip = within(node).getByTitle('CI running');
-    expect(chip).toHaveAttribute('data-pr-state', 'ci-running');
+    // The chip carries the state as a colour, so the board reads at a glance;
+    // the name carries it in words, so colour is never the only channel.
+    const chip = within(node).getByRole('link', { name: 'PR #118, CI running' });
+    expect(chip).toHaveAttribute('data-tone', 'busy');
     // A task on a worktree with no PR says nothing.
     expect(document.querySelector('[data-task-id="NORT-9"]')).not.toHaveTextContent('#118');
   });
@@ -184,7 +183,10 @@ describe('App', () => {
     await waitFor(() => {
       const node = document.querySelector('[data-task-id="NORT-12"]') as HTMLElement;
       // Draft wins, so the chip must not read as the failure underneath it.
-      expect(within(node).getByTitle('draft')).toHaveAttribute('data-pr-state', 'draft');
+      expect(within(node).getByRole('link', { name: 'PR #118, draft' })).toHaveAttribute(
+        'data-tone',
+        'quiet',
+      );
     });
   });
 
@@ -200,7 +202,10 @@ describe('App', () => {
     });
     await waitFor(() => {
       const node = document.querySelector('[data-task-id="NORT-12"]') as HTMLElement;
-      expect(within(node).getByTitle('CI failed')).toHaveAttribute('data-pr-state', 'ci-failed');
+      expect(within(node).getByRole('link', { name: 'PR #118, CI failed' })).toHaveAttribute(
+        'data-tone',
+        'bad',
+      );
     });
   });
 
@@ -352,7 +357,7 @@ describe('the expanded node', () => {
     it('links the PR at its own URL, saying its state, in a new tab', async () => {
       await renderApp();
       clickNode('NORT-12');
-      const link = within(expanded()).getByRole('link', { name: 'PR #118 · CI running' });
+      const link = within(expanded()).getByRole('link', { name: 'PR #118, CI running' });
       expect(link).toHaveAttribute('href', 'https://github.com/acme/northwind/pull/118');
       expect(link).toHaveAttribute('target', '_blank');
     });
@@ -361,7 +366,7 @@ describe('the expanded node', () => {
       const { server } = await renderApp();
       clickNode('NORT-12');
       expect(
-        within(expanded()).getByRole('link', { name: 'PR #118 · CI running' }),
+        within(expanded()).getByRole('link', { name: 'PR #118, CI running' }),
       ).toBeInTheDocument();
       act(() => {
         server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {
@@ -373,7 +378,7 @@ describe('the expanded node', () => {
       });
       await waitFor(() =>
         expect(
-          within(expanded()).getByRole('link', { name: 'PR #118 · ready to merge' }),
+          within(expanded()).getByRole('link', { name: 'PR #118, ready to merge' }),
         ).toBeInTheDocument(),
       );
     });
@@ -391,7 +396,7 @@ describe('the expanded node', () => {
       });
       await waitFor(() =>
         expect(
-          within(expanded()).getByRole('link', { name: 'PR #118 · draft' }),
+          within(expanded()).getByRole('link', { name: 'PR #118, draft' }),
         ).toBeInTheDocument(),
       );
     });
@@ -416,7 +421,7 @@ describe('the expanded node', () => {
       );
       // The PR link is not the dev env's: it stays.
       expect(
-        within(expanded()).getByRole('link', { name: 'PR #118 · CI running' }),
+        within(expanded()).getByRole('link', { name: 'PR #118, CI running' }),
       ).toBeInTheDocument();
     });
   });
@@ -1974,6 +1979,11 @@ describe('the narrow layout', () => {
     await renderApp({ viewport: 'narrow' });
     const row = screen.getByTestId('deck-list').querySelector('[data-task-id="NORT-12"]');
     expect(row).toHaveTextContent('#118');
+    // The chip carries its state in words here too, but not as a link: the
+    // whole row is a button, and an anchor may not nest inside one.
+    const chip = within(row as HTMLElement).getByLabelText('PR #118, CI running');
+    expect(chip).toHaveAttribute('data-tone', 'busy');
+    expect(within(row as HTMLElement).queryByRole('link', { name: /PR #118/ })).toBeNull();
   });
 
   it('opens on the running zone, and a task that finishes moves to the done tab', async () => {

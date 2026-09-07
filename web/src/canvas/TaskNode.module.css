@@ -177,10 +177,10 @@
   content: '·';
   margin-right: 6px;
 }
+/* The chip owns its own type and shape; the row only places it. */
 .pr {
   flex: none;
-  font-family: var(--mono);
-  white-space: nowrap;
+  align-self: center;
 }
 .phase {
   flex: none;

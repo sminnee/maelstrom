@@ -54,7 +54,7 @@ export function DeckRow({ node, onOpen }: { node: GraphNode; onOpen: () => void 
             {node.task ? node.task.notebookId : node.id.slice(0, 8)}
           </span>
           {node.worktree && <span className={styles.worktree}>{node.worktree.nato}</span>}
-          <PrChip worktree={node.worktree} className={styles.pr} />
+          <PrChip worktree={node.worktree} link={false} className={styles.pr} />
           {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
         </span>
       </button>

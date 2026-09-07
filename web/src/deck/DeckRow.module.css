@@ -71,13 +71,18 @@
 }
 .project,
 .id,
-.worktree,
-.pr {
+.worktree {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* The chip is a pill, not text: `overflow: hidden` would cut its rounded
+   border rather than ellipsise anything, and shrinking squashes the icon. */
+.pr {
+  flex: none;
+  align-self: center;
 }
 .phase {
   margin-left: auto;

@@ -2,15 +2,7 @@ import type { Story } from '@ladle/react';
 import { HueChip } from './HueChip';
 import { PrChip } from '../shell/PrChip';
 import { GitHubIcon } from '../shell/GitHubIcon';
-import {
-  ConflictIcon,
-  DraftIcon,
-  FailedIcon,
-  MergedIcon,
-  ReadyIcon,
-  RunningIcon,
-  UnknownIcon,
-} from '../shell/PrStateIcons';
+import { ExternalLinkIcon } from '../shell/ExternalLinkIcon';
 import type { PrState, Worktree } from '../protocol/entities';
 
 export default { title: 'UI / HueChip' };
@@ -24,10 +16,7 @@ function Board({ children }: { children: React.ReactNode }) {
   return (
     <div
       style={{
-        minHeight: '100vh',
         padding: 'var(--space-5)',
-        background: 'var(--bg)',
-        color: 'var(--fg)',
         fontFamily: 'var(--font)',
         display: 'flex',
         flexDirection: 'column',
@@ -108,20 +97,27 @@ export const PrStates: Story = () => (
 export const Tones: Story = () => (
   <Board>
     <Row label="the six readings">
-      <HueChip icon={MergedIcon} word="archived" tone="special" size="large" href="#" />
-      <HueChip icon={ReadyIcon} word="passing" tone="good" size="large" href="#" />
-      <HueChip icon={FailedIcon} word="failing" tone="bad" size="large" href="#" />
-      <HueChip icon={RunningIcon} word="deploying" tone="busy" size="large" href="#" />
-      <HueChip icon={UnknownIcon} word="checking" tone="neutral" size="large" href="#" />
-      <HueChip icon={DraftIcon} word="parked" tone="quiet" size="large" href="#" />
+      <HueChip brand={GitHubIcon} word="archived" tone="special" size="large" href="#" />
+      <HueChip brand={GitHubIcon} word="passing" tone="good" size="large" href="#" />
+      <HueChip brand={GitHubIcon} word="failing" tone="bad" size="large" href="#" />
+      <HueChip brand={GitHubIcon} word="deploying" tone="busy" size="large" href="#" />
+      <HueChip brand={GitHubIcon} word="checking" tone="neutral" size="large" href="#" />
+      <HueChip brand={GitHubIcon} word="parked" tone="quiet" size="large" href="#" />
     </Row>
-    <Row label="with a service mark, and something to say at rest">
-      <HueChip icon={ConflictIcon} brand={GitHubIcon} word="stale" tone="bad" size="large" href="#">
+    <Row label="a second mark, for a chip that needs one">
+      <HueChip
+        brand={GitHubIcon}
+        icon={ExternalLinkIcon}
+        word="stale"
+        tone="bad"
+        size="large"
+        href="#"
+      >
         #4021
       </HueChip>
     </Row>
     <Row label="a long word must not clip: there is no width ceiling">
-      <HueChip icon={ConflictIcon} word="merge conflicts" tone="bad" size="large" href="#" />
+      <HueChip brand={GitHubIcon} word="merge conflicts" tone="bad" size="large" href="#" />
     </Row>
   </Board>
 );
