@@ -138,7 +138,10 @@ def _filenames_of(attributes: dict[str, str]) -> tuple[str, ...]:
     dropped, so a trailing comma names no extra file.
     """
     raw = attributes.get("filename", "")
-    return tuple(name.strip() for name in raw.split(",") if name.strip())
+    named = (name.strip() for name in raw.split(",") if name.strip())
+    # De-duped: one file named twice is one draft, and promoting it twice
+    # would make two tasks from one plan.
+    return tuple(dict.fromkeys(named))
 
 
 def _kind_of(attributes: dict[str, str]) -> str:

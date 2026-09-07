@@ -16,10 +16,46 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from ..agent_model import PLAN_TOOL, QUESTION_TOOL, TS_KEY, from_wire_mode
+from ..task import parse_draft
 from .document_tags import DocumentTag, read_tags, read_worktree_file, stays_within
 from .protocol import Agent, Attention, ClientState, Document, ServerEvent
 
 Dict = dict[str, Any]
+
+#: The document kind whose files are draft task files, and so carry a recipe.
+DRAFT_KIND = "tasks"
+
+#: The recipe fields a reader approving a chain needs: they decide how the task
+#: runs. The rest of the frontmatter is identity, and a draft leaves it empty.
+_RECIPE = ("mode", "model", "command", "priority", "pre_action", "post_action")
+
+
+def _as_plan(text: str) -> str:
+    """One draft task file as the plan a reviewer reads.
+
+    A task file opens with ``---``, which markdown reads as a setext heading, so
+    a draft shown whole draws its whole recipe as one giant heading with the
+    plan buried under it. Rendering it instead puts the title where the reader
+    looks for it — ``title:`` lives only in the frontmatter — and keeps the
+    recipe, which is what approving the chain actually decides.
+
+    A draft that will not parse is shown as written: it is the one the user most
+    needs to read, because it is the one they have to fix.
+    """
+    try:
+        draft = parse_draft(text)
+    except ValueError:
+        return text
+    recipe = ", ".join(
+        f"{name.replace('_', '-')}: {value}"
+        for name in _RECIPE
+        if (value := getattr(draft, name))
+    )
+    head = f"## {draft.title}"
+    if recipe:
+        head += f"\n\n_{recipe}_"
+    return f"{head}\n\n{draft.content}".rstrip() + "\n"
+
 
 #: Reads the file a ``<doc-file>`` tag names, given the agent's ``cwd``. The
 #: normaliser's one piece of I/O, injected.
@@ -538,7 +574,7 @@ class _Emitter:
         raises an attention item.
         """
         if tag.filenames:
-            markdown = self._file_bodies(tag.filenames, read_file)
+            markdown = self._file_bodies(tag.kind, tag.filenames, read_file)
             source: Dict = {"type": "draft_files", "paths": list(tag.filenames)}
         else:
             markdown = tag.markdown
@@ -563,19 +599,22 @@ class _Emitter:
                 "document_review", f"{tag.title} awaiting review", None, document_id
             )
 
-    def _file_bodies(self, filenames: tuple[str, ...], read_file: ReadFile) -> str:
-        """Every named file's content, as one document to read.
+    def _file_bodies(
+        self, kind: str, filenames: tuple[str, ...], read_file: ReadFile
+    ) -> str:
+        """Every named file, as one document to read.
 
         A set of drafts is one chain, so the user reads it as one document
-        rather than opening a tab per file. Each body is headed by its
-        filename when there is more than one, so the reader can tell them
-        apart and knows which one to name when asking for a change.
+        rather than opening a tab per file. A ``tasks`` document is rendered as
+        the plan it holds — see :func:`_as_plan`; every other kind is shown as
+        written, because only a task file has a recipe to read off.
         """
-        if len(filenames) == 1:
-            return self._file_body(filenames[0], read_file)
-        return "\n\n".join(
-            f"## {name}\n\n{self._file_body(name, read_file)}" for name in filenames
-        )
+        bodies = [(name, self._file_body(name, read_file)) for name in filenames]
+        if kind == DRAFT_KIND:
+            return "\n\n".join(_as_plan(body) for _, body in bodies)
+        if len(bodies) == 1:
+            return bodies[0][1]
+        return "\n\n".join(f"## {name}\n\n{body}" for name, body in bodies)
 
     def _file_body(self, filename: str, read_file: ReadFile) -> str:
         """``filename``'s content, or prose saying why the user is not reading it."""

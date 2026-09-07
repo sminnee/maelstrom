@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from maelstrom import task as task_model
 from maelstrom.orchestrator.document_tags import read_worktree_file
 from maelstrom.orchestrator.normalise import (
     NormaliseContext,
@@ -1030,6 +1031,71 @@ def test_a_doc_file_tag_may_name_a_whole_set_of_files():
     # One document to read, so the bodies come through together.
     assert "# One" in doc["markdown"]
     assert "# Two" in doc["markdown"]
+
+
+def show_file(kind: str, filename: str, body: str) -> dict:
+    """Mint one document from a `<doc-file>` tag of ``kind`` naming ``body``."""
+    state = seed([make_agent(id="ag1", state="idle")])
+    replayed = Replayed(state)
+    out = normalise_stream_event(
+        state,
+        context_for_agent("ag1"),
+        tag_message(f'<doc-file kind="{kind}" filename="{filename}">'),
+        NOW,
+        read_file=fake_reader({filename: body}),
+    )
+    replayed.take(out.events)
+    [doc] = documents_of(replayed)
+    return doc
+
+
+def test_a_file_that_is_not_a_task_set_keeps_every_rule_it_wrote():
+    """Only a task set has a recipe to drop.
+
+    A changelog may open with a horizontal rule and carry more of them. Read as
+    frontmatter, the newest entry vanishes from what the user reads.
+    """
+    changelog = (
+        "---\n\n# Changelog\n\n## 1.4.0\n\nNewest.\n\n---\n\n## 1.3.0\n\nOlder.\n"
+    )
+    doc = show_file("other", "CHANGELOG.md", changelog)
+    assert doc["markdown"] == changelog
+
+
+def test_a_task_set_is_headed_by_its_title_not_its_filename():
+    """``title:`` lives only in the frontmatter, so a strip alone loses it.
+
+    The user approving a chain reads task titles, not draft filenames.
+    """
+    draft = task_model.draft_markdown(
+        title="Execute: add avatar upload", mode="auto", content="The plan body."
+    )
+    doc = show_file("tasks", "iter1.md", draft)
+    assert "Execute: add avatar upload" in doc["markdown"]
+    assert "The plan body." in doc["markdown"]
+
+
+def test_a_task_set_shows_the_recipe_the_user_is_approving():
+    """Approving decides how each task runs, so the recipe must be readable."""
+    draft = task_model.draft_markdown(
+        title="Execute: demo",
+        mode="auto",
+        model="opus",
+        command="plan-next-step",
+        content="Body.",
+    )
+    doc = show_file("tasks", "iter1.md", draft)
+    assert "auto" in doc["markdown"]
+    assert "opus" in doc["markdown"]
+    assert "plan-next-step" in doc["markdown"]
+    # The raw YAML block would draw as one giant setext heading.
+    assert not doc["markdown"].lstrip().startswith("---")
+
+
+def test_a_task_set_whose_draft_will_not_parse_is_still_shown():
+    """A draft the user must fix is exactly the one they need to read."""
+    doc = show_file("tasks", "iter1.md", '---\ntitle: "unclosed\n---\n\nBody.\n')
+    assert "Body." in doc["markdown"]
 
 
 def test_a_set_whose_title_is_unset_falls_back_to_the_first_filename():
