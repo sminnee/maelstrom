@@ -25,6 +25,7 @@ release while that section is empty, and retitles it to the version it is releas
 
 - **A service restart appends to its log rather than truncating it.** A service that died left
   nothing to read, because the restart that followed wiped the log of the crash that caused it.
+  A restart rolls the log over at 20 MB, keeping the previous file as `.log.1`.
 
 - **The orchestrator answers while it reads.** It shelled out for worktrees, PRs and sessions on
   one thread, so a read of every project — 19s on a large machine — blocked every request behind
