@@ -149,6 +149,8 @@ def run_server(host: str, port: int, log_level: str = DEFAULT_LOG_LEVEL) -> None
         with suppress(asyncio.CancelledError):
             await serving
 
+    # One worker, not a pool: the SQLite index behind the notebook is bound to
+    # the thread that opened it, so every blocking read must run on the same one.
     with ThreadPoolExecutor(max_workers=1) as executor:
         orchestrator = build_orchestrator(executor=executor)
         asyncio.run(serve())
