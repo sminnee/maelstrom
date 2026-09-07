@@ -31,6 +31,7 @@ from typing import Callable, TypeVar
 from .base_store import GitConfigBaseStore
 from .github_model import (
     PASSING_STATES,
+    PR_DRAFT_PATH,
     TERMINAL_STATES,
     Artifact,
     CheckRun,
@@ -358,6 +359,24 @@ def _open_prs_argv(query: str) -> list[str]:
     ]
 
 
+def read_pr_draft(cwd: Path) -> str | None:
+    """The drafted PR body in ``cwd``, or ``None`` when there is no draft.
+
+    An unreadable draft is a missing one — nothing here is worth failing a push
+    over.
+    """
+    draft = cwd / PR_DRAFT_PATH
+    try:
+        return draft.read_text()
+    except OSError:
+        return None
+
+
+def discard_pr_draft(cwd: Path) -> None:
+    """Delete the PR draft in ``cwd``, if it is still there."""
+    (cwd / PR_DRAFT_PATH).unlink(missing_ok=True)
+
+
 def create_pr(
     cwd: Path | None = None,
     draft: bool = False,
@@ -425,20 +444,30 @@ def create_pr(
     # Check if PR already exists (and is open)
     pr_exists = False
     existing_url = ""
+    existing_number = ""
     try:
         result = run_cmd(
-            ["gh", "pr", "view", "--json", "url,state", "-q", '.url + " " + .state'],
+            [
+                "gh",
+                "pr",
+                "view",
+                "--json",
+                "url,state,number",
+                "-q",
+                '.url + " " + .state + " " + (.number|tostring)',
+            ],
             cwd=cwd,
             quiet=True,
             check=False,
         )
         if result.returncode == 0 and result.stdout.strip():
-            parts = result.stdout.strip().rsplit(" ", 1)
-            if len(parts) == 2:
-                url, state = parts
+            parts = result.stdout.strip().rsplit(" ", 2)
+            if len(parts) == 3:
+                url, state, number = parts
                 if state == "OPEN":
                     pr_exists = True
                     existing_url = url
+                    existing_number = number
     except FileNotFoundError:
         raise GitHubCliMissing("gh")
 
@@ -471,10 +500,15 @@ def create_pr(
     except subprocess.CalledProcessError as e:
         raise GitHubCommandFailed("read the current branch", e.stderr)
 
+    # Read after the push: a failed push raises above and leaves the draft.
+    has_draft = read_pr_draft(cwd) is not None
+
     # If PR exists, just return the URL. Registration still runs: the stack may
     # have grown or collapsed since the PR was opened, and `link` is how GitHub
     # learns about it.
     if pr_exists:
+        if has_draft and _write_pr_body(cwd, existing_number, announce=announce):
+            discard_pr_draft(cwd)
         _register_stack(cwd, branch_name, announce=announce)
         return existing_url, False
 
@@ -491,7 +525,19 @@ def create_pr(
         title = f"{title} ({verb} {issue_id.upper()})"
 
     # Create the PR with explicit title (--fill can fail if base branch not fetched)
-    cmd = ["gh", "pr", "create", "--title", title, "--body", "", "--head", branch_name]
+    # The body goes as a file, not as argv: a draft carrying an overview,
+    # diagrams and review notes runs past the argv size limit.
+    body_args = ["--body-file", str(PR_DRAFT_PATH)] if has_draft else ["--body", ""]
+    cmd = [
+        "gh",
+        "pr",
+        "create",
+        "--title",
+        title,
+        *body_args,
+        "--head",
+        branch_name,
+    ]
     if draft:
         cmd.append("--draft")
 
@@ -501,6 +547,8 @@ def create_pr(
         raise GitHubCommandFailed("create PR", result.stderr)
 
     new_url = result.stdout.strip()
+    if has_draft:
+        discard_pr_draft(cwd)
     _register_stack(cwd, branch_name, announce=announce)
     return new_url, True
 
@@ -529,6 +577,41 @@ def _resolve_base_branch(cwd: Path) -> str:
         return GitConfigBaseStore(cwd).read(get_current_branch(cwd)).branch
     except Exception:
         return MAIN_BRANCH
+
+
+def _write_pr_body(
+    cwd: Path,
+    number: str,
+    *,
+    announce: Callable[[str], None] = print_flushed,
+) -> bool:
+    """Replace an open PR's body with the PR draft. True when it landed.
+
+    Never fatal: the branch is already pushed, so a failed write costs the
+    description and nothing else — the same contract :func:`_register_stack`
+    has. Returning False is what keeps the draft on disk for the next attempt.
+    """
+    try:
+        result = run_cmd(
+            ["gh", "pr", "edit", number, "--body-file", str(PR_DRAFT_PATH)],
+            cwd=cwd,
+            quiet=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        announce(
+            "Warning: could not write the PR body — gh is not installed. "
+            f"The PR is pushed; the draft is still at {PR_DRAFT_PATH}."
+        )
+        return False
+    if result.returncode != 0:
+        announce(
+            f"Warning: could not write the PR body "
+            f"({result.stderr.strip() or 'gh pr edit failed'}). "
+            f"The PR is pushed; the draft is still at {PR_DRAFT_PATH}."
+        )
+        return False
+    return True
 
 
 def _register_stack(

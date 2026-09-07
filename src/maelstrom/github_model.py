@@ -14,9 +14,16 @@ dependency).
 
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal
 
 from .worktree_model import MAIN_BRANCH
+
+# Where the PR body is drafted, relative to the worktree. A fixed path rather
+# than a flag: the agent that writes the overview and the agent that appends
+# review notes both name it, and a flag would put the same constant in every
+# skill file. It also makes the delete safe — `create-pr` removes only this file.
+PR_DRAFT_PATH = Path(".drafts/pr.md")
 
 
 @dataclass

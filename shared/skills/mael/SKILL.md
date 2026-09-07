@@ -208,6 +208,9 @@ Passing `ISSUE_ID` appends `(Fixes ISSUE_ID)` to the title and sets the Linear t
 "In Review". Use `--progress` instead for multi-session work with remaining tail: it uses
 `(Progresses ISSUE_ID)` and leaves the status alone.
 
+**Write the PR body to `.drafts/pr.md` before you push.** `create-pr` puts it on the PR and
+deletes the draft. A failed push leaves the draft for the next attempt.
+
 **Run the waits in the background** (`run_in_background: true`) so the session stays responsive:
 `mael gh read-pr --wait` blocks until CI finishes and exits 0 on pass, 1 on fail, 2 on timeout.
 `--wait-for-review` blocks until a reviewer comments.
@@ -241,8 +244,8 @@ it applies to all mael projects.
    Findings come back under **Summary**, **Design decisions**, **Findings** — not ranked by
    severity.
 3. Triage the findings by what the fix costs: apply the ones that are correct and in scope,
-   discard the ones that don't apply. Carry the rest — scope changes and potential refactors —
-   into the PR description under "Raised by review, not actioned".
+   discard the ones that don't apply. Write the rest — scope changes and potential refactors —
+   into `.drafts/pr.md` under a `## Raised by review, not actioned` heading.
 4. Commit the review fixes as `--fixup` commits — one per finding fixed,
    targeting the commit that introduced the issue. See the code-review skill for
    the exact procedure. Do not amend existing commits.

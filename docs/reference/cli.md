@@ -58,7 +58,7 @@ directory.
 | `mael rm TARGETS...` | Alias for `mael remove`. |
 | `mael sync [TARGET]` | Rebase the worktree against its base (`origin/main` unless the branch is stacked). |
 | `mael sync-all [PROJECT]` | Sync every worktree in the project, parents before their children. |
-| `mael tidy-branches [PROJECT]` | Rebase feature branches, delete merged ones, force-push unmerged ones. Skips any branch another branch is stacked on. |
+| `mael tidy-branches [PROJECT]` | Rebase feature branches, delete merged ones, force-push unmerged ones. Skips any branch another branch is stacked on. Deletes each deleted branch's working history. |
 | `mael base [TARGET]` | Show the branch this worktree's work is stacked on. |
 | `mael stack-tip [BRANCH]` | Show or move the branch new worktrees stack on. `main` is the default tip; passing it resets. |
 | `mael promote [TARGET]` | Move this branch to the bottom of its stack so it can merge first. |
@@ -787,6 +787,10 @@ mael gh check-log 12345678 --failed-only
 With `ISSUE_ID` (e.g. `ME-41`), appends `(Fixes ISSUE_ID)` to the PR title for Linear
 auto-linking and sets the Linear issue to "In Review".
 
+The PR body comes from the PR draft — see [the pull requests guide](../guide/pull-requests.md).
+
+A failed body write warns and still returns the PR URL — the branch is pushed either way.
+
 | Option | Description |
 |---|---|
 | `--draft` | Create as a draft PR. |
@@ -835,10 +839,12 @@ Exit codes: 0 = passed, 1 = failed, 2 = timeout.
 |---|---|
 | `mael git status [TARGET]` | Show a compact git status summary. |
 | `mael git merge [TARGET]` | Rebase the current branch onto main, fast-forward main to it, and push. |
+| `mael git uncommit-branch [TARGET]` | Return the branch to unstaged changes at its base tip, keeping a working history. |
 
 ```bash
 mael git status              # compact summary; the only other --json consumer
 mael git merge --close       # merge, then close the worktree
+mael git uncommit-branch     # collapse the commits back into the working tree
 ```
 
 To autosquash `fixup!` commits without pushing, use `mael sync --squash --no-push`.
@@ -849,6 +855,25 @@ To autosquash `fixup!` commits without pushing, use `mael sync --squash --no-pus
 |---|---|
 | `--close` | After merging, close the worktree and delete the feature branch. |
 | `--no-squash` | Skip autosquashing `fixup!` commits during the rebase. |
+
+**`mael git uncommit-branch`**
+
+Returns the branch to unstaged changes at its base tip, keeping a working history. See
+[the pull requests guide](../guide/pull-requests.md) for the workflow.
+
+It takes no flags. The rebase is not optional: a base tip computed against a stale base would
+uncommit someone else's work into the tree.
+
+It prints the base, the working-history ref, the commit count and the diff stat. It exits 1, and
+changes nothing, when:
+
+- the working tree has uncommitted changes (`.env` excluded);
+- a rebase or merge is in progress;
+- the branch has no commits ahead of its base;
+- the rebase conflicts. The rebase aborts and the tree is restored. Run `mael sync` first.
+
+`mael tidy-branches`, `mael sync --close` and `mael git merge --close` delete a branch's working
+history with the branch.
 
 ---
 

@@ -1,6 +1,7 @@
 """CLI commands for git operations."""
 
 import json
+import subprocess
 from pathlib import Path
 
 import click
@@ -13,8 +14,9 @@ from .worktree import (
     get_current_branch,
     get_local_only_commits,
     merge_to_main,
+    uncommit_branch,
 )
-from .worktree_model import MAIN_BRANCH
+from .worktree_model import MAIN_BRANCH, WorktreeError
 
 
 def print_rebase_conflict_help(result: SyncResult) -> None:
@@ -328,3 +330,41 @@ def git_merge(target, close, no_squash):
         raise SystemExit(1)
 
     raise click.ClickException(result.message)
+
+
+@git.command("uncommit-branch")
+@click.argument("target", required=False, default=None)
+def git_uncommit_branch(target):
+    """Return this branch to unstaged changes at its base tip.
+
+    Rebases onto the branch's base, keeps the commits under a working-history
+    ref, then resets. The changes are all still there, unstaged, ready to be
+    re-cut into story commits. The undo is ``git reset --hard`` onto the ref it
+    prints.
+    """
+    try:
+        context = resolve_context(target, require_project=True, require_worktree=True)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    worktree_path = context.worktree_path
+    if worktree_path is None or not worktree_path.exists():
+        raise click.ClickException(f"Worktree not found at {worktree_path}")
+
+    try:
+        result = uncommit_branch(worktree_path)
+    except WorktreeError as e:
+        click.echo(str(e), err=True)
+        raise SystemExit(1)
+    except subprocess.CalledProcessError as e:
+        # A worktree whose git reads fail — an unborn HEAD, a path that is not a
+        # repo — reaches here before any of the checks above run.
+        click.echo(f"git failed: {e.stderr or e}", err=True)
+        raise SystemExit(1)
+
+    click.echo(f"Base: {result.base}")
+    click.echo(f"Working history: {result.history_ref}")
+    click.echo(f"Uncommitted {result.commits} commits into the working tree.")
+    if result.stat:
+        click.echo()
+        click.echo(result.stat)

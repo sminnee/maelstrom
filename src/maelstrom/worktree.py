@@ -9,6 +9,7 @@ import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .base_store import BaseStore, GitConfigBaseStore
@@ -47,6 +48,8 @@ from .worktree_model import (
     RebasePlan,
     StackTip,
     UnclosableWorktreeError,
+    UncommitResult,
+    WorktreeError,
     WorktreeNamesExhaustedError,
     WorktreeSetupError,
     apply_preserved_values,
@@ -55,6 +58,8 @@ from .worktree_model import (
     extract_worktree_name_from_folder,
     fetch_prunes,
     get_worktree_folder_name,
+    history_ref,
+    history_ref_prefix,
     is_worktree_closable,
     parse_env_text,
     plan_rebase,
@@ -1431,6 +1436,133 @@ def merge_to_main(
         pushed=pushed,
         push_message=push_message,
     )
+
+
+def uncommit_branch(
+    worktree_path: Path, *, store: BaseStore | None = None
+) -> UncommitResult:
+    """Return a branch to unstaged changes at its base tip.
+
+    The chronological commits move to a working-history ref, and the branch resets
+    to where it left its base.
+
+    The rebase is not optional. Resetting to a base tip computed against a stale
+    base would silently uncommit someone else's work into this tree, so the branch
+    is brought up to date first. It is the same rebase ``mael sync --no-push
+    --abort`` runs, through :func:`rebase_worktree`, so the base is stack-aware and
+    a conflict restores the tree instead of leaving a rebase in progress.
+
+    Args:
+        worktree_path: Path to the worktree directory.
+        store: Where branch bases live. Defaults to the project's git config.
+
+    Returns:
+        UncommitResult naming the base, the history ref, and what was collapsed.
+
+    Raises:
+        WorktreeError: If the worktree refuses the command, or the rebase
+            conflicts. In both cases the worktree is as it was.
+    """
+    worktree_path = worktree_path.resolve()
+    branch = get_current_branch(worktree_path)
+
+    dirty = get_worktree_dirty_files(worktree_path)
+    if dirty:
+        raise WorktreeError(
+            f"{branch} has uncommitted changes ({', '.join(sorted(dirty)[:5])}). "
+            "Commit or discard them first — uncommit-branch replaces the working "
+            "tree with the branch's own changes."
+        )
+    if rebase_in_progress(worktree_path) or _merge_in_progress(worktree_path):
+        raise WorktreeError(
+            f"{branch} has a rebase or merge in progress. Finish or abort it first."
+        )
+
+    resolved_store: BaseStore = (
+        store if store is not None else GitConfigBaseStore(worktree_path)
+    )
+    base = resolved_store.read(branch).branch
+    if get_commits_ahead(worktree_path, f"origin/{base}") == 0:
+        raise WorktreeError(
+            f"{branch} has no commits ahead of origin/{base}; nothing to uncommit."
+        )
+
+    rebase = rebase_worktree(
+        worktree_path, squash=False, abort_on_conflict=True, store=resolved_store
+    )
+    if not rebase.success:
+        raise WorktreeError(f"{rebase.message} Run `mael sync` and try again.")
+    base = rebase.base
+
+    fork_point = run_git(
+        ["merge-base", "HEAD", f"origin/{base}"], cwd=worktree_path, quiet=True
+    ).stdout.strip()
+    commits = get_commits_ahead(worktree_path, fork_point)
+    if commits == 0:
+        # The check above read `origin/<base>` as it was before the fetch. The
+        # rebase can still empty the branch — its commits were already upstream.
+        raise WorktreeError(
+            f"{branch} has no commits ahead of origin/{base} after the rebase; "
+            "nothing to uncommit."
+        )
+
+    # The stat has to be read before the reset. Afterwards the new files are
+    # untracked, and `git diff` does not see them at all.
+    stat = run_git(
+        ["diff", "--stat", f"{fork_point}..HEAD"], cwd=worktree_path, quiet=True
+    ).stdout.strip()
+
+    ref = _free_history_ref(worktree_path, branch)
+    run_git(["update-ref", ref, "HEAD"], cwd=worktree_path, quiet=True)
+
+    reset = run_git(
+        ["reset", "--mixed", fork_point], cwd=worktree_path, quiet=True, check=False
+    )
+    if reset.returncode != 0:
+        # The ref is written but the branch never moved. Drop it, so a retry does
+        # not leave a history for work that is still committed.
+        run_git(["update-ref", "-d", ref], cwd=worktree_path, quiet=True, check=False)
+        raise WorktreeError(
+            f"Could not reset {branch} to its base tip: "
+            f"{reset.stderr.strip() or 'git reset failed'}"
+        )
+
+    return UncommitResult(base=base, history_ref=ref, commits=commits, stat=stat)
+
+
+def _free_history_ref(worktree_path: Path, branch: str) -> str:
+    """A history ref for ``branch`` that nothing is using yet.
+
+    The stamp is a second, and two runs can land inside one. A suffix keeps the
+    earlier run's chronology rather than overwriting it.
+    """
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    ref = history_ref(branch, stamp)
+    suffix = 1
+    while _ref_exists(worktree_path, ref):
+        suffix += 1
+        ref = history_ref(branch, f"{stamp}-{suffix}")
+    return ref
+
+
+def _merge_in_progress(worktree_path: Path) -> bool:
+    """True if a merge is in progress in the worktree.
+
+    Sibling of :func:`rebase_in_progress`; git records a merge in a single file
+    rather than a state directory.
+    """
+    result = run_cmd(
+        ["git", "rev-parse", "--git-path", "MERGE_HEAD"],
+        cwd=worktree_path,
+        quiet=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return False
+    path = Path(result.stdout.strip())
+    if not path.is_absolute():
+        path = worktree_path / path
+    return path.exists()
 
 
 def close_worktree(worktree_path: Path, *, force: bool = False) -> CloseResult:
@@ -3163,6 +3295,8 @@ def delete_branch(
     )
     local_deleted = result.returncode == 0
 
+    _prune_working_history(project_path, branch)
+
     # Delete remote branch if requested
     if delete_remote:
         result = run_cmd(
@@ -3174,6 +3308,35 @@ def delete_branch(
         remote_deleted = result.returncode == 0
 
     return local_deleted, remote_deleted
+
+
+def _prune_working_history(project_path: Path, branch: str) -> None:
+    """Delete every working-history ref belonging to ``branch``.
+
+    Never fatal: a stray ref costs disk and nothing else, so a failure to list or
+    delete one leaves the branch deletion alone.
+    """
+    result = run_cmd(
+        [
+            "git",
+            "for-each-ref",
+            "--format=%(refname)",
+            history_ref_prefix(branch),
+        ],
+        cwd=project_path,
+        quiet=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return
+    for ref in result.stdout.split("\n"):
+        if ref.strip():
+            run_cmd(
+                ["git", "update-ref", "-d", ref.strip()],
+                cwd=project_path,
+                quiet=True,
+                check=False,
+            )
 
 
 def _first_existing_ref(repo_path: Path, refs: list[str]) -> str | None:

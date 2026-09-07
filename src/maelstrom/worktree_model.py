@@ -102,6 +102,41 @@ ENV_SECTION_END = "# End Maelstrom port allocations"
 # Main branch name (hardcoded - no master support)
 MAIN_BRANCH = "main"
 
+# Where the working history of an uncommitted branch is kept. `uncommit_branch`
+# writes one ref under here per run and `delete_branch` prunes them with the
+# branch. One constant, so the two agree.
+HISTORY_REF_PREFIX = "refs/mael/history/"
+
+
+def history_ref_prefix(branch: str) -> str:
+    """The ref namespace holding every working history of ``branch``."""
+    return f"{HISTORY_REF_PREFIX}{branch}/"
+
+
+def history_ref(branch: str, stamp: str) -> str:
+    """The ref holding one working history of ``branch``, taken at ``stamp``.
+
+    ``stamp`` is a UTC time rather than a sequence number, so a second run on the
+    same branch keeps the first run's chronology and nothing has to count what is
+    already there.
+    """
+    return f"{history_ref_prefix(branch)}{stamp}"
+
+
+@dataclass(frozen=True)
+class UncommitResult:
+    """What ``uncommit_branch`` did: where it reset to, and what it kept."""
+
+    base: str
+    """The branch the work was rebased onto — ``main`` unless it is stacked."""
+    history_ref: str
+    """The ref now holding the chronological commits that were collapsed."""
+    commits: int
+    """How many commits were collapsed."""
+    stat: str
+    """``git diff --stat`` of what is now unstaged in the working tree."""
+
+
 # Printed when an autorepair session resolved the conflicts. Every command that
 # takes --autorepair reports it: a repaired tree holds commits an agent
 # rewrote, and it must never read as a clean rebase.
