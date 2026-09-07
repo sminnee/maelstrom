@@ -10,9 +10,9 @@ it. A command converts by adding ``async`` and nothing else.
 
 One loop per invocation, rather than one per command, is the whole point.
 ``asyncio.run`` cannot nest, so a codebase with a loop per call site has to
-keep a blocking twin of everything a command might reach — which is what the
-sync ``DaemonClient`` and ``session_discovery._sweep_blocking`` were. With one
-loop at the top, nothing under a command re-enters asyncio, so the twins go.
+keep a blocking twin of everything a command might reach — see convention 7 in
+``docs/dev/architecture-patterns.md``. With one loop at the top, nothing under
+a command re-enters asyncio, so a twin has nothing left to serve.
 
 This module is a leaf: it imports Click and the standard library, and nothing
 of maelstrom's own, so any CLI module may build its group with it.
@@ -32,7 +32,7 @@ def _run(result: Any) -> Any:
     A sync callback returns its value straight through, so a group can hold
     both kinds and no caller has to know which it invoked.
     """
-    if not inspect.isawaitable(result):
+    if not inspect.iscoroutine(result):
         return result
     try:
         loop = asyncio.get_running_loop()
