@@ -50,7 +50,7 @@ def test_build_list_all_data_reports_a_project_that_configures_a_linear_team(
         "linear:\n  team_id: 3201e7ca-cceb-4079-b8ef-51ffbde14db7\n"
     )
     with (
-        patch("maelstrom.list_all.get_open_prs_async", return_value={}),
+        patch("maelstrom.list_all.get_open_prs", return_value={}),
         patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
         data = asyncio.run(build_list_all_data(project_path.parent))
@@ -64,7 +64,7 @@ def test_build_list_all_data_reads_the_project_and_its_worktree(
     project_path, worktree_path, _remote = project_with_worktree
     (project_path / ".mael").touch()
     with (
-        patch("maelstrom.list_all.get_open_prs_async", return_value={}),
+        patch("maelstrom.list_all.get_open_prs", return_value={}),
         patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
         data = asyncio.run(build_list_all_data(project_path.parent))
@@ -118,7 +118,7 @@ def test_the_project_row_carries_its_repo_url(
         cwd=project_path,
     )
     with (
-        patch("maelstrom.list_all.get_open_prs_async", return_value={}),
+        patch("maelstrom.list_all.get_open_prs", return_value={}),
         patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
         data = asyncio.run(build_list_all_data(project_path.parent))
@@ -138,7 +138,7 @@ def _row_for(project_path, pr):
     branches = {wt.branch for wt in list_worktrees(project_path) if wt.branch}
     batch = {branch: pr for branch in branches} if pr else {}
     with (
-        patch("maelstrom.list_all.get_open_prs_async", return_value=batch),
+        patch("maelstrom.list_all.get_open_prs", return_value=batch),
         patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
         data = asyncio.run(build_list_all_data(project_path.parent))
@@ -222,7 +222,7 @@ def test_a_worktree_row_with_no_pr_carries_no_pr_url(
         cwd=project_path,
     )
     with (
-        patch("maelstrom.list_all.get_open_prs_async", return_value={}),
+        patch("maelstrom.list_all.get_open_prs", return_value={}),
         patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
         data = asyncio.run(build_list_all_data(project_path.parent))
@@ -236,7 +236,7 @@ def test_a_project_dir_that_is_not_a_git_repo_carries_no_repo_url(tmp_path):
     project_path.mkdir()
     (project_path / ".mael").touch()
     with (
-        patch("maelstrom.list_all.get_open_prs_async", return_value={}),
+        patch("maelstrom.list_all.get_open_prs", return_value={}),
         patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
         data = asyncio.run(build_list_all_data(tmp_path))
@@ -257,7 +257,7 @@ def test_a_project_with_no_remote_carries_no_repo_url(tmp_path, monkeypatch):
     (project_path / ".mael").touch()
     run_git(["init", "-q", str(project_path)])
     with (
-        patch("maelstrom.list_all.get_open_prs_async", return_value={}),
+        patch("maelstrom.list_all.get_open_prs", return_value={}),
         patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
         data = asyncio.run(build_list_all_data(tmp_path))
@@ -279,7 +279,7 @@ def test_the_project_root_is_excluded_under_a_symlinked_projects_dir(
     link = tmp_path / "link"
     link.symlink_to(project_path.parent)
     with (
-        patch("maelstrom.list_all.get_open_prs_async", return_value={}),
+        patch("maelstrom.list_all.get_open_prs", return_value={}),
         patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
         data = asyncio.run(build_list_all_data(link))
@@ -355,7 +355,7 @@ def _quiet_worktree_reads(**overrides):
     patches one function itself and lets the rest answer nothing.
     """
     quiet = {
-        "get_open_prs_async": {},
+        "get_open_prs": {},
         "closed_worktrees_async": set(),
         "project_repo_url": None,
         "get_worktree_dirty_files_async": [],
@@ -441,7 +441,7 @@ def test_no_more_reads_run_at_once_than_the_cap_allows(tmp_path):
     batch returns ``None``, and every row then falls back to the slower
     per-branch lookup — so the failure is silent and backwards.
 
-    ``get_open_prs_async`` is that ``gh`` call, so the probe counts it
+    ``get_open_prs`` is that ``gh`` call, so the probe counts it
     alongside a worktree read: one budget has to cover both levels, or the
     level the cap exists for is the one still running unbounded.
     """
@@ -455,7 +455,7 @@ def test_no_more_reads_run_at_once_than_the_cap_allows(tmp_path):
 
     with _quiet_worktree_reads(
         list_worktrees_async=four_worktrees,
-        get_open_prs_async=probe.answering({}),
+        get_open_prs=probe.answering({}),
         get_worktree_dirty_files_async=probe.read,
     ):
         data = asyncio.run(build_list_all_data(tmp_path, concurrency=3))

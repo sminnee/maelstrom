@@ -649,7 +649,7 @@ async def cmd_list(project):
     branch_sessions = branch_session_ids(project_name)
     # Every open PR in one call, rather than one `gh pr list` per row. The
     # per-branch call is ~0.8s, so this is most of the command's runtime.
-    open_prs = get_open_prs(
+    open_prs = await get_open_prs(
         project_path, {wt.branch for wt, _ in open_worktrees if wt.branch}
     )
 

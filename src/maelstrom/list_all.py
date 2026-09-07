@@ -22,7 +22,7 @@ from . import session_discovery
 from . import task as task_model
 from .base_store import GitConfigBaseStore
 from .config import linear_team_id
-from .github import get_open_prs_async, get_pr_for_branch_async
+from .github import get_open_prs, get_pr_for_branch
 from .github_model import PrStatus, is_open_pr
 from .ports import get_app_url
 from .task_store import GitFileStore
@@ -75,7 +75,7 @@ async def resolve_pr(
     """Resolve ``branch`` to its pull request, or ``None`` when it has none.
 
     ``open_prs`` is the batch from
-    :func:`~maelstrom.github.get_open_prs_async`, or ``None`` when that call
+    :func:`~maelstrom.github.get_open_prs`, or ``None`` when that call
     failed. A successful batch is authoritative: a branch missing from it
     has no PR, so we answer without a second network call. A failed batch falls
     back to the per-branch lookup, which keeps a broken ``gh`` no worse than it
@@ -85,7 +85,7 @@ async def resolve_pr(
         return None
     if open_prs is not None:
         return open_prs.get(branch)
-    return await get_pr_for_branch_async(project_path, branch)
+    return await get_pr_for_branch(project_path, branch)
 
 
 def session_display(count: int, stopped: bool) -> str:
@@ -172,7 +172,7 @@ DEFAULT_CONCURRENCY = 24
 Both fan-out levels share one budget, so the two do not multiply. A machine
 with 16 projects and 90 worktrees would otherwise run several hundred
 subprocesses at once, and ``gh`` secondary rate limits are the first thing
-that breaks: :func:`~maelstrom.github.get_open_prs_async` then returns
+that breaks: :func:`~maelstrom.github.get_open_prs` then returns
 ``None``, every row falls back to the slower per-branch lookup, and the read
 gets *slower* with no error to show for it.
 
@@ -281,7 +281,7 @@ async def _project_data(
     if branches:
         # This is the `gh` call the cap exists for — see DEFAULT_CONCURRENCY.
         async with limit:
-            open_prs = await get_open_prs_async(project_path, branches)
+            open_prs = await get_open_prs(project_path, branches)
     async with limit:
         # Likewise the closed check: one batch per project, not two
         # subprocesses per worktree.

@@ -76,27 +76,27 @@ class TestResolvePr:
 
     def test_a_hit_in_the_batch_needs_no_further_call(self):
         batch = {"feat/x": _pr(42, commits=5)}
-        with patch("maelstrom.list_all.get_pr_for_branch_async") as per_branch:
+        with patch("maelstrom.list_all.get_pr_for_branch") as per_branch:
             assert asyncio.run(resolve_pr(batch, Path("/p"), "feat/x")) == _pr(
                 42, commits=5
             )
         per_branch.assert_not_called()
 
     def test_a_miss_in_a_good_batch_is_no_pr_not_a_lookup(self):
-        with patch("maelstrom.list_all.get_pr_for_branch_async") as per_branch:
+        with patch("maelstrom.list_all.get_pr_for_branch") as per_branch:
             assert (
                 asyncio.run(resolve_pr({"other": _pr(1)}, Path("/p"), "feat/x")) is None
             )
         per_branch.assert_not_called()
 
     def test_an_empty_batch_still_answers_without_a_lookup(self):
-        with patch("maelstrom.list_all.get_pr_for_branch_async") as per_branch:
+        with patch("maelstrom.list_all.get_pr_for_branch") as per_branch:
             assert asyncio.run(resolve_pr({}, Path("/p"), "feat/x")) is None
         per_branch.assert_not_called()
 
     def test_a_failed_batch_falls_back_to_the_per_branch_call(self):
         with patch(
-            "maelstrom.list_all.get_pr_for_branch_async",
+            "maelstrom.list_all.get_pr_for_branch",
             return_value=_pr(7, commits=3),
         ) as per_branch:
             assert asyncio.run(resolve_pr(None, Path("/p"), "feat/x")) == _pr(
@@ -106,7 +106,7 @@ class TestResolvePr:
 
     def test_a_detached_worktree_is_never_looked_up(self):
         """Both PR columns key on the branch name, so there is nothing to ask."""
-        with patch("maelstrom.list_all.get_pr_for_branch_async") as per_branch:
+        with patch("maelstrom.list_all.get_pr_for_branch") as per_branch:
             assert asyncio.run(resolve_pr(None, Path("/p"), None)) is None
         per_branch.assert_not_called()
 
@@ -149,10 +149,10 @@ class TestResolvePr:
                     "maelstrom.list_all.get_local_only_commits_async", return_value=0
                 ),
                 patch(
-                    "maelstrom.list_all.get_open_prs_async",
+                    "maelstrom.list_all.get_open_prs",
                     return_value={"feat/test": _pr(99, commits=7)},
                 ),
-                patch("maelstrom.list_all.get_pr_for_branch_async", side_effect=boom),
+                patch("maelstrom.list_all.get_pr_for_branch", side_effect=boom),
                 patch(
                     "maelstrom.session_discovery.LiveSessionSet.count_for",
                     return_value=0,
@@ -198,7 +198,7 @@ class TestResolvePr:
                 patch(
                     "maelstrom.list_all.get_local_only_commits_async", return_value=0
                 ),
-                patch("maelstrom.list_all.get_open_prs_async") as batch,
+                patch("maelstrom.list_all.get_open_prs") as batch,
                 patch(
                     "maelstrom.session_discovery.LiveSessionSet.count_for",
                     return_value=0,
@@ -241,9 +241,7 @@ class TestResolvePr:
                 patch(
                     "maelstrom.list_all.get_local_only_commits_async", return_value=0
                 ),
-                patch(
-                    "maelstrom.list_all.get_open_prs_async", return_value={}
-                ) as batch,
+                patch("maelstrom.list_all.get_open_prs", return_value={}) as batch,
                 patch(
                     "maelstrom.list_all.get_pushed_commit_count_async", return_value=0
                 ),
@@ -325,7 +323,7 @@ class TestListAllJson:
                                 return_value=2,
                             ):
                                 with patch(
-                                    "maelstrom.list_all.get_pr_for_branch_async",
+                                    "maelstrom.list_all.get_pr_for_branch",
                                     return_value=_pr(42, commits=5),
                                 ):
                                     with patch(
@@ -392,7 +390,7 @@ class TestListAllJson:
                                 return_value=0,
                             ):
                                 with patch(
-                                    "maelstrom.list_all.get_pr_for_branch_async",
+                                    "maelstrom.list_all.get_pr_for_branch",
                                     return_value=None,
                                 ):
                                     with patch(
