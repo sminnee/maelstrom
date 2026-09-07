@@ -495,9 +495,6 @@ class _Emitter:
         files: FileRegistry | None = None,
     ):
         self.state = state
-        #: Where a file an agent named gets its id. An emitter built without
-        #: one keeps a registry nothing else can see, which suits a caller
-        #: that only wants the events.
         self.files = files if files is not None else FileRegistry()
         self.now = now
         #: When the event being normalised happened, as the daemon stamped it.
@@ -604,10 +601,8 @@ class _Emitter:
         """
         if tag.filenames:
             markdown = self._file_bodies(tag.kind, tag.filenames, read_file)
-            # Every file an agent names is registered, whichever tag named it,
-            # so there is one answer to "may this file be shown". A refused
-            # path keeps its own name here: the body already says it could not
-            # be read, and a missing id must not read as a different file.
+            # A refused path keeps its own name: a missing id must not read
+            # as a different file.
             source: Dict = {
                 "type": "draft_files",
                 "paths": [

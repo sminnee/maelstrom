@@ -144,9 +144,7 @@ class Orchestrator:
         self.clock = clock
         self.executor = executor
         self.state = WorldState()
-        #: Every file an agent named, by the id that stands for it. The only
-        #: route to a file's bytes, so a file nobody registered is unreachable.
-        #: Not persisted, exactly as a document is not.
+        #: Every file an agent named, by the id that stands for it.
         self.files = FileRegistry()
         #: Minted per server life, so a client can tell a restart from a reconnect.
         self.epoch = uuid.uuid4().hex[:8]

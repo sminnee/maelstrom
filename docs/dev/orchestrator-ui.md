@@ -347,6 +347,19 @@ Colour comes from `styles/tokens.css`, which holds both the primitive and the se
 and documents the rule: no file outside it names a hex colour. One `[data-phase]` rule in
 `styles/base.css` sets `--phase` from a phase attribute.
 
+## Showing an image
+
+Images travel the other way too. An agent writes an `<image>` tag and the server turns it into a
+markdown ref, so a picture an agent showed and one the user pasted reach the browser the same way —
+as an ordinary ref in the message text. See `docs/dev/orchestrator-server.md`, "A shown image".
+
+`markdown/Markdown.tsx` gives `react-markdown` its own `img`, which draws `ui/ImageLightbox.tsx`:
+a thumbnail capped at 240px tall, and a click opens it full size in a `ui/Dialog`. Every surface
+that renders markdown gets this, not only the transcript.
+
+The height cap, the portal to the body, and the `Dialog` `className` each carry their reason at
+their own site.
+
 ## The two layouts
 
 The app draws one of two layouts, chosen by viewport width. At 840px and wider it is the
