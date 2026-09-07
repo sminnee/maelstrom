@@ -369,8 +369,13 @@ class InMemoryWorktreeSource:
         self.projects = list(projects or [])
         self.worktrees = list(worktrees or [])
         self.close = close
+        #: How many times the source has been read, so a test can check that a
+        #: poll did *not* run. The real source's reads cost GitHub quota, and
+        #: an unwanted one is invisible in the world it produces.
+        self.reads = 0
 
     def read(self) -> tuple[list[Project], list[Worktree]]:
+        self.reads += 1
         return list(self.projects), list(self.worktrees)
 
 

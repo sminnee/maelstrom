@@ -22,6 +22,7 @@ import click
 from ..agent_model import AGENT_DETAIL, AGENT_EXITED, BACKLOG_END, SEQ_KEY, TRUNCATED
 from ..branch_name import lead_with_number
 from ..desk_store import DeskStore, InMemoryDeskStore
+from ..github_model import RateLimited
 from ..task import mode_for_command
 from ..task import permission_mode_for as model_permission_mode
 from ..task_launch import LaunchBlocked
@@ -80,6 +81,12 @@ AGENT_POLL_SECS = 2.0
 #: How many consecutive failed agent polls make the host unreachable. Two, so
 #: the one dropped connection a daemon restart costs does not raise the banner.
 HOST_UNREACHABLE_AFTER = 2
+#: How long the worktree poll stands off after GitHub refuses it for quota.
+#:
+#: Fixed rather than read from the reset time: ``gh`` does not hand that header
+#: back. Ten minutes picks up a budget freed early without the retries
+#: themselves keeping it spent.
+RATE_LIMIT_COOLDOWN_SECS = 600.0
 #: How long adopting an agent waits for its replayed backlog to end.
 BACKLOG_TIMEOUT_SECS = 5.0
 #: How long a subagent's stream stays attached after its last transcript
@@ -137,6 +144,7 @@ class Orchestrator:
         task_poll: float = TASK_POLL_SECS,
         worktree_poll: float = WORKTREE_POLL_SECS,
         agent_poll: float = AGENT_POLL_SECS,
+        rate_limit_cooldown: float = RATE_LIMIT_COOLDOWN_SECS,
         notice_coalesce: float = COALESCE_SECS,
         transcript_ring: int = TRANSCRIPT_RING,
         ws_queue_limit: int = WS_QUEUE_LIMIT,
@@ -154,6 +162,10 @@ class Orchestrator:
         #: Minted per server life, so a client can tell a restart from a reconnect.
         self.epoch = uuid.uuid4().hex[:8]
         self.notices = NoticeHub(notice_coalesce)
+        self.notices.on_first_subscriber = self._watch_arrived
+        #: The catch-up read an arriving client triggers, kept so it can be
+        #: cancelled at stop and awaited by a test.
+        self._catch_up: asyncio.Task[None] | None = None
         #: Bumped on every task change published; the task list's ETag.
         self.task_revision = 0
         #: One transcript per agent seen, fed by the normaliser and served to
@@ -168,6 +180,11 @@ class Orchestrator:
         self._task_poll = task_poll
         self._worktree_poll = worktree_poll
         self._agent_poll = agent_poll
+        self._rate_limit_cooldown = rate_limit_cooldown
+        #: Loop time the worktree poll may read again, or ``None`` when GitHub
+        #: has not refused it. Held here rather than as a sleep inside the poll
+        #: so an arriving client honours the same stand-off.
+        self._stand_off_until: float | None = None
         self._task_version: Any = _NEVER
         self._worktree_read = asyncio.Lock()
         self._pollers: list[asyncio.Task[None]] = []
@@ -194,14 +211,23 @@ class Orchestrator:
         """Read every source once, then keep them fresh in the background."""
         await self.refresh_tasks()
         await self._load_desk()
-        await self.refresh_worktrees()
+        try:
+            await self.refresh_worktrees()
+        except RateLimited:
+            # A spent budget must not stop the server coming up; the world is
+            # worth serving without PR state.
+            log.warning("GitHub rate limit reached; starting without PR state")
         await self.refresh_agents()
         await self._drop_dead_agent_entries()
         self._started.set()
         self._pollers = [
             asyncio.create_task(self._poll(self._task_poll, self.refresh_tasks)),
             asyncio.create_task(
-                self._poll(self._worktree_poll, self.refresh_worktrees)
+                self._poll(
+                    self._worktree_poll,
+                    self.refresh_worktrees,
+                    only_when_watched=True,
+                )
             ),
             asyncio.create_task(self._poll(self._agent_poll, self.refresh_agents)),
         ]
@@ -209,17 +235,88 @@ class Orchestrator:
     async def stop(self) -> None:
         watching = [w.task for w in self._watches.values() if w.task is not None]
         detaching = list(self._detaches.values())
-        for task in [*self._pollers, *watching, *detaching]:
+        catching_up = [self._catch_up] if self._catch_up is not None else []
+        for task in [*self._pollers, *watching, *detaching, *catching_up]:
             task.cancel()
         await asyncio.gather(
-            *self._pollers, *watching, *detaching, return_exceptions=True
+            *self._pollers,
+            *watching,
+            *detaching,
+            *catching_up,
+            return_exceptions=True,
         )
         self._pollers = []
+        self._catch_up = None
+        # Cleared so a subscriber arriving after the stop schedules no read.
+        self._started.clear()
         self._detaches.clear()
 
-    async def _poll(self, interval: float, refresh: Callable[[], Any]) -> None:
+    def _standing_off(self) -> bool:
+        """Whether GitHub refused the last read and the stand-off still holds.
+
+        Both the poll and an arriving client ask, so a browser reconnecting
+        cannot walk past a stand-off the poll is keeping. The web client
+        retries a dropped notice stream every 30 seconds, and each retry is a
+        new first subscriber.
+        """
+        if self._stand_off_until is None:
+            return False
+        if asyncio.get_running_loop().time() >= self._stand_off_until:
+            self._stand_off_until = None
+            return False
+        return True
+
+    def _watch_arrived(self) -> None:
+        """Catch the world up for a client that just subscribed.
+
+        Synchronous because it is called from ``subscribe``, so the read is
+        scheduled rather than awaited. A read already in flight is left alone —
+        :meth:`refresh_worktrees` takes one at a time anyway.
+        """
+        if not self._started.is_set():
+            # ``start`` reads every source before it serves anyone, so a
+            # subscriber arriving during start needs no catch-up.
+            return
+        if self._catch_up is not None and not self._catch_up.done():
+            return
+        if self._standing_off():
+            return
+        self._catch_up = asyncio.create_task(self._catch_up_read())
+
+    async def _catch_up_read(self) -> None:
+        """:meth:`refresh_worktrees`, with its failures logged rather than lost.
+
+        Nothing awaits this task, so an exception raised here would surface as
+        an unretrieved-exception warning at garbage-collection time instead of
+        as a message about the read.
+        """
+        try:
+            await self.refresh_worktrees()
+        except RateLimited:
+            log.warning("GitHub rate limit reached; serving the last known PR state")
+        except Exception:  # noqa: BLE001 — mirrors the poller's own guard
+            log.exception("catch-up read failed")
+
+    async def _poll(
+        self,
+        interval: float,
+        refresh: Callable[[], Any],
+        *,
+        only_when_watched: bool = False,
+    ) -> None:
+        """Run ``refresh`` every ``interval`` seconds, forever.
+
+        ``only_when_watched`` holds the tick back while no client is
+        subscribed: the UI never polls on its own, so a read nobody hears buys
+        nothing. :meth:`_watch_arrived` reads on arrival, so a client that
+        comes mid-interval does not wait for the next tick.
+        """
         while True:
             await asyncio.sleep(interval)
+            if only_when_watched and not self.notices.watching:
+                continue
+            if only_when_watched and self._standing_off():
+                continue
             try:
                 await refresh()
             except Exception:  # noqa: BLE001 — a poller must outlive one bad read
@@ -334,6 +431,14 @@ class Orchestrator:
             return
         async with self._worktree_read:
             projects, worktrees = await self._run(self.worktrees.read)
+        if getattr(self.worktrees, "rate_limited", False):
+            self._stand_off_until = (
+                asyncio.get_running_loop().time() + self._rate_limit_cooldown
+            )
+            log.warning(
+                "GitHub rate limit reached; the worktree poll stands off for %ss",
+                self._rate_limit_cooldown,
+            )
         world = self.world
         events = diff_kind("project", world["projects"], {p["id"]: p for p in projects})
         events += diff_kind(
@@ -1154,13 +1259,17 @@ class Orchestrator:
             return _refused(_code_for(error), error)
         # A worktree provisioned a moment ago is not in the world yet, and the
         # adoption links the agent to it by cwd. Without this the node draws in
-        # a generic lane until the 15-second poll.
+        # a generic lane until the next poll.
         await self.refresh_worktrees()
         await self._adopt(_started_row(agent_id, payload))
         # The desk join is explicit, as the launch's is: ``_adopt`` alone does
         # not file an agent, only the reconcile that follows one does, and the
         # user is waiting on this reply to see the agent on the canvas.
         await self._join_desk(agent_id)
+        # Again, now the branch is on the desk. The read above ran before the
+        # join, so it did not ask about this branch and the node would draw
+        # with no pull request until the next poll.
+        await self.refresh_worktrees()
         return {"ok": True, "result": {"agentId": agent_id}}
 
     async def _approve_document(self, command: dict[str, Any]) -> dict[str, Any]:

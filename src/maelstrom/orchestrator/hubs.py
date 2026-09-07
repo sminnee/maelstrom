@@ -55,6 +55,14 @@ class NoticeHub:
         #: How many non-empty notice batches have been published, so a test
         #: can check "nothing was published" without waiting for silence.
         self.published = 0
+        #: Called when the first subscriber arrives, so a poll held back while
+        #: nobody watched can catch up at once rather than at its next tick.
+        self.on_first_subscriber: Callable[[], None] | None = None
+
+    @property
+    def watching(self) -> bool:
+        """Whether any client is subscribed."""
+        return bool(self._subscribers)
 
     def notify(self, notices: Notices) -> None:
         if not notices:
@@ -67,8 +75,13 @@ class NoticeHub:
     def subscribe(self) -> Iterator[NoticeSubscriber]:
         """A subscriber that hears every notice published inside the block."""
         subscriber = NoticeSubscriber(self._coalesce)
+        first = not self._subscribers
         self._subscribers.add(subscriber)
         try:
+            # Inside the try: a callback that raises must still drop the
+            # subscriber, or the hub reads as watched for the rest of its life.
+            if first and self.on_first_subscriber is not None:
+                self.on_first_subscriber()
             yield subscriber
         finally:
             self._subscribers.discard(subscriber)
