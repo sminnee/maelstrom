@@ -8,11 +8,14 @@ import styles from './Dialog.module.css';
  * It owns nothing but the shell. What "leaving" means — closing at once, or
  * asking about unsaved work first — belongs to the caller, which is why
  * `onClose` is a callback rather than a piece of state here.
+ *
+ * Focus moves into the box on mount and back to whatever held it on unmount.
  */
 export function Dialog({
   label,
   onClose,
   testId,
+  className,
   children,
 }: {
   /** The dialog's accessible name. */
@@ -20,11 +23,23 @@ export function Dialog({
   /** Escape, a click on the scrim, or the header's ×. */
   onClose: () => void;
   testId?: string;
+  /** Added to the box, for a dialog whose content is not text. */
+  className?: string;
   children: React.ReactNode;
 }) {
   const box = useRef<HTMLDivElement>(null);
 
-  useEffect(() => box.current?.focus({ preventScroll: true }), []);
+  useEffect(() => {
+    // Where focus was before the dialog took it. Restoring it on the way out
+    // is what lets a keyboard user carry on from where they were, rather than
+    // landing on the body and tabbing from the top of the document.
+    const opener = document.activeElement;
+    box.current?.focus({ preventScroll: true });
+    return () => {
+      if (opener instanceof HTMLElement && opener.isConnected)
+        opener.focus({ preventScroll: true });
+    };
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -36,7 +51,7 @@ export function Dialog({
     <div className={styles.scrim} onMouseDown={onClose}>
       <div
         ref={box}
-        className={styles.dialog}
+        className={[styles.dialog, className].filter(Boolean).join(' ')}
         role="dialog"
         aria-label={label}
         data-testid={testId}

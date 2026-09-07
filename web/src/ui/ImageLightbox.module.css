@@ -1,0 +1,44 @@
+.thumb {
+  /* A button, drawn as the picture it opens. */
+  display: block;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: none;
+  cursor: zoom-in;
+  overflow: hidden;
+  line-height: 0;
+}
+.thumb:hover {
+  border-color: var(--border-strong);
+}
+.thumb img {
+  /* Capped so a full-size screenshot cannot blow out the column it sits in.
+     A height cap rather than a width one: a tall screenshot is what pushes
+     the prose off the screen. */
+  display: block;
+  max-width: 100%;
+  max-height: 240px;
+  width: auto;
+  height: auto;
+}
+.full {
+  display: block;
+  /* `max-height: 100%` resolves against a parent with no definite height, so
+     it does not bound the picture. `dvh` does, and it tracks a mobile
+     browser's retracting toolbar. The subtraction is the scrim's padding plus
+     the box's own, which `.box` keeps small for this reason. */
+  max-width: 100%;
+  max-height: calc(100dvh - 2 * (20px + var(--space-2)));
+  width: auto;
+  height: auto;
+}
+
+/* `Dialog` sizes its box for 100 columns of text. A picture should be as wide
+   as it is and no wider, so the lightbox overrides that one rule. */
+.box {
+  width: auto;
+  max-width: 100%;
+  /* The image is the only child, so the box may shrink to it. */
+  padding: var(--space-2);
+}

@@ -228,6 +228,34 @@ describe('Transcript', () => {
     expect(card.textContent).not.toContain('1.4.0');
   });
 
+  it('an image an agent showed renders as a picture in its message', () => {
+    const items = goldenItems('image-worktree.jsonl');
+    render(<Transcript items={items} truncatedBefore={false} />);
+    const card = screen
+      .getAllByTestId('transcript-card')
+      .find((c) => c.getAttribute('data-item-type') === 'message')!;
+    // The exact ref the Python golden recorded. A substring match would pass
+    // through a change to the id, so it would not show the two agreeing.
+    expect(within(card).getByAltText('The failing dialog')).toHaveAttribute(
+      'src',
+      '/api/files/ag1-2-shot.png',
+    );
+    // The prose either side of the picture is kept, and no tag syntax shows.
+    expect(within(card).getByText(/Here is the failing dialog/)).toBeInTheDocument();
+    expect(card.textContent).not.toContain('<image');
+  });
+
+  it('an image the agent may not show says so instead of breaking', () => {
+    const items = goldenItems('image-escaping.jsonl');
+    render(<Transcript items={items} truncatedBefore={false} />);
+    const card = screen
+      .getAllByTestId('transcript-card')
+      .find((c) => c.getAttribute('data-item-type') === 'message')!;
+    // No thumbnail button: the refused image reaches none of the lightbox path.
+    expect(within(card).queryByRole('button')).not.toBeInTheDocument();
+    expect(card.textContent).toContain('could not be shown');
+  });
+
   it('a denied permission shows its decision', () => {
     render(<Transcript items={goldenItems('permission-denied.jsonl')} truncatedBefore={false} />);
     const card = screen
