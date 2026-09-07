@@ -12,7 +12,7 @@
   flex: 1;
   font: inherit;
   color: var(--fg);
-  background: var(--bg-sunken);
+  background: var(--bg-field);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 3px 6px;

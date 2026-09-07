@@ -104,7 +104,7 @@ export function DocumentTab({ documentId }: { documentId: string }) {
       )}
       <div className={styles.split}>
         <div className={styles.body} ref={body} data-testid="document-body">
-          <Markdown source={doc.markdown} />
+          <Markdown source={doc.markdown} className={styles.prose} />
         </div>
         {/* The margin is a 220px column beside the prose, which on a phone
             would leave the document unreadable. It draws no comment today —

@@ -10,6 +10,7 @@ import { QuestionPrompt } from './cards/QuestionPrompt';
 import { ResultLine } from './cards/ResultLine';
 import { ToolCallCard } from './cards/ToolCallCard';
 import { classifyToolCall } from './toolCards';
+import cards from './cards/cards.module.css';
 import { useNow } from '../ui/useNow';
 import styles from './Transcript.module.css';
 
@@ -20,6 +21,17 @@ export interface TranscriptHandlers {
     decision: 'approve' | 'deny',
     reason: string,
   ) => void | Promise<unknown>;
+}
+
+/**
+ * Which of the transcript's two registers an item draws in.
+ *
+ * The spacing rule and the card chrome both need this, and deriving it twice is
+ * how they drift: a shell item drew `BashCard` while the CSS read its item type
+ * and spaced it as prose. One value, read by both.
+ */
+function registerOf(item: TranscriptItem): 'ledger' | 'prose' {
+  return item.type === 'tool_call' ? 'ledger' : 'prose';
 }
 
 /**
@@ -63,6 +75,7 @@ export function Transcript({
             className={styles.card}
             data-testid="transcript-card"
             data-item-type={item.type}
+            data-register={registerOf(item)}
           >
             <span className={styles.gutter}>
               {mark && (
@@ -175,9 +188,15 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
         </div>
       );
     case 'shell':
-      // The same card a Bash tool call draws: a `!` line and a Bash call are
-      // the same thing to the reader, whoever asked for it.
-      return <BashCard command={item.command} output={item.output} status={item.status} />;
+      // Not a Bash call. `CONTEXT.md` keeps the two apart: this is context the
+      // host injected on the operator's behalf, so it reads as something they
+      // did rather than sinking into the agent's ledger.
+      return (
+        <div className={cards.shell} data-testid="shell">
+          <div className={cards.shellHead}>you ran</div>
+          <BashCard command={item.command} output={item.output} status={item.status} />
+        </div>
+      );
     case 'skill':
       return (
         <details className={styles.skill} data-testid="skill">
