@@ -28,6 +28,7 @@ from maelstrom.github import (
     wait_for_merge,
 )
 from maelstrom.github_model import (
+    PR_DRAFT_PATH,
     CheckRun,
     GitHubCliMissing,
     GitHubCommandFailed,
@@ -637,9 +638,9 @@ class TestCreatePrRegistersTheStack:
                 )
             if cmd[:3] == ["gh", "pr", "view"]:
                 out = (
-                    "https://example/pr OPEN"
+                    "https://example/pr OPEN 7"
                     if pr_open
-                    else "https://example/pr MERGED"
+                    else "https://example/pr MERGED 7"
                 )
                 return subprocess.CompletedProcess(
                     args=cmd, returncode=0, stdout=out, stderr=""
@@ -736,7 +737,7 @@ class TestCreatePrRegistersTheStack:
                 return subprocess.CompletedProcess(
                     args=cmd,
                     returncode=0,
-                    stdout="https://example/pr OPEN",
+                    stdout="https://example/pr OPEN 7",
                     stderr="",
                 )
             return subprocess.CompletedProcess(
@@ -1007,3 +1008,148 @@ class TestTheAsyncPrReaders:
     def test_unparseable_output_is_told_apart_from_no_prs(self):
         with self._replies(return_value=_ok("not json")):
             assert asyncio.run(get_open_prs_async(Path("."), {"feat/a"})) is None
+
+
+class TestCreatePrUsesThePrDraft:
+    """``create_pr`` takes the PR body from ``.drafts/pr.md``.
+
+    One fixed path, so every agent that writes to it and `create-pr` agree on
+    where it is, without a flag threading the same constant through each skill
+    file. The draft is deleted only once the push and the body write have both
+    succeeded, so a failed push keeps it for the next attempt.
+    """
+
+    def _write_draft(self, cwd, text="## Overview\n\nWhat changed.\n"):
+        draft = cwd / PR_DRAFT_PATH
+        draft.parent.mkdir(parents=True, exist_ok=True)
+        draft.write_text(text)
+        return draft
+
+    def _run(self, tmp_path, *, pr_open, edit_fails=False, branch="feat/solo"):
+        """Call create_pr on an unstacked branch, capturing gh/git argv.
+
+        ``bodies`` records what the draft file held when ``gh pr edit`` ran, so
+        the assertion is on the body GitHub would receive, not on the argv alone.
+        """
+        calls: list[list[str]] = []
+        bodies: dict[str, str] = {}
+        sync_result = SyncResult(success=True, branch=branch, message="ok")
+
+        def fake_run_cmd(cmd, *args, **kwargs):
+            calls.append(list(cmd))
+            if cmd[:4] == ["gh", "pr", "edit", "7"]:
+                bodies["edit"] = (tmp_path / cmd[-1]).read_text()
+                if edit_fails:
+                    return subprocess.CompletedProcess(
+                        args=cmd, returncode=1, stdout="", stderr="edit exploded"
+                    )
+            if cmd[:3] == ["gh", "pr", "view"]:
+                out = (
+                    "https://example/pr/7 OPEN 7"
+                    if pr_open
+                    else "https://example/pr/7 MERGED 7"
+                )
+                return subprocess.CompletedProcess(
+                    args=cmd, returncode=0, stdout=out, stderr=""
+                )
+            if cmd[:3] == ["gh", "pr", "create"]:
+                if "--body-file" in cmd:
+                    bodies["create"] = (
+                        tmp_path / cmd[cmd.index("--body-file") + 1]
+                    ).read_text()
+                return subprocess.CompletedProcess(
+                    args=cmd, returncode=0, stdout="https://example/new-pr", stderr=""
+                )
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="", stderr=""
+            )
+
+        def fake_run_git(cmd, *args, **kwargs):
+            calls.append(["git", *cmd])
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout=branch, stderr=""
+            )
+
+        with (
+            patch("maelstrom.github.sync_worktree", return_value=sync_result),
+            patch(
+                "maelstrom.github.GitConfigBaseStore",
+                return_value=InMemoryBaseStore(),
+            ),
+            patch("maelstrom.github.get_current_branch", return_value=branch),
+            patch("maelstrom.github.run_cmd", side_effect=fake_run_cmd),
+            patch("maelstrom.github.run_git", side_effect=fake_run_git),
+            patch("maelstrom.github.update_local_main"),
+        ):
+            url, created = create_pr(cwd=tmp_path)
+        return url, created, calls, bodies
+
+    def _creates(self, calls):
+        return [c for c in calls if c[:3] == ["gh", "pr", "create"]]
+
+    def _edits(self, calls):
+        return [c for c in calls if c[:3] == ["gh", "pr", "edit"]]
+
+    def test_a_new_pr_takes_its_body_from_the_draft(self, tmp_path):
+        """The draft goes to gh as a file, not as argv.
+
+        A draft carrying an overview, diagrams and review notes reaches tens of
+        kilobytes, and argv has a size limit that a file does not.
+        """
+        self._write_draft(tmp_path, "## Overview\n\nWidened the port range.\n")
+
+        _, _, calls, bodies = self._run(tmp_path, pr_open=False)
+
+        create = self._creates(calls)[0]
+        assert "--body" not in create
+        assert create[create.index("--body-file") + 1] == str(PR_DRAFT_PATH)
+        assert bodies["create"] == "## Overview\n\nWidened the port range.\n"
+
+    def test_a_new_pr_without_a_draft_passes_an_empty_body(self, tmp_path):
+        _, _, calls, _ = self._run(tmp_path, pr_open=False)
+
+        create = self._creates(calls)[0]
+        assert create[create.index("--body") + 1] == ""
+
+    def test_an_existing_pr_gets_the_draft_written_to_its_body(self, tmp_path):
+        self._write_draft(tmp_path, "## Overview\n\nRound two.\n")
+
+        _, _, calls, bodies = self._run(tmp_path, pr_open=True)
+
+        assert self._edits(calls) == [
+            ["gh", "pr", "edit", "7", "--body-file", str(PR_DRAFT_PATH)]
+        ]
+        assert bodies["edit"] == "## Overview\n\nRound two.\n"
+
+    def test_an_existing_pr_without_a_draft_is_left_alone(self, tmp_path):
+        """No draft, no edit — the body on GitHub is the author's, not ours."""
+        _, _, calls, _ = self._run(tmp_path, pr_open=True)
+
+        assert self._edits(calls) == []
+
+    def test_an_existing_pr_never_has_its_title_touched(self, tmp_path):
+        self._write_draft(tmp_path)
+
+        _, _, calls, _ = self._run(tmp_path, pr_open=True)
+
+        assert all("--title" not in c for c in self._edits(calls))
+
+    def test_a_successful_run_deletes_the_draft(self, tmp_path):
+        draft = self._write_draft(tmp_path)
+
+        self._run(tmp_path, pr_open=True)
+
+        assert not draft.exists()
+
+    def test_a_failed_edit_warns_returns_the_url_and_keeps_the_draft(
+        self, tmp_path, capsys
+    ):
+        """Same non-fatal contract as the stack registration: the PR is pushed."""
+        draft = self._write_draft(tmp_path)
+
+        url, _, calls, _ = self._run(tmp_path, pr_open=True, edit_fails=True)
+
+        assert url == "https://example/pr/7"
+        assert self._edits(calls), "the edit was still attempted"
+        assert "body" in capsys.readouterr().out.lower()
+        assert draft.exists()

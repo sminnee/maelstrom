@@ -11,7 +11,8 @@ type check, as CLAUDE.md defines them:
 1. Commit the implementation.
 2. Run `/code-review`.
 3. Triage the findings: apply what is correct and in scope, discard what does not apply, and
-   carry scope changes and potential refactors into the PR description.
+   write scope changes and potential refactors into `.drafts/pr.md` under
+   `## Raised by review, not actioned`.
 4. Commit each fix as a `--fixup` commit targeting the commit that introduced the issue. Do
    not amend.
 5. Push: `mael gh create-pr <ISSUE-ID> --squash`.
@@ -46,6 +47,32 @@ Check where you are before pushing:
 mael git status                # branch, diff stats, recent commits
 mael gh show-code --committed  # everything since branching from main
 ```
+
+### Uncommitting a branch
+
+Use this to re-cut a branch's commits into a story the reviewer can follow.
+
+```bash
+mael git uncommit-branch
+```
+
+The command rebases the branch onto its base, saves the commits as a working history, then resets
+the branch to its base tip. Every change is then unstaged in the working tree, ready to be
+committed again in whatever order reads best.
+
+The command refuses, and changes nothing, when the working tree is dirty, when a rebase or merge is
+in progress, or when the branch has no commits ahead of its base. A rebase conflict aborts and
+restores the tree — run `mael sync`, resolve the conflict, then try again.
+
+The working history is your record and your undo:
+
+```bash
+git log refs/mael/history/<branch>/<stamp>   # the journey, in the order it happened
+git reset --hard refs/mael/history/<branch>/<stamp>   # undo the uncommit
+```
+
+The command prints the ref it wrote. Each run writes a new one, so an earlier run's chronology
+survives. The refs are deleted with the branch.
 
 ## Code review
 
@@ -147,6 +174,14 @@ mael gh create-pr PROJ-123 --squash
 - **`--squash`** — autosquashes `fixup!` commits into their targets while rebasing onto
   `origin/main`, then force-pushes with `--force-with-lease`.
 
+**The PR body comes from `.drafts/pr.md`.** Write the overview, the diagrams and the test notes
+there, and `create-pr` puts them on the PR. A new PR gets the draft as its body; an open PR has its
+body replaced. The command deletes the draft once the PR has it, so a failed push keeps the draft
+for the next attempt. With no draft file, a new PR gets an empty body and an open PR's body is left
+alone.
+
+The title is never touched on an open PR. Set it with `gh pr edit <n> --title` if it is wrong.
+
 Other flags:
 
 ```bash
@@ -216,7 +251,11 @@ Run the `--wait` variants in the background so you can keep working.
 
 ## Merging
 
-Normally you merge on GitHub. To merge locally:
+Normally you merge on GitHub. **Use rebase merge, not squash merge.** A squash merge collapses the
+branch into one commit, which throws away the story the commits tell. `mael git merge` rebases, so
+it keeps them.
+
+To merge locally:
 
 ```bash
 mael git merge            # rebase onto main, fast-forward main, push

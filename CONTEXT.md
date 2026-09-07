@@ -406,6 +406,26 @@ review, a question, a permission, a document review. A checkpoint is where a hum
 gate is automated.
 _Avoid_: Gate, approval step
 
+## Pull requests
+
+**PR draft**:
+The file `.drafts/pr.md`, holding the body a PR will get. `mael gh create-pr` reads it, writes it
+to the PR, then deletes it. A missing draft leaves an existing PR's body alone.
+_Avoid_: PR description file, body file, draft PR (which is GitHub's own unready-for-review state)
+
+**Working history**:
+The ref `refs/mael/history/<branch>/<stamp>`, holding the chronological commits that
+`mael git uncommit-branch` collapsed. The working history is the order the work happened in, kept
+so `git log` can still show the journey and so the uncommit can be undone. One ref per run, stamped
+in UTC, so a second run keeps the first run's chronology.
+_Avoid_: Backup branch, history branch, archive ref
+
+**Uncommit**:
+To return a branch to unstaged changes at its base tip. `mael git uncommit-branch` rebases onto
+the base, saves the working history, then resets. Nothing is discarded — every change is in the
+working tree, ready to be committed again.
+_Avoid_: Reset, unwind, squash (which combines commits rather than removing them)
+
 ## Orchestrator UI
 
 **Phase**:
