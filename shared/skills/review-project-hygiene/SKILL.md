@@ -191,11 +191,15 @@ rather than guessing the syntax.
 message, naming the literal path you just wrote to:
 
 ```
-<doc-file kind="tasks" filename="2026-09-07-hygiene.md" title="Hygiene plan">
+<doc-file kind="other" filename="2026-09-07-hygiene.md" title="Hygiene plan">
 ```
 
 It puts the plan in front of the user as a document, so the user reads it formatted instead of as
 a diff. Tag the file again after a later edit.
+
+The kind is `other`, not `tasks`. A `load-many` plan file is one file holding many blocks, not a
+set of draft task files, and `tasks` is what makes a document promotable. The user approves this
+plan in the chat, and you run `mael task load-many` yourself.
 
 ### 7. Exit plan mode
 

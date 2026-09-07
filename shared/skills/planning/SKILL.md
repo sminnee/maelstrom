@@ -37,19 +37,22 @@ happens at promote time, when the ids to follow exist.
 
 ## Live preview
 
-The moment each draft exists, write a `<doc-file>` tag in your message. It puts the draft in
-front of the user as a document in the orchestrator UI, so the user reads it formatted instead
-of as a diff:
+The moment the drafts exist, write a `<doc-file>` tag in your message. It puts them in front of
+the user as a document in the orchestrator UI, so the user reads the plan formatted instead of
+as a diff:
 
 ```
-<doc-file kind="tasks" filename=".drafts/iter1.md" title="Iteration 1">
+<doc-file kind="tasks" filename=".drafts/iter1.md, .drafts/tail.md" title="Iteration 1" review="true">
 ```
 
-`filename` is a path in this worktree. `kind` is `tasks` for a draft task file. `title` is what
-the document is called, and defaults to the filename. Write one tag per draft, once per file.
+`filename` names files in this worktree, comma-separated, **in chain order**. One tag for the
+whole set: a chain is one plan, and the order here is the order approval promotes them in.
+`kind` is `tasks` for draft task files. `title` names the document, and defaults to the first
+filename.
 
-Add `review="true"` only when you want a verdict on the draft. That raises an item on the user's
-desk. A tag without it opens the document to read, and blocks nothing.
+`review="true"` opens the document awaiting review, which is what raises an item on the user's
+desk and shows the review bar. A task set is a decision, so give it. A tag without it opens the
+document to read and blocks nothing — that is for a draft still taking shape.
 
 ## Sculpt
 
@@ -59,7 +62,22 @@ recipe (`mode`, `command`, `model`, actions); edit it like any other line.
 
 ## Promote or discard
 
-On approval, promote each draft **in dependency order**, wiring the chain as you go:
+The user approves on one of two surfaces, and that decides who promotes. Promoting a set the UI
+already created would make every task twice, so the surface is stated in the message you get.
+
+### Approved in the orchestrator UI
+
+You get a message saying the approval promoted the drafts, and naming the task ids. The tasks
+already exist and your draft files are gone.
+
+Do not run `mael task promote`. Take the ids from that message, then carry on with the rest of
+your closing sequence — close your own planning task, and launch the head.
+
+### Approved in the chat
+
+A cmux session has no document to approve, so the user says yes to you and you promote.
+
+Take each draft **in dependency order**, wiring the chain as you go:
 
 ```bash
 mael task promote .drafts/first.md --follow-end '*'   # echoes the new id
@@ -68,7 +86,14 @@ mael task promote .drafts/second.md --follow <id-from-first>
 
 `promote` creates the task (todo), echoes its id, and **deletes the file** — capture each
 echoed id to wire the next `--follow`. Flags override the file's fields, same as
-`add --from`. On rejection, delete the draft files — nothing was created.
+`add --from`.
+
+`mael task promote` stays the canonical path either way: the orchestrator calls the same step,
+so both surfaces open the same structural gate.
+
+### Rejected
+
+Delete the draft files. Nothing was created.
 
 ## End the session when the plan is launched
 

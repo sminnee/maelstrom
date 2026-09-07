@@ -133,9 +133,16 @@ The sibling tasks that share one parent, ordered by follows, merging as a single
 **Draft**:
 A task file outside the notebook, written by a planning session into the worktree's `.drafts/`
 directory.
-A draft is inert — invisible to listing, `next` and follow-end resolution — until
-`mael task promote` creates the real task from it and deletes the file.
+A draft is inert — invisible to listing, `next` and follow-end resolution — until a promote
+creates the real task from it and deletes the file. That gap is the approval gate. Two surfaces
+open it: `mael task promote` in a session, and approving the task set's document in the
+orchestrator UI, which calls the same step.
 _Avoid_: Proposal, pending task, plan file
+
+**Task set**:
+The drafts of one chain, shown as one document. Its `<doc-file>` tag names every file in chain
+order, and that order is the order approval promotes and chains them in.
+_Avoid_: Batch, plan bundle
 
 ## Sessions
 
@@ -433,12 +440,12 @@ _Avoid_: Artefact, output, file
 
 **Document tag**:
 The marker an agent writes in the text of an ordinary message to put a document in front of the
-user. `<doc-content>` carries the markdown inline; `<doc-file>` names a file in the agent's
-worktree, resolved against that directory and nothing outside it. The tag names the document's
-`kind` and `title`, and is cut out of the message the transcript shows. A tag opens its document
-at `draft`; `review="true"` opens it awaiting review instead, which is what raises an attention
-item. The names carry nothing maelstrom-specific, so another frontend may render them its own
-way.
+user. `<doc-content>` carries the markdown inline; `<doc-file>` names files in the agent's
+worktree, comma-separated, resolved against that directory and nothing outside it. The tag names
+the document's `kind` and `title`, and is cut out of the message the transcript shows. A tag
+opens its document at `draft`; `review="true"` opens it awaiting review instead, which is what
+raises an attention item. The names carry nothing maelstrom-specific, so another frontend may
+render them its own way.
 _Avoid_: Directive, macro, shortcode
 
 **Comment**:

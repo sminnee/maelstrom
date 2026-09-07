@@ -88,13 +88,15 @@ Two forms, both read by `document_tags.read_tags`:
 - the markdown body, inline
 </doc-content>
 
-<doc-file kind="tasks" filename=".drafts/iter1.md" title="Iteration 1">
+<doc-file kind="tasks" filename=".drafts/iter1.md, .drafts/tail.md" title="Iteration 1">
 ```
 
 `<doc-content>` carries the body inline, so the server reads no file and the form works for a
-document that is not a file at all. `<doc-file>` names a file the server reads. `kind` is one of
-`plan`, `tasks`, `pr`, `review` and `other`; an unrecognised kind reads as `other`, so a typo
-shows a document rather than dropping it. `title` defaults to the filename, then to the kind. One
+document that is not a file at all. `<doc-file>` names files the server reads, comma-separated.
+Several names make **one** document holding the set, bodies headed by filename, and the order is
+kept: a task set is one chain, and approving it promotes in that order. `kind` is one of `plan`,
+`tasks`, `pr`, `review` and `other`; an unrecognised kind reads as `other`, so a typo shows a
+document rather than dropping it. `title` defaults to the first filename, then to the kind. One
 message may carry several tags, and each yields one document.
 
 The tag names are **frontend-agnostic**: another frontend may render these its own way, so
@@ -124,6 +126,42 @@ else starts at version 1.
 
 A document is **not persisted**. It lives in the world and dies with a server restart, exactly as
 a plan document does. A document store is out of scope.
+
+### Approving a task set
+
+A draft's inertness is the approval gate — see `CONTEXT.md`, "Draft". A cmux session gates on the
+user saying yes in the chat. The orchestrator UI has no chat, so the document's Approve button is
+what runs the promote; otherwise approval would be advice the agent may ignore rather than a gate.
+
+So approving a `tasks` document whose `source` is `draft_files` promotes every path it names, in
+order, and every other kind stays the verdict alone. The paths resolve against the agent's `cwd`
+through the same `stays_within` that read them. The first task follows the end of its parent's
+child-chain — `--follow-end '*'`, as the skill wires it by hand — and each later one follows the
+one before, so the chain lands as the document listed it. The reply carries the created ids,
+because an approve that reports nothing reads as an approve that did nothing.
+
+The head is **not** launched: the task list and node cards already offer Launch. The agent is told
+what was created, so a session that planned the chain does not promote it a second time.
+
+`NotebookTaskSource.promote` is the storage-layer step, over `task.promote_draft` — the same
+function `mael task promote` calls, so the CLI stays canonical and this is a second surface onto
+it, not a reimplementation. Three things make the failure path safe:
+
+- **One transaction.** Several drafts are several notebook writes, and a failure part-way would
+  leave some tasks created and some not. `store.transaction` gives the set a true rollback, so an
+  invalid draft leaves the notebook untouched and the document still `awaiting-review`. The
+  refusal names the file, since the user is looking at the document and needs to know which one
+  to fix.
+- **No index.** The task index is a cache outside that transaction, so a row written during a
+  rolled-back promote would outlive the rollback and leave a task that exists only in the cache.
+  Promote passes `index=None`, and `_stamped` skips its restamp when the block raises, so reads
+  scan the store until the next complete build.
+- **Deferred deletion.** `promote_draft(consume=False)` leaves each file, and the set is deleted
+  only once the transaction commits. Git can roll the notebook back but not a file beside it, so
+  deleting as it went would leave the user a half-deleted plan.
+
+The task refresh is forced afterwards, as every other notebook write forces it: the poll is 2 s
+away, and the user who approved would otherwise see nothing until it came round.
 
 ## Keeping the world fresh
 
@@ -428,7 +466,7 @@ check being missing, both answer 400 `invalid`.
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
 | `POST /api/desk` | `{id}`, a desk id | `desk.add` | `{}` |
 | `DELETE /api/desk/{deskId}` | the desk id, URL-encoded | `desk.remove` | `{}` |
-| `POST /api/documents/{id}/approve` | `{version}` | `document.approve` | `{}` |
+| `POST /api/documents/{id}/approve` | `{version}` | `document.approve` | `{taskIds}` |
 | `POST /api/documents/{id}/request-changes` | `{version, summary}` | `document.requestChanges` | `{}` |
 
 ## Attachments

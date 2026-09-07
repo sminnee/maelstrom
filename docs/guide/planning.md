@@ -21,9 +21,12 @@ format, in the worktree's `.drafts/` directory. A draft is not in the notebook. 
 `mael task promote` loads it, so approval is structural — nothing you draft can run until you
 promote it.
 
-The planning skills show each draft in the orchestrator UI as soon as they write it, so you
+The planning skills show the drafts in the orchestrator UI as soon as they write them, so you
 read the plan formatted. The agent does this by writing a `<doc-file>` tag in its message; the
-draft opens as a document on the task's card. Later edits are shown the same way.
+whole set opens as one document on the task's card. Later edits are shown the same way.
+
+That document is also where you approve the plan — see [Approving in the orchestrator
+UI](#approving-in-the-orchestrator-ui).
 
 ## Starting a plan
 
@@ -102,6 +105,22 @@ time, when the ids they reference exist. Promote in dependency order and feed ea
 to the next `--follow`. Any recipe flag overrides the file's value, the same way
 `add --from` flags override the copied recipe. On an error — missing file, bad frontmatter,
 no title — the file is left untouched and no task is created.
+
+### Approving in the orchestrator UI
+
+A cmux session promotes because you told it to in the chat. The orchestrator UI has no chat, so
+the document does it: its button reads **Approve and create tasks**, and pressing it promotes
+every draft the tag named, in the order it named them.
+
+The whole set is one notebook write. A draft that will not parse creates nothing, deletes
+nothing, and leaves the document awaiting review with a message naming the file to fix. On
+success the tab lists the ids it created and the document moves to approved.
+
+The tasks are created, not started. Approving a plan and starting work are two decisions, so
+launch the head yourself from its node card or the task list.
+
+To send the plan back instead, use **Request changes**. The summary reaches the agent as a
+message; it revises the drafts and re-tags them, and the document comes back as version 2.
 
 ## Single-session vs multi-session
 
