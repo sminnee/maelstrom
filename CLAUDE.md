@@ -61,7 +61,7 @@ names (alpha, bravo, charlie, …) in a bare-like repository structure.
 
 The CLI is built with **Click**. `src/maelstrom/cli.py` is the entry point; each subsystem
 adds its own command group (`task_cli.py`, `env_cli.py`, `git_cli.py`, `github_cli.py`,
-`session_cli.py`, `status_cli.py`, `admin_cli.py`, and the `integrations/` package).
+`session_cli.py`, `admin_cli.py`, and the `integrations/` package).
 
 For the module-by-module picture, read `docs/dev/architecture-patterns.md` — it documents the
 storage / model / CLI layering the modules follow, rather than restating a file list that
