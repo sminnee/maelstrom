@@ -1,15 +1,17 @@
+/*
+ * The document's own review route. The dock around it owns the chassis — the
+ * rule, the ground, the padding and the touch floor — so this is only the row.
+ */
 .bar {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   align-items: center;
-  padding: 8px 12px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-raised);
-  font-size: 12px;
   color: var(--fg-muted);
 }
 .bar input {
   flex: 1;
+  min-width: 12ch;
   font: inherit;
   color: var(--fg);
   background: var(--bg-field);

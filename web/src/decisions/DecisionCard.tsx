@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useAgent, useAnswer, useApprove, useDeny } from '../api/agents';
 import type { PendingRequest } from '../api/agents';
 import { useAgentStream } from '../live/useAgentStream';
@@ -12,6 +12,7 @@ import { QuestionPrompt } from '../session/cards/QuestionPrompt';
 import { toolCallTitle } from '../session/toolCards';
 import { PanelLink } from '../shell/PanelLink';
 import { AppButton } from '../ui/AppButton';
+import { useClamped } from '../ui/useClamped';
 import cards from '../session/cards/cards.module.css';
 import styles from './DecisionCard.module.css';
 
@@ -24,7 +25,16 @@ import styles from './DecisionCard.module.css';
  * An agent can be blocked on several at once — see `docs/dev/agent-daemon.md`,
  * "A subagent's permission ask" — and each is answered on its own.
  */
-export function DecisionCard({ agent }: { agent: Agent }) {
+export function DecisionCard({
+  agent,
+  variant = 'block',
+  inDocumentId,
+}: {
+  agent: Agent;
+  variant?: Variant;
+  /** The document this is drawn in, so a link back to it can be dropped. */
+  inDocumentId?: string;
+}) {
   const transcript = useAgentStream(agent.id);
   const detail = useAgent(agent.id);
   const held = new Set(agent.pendingRequestIds);
@@ -33,7 +43,14 @@ export function DecisionCard({ agent }: { agent: Agent }) {
   return (
     <>
       {waits.map((wait) => (
-        <OneDecision key={wait.requestId} agent={agent} wait={wait} items={transcript.items} />
+        <OneDecision
+          key={wait.requestId}
+          agent={agent}
+          wait={wait}
+          items={transcript.items}
+          variant={variant}
+          inDocumentId={inDocumentId}
+        />
       ))}
     </>
   );
@@ -43,10 +60,14 @@ function OneDecision({
   agent,
   wait,
   items,
+  variant,
+  inDocumentId,
 }: {
   agent: Agent;
   wait: PendingRequest;
   items: TranscriptItem[];
+  variant: Variant;
+  inDocumentId?: string;
 }) {
   const approve = useApprove();
   const deny = useDeny();
@@ -59,8 +80,17 @@ function OneDecision({
       : deny.mutateAsync({ agentId: agent.id, requestId, reason });
 
   return (
-    <section className={styles.decision} data-testid="decision" data-kind={wait.type}>
-      {before.length > 0 && <ContextRail items={before} />}
+    <section
+      className={styles.decision}
+      data-testid="decision"
+      data-kind={wait.type}
+      data-variant={variant}
+      // A ribbon suits a decision that is one act: approve, or deny with a
+      // reason. A question is a multi-step form, so it keeps its card even in
+      // the dock — laying its steps out across a band would break it.
+      data-binary={wait.type === 'question' ? undefined : ''}
+    >
+      {before.length > 0 && <ContextRail items={before} variant={variant} />}
       {wait.type === 'question' && (
         <QuestionPrompt
           item={wait}
@@ -68,41 +98,105 @@ function OneDecision({
         />
       )}
       {wait.type === 'permission_request' && <PermissionPrompt item={wait} onDecide={decide} />}
-      {wait.type === 'plan_review' && <PlanReview item={wait} onDecide={decide} />}
+      {wait.type === 'plan_review' && (
+        <PlanReview item={wait} onDecide={decide} inDocumentId={inDocumentId} />
+      )}
     </section>
   );
 }
 
 /**
- * The context before a wait, folded away on demand.
+ * Which surface the decision is drawn on. `block` is the expanded node card,
+ * where the context explains the ask on sight. `dock` is the band under a
+ * document, where the context is a control. See `web/DESIGN.md`, "Review Dock".
+ */
+type Variant = 'block' | 'dock';
+
+/**
+ * The context before a wait: the last things the agent said or did.
  *
  * `contextBefore` caps this at three items, but an item may be a whole message,
- * so three items can still fill the pane and push the plan being reviewed below
- * the fold. Two controls, because they answer different questions: the clamp
- * bounds the height of the context the operator wants, and the fold removes
- * context they have already read.
+ * so three items can still fill the pane. Each surface bounds that differently
+ * — see `web/DESIGN.md`, "Decision" and "Review Dock".
  *
- * Open by default, because the context is usually why the decision makes sense.
- * The fold is not persisted, for the reason the panel's tabs and filters are
+ * Neither state is persisted, for the reason the panel's tabs and filters are
  * not — see `docs/dev/orchestrator-ui.md`.
  */
-function ContextRail({ items }: { items: ContextItem[] }) {
+function ContextRail({ items, variant }: { items: ContextItem[]; variant: Variant }) {
+  return variant === 'dock' ? <DockedContext items={items} /> : <InlineContext items={items} />;
+}
+
+/** The items themselves, in the one shape both surfaces draw them in. */
+function ContextItems({ items }: { items: ContextItem[] }) {
+  return items.map((item) =>
+    item.type === 'message' ? (
+      <Markdown key={item.id} source={item.markdown} className={styles.said} />
+    ) : (
+      <div key={item.id} className={styles.did}>
+        <span className={styles.tool}>{item.tool}</span> {toolCallTitle(item)}
+      </div>
+    ),
+  );
+}
+
+/**
+ * The dock's context: a control, and a sheet it opens over the document.
+ *
+ * The sheet overlaps content it is not part of, so it earns a shadow under the
+ * Overlap Test. Escape closes it, because anything that covers the page must
+ * give the page back from the keyboard.
+ */
+function DockedContext({ items }: { items: ContextItem[] }) {
+  const [open, setOpen] = useState(false);
+  const sheetId = useId();
+
+  // On the document, not the button: the sheet scrolls and holds links, so the
+  // reader can be focused inside it when they reach for Escape. Stop the event
+  // there, or the panel and the card close on the same key. `Dialog` does the
+  // same for the same reason.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  return (
+    <div className={styles.docked}>
+      <AppButton
+        variant="quiet"
+        className={styles.contextToggle}
+        aria-expanded={open}
+        aria-controls={sheetId}
+        onClick={() => setOpen((was) => !was)}
+      >
+        Before this · {items.length}
+      </AppButton>
+      {open && (
+        <div className={styles.sheet} id={sheetId} data-testid="decision-context">
+          <ContextItems items={items} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The card's context: inline, open, and clamped.
+ *
+ * The clamp bounds the height of context the operator wants; the fold removes
+ * context they have already read. Two controls, because they answer different
+ * questions.
+ */
+function InlineContext({ items }: { items: ContextItem[] }) {
   const [expanded, setExpanded] = useState(false);
   const body = useRef<HTMLDivElement>(null);
-  const [clamped, setClamped] = useState(false);
-
-  // Whether the clamp is actually cutting anything. Three items is often a few
-  // short lines, and a control that reveals nothing is worse than no control.
-  useEffect(() => {
-    const el = body.current;
-    if (!el) return;
-    const measure = () => setClamped(el.scrollHeight > el.clientHeight + 1);
-    measure();
-    if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [items, expanded]);
+  const bodyId = useId();
+  const clamped = useClamped(body, [items, expanded]);
 
   return (
     <details
@@ -114,21 +208,20 @@ function ContextRail({ items }: { items: ContextItem[] }) {
       onToggle={(e) => !e.currentTarget.open && setExpanded(false)}
     >
       <summary className={styles.contextHead}>Before this</summary>
-      <div className={styles.contextBody} ref={body} data-expanded={expanded || undefined}>
-        {items.map((item) =>
-          item.type === 'message' ? (
-            <Markdown key={item.id} source={item.markdown} className={styles.said} />
-          ) : (
-            <div key={item.id} className={styles.did}>
-              <span className={styles.tool}>{item.tool}</span> {toolCallTitle(item)}
-            </div>
-          ),
-        )}
+      <div
+        className={styles.contextBody}
+        ref={body}
+        id={bodyId}
+        data-expanded={expanded || undefined}
+      >
+        <ContextItems items={items} />
       </div>
       {(clamped || expanded) && (
         <AppButton
           className={styles.more}
           variant="quiet"
+          aria-expanded={expanded}
+          aria-controls={bodyId}
           onClick={() => setExpanded((was) => !was)}
         >
           {expanded ? 'Show less' : 'Show more'}
@@ -141,19 +234,31 @@ function ContextRail({ items }: { items: ContextItem[] }) {
 function PlanReview({
   item,
   onDecide,
+  inDocumentId,
 }: {
   item: PlanReviewItem;
   onDecide: (decision: 'approve' | 'deny', reason: string) => void | Promise<unknown>;
+  inDocumentId?: string;
 }) {
   const [reason, setReason] = useState('');
+  // In the plan's own tab the link leads nowhere, and on a phone it pushed a
+  // second copy of the screen the reader is already on.
+  const link = item.documentId && item.documentId !== inDocumentId ? item.documentId : null;
   return (
     <div className={cards.prompt}>
-      <div className={cards.qhead}>Plan review</div>
-      <div>
-        The plan is ready.{' '}
-        {item.documentId && <PanelLink tab={documentTab(item.documentId)}>Read the plan</PanelLink>}
+      <div className={cards.qhead} data-role="prompt-head">
+        Plan review
       </div>
-      <div className={cards.options}>
+      <div data-role="prompt-text" data-linked={link ? '' : undefined}>
+        {link ? (
+          <>
+            The plan is ready. <PanelLink tab={documentTab(link)}>Read the plan</PanelLink>
+          </>
+        ) : (
+          'The plan is ready.'
+        )}
+      </div>
+      <div className={cards.options} data-role="prompt-actions">
         <AppButton variant="primary" onClick={() => onDecide('approve', '')}>
           Approve
         </AppButton>

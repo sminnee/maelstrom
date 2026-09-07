@@ -1,4 +1,10 @@
+/*
+ * The panel is drag-resizable, so the dock reads the panel's width rather than
+ * the viewport's — the same reasoning `Transcript.module.css` gives for the
+ * transcript's gutter.
+ */
 .document {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -82,13 +88,45 @@
   min-height: 0;
   display: flex;
 }
-.question {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
+/* The dock. `flex: none`, so the document is the only thing that gives. */
+.dock {
+  flex: none;
+  border-top: 1px solid var(--border);
+  background: var(--bg-raised);
+  padding: var(--space-2) var(--space-3);
+  padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
+}
+/* Waiting. The Quiet List Rule gives it a rule and a wash, never a glow. */
+.dock[data-waiting] {
+  border-top-color: var(--attention);
+  background: color-mix(in srgb, var(--attention) 8%, var(--bg-raised));
 }
 .created {
   padding: 8px 12px;
   border-top: 1px solid var(--border);
   color: var(--fg-faint);
   font-size: var(--text-sm);
+}
+
+/*
+ * The Thumb Floor Rule. A field goes to 16px because iOS zooms the page on
+ * anything smaller and does not zoom back.
+ */
+@media (max-width: 839px) {
+  .dock button,
+  .dock input,
+  .dock select {
+    min-height: var(--touch);
+  }
+  .dock input {
+    font-size: var(--text-md);
+  }
+}
+
+/* Tighter gutters once the panel is narrow. */
+@container (max-width: 26rem) {
+  .dock {
+    padding-left: var(--space-2);
+    padding-right: var(--space-2);
+  }
 }

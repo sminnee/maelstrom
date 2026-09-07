@@ -331,6 +331,9 @@ state, and still the only interrupt.
 answer, set status, launch, add to and remove from the desk, edit, and start new work. The one
 thing dropped is the comment margin, which draws nothing today.
 
+Reachable is not the same as on screen. A command behind one tap counts; reading matter that
+costs a band does not. What the rule forbids is a command the narrow layout cannot reach at all.
+
 ### Named Rules
 
 **The Fixed Board Rule.** A card moves only when its own work moves: it changes zone when it
@@ -500,11 +503,14 @@ the interface font — a form control never falls back to the browser's own.
 
 ### Decision
 
-The block shown when an agent waits. A context rail — 2px strong hairline on the left, muted
-text — carries the last three things the agent said or did, with an uppercase micro heading.
-Said lines are prose; did lines are mono with a bolded tool name and ellipsis truncation. The
-prompt follows. The same component renders inside the expanded node and inside a document tab,
-so the two can never drift.
+The block shown when an agent waits. The expanded node and the document tab render one component,
+so the two can never drift, but each reads it for a different reason. A card is read; a dock is
+acted on. The variant says which.
+
+**On a card** the decision is the reading. A context rail — 2px strong hairline on the left,
+muted text — carries the last three things the agent said or did, under an uppercase micro
+heading. Said lines are prose; did lines are mono with a bolded tool name and ellipsis
+truncation. The prompt follows, in its bordered amber box.
 
 The rail is context, so it never outranks what it is context for. Three items is a small count,
 but one item may be a whole message, so the count alone does not bound the height: the rail
@@ -513,19 +519,69 @@ idiom the node card uses for a long brief. The heading is also a fold, so a rail
 has already read can be put away entirely. It opens by default and the state does not persist,
 because the panel keeps no view state across renders.
 
+### Review Dock
+
+The band under a document, holding whatever waits on the operator there. One dock, one place,
+whoever is asking: an agent's own wait takes it, and the document's own review route takes it
+when no wait holds it. The two share a chassis, so a reader answers in one place and learns one
+shape.
+
+The dock sits below the document because the document is what the reader came for. A decision
+above the thing being decided makes the reader scroll past the ask to reach the plan, and on a
+phone it costs most of the plan's screen. The dock is also the terminal act, so it belongs at the
+end of the reading path and under the thumb.
+
+The prompt stops being a card here. The band already carries the rule and the wash, so a second
+border around the same message reads as a box inside a box. The heading goes too, and so does
+the sentence naming the ask: Approve and Deny say the act, and a sentence above them is a kicker
+above a heading.
+
+The context is offered, not spent. `Before this · 3` is a control on its own line, and it opens
+the rail as a sheet over the document rather than pushing it — the document never reflows for a
+decision. The sheet overlaps content it is not part of, so the Overlap Test earns it the card
+lift. Escape closes it.
+
+- **Waiting:** the top rule takes Alert Amber and the ground takes an 8% amber wash. The Quiet
+  List Rule holds here as it does on a deck row: a docked band signals with a rule and a wash,
+  never a glow.
+- **Settled:** the plain hairline and the raised ground, because nothing is asking.
+- **Narrow:** every control clears `--touch`, and a field goes to 16px so iOS does not zoom.
+
+A plan review answers the agent, never the document. Approving the document would flip it and
+retire the attention item pointing at it, leaving the agent blocked on a request nothing had
+answered. The dock therefore offers the agent's Approve and withholds the document's
+request-changes route. `Read the plan` is dropped where it would point at the document already
+open: in the plan's own tab the link leads nowhere, and on a phone it pushes a second copy of
+that screen onto the stack.
+
 ## Seeing a change
 
-`pnpm ladle`, or `mael env start ladle`, serves a workbench of the components against fixtures in
-`src/session/transcript.fixture.ts`. It needs no orchestrator, no daemon and no live agent.
+`pnpm ladle`, or `mael env start ladle`, serves a workbench of the components. It needs no
+orchestrator, no daemon and no live agent.
 
 Use it before a visual change and after. jsdom computes no layout, so the test suite cannot
-answer whether prose ranks above a tool row, where a measure wraps, or how a run of calls reads —
-and a live session is a slow and unrepeatable way to ask. The stories carry the states worth
-checking: prose against tool calls, a long ledger run, the truncation note, the narrow layout
-under the 30rem container query, a wide panel, and every markdown element at panel width.
+answer whether prose ranks above a tool row, where a measure wraps, how a run of calls reads, or
+whether a docked control clears the thumb floor. A live session is a slow and unrepeatable way to
+ask.
 
-Ladle's theme control switches the scheme the stories report, so check both. Light is not a
-courtesy mode.
+Stories come in two shapes:
+
+| Shape     | Fixture                                            | Use it for                             |
+| --------- | -------------------------------------------------- | -------------------------------------- |
+| Component | `src/session/transcript.fixture.ts`                | one component's states, drawn directly |
+| Whole app | `src/test/seedWorld.ts` + `src/test/fakeServer.ts` | a surface reached by navigating        |
+
+The whole-app shape mounts the real `App` on the fake server, through the same `deps` injection
+`renderApp` uses in the suite. A story therefore runs the production tree rather than a stand-in
+that can drift from it. `Documents / Review dock` is the worked example.
+
+The stories carry the states worth checking: prose against tool calls, a long ledger run, the
+truncation note, the narrow layout under the 30rem container query, a wide panel, every markdown
+element at panel width, and the review dock waiting and settled.
+
+Ladle's width control drives the layout break, so the same story at 390px is the phone. Ladle's
+theme control switches the scheme the stories report, so check both. Light is not a courtesy
+mode.
 
 ## Do's and Don'ts
 

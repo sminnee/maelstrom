@@ -1029,11 +1029,30 @@ describe('review in a document tab', () => {
 
     await user.click(await within(expanded()).findByRole('link', { name: /plan\.md v1/ }));
     const tab = await screen.findByTestId('document-tab');
-    const inline = within(await within(tab).findByTestId('inline-decision'));
-    // The decision shows what the agent said before it asked. The rail only
-    // draws once the transcript has delivered those items, so wait for the
-    // rail rather than for the heading inside it.
-    expect(await inline.findByTestId('decision-context')).toHaveTextContent('Before this');
+    const inline = within(await within(tab).findByTestId('review-dock'));
+    // The control waits on the transcript socket, which opens, snapshots and
+    // reduces across several ticks — a loaded CI runner takes far longer than
+    // the 1 s default. Same ceiling as `findFirstTranscriptItem` below, and for
+    // the same reason: it bounds a hang rather than tuning a wait. Waiting for
+    // the control also has to come first, or the assertion that the context is
+    // not showing would pass while the rail had simply not arrived.
+    const context = await inline.findByRole(
+      'button',
+      { name: /Before this/ },
+      {
+        timeout: 25_000,
+      },
+    );
+    expect(inline.queryByText('Rewriting the migration for the new collation.')).toBeNull();
+    await user.click(context);
+    expect(
+      await inline.findByText('Rewriting the migration for the new collation.', undefined, {
+        timeout: 25_000,
+      }),
+    ).toBeInTheDocument();
+    await user.click(context);
+    expect(inline.queryByText('Rewriting the migration for the new collation.')).toBeNull();
+
     await user.click(inline.getAllByRole('checkbox')[0]!);
     await user.click(inline.getByRole('button', { name: 'Next' }));
     await user.click(inline.getAllByRole('radio')[0]!);
@@ -1067,10 +1086,11 @@ describe('review in a document tab', () => {
     expect(screen.getByTestId('document-tab')).toHaveTextContent('awaiting review');
   });
 
-  it('a plan review answers from its decision card, not from a review bar', async () => {
-    // The wait is the agent's ExitPlanMode call. A review bar would flip the
-    // document and retire the item pointing at it, leaving the agent blocked
-    // on a request nothing had answered — so the decision card answers it.
+  it('a plan review answers the agent, never the document', async () => {
+    // The wait is the agent's ExitPlanMode call. Approving the document would
+    // flip it and retire the item pointing at it, leaving the agent blocked on
+    // a request nothing had answered. So the dock offers the agent's Approve
+    // and withholds the document's request-changes route.
     const user = userEvent.setup();
     await renderApp();
     clickNode('NORT-7');
@@ -1078,8 +1098,19 @@ describe('review in a document tab', () => {
     const tab = await screen.findByTestId('document-tab');
     expect(tab).toHaveTextContent('awaiting review');
     expect(within(tab).queryByRole('textbox', { name: 'Summary of requested changes' })).toBeNull();
-    expect(within(tab).getByTestId('inline-decision')).toBeInTheDocument();
+    expect(within(tab).getByTestId('review-dock')).toBeInTheDocument();
     expect(within(tab).getByRole('button', { name: 'Approve' })).toBeInTheDocument();
+
+    // DOM order is the reading order: document first, dock after.
+    const body = within(tab).getByTestId('document-body');
+    const dock = within(tab).getByTestId('review-dock');
+    expect(body.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(dock).toHaveAttribute('data-waiting');
+    // The same dock, unlit, once nothing is asking. Two states on one element
+    // is what makes "one chassis" true rather than two bands that look alike.
+    expect(within(tab).queryByRole('button', { name: 'Request changes' })).toBeNull();
+    // In the plan's own tab the link leads nowhere.
+    expect(within(dock).queryByRole('link', { name: 'Read the plan' })).toBeNull();
   });
 });
 
