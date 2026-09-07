@@ -40,7 +40,8 @@ Review every prose change in that diff:
 
 - comments and docstrings in source files;
 - `docs/`, README, `CONTEXT.md`, `CHANGELOG.md`, and any other Markdown;
-- skills under `.claude/skills/` or `shared/skills/`.
+- skills under `.claude/skills/` or `shared/skills/`;
+- the commit messages themselves, and `.drafts/pr.md` — see **The whole story** below.
 
 You have **free read-only access to the whole repo**. You need it: the duplication sweep reads
 files the branch never touched. Do not run tests, builds, or linters. Do not edit files.
@@ -131,6 +132,31 @@ the others become a pointer or nothing.
 
 Give each finding the word count the cut would save. That is what tells the parent what the fix
 is worth.
+
+### The whole story
+
+The branch's commits are **story commits**: one per design decision, in reading order, each with
+its rationale in the body. No other reviewer can judge the partition — each commit reviewer sees
+one commit and takes its story as given. You see all of them.
+
+```bash
+git log --reverse --format='%h %s%n%b' <range>
+```
+
+Read them in order against the branch diff, and ask three questions:
+
+- **Is each commit what it claims?** A `Review: scan` trailer promises mechanical work. Logic
+  hiding in a `scan` commit is a finding, because it tells the reviewer to skim what needs reading.
+- **Is one decision split across commits?** Two commits arguing halves of one _why_, or a commit
+  that only makes sense once a later one lands, should have been one.
+- **Is a decision unstated?** A change the branch makes that no commit body accounts for. This is
+  the common failure: the partition covers the code but leaves a real choice unexplained.
+
+Then read `.drafts/pr.md` if it exists. It becomes the PR body. Report it when it describes a
+different branch from the one the commits and the diff show — work it claims and does not do, or
+work it passes over.
+
+Judge the story, not the wording of it. A body that reads plainly and states its decision is done.
 
 ### Coverage
 

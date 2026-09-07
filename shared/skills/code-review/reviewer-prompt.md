@@ -1,8 +1,8 @@
 # Reviewer Prompt
 
 This file is the prompt the `/code-review` skill hands to each review sub-agent. The parent agent
-reads this file at runtime, appends the commit assignment (the commit to review plus the branch's
-full commit list), and spawns one `Explore` sub-agent per commit.
+reads this file at runtime, appends the commit assignment (the commit to review, its review depth,
+and the branch's full commit list), and spawns one `Explore` sub-agent per commit.
 
 ---
 
@@ -55,6 +55,38 @@ Where these disagree, the more specific source wins: project `docs/review/` over
 - **Free read-only access** to the rest of the repo: spot reuse opportunities, find existing
   helpers, catch cross-cutting issues.
 - **Do not** run tests, builds, or linters. Do not edit files.
+
+### Read the depth first
+
+The assignment carries a **review depth**, which the commit's author set for this commit. It
+decides how much of the work below you do.
+
+**`scan`** — the commit claims to be mechanical: a rename, a move, generated output. Your job is
+one question: **is the diff only what the subject says?** Read for what does not belong — a
+behaviour change riding inside a rename, a value quietly edited, a line dropped. Report anything
+that is not the stated mechanical change, and report the commit as a wrong depth when the diff
+holds logic worth reading. Skip the **What to focus on** checklist; a `scan` commit gets a short
+report. The anti-smells check and the defer-to-CI-gates rule still apply — `scan` is the depth
+most likely to raise a false positive, so it needs those filters most.
+
+**`read`** — read every line and work the full checklist below.
+
+Depth bounds your effort, not your honesty. A `scan` that hides a real change is the finding the
+depth exists to catch.
+
+### Judge the decision the body states
+
+A commit body states a design decision and the reasoning behind it. **That claim is under review
+too.** Read the body against the diff and report:
+
+- a body that **misdescribes its diff** — it claims one change and the diff makes another, or a
+  larger one;
+- a **rationale the diff contradicts** — the body says it avoids a dependency the diff adds, or
+  says it is behaviour-preserving when it is not;
+- a decision the body **oversells** — a trade-off presented as free when the diff pays for it.
+
+A body that is merely thin is not a finding. A body that is wrong is, because the reviewer after
+you will trust it.
 
 ### Check later commits before you report
 
@@ -110,8 +142,10 @@ formatting nits, no unused-export reports.
 end with an *Anti-smells* section: patterns that look wrong but are correct, which reviewers have
 raised as false positives before. If your finding is listed there, drop it.
 
-Also report **design decisions worth calling out**: noteworthy or controversial choices,
-trade-offs, and divergences from convention in your commit.
+Also report **design decisions worth calling out**: choices the body does not state. A decision
+the body already explains needs no repeating — judge it as above. What belongs here is the
+trade-off made silently: a convention diverged from without comment, a controversial choice the
+message passes over.
 
 ## Write findings the parent can triage
 

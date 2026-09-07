@@ -67,6 +67,14 @@ non-zero exit means rebase conflicts, and the command has already printed the re
 Skip this step when `$ARGUMENTS` names an explicit SHA or range: the user asked to review
 specific history, and rebasing would move it underneath them.
 
+A presented branch's story commits carry no `reviewed` note, so review reads all of them. Nothing
+is lost: the notes left behind belong to the build commits, which no longer exist, and a story
+commit is a different partition of the same diff — there is no commit for an old note to map onto.
+Tagging them would mark never-reviewed commits as reviewed.
+
+Notes work as usual from here. A fixup on a story commit is tagged, and the tag rides onto the
+squashed result, so a second run skips what the first one reviewed.
+
 ### 2. Resolve the range
 
 `$ARGUMENTS` is the user's argument string (may be empty).
@@ -126,6 +134,9 @@ Take the **oldest 8** of the commits that remain after step 3b. The list from st
 `--reverse`, so this is its first 8 entries. A larger fan-out spawns too many concurrent
 sub-agents and returns a report too big to triage well.
 
+On a presented branch the cap counts decisions, and `/present` keeps those to eight. A branch that
+hits the cap has more decisions than one PR should carry.
+
 Report every commit you defer, one line each, and close the list with the re-run instruction:
 
 ```
@@ -157,12 +168,23 @@ assignment:
 
 ```
 Review commit: <sha>
+Review depth: <read|scan>
 Branch range: <range>
 Commits in this branch, oldest first:
   <sha1> <subject1>
   <sha2> <subject2>
   ...
 ```
+
+Read the depth from the commit's own `Review:` trailer:
+
+```bash
+git log -1 --format='%(trailers:key=Review,valueonly)' <sha>
+```
+
+`scan` gives the reviewer a shorter brief, `read` the full checklist. **Anything that is not
+`scan` reads as `read`** — an empty trailer, a typo, a value nobody defined. That covers every
+commit made before `/present` existed, and every `chore:` since.
 
 Include the full branch commit list in **every** sub-agent's prompt. A reviewer looking at one
 commit needs to know what comes after it — see the note on later commits in `reviewer-prompt.md`.
