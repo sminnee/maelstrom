@@ -95,6 +95,8 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_get("/api/attachments/{project}/{bucket}/{name}", _serve_attachment)
     app.router.add_post("/api/desk", _desk_add)
     app.router.add_delete("/api/desk/{desk_id:.+}", _desk_remove)
+    app.router.add_post("/api/documents/{id}/approve", _approve_document)
+    app.router.add_post("/api/documents/{id}/request-changes", _request_changes)
     for method, path in _NOT_IMPLEMENTED:
         app.router.add_route(method, path, _not_implemented)
     return app
@@ -104,8 +106,6 @@ def build_app(orch: Orchestrator) -> web.Application:
 _NOT_IMPLEMENTED = (
     ("POST", "/api/documents/{id}/comments"),
     ("POST", "/api/documents/{id}/comments/{cid}/resolve"),
-    ("POST", "/api/documents/{id}/approve"),
-    ("POST", "/api/documents/{id}/request-changes"),
     ("POST", "/api/shaping"),
 )
 
@@ -481,6 +481,32 @@ async def _infer_task(request: web.Request) -> web.StreamResponse:
 async def _create_task(request: web.Request) -> web.StreamResponse:
     """Write a new task; ``launch`` starts it too, as ``mael task add --run`` does."""
     return await _command(request, lambda body: {**body, "type": "task.create"})
+
+
+async def _approve_document(request: web.Request) -> web.StreamResponse:
+    document_id = request.match_info["id"]
+    return await _command(
+        request,
+        lambda body: {
+            "type": "document.approve",
+            "documentId": document_id,
+            "version": body.get("version"),
+        },
+    )
+
+
+async def _request_changes(request: web.Request) -> web.StreamResponse:
+    """Send a document back. The summary reaches the agent as a message."""
+    document_id = request.match_info["id"]
+    return await _command(
+        request,
+        lambda body: {
+            "type": "document.requestChanges",
+            "documentId": document_id,
+            "version": body.get("version"),
+            "summary": body.get("summary", ""),
+        },
+    )
 
 
 async def _desk_add(request: web.Request) -> web.StreamResponse:
