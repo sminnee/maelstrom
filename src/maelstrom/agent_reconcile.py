@@ -73,9 +73,6 @@ class Reconciliation:
     rewrite: tuple[AgentSpec, ...]
     resume: tuple[AgentSpec, ...]
 
-    def of_kind(self, kind: str) -> list[Verdict]:
-        return [v for v in self.verdicts if v.kind == kind]
-
 
 def reconcile(
     records: list[AgentSpec],
