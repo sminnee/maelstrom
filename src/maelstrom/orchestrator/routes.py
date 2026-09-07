@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
-from aiohttp import BodyPartReader, WSMsgType, web
+from aiohttp import BodyPartReader, WSCloseCode, WSMsgType, web
 
 from .hubs import Lagging
 from .protocol import HOST_ID, document_row, task_row
@@ -34,6 +34,8 @@ CLOSE_LAGGING = 4409
 
 #: Where the app keeps the orchestrator it serves.
 ORCH = web.AppKey("orch", Orchestrator)
+#: Every transcript socket open right now, so a shutdown can close each one.
+SOCKETS: web.AppKey[set] = web.AppKey("sockets", set)
 
 #: The HTTP status for each error code the server answers with.
 STATUS_FOR_CODE = {
@@ -62,13 +64,28 @@ def build_app(orch: Orchestrator) -> web.Application:
     app = web.Application(middlewares=[_json_errors])
     app[ORCH] = orch
 
+    app[SOCKETS] = set()
+
     async def on_startup(_app: web.Application) -> None:
         await orch.start()
+
+    async def on_shutdown(app_: web.Application) -> None:
+        # Both stream handlers loop until they are cancelled, so a shutdown
+        # otherwise reaches the timeout and drops the transport. The client
+        # then sees 1006 and cannot tell a restart from a network fault.
+        await asyncio.gather(
+            *(
+                ws.close(code=WSCloseCode.GOING_AWAY, message=b"shutting down")
+                for ws in list(app_[SOCKETS])
+            ),
+            return_exceptions=True,
+        )
 
     async def on_cleanup(_app: web.Application) -> None:
         await orch.stop()
 
     app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
     app.on_cleanup.append(on_cleanup)
     app.router.add_get("/api/projects", _projects)
     app.router.add_get("/api/worktrees", _worktrees)
@@ -610,8 +627,24 @@ async def _transcript_stream(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse(heartbeat=HEARTBEAT_SECS)
     await ws.prepare(request)
     if agent_id not in orch.world["agents"]:
+        # Registered only past here: this path closes itself, so it never
+        # needs the shutdown's help and must not be left in the set.
         await ws.close(code=CLOSE_UNKNOWN_ID, message=b"unknown_id")
         return ws
+    request.app[SOCKETS].add(ws)
+    try:
+        return await _stream_frames(request, orch, ws, agent_id)
+    finally:
+        request.app[SOCKETS].discard(ws)
+
+
+async def _stream_frames(
+    request: web.Request,
+    orch: Orchestrator,
+    ws: web.WebSocketResponse,
+    agent_id: str,
+) -> web.WebSocketResponse:
+    """The socket's opening frame, then its live ones, until either end stops."""
     try:
         await orch.ensure_attached(agent_id)
     except asyncio.CancelledError:
