@@ -11,6 +11,8 @@ rows are assembled, so those reads happen once per project rather than once
 per caller.
 """
 
+import asyncio
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -32,6 +34,8 @@ from .worktree import (
     run_git_async,
 )
 from .worktree_model import extract_worktree_name_from_folder, has_claude_transcript
+
+log = logging.getLogger(__name__)
 
 
 def branch_session_ids(project_name: str) -> dict[str, list[str]]:
@@ -174,117 +178,134 @@ async def build_list_all_data(projects_dir: Path) -> dict[str, Any]:
     # memo so the per-session worktree-list lookup runs once, not per row.
     live_sessions = await session_discovery.LiveSessionSet().sweep()
 
+    # Each project's reads are independent, so they run together. Read one
+    # after another, 16 projects took 19s here, and every route waits on this.
+    read = await asyncio.gather(
+        *(_project_data(project_path, live_sessions) for project_path in projects),
+        return_exceptions=True,
+    )
+
+    # A project that cannot be read costs its own row, not the whole read. A
+    # worktree directory can go between the listing and the row read, and the
+    # server polls this every 15s: one raise would blank the UI on every tick.
     projects_data = []
-    for project_path in projects:
-        project_name = project_path.name
-        worktrees = await list_worktrees_async(project_path)
-        worktree_data = []
-        # Branch → task session ids for this project (stopped-marker detection).
-        branch_sessions = branch_session_ids(project_name)
-        # One PR lookup per project, not per worktree. The batch is repo-scoped,
-        # so it belongs inside this loop. A project whose worktrees are all
-        # detached has no branch to ask about, and `list-all` visits every
-        # project — so skip the round trip rather than spend one per project.
-        branches = {wt.branch for wt in worktrees if wt.branch}
-        open_prs = await get_open_prs_async(project_path, branches) if branches else {}
-        # Likewise the closed check: one batch per project, not two subprocesses
-        # per worktree.
-        closed_paths = await closed_worktrees_async(project_path, worktrees)
-        # One repo lookup per project answers the PR URL for every row.
-        repo_url = await project_repo_url(project_path)
-        # One store read per project answers the base for every row.
-        base_store = GitConfigBaseStore(project_path)
-        bases = base_store.all()
+    for project_path, outcome in zip(projects, read, strict=True):
+        if isinstance(outcome, BaseException):
+            log.warning("could not read project %s: %s", project_path.name, outcome)
+            continue
+        projects_data.append(outcome)
+    return {"projects": projects_data}
 
-        for wt in worktrees:
-            # Skip the project root (bare repo). Resolved, because git reports
-            # the real path and a symlinked projects dir would never match.
-            if wt.path.resolve() == project_path.resolve():
-                continue
 
-            display_name = (
-                extract_worktree_name_from_folder(project_name, wt.path.name)
-                or wt.path.name
-            )
+async def _project_data(
+    project_path: Path, live_sessions: session_discovery.LiveSessionSet
+) -> dict[str, Any]:
+    """One project's row, with a row per worktree under it."""
+    project_name = project_path.name
+    worktrees = await list_worktrees_async(project_path)
+    worktree_data = []
+    # Branch → task session ids for this project (stopped-marker detection).
+    branch_sessions = branch_session_ids(project_name)
+    # One PR lookup per project, not per worktree. The batch is repo-scoped, so
+    # it belongs here rather than in the worktree loop below. A project whose
+    # worktrees are all detached has no branch to ask about, and `list-all`
+    # visits every project — so skip the round trip rather than spend one.
+    branches = {wt.branch for wt in worktrees if wt.branch}
+    open_prs = await get_open_prs_async(project_path, branches) if branches else {}
+    # Likewise the closed check: one batch per project, not two subprocesses
+    # per worktree.
+    closed_paths = await closed_worktrees_async(project_path, worktrees)
+    # One repo lookup per project answers the PR URL for every row.
+    repo_url = await project_repo_url(project_path)
+    # One store read per project answers the base for every row.
+    base_store = GitConfigBaseStore(project_path)
+    bases = base_store.all()
 
-            if wt.path in closed_paths:
-                worktree_data.append(
-                    {
-                        "name": display_name,
-                        "folder": wt.path.name,
-                        "path": str(wt.path),
-                        "branch": wt.branch or None,
-                        "base": None,
-                        "is_closed": True,
-                        "dirty_files": 0,
-                        "local_commits": 0,
-                        "pr_number": None,
-                        "pr_url": None,
-                        "pr_commits": None,
-                        "pr_state": None,
-                        "pr_draft": None,
-                        "pushed_commits": None,
-                        "app_url": None,
-                        "app_running": False,
-                        "session_count": 0,
-                        "session_stopped": False,
-                    }
-                )
-                continue
+    for wt in worktrees:
+        # Skip the project root (bare repo). Resolved, because git reports
+        # the real path and a symlinked projects dir would never match.
+        if wt.path.resolve() == project_path.resolve():
+            continue
 
-            base = bases.get(wt.branch or "")
-            dirty_count = len(await get_worktree_dirty_files_async(wt.path))
-            local_commits = await get_local_only_commits_async(wt.path, wt.branch)
+        display_name = (
+            extract_worktree_name_from_folder(project_name, wt.path.name)
+            or wt.path.name
+        )
 
-            pr = await resolve_pr(open_prs, project_path, wt.branch)
-            # The per-branch fallback answers a number but no URL, so join one.
-            row_pr_url = (pr.url or pr_url(repo_url, pr.number)) if pr else None
-            pushed_commits = None
-            if not is_open_pr(pr) and wt.branch:
-                pushed_commits = await get_pushed_commit_count_async(wt.path, wt.branch)
-
-            session_count = live_sessions.count_for(wt.path)
-            stopped = not session_count and session_stopped(
-                wt.path, wt.branch, branch_sessions
-            )
-
-            app_url = None
-            app_running = False
-            app_info = get_app_url(project_path, display_name)
-            if app_info:
-                app_url, app_running = app_info
-
+        if wt.path in closed_paths:
             worktree_data.append(
                 {
                     "name": display_name,
                     "folder": wt.path.name,
                     "path": str(wt.path),
                     "branch": wt.branch or None,
-                    "base": base,
-                    "is_closed": False,
-                    "dirty_files": dirty_count,
-                    "local_commits": local_commits,
-                    "pr_number": pr.number if pr else None,
-                    "pr_url": row_pr_url,
-                    "pr_commits": pr.commits if pr else None,
-                    "pr_state": pr.state if pr else None,
-                    "pr_draft": pr.is_draft if pr else None,
-                    "pushed_commits": pushed_commits,
-                    "app_url": app_url,
-                    "app_running": app_running,
-                    "session_count": session_count,
-                    "session_stopped": stopped,
+                    "base": None,
+                    "is_closed": True,
+                    "dirty_files": 0,
+                    "local_commits": 0,
+                    "pr_number": None,
+                    "pr_url": None,
+                    "pr_commits": None,
+                    "pr_state": None,
+                    "pr_draft": None,
+                    "pushed_commits": None,
+                    "app_url": None,
+                    "app_running": False,
+                    "session_count": 0,
+                    "session_stopped": False,
                 }
             )
+            continue
 
-        projects_data.append(
+        base = bases.get(wt.branch or "")
+        dirty_count = len(await get_worktree_dirty_files_async(wt.path))
+        local_commits = await get_local_only_commits_async(wt.path, wt.branch)
+
+        pr = await resolve_pr(open_prs, project_path, wt.branch)
+        # The per-branch fallback answers a number but no URL, so join one.
+        row_pr_url = (pr.url or pr_url(repo_url, pr.number)) if pr else None
+        pushed_commits = None
+        if not is_open_pr(pr) and wt.branch:
+            pushed_commits = await get_pushed_commit_count_async(wt.path, wt.branch)
+
+        session_count = live_sessions.count_for(wt.path)
+        stopped = not session_count and session_stopped(
+            wt.path, wt.branch, branch_sessions
+        )
+
+        app_url = None
+        app_running = False
+        app_info = get_app_url(project_path, display_name)
+        if app_info:
+            app_url, app_running = app_info
+
+        worktree_data.append(
             {
-                "name": project_name,
-                "path": str(project_path),
-                "stack_tip": base_store.read_stack_tip(),
-                "repo_url": repo_url,
-                "worktrees": worktree_data,
+                "name": display_name,
+                "folder": wt.path.name,
+                "path": str(wt.path),
+                "branch": wt.branch or None,
+                "base": base,
+                "is_closed": False,
+                "dirty_files": dirty_count,
+                "local_commits": local_commits,
+                "pr_number": pr.number if pr else None,
+                "pr_url": row_pr_url,
+                "pr_commits": pr.commits if pr else None,
+                "pr_state": pr.state if pr else None,
+                "pr_draft": pr.is_draft if pr else None,
+                "pushed_commits": pushed_commits,
+                "app_url": app_url,
+                "app_running": app_running,
+                "session_count": session_count,
+                "session_stopped": stopped,
             }
         )
 
-    return {"projects": projects_data}
+    return {
+        "name": project_name,
+        "path": str(project_path),
+        "stack_tip": base_store.read_stack_tip(),
+        "repo_url": repo_url,
+        "worktrees": worktree_data,
+    }
