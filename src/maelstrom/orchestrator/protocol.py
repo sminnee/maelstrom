@@ -40,6 +40,7 @@ class Worktree(TypedDict):
     dirtyFiles: int
     localCommits: int
     prNumber: int | None
+    prUrl: str
     appUrl: str
     appRunning: bool
     sessionCount: int

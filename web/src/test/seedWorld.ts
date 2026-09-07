@@ -38,6 +38,7 @@ function worktree(
     dirtyFiles: 0,
     localCommits: 0,
     prNumber: null,
+    prUrl: '',
     appUrl: '',
     appRunning: false,
     sessionCount: 0,
@@ -200,6 +201,7 @@ export function seedWorld(): Seed {
     worktree('northwind', 'delta', {
       branch: 'feat/auth-rotation',
       prNumber: 118,
+      prUrl: 'https://github.com/acme/northwind/pull/118',
       appUrl: 'http://localhost:4210',
       appRunning: true,
       sessionCount: 1,

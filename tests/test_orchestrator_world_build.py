@@ -119,6 +119,7 @@ LIST_ALL_ROW = {
     "app_url": "http://localhost:3070",
     "app_running": True,
     "session_count": 1,
+    "pr_url": "https://github.com/acme/northwind/pull/42",
 }
 
 
@@ -135,6 +136,7 @@ def test_worktree_entity_mirrors_a_list_all_row():
         "dirtyFiles": 2,
         "localCommits": 1,
         "prNumber": 42,
+        "prUrl": "https://github.com/acme/northwind/pull/42",
         "appUrl": "http://localhost:3070",
         "appRunning": True,
         "sessionCount": 1,
@@ -154,6 +156,25 @@ def test_worktree_entity_blanks_the_nulls_of_a_closed_row():
     assert entity["base"] == ""
     assert entity["isClosed"] is True
     assert entity["appUrl"] == ""
+
+
+def test_worktree_entity_carries_the_pr_url():
+    """The card links the PR from this, so no reader joins two fields."""
+    entity = worktree_entity(
+        "northwind",
+        {
+            "name": "alpha",
+            "path": "/p/northwind-alpha",
+            "pr_number": 118,
+            "pr_url": "https://github.com/acme/northwind/pull/118",
+        },
+    )
+    assert entity["prUrl"] == "https://github.com/acme/northwind/pull/118"
+
+
+def test_worktree_entity_without_a_pr_url_carries_an_empty_string():
+    entity = worktree_entity("northwind", {"name": "alpha", "path": "/p"})
+    assert entity["prUrl"] == ""
 
 
 def test_project_entity_carries_the_stack_tip():

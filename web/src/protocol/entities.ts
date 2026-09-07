@@ -39,6 +39,8 @@ export interface Worktree {
   dirtyFiles: number;
   localCommits: number;
   prNumber: number | null;
+  /** The PR's browse URL, or `''` when there is no PR or no browse URL for the repo. */
+  prUrl: string;
   appUrl: string;
   appRunning: boolean;
   sessionCount: number;

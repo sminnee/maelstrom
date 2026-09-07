@@ -82,6 +82,7 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
         )}
         <span className={styles.id}>{nodeIdLine(node)}</span>
         {node.worktree && <span className={styles.worktree}>{node.worktree.nato}</span>}
+        {node.worktree?.prNumber && <span className={styles.pr}>#{node.worktree.prNumber}</span>}
         {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
       </div>
       <Handle type="source" position={Position.Right} className={styles.handle} />

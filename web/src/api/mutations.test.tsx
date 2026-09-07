@@ -2,7 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import { QueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { makeAgent, makeDocument, makeQuestionItem, makeTask, worldWith } from '../test/fixtures';
+import {
+  makeAgent,
+  makeDocument,
+  makeProject,
+  makeQuestionItem,
+  makeTask,
+  worldWith,
+} from '../test/fixtures';
 import { createFakeServer } from '../test/fakeServer';
 import {
   useAnswer,
@@ -35,7 +42,7 @@ function harness() {
   const server = createFakeServer({
     world: worldWith({
       // The create and start hooks name a project, so the world holds one.
-      projects: [{ id: 'northwind', name: 'northwind', stackTip: 'main' }],
+      projects: [makeProject()],
       tasks: [makeTask({ id: 'northwind/NORT-7' })],
       agents: [
         makeAgent({ id: 'ag1', state: 'awaiting-question', pendingRequestIds: ['r1'] }),

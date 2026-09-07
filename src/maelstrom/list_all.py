@@ -11,6 +11,7 @@ rows are assembled, so those reads happen once per project rather than once
 per caller.
 """
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,7 @@ from .worktree import (
     get_pushed_commit_count,
     get_worktree_dirty_files,
     list_worktrees,
+    run_git,
 )
 from .worktree_model import extract_worktree_name_from_folder, has_claude_transcript
 
@@ -95,11 +97,68 @@ def session_stopped(worktree_path, branch, branch_sessions) -> bool:
     )
 
 
+def repo_url_from_remote(remote: str) -> str | None:
+    """The browse URL for a git remote, or ``None`` when it names no web host.
+
+    Handles the two shapes git writes: ``git@host:owner/repo.git`` and
+    ``https://host/owner/repo.git``. The host is kept, so a GitHub Enterprise
+    remote browses on its own domain. A path-only remote has no browse URL.
+    """
+    url = remote.strip().rstrip("/")
+    if url.endswith(".git"):
+        url = url[:-4]
+    if match := re.fullmatch(r"(?:ssh://)?git@([^:/]+)[:/](.+)", url):
+        host, path = match.groups()
+    elif match := re.fullmatch(r"https?://(?:[^@/]+@)?([^/]+)/(.+)", url):
+        host, path = match.groups()
+    else:
+        return None
+    return f"https://{host}/{path}" if path else None
+
+
+def pr_url(repo_url: str | None, pr_number: int | None) -> str | None:
+    """The browse URL for a worktree's pull request, or ``None``.
+
+    Built here rather than by the reader: the row carries a URL, not two halves
+    to join.
+    """
+    if not repo_url or not pr_number:
+        return None
+    return f"{repo_url}/pull/{pr_number}"
+
+
+def project_repo_url(project_path: Path) -> str | None:
+    """The project's browse URL, read from ``remote.origin.url``.
+
+    Read from git config rather than ``gh``: ``build_list_all_data`` runs on the
+    orchestrator's 15-second poll, and a subprocess round trip per project per
+    poll would cost far more than a value that never changes is worth.
+
+    Returns ``None`` for a project with no origin, and for a directory git
+    cannot be run in at all — a path that has gone since the scan listed it.
+    ``list-all`` visits every project, so one bad directory must cost that
+    project its PR links, not the whole read.
+    """
+    try:
+        result = run_git(
+            ["config", "--get", "remote.origin.url"],
+            cwd=project_path,
+            quiet=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    return repo_url_from_remote(result.stdout)
+
+
 def build_list_all_data(projects_dir: Path) -> dict[str, Any]:
     """Every project under ``projects_dir`` with its worktrees, as ``list-all`` data.
 
     The shape is what ``mael --json list-all`` prints: ``{"projects": [...]}``,
-    each project carrying ``name``, ``path``, ``stack_tip`` and ``worktrees``.
+    each project carrying ``name``, ``path``, ``stack_tip``, ``repo_url`` and
+    ``worktrees``.
     A closed worktree is included with ``is_closed`` true and its counts
     zeroed. ``session_stopped`` says a task on the row's branch ran here and
     stopped; the table renders it as the stopped marker.
@@ -126,6 +185,8 @@ def build_list_all_data(projects_dir: Path) -> dict[str, Any]:
         # Likewise the closed check: one batch per project, not two subprocesses
         # per worktree.
         closed_paths = closed_worktrees(project_path, worktrees)
+        # One repo lookup per project answers the PR URL for every row.
+        repo_url = project_repo_url(project_path)
         # One store read per project answers the base for every row.
         base_store = GitConfigBaseStore(project_path)
         bases = base_store.all()
@@ -153,6 +214,7 @@ def build_list_all_data(projects_dir: Path) -> dict[str, Any]:
                         "dirty_files": 0,
                         "local_commits": 0,
                         "pr_number": None,
+                        "pr_url": None,
                         "pr_commits": None,
                         "pushed_commits": None,
                         "app_url": None,
@@ -194,6 +256,7 @@ def build_list_all_data(projects_dir: Path) -> dict[str, Any]:
                     "dirty_files": dirty_count,
                     "local_commits": local_commits,
                     "pr_number": pr_num,
+                    "pr_url": pr_url(repo_url, pr_num),
                     "pr_commits": pr_commits,
                     "pushed_commits": pushed_commits,
                     "app_url": app_url,
@@ -208,6 +271,7 @@ def build_list_all_data(projects_dir: Path) -> dict[str, Any]:
                 "name": project_name,
                 "path": str(project_path),
                 "stack_tip": base_store.read_stack_tip(),
+                "repo_url": repo_url,
                 "worktrees": worktree_data,
             }
         )

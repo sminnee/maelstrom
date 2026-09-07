@@ -48,8 +48,28 @@ describe('deriveGraph', () => {
       expect(deriveGraph(world, byProject).nodes[0]?.worktree?.nato).toBe('golf');
     });
 
-    it('has none when no agent runs the task', () => {
-      const world = drawnWorld({ tasks: [makeTask({ id: 'T1' })] });
+    it('falls back to the open worktree on the task branch when the agent has stopped', () => {
+      const world = drawnWorld({
+        tasks: [makeTask({ id: 'T1', branch: 'feat/orders' })],
+        worktrees: [makeWorktree({ id: 'northwind-golf', nato: 'golf', branch: 'feat/orders' })],
+      });
+      expect(deriveGraph(world, byProject).nodes[0]?.worktree?.nato).toBe('golf');
+    });
+
+    it('prefers the live agent worktree over the branch index', () => {
+      const world = drawnWorld({
+        tasks: [makeTask({ id: 'T1', branch: 'feat/orders' })],
+        agents: [makeAgent({ taskId: 'T1', worktreeId: 'northwind-hotel' })],
+        worktrees: [
+          makeWorktree({ id: 'northwind-golf', nato: 'golf', branch: 'feat/orders' }),
+          makeWorktree({ id: 'northwind-hotel', nato: 'hotel', branch: 'feat/other' }),
+        ],
+      });
+      expect(deriveGraph(world, byProject).nodes[0]?.worktree?.nato).toBe('hotel');
+    });
+
+    it('has none when no open worktree holds the task branch', () => {
+      const world = drawnWorld({ tasks: [makeTask({ id: 'T1', branch: 'feat/nowhere' })] });
       expect(deriveGraph(world, byProject).nodes[0]?.worktree).toBeUndefined();
     });
   });
