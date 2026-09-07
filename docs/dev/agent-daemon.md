@@ -8,7 +8,7 @@ daemon adds that missing half. It runs each agent as a `claude` child on a bidir
 pipe, reads what the agent is doing from its event stream, and writes answers back on the child's
 stdin. `mael agent` is the client.
 
-This path is now the launch path. `mael add`, `mael open`, `mael claude`, `mael task run` and
+This path is now the launch path. `mael add`, `mael open`, `mael task run` and
 `mael task next --run` all start a driven agent, and the workspace's pane 0 runs
 `mael agent attach <id>` as a client of it. See
 [the harness table](../reference/cli.md#sessions-and-workspaces) for the flags and the legacy

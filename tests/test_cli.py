@@ -1494,7 +1494,7 @@ class TestClaudePlacementFailure:
                     return_value=False,
                 )
             )
-            result = CliRunner().invoke(cli, ["claude", "proj.bravo"])
+            result = CliRunner().invoke(cli, ["open", "proj.bravo"])
             assert result.exit_code != 0
             assert "the session did not start" in result.output
 
@@ -1511,7 +1511,7 @@ class TestClaudePlacementFailure:
                     return_value=True,
                 )
             )
-            result = CliRunner().invoke(cli, ["claude", "proj.bravo"])
+            result = CliRunner().invoke(cli, ["open", "proj.bravo"])
             assert result.exit_code == 0, result.output
             launch.assert_called_once()
 
@@ -2032,21 +2032,21 @@ class TestOpenHarness:
 
     def test_claude_harness_flag(self, tmp_path):
         result, launch = self._invoke(
-            ["claude", "p/alpha", "--harness", "opencode"], tmp_path
+            ["open", "p/alpha", "--harness", "opencode"], tmp_path
         )
         assert result.exit_code == 0, result.output
         assert launch.call_args.kwargs["harness"] == "opencode"
 
     def test_conflicting_flags_error(self, tmp_path):
         result, _ = self._invoke(
-            ["claude", "p/alpha", "--harness", "claude", "--opencode"], tmp_path
+            ["open", "p/alpha", "--harness", "claude", "--opencode"], tmp_path
         )
         assert result.exit_code != 0
         assert "--opencode" in result.output
 
     def test_claude_shorthand_conflicts_with_harness_flag(self, tmp_path):
         result, _ = self._invoke(
-            ["claude", "p/alpha", "--harness", "opencode", "--claude"], tmp_path
+            ["open", "p/alpha", "--harness", "opencode", "--claude"], tmp_path
         )
         assert result.exit_code != 0
         assert "--claude" in result.output
