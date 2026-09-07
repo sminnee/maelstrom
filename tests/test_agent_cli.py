@@ -24,7 +24,7 @@ from maelstrom.agent_server import Agent, AgentDaemon
 from maelstrom.agent_stop import stop_agents_in_worktree
 from maelstrom.agent_transport import (
     RecordingDaemonClient,
-    SocketDaemonClient,
+    SocketAsyncDaemonClient,
 )
 
 
@@ -81,7 +81,7 @@ def run_cli(argv: list[str], replies: list[dict] | None = None, resolve=None):
     try:
         return CliRunner().invoke(agent_cli.agent, argv), client
     finally:
-        agent_transport.client_factory = SocketDaemonClient
+        agent_transport.client_factory = SocketAsyncDaemonClient
         agent_cli.resolve_context = original
 
 
@@ -582,7 +582,7 @@ class TestStopAgentsInWorktree:
         try:
             return stop_agents_in_worktree(Path(path)), client
         finally:
-            agent_transport.client_factory = SocketDaemonClient
+            agent_transport.client_factory = SocketAsyncDaemonClient
 
     def test_stops_only_the_agents_in_that_worktree(self):
         rows = [

@@ -23,6 +23,7 @@ Import direction: this module imports ``run_cmd`` from the ``shell`` leaf and
 module (nothing in it calls the launcher).
 """
 
+import asyncio
 import os
 import subprocess
 from pathlib import Path
@@ -318,7 +319,9 @@ def launch_agent_in_worktree(
         model=model,
         prompt=prompt,
     )
-    reply = daemon_client().request(payload)
+    # `mael task run` and `mael add` are sync and hold no loop, so this opens
+    # one. Converting the launch path is what removes it.
+    reply = asyncio.run(daemon_client().request(payload))
     error = reply.get("error")
     agent_id = reply.get("id")
     if error or not agent_id:

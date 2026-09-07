@@ -1,14 +1,14 @@
 """Transport to the agent daemon, mirroring the trio in ``cmux/client.py``.
 
-- :class:`DaemonClient` — a Protocol with a single ``request`` method.
-- :class:`SocketDaemonClient` — the real client, one NDJSON round-trip over the
-  Unix domain socket.
+- :class:`AsyncDaemonClient` — a Protocol with ``request`` and ``attach``.
+- :class:`SocketAsyncDaemonClient` — the real client: one NDJSON round-trip
+  over the Unix domain socket for a ``request``, a long-lived connection for
+  an ``attach``.
 - :class:`RecordingDaemonClient` — the in-memory fake, so CLI commands are
   testable without a daemon.
 
-:class:`AsyncDaemonClient` is the same pair for a caller that already owns an
-event loop: the sync clients wrap ``asyncio.run``, which cannot nest. It also
-streams an attach, which the sync Protocol has no shape for.
+One trio serves every caller, because the CLI runs on one loop — see
+:mod:`maelstrom.cli_async`.
 
 Every path a daemon uses hangs off one directory, its *daemon root*: see
 :class:`DaemonPaths`. The root comes from ``MAEL_AGENT_ROOT``, which each
@@ -267,14 +267,6 @@ async def request_over_socket(
         return {"error": f"agent daemon sent a malformed reply: {exc}"}
 
 
-class DaemonClient(Protocol):
-    """A transport that sends one command to the daemon and returns its reply."""
-
-    def request(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Send ``payload`` and return the daemon's reply."""
-        ...
-
-
 @dataclass
 class RecordingDaemonClient:
     """In-memory fake: records every command and returns scripted replies.
@@ -290,56 +282,18 @@ class RecordingDaemonClient:
     #: test can assert which socket a command asked for.
     socket_path: str = ""
 
-    def request(self, payload: dict[str, Any]) -> dict[str, Any]:
+    async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.calls.append(payload)
         if self.replies:
             return self.replies.pop(0)
         return {"ok": True}
 
 
-@dataclass
-class SocketDaemonClient:
-    """The real client: one NDJSON round-trip over the Unix domain socket.
-
-    A connection failure surfaces as a reply whose ``error`` explains it, never
-    an exception — same non-fatal contract as ``CmuxResult``, so the CLI can
-    print a useful line instead of a traceback when the daemon is down.
-    """
-
-    socket_path: str = field(default_factory=resolve_socket_path)
-
-    def request(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return asyncio.run(request_over_socket(self.socket_path, payload))
-
-
-#: The transport every sync caller goes through, as one seam. Tests override
-#: this attribute to drive a command through :class:`RecordingDaemonClient`
-#: instead of a real socket. One copy, so a test patching it reaches every
-#: caller.
-client_factory: Callable[..., DaemonClient] = SocketDaemonClient
-
-
-def client(*, socket_path: str | None = None) -> DaemonClient:
-    """The transport for one command.
-
-    ``socket_path`` addresses a daemon other than this environment's, which is
-    how ``--all-roots`` reaches each root in turn.
-    """
-    kwargs: dict[str, Any] = {}
-    if socket_path is not None:
-        kwargs["socket_path"] = socket_path
-    return client_factory(**kwargs)
-
-
-# --- the async pair, for a caller that already owns an event loop -----------
-
-
 class AsyncDaemonClient(Protocol):
-    """A transport for a caller on its own event loop.
+    """What a caller may ask of the daemon.
 
-    ``request`` is the same single round-trip as :class:`DaemonClient`.
-    ``attach`` is what the sync Protocol has no shape for: a long-lived
-    connection yielding the agent's raw events until it ends.
+    ``request`` is one round-trip. ``attach`` is a long-lived connection
+    yielding the agent's raw events until it ends.
     """
 
     async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -369,11 +323,12 @@ def attach_command(agent_id: str, from_seq: int = 0, epoch: str = "") -> dict[st
 
 @dataclass
 class SocketAsyncDaemonClient:
-    """The real async client: same socket, on the caller's loop.
+    """The real client: one NDJSON round-trip over the Unix domain socket.
 
-    Errors reach the caller as data, not exceptions, on the same non-fatal
-    contract as :class:`SocketDaemonClient`: ``request`` returns a reply whose
-    ``error`` explains it, and ``attach`` yields one such dict and stops.
+    Errors reach the caller as data, not exceptions: ``request`` returns a
+    reply whose ``error`` explains it, and ``attach`` yields one such dict and
+    stops. So a CLI prints a useful line instead of a traceback when the
+    daemon is down.
     """
 
     socket_path: str = field(default_factory=resolve_socket_path)
@@ -411,3 +366,22 @@ class SocketAsyncDaemonClient:
                     continue
         finally:
             writer.close()
+
+
+#: The transport every CLI caller goes through, as one seam. Tests override
+#: this attribute to drive a command through :class:`RecordingDaemonClient`
+#: instead of a real socket. One copy, so a test patching it reaches every
+#: caller.
+client_factory: Callable[..., AsyncDaemonClient] = SocketAsyncDaemonClient
+
+
+def client(*, socket_path: str | None = None) -> AsyncDaemonClient:
+    """The transport for one command.
+
+    ``socket_path`` addresses a daemon other than this environment's, which is
+    how ``--all-roots`` reaches each root in turn.
+    """
+    kwargs: dict[str, Any] = {}
+    if socket_path is not None:
+        kwargs["socket_path"] = socket_path
+    return client_factory(**kwargs)
