@@ -1,5 +1,6 @@
 """Tests for GitHub polling helpers."""
 
+import asyncio
 import contextlib
 import json
 import subprocess
@@ -15,9 +16,11 @@ from maelstrom.github import (
     create_pr,
     create_project_repo,
     get_open_prs,
+    get_open_prs_async,
     get_pr_checks,
     get_pr_comments,
     get_pr_for_branch,
+    get_pr_for_branch_async,
     get_repo_info,
     get_run_artifacts,
     get_worktree_code,
@@ -933,3 +936,74 @@ class TestGetRepoInfoUnexpectedFormat:
             with pytest.raises(GitHubError) as excinfo:
                 get_repo_info(Path("."))
         assert not isinstance(excinfo.value, GitHubCommandFailed)
+
+
+class TestTheAsyncPrReaders:
+    """The two PR reads the orchestrator server makes, driven on a loop.
+
+    The sync twins above are what ``mael list`` calls; these are what
+    ``build_list_all_data`` calls, and until now nothing exercised them. Their
+    degradation is the point: this runs on a 15-second poll, so a ``gh`` that
+    is missing, unauthenticated or answering rubbish must cost the PR column
+    rather than the whole read.
+    """
+
+    @staticmethod
+    def _replies(**kwargs):
+        return patch("maelstrom.github.run_cmd_async", **kwargs)
+
+    def test_a_branch_with_a_pr_answers_its_number_and_commit_count(self):
+        payload = json.dumps(
+            {"number": 42, "commits": 5, "url": "https://x/pull/42", "isDraft": False}
+        )
+        with self._replies(return_value=_ok(payload)):
+            pr = asyncio.run(get_pr_for_branch_async(Path("."), "feat/a"))
+        assert pr is not None
+        assert (pr.number, pr.commits, pr.url) == (42, 5, "https://x/pull/42")
+
+    def test_a_branch_with_no_pr_answers_nothing(self):
+        with self._replies(return_value=_ok("")):
+            assert asyncio.run(get_pr_for_branch_async(Path("."), "feat/a")) is None
+
+    def test_unparseable_output_answers_nothing(self):
+        with self._replies(return_value=_ok("not json")):
+            assert asyncio.run(get_pr_for_branch_async(Path("."), "feat/a")) is None
+
+    def test_a_missing_gh_answers_nothing(self):
+        """``gh`` absent raises from the spawn; the row degrades, it does not fail."""
+        with self._replies(side_effect=FileNotFoundError("gh")):
+            assert asyncio.run(get_pr_for_branch_async(Path("."), "feat/a")) is None
+
+    def test_it_answers_every_branch_from_one_call(self):
+        payload = json.dumps(
+            {
+                "data": {
+                    "repository": {
+                        "b0": {"nodes": [{"number": 1, "commits": {"totalCount": 2}}]},
+                        "b1": {"nodes": [{"number": 3, "commits": {"totalCount": 4}}]},
+                    }
+                }
+            }
+        )
+        with self._replies(return_value=_ok(payload)) as run:
+            prs = asyncio.run(get_open_prs_async(Path("."), {"feat/a", "feat/b"}))
+        assert run.call_count == 1
+        assert prs is not None
+        assert {b: p.number for b, p in prs.items()} == {"feat/a": 1, "feat/b": 3}
+
+    def test_no_branches_costs_no_call(self):
+        with self._replies() as run:
+            assert asyncio.run(get_open_prs_async(Path("."), set())) == {}
+        run.assert_not_called()
+
+    def test_a_refused_query_is_told_apart_from_no_prs(self):
+        """``None`` means "could not ask", which the caller retries per branch.
+
+        An empty dict would claim every branch has no PR, blanking the column.
+        """
+        with self._replies(return_value=_ok("")):
+            assert asyncio.run(get_open_prs_async(Path("."), {"feat/a"})) is None
+
+    def test_unparseable_output_is_told_apart_from_no_prs(self):
+        with self._replies(return_value=_ok("not json")):
+            assert asyncio.run(get_open_prs_async(Path("."), {"feat/a"})) is None
