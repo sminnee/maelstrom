@@ -23,6 +23,7 @@ from .. import task as model
 from .. import task_actions
 from ..agent_model import build_start_payload
 from ..branch_name import TaskNames, infer_task_names
+from ..github_model import PrStatus, RateLimited, pr_from_row
 from ..list_all import build_list_all_data
 from ..session_discovery import LiveSessionSet
 from ..task_index import TaskIndex
@@ -167,10 +168,15 @@ class WorktreeSource(Protocol):
     shells out to git and ``gh``, so it is a coroutine and never blocks the
     server's loop; a test double answers from a list it holds. The server takes
     either.
+
+    ``active_branches`` names the branches worth a pull request lookup; see
+    :func:`maelstrom.orchestrator.desk.active_branches`. ``None`` asks about
+    all of them.
     """
 
     def read(
         self,
+        active_branches: set[str] | None = None,
     ) -> (
         tuple[list[Project], list[Worktree]]
         | Awaitable[tuple[list[Project], list[Worktree]]]
@@ -178,6 +184,12 @@ class WorktreeSource(Protocol):
 
     #: Closes a worktree, or ``None`` on a source that cannot.
     close: CloseWorktree | None
+
+    #: Whether the last read had its pull request lookup refused for quota. The
+    #: rows still stand — a refused lookup costs the pull request column, not
+    #: the read — so the caller stands the next read off rather than dropping
+    #: this one.
+    rate_limited: bool
 
 
 class NotebookTaskSource:
@@ -373,9 +385,17 @@ class InMemoryWorktreeSource:
         #: poll did *not* run. The real source's reads cost GitHub quota, and
         #: an unwanted one is invisible in the world it produces.
         self.reads = 0
+        #: What the last read was asked about, so a test can check the poll
+        #: narrowed its GitHub call rather than only what it returned.
+        self.asked: set[str] | None = None
+        #: Set by a test that wants the caller to see a refused read.
+        self.rate_limited = False
 
-    def read(self) -> tuple[list[Project], list[Worktree]]:
+    def read(
+        self, active_branches: set[str] | None = None
+    ) -> tuple[list[Project], list[Worktree]]:
         self.reads += 1
+        self.asked = active_branches
         return list(self.projects), list(self.worktrees)
 
 
@@ -388,10 +408,33 @@ class ListAllWorktreeSource:
 
     def __init__(self, projects_dir: Path, close: CloseWorktree | None = None) -> None:
         self.projects_dir = projects_dir
+        #: The last pull request seen, by project and then by branch, answering
+        #: the branches a read did not ask about; see
+        #: :func:`maelstrom.list_all.resolve_pr`. Keyed by project because
+        #: branch names are not unique across them.
+        self._pr_cache: dict[str, dict[str, PrStatus]] = {}
+        #: Whether the last read had its pull request lookup refused for quota.
+        #: The rows still stand; the caller stands the next read off.
+        self.rate_limited = False
         self.close = close
 
-    async def read(self) -> tuple[list[Project], list[Worktree]]:
-        data = await build_list_all_data(self.projects_dir)
+    async def read(
+        self, active_branches: set[str] | None = None
+    ) -> tuple[list[Project], list[Worktree]]:
+        self.rate_limited = False
+        try:
+            data = await build_list_all_data(
+                self.projects_dir,
+                active_branches=active_branches,
+                pr_cache=self._pr_cache,
+            )
+        except RateLimited as refused:
+            # Only the pull request read was refused; the rows are built and
+            # carry each branch's last known pull request. Keep them, and let
+            # the caller read ``rate_limited`` to decide the next tick.
+            self.rate_limited = True
+            data = refused.args[1]
+        self._remember_prs(data)
         projects = [project_entity(p) for p in data["projects"]]
         worktrees = [
             worktree_entity(p["name"], row)
@@ -399,3 +442,24 @@ class ListAllWorktreeSource:
             for row in p["worktrees"]
         ]
         return projects, worktrees
+
+    def _remember_prs(self, data: dict) -> None:
+        """Keep what this read learned, to answer the branches the next one
+        does not ask about.
+
+        A row with no pull request is remembered as such: forgetting it instead
+        would let a stale entry outlive a PR that really has gone.
+        """
+        for project in data["projects"]:
+            by_branch = self._pr_cache.setdefault(project["name"], {})
+            for row in project["worktrees"]:
+                branch = row.get("branch")
+                if not branch or row.get("is_closed"):
+                    # A closed row carries no pull request whether or not the
+                    # branch has one, so it says nothing worth remembering.
+                    continue
+                pr = pr_from_row(row)
+                if pr is None:
+                    by_branch.pop(branch, None)
+                else:
+                    by_branch[branch] = pr

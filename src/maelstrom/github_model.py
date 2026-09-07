@@ -224,6 +224,25 @@ class RateLimited(ValueError):
     """
 
 
+def pr_from_row(row: dict) -> "PrStatus | None":
+    """The pull request a ``list-all`` row carries, back as a :class:`PrStatus`.
+
+    ``list-all`` prints JSON, so a row holds flat keys rather than the record.
+    One mapping here rather than one per reader: the table renders through it,
+    and the worktree poll remembers what it last saw through it, so the two
+    cannot drift apart.
+    """
+    if not row["pr_number"]:
+        return None
+    return PrStatus(
+        number=row["pr_number"],
+        commits=row["pr_commits"] or 0,
+        url=row["pr_url"] or "",
+        state=row["pr_state"] or "unknown",
+        is_draft=bool(row["pr_draft"]),
+    )
+
+
 def is_open_pr(pr: "PrStatus | None") -> bool:
     """Whether ``pr`` is a pull request still waiting to merge.
 

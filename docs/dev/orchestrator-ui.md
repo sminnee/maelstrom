@@ -254,14 +254,14 @@ The same links row carries two external links, which open a new browser tab inst
 panel tab. `shell/ExternalLink.tsx` is the control, and its arrow-leaving-a-box icon is the
 whole difference a reader sees. The wire carries a ready `prUrl`, so the card links a pull
 request without joining two fields; a worktree with no PR draws none. The dev env link draws
-only while the environment runs, and the 15-second worktree poll makes it appear and
+only while the environment runs, and the worktree poll makes it appear and
 disappear on its own.
 
 A pull request draws as one chip wherever it appears — a collapsed node, a deck row, the card's
 footer — so the same PR reads the same everywhere. `shell/PrChip.tsx` is that chip: `#278` in the
 colour GitHub gives the same fact, behind the GitHub mark, linking to the PR. The state is one of
 six values the server decides, listed under **PR state** in `CONTEXT.md`, so the UI never
-re-derives it from raw GitHub fields. The same 15-second poll moves a chip from
+re-derives it from raw GitHub fields. The same worktree poll moves a chip from
 amber to green on its own.
 
 `selectors/status.ts` turns the value into words and into a **tone**, the reading a colour stands

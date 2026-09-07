@@ -7,6 +7,7 @@ when a change is published and saved.
 import pytest
 
 from maelstrom.orchestrator.desk import (
+    active_branches,
     add,
     desk_id_for_agent,
     desk_id_for_task,
@@ -123,3 +124,65 @@ class TestDeskIds:
     def test_split_raises_for_an_unknown_kind(self):
         with pytest.raises(ValueError):
             split_desk_id("worktree:a-alpha")
+
+
+class TestActiveBranches:
+    """Which branches are worth asking GitHub about.
+
+    GitHub charges by node count and the budget refills hourly, so the poll
+    asks only about branches someone is working on. What counts is an agent on
+    the desk: the desk is what the user put on the canvas, and it is kept by
+    the task and agent polls, neither of which reads GitHub.
+    """
+
+    def _worktree(self, wt_id, branch, *, path="/p/alpha", pr_state="ready"):
+        return {"id": wt_id, "path": path, "branch": branch, "prState": pr_state}
+
+    def _agent(self, agent_id, *, worktree_id="w1", cwd="/p/alpha"):
+        return {"id": agent_id, "worktreeId": worktree_id, "cwd": cwd}
+
+    def test_a_desk_agents_branch_is_asked_about(self):
+        table = add({}, desk_id_for_agent("a1"), NOW)
+        branches = active_branches(
+            table,
+            agents={"a1": self._agent("a1")},
+            worktrees={"w1": self._worktree("w1", "feat/orders")},
+            tasks={},
+        )
+        assert branches == {"feat/orders"}
+
+    def test_a_branch_with_nobody_at_it_is_not_asked_about(self):
+        """The whole point: a project nobody is working on costs nothing."""
+        branches = active_branches(
+            {},
+            agents={"a1": self._agent("a1")},
+            worktrees={"w1": self._worktree("w1", "feat/orders")},
+            tasks={},
+        )
+        assert branches == set()
+
+    def test_a_new_worktree_is_asked_about_through_its_cwd(self):
+        """An agent links to its worktree through the worktrees table a
+        previous poll built, so a brand-new worktree has no `worktreeId` yet.
+        Dropping it would skip the branch that just started work — the one case
+        that matters most."""
+        table = add({}, desk_id_for_agent("a1"), NOW)
+        branches = active_branches(
+            table,
+            agents={"a1": self._agent("a1", worktree_id="", cwd="/p/bravo")},
+            worktrees={"w2": self._worktree("w2", "feat/new", path="/p/bravo")},
+            tasks={},
+        )
+        assert branches == {"feat/new"}
+
+    def test_a_desk_tasks_branch_is_asked_about(self):
+        """A task on the desk names its branch in the notebook, which the task
+        poll reads. No agent has to be running yet."""
+        table = add({}, desk_id_for_task("a/1"), NOW)
+        branches = active_branches(
+            table,
+            agents={},
+            worktrees={},
+            tasks={"a/1": {"id": "a/1", "branch": "feat/planned"}},
+        )
+        assert branches == {"feat/planned"}
