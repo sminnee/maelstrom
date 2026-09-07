@@ -360,3 +360,22 @@ class TestInferTaskNames:
         draft = "word " * 40
         result = branch_name.infer_task_names(draft, runner=lambda _p: "junk")
         assert len(result.title) <= branch_name.MAX_TITLE
+
+
+class TestLeadWithNumber:
+    """Numbering a composed branch, for a caller that has no parts to compose."""
+
+    def test_leads_the_description_with_the_number(self):
+        assert (
+            branch_name.lead_with_number("feat/order-export", "99")
+            == "feat/99-order-export"
+        )
+
+    def test_a_branch_already_numbered_is_left_alone(self):
+        assert (
+            branch_name.lead_with_number("feat/99-order-export", "99")
+            == "feat/99-order-export"
+        )
+
+    def test_a_branch_with_no_type_prefix_is_left_alone(self):
+        assert branch_name.lead_with_number("order-export", "99") == "order-export"

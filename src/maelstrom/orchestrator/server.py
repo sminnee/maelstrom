@@ -17,13 +17,17 @@ from concurrent.futures import Executor
 from pathlib import Path
 from typing import Any
 
+import click
+
 from ..agent_model import AGENT_DETAIL, AGENT_EXITED, BACKLOG_END, SEQ_KEY, TRUNCATED
+from ..branch_name import lead_with_number
 from ..desk_store import DeskStore, InMemoryDeskStore
 from ..task import mode_for_command
 from ..task import permission_mode_for as model_permission_mode
 from ..task_launch import LaunchBlocked
 from ..util import now_iso
 from . import desk as desk_model
+from . import linear_source
 from .daemon_bridge import AsyncDaemonClient
 from .desk import DeskTable, desk_id_for_agent, desk_id_for_task
 from .file_registry import FileRegistry
@@ -55,7 +59,7 @@ from .transcript_log import (
     TranscriptLog,
     TranscriptSnapshot,
 )
-from .validate import validate_command
+from .validate import check_linear_project, validate_command
 from .world import WorldState
 from .world_build import (
     AgentLink,
@@ -836,6 +840,7 @@ class Orchestrator:
             "task.update": self._update_task,
             "task.infer": self._infer_task,
             "task.create": self._create_task,
+            "linear.plan": self._linear_plan,
             "agent.start": self._start_free_agent,
             "document.approve": self._approve_document,
             "document.requestChanges": self._request_changes,
@@ -1020,14 +1025,22 @@ class Orchestrator:
             },
         }
 
-    async def _create_task(self, command: dict[str, Any]) -> dict[str, Any]:
+    async def _create_task(
+        self, command: dict[str, Any], extra: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Write a new task, put it on the desk, and launch it when asked.
 
         Save and Start both file the task on the desk. A launch then runs the
         existing launch path unchanged.
+
+        ``extra`` holds fields the server sets and a client may not — see
+        :meth:`_linear_plan`. It bypasses the editable-field filter, so it must
+        never carry anything from the request body.
         """
         try:
-            task_id = await self._run(self.tasks.create, command["project"], command)
+            task_id = await self._run(
+                self.tasks.create, command["project"], command, extra
+            )
         except ValueError as exc:
             return _refused("invalid", str(exc))
         await self.refresh_tasks(force=True)
@@ -1042,6 +1055,72 @@ class Orchestrator:
                 return {**launched, "error": {**launched["error"], "taskId": task_id}}
             result["agentId"] = launched["result"]["agentId"]
         return {"ok": True, "result": result}
+
+    async def linear_issues(self, project: str) -> dict[str, Any]:
+        """A project's Linear issues for the current cycle.
+
+        A read, so it answers directly rather than going through
+        ``handle_command``: nothing in the world changes. The Linear call
+        blocks, so it runs on the executor like every other source read.
+        """
+        error = check_linear_project(self.world, project)
+        if error:
+            return {"ok": False, "error": error}
+        try:
+            issues = await self._run(linear_source.cycle_issues, project)
+        except click.ClickException as exc:
+            # A missing key or an unreachable API: say what Linear said.
+            return _refused("invalid", exc.format_message())
+        except Exception as exc:  # noqa: BLE001 — the client hears why
+            log.exception("could not read %s's Linear issues", project)
+            return _refused("invalid", f"Could not reach Linear: {exc}")
+        return {
+            "ok": True,
+            "result": {
+                "issues": [
+                    {
+                        "id": issue["identifier"],
+                        "title": issue.get("title") or "",
+                        "status": (issue.get("state") or {}).get("name") or "",
+                    }
+                    for issue in issues
+                ]
+            },
+        }
+
+    async def _linear_plan(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Plan a Linear issue: the equivalent of ``mael linear plan``.
+
+        Fetches the issue's brief and writes the planning task ``linear plan``
+        would write, then hands it to :meth:`_create_task` — so a Linear plan is
+        saved, filed and launched by the one path a task is. The branch is
+        inferred here and passed to ``plan_fields``.
+        """
+        project = command["project"]
+        issue_id = command["issueId"]
+        try:
+            fields = await self._run(linear_source.plan_fields, project, issue_id)
+            names = await self._run(self.tasks.infer, fields["content"])
+        except click.ClickException as exc:
+            # A missing key or an unreachable API is the user's to fix, so they
+            # are told what Linear said rather than shown a 500.
+            return _refused("invalid", exc.format_message())
+        except Exception as exc:  # noqa: BLE001 — the client hears why
+            log.exception("could not plan %s", issue_id)
+            return _refused("invalid", f"Could not read {issue_id}: {exc}")
+        # The bare issue number leads the branch, as `linear plan` writes it.
+        number = issue_id.rsplit("-", 1)[-1]
+        return await self._create_task(
+            {
+                **fields,
+                "branch": lead_with_number(names.branch, number),
+                "project": project,
+                "launch": command.get("launch", False),
+            },
+            # Not a client's to choose: the parent binds the task to its issue,
+            # and the action moves that issue when the planning session ends.
+            {"parent": fields["parent"], "post_action": fields["post_action"]},
+        )
 
     async def _start_free_agent(self, command: dict[str, Any]) -> dict[str, Any]:
         """Start an agent in a branch's worktree, tied to no task.

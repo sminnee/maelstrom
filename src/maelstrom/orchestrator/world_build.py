@@ -144,6 +144,7 @@ def project_entity(data: dict[str, Any]) -> Project:
         "id": data["name"],
         "name": data["name"],
         "stackTip": data.get("stack_tip") or "main",
+        "hasLinear": bool(data.get("has_linear")),
     }
 
 

@@ -21,6 +21,7 @@ from typing import Any
 from . import session_discovery
 from . import task as task_model
 from .base_store import GitConfigBaseStore
+from .config import linear_team_id
 from .github import get_open_prs_async, get_pr_for_branch_async
 from .github_model import PrStatus, is_open_pr
 from .ports import get_app_url
@@ -291,9 +292,16 @@ async def _project_data(
     # calls shell out to `git config`, so they go to a thread: run inline they
     # would block every other project's reads behind this one.
     base_store = GitConfigBaseStore(project_path)
-    bases, stack_tip = await asyncio.gather(
+    bases, stack_tip, has_linear = await asyncio.gather(
         asyncio.to_thread(base_store.all),
         asyncio.to_thread(base_store.read_stack_tip),
+        # Reads `.maelstrom.yaml` from disk, so it joins the two `git config`
+        # calls off the loop rather than blocking every other project's reads.
+        # Only the flag crosses to the UI: the orchestrator offers the Linear
+        # kind on it, and the team id itself is of no use to a browser.
+        asyncio.to_thread(
+            lambda: bool(linear_team_id(project_path, [wt.path for wt in worktrees]))
+        ),
     )
 
     # Skip the project root (bare repo). Resolved, because git reports the
@@ -334,6 +342,7 @@ async def _project_data(
         "path": str(project_path),
         "stack_tip": stack_tip,
         "repo_url": repo_url,
+        "has_linear": has_linear,
         "worktrees": worktree_data,
     }
 

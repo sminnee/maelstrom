@@ -121,8 +121,13 @@ class TaskSource(Protocol):
         """
         ...
 
-    def create(self, project: str, fields: dict[str, Any]) -> str:
+    def create(
+        self, project: str, fields: dict[str, Any], extra: dict[str, Any] | None = None
+    ) -> str:
         """Write a new ``todo`` task and return its wire id.
+
+        ``fields`` is filtered to what a client may edit; ``extra`` is the
+        server's own and is written as given.
 
         Raises:
             ValueError: If a field holds a value the notebook refuses.
@@ -267,14 +272,22 @@ class NotebookTaskSource:
         # No base to seed: work with no task has no base to carry.
         return self.open_worktree(project, branch, "")
 
-    def create(self, project: str, fields: dict[str, Any]) -> str:
+    def create(
+        self, project: str, fields: dict[str, Any], extra: dict[str, Any] | None = None
+    ) -> str:
         """Write a new task and return its wire id.
 
         Only the keys in :data:`~maelstrom.orchestrator.validate.EDITABLE` are
-        written, as ``update`` does. ``branch`` is one of them, so an explicit
-        branch skips ``model.create``'s own generation.
+        taken from ``fields``, as ``update`` does. ``branch`` is one of them, so
+        an explicit branch skips ``model.create``'s own generation.
+
+        ``extra`` is written unfiltered, and is the server's own to set — a
+        Linear plan's ``parent`` and ``post_action``, which no client may
+        choose. It never carries request data, so the filter above stays the
+        only door a client writes through.
         """
         wanted = {k: v for k, v in fields.items() if k in EDITABLE}
+        wanted.update(extra or {})
         with self._stamped() as index:
             task = model.create(self.store, project=project, index=index, **wanted)
         return task_key(project, task.id)

@@ -136,7 +136,7 @@ services:
 
 | Key | Type | Meaning |
 |---|---|---|
-| `team_id` | string | Linear team UUID. Required for Linear commands. |
+| `team_id` | string | Linear team UUID. Required for Linear commands. The orchestrator UI offers its Linear kind only for a project that sets this key. |
 | `workspace_labels` | list of string | Labels that map to worktree names, e.g. `[alpha, bravo, charlie]`. |
 | `product_label` | string | Label assigned to tasks. `mael linear release` promotes issues carrying it. |
 

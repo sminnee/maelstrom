@@ -6,7 +6,7 @@ import type { PermissionRequestItem, PlanReviewItem, QuestionItem } from '../pro
 import { emptyFakeWorld, type FakeWorld } from './fakeServer';
 
 export function makeProject(over: Partial<Project> = {}): Project {
-  return { id: 'northwind', name: 'northwind', stackTip: 'main', ...over };
+  return { id: 'northwind', name: 'northwind', stackTip: 'main', hasLinear: false, ...over };
 }
 
 export function makeWorktree(over: Partial<Worktree> = {}): Worktree {

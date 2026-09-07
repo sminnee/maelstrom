@@ -27,6 +27,7 @@ carries and nothing maps between a dataclass and the wire.
 | `transcript_log.py` | pure | `TranscriptLog`: one agent's items, its seq, and the ring of frames a resume replays |
 | `hubs.py` | adapter | `NoticeHub`: change notices to every open notice stream, coalesced per subscriber. `TranscriptHub`: transcript frames to every socket open on an agent, bounded per socket |
 | `sources.py` | storage | `TaskSource` and `WorktreeSource`, over the notebook and `list_all.build_list_all_data` |
+| `linear_source.py` | storage | `cycle_issues` and `plan_fields`: the server's one door onto Linear |
 | `daemon_bridge.py` | storage | `AsyncDaemonClient`: the agent-host protocol, its reply mapping, and a scripted fake. The socket client itself is `agent_transport.SocketAsyncDaemonClient` |
 | `../desk_store.py` | storage | `DeskStore`: the desk as one JSON file at `~/.maelstrom/desk.json`, or in memory |
 | `server.py` | service | `Orchestrator`: the world, the pollers, one watch per agent, the transcript logs, the commands, and the hubs it tells |
@@ -386,7 +387,7 @@ after the first agent read.
 
 ## Creating work
 
-Three commands write new work.
+Four commands write new work.
 
 - **`task.infer`** names a task from its prose, through `infer_task_names` in `branch_name.py`.
   It shells out to `claude -p` and falls back to a deterministic name. The call blocks for up to
@@ -399,6 +400,14 @@ Three commands write new work.
   unchanged, as `mael task add --run` does. A launch that fails leaves the task written and on
   the desk, so the refusal names it — without that the client cannot tell the case from "nothing
   was written", and a retry writes the task twice.
+- **`linear.plan`** plans a Linear issue: the equivalent of `mael linear plan`.
+  `linear_source.plan_fields` fetches the issue and returns the task fields the CLI would write,
+  through `integrations.linear.build_plan_task` — the CLI command calls the same function, so the
+  two cannot drift. The branch comes from `task.infer` over the same brief, not from
+  `build_plan_task`'s own generation, so the server spends one `claude -p` call instead of two.
+  The fields then go through `task.create`, which files the task and launches it. `parent` and
+  `post_action` bind the task to its issue and are not in `validate.EDITABLE`, so they reach the
+  notebook through `create`'s `extra` argument — the server's own to set, never a client's.
 - **`agent.start`** starts an agent tied to no task. `TaskSource.worktree_for` opens the branch's
   worktree through the same collaborator a launch uses, so a branch with no worktree gets one
   provisioned. The `start` payload carries no `session` and no `env`: the host mints its own
@@ -458,6 +467,7 @@ route is under `/api` and answers JSON. A task id is two path segments, because 
 | Route | Returns |
 |---|---|
 | `GET /api/projects` | `{projects: [Project]}` |
+| `GET /api/linear/issues?project=` | `{issues: [{id, title, status}]}` — the project's current Linear cycle. Refused unless the project sets `linear.team_id` |
 | `GET /api/worktrees` | `{worktrees: [Worktree]}` |
 | `GET /api/tasks` | `{tasks: [TaskRow], version}`. A row is a task without `content` and `log`. The `ETag` changes with every task change; `If-None-Match` answers 304. Compressed |
 | `GET /api/tasks/{project}/{id}` | The whole `Task`, prose included |
@@ -551,6 +561,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/tasks/infer` | `{project, draft}` | `task.infer` | `{title, branch, command, mode}` |
 | `POST /api/tasks` | `{project, title, content?, branch?, command?, mode?, priority?, model?, launch?}` | `task.create` | `{taskId, agentId?}` |
 | `POST /api/agents` | `{project, branch, prompt, mode, model?}` | `agent.start` | `{agentId}` |
+| `POST /api/linear/tasks` | `{project, issueId, launch?}` | `linear.plan` | `{taskId, agentId?}` |
 | `POST /api/tasks/{project}/{id}/status` | `{status}` | `task.setStatus` | `{}` |
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
 | `POST /api/desk` | `{id}`, a desk id | `desk.add` | `{}` |

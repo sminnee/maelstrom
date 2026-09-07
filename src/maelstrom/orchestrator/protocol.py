@@ -25,6 +25,8 @@ class Project(TypedDict):
     id: str
     name: str
     stackTip: str
+    #: Whether ``linear.team_id`` is set in the project's ``.maelstrom.yaml``.
+    hasLinear: bool
 
 
 class Worktree(TypedDict):

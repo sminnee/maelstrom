@@ -1,5 +1,7 @@
 """Configuration loading for maelstrom projects."""
 
+import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -10,6 +12,8 @@ from .ports import (
     DYNAMIC_PORT_BASE_MIN,
     PORT_BASE_CEILING,
 )
+
+log = logging.getLogger(__name__)
 
 CONFIG_FILENAME = ".maelstrom.yaml"
 
@@ -331,3 +335,24 @@ def load_config_or_default(worktree_path: Path) -> MaelstromConfig:
         return load_config(worktree_path)
     except FileNotFoundError:
         return MaelstromConfig()
+
+
+def linear_team_id(project_path: Path, worktrees: Iterable[Path]) -> str | None:
+    """The Linear team a project names, or ``None`` if it names none.
+
+    ``.maelstrom.yaml`` is tracked in the repo, so it lives in each worktree
+    rather than at the project root, which is bare. The first worktree that
+    answers settles it; the root is tried last, for a project laid out flat.
+
+    One unreadable config costs its own path, not the whole read: a project with
+    a broken worktree still reports the team its other worktrees name.
+    """
+    for path in [*worktrees, project_path]:
+        try:
+            team_id = load_config_or_default(path).linear_team_id
+        except Exception as exc:  # noqa: BLE001 — one bad config is not the answer
+            log.warning("could not read config at %s: %s", path, exc)
+            continue
+        if team_id:
+            return team_id
+    return None

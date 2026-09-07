@@ -10,6 +10,7 @@ from maelstrom.config import (
     MaelstromConfig,
     PortSpec,
     find_config_file,
+    linear_team_id,
     load_config,
     load_config_or_default,
     service_port_names,
@@ -570,3 +571,41 @@ class TestAgentDaemonService:
         # The root reaches it through the environment's `.env`, not a service
         # `env:` block, which would reach this service alone.
         assert daemon.env == {}
+
+
+class TestLinearTeamId:
+    """The one read of ``linear.team_id``, shared by `list-all` and the server."""
+
+    def test_reads_the_team_from_a_worktree(self, tmp_path):
+        # `.maelstrom.yaml` is tracked in the repo, so it lives in each
+        # worktree; the project root of a real project is bare and holds none.
+        project = tmp_path / "proj"
+        worktree = project / "proj-alpha"
+        worktree.mkdir(parents=True)
+        (worktree / ".maelstrom.yaml").write_text("linear:\n  team_id: t-1\n")
+
+        assert linear_team_id(project, [worktree]) == "t-1"
+
+    def test_falls_back_to_the_project_root(self, tmp_path):
+        project = tmp_path / "proj"
+        project.mkdir()
+        (project / ".maelstrom.yaml").write_text("linear:\n  team_id: t-2\n")
+
+        assert linear_team_id(project, []) == "t-2"
+
+    def test_no_team_configured_reads_as_none(self, tmp_path):
+        project = tmp_path / "proj"
+        project.mkdir()
+        assert linear_team_id(project, []) is None
+
+    def test_a_malformed_config_reads_as_no_team(self, tmp_path):
+        """One broken worktree must not fail the read for the whole project."""
+        project = tmp_path / "proj"
+        broken = project / "proj-alpha"
+        good = project / "proj-bravo"
+        broken.mkdir(parents=True)
+        good.mkdir(parents=True)
+        (broken / ".maelstrom.yaml").write_text("linear: [this is not a map\n")
+        (good / ".maelstrom.yaml").write_text("linear:\n  team_id: t-3\n")
+
+        assert linear_team_id(project, [broken, good]) == "t-3"

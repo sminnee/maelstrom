@@ -4,6 +4,7 @@ import { AttachField } from '../ui/AttachField';
 import { useStartAgent } from '../api/agents';
 import { ApiError } from '../api/http';
 import { useProjects } from '../api/projects';
+import { useCreateLinearTask } from '../api/linear';
 import { useCreateTask, useInferTask } from '../api/tasks';
 import type { PermissionMode } from '../protocol/modes';
 import { MODES } from '../protocol/modes';
@@ -15,18 +16,26 @@ import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
 import { ComboBox } from '../ui/ComboBox';
 import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
+import { LinearFields } from './LinearFields';
 import { Spinner } from '../ui/Spinner';
 import dialog from '../ui/Dialog.module.css';
 import styles from './NewWork.module.css';
 
-/** What the user is starting: a task in the notebook, or an agent tied to none. */
-type Kind = 'task' | 'agent';
+/**
+ * What the user is starting: a task in the notebook, an agent tied to none, or
+ * a Linear issue to plan.
+ *
+ * `linear` is offered only for a project that names a Linear team, and is the
+ * one kind whose work is defined elsewhere. It is expected to go once the
+ * notebook covers the same ground -- see `docs/dev/orchestrator-ui.md`.
+ */
+type Kind = 'task' | 'agent' | 'linear';
 
 /**
- * One form for both kinds of new work: a task, or a free agent.
+ * One form for every kind of new work — see `Kind`.
  *
- * Two steps in one dialog — see `docs/dev/orchestrator-ui.md`. A free agent
- * has no step 2: the branch and the prompt are all it needs.
+ * Two steps in one dialog — see `docs/dev/orchestrator-ui.md`. Only a task has
+ * a step 2; a free agent and a Linear plan need nothing beyond step 1.
  */
 export function NewWork() {
   const close = useAppStore((s) => s.setNewWorkOpen);
@@ -35,11 +44,18 @@ export function NewWork() {
   const infer = useInferTask();
   const create = useCreateTask();
   const start = useStartAgent();
+  const plan = useCreateLinearTask();
 
   const names = projects.data?.projects.map((p) => p.name) ?? [];
   const [project, setProject] = useState('');
   const chosen = project || names[0] || '';
   const [kind, setKind] = useState<Kind>('task');
+  const [issue, setIssue] = useState('');
+  // Only a project that names a Linear team can plan a Linear issue.
+  const hasLinear = projects.data?.projects.find((p) => p.name === chosen)?.hasLinear ?? false;
+  // A project change can take the chosen kind off the board, so the form falls
+  // back to the one every project has rather than sitting on a dead kind.
+  const showing: Kind = kind === 'linear' && !hasLinear ? 'task' : kind;
   const [draft, setDraft] = useState('');
   const [branch, setBranch] = useState('');
   // A free agent's own mode and model. A task takes its mode from inference,
@@ -67,11 +83,17 @@ export function NewWork() {
     [worktrees.data, chosen],
   );
 
-  const busy = infer.isPending || create.isPending || start.isPending;
+  const busy = infer.isPending || create.isPending || start.isPending || plan.isPending;
   // The error of the step that is showing. React Query holds a mutation's
   // error until that same mutation runs again, so a fixed precedence would
   // let a refused start outlive the step that raised it.
-  const failure = task ? create.error : kind === 'agent' ? start.error : infer.error;
+  const failure = task
+    ? create.error
+    : showing === 'agent'
+      ? start.error
+      : showing === 'linear'
+        ? plan.error
+        : infer.error;
   // A create whose launch failed still wrote the task, and the refusal names
   // it. Remembering that is what stops a retry writing a second copy.
   const [written, setWritten] = useState<string | null>(null);
@@ -97,6 +119,20 @@ export function NewWork() {
       mode,
       model,
     });
+    close(false);
+  };
+
+  const planIssue = async (launch: boolean) => {
+    if (written) return;
+    try {
+      await plan.mutateAsync({ project: chosen, issueId: issue, ...(launch ? { launch } : {}) });
+    } catch (e) {
+      // As a task create: the task exists and only its launch failed, so the
+      // dialog says so and never offers to write it again.
+      const taskId = e instanceof ApiError ? e.detail.taskId : undefined;
+      if (typeof taskId === 'string') setWritten(taskId);
+      throw e;
+    }
     close(false);
   };
 
@@ -129,9 +165,17 @@ export function NewWork() {
         <Capture
           names={names}
           project={chosen}
-          setProject={setProject}
-          kind={kind}
+          setProject={(name) => {
+            setProject(name);
+            // The issue belongs to the project it was picked under, so it does
+            // not survive a move to another one.
+            setIssue('');
+          }}
+          kind={showing}
           setKind={setKind}
+          hasLinear={hasLinear}
+          issue={issue}
+          setIssue={setIssue}
           draft={draft}
           setDraft={setDraft}
           branch={branch}
@@ -181,7 +225,7 @@ export function NewWork() {
               Start
             </AppButton>
           </>
-        ) : kind === 'agent' ? (
+        ) : showing === 'agent' ? (
           <AppButton
             variant="primary"
             disabled={busy || !chosen || !draft.trim() || !branch.trim()}
@@ -189,6 +233,23 @@ export function NewWork() {
           >
             Start
           </AppButton>
+        ) : showing === 'linear' ? (
+          // No step 2: `mael linear plan` takes the issue and nothing else.
+          <>
+            <AppButton
+              disabled={busy || !issue.trim() || written !== null}
+              onClick={() => planIssue(false)}
+            >
+              Save
+            </AppButton>
+            <AppButton
+              variant="primary"
+              disabled={busy || !issue.trim() || written !== null}
+              onClick={() => planIssue(true)}
+            >
+              Start
+            </AppButton>
+          </>
         ) : (
           <AppButton
             variant="primary"
@@ -210,6 +271,9 @@ function Capture({
   setProject,
   kind,
   setKind,
+  hasLinear,
+  issue,
+  setIssue,
   draft,
   setDraft,
   branch,
@@ -229,6 +293,9 @@ function Capture({
   setProject: (name: string) => void;
   kind: Kind;
   setKind: (kind: Kind) => void;
+  hasLinear: boolean;
+  issue: string;
+  setIssue: (issue: string) => void;
   draft: string;
   setDraft: (draft: string) => void;
   branch: string;
@@ -266,6 +333,9 @@ function Capture({
           [
             ['task', 'Task'],
             ['agent', 'Free agent'],
+            // Only where a Linear team is configured. Everything else about
+            // this kind is walled off in `LinearFields`.
+            ...(hasLinear ? ([['linear', 'Linear']] as const) : []),
           ] as const
         ).map(([value, label]) => (
           <label key={value} className={styles.kind}>
@@ -281,27 +351,31 @@ function Capture({
         ))}
       </fieldset>
 
-      <div className={dialog.field}>
-        <label htmlFor={draftId}>What needs doing?</label>
-        <AttachField
-          project={project}
-          bucket={bucket}
-          attached={attached}
-          onAttach={(a) => {
-            onAttached(a);
-            setDraft(draft ? `${draft}\n\n${a.markdown}` : a.markdown);
-          }}
-          onRemove={onRemoved}
-        >
-          <textarea
-            id={draftId}
-            className={styles.draft}
-            rows={8}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-          />
-        </AttachField>
-      </div>
+      {kind === 'linear' && <LinearFields project={project} issue={issue} setIssue={setIssue} />}
+
+      {kind !== 'linear' && (
+        <div className={dialog.field}>
+          <label htmlFor={draftId}>What needs doing?</label>
+          <AttachField
+            project={project}
+            bucket={bucket}
+            attached={attached}
+            onAttach={(a) => {
+              onAttached(a);
+              setDraft(draft ? `${draft}\n\n${a.markdown}` : a.markdown);
+            }}
+            onRemove={onRemoved}
+          >
+            <textarea
+              id={draftId}
+              className={styles.draft}
+              rows={8}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+            />
+          </AttachField>
+        </div>
+      )}
 
       {/* A free agent has no task to derive a branch from, so it names one
           itself. A task's branch is inferred at the next step instead. */}

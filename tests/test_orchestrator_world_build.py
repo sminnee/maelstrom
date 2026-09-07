@@ -203,11 +203,28 @@ def test_worktree_entity_without_a_pr_url_carries_an_empty_string():
     assert entity["prUrl"] == ""
 
 
-def test_project_entity_carries_the_stack_tip():
+def test_project_entity_carries_the_stack_tip_and_whether_linear_is_set_up():
     entity = project_entity(
-        {"name": "northwind", "path": "/p", "stack_tip": "feat/base"}
+        {
+            "name": "northwind",
+            "path": "/p",
+            "stack_tip": "feat/base",
+            "has_linear": True,
+        }
     )
-    assert entity == {"id": "northwind", "name": "northwind", "stackTip": "feat/base"}
+    assert entity == {
+        "id": "northwind",
+        "name": "northwind",
+        "stackTip": "feat/base",
+        "hasLinear": True,
+    }
+
+
+def test_project_entity_without_a_linear_team_id_says_so():
+    # The UI offers the Linear kind on this flag alone, so a project that never
+    # read a config must read as False rather than absent.
+    entity = project_entity({"name": "northwind", "path": "/p"})
+    assert entity["hasLinear"] is False
 
 
 def replay(name: str) -> AgentState:

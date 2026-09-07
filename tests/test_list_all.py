@@ -35,6 +35,29 @@ def _pr(number, *, commits=1, state="ready"):
     )
 
 
+def test_build_list_all_data_reports_a_project_that_configures_a_linear_team(
+    project_with_worktree,  # noqa: F811
+):
+    """The UI offers the Linear kind on this flag, so `list-all` must carry it.
+
+    The config is tracked in the repo, so it lives in each *worktree* — the
+    project root is bare and holds none. A read anchored at the root finds
+    nothing, which is the whole reason this test uses the worktree.
+    """
+    project_path, worktree_path, _remote = project_with_worktree
+    (project_path / ".mael").touch()
+    (worktree_path / ".maelstrom.yaml").write_text(
+        "linear:\n  team_id: 3201e7ca-cceb-4079-b8ef-51ffbde14db7\n"
+    )
+    with (
+        patch("maelstrom.list_all.get_open_prs_async", return_value={}),
+        patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
+    ):
+        data = asyncio.run(build_list_all_data(project_path.parent))
+
+    assert data["projects"][0]["has_linear"] is True
+
+
 def test_build_list_all_data_reads_the_project_and_its_worktree(
     project_with_worktree,  # noqa: F811
 ):
@@ -50,6 +73,8 @@ def test_build_list_all_data_reads_the_project_and_its_worktree(
     project = data["projects"][0]
     assert project["path"] == str(project_path)
     assert project["stack_tip"] == "main"
+    # No `.maelstrom.yaml`, so no Linear team to plan against.
+    assert project["has_linear"] is False
     assert len(project["worktrees"]) == 1
     row = project["worktrees"][0]
     assert row["name"] == "alpha"
