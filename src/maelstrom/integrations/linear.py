@@ -183,9 +183,14 @@ def graphql_paginated(
     )
 
 
-def get_current_cycle() -> dict | None:
-    """Get the current cycle for the team."""
-    team_id = get_team_id()
+def get_current_cycle(team_id: str | None = None) -> dict | None:
+    """Get the current cycle for ``team_id``, defaulting to the configured team.
+
+    A caller that already knows the team passes it. The orchestrator does: it is
+    one long-lived process serving every project, so the team resolved from its
+    own cwd would be some other project's.
+    """
+    team_id = team_id or get_team_id()
     query = """
     query GetCurrentCycle($teamId: String!) {
         team(id: $teamId) {
@@ -545,17 +550,19 @@ def linear():
     pass
 
 
-@linear.command("list-tasks")
-@click.option("--status", default=None, help="Filter by status name (partial match)")
-def cmd_list_tasks(status):
-    """List tasks in the current cycle, or all active tasks if no cycle."""
-    team_id = get_team_id()
-    cycle = get_current_cycle()
+def fetch_cycle_issues(team_id: str, status: str | None = None) -> list[dict]:
+    """The team's issues for its current cycle, or its active ones with no cycle.
+
+    Returns the raw issue nodes — ``identifier``, ``title``, ``state`` and
+    ``parent`` — so the CLI can format them and the orchestrator can offer them
+    without either owning the query. Paginated: a cycle can hold more than one
+    page of issues.
+    """
+    cycle = get_current_cycle(team_id)
 
     if cycle:
-        # Query tasks in the current cycle
         query = """
-        query ListIssues($teamId: ID!, $cycleId: ID!, $status: String) {
+        query ListIssues($teamId: ID!, $cycleId: ID!, $status: String, $first: Int, $after: String) {
             issues(
                 filter: {
                     team: { id: { eq: $teamId } }
@@ -563,6 +570,8 @@ def cmd_list_tasks(status):
                     state: { name: { containsIgnoreCase: $status } }
                 }
                 orderBy: updatedAt
+                first: $first
+                after: $after
             ) {
                 nodes {
                     identifier
@@ -575,19 +584,18 @@ def cmd_list_tasks(status):
                         identifier
                     }
                 }
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                }
             }
         }
         """
-        variables = {
-            "teamId": team_id,
-            "cycleId": cycle["id"],
-            "status": status or "",
-        }
-        header = f"# Tasks in Cycle {cycle['number']}: {cycle['name']}\n"
+        variables = {"teamId": team_id, "cycleId": cycle["id"], "status": status or ""}
     else:
-        # No active cycle - show all non-backlog, non-done tasks
+        # No active cycle — show all non-backlog, non-done tasks.
         query = """
-        query ListActiveIssues($teamId: ID!, $status: String) {
+        query ListActiveIssues($teamId: ID!, $status: String, $first: Int, $after: String) {
             issues(
                 filter: {
                     team: { id: { eq: $teamId } }
@@ -597,6 +605,8 @@ def cmd_list_tasks(status):
                     }
                 }
                 orderBy: updatedAt
+                first: $first
+                after: $after
             ) {
                 nodes {
                     identifier
@@ -609,17 +619,30 @@ def cmd_list_tasks(status):
                         identifier
                     }
                 }
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                }
             }
         }
         """
-        variables = {
-            "teamId": team_id,
-            "status": status or "",
-        }
-        header = "# Active Tasks (no active cycle)\n"
+        variables = {"teamId": team_id, "status": status or ""}
 
-    result = graphql_request(query, variables)
-    issues = result["issues"]["nodes"]
+    return graphql_paginated(query, variables, connection="issues")
+
+
+@linear.command("list-tasks")
+@click.option("--status", default=None, help="Filter by status name (partial match)")
+def cmd_list_tasks(status):
+    """List tasks in the current cycle, or all active tasks if no cycle."""
+    team_id = get_team_id()
+    cycle = get_current_cycle()
+    issues = fetch_cycle_issues(team_id, status)
+    header = (
+        f"# Tasks in Cycle {cycle['number']}: {cycle['name']}\n"
+        if cycle
+        else "# Active Tasks (no active cycle)\n"
+    )
 
     click.echo(header)
 
@@ -737,6 +760,59 @@ def localize_description_images(identifier: str, project: str, description: str)
     return _LINEAR_IMAGE_RE.sub(_rewrite, description)
 
 
+def build_plan_task(
+    issue_id: str, project: str, *, branch: str | None = None
+) -> dict[str, Any]:
+    """The task fields that plan ``issue_id``, without creating the task.
+
+    Fetches the issue, localizes its images into ``project``'s task repo, and
+    returns the ``add_task`` kwargs ``mael linear plan`` uses. The values here
+    are the planning *defaults*; ``cmd_plan`` lets its own flags override them,
+    and the orchestrator takes them as they come.
+
+    ``branch`` names the branch rather than generating one. Generation shells
+    out to ``claude -p``, so a caller that has already inferred a branch — the
+    orchestrator does — passes it here and spares the second model call.
+    """
+    from .. import branch_name
+
+    issue = get_issue(issue_id)
+    identifier = issue["identifier"]
+    title = issue.get("title") or ""
+    description = issue.get("description") or ""
+
+    description = localize_description_images(identifier, project, description)
+
+    # The meaningful title/description live on the *issue*, not on the "Plan
+    # NORT-123" task, so the descriptive branch is computed from them. The bare
+    # issue number leads the desc, and the branch is shared by all children of
+    # this parent. An explicit '' falls through to create()'s own
+    # sibling/parent inheritance, same as on `task add`.
+    resolved_branch = (
+        branch
+        if branch is not None
+        else branch_name.generate_branch_name(
+            title, description, prefix=identifier.split("-")[-1]
+        )
+    )
+
+    return {
+        "title": f"Plan {identifier}",
+        "command": "plan-task",
+        # Planning runs in normal mode: the session's deliverable is draft task
+        # files, and the plan-task skill (not plan mode) forbids code edits.
+        "mode": "normal",
+        # Planning runs on Opus by default: the plan is the leverage point, and
+        # the sessions the chain goes on to launch inherit their own model.
+        "model": "opus",
+        "parent": f"linear.{identifier}",
+        "branch": resolved_branch,
+        # Finishing the planning session moves the Linear issue to Planned.
+        "post_action": "linear.planned",
+        "content": f"# {identifier}: {title}\n\n{description}",
+    }
+
+
 @linear.command("plan")
 @click.argument("issue_id")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
@@ -786,57 +862,27 @@ def cmd_plan(
     explicit empty value — ``--post-action ''`` — clears the field instead of
     falling back to the planning default, matching ``task add``'s semantics.
     """
-    from .. import branch_name, task_cli
+    from .. import task_cli
 
-    issue = get_issue(issue_id)
-    identifier = issue["identifier"]
-    title = issue.get("title") or ""
-    description = issue.get("description") or ""
-
-    # Resolve the concrete project up front: the image path and add_task must
-    # agree on it, and `localize_description_images` cannot take a None project.
-    # (add_task re-resolves internally; passing the resolved name is idempotent
-    # — the pre-resolution exists only so the image dir and the task agree.)
+    # add_task re-resolves internally; passing the resolved name is idempotent.
     resolved_project = task_cli._resolve_project(project)
-    description = localize_description_images(identifier, resolved_project, description)
-    brief = f"# {identifier}: {title}\n\n{description}"
-
-    # The meaningful title/description live on the *issue*, not on the "Plan
-    # NORT-123" task we create, so compute the descriptive branch here and pass
-    # it explicitly. The bare issue number leads the desc; an explicit branch
-    # wins over default_branch and is shared by all children of this parent.
-    # Skipped entirely when --branch is given (including an explicit ''):
-    # generation shells out to `claude -p`, so an overridden branch also spares
-    # that LLM call. An empty --branch falls through to create()'s own
-    # sibling/parent inheritance, same as on `task add`.
-    resolved_branch = (
-        branch
-        if branch is not None
-        else branch_name.generate_branch_name(
-            title, description, prefix=identifier.split("-")[-1]
-        )
-    )
+    planned = build_plan_task(issue_id, resolved_project, branch=branch)
 
     task_cli.add_task(
-        title=f"Plan {identifier}",
+        title=planned["title"],
         project=resolved_project,
-        command="plan-task" if command is None else command,
-        # Planning runs in normal mode: the session's deliverable is draft task
-        # files, and the plan-task skill (not plan mode) forbids code edits.
-        mode="normal" if mode is None else mode,
-        # Planning runs on Opus by default: the plan is the leverage point, and
-        # the sessions the chain goes on to launch inherit their own model.
-        model="opus" if model is None else model,
+        command=planned["command"] if command is None else command,
+        mode=planned["mode"] if mode is None else mode,
+        model=planned["model"] if model is None else model,
         base=base or "",
-        parent=f"linear.{identifier}" if parent is None else parent,
-        branch=resolved_branch,
+        parent=planned["parent"] if parent is None else parent,
+        branch=planned["branch"],
         pre_action=pre_action or "",
-        # Finishing the planning session moves the Linear issue to Planned.
-        post_action="linear.planned" if post_action is None else post_action,
+        post_action=planned["post_action"] if post_action is None else post_action,
         priority=priority,
         follows=follows,
         follow_ends=follow_ends,
-        content=brief,
+        content=planned["content"],
         run=run,
         here=here,
     )

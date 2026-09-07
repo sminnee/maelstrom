@@ -19,6 +19,10 @@ export const keys = {
     list: () => ['agents', 'list'] as const,
     detail: (id: string) => ['agents', 'detail', id] as const,
   },
+  /** Read straight from Linear, so keyed per project rather than off the world. */
+  linear: {
+    issues: (project: string) => ['linear', 'issues', project] as const,
+  },
   documents: {
     all: () => ['documents'] as const,
     list: () => ['documents', 'list'] as const,

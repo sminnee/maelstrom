@@ -12,12 +12,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aiohttp
+import click
 import pytest
 
 from maelstrom import task as model
 from maelstrom.agent_model import PendingRequest, reply_for_approval
 from maelstrom.branch_name import TaskNames
-from maelstrom.orchestrator import server
+from maelstrom.orchestrator import linear_source, server
 from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
 from maelstrom.orchestrator.routes import SOCKETS, build_app, serving
 from maelstrom.orchestrator.server import Orchestrator
@@ -51,7 +52,14 @@ class Harness:
             store, lambda: list(self.projects), version=lambda: str(self.version)
         )
         self.worktrees = InMemoryWorktreeSource(
-            projects=[{"id": PROJECT, "name": PROJECT, "stackTip": "main"}],
+            projects=[
+                {
+                    "id": PROJECT,
+                    "name": PROJECT,
+                    "stackTip": "main",
+                    "hasLinear": True,
+                }
+            ],
             worktrees=[
                 {
                     "id": "northwind-alpha",
@@ -2781,6 +2789,142 @@ def test_infer_in_a_project_the_world_does_not_hold_is_unknown_id(harness):
     reply = run(scenario())
     assert reply.status == 404
     assert reply.body["error"]["code"] == "unknown_id"
+
+
+# -- the Linear kind --
+
+
+def _linear_issues(_project):
+    return [
+        {"identifier": "ME-1", "title": "Do the thing", "state": {"name": "Todo"}},
+        {"identifier": "ME-2", "title": "Do the other", "state": {"name": "Planned"}},
+    ]
+
+
+def _linear_plan(_project, issue_id):
+    return {
+        "title": f"Plan {issue_id}",
+        "command": "plan-task",
+        "mode": "normal",
+        "model": "opus",
+        "parent": f"linear.{issue_id}",
+        "post_action": "linear.planned",
+        "content": f"# {issue_id}: Do the thing\n\nSome details.",
+    }
+
+
+@pytest.fixture
+def linear(monkeypatch):
+    """Answer the Linear calls from memory: the suite must not reach the API."""
+    monkeypatch.setattr(linear_source, "cycle_issues", _linear_issues)
+    monkeypatch.setattr(linear_source, "plan_fields", _linear_plan)
+
+
+def test_linear_issues_lists_the_current_cycle_for_a_project(harness, linear):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json(f"/api/linear/issues?project={PROJECT}")
+
+    body = run(scenario())
+    # Value and label both: the picker shows the title and submits the id.
+    assert body["issues"] == [
+        {"id": "ME-1", "title": "Do the thing", "status": "Todo"},
+        {"id": "ME-2", "title": "Do the other", "status": "Planned"},
+    ]
+
+
+def test_linear_issues_refuses_a_project_with_no_linear_team(harness, linear):
+    harness.worktrees.projects[0]["hasLinear"] = False
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get(f"/api/linear/issues?project={PROJECT}")
+
+    reply = run(scenario())
+    assert reply.status == 400
+
+
+def test_linear_plan_writes_the_planning_task_and_files_it(harness, linear):
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post(
+                "/api/linear/tasks", {"project": PROJECT, "issueId": "ME-1"}
+            )
+            return reply, await api.get_json("/api/desk")
+
+    reply, desk = run(scenario())
+    assert reply.status == 200
+    task_id = reply.body["taskId"]
+    # Not launched, so no agent came back.
+    assert "agentId" not in reply.body
+    stored = model.load(harness.store, PROJECT, task_id.split("/", 1)[1])
+    # The same task `mael linear plan` writes.
+    assert stored.title == "Plan ME-1"
+    assert stored.command == "plan-task"
+    assert stored.mode == "normal"
+    assert stored.parent == "linear.ME-1"
+    assert stored.post_action == "linear.planned"
+    # The branch is the server's own inference over the brief, numbered by the
+    # issue as `linear plan` numbers it -- not a second `claude -p` call.
+    assert stored.branch == "feat/1-order-export"
+    assert stored.content == "# ME-1: Do the thing\n\nSome details."
+    assert [entry["id"] for entry in desk["desk"]] == [f"task:{task_id}"]
+
+
+def test_linear_plan_with_launch_starts_the_planning_session(harness, linear):
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                reply = await api.post(
+                    "/api/linear/tasks",
+                    {"project": PROJECT, "issueId": "ME-1", "launch": True},
+                )
+                kinds = set()
+                for _ in range(3):
+                    kinds.add((await stream.next("change"))["data"]["kind"])
+                return reply, kinds
+
+    reply, kinds = run(scenario())
+    assert reply.status == 200
+    assert reply.body["agentId"]
+    start = next(c for c in harness.daemon.calls if c["cmd"] == "start")
+    # The planning session runs the plan-task skill on the brief.
+    assert start["prompt"].startswith("/plan-task Plan ME-1")
+    assert kinds == {"task", "agent", "desk"}
+
+
+def test_linear_plan_refuses_a_project_with_no_linear_team(harness, linear):
+    harness.worktrees.projects[0]["hasLinear"] = False
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/linear/tasks", {"project": PROJECT, "issueId": "ME-1"}
+            )
+
+    reply = run(scenario())
+    assert reply.status == 400
+    # Nothing was written: the refusal came before the notebook was touched.
+    assert model.list_tasks(harness.store, project=PROJECT) == []
+
+
+def test_linear_plan_relays_why_linear_refused(harness, monkeypatch):
+    def boom(_project, _issue_id):
+        raise click.ClickException("LINEAR_API_KEY not set")
+
+    monkeypatch.setattr(linear_source, "plan_fields", boom)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/linear/tasks", {"project": PROJECT, "issueId": "ME-1"}
+            )
+
+    reply = run(scenario())
+    # A missing key is the user's to fix, so they are told rather than shown a 500.
+    assert reply.status == 400
+    assert "LINEAR_API_KEY" in reply.body["error"]["message"]
 
 
 def test_create_writes_the_task_with_the_fields_it_was_given_and_files_it(harness):

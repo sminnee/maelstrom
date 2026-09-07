@@ -18,8 +18,8 @@ export interface Seed {
 const T = (minutesAgo: number) =>
   new Date(Date.parse(SEED_TIME) - minutesAgo * 60_000).toISOString();
 
-function project(id: string, stackTip: string): Project {
-  return { id, name: id, stackTip };
+function project(id: string, stackTip: string, hasLinear = false): Project {
+  return { id, name: id, stackTip, hasLinear };
 }
 
 function worktree(
@@ -190,7 +190,13 @@ column the export needs, so this is a read path plus a download endpoint.
  */
 export function seedWorld(): Seed {
   seq = 0;
-  const projects = [project('maelstrom', 'main'), project('northwind', 'feat/db-migrate')];
+  // Two projects name a Linear team and one does not, so the panel's Linear
+  // kind has every case: shown, hidden, and carried across a project change.
+  const projects = [
+    project('maelstrom', 'main', true),
+    project('northwind', 'feat/db-migrate', true),
+    project('riverbend', 'main'),
+  ];
 
   const worktrees = [
     worktree('maelstrom', '_main', { branch: 'main' }),
@@ -517,6 +523,13 @@ body rather than the query builder.
 
   const world: FakeWorld = {
     host: { id: 'agent-host', reachable: true, since: T(9), socket: '' },
+    linearIssues: {
+      maelstrom: [
+        { id: 'MAEL-70', title: 'Add a Linear kind to the new panel', status: 'Todo' },
+        { id: 'MAEL-71', title: 'Retire the Linear integration', status: 'Planned' },
+      ],
+      northwind: [{ id: 'NORT-9', title: 'Something else entirely', status: 'Todo' }],
+    },
     projects: keyed(projects),
     worktrees: keyed(worktrees),
     tasks: byId,

@@ -299,9 +299,9 @@ none and the button says so.
 The top bar's "New" control opens `newwork/NewWork.tsx`, in both views so the affordance never
 moves. The form is two steps in one dialog.
 
-- **Step 1** takes a project, a kind — task or free agent — and the prose that says what the work
-  is. The prose is the only field a task needs. A free agent also names a branch, a mode and a
-  model.
+- **Step 1** takes a project, a kind — task, free agent or Linear — and the prose that says what
+  the work is. The prose is the only field a task needs. A free agent also names a branch, a mode
+  and a model.
 - **Step 2, tasks only.** "Next" calls `useInferTask`; the step shows the inferred title, branch
   and command, every one editable. A task's model starts unset, so it launches on `opus` until
   Advanced names one. The prose becomes the task's content unchanged. "Save" writes
@@ -311,15 +311,28 @@ moves. The form is two steps in one dialog.
   chosen project and keeps anything else typed, so a branch with no worktree gets one provisioned.
   Mode and model are dropdowns, starting on `plan` — a new task's own default — and `opus`, the
   UI's shortlist default. "Start" runs `useStartAgent`.
+- **The Linear kind skips step 2 too.** The kind shows only for a project whose `.maelstrom.yaml`
+  names a `linear.team_id`, which reaches the UI as `hasLinear` on the wire project. One combobox
+  offers the current cycle's issues, each row showing the issue id and its title; the field carries
+  the id. "Save" and "Start" both run `useCreateLinearTask`, which writes the same planning task
+  `mael linear plan` writes. There is nothing else to fill in: the brief, the branch, the command
+  and the mode all come from the issue.
+
+The Linear kind is walled off in `newwork/LinearFields.tsx` and `api/linear.ts`, because the
+Linear integration is expected to go once the task notebook covers the same ground.
 
 `ui/Dialog.tsx` and `tasklist/TaskFields.tsx` are shared with the task editor, so the two
 surfaces cannot drift on what a task's fields are.
 
-Inference and a launch can each take tens of seconds, so all three hooks take
-`SLOW_CALL_TIMEOUT_MS`. A refusal shows in the form, which stays open holding what was typed —
-the one place besides the task list's status select where a view keeps an error of its own,
-because a dialog outlives the button's three-second window. A create whose launch failed says so
-and stops offering to write the task again.
+`ui/ComboBox.tsx` is the combobox the Branch, Command and Issue fields all use: a text field that
+offers a list and keeps anything else typed. A row can carry a label apart from its value, so the
+Issue field offers an issue by its title and submits its id.
+
+Inference, a launch and a Linear read can each take tens of seconds, so every one of these hooks
+takes `SLOW_CALL_TIMEOUT_MS`. A refusal shows in the form, which stays open holding what was
+typed — the one place besides the task list's status select where a view keeps an error of its
+own, because a dialog outlives the button's three-second window. A create whose launch failed
+says so and stops offering to write the task again.
 
 ## Attaching an image
 

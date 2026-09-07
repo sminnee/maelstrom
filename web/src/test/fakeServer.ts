@@ -37,10 +37,17 @@ export interface FakeWorld {
   desk: Record<string, DeskEntry>;
   /** The agent host's reachability; `null` before the server's first poll settles. */
   host: Host | null;
+  /**
+   * Each project's Linear issues for the current cycle. Not part of the world
+   * the server polls -- the real one reads these straight from Linear -- but
+   * the fake keeps them here so a test can say what the picker offers.
+   */
+  linearIssues: Record<string, { id: string; title: string; status: string }[]>;
 }
 
 export function emptyFakeWorld(): FakeWorld {
   return {
+    linearIssues: {},
     projects: {},
     worktrees: {},
     tasks: {},
@@ -324,6 +331,14 @@ function read(path: string, server: FakeServer): Reply {
   if (m) {
     const task = world.tasks[m[1]!];
     return task ? ok(task) : notFound(`task ${m[1]}`);
+  }
+  if (pathname === '/api/linear/issues') {
+    const project = params.get('project') ?? '';
+    if (!world.projects[project]) return notFound(`project ${project}`);
+    if (!world.projects[project]!.hasLinear) {
+      return error(400, 'invalid', `${project} names no Linear team`);
+    }
+    return ok({ issues: world.linearIssues[project] ?? [] });
   }
   if (pathname === '/api/agents') return ok({ agents: Object.values(world.agents) });
   m = pathname.match(/^\/api\/agents\/([^/]+)\/transcript$/);
@@ -651,6 +666,43 @@ function command(
       project,
       model: str('model') ?? '',
       mode: (str('mode') ?? '') as PermissionMode | '',
+    });
+    server.change({ kind: 'task', ids: [taskId] });
+    server.change({ kind: 'agent', ids: [agentId] });
+    return ok({ taskId, agentId });
+  }
+
+  if (pathname === '/api/linear/tasks' && method === 'POST') {
+    const project = str('project') ?? '';
+    if (!world.projects[project]) return notFound(`project ${project}`);
+    if (!world.projects[project]!.hasLinear) {
+      return error(400, 'invalid', `${project} names no Linear team`);
+    }
+    const issueId = str('issueId')?.trim() ?? '';
+    if (!issueId) return error(400, 'invalid', 'An issue is required');
+    // The same task `mael linear plan` writes: the real server builds these
+    // fields from the issue's brief, and this fake from its id alone.
+    const taskId = `${project}/NEW-${mint()}`;
+    world.tasks[taskId] = {
+      ...makeNewTask(taskId, project, `Plan ${issueId}`, {
+        command: 'plan-task',
+        mode: 'normal',
+        model: 'opus',
+        content: `# ${issueId}`,
+      }),
+      parent: `linear.${issueId}`,
+    };
+    world.desk[`task:${taskId}`] = { id: `task:${taskId}`, addedAt: now() };
+    server.change({ kind: 'task', ids: [taskId] });
+    server.change({ kind: 'desk', ids: [`task:${taskId}`] });
+    if (!b.launch) return ok({ taskId });
+    const agentId = `new${mint()}`;
+    world.tasks[taskId] = { ...world.tasks[taskId]!, status: 'in-progress' };
+    world.agents[agentId] = makeNewAgent(agentId, {
+      taskId,
+      project,
+      model: 'opus',
+      mode: 'normal',
     });
     server.change({ kind: 'task', ids: [taskId] });
     server.change({ kind: 'agent', ids: [agentId] });

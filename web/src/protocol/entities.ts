@@ -25,6 +25,8 @@ export interface Project {
   id: ProjectId;
   name: string;
   stackTip: string;
+  /** Whether the project names a Linear team in its `.maelstrom.yaml`. */
+  hasLinear: boolean;
 }
 
 /** How close a pull request is to merging. Decided in Python — see **PR state** in `CONTEXT.md`. */

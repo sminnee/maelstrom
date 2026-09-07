@@ -30,6 +30,7 @@ import {
   useRequestChanges,
   useResolveComment,
 } from './documents';
+import { useCreateLinearTask } from './linear';
 import { ApiError } from './http';
 import { keys } from './keys';
 import { useCreateTask, useInferTask, useLaunch, useSetStatus, useUpdateTask } from './tasks';
@@ -42,7 +43,8 @@ function harness() {
   const server = createFakeServer({
     world: worldWith({
       // The create and start hooks name a project, so the world holds one.
-      projects: [makeProject()],
+      // It names a Linear team too, so the Linear hooks reach their routes.
+      projects: [makeProject({ hasLinear: true })],
       tasks: [makeTask({ id: 'northwind/NORT-7' })],
       agents: [
         makeAgent({ id: 'ag1', state: 'awaiting-question', pendingRequestIds: ['r1'] }),
@@ -204,6 +206,22 @@ describe('the mutation hooks', () => {
         mode: 'auto',
         launch: true,
       },
+      [keys.tasks.list(), keys.desk(), keys.agents.list(), keys.attention()],
+    ],
+    [
+      'useCreateLinearTask',
+      useCreateLinearTask,
+      { project: 'northwind', issueId: 'ME-1' },
+      'POST /api/linear/tasks',
+      { project: 'northwind', issueId: 'ME-1' },
+      [keys.tasks.list(), keys.desk()],
+    ],
+    [
+      'useCreateLinearTask launching',
+      useCreateLinearTask,
+      { project: 'northwind', issueId: 'ME-1', launch: true },
+      'POST /api/linear/tasks',
+      { project: 'northwind', issueId: 'ME-1', launch: true },
       [keys.tasks.list(), keys.desk(), keys.agents.list(), keys.attention()],
     ],
     [

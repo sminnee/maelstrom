@@ -9,7 +9,9 @@ from click.testing import CliRunner
 from maelstrom import task_cli
 from maelstrom.integrations import linear as linear_mod
 from maelstrom.integrations.linear import (
+    build_plan_task,
     create_comment,
+    fetch_cycle_issues,
     graphql_paginated,
     linear,
     localize_description_images,
@@ -245,6 +247,124 @@ class TestCmdPlan:
 
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00fakepngdata"
+
+
+class TestFetchCycleIssues:
+    """The rows behind ``mael linear list-tasks`` and the orchestrator's picker."""
+
+    @patch("maelstrom.integrations.linear.get_current_cycle")
+    @patch("maelstrom.integrations.linear.graphql_paginated")
+    def test_returns_the_current_cycle_s_issues(self, mock_paginated, mock_cycle):
+        mock_cycle.return_value = {"id": "c1", "name": "Sprint 4", "number": 4}
+        mock_paginated.return_value = [
+            {
+                "identifier": "ME-1",
+                "title": "Do the thing",
+                "state": {"name": "Todo", "type": "unstarted"},
+                "parent": None,
+            }
+        ]
+        issues = fetch_cycle_issues("team-1")
+
+        assert issues == [
+            {
+                "identifier": "ME-1",
+                "title": "Do the thing",
+                "state": {"name": "Todo", "type": "unstarted"},
+                "parent": None,
+            }
+        ]
+        # Scoped to the team and the cycle, and paginated so a cycle over 50
+        # issues is not silently cut short.
+        variables = mock_paginated.call_args.args[1]
+        assert variables["teamId"] == "team-1"
+        assert variables["cycleId"] == "c1"
+
+    @patch("maelstrom.integrations.linear.get_current_cycle", return_value=None)
+    @patch("maelstrom.integrations.linear.graphql_paginated")
+    def test_falls_back_to_active_issues_with_no_cycle(self, mock_paginated, _cycle):
+        mock_paginated.return_value = []
+        assert fetch_cycle_issues("team-1") == []
+        # No cycle to scope by, so the filter excludes the done states instead.
+        query = mock_paginated.call_args.args[0]
+        assert "cycle" not in query
+        assert "nin" in query
+
+    @patch("maelstrom.integrations.linear.get_current_cycle")
+    @patch("maelstrom.integrations.linear.graphql_request")
+    def test_declares_every_variable_it_passes(self, mock_request, mock_cycle):
+        """`graphql_paginated` adds `first`/`after`, which the query must declare.
+
+        Mocking the paginator away hides this: an undeclared variable is a
+        server-side error, so the real helper is what this drives.
+        """
+        mock_cycle.return_value = {"id": "c1", "name": "S", "number": 1}
+        mock_request.return_value = {
+            "issues": {"nodes": [], "pageInfo": {"hasNextPage": False}}
+        }
+        for cycle in ({"id": "c1", "name": "S", "number": 1}, None):
+            mock_cycle.return_value = cycle
+            fetch_cycle_issues("team-1")
+            query, variables = mock_request.call_args.args
+            for name in variables:
+                assert f"${name}:" in query, f"{name} is passed but not declared"
+
+    @patch("maelstrom.integrations.linear.graphql_request")
+    def test_asks_for_the_cycle_of_the_team_it_was_given(self, mock_request):
+        """The team is the argument's, never the ambient cwd's.
+
+        The orchestrator is one long-lived process serving every project, so a
+        cycle looked up from its own cwd would be another project's.
+        """
+        mock_request.return_value = {
+            "team": {"activeCycle": {"id": "c1", "name": "S", "number": 1}},
+            "issues": {"nodes": [], "pageInfo": {"hasNextPage": False}},
+        }
+        fetch_cycle_issues("team-1")
+        asked = [call.args[1]["teamId"] for call in mock_request.call_args_list]
+        assert asked == ["team-1", "team-1"]
+
+    @patch("maelstrom.integrations.linear.get_current_cycle")
+    @patch("maelstrom.integrations.linear.graphql_paginated")
+    def test_filters_by_status_when_asked(self, mock_paginated, mock_cycle):
+        mock_cycle.return_value = {"id": "c1", "name": "S", "number": 1}
+        mock_paginated.return_value = []
+        fetch_cycle_issues("team-1", status="progress")
+        assert mock_paginated.call_args.args[1]["status"] == "progress"
+
+
+class TestBuildPlanTask:
+    """The task fields ``mael linear plan`` creates, without creating them."""
+
+    @patch("maelstrom.integrations.linear.get_issue")
+    def test_returns_the_fields_cmd_plan_would_pass(self, mock_get):
+        mock_get.return_value = {
+            "identifier": "ME-99",
+            "title": "Do the thing",
+            "description": "Some details.",
+        }
+        fields = build_plan_task("ME-99", "p")
+
+        assert fields["title"] == "Plan ME-99"
+        assert fields["command"] == "plan-task"
+        assert fields["mode"] == "normal"
+        assert fields["model"] == "opus"
+        assert fields["parent"] == "linear.ME-99"
+        assert fields["post_action"] == "linear.planned"
+        assert fields["content"] == "# ME-99: Do the thing\n\nSome details."
+        assert fields["branch"] == "feat/99-do-thing"
+
+    @patch("maelstrom.integrations.linear.get_issue")
+    def test_an_explicit_branch_skips_generation(self, mock_get):
+        mock_get.return_value = {
+            "identifier": "ME-99",
+            "title": "T",
+            "description": "",
+        }
+        # The caller already named a branch -- the orchestrator infers its own
+        # rather than shelling out to generate one.
+        fields = build_plan_task("ME-99", "p", branch="feat/99-given")
+        assert fields["branch"] == "feat/99-given"
 
 
 class TestLocalizeDescriptionImages:

@@ -10,6 +10,13 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+### Added
+
+- **Plan a Linear issue from the orchestrator's New panel.** Choose the Linear kind, pick an
+  issue from the current cycle, and Save or Start writes the same planning task
+  `mael linear plan` writes. The kind shows only for a project whose `.maelstrom.yaml` sets
+  `linear.team_id`.
+
 ### Removed
 
 - **Session tracking is gone: the registry, its MCP channel, and its eleven hooks.** A Bun MCP

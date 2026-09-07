@@ -48,6 +48,20 @@ def _err(code: str, message: str) -> dict[str, str]:
     return {"code": code, "message": message}
 
 
+def check_linear_project(world: World, project: str) -> dict[str, str] | None:
+    """Refuse a project the Linear routes cannot serve, or ``None`` if it can.
+
+    Both Linear routes ask this: the picker read and the plan command. The panel
+    offers the kind on ``hasLinear`` alone, so the server checks the same flag
+    rather than trusting the client to have looked.
+    """
+    if project not in world["projects"]:
+        return _err("unknown_id", f"No project {project}")
+    if not world["projects"][project].get("hasLinear"):
+        return _err("invalid", f"{project} names no Linear team")
+    return None
+
+
 def validate_command(world: World, cmd: dict[str, Any]) -> dict[str, str] | None:
     """The refusal for ``cmd`` against ``world``, or ``None`` when it may run."""
     kind = cmd.get("type")
@@ -265,6 +279,14 @@ def validate_command(world: World, cmd: dict[str, Any]) -> dict[str, str] | None
         priority = cmd.get("priority")
         if priority is not None and priority not in PRIORITIES:
             return _err("invalid", f"No priority {priority}")
+        return None
+
+    if kind == "linear.plan":
+        error = check_linear_project(world, cmd.get("project", ""))
+        if error:
+            return error
+        if not str(cmd.get("issueId", "")).strip():
+            return _err("invalid", "An issue is required")
         return None
 
     if kind == "agent.start":

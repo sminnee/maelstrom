@@ -109,6 +109,8 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/worktrees/{id}/close", _close_worktree)
     app.router.add_post("/api/tasks/infer", _infer_task)
     app.router.add_post("/api/tasks", _create_task)
+    app.router.add_get("/api/linear/issues", _linear_issues)
+    app.router.add_post("/api/linear/tasks", _linear_plan)
     app.router.add_post("/api/attachments", _upload_attachment)
     app.router.add_get("/api/attachments/{project}/{bucket}/{name}", _serve_attachment)
     app.router.add_get("/api/files/{id}", _serve_file)
@@ -519,6 +521,21 @@ async def _infer_task(request: web.Request) -> web.StreamResponse:
             "draft": body.get("draft", ""),
         },
     )
+
+
+async def _linear_issues(request: web.Request) -> web.StreamResponse:
+    """A project's Linear issues for the current cycle, as picker rows."""
+    orch = await _ready(request)
+    reply = await orch.linear_issues(request.query.get("project", ""))
+    if not reply["ok"]:
+        error = dict(reply["error"])
+        code = error.pop("code")
+        return error_response(code, error.pop("message"), **error)
+    return web.json_response(reply["result"])
+
+
+async def _linear_plan(request: web.Request) -> web.StreamResponse:
+    return await _command(request, lambda body: {**body, "type": "linear.plan"})
 
 
 async def _create_task(request: web.Request) -> web.StreamResponse:

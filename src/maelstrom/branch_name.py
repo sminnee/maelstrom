@@ -151,6 +151,21 @@ def _compose(type_: str, prefix: str, desc: str) -> str:
     return f"{type_}/{desc}"
 
 
+def lead_with_number(branch: str, number: str) -> str:
+    """Lead a branch's description with an issue number.
+
+    ``feat/order-export`` and ``99`` give ``feat/99-order-export``, matching what
+    :func:`_compose` assembles when it is given a prefix. This is for a caller
+    that already holds a composed branch — an inferred one — rather than the
+    parts. A branch with no type prefix, or one already led by ``number``, is
+    returned unchanged.
+    """
+    type_, sep, desc = branch.partition("/")
+    if not sep or desc.startswith(f"{number}-"):
+        return branch
+    return _compose(type_, number, desc)
+
+
 def _shares_token(desc: str, title: str, content: str) -> bool:
     """Whether the model's kebab desc shares any token with the task text.
 

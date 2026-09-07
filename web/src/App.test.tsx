@@ -1611,6 +1611,117 @@ describe('new work', () => {
     expect(screen.getByRole('dialog', { name: 'New work' })).toBeInTheDocument();
   });
 
+  /** The task this run wrote: the fake mints new ids with a `NEW-` segment. */
+  function createdTask(server: FakeServer) {
+    const written = Object.values(server.world.tasks).filter((t) => t.id.includes('/NEW-'));
+    expect(written).toHaveLength(1);
+    return written[0]!;
+  }
+
+  it('offers the Linear kind only for a project that names a Linear team', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const form = await openNewWork(user);
+    await user.selectOptions(within(form).getByLabelText('Project'), 'maelstrom');
+    expect(within(form).getByRole('radio', { name: 'Linear' })).toBeInTheDocument();
+    // `riverbend` sets no team, so planning a Linear issue is not on offer.
+    await user.selectOptions(within(form).getByLabelText('Project'), 'riverbend');
+    expect(within(form).queryByRole('radio', { name: 'Linear' })).toBeNull();
+  });
+
+  it('falls back to a task when the chosen project drops the Linear kind', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const form = await openNewWork(user);
+    await user.selectOptions(within(form).getByLabelText('Project'), 'maelstrom');
+    await user.click(within(form).getByRole('radio', { name: 'Linear' }));
+    await user.selectOptions(within(form).getByLabelText('Project'), 'riverbend');
+    // The kind it was on is gone, so the form must land somewhere legal.
+    expect(within(form).getByRole('radio', { name: 'Task' })).toBeChecked();
+  });
+
+  it('offers the cycle by issue id, showing each title to choose by', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const form = await openNewWork(user);
+    await user.selectOptions(within(form).getByLabelText('Project'), 'maelstrom');
+    await user.click(within(form).getByRole('radio', { name: 'Linear' }));
+
+    const issue = await within(form).findByLabelText('Issue');
+    await user.click(issue);
+    const rows = within(await screen.findByRole('listbox')).getAllByRole('option');
+    expect(rows.map((r) => r.textContent)).toEqual([
+      'MAEL-70Add a Linear kind to the new panel',
+      'MAEL-71Retire the Linear integration',
+    ]);
+  });
+
+  it('plans the chosen issue, writing the task `mael linear plan` writes', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const form = await openNewWork(user);
+    await user.selectOptions(within(form).getByLabelText('Project'), 'maelstrom');
+    await user.click(within(form).getByRole('radio', { name: 'Linear' }));
+    await user.click(await within(form).findByLabelText('Issue'));
+    await user.click(await screen.findByRole('option', { name: /Add a Linear kind/ }));
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+    const planned = createdTask(server);
+    expect(planned.title).toBe('Plan MAEL-70');
+    expect(planned.command).toBe('plan-task');
+    expect(planned.parent).toBe('linear.MAEL-70');
+    expect(planned.status).toBe('todo');
+    expect(server.world.desk[`task:${planned.id}`]).toBeDefined();
+  });
+
+  it('starts the planning session when Start is pressed instead', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const form = await openNewWork(user);
+    await user.selectOptions(within(form).getByLabelText('Project'), 'maelstrom');
+    await user.click(within(form).getByRole('radio', { name: 'Linear' }));
+    await user.click(await within(form).findByLabelText('Issue'));
+    await user.click(await screen.findByRole('option', { name: /Add a Linear kind/ }));
+    await user.click(within(form).getByRole('button', { name: 'Start' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+    const planned = createdTask(server);
+    expect(planned.status).toBe('in-progress');
+    expect(Object.values(server.world.agents).some((a) => a.taskId === planned.id)).toBe(true);
+  });
+
+  it('forgets the chosen issue when the project changes', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    // Both seeded projects name a Linear team, so the kind survives the switch
+    // and a stale issue would be submitted against a project it does not
+    // belong to.
+    const form = await openNewWork(user);
+    await user.selectOptions(within(form).getByLabelText('Project'), 'maelstrom');
+    await user.click(within(form).getByRole('radio', { name: 'Linear' }));
+    await user.click(await within(form).findByLabelText('Issue'));
+    await user.click(await screen.findByRole('option', { name: /Add a Linear kind/ }));
+    expect(within(form).getByLabelText('Issue')).toHaveValue('MAEL-70');
+
+    await user.selectOptions(within(form).getByLabelText('Project'), 'northwind');
+    // MAEL-70 is not northwind's to plan, so the field must not carry it over.
+    expect(within(form).getByLabelText('Issue')).toHaveValue('');
+    expect(within(form).getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('holds Save and Start back until an issue is chosen', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const form = await openNewWork(user);
+    await user.selectOptions(within(form).getByLabelText('Project'), 'maelstrom');
+    await user.click(within(form).getByRole('radio', { name: 'Linear' }));
+    expect(within(form).getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(within(form).getByRole('button', { name: 'Start' })).toBeDisabled();
+    // The prose field belongs to the other kinds: the brief comes from Linear.
+    expect(within(form).queryByLabelText('What needs doing?')).toBeNull();
+  });
+
   it('holds Next back until the draft has something in it', async () => {
     const user = userEvent.setup();
     await renderApp();
