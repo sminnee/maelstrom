@@ -26,3 +26,13 @@ services:
   # Nothing else starts one. See docs/dev/agent-daemon.md.
   agent-daemon:
     command: uv run mael agent daemon serve
+
+  # The component workbench. Optional, because it serves no part of the running
+  # app: it draws the web components against fixtures so the panel's visual
+  # states can be seen without an orchestrator, a daemon or a live agent.
+  # Start it by name: `mael env start ladle`.
+  ladle:
+    optional: true
+    ports: [LADLE]
+    dir: web
+    command: pnpm ladle --port ${LADLE_PORT}
