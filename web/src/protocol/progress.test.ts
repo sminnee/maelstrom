@@ -389,6 +389,17 @@ describe('progressOf', () => {
     }
   });
 
+  it('counts the asks when an agent is blocked on several at once', () => {
+    // One state cannot name two waits, and naming only the newest hides the
+    // rest. See `docs/dev/agent-daemon.md`, "A subagent's permission ask".
+    const agent = makeAgent({
+      state: 'awaiting-permission',
+      pendingRequestIds: ['req-1', 'req-2'],
+    });
+    const progress = progressOf(makeTask({ status: 'in-progress' }), agent, [makeAttention()]);
+    expect(progress).toMatchObject({ state: 'needs-attention', words: 'Needs you · 2 asks' });
+  });
+
   // The bug this collapse exists to fix: the two readings agreed only by
   // accident. Now "Needs you" appears exactly when the state does.
   it('reads an awaiting agent as idle when no attention item is open', () => {

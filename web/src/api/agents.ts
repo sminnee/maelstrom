@@ -11,11 +11,12 @@ export interface AgentsBody {
   agents: Agent[];
 }
 
-/** The item an agent waits on, as its detail carries it. */
+/** One item an agent waits on, as its detail carries it. */
 export type PendingRequest = QuestionItem | PermissionRequestItem | PlanReviewItem;
 
 export interface AgentDetail extends Agent {
-  pendingRequest: PendingRequest | null;
+  /** In the order the asks opened, matching `pendingRequestIds`. */
+  pendingRequests: PendingRequest[];
 }
 
 export function useAgents() {

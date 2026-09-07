@@ -39,7 +39,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
   const expandedNodeId = useAppStore((s) => s.ui.expandedNodeId);
   // A free agent draws under its own id, a task node under its task's.
   const deferred =
-    agent?.pendingRequestId != null && answeredOnCanvas(expandedNodeId, agent.taskId || agent.id);
+    !!agent?.pendingRequestIds.length && answeredOnCanvas(expandedNodeId, agent.taskId || agent.id);
 
   useEffect(() => {
     bottom.current?.scrollIntoView?.({ block: 'end' });
@@ -84,7 +84,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
         <Transcript
           items={transcript.items}
           truncatedBefore={transcript.truncatedBefore}
-          deferredRequestId={deferred ? agent.pendingRequestId : null}
+          deferredRequestIds={deferred ? agent.pendingRequestIds : []}
           handlers={
             isChild
               ? {}
@@ -114,7 +114,15 @@ export function SessionTab({ agentId }: { agentId: string }) {
   );
 }
 
-/** One line per subagent: a state dot, its description, and its summary once it has ended. */
+/**
+ * One line per subagent: a state dot, its description, what it waits on, and
+ * its summary once it has ended.
+ *
+ * A blocked subagent says so here rather than in the parent's stream, so the
+ * ask sits beside the subagent that raised it. The decision itself is the
+ * parent's — a subagent has no process, so the reply goes to the parent's
+ * pipe. See `docs/dev/agent-daemon.md`, "A subagent's permission ask".
+ */
 function SubagentStrip({ agents }: { agents: Agent[] }) {
   return (
     <div className={styles.subagents} data-testid="subagent-strip">
@@ -123,6 +131,11 @@ function SubagentStrip({ agents }: { agents: Agent[] }) {
           <span className={styles.dot} data-state={child.state} aria-hidden="true" />
           <span className={styles.subagentId}>{child.id}</span>
           <span className={styles.subagentDescription}>{child.description}</span>
+          {child.state.startsWith('awaiting-') && (
+            <span className={styles.subagentWaiting} data-testid="subagent-waiting">
+              {child.waitingOn || 'needs you'}
+            </span>
+          )}
           {child.state === 'exited' && child.lastMessage && (
             <span className={styles.subagentSummary}>{child.lastMessage}</span>
           )}

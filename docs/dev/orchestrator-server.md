@@ -283,7 +283,7 @@ route is under `/api` and answers JSON. A task id is two path segments, because 
 | `GET /api/tasks` | `{tasks: [TaskRow], version}`. A row is a task without `content` and `log`. The `ETag` changes with every task change; `If-None-Match` answers 304. Compressed |
 | `GET /api/tasks/{project}/{id}` | The whole `Task`, prose included |
 | `GET /api/agents` | `{agents: [Agent]}` |
-| `GET /api/agents/{id}` | The `Agent`, plus `pendingRequest`: the question, permission request or plan review item it waits on, or null. A decision renders from this alone |
+| `GET /api/agents/{id}` | The `Agent`, plus `pendingRequests`: the question, permission request and plan review items it waits on, oldest first, empty when it waits on none. A decision renders from this alone |
 | `GET /api/attention?open=1` | `{attention: [Attention]}`; `open` keeps only items not yet cleared |
 | `GET /api/documents` | `{documents: [Document]}` without `markdown` |
 | `GET /api/documents/{id}` | The `Document`, `markdown` included |

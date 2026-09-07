@@ -8,12 +8,12 @@
         "id": "ag1",
         "parent": "",
         "description": "",
-        "state": "processing",
+        "state": "awaiting-permission",
         "session": "bddc2a91-df07-42da-b231-ce437fac81a4",
         "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
         "model": "claude-opus-5",
         "permissionMode": "normal",
-        "waitingOn": "",
+        "waitingOn": "https://example.com",
         "lastMessage": "I'll launch both agents concurrently in one message.",
         "lastMessageAt": "2026-09-06T21:55:52.660Z",
         "costUsd": 0,
@@ -21,7 +21,9 @@
         "project": "northwind",
         "worktreeId": "northwind-alpha",
         "exitCode": null,
-        "pendingRequestId": null,
+        "pendingRequestIds": [
+          "9d42d8f9-b098-4adf-9aa8-70517016431a"
+        ],
         "pid": null
       }
     },

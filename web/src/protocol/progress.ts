@@ -144,6 +144,10 @@ function queuedWords(task: TaskFacts | undefined): string {
 }
 
 function needsYouWords(agent: Agent | undefined): string {
+  // The agent's single state cannot name several waits. See
+  // `docs/dev/agent-daemon.md`, "A subagent's permission ask".
+  const open = agent?.pendingRequestIds.length ?? 0;
+  if (open > 1) return `Needs you · ${open} asks`;
   switch (agent?.state) {
     case 'awaiting-question':
       return 'Needs you · question';

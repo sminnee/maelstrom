@@ -118,7 +118,7 @@ def _blank_agent(agent_id: str) -> Agent:
         "project": "",
         "worktreeId": "",
         "exitCode": None,
-        "pendingRequestId": None,
+        "pendingRequestIds": [],
         "pid": None,
     }
 
@@ -268,11 +268,16 @@ def pending_prompt(view: AttachView) -> TranscriptItem | None:
     Nothing prompts while the backlog is still replaying: a request answered
     before this client attached is still in the history, and re-asking it would
     put a modal in front of a question the agent has already moved past.
+
+    An agent can hold several asks. Teleport shows the oldest, and the next one
+    once that is answered: a terminal has one modal, so a queue is the only way
+    to offer them all.
     """
     if not view.backlog_done or view.exited or view.connection_lost:
         return None
     agent = view.client["world"]["agents"].get(view.agent_id)
-    request_id = agent.get("pendingRequestId") if agent else None
+    held = agent.get("pendingRequestIds") if agent else None
+    request_id = held[0] if held else None
     if not request_id:
         return None
     for item in reversed(transcript_items(view)):

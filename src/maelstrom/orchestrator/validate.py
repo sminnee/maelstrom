@@ -69,9 +69,9 @@ def validate_command(world: World, cmd: dict[str, Any]) -> dict[str, str] | None
             return _err("unknown_id", f"No agent {agent_id}")
         if agent["state"] == "exited":
             return _err("agent_exited", f"Agent {agent_id} has exited")
-        if not agent["pendingRequestId"]:
+        if not agent["pendingRequestIds"]:
             return _err("not_waiting", f"Agent {agent_id} is not waiting")
-        if agent["pendingRequestId"] != cmd.get("requestId"):
+        if cmd.get("requestId") not in agent["pendingRequestIds"]:
             return _err(
                 "stale_request", f"Request {cmd.get('requestId')} is no longer pending"
             )

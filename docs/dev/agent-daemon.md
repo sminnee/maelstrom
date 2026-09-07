@@ -756,25 +756,37 @@ or `stopped`) and a `summary`. The parent's own `tool_result` for the `Agent` ca
 a backgrounded subagent gets that result at launch and runs on. A subagent that speaks after its
 notification is running again.
 
-A `control_request` carries no `parent_tool_use_id`. Its `request.tool_use_id` names the
-subagent's own tool call, so the wait is the parent's, answered through the parent, and the
-detail names the subagent under `waiting_subagent`.
+#### A subagent's permission ask
 
-The request also carries `request.agent_id`, which is the `task_id` of the subagent's
-`task_started`. Nothing reads that field yet. `waiting_subagent` instead comes from a scan of
-each subagent's ring for the `tool_use` block that opened the call. The scan finds nothing when
-the block has left the ring, and nothing when the ring was never filled.
+A `control_request` carries no `parent_tool_use_id`, so a subagent's ask arrives on the parent's
+stream. It carries `request.agent_id`, which is the `task_id` of that subagent's `task_started`.
+That is the join: `subagent_tasks` maps it to a dotted id, and the ask is filed on the subagent
+that raised it.
 
-`request` names which wait to answer. An agent can hold several, its own and its subagents'.
-Omit it and the daemon answers the only open one, refusing when there is more than one. An id the
-agent does not hold is refused rather than falling back to whichever wait is current: the caller
-answered something it could see, and that wait is over.
+**Claude Code does not serialise the asks.** Two subagents can block at once, and so can two
+parallel calls an agent makes itself.
+`tests/fixtures/agent_events/subagent-permission-concurrent.jsonl` records two open together,
+each with its own `request_id` and `agent_id`. So `pending` is a map, on the agent and on each
+subagent, and one answer retires one ask.
 
-**Two subagents can block on a permission at the same time.** Claude Code does not serialise the
-asks. `tests/fixtures/agent_events/subagent-permission-concurrent.jsonl` records two open at
-once, each with its own `request_id` and `agent_id`. The state machine holds one pending request,
-so the second ask displaces the first and the first can no longer be answered. See
-`docs/dev/subagent-permissions-findings.md`.
+The reply always goes to the parent's pipe: a subagent has no process of its own. But the wait is
+the subagent's, so its row says what it waits on rather than reading `processing` while it is
+stuck. The parent reports every ask beneath it, because the parent is where a reply is sent.
+
+`request` names which wait to answer. Omit it and the daemon answers the only open one, refusing
+when there is more than one. An id the agent does not hold is refused rather than falling back to
+whichever wait is current: the caller answered something it could see, and that wait is over.
+
+Two consequences:
+
+- An `interrupt` denies every open ask. An undenied one leaves its caller blocked on a reply
+  that never comes.
+- A `task_notification` clears that subagent's asks. One that has gone holds nothing a reply
+  could reach.
+
+`task_started` gives a `spawn_depth` but never a parent, so it cannot say where a nested subagent
+sits. Placing one at its level still needs the ring scan, which is why `_ring_holding_call`
+survives for that one caller.
 
 On the socket a dotted id works where a read does:
 

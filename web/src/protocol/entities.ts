@@ -115,7 +115,11 @@ export interface Agent {
   project: ProjectId;
   worktreeId: WorktreeId;
   exitCode: number | null;
-  pendingRequestId: RequestId | null;
+  /**
+   * Every ask the agent is blocked on, oldest first. Several can be open at
+   * once — see `docs/dev/agent-daemon.md`, "A subagent's permission ask".
+   */
+  pendingRequestIds: RequestId[];
   /** The child's pid while it is alive; `null` before the spawn and after the exit. */
   pid: number | null;
 }

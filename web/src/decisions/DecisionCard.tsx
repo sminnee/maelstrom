@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useAgent, useAnswer, useApprove, useDeny } from '../api/agents';
+import type { PendingRequest } from '../api/agents';
 import { useAgentStream } from '../live/useAgentStream';
 import { Markdown } from '../markdown/Markdown';
 import type { Agent } from '../protocol/entities';
-import type { PlanReviewItem } from '../protocol/transcript';
+import type { PlanReviewItem, TranscriptItem } from '../protocol/transcript';
 import { documentTab } from '../selectors/tabs';
 import { contextBefore } from '../selectors/transcript';
 import { PermissionPrompt } from '../session/cards/PermissionPrompt';
@@ -15,20 +16,51 @@ import cards from '../session/cards/cards.module.css';
 import styles from './DecisionCard.module.css';
 
 /**
- * The decision block. Both the expanded node and the document tab render
- * this. The wait itself comes from the agent's detail, so it renders with no
- * transcript open; the context before it comes from the transcript.
+ * Every decision an agent is waiting on, oldest first. Both the expanded node
+ * and the document tab render this. The waits come from the agent's detail, so
+ * they render with no transcript open; the context before each comes from the
+ * transcript.
+ *
+ * An agent can be blocked on several at once — see `docs/dev/agent-daemon.md`,
+ * "A subagent's permission ask" — and each is answered on its own.
  */
-export function DecisionCard({ agent }: { agent: Agent }) {
+export function DecisionCard({
+  agent,
+  skipPlanReview = false,
+}: {
+  agent: Agent;
+  /** The document tab's review bar owns a plan review, so it is not drawn twice. */
+  skipPlanReview?: boolean;
+}) {
   const transcript = useAgentStream(agent.id);
   const detail = useAgent(agent.id);
+  const held = new Set(agent.pendingRequestIds);
+  const waits = (detail.data?.pendingRequests ?? [])
+    .filter((w) => held.has(w.requestId))
+    .filter((w) => !(skipPlanReview && w.type === 'plan_review'));
+  if (waits.length === 0) return null;
+  return (
+    <>
+      {waits.map((wait) => (
+        <OneDecision key={wait.requestId} agent={agent} wait={wait} items={transcript.items} />
+      ))}
+    </>
+  );
+}
+
+function OneDecision({
+  agent,
+  wait,
+  items,
+}: {
+  agent: Agent;
+  wait: PendingRequest;
+  items: TranscriptItem[];
+}) {
   const approve = useApprove();
   const deny = useDeny();
   const answer = useAnswer();
-  const requestId = agent.pendingRequestId;
-  const items = transcript.items;
-  const wait = detail.data?.pendingRequest;
-  if (!requestId || !wait || wait.requestId !== requestId) return null;
+  const requestId = wait.requestId;
   const before = contextBefore(items, requestId);
   const decide = (decision: 'approve' | 'deny', reason: string) =>
     decision === 'approve'

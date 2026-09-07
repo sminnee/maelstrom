@@ -262,19 +262,21 @@ class Orchestrator:
         """Set once the first source reads have finished."""
         return self._started
 
-    def pending_request(self, agent_id: str) -> TranscriptItem | None:
-        """The item an agent waits on: its question, permission request or plan review.
+    def pending_requests(self, agent_id: str) -> list[TranscriptItem]:
+        """Every item an agent waits on: its questions, permissions and plan reviews.
 
-        ``None`` when the agent waits on nothing. The request id names one
-        wait, so the last item carrying it is the one.
+        Empty when the agent waits on nothing. An agent can be blocked on
+        several at once, and each request id names one item.
         """
         agent = self.world["agents"].get(agent_id)
-        if agent is None or not agent["pendingRequestId"]:
-            return None
-        request_id = agent["pendingRequestId"]
-        return self.transcript_log(agent_id).find(
-            lambda item: item.get("requestId") == request_id
-        )
+        if agent is None:
+            return []
+        log = self.transcript_log(agent_id)
+        found = [
+            log.find(lambda item, rid=rid: item.get("requestId") == rid)
+            for rid in agent["pendingRequestIds"]
+        ]
+        return [item for item in found if item is not None]
 
     async def refresh_tasks(self, *, force: bool = False) -> None:
         """Re-read the notebook when its version moved, and publish the difference."""
@@ -473,12 +475,13 @@ class Orchestrator:
         if watch is None:
             return
         agent = self.world["agents"].get(agent_id)
-        request_id = agent["pendingRequestId"] if agent else None
-        if not request_id or state.startswith("awaiting-"):
+        held = list(agent["pendingRequestIds"]) if agent else []
+        if not held or state.startswith("awaiting-"):
             return
-        await self._normalise(
-            watch, {"type": "control_cancel_request", "request_id": request_id}
-        )
+        for request_id in held:
+            await self._normalise(
+                watch, {"type": "control_cancel_request", "request_id": request_id}
+            )
 
     async def _revive(self, row: dict[str, Any], state: str) -> None:
         """Bring an exited agent back: clear its exit, and follow it again.
@@ -632,6 +635,18 @@ class Orchestrator:
             "project": link.project,
             "worktreeId": link.worktree_id,
         }
+        if row.get("parent"):
+            # A subagent has no stream of its own to learn this from: its ask
+            # arrives on the parent's, because a ``control_request`` carries no
+            # ``parent_tool_use_id``. The row is the only route, and the
+            # session tab's strip reads it to draw the wait beside the subagent
+            # that raised it.
+            state, _ = parse_agent_state(row.get("state", ""))
+            linked = {
+                **linked,
+                "state": state,
+                "waitingOn": row.get("waiting_on") or "",
+            }
         if linked != agent:
             self._apply([{"type": "upsert", "kind": "agent", "entity": linked}])
 

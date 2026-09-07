@@ -71,7 +71,7 @@ export function makeAgent(over: Partial<Agent> = {}): Agent {
     project: 'northwind',
     worktreeId: 'northwind-alpha',
     exitCode: null,
-    pendingRequestId: null,
+    pendingRequestIds: [],
     pid: null,
     ...over,
   };
