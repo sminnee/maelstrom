@@ -38,7 +38,7 @@ function harness() {
       projects: [{ id: 'northwind', name: 'northwind', stackTip: 'main' }],
       tasks: [makeTask({ id: 'northwind/NORT-7' })],
       agents: [
-        makeAgent({ id: 'ag1', state: 'awaiting-question', pendingRequestId: 'r1' }),
+        makeAgent({ id: 'ag1', state: 'awaiting-question', pendingRequestIds: ['r1'] }),
         makeAgent({ id: 'ag2', state: 'exited', exitCode: 1 }),
       ],
       desk: [{ id: 'task:northwind/NORT-7', addedAt: '' }],

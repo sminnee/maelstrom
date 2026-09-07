@@ -56,7 +56,7 @@ def make_agent(**over) -> dict:
         "project": "northwind",
         "worktreeId": "northwind-alpha",
         "exitCode": None,
-        "pendingRequestId": None,
+        "pendingRequestIds": [],
         "pid": None,
     }
     agent.update(over)
@@ -161,7 +161,7 @@ def replay(
         if (
             stop_before_control_response
             and raw.get("type") == "control_response"
-            and ctx.pending is not None
+            and ctx.pending
         ):
             break
         out = normalise_stream_event(out_state.state, ctx, raw, NOW)
@@ -294,7 +294,7 @@ def test_a_status_event_changes_the_permission_mode():
 def test_an_approved_plan_review_resumes_the_agent_and_approves_the_document():
     state = replay("plan-review.jsonl")
     assert agent_of(state)["state"] == "idle"
-    assert agent_of(state)["pendingRequestId"] is None
+    assert agent_of(state)["pendingRequestIds"] == []
     doc = next(iter(state["world"]["documents"].values()))
     assert doc["status"] == "approved"
     assert open_attention(state) == []
@@ -305,7 +305,7 @@ def test_an_unanswered_question_leaves_the_agent_awaiting_a_question():
     state = replay("question-unanswered.jsonl", stop_before_control_response=True)
     agent = agent_of(state)
     assert agent["state"] == "awaiting-question"
-    assert agent["pendingRequestId"] == "2ba1273d-d878-4923-ba21-31faa1067613"
+    assert agent["pendingRequestIds"] == ["2ba1273d-d878-4923-ba21-31faa1067613"]
     assert agent["waitingOn"] == "Which colour do you prefer?"
     assert open_attention(state)[0]["kind"] == "question"
     question = items_of(state, "question")[0]
@@ -360,7 +360,7 @@ def test_a_turn_that_ends_mid_permission_marks_the_request_stale_and_clears_the_
     assert "decision" not in request
     agent = agent_of(state)
     assert agent["state"] == "idle"
-    assert agent["pendingRequestId"] is None
+    assert agent["pendingRequestIds"] == []
     assert agent["waitingOn"] == ""
     assert open_attention(state) == []
 
@@ -372,7 +372,7 @@ def test_a_turn_that_ends_mid_question_marks_the_question_stale_without_answers(
     question = items_of(state, "question")[0]
     assert question["stale"] is True
     assert "answers" not in question
-    assert agent_of(state)["pendingRequestId"] is None
+    assert agent_of(state)["pendingRequestIds"] == []
 
 
 def test_a_turn_that_ends_mid_plan_review_marks_it_stale_and_ends_the_documents_review():
@@ -382,7 +382,7 @@ def test_a_turn_that_ends_mid_plan_review_marks_it_stale_and_ends_the_documents_
     assert "decision" not in review
     doc = next(iter(state["world"]["documents"].values()))
     assert doc["status"] == "stale"
-    assert agent_of(state)["pendingRequestId"] is None
+    assert agent_of(state)["pendingRequestIds"] == []
 
 
 def test_a_request_the_user_interrupts_is_marked_stale():
@@ -457,7 +457,7 @@ def test_a_fresh_context_seeds_its_ids_past_the_ones_already_handed_out():
     """
     ctx = context_for_agent("ag1", seed=7)
     assert ctx.next_id == 8
-    assert ctx.pending is None
+    assert ctx.pending == {}
 
 
 def test_the_hosts_detail_frame_raises_a_wait_the_world_does_not_hold():
@@ -476,7 +476,7 @@ def test_the_hosts_detail_frame_raises_a_wait_the_world_does_not_hold():
         NOW,
     )
     replayed.take(out.events)
-    assert agent_of(replayed)["pendingRequestId"] == "req-9"
+    assert agent_of(replayed)["pendingRequestIds"] == ["req-9"]
     assert types(replayed) == ["question"]
     assert open_attention(replayed)[0]["requestId"] == "req-9"
 
@@ -484,7 +484,7 @@ def test_the_hosts_detail_frame_raises_a_wait_the_world_does_not_hold():
 def test_the_detail_frame_does_not_re_raise_a_wait_the_world_already_holds():
     """The request id names one wait; raising it twice would duplicate it."""
     state = seed(
-        [make_agent(id="ag1", state="awaiting-question", pendingRequestId="req-9")]
+        [make_agent(id="ag1", state="awaiting-question", pendingRequestIds=["req-9"])]
     )
     out = apply_agent_detail(
         state,
@@ -507,11 +507,11 @@ def test_the_detail_frame_of_an_idle_host_ends_the_wait_the_world_still_holds():
     The wait ended while this server was not reading the stream, and it holds
     no event that says so. The re-attach is where it finds out.
     """
-    state = seed([make_agent(id="ag1", state="idle", pendingRequestId="req-9")])
+    state = seed([make_agent(id="ag1", state="idle", pendingRequestIds=["req-9"])])
     replayed = Replayed(state)
     out = apply_agent_detail(state, context_for_agent("ag1"), {"request_id": ""}, NOW)
     replayed.take(out.events)
-    assert agent_of(replayed)["pendingRequestId"] is None
+    assert agent_of(replayed)["pendingRequestIds"] == []
 
 
 def test_mark_exited_clears_the_wait_and_raises_attention_on_a_bad_exit():
@@ -522,7 +522,7 @@ def test_mark_exited_clears_the_wait_and_raises_attention_on_a_bad_exit():
     agent = agent_of(waiting)
     assert agent["state"] == "exited"
     assert agent["exitCode"] == 1
-    assert agent["pendingRequestId"] is None
+    assert agent["pendingRequestIds"] == []
     assert items_of(waiting, "question")[0]["stale"] is True
     kinds = sorted(a["kind"] for a in open_attention(waiting))
     assert kinds == ["agent_exited"]
@@ -844,15 +844,35 @@ def test_a_subagents_stream_moves_nothing_but_its_last_message():
     assert state["world"]["documents"] == {}
 
 
-def test_a_control_request_on_a_subagents_stream_is_ignored():
-    """The wait is the parent's: the host puts it on the parent's stream."""
-    lines = read_fixture("subagent-permission.jsonl")
-    request = next(e for e in lines if e.get("type") == "control_request")
-    state = Replayed(seed([child()]))
-    ctx = context_for_agent("ag1")
-    out = normalise_stream_event(state.state, ctx, request, NOW)
-    assert out.events == []
-    assert out.ctx.pending is None
+def test_two_asks_are_both_held():
+    """Neither displaces the other, so either can still be answered."""
+    replayed = replay("subagent-permission-concurrent.jsonl")
+    items = replayed.transcripts["ag1"]["items"]
+    prompts = [i for i in items if i["type"] == "permission_request"]
+    assert len(prompts) == 2
+    # One was answered; the other is neither answered nor stale.
+    decided = [i for i in prompts if i.get("decision")]
+    open_prompt = [i for i in prompts if not i.get("decision")]
+    assert len(decided) == 1
+    assert len(open_prompt) == 1
+    assert not open_prompt[0].get("stale"), "the unanswered ask was retired"
+
+
+def test_the_unanswered_ask_stays_on_the_agent():
+    """The world must not read as free while a caller is still blocked."""
+    replayed = replay("subagent-permission-concurrent.jsonl")
+    agent = replayed.state["world"]["agents"]["ag1"]
+    assert agent["pendingRequestIds"], "the agent looks free"
+    assert agent["state"] == "awaiting-permission"
+
+
+def test_answering_one_ask_clears_only_its_attention():
+    """Two open asks raise two items; one answer clears one."""
+    replayed = replay("subagent-permission-concurrent.jsonl")
+    items = list(replayed.state["world"]["attention"].values())
+    permission = [a for a in items if a["kind"] == "permission"]
+    assert len(permission) == 2
+    assert [a["clearedAt"] is None for a in permission] == [True, False]
 
 
 def test_a_subagents_detail_frame_raises_no_wait():
@@ -904,7 +924,7 @@ def test_the_detail_frame_of_a_new_wait_retires_the_one_the_world_held():
         NOW,
     )
     replayed.take(second.events)
-    assert agent_of(replayed)["pendingRequestId"] == "req-10"
+    assert agent_of(replayed)["pendingRequestIds"] == ["req-10"]
     assert [i.get("stale", False) for i in items_of(replayed, "question")] == [
         True,
         False,

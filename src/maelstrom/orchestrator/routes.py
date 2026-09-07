@@ -198,14 +198,14 @@ async def _agents(request: web.Request) -> web.Response:
 
 
 async def _agent(request: web.Request) -> web.Response:
-    """One agent, plus ``pendingRequest``: the item it waits on, so a decision renders alone."""
+    """One agent, plus ``pendingRequests``: what it waits on, so a decision renders alone."""
     orch = await _ready(request)
     agent_id = request.match_info["id"]
     agent = orch.world["agents"].get(agent_id)
     if agent is None:
         return error_response("unknown_id", f"No agent {agent_id}")
     return web.json_response(
-        {**agent, "pendingRequest": orch.pending_request(agent_id)}
+        {**agent, "pendingRequests": orch.pending_requests(agent_id)}
     )
 
 

@@ -141,7 +141,7 @@ class Agent(TypedDict):
     project: str
     worktreeId: str
     exitCode: int | None
-    pendingRequestId: str | None
+    pendingRequestIds: list[str]
     #: The child's pid while it is alive, so the UI can name the process.
     pid: int | None
 

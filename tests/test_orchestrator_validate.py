@@ -39,7 +39,7 @@ def world_with(agents=(), tasks=(), documents=(), projects=(), desk=()):
 
 
 WAITING_FOR_PLAN = make_agent(
-    id="agent-1", state="awaiting-plan-review", pendingRequestId="req-1"
+    id="agent-1", state="awaiting-plan-review", pendingRequestIds=["req-1"]
 )
 
 
@@ -107,7 +107,7 @@ def test_stale_request_when_the_request_is_not_the_pending_one():
 
 def test_wrong_wait_kind_when_answering_a_permission_request():
     world = world_with(
-        agents=[make_agent(state="awaiting-permission", pendingRequestId="req-2")]
+        agents=[make_agent(state="awaiting-permission", pendingRequestIds=["req-2"])]
     )
     cmd = {
         "type": "agent.answer",
@@ -147,7 +147,7 @@ def test_invalid_for_an_empty_message_reason_or_answer_set(cmd):
         state="awaiting-question"
         if cmd["type"] == "agent.answer"
         else "awaiting-permission",
-        pendingRequestId="req-1",
+        pendingRequestIds=["req-1"],
     )
     assert code(validate_command(world_with(agents=[agent]), cmd)) == "invalid"
 

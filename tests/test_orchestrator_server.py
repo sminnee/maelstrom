@@ -336,7 +336,7 @@ def test_the_world_carries_the_wait_and_the_transcript_holds_the_backlog(harness
     assert agent["taskId"] == "northwind/NORT-7"
     assert agent["project"] == PROJECT
     assert agent["worktreeId"] == "northwind-alpha"
-    assert agent["pendingRequestId"] == "2ba1273d-d878-4923-ba21-31faa1067613"
+    assert agent["pendingRequestIds"] == ["2ba1273d-d878-4923-ba21-31faa1067613"]
     assert transcript["agentId"] == "ag1"
     assert [i["type"] for i in transcript["items"]][-1] == "question"
     assert transcript["truncatedBefore"] is False
@@ -631,8 +631,8 @@ def test_a_wait_older_than_the_hosts_window_is_raised_from_the_detail_frame(harn
             return agent, attention["attention"], transcript["items"]
 
     agent, open_items, items = run(scenario())
-    assert agent["pendingRequestId"] == pending.request_id
-    assert agent["pendingRequest"]["type"] == "permission_request"
+    assert agent["pendingRequestIds"] == [pending.request_id]
+    assert [r["type"] for r in agent["pendingRequests"]] == ["permission_request"]
     assert [i["type"] for i in items] == ["permission_request"]
     assert [a["requestId"] for a in open_items] == [pending.request_id]
 
@@ -775,7 +775,10 @@ def pending_from(events: list[dict]) -> PendingRequest:
 
 
 async def pending_id(api: Api, agent_id: str = "ag1") -> str:
-    return (await api.get_json(f"/api/agents/{agent_id}"))["pendingRequestId"]
+    """The one ask the agent holds. Fails loudly rather than picking from many."""
+    held = (await api.get_json(f"/api/agents/{agent_id}"))["pendingRequestIds"]
+    assert len(held) == 1, f"expected one wait, found {len(held)}"
+    return held[0]
 
 
 def published(harness) -> int:
@@ -820,8 +823,8 @@ def test_approve_reaches_the_host_and_resolves_the_wait(harness):
         "id": "ag1",
         "request": request_id,
     } in harness.daemon.calls
-    assert agent["pendingRequestId"] is None
-    assert agent["pendingRequest"] is None
+    assert agent["pendingRequestIds"] == []
+    assert agent["pendingRequests"] == []
     assert [a["clearedAt"] is not None for a in attention] == [True]
 
 
@@ -981,7 +984,7 @@ def test_a_wait_answered_outside_the_server_clears_in_the_world(harness):
                 )
 
     agent = run(scenario())
-    assert agent["pendingRequestId"] is None
+    assert agent["pendingRequestIds"] == []
     assert agent["waitingOn"] == ""
 
 
@@ -1682,8 +1685,9 @@ def test_an_agent_detail_carries_the_request_it_waits_on(harness):
     assert agent["taskId"] == "northwind/NORT-7"
     assert "pendingRequest" not in agent
     assert detail["state"] == "awaiting-question"
-    assert detail["pendingRequest"]["type"] == "question"
-    assert detail["pendingRequest"]["requestId"] == detail["pendingRequestId"]
+    [request] = detail["pendingRequests"]
+    assert request["type"] == "question"
+    assert detail["pendingRequestIds"] == [request["requestId"]]
     assert missing.status == 404
     assert [a["kind"] for a in attention["attention"]] == ["question"]
 
@@ -1695,7 +1699,7 @@ def test_an_agent_waiting_on_nothing_has_no_pending_request(harness):
         async with harness.client() as api:
             return await api.get_json("/api/agents/ag1")
 
-    assert run(scenario())["pendingRequest"] is None
+    assert run(scenario())["pendingRequests"] == []
 
 
 def test_the_document_routes_and_the_stubs_answer(harness):
@@ -2017,7 +2021,7 @@ def test_a_wait_whose_answer_fell_in_a_gap_is_closed_by_the_next_reconcile(harne
         async with harness.client() as api:
             async with api.events() as stream:
                 await stream.next("reset")
-                assert (await api.get_json("/api/agents/ag1"))["pendingRequestId"]
+                assert (await api.get_json("/api/agents/ag1"))["pendingRequestIds"]
                 harness.daemon.push("ag1", {"type": TRUNCATED, "dropped": 3})
                 # The host answered the wait inside the gap: its row moved on.
                 harness.daemon.rows["ag1"]["state"] = "processing"
@@ -2027,7 +2031,7 @@ def test_a_wait_whose_answer_fell_in_a_gap_is_closed_by_the_next_reconcile(harne
                     api,
                     "agent",
                     "/api/agents/ag1",
-                    lambda a: a["pendingRequestId"] is None,
+                    lambda a: a["pendingRequestIds"] == [],
                 )
                 transcript = await transcript_of(api)
                 return agent, transcript["items"]
@@ -2072,6 +2076,53 @@ def attaches_to(harness: Harness, agent_id: str) -> list[dict]:
     ]
 
 
+def test_a_blocked_subagents_row_reaches_the_world(harness):
+    """Its state is how the UI knows which subagent is waiting.
+
+    A subagent's ask never reaches its own stream — the ``control_request``
+    carries no ``parent_tool_use_id``, so it arrives on the parent's. The row
+    is the only route, and the strip reads it to draw the wait beside the
+    subagent that raised it.
+    """
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.rows["ag1.1"] = {
+        **child_row(),
+        "state": "awaiting-permission",
+        "waiting_on": "https://example.com",
+    }
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json("/api/agents/ag1.1")
+
+    child = run(scenario())
+    assert child["state"] == "awaiting-permission"
+    assert child["waitingOn"] == "https://example.com"
+
+
+def test_a_subagent_that_starts_waiting_after_it_is_known_still_reaches_the_world(
+    harness,
+):
+    """The common case: the subagent runs first, then asks."""
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.rows["ag1.1"] = child_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.get_json("/api/agents/ag1.1")
+            harness.daemon.rows["ag1.1"] = {
+                **child_row(),
+                "state": "awaiting-permission",
+                "waiting_on": "https://example.com",
+            }
+            await harness.orch.refresh_agents()
+            return await api.get_json("/api/agents/ag1.1")
+
+    child = run(scenario())
+    assert child["state"] == "awaiting-permission"
+    assert child["waitingOn"] == "https://example.com"
+
+
 def test_a_listed_subagent_is_in_the_world_but_not_attached_or_on_the_desk(harness):
     harness.daemon.rows["ag1"] = agent_row()
     harness.daemon.rows["ag1.1"] = child_row()
@@ -2088,7 +2139,7 @@ def test_a_listed_subagent_is_in_the_world_but_not_attached_or_on_the_desk(harne
     assert child["parent"] == "ag1"
     assert child["description"] == "List and summarise docs/dev"
     assert child["state"] == "processing"
-    assert child["pendingRequest"] is None
+    assert child["pendingRequests"] == []
     assert child["taskId"] == ""
     assert child["worktreeId"] == "northwind-alpha"
     assert [e["id"] for e in desk] == ["agent:ag1"]
@@ -2259,7 +2310,7 @@ def test_a_wait_the_hosts_row_no_longer_shows_is_closed(harness):
         async with harness.client() as api:
             async with api.events() as stream:
                 await stream.next("reset")
-                assert (await api.get_json("/api/agents/ag1"))["pendingRequestId"]
+                assert (await api.get_json("/api/agents/ag1"))["pendingRequestIds"]
                 # The wait ended out of sight: the host's row moved on, and no
                 # event said so.
                 harness.daemon.rows["ag1"]["state"] = "processing"
@@ -2269,7 +2320,7 @@ def test_a_wait_the_hosts_row_no_longer_shows_is_closed(harness):
                     api,
                     "agent",
                     "/api/agents/ag1",
-                    lambda a: a["pendingRequestId"] is None,
+                    lambda a: a["pendingRequestIds"] == [],
                 )
                 return agent, (await transcript_of(api))["items"]
 
@@ -2295,8 +2346,8 @@ def test_a_wait_the_hosts_row_still_shows_is_left_alone(harness):
             return before, await api.get_json("/api/agents/ag1")
 
     before, after = run(scenario())
-    assert before["pendingRequestId"]
-    assert after["pendingRequestId"] == before["pendingRequestId"]
+    assert before["pendingRequestIds"]
+    assert after["pendingRequestIds"] == before["pendingRequestIds"]
     assert after["state"] == "awaiting-permission"
 
 
@@ -2311,7 +2362,7 @@ def test_a_wait_a_dropped_stream_lost_the_answer_to_is_closed(harness):
 
     async def scenario():
         async with harness.client() as api:
-            assert (await api.get_json("/api/agents/ag1"))["pendingRequestId"]
+            assert (await api.get_json("/api/agents/ag1"))["pendingRequestIds"]
             # The stream dies, so the watch and its context go with it.
             harness.daemon.end_stream("ag1")
             # The agent answered itself while the server was not listening,
@@ -2323,7 +2374,7 @@ def test_a_wait_a_dropped_stream_lost_the_answer_to_is_closed(harness):
             return await api.get_json("/api/agents/ag1")
 
     agent = run(scenario())
-    assert agent["pendingRequestId"] is None
+    assert agent["pendingRequestIds"] == []
 
 
 def test_a_stale_plan_review_takes_its_document_to_stale(harness):
@@ -2343,7 +2394,7 @@ def test_a_stale_plan_review_takes_its_document_to_stale(harness):
                     api,
                     "agent",
                     "/api/agents/ag1",
-                    lambda a: a["pendingRequestId"] is None,
+                    lambda a: a["pendingRequestIds"] == [],
                 )
                 document = await api.get_json(f"/api/documents/{review['documentId']}")
                 return review, document

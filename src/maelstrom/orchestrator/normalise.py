@@ -33,6 +33,9 @@ class PendingContext:
     #: The tool_use block the request belongs to; ``""`` when the stream did not say.
     tool_use_id: str
     tool: str
+    #: One line naming what the ask is for: a question's text, a permission's
+    #: description, else the tool name. What ``waitingOn`` shows.
+    summary: str
     input: Dict
     item_id: str
     attention_id: str
@@ -50,7 +53,10 @@ class NormaliseContext:
     agent_id: str
     next_id: int = 1
     open_tool_calls: dict[str, str] = field(default_factory=dict)
-    pending: PendingContext | None = None
+    #: Every ask the agent is blocked on, by request id, oldest first.
+    #: Claude Code does not serialise them. See
+    #: ``docs/dev/agent-daemon.md``, "A subagent's permission ask".
+    pending: dict[str, PendingContext] = field(default_factory=dict)
     last_assistant_text: str = ""
     #: Tool uses the CLI refused by rule; their tool_result arrives as ``denied``.
     denied_tool_uses: tuple[str, ...] = ()
@@ -94,17 +100,18 @@ def apply_agent_detail(
     """
     agent = state["world"]["agents"].get(ctx.agent_id)
     if agent is None or agent["parent"]:
-        # A subagent's asks are the parent's waits, whatever its detail says.
+        # A subagent's asks are reported through the parent, whatever its detail says.
         return Normalised([], ctx)
     request_id = _str(detail.get("request_id"))
-    held = agent["pendingRequestId"] or ""
-    if held == request_id:
+    held = list(agent["pendingRequestIds"])
+    if request_id in held or (not request_id and not held):
+        # The frame names one wait; the world may hold several. A frame naming
+        # one we already hold says nothing about the others.
         return Normalised([], ctx)
     out = _Emitter(state, agent, ctx, now)
     if held:
         # A wait the frame does not name is over, whatever replaces it.
-        # ``request`` overwrites the pending without retiring the old item.
-        out.end_wait()
+        out.end_every_wait()
     if not request_id:
         return out.done()
     out.request(
@@ -236,7 +243,7 @@ def normalise_stream_event(
                 # A message to the agent is the start of a turn. Without this
                 # the UI shows "idle" until the agent's first event lands,
                 # which reads as though nothing was sent.
-                if out.ctx.pending is None:
+                if not out.ctx.pending:
                     out.agent({"state": "processing"})
             elif block.get("type") == "tool_result":
                 out.tool_result(block)
@@ -284,7 +291,7 @@ def normalise_stream_event(
                         tool_use_id: tool_use_id,
                     },
                 )
-        if out.ctx.pending is None and agent["state"] != "processing":
+        if not out.ctx.pending and agent["state"] != "processing":
             out.agent({"state": "processing"})
 
     elif kind == "control_request":
@@ -299,16 +306,15 @@ def normalise_stream_event(
             )
 
     elif kind == "control_cancel_request":
-        pending = out.ctx.pending
-        if pending is not None and _str(raw.get("request_id")) == pending.request_id:
-            out.end_wait()
-            out.agent({"state": "processing"})
+        cancelled = _str(raw.get("request_id"))
+        if cancelled in out.ctx.pending:
+            out.end_wait(cancelled)
 
     elif kind == "control_response":
         response = _dict(raw.get("response"))
         request_id = _str(response.get("request_id"))
-        if out.ctx.pending is not None and request_id == out.ctx.pending.request_id:
-            out.response(_dict(response.get("response")))
+        if request_id in out.ctx.pending:
+            out.response(request_id, _dict(response.get("response")))
 
     elif kind == "result":
         out.append(
@@ -319,7 +325,7 @@ def normalise_stream_event(
                 "durationMs": _num(raw.get("duration_ms")),
             }
         )
-        out.end_wait()
+        out.end_every_wait()
         out.agent(
             {
                 "state": "idle",
@@ -339,7 +345,7 @@ def mark_exited(
     if agent is None:
         return Normalised([], ctx)
     out = _Emitter(state, agent, ctx, now)
-    out.end_wait()
+    out.end_every_wait()
     out.agent({"state": "exited", "exitCode": exit_code})
     if exit_code != 0 and not agent["parent"]:
         # A subagent's failure is the parent's to report: the parent gets the
@@ -548,24 +554,30 @@ class _Emitter:
             summary = description or tool
             wait_state = "awaiting-permission"
         attention_id = self.raise_attention(kind, summary, request_id, document_id)
-        self.ctx = replace(
-            self.ctx,
-            pending=PendingContext(
+        held = {
+            **self.ctx.pending,
+            request_id: PendingContext(
                 request_id=request_id,
                 tool_use_id=tool_use_id,
                 tool=tool,
+                summary=summary,
                 input=inp,
                 item_id=item_id,
                 attention_id=attention_id,
                 document_id=document_id,
             ),
-        )
+        }
+        self.ctx = replace(self.ctx, pending=held)
         self.agent(
-            {"state": wait_state, "pendingRequestId": request_id, "waitingOn": summary}
+            {
+                "state": wait_state,
+                "pendingRequestIds": list(held),
+                "waitingOn": summary,
+            }
         )
 
-    def response(self, payload: Dict) -> None:
-        pending = self.ctx.pending
+    def response(self, request_id: str, payload: Dict) -> None:
+        pending = self.ctx.pending.get(request_id)
         if pending is None:
             return
         allow = payload.get("behavior") == "allow"
@@ -587,31 +599,52 @@ class _Emitter:
             if not allow:
                 patch["reason"] = _str(payload.get("message"))
             self.update(pending.item_id, patch)
-        self.end_wait(answered=True)
-        self.agent({"state": "processing"})
+        self.end_wait(request_id, answered=True)
 
-    def end_wait(self, *, answered: bool = False) -> None:
-        """End the wait, and mark the item stale unless ``answered``.
+    def end_wait(self, request_id: str, *, answered: bool = False) -> None:
+        """End one wait, and mark its item stale unless ``answered``.
 
         See ``CONTEXT.md``, "Stale prompt". ``answered`` is for ``response``,
         which has patched the item already. A result, a cancel and an exit all
-        leave it false.
+        leave it false. The other waits stand: an answer to one ask says
+        nothing about another.
         """
-        # Unconditional: a truncated transcript can leave the row naming a
-        # request the context could not rebuild, and that row still has to
-        # come clean.
-        self.agent({"pendingRequestId": None, "waitingOn": ""})
-        pending = self.ctx.pending
-        if pending is None:
-            return
-        if not answered:
-            self.update(pending.item_id, {"stale": True})
-            # The plan's own review bar reads the document, not the transcript
-            # item, so the document has to leave ``awaiting-review`` with it.
-            if pending.document_id:
-                self.document_status(pending.document_id, "stale")
-        self.clear(pending.attention_id)
-        self.ctx = replace(self.ctx, pending=None)
+        pending = self.ctx.pending.get(request_id)
+        if pending is not None:
+            if not answered:
+                self.update(pending.item_id, {"stale": True})
+                # The plan's own review bar reads the document, not the
+                # transcript item, so the document has to leave
+                # ``awaiting-review`` with it.
+                if pending.document_id:
+                    self.document_status(pending.document_id, "stale")
+            self.clear(pending.attention_id)
+        held = {k: v for k, v in self.ctx.pending.items() if k != request_id}
+        self.ctx = replace(self.ctx, pending=held)
+        self._report_waits(held)
+
+    def end_every_wait(self) -> None:
+        """End every wait at once: a result, an exit, or a host that moved on.
+
+        Unconditional on the agent patch: a truncated transcript can leave the
+        row naming a request the context could not rebuild, and that row still
+        has to come clean.
+        """
+        for request_id in list(self.ctx.pending):
+            self.end_wait(request_id)
+        self._report_waits({})
+
+    def _report_waits(self, held: dict[str, PendingContext]) -> None:
+        """Tell the world which asks are still open, and what it waits on."""
+        oldest = next(iter(held.values()), None)
+        self.agent(
+            {
+                "pendingRequestIds": list(held),
+                "waitingOn": oldest.summary if oldest else "",
+            }
+        )
+        if not held:
+            self.agent({"state": "processing"})
 
     def raise_attention(
         self, kind: str, summary: str, request_id: str | None, document_id: str | None

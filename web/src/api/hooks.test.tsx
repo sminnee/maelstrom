@@ -15,7 +15,7 @@ import { useWorld } from './useWorld';
 import { useWorktrees } from './worktrees';
 
 function harness() {
-  const agent = makeAgent({ id: 'ag1', taskId: 'northwind/NORT-7', pendingRequestId: 'req-1' });
+  const agent = makeAgent({ id: 'ag1', taskId: 'northwind/NORT-7', pendingRequestIds: ['req-1'] });
   const task = makeTask({ id: 'northwind/NORT-7', content: 'The prose.' });
   const server = createFakeServer({
     world: worldWith({ tasks: [task], agents: [agent] }),
@@ -73,7 +73,7 @@ describe('the resource hooks', () => {
     const { wrapper } = harness();
     const { result } = renderHook(() => useAgent('ag1'), { wrapper });
     await waitFor(() => expect(result.current.data).toBeDefined());
-    expect(result.current.data?.pendingRequest).toMatchObject({
+    expect(result.current.data?.pendingRequests?.[0]).toMatchObject({
       type: 'question',
       requestId: 'req-1',
     });

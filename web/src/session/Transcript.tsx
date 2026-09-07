@@ -39,13 +39,14 @@ export function Transcript({
   items,
   truncatedBefore,
   handlers = {},
-  deferredRequestId = null,
+  deferredRequestIds = [],
 }: {
   items: TranscriptItem[];
   truncatedBefore: boolean;
   handlers?: TranscriptHandlers;
   /** The wait the expanded card answers, echoed here without controls. */
-  deferredRequestId?: string | null;
+  /** Asks whose prompt the canvas owns; the transcript echoes them read-only. */
+  deferredRequestIds?: readonly string[];
 }) {
   const now = useNow();
   const marks = gutterMarks(items, now);
@@ -54,8 +55,7 @@ export function Transcript({
       {truncatedBefore && <div className={styles.note}>Earlier events were not kept.</div>}
       {items.map((item) => {
         if (drawsNothing(item)) return null;
-        const deferred =
-          deferredRequestId !== null && 'requestId' in item && item.requestId === deferredRequestId;
+        const deferred = 'requestId' in item && deferredRequestIds.includes(item.requestId);
         const mark = marks.get(item.id) ?? '';
         return (
           <div

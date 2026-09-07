@@ -104,7 +104,7 @@ function agent(id: string, t: Task, worktreeId: string, over: Partial<Agent> = {
     project: t.project,
     worktreeId,
     exitCode: null,
-    pendingRequestId: null,
+    pendingRequestIds: [],
     pid: null,
     ...over,
   };
@@ -134,7 +134,7 @@ function freeAgent(
     project,
     worktreeId,
     exitCode: null,
-    pendingRequestId: null,
+    pendingRequestIds: [],
     pid: null,
     ...over,
   };
@@ -357,7 +357,7 @@ body rather than the query builder.
       waitingOn: 'Plan: order export',
       lastMessage: 'The plan is ready for review.',
       lastMessageAt: T(4),
-      pendingRequestId: 'req-nort7-plan',
+      pendingRequestIds: ['req-nort7-plan'],
       costUsd: 0.81,
     }),
     agent('b7d2e4a0', mael52, 'maelstrom-alpha', {
@@ -365,7 +365,7 @@ body rather than the query builder.
       waitingOn: 'Should the canvas group by project or by branch first?',
       lastMessage: 'Two grouping defaults are plausible; I need a steer.',
       lastMessageAt: T(11),
-      pendingRequestId: 'req-mael52-q',
+      pendingRequestIds: ['req-mael52-q'],
       costUsd: 1.12,
     }),
     agent('c3e8f1b5', mael401, 'maelstrom-bravo', {

@@ -89,7 +89,7 @@ export function NodeCardBody({
     agent?.costUsd ? `$${agent.costUsd.toFixed(2)}` : '',
   ].filter(Boolean);
   const title = nodeTitle(node);
-  const deciding = !!agent && agent.state.startsWith('awaiting-') && !!agent.pendingRequestId;
+  const deciding = !!agent && agent.pendingRequestIds.length > 0;
   const running = [...transcript.items]
     .reverse()
     .find((i) => i.type === 'tool_call' && i.status === 'running');

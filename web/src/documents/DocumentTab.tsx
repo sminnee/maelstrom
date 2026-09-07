@@ -96,10 +96,10 @@ export function DocumentTab({ documentId }: { documentId: string }) {
           )}
         </div>
       </header>
-      {/* A plan review is answered by the review bar below, so it is not shown twice. */}
-      {!!agent?.pendingRequestId && agent.state !== 'awaiting-plan-review' && (
+      {/* The review bar below answers a plan review, so this skips one. */}
+      {!!agent?.pendingRequestIds.length && (
         <div className={styles.question} data-testid="inline-decision">
-          <DecisionCard agent={agent} />
+          <DecisionCard agent={agent} skipPlanReview />
         </div>
       )}
       <div className={styles.split}>

@@ -161,13 +161,15 @@ def agent_entity(
     task_id: str,
     project: str,
     worktree_id: str,
-    pending_request_id: str | None = None,
+    pending_request_ids: list[str] | None = None,
 ) -> Agent:
     """The wire agent for one agent-host row plus its links into the world.
 
-    The row is what ``mael agent list --json`` prints. ``pendingRequestId`` is
-    not in it — the request id comes from the event stream — so a caller that
-    knows it passes it in, and a fresh row starts with none.
+    The row is what ``mael agent list --json`` prints. ``pendingRequestIds`` is
+    not in it — the request ids come from the event stream — so a caller that
+    knows them passes them in, and a fresh row starts with none. An agent can
+    be blocked on several at once; see
+    ``docs/dev/agent-daemon.md``, "A subagent's permission ask".
     """
     state, exit_code = parse_agent_state(row.get("state", ""))
     cost = row.get("cost") or 0
@@ -188,7 +190,7 @@ def agent_entity(
         "project": project,
         "worktreeId": worktree_id,
         "exitCode": exit_code,
-        "pendingRequestId": pending_request_id,
+        "pendingRequestIds": list(pending_request_ids or []),
         "pid": _pid(row.get("pid")),
     }
 

@@ -185,9 +185,10 @@ agent runs whether a pane watches it or not.
 **Subagent**:
 A driven agent's child, spawned by its `Agent` tool and held by the agent daemon as a stream of
 its own under a dotted id: agent `X` has subagents `X.1` and `X.2`, and `X.1.1` is a subagent of
-`X.1`. A subagent is read, never driven: it has no process of its own, and its asks are the
-parent's waits. `mael agent list` shows it under its parent, `show` and `tail` take its id, and
-the orchestrator UI opens it from the parent's session tab.
+`X.1`. A subagent is read, never driven: it has no process of its own, so its asks are answered
+through the parent. The wait itself is the subagent's — its row says what it waits on, and the
+parent reports every ask beneath it. `mael agent list` shows it under its parent, `show` and
+`tail` take its id, and the orchestrator UI opens it from the parent's session tab.
 _Avoid_: Sidechain, child session, sub-agent
 
 **Agent daemon**:
@@ -237,7 +238,8 @@ _Avoid_: Permission level, autonomy, trust level
 **Wait kind**:
 Which of three things a driven agent is blocked on: `awaiting-question`, `awaiting-plan-review`,
 or `awaiting-permission`. All three arrive as the same `can_use_tool` event, so the wait kind
-comes from the tool name. The wait kind is what makes an answer possible — it says which of
+comes from the tool name. An agent can hold several waits at once, its own and its subagents',
+and each is answered on its own; its state names the oldest. The wait kind is what makes an answer possible — it says which of
 `answer`, `approve` or `deny` applies.
 _Avoid_: Blocked, stuck
 

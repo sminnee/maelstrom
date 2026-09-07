@@ -62,7 +62,7 @@ function askQuestion(server: FakeServer) {
     w.agents['d9a4c7f1'] = {
       ...w.agents['d9a4c7f1']!,
       state: 'awaiting-question',
-      pendingRequestId: requestId,
+      pendingRequestIds: [requestId],
       waitingOn: 'Which columns?',
     };
     w.attention[attention.id] = attention;
@@ -658,6 +658,29 @@ describe('the session tab', () => {
     await user.click(within(prompt).getAllByRole('radio')[0]!);
     await user.click(within(prompt).getByRole('button', { name: 'Answer' }));
     expect(nodeState('MAEL-52')).not.toBe('needs-attention');
+  });
+
+  it('shows what a blocked subagent waits on, beside that subagent', async () => {
+    // The ask arrives on the parent's stream, so without this the user sees a
+    // busy parent and no sign of which subagent is stuck.
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.change({ kind: 'agent', ids: ['d9a4c7f1.1'] }, (w) => {
+      w.agents['d9a4c7f1.1'] = {
+        ...w.agents['d9a4c7f1.1']!,
+        state: 'awaiting-permission',
+        waitingOn: 'https://example.com',
+        pendingRequestIds: ['req-sub-1'],
+      };
+    });
+    clickNode('NORT-9');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+    const strip = await screen.findByTestId('subagent-strip');
+    await waitFor(() =>
+      expect(within(strip).getByTestId('subagent-waiting')).toHaveTextContent(
+        'https://example.com',
+      ),
+    );
   });
 
   it('lists the subagents under the transcript, and opens one as a read-only tab of its own', async () => {

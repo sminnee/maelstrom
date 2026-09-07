@@ -122,3 +122,13 @@
   white-space: nowrap;
   color: var(--fg-muted);
 }
+/* What a blocked subagent waits on. Reads as the attention colour, because
+   this row is where the user learns which subagent needs them. */
+.subagentWaiting {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--attention);
+}

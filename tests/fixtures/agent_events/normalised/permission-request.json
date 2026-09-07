@@ -21,7 +21,7 @@
         "project": "northwind",
         "worktreeId": "northwind-alpha",
         "exitCode": null,
-        "pendingRequestId": null,
+        "pendingRequestIds": [],
         "pid": null
       }
     },

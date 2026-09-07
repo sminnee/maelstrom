@@ -188,7 +188,7 @@ def test_agent_entity_from_a_live_row():
     assert entity["lastMessage"] == "Hello there, friend"
     assert entity["costUsd"] == pytest.approx(0.1496)
     assert entity["exitCode"] is None
-    assert entity["pendingRequestId"] is None
+    assert entity["pendingRequestIds"] == []
     assert entity["taskId"] == "NORT-7"
     assert entity["pid"] is None
 

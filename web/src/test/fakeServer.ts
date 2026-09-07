@@ -337,12 +337,13 @@ function read(path: string, server: FakeServer): Reply {
   if (m) {
     const agent = world.agents[m[1]!];
     if (!agent) return notFound(`agent ${m[1]}`);
-    const pendingRequest = agent.pendingRequestId
-      ? (transcripts[agent.id]?.items.find(
-          (i) => 'requestId' in i && i.requestId === agent.pendingRequestId,
-        ) ?? null)
-      : null;
-    return ok({ ...agent, pendingRequest });
+    const pendingRequests = agent.pendingRequestIds.flatMap((rid) => {
+      const item = transcripts[agent.id]?.items.find(
+        (i) => 'requestId' in i && i.requestId === rid,
+      );
+      return item ? [item] : [];
+    });
+    return ok({ ...agent, pendingRequests });
   }
   if (pathname === '/api/attention') {
     const open = params.get('open');
@@ -449,15 +450,15 @@ function command(
       return ok({});
     }
     if (action === 'stop') {
-      world.agents[agentId] = { ...agent, state: 'exited', exitCode: 0, pendingRequestId: null };
+      world.agents[agentId] = { ...agent, state: 'exited', exitCode: 0, pendingRequestIds: [] };
       server.change({ kind: 'agent', ids: [agentId] });
       return ok({});
     }
-    // approve, deny, answer: one wait, answered.
+    // approve, deny, answer: the named wait, answered.
     const requestId = str('requestId');
-    if (!agent.pendingRequestId)
+    if (agent.pendingRequestIds.length === 0)
       return error(409, 'not_waiting', `Agent ${agentId} is not waiting`);
-    if (requestId !== agent.pendingRequestId) {
+    if (!requestId || !agent.pendingRequestIds.includes(requestId)) {
       return error(409, 'stale_request', `Request ${requestId} is no longer pending`);
     }
     if (action === 'deny' && !str('reason')?.trim()) {
@@ -480,7 +481,7 @@ function command(
     world.agents[agentId] = {
       ...agent,
       state: 'processing',
-      pendingRequestId: null,
+      pendingRequestIds: [],
       waitingOn: '',
     };
     const cleared: string[] = [];
@@ -528,7 +529,7 @@ function command(
       project: task.project,
       worktreeId: '',
       exitCode: null,
-      pendingRequestId: null,
+      pendingRequestIds: [],
       pid: null,
     };
     world.desk[`task:${task.id}`] = { id: `task:${task.id}`, addedAt: now() };
@@ -701,7 +702,7 @@ function makeNewAgent(
     project: over.project,
     worktreeId: '',
     exitCode: null,
-    pendingRequestId: null,
+    pendingRequestIds: [],
     pid: null,
   };
 }
