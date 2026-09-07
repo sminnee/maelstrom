@@ -278,19 +278,24 @@ async def _run_shell(command: str, cwd: str) -> tuple[str, str]:
     """Run one user-typed shell command in ``cwd``, bounded, for the agent to read.
 
     The subprocess mechanics — the shell, the process group a timeout kills,
-    decoding, the audit line — belong to ``shell.async_run_cmd``. What is left
+    decoding, the audit line — belong to ``shell.run_cmd_async``. What is left
     here is what the agent needs: two streams, each clipped, and a timeout
     reported as something the agent can read rather than an exception.
+
+    ``check=False`` because a failing command is often what the agent asked
+    for: the exit code is dropped and the streams are the answer either way.
     """
     try:
-        out, err, _ = await shell.async_run_cmd(
+        result = await shell.run_cmd_async(
             shell.RawShell(command),
             cwd=Path(cwd) if cwd else None,
+            check=False,
+            quiet=True,
             timeout=SHELL_TIMEOUT_SECS,
         )
     except subprocess.TimeoutExpired:
         return "", f"command timed out after {SHELL_TIMEOUT_SECS:.0f}s"
-    return _clip(out), _clip(err)
+    return _clip(result.stdout), _clip(result.stderr)
 
 
 def _clip(text: str) -> str:
