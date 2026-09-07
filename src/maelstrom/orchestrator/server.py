@@ -767,10 +767,11 @@ class Orchestrator:
         only asked things it can do. The agent commands then become one host
         request each, and nothing more: the world change comes back on the
         host's own stream, because the host records what it writes to the
-        child. The desk and task commands reach the host not at all: the desk
-        is the server's own table, and a task write goes to the notebook.
-        Everything but those thirteen answers ``invalid``: documents, comments
-        and shaping are out of scope for this server.
+        child. The desk, task and document commands reach the host not at all,
+        beyond the message a request for changes relays: the desk and the
+        documents are the server's own tables, and a task write goes to the
+        notebook. Everything else answers ``invalid`` — comments and shaping
+        are out of scope for this server.
         """
         kind = str(command.get("type"))
         handlers = {
@@ -790,6 +791,8 @@ class Orchestrator:
             "task.infer": self._infer_task,
             "task.create": self._create_task,
             "agent.start": self._start_free_agent,
+            "document.approve": self._approve_document,
+            "document.requestChanges": self._request_changes,
         }
         handler = handlers.get(kind)
         if handler is None:
@@ -1033,6 +1036,61 @@ class Orchestrator:
         # user is waiting on this reply to see the agent on the canvas.
         await self._join_desk(agent_id)
         return {"ok": True, "result": {"agentId": agent_id}}
+
+    async def _approve_document(self, command: dict[str, Any]) -> dict[str, Any]:
+        """The user's verdict on a document, and nothing more.
+
+        Approval is not something the agent is told: it asked for a verdict
+        and the answer is on the document. Nothing reaches the child.
+        """
+        self._settle_document(command["documentId"], "approved")
+        return {"ok": True, "result": {}}
+
+    async def _request_changes(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Send the document back, and relay the summary to the agent.
+
+        The relay comes first: a summary the host refuses never reached the
+        agent, so the document has to stay where the user left it, awaiting a
+        review nobody has answered.
+        """
+        document = self.world["documents"][command["documentId"]]
+        summary = str(command["summary"]).strip()
+        refused = await self._ask_host(
+            {
+                "cmd": "say",
+                "id": document["agentId"],
+                "text": f"Changes requested on {document['title']}: {summary}",
+            }
+        )
+        if refused:
+            return refused
+        self._settle_document(document["id"], "changes-requested")
+        return {"ok": True, "result": {}}
+
+    def _settle_document(self, document_id: str, status: str) -> None:
+        """Move the document, and retire the item that asked for the review.
+
+        The document is the server's own table, not the host's, so the change
+        is applied here rather than awaited on a stream.
+        """
+        document = self.world["documents"][document_id]
+        events: list[ServerEvent] = [
+            {
+                "type": "upsert",
+                "kind": "document",
+                "entity": {**document, "status": status},
+            }
+        ]
+        for item in self.world["attention"].values():
+            if item["documentId"] == document_id and item["clearedAt"] is None:
+                events.append(
+                    {
+                        "type": "upsert",
+                        "kind": "attention",
+                        "entity": {**item, "clearedAt": self.clock()},
+                    }
+                )
+        self._apply(events)
 
     async def _set_status(self, command: dict[str, Any]) -> dict[str, Any]:
         return await self._write_task(

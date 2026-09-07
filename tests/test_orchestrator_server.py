@@ -257,6 +257,24 @@ async def settled(
             return body
 
 
+async def until(api: Api, path: str, predicate, timeout: float = 2.0):
+    """GET ``path`` until ``predicate`` holds of the body, or time runs out.
+
+    The notice-driven :func:`settled` needs a change to arrive while its stream
+    is open. A backlog the host replays on attach lands before that, so a test
+    reading one polls instead.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout
+    body = None
+    while True:
+        body = await api.get_json(path)
+        if predicate(body):
+            return body
+        if asyncio.get_running_loop().time() >= deadline:
+            raise TimeoutError(f"{path} never settled; last body: {body!r}")
+        await asyncio.sleep(0.02)
+
+
 @pytest.fixture
 def harness(store):
     return Harness(store)
@@ -1599,6 +1617,210 @@ def test_resume_of_an_agent_the_world_does_not_know_is_refused(harness):
     assert reply.body["error"]["code"] == "unknown_id"
 
 
+# --- documents ---------------------------------------------------------------
+
+
+def tag_event(text: str) -> dict:
+    """An assistant message carrying ``text``, as the host streams one."""
+    return {
+        "type": "assistant",
+        "message": {"role": "assistant", "content": [{"type": "text", "text": text}]},
+    }
+
+
+REVIEW_TAG = (
+    "Here is the plan.\n\n"
+    '<doc-content kind="tasks" title="Iteration 1" review="true">\n'
+    "- Do the thing.\n"
+    "</doc-content>"
+)
+DRAFT_TAG = 'Here is a note.\n\n<doc-content kind="other" title="Note">\nRead this.\n</doc-content>'
+
+
+async def tagged_document(
+    stream: EventStream, api: Api, harness, tag: str = REVIEW_TAG
+) -> dict:
+    """Push ``tag`` on ``ag1``'s stream, and return the document row it minted."""
+    harness.daemon.push("ag1", tag_event(tag))
+    body = await settled(
+        stream, api, "document", "/api/documents", lambda b: b["documents"]
+    )
+    return body["documents"][0]
+
+
+def test_a_tagged_message_mints_a_document_the_documents_route_serves(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                row = await tagged_document(stream, api, harness)
+                return row, await api.get_json(f"/api/documents/{row['id']}")
+
+    row, doc = run(scenario())
+    assert row["kind"] == "tasks"
+    assert row["status"] == "awaiting-review"
+    # The list ships slim rows; the detail holds the prose.
+    assert "markdown" not in row
+    assert doc["markdown"].strip() == "- Do the thing."
+
+
+def test_approve_moves_the_document_to_approved_and_tells_nobody_else(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                row = await tagged_document(stream, api, harness)
+                reply = await api.post(
+                    f"/api/documents/{row['id']}/approve", {"version": row["version"]}
+                )
+                return reply, await api.get_json(f"/api/documents/{row['id']}")
+
+    reply, doc = run(scenario())
+    assert reply.status == 200
+    assert doc["status"] == "approved"
+    # Approval is the user's verdict, not a message: the child hears nothing.
+    assert host_calls(harness) == []
+
+
+def test_approve_clears_the_attention_the_document_raised(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                row = await tagged_document(stream, api, harness)
+                raised = await api.get_json("/api/attention?open=1")
+                await api.post(
+                    f"/api/documents/{row['id']}/approve", {"version": row["version"]}
+                )
+                return raised, await api.get_json("/api/attention?open=1")
+
+    raised, cleared = run(scenario())
+    assert [a["kind"] for a in raised["attention"]] == ["document_review"]
+    assert cleared["attention"] == []
+
+
+def test_request_changes_moves_the_document_and_relays_the_summary_to_the_agent(
+    harness,
+):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                row = await tagged_document(stream, api, harness)
+                reply = await api.post(
+                    f"/api/documents/{row['id']}/request-changes",
+                    {"version": row["version"], "summary": "Split the second task"},
+                )
+                return reply, await api.get_json(f"/api/documents/{row['id']}")
+
+    reply, doc = run(scenario())
+    assert reply.status == 200
+    assert doc["status"] == "changes-requested"
+    said = [c for c in harness.daemon.calls if c["cmd"] == "say"]
+    assert len(said) == 1
+    assert said[0]["id"] == "ag1"
+    assert "Split the second task" in said[0]["text"]
+    assert "Iteration 1" in said[0]["text"]
+
+
+def test_a_review_of_a_stale_version_is_refused_and_changes_nothing(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                row = await tagged_document(stream, api, harness)
+                reply = await api.post(
+                    f"/api/documents/{row['id']}/approve", {"version": 7}
+                )
+                return reply, await api.get_json(f"/api/documents/{row['id']}")
+
+    reply, doc = run(scenario())
+    assert (reply.status, reply.body["error"]["code"]) == (409, "stale_version")
+    assert doc["status"] == "awaiting-review"
+
+
+def test_a_draft_document_is_not_a_review_and_is_refused(harness):
+    """A draft blocks nothing, so there is no verdict to give on it."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                row = await tagged_document(stream, api, harness, DRAFT_TAG)
+                assert row["status"] == "draft"
+                return await api.post(
+                    f"/api/documents/{row['id']}/approve", {"version": row["version"]}
+                )
+
+    reply = run(scenario())
+    assert (reply.status, reply.body["error"]["code"]) == (400, "invalid")
+    assert host_calls(harness) == []
+
+
+def test_request_changes_with_no_summary_is_refused(harness):
+    """There are no comments yet, so an empty summary says nothing at all."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                row = await tagged_document(stream, api, harness)
+                return await api.post(
+                    f"/api/documents/{row['id']}/request-changes",
+                    {"version": row["version"], "summary": "   "},
+                )
+
+    reply = run(scenario())
+    assert (reply.status, reply.body["error"]["code"]) == (400, "invalid")
+    assert host_calls(harness) == []
+
+
+def test_a_review_of_a_document_that_does_not_exist_is_unknown_id(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/documents/nope/approve", {"version": 1})
+
+    reply = run(scenario())
+    assert (reply.status, reply.body["error"]["code"]) == (404, "unknown_id")
+
+
+def test_a_request_changes_the_host_refuses_leaves_the_document_awaiting_review(
+    harness,
+):
+    """The relay failed, so the agent never heard: the verdict must not stand."""
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.replies["say"] = [{"error": "agent ag1 has exited"}]
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                row = await tagged_document(stream, api, harness)
+                reply = await api.post(
+                    f"/api/documents/{row['id']}/request-changes",
+                    {"version": row["version"], "summary": "Split it"},
+                )
+                return reply, await api.get_json(f"/api/documents/{row['id']}")
+
+    reply, doc = run(scenario())
+    assert reply.status == 409
+    assert doc["status"] == "awaiting-review"
+
+
 # --- reads -------------------------------------------------------------------
 
 
@@ -2882,3 +3104,44 @@ def test_a_say_will_not_forward_a_path_a_client_names(harness, images):
     said = [c for c in harness.daemon.calls if c["cmd"] == "say"][0]
     assert "attachments" not in said
     assert said["text"] == "look"
+
+
+def test_a_plan_document_is_not_reviewed_through_the_document_routes(harness):
+    """The plan review is the agent's wait, and only a reply to it ends the wait.
+
+    Settling the document alone would flip the status, retire the item that
+    asked the user to look, and leave the child blocked on a control request
+    nobody will ever answer.
+    """
+    waiting_on(harness, "plan-review-with-plan.jsonl")
+
+    async def scenario():
+        async with harness.client() as api:
+            # The backlog replays the plan on attach, so the read is the wait.
+            body = await until(api, "/api/documents", lambda b: b["documents"])
+            [row] = body["documents"]
+            assert row["kind"] == "plan"
+            approve = await api.post(
+                f"/api/documents/{row['id']}/approve", {"version": row["version"]}
+            )
+            changes = await api.post(
+                f"/api/documents/{row['id']}/request-changes",
+                {"version": row["version"], "summary": "Rework it"},
+            )
+            return (
+                approve,
+                changes,
+                await api.get_json(f"/api/documents/{row['id']}"),
+                await api.get_json("/api/attention?open=1"),
+                await api.get_json("/api/agents/ag1"),
+            )
+
+    approve, changes, doc, attention, agent = run(scenario())
+    assert (approve.status, approve.body["error"]["code"]) == (400, "invalid")
+    assert (changes.status, changes.body["error"]["code"]) == (400, "invalid")
+    # The wait is untouched: the document still awaits its own reply, the item
+    # that points the user at it is still open, and the child is still blocked.
+    assert doc["status"] == "awaiting-review"
+    assert [a["kind"] for a in attention["attention"]] == ["plan_review"]
+    assert agent["pendingRequestId"]
+    assert host_calls(harness) == []

@@ -160,6 +160,14 @@ def validate_command(world: World, cmd: dict[str, Any]) -> dict[str, str] | None
             return _err("invalid", "Comment is empty")
         if kind != "comment.add" and doc["status"] != "awaiting-review":
             return _err("invalid", f"Document is {doc['status']}, not awaiting review")
+        if kind != "comment.add" and doc["source"].get("type") == "plan_review":
+            # A plan review is the agent's own wait. Settling the document
+            # would retire the item pointing the user at it and leave the
+            # child blocked on a control request nobody can now answer.
+            return _err(
+                "invalid",
+                "A plan review is answered on the agent, not the document",
+            )
         if (
             kind == "document.requestChanges"
             and not str(cmd.get("summary", "")).strip()
