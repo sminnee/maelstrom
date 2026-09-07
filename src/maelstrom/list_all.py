@@ -25,6 +25,7 @@ from .github_model import PrStatus, is_open_pr
 from .ports import get_app_url
 from .task_store import GitFileStore
 from .worktree import (
+    WorktreeInfo,
     closed_worktrees_async,
     find_all_projects,
     get_local_only_commits_async,
@@ -163,7 +164,24 @@ async def project_repo_url(project_path: Path) -> str | None:
     return repo_url_from_remote(result.stdout)
 
 
-async def build_list_all_data(projects_dir: Path) -> dict[str, Any]:
+DEFAULT_CONCURRENCY = 24
+"""How many project and worktree reads may run at once.
+
+Both fan-out levels share one budget, so the two do not multiply. A machine
+with 16 projects and 90 worktrees would otherwise run several hundred
+subprocesses at once, and ``gh`` secondary rate limits are the first thing
+that breaks: :func:`~maelstrom.github.get_open_prs_async` then returns
+``None``, every row falls back to the slower per-branch lookup, and the read
+gets *slower* with no error to show for it.
+
+24 is high enough that the read stays bounded by process start-up rather than
+by the cap, and low enough to stay well inside those limits.
+"""
+
+
+async def build_list_all_data(
+    projects_dir: Path, concurrency: int = DEFAULT_CONCURRENCY
+) -> dict[str, Any]:
     """Every project under ``projects_dir`` with its worktrees, as ``list-all`` data.
 
     The shape is what ``mael --json list-all`` prints: ``{"projects": [...]}``,
@@ -172,16 +190,27 @@ async def build_list_all_data(projects_dir: Path) -> dict[str, Any]:
     A closed worktree is included with ``is_closed`` true and its counts
     zeroed. ``session_stopped`` says a task on the row's branch ran here and
     stopped; the table renders it as the stopped marker.
+
+    ``concurrency`` caps how many reads run at once across both fan-out
+    levels — see :data:`DEFAULT_CONCURRENCY`.
     """
     projects = find_all_projects(projects_dir)
     # One live-session sweep shared across every project/worktree row, plus a
     # memo so the per-session worktree-list lookup runs once, not per row.
     live_sessions = await session_discovery.LiveSessionSet().sweep()
 
+    # One budget for both levels. Every acquire wraps a leaf read, never a
+    # coroutine that waits on another: a project holding a permit while its
+    # worktrees queue for one would deadlock the whole read.
+    limit = asyncio.Semaphore(concurrency)
+
     # Each project's reads are independent, so they run together. Read one
     # after another, 16 projects took 19s here, and every route waits on this.
     read = await asyncio.gather(
-        *(_project_data(project_path, live_sessions) for project_path in projects),
+        *(
+            _project_data(project_path, live_sessions, limit)
+            for project_path in projects
+        ),
         return_exceptions=True,
     )
 
@@ -198,12 +227,21 @@ async def build_list_all_data(projects_dir: Path) -> dict[str, Any]:
 
 
 async def _project_data(
-    project_path: Path, live_sessions: session_discovery.LiveSessionSet
+    project_path: Path,
+    live_sessions: session_discovery.LiveSessionSet,
+    limit: asyncio.Semaphore,
 ) -> dict[str, Any]:
-    """One project's row, with a row per worktree under it."""
+    """One project's row, with a row per worktree under it.
+
+    ``limit`` caps this project's own reads and its worktrees' alike, and is
+    shared with every other project so the two fan-out levels do not multiply.
+    """
     project_name = project_path.name
-    worktrees = await list_worktrees_async(project_path)
-    worktree_data = []
+    # Each leaf read takes a permit on its own, never the whole prologue: a
+    # project holding one while its worktrees queue for the same budget would
+    # deadlock the read.
+    async with limit:
+        worktrees = await list_worktrees_async(project_path)
     # Branch → task session ids for this project (stopped-marker detection).
     branch_sessions = branch_session_ids(project_name)
     # One PR lookup per project, not per worktree. The batch is repo-scoped, so
@@ -211,53 +249,117 @@ async def _project_data(
     # worktrees are all detached has no branch to ask about, and `list-all`
     # visits every project — so skip the round trip rather than spend one.
     branches = {wt.branch for wt in worktrees if wt.branch}
-    open_prs = await get_open_prs_async(project_path, branches) if branches else {}
-    # Likewise the closed check: one batch per project, not two subprocesses
-    # per worktree.
-    closed_paths = await closed_worktrees_async(project_path, worktrees)
-    # One repo lookup per project answers the PR URL for every row.
-    repo_url = await project_repo_url(project_path)
+    open_prs = {}
+    if branches:
+        # This is the `gh` call the cap exists for — see DEFAULT_CONCURRENCY.
+        async with limit:
+            open_prs = await get_open_prs_async(project_path, branches)
+    async with limit:
+        # Likewise the closed check: one batch per project, not two
+        # subprocesses per worktree.
+        closed_paths = await closed_worktrees_async(project_path, worktrees)
+        # One repo lookup per project answers the PR URL for every row.
+        repo_url = await project_repo_url(project_path)
     # One store read per project answers the base for every row.
     base_store = GitConfigBaseStore(project_path)
     bases = base_store.all()
 
-    for wt in worktrees:
-        # Skip the project root (bare repo). Resolved, because git reports
-        # the real path and a symlinked projects dir would never match.
-        if wt.path.resolve() == project_path.resolve():
-            continue
+    # Skip the project root (bare repo). Resolved, because git reports the
+    # real path and a symlinked projects dir would never match.
+    rows = [wt for wt in worktrees if wt.path.resolve() != project_path.resolve()]
 
-        display_name = (
-            extract_worktree_name_from_folder(project_name, wt.path.name)
-            or wt.path.name
-        )
-
-        if wt.path in closed_paths:
-            worktree_data.append(
-                {
-                    "name": display_name,
-                    "folder": wt.path.name,
-                    "path": str(wt.path),
-                    "branch": wt.branch or None,
-                    "base": None,
-                    "is_closed": True,
-                    "dirty_files": 0,
-                    "local_commits": 0,
-                    "pr_number": None,
-                    "pr_url": None,
-                    "pr_commits": None,
-                    "pr_state": None,
-                    "pr_draft": None,
-                    "pushed_commits": None,
-                    "app_url": None,
-                    "app_running": False,
-                    "session_count": 0,
-                    "session_stopped": False,
-                }
+    # Each worktree's reads are independent too, so they run together. The
+    # projects already read at the same time, which left the whole read
+    # bounded by the slowest single project — a user who adds worktrees to one
+    # project would otherwise slow down the poll for all of them.
+    read = await asyncio.gather(
+        *(
+            _worktree_row(
+                wt,
+                project_path=project_path,
+                project_name=project_name,
+                closed_paths=closed_paths,
+                bases=bases,
+                open_prs=open_prs,
+                repo_url=repo_url,
+                branch_sessions=branch_sessions,
+                live_sessions=live_sessions,
+                limit=limit,
             )
-            continue
+            for wt in rows
+        ),
+        return_exceptions=True,
+    )
 
-        base = bases.get(wt.branch or "")
+    # One unreadable worktree costs its own row, not the project's — the same
+    # rule `build_list_all_data` applies to a project it cannot read.
+    worktree_data = []
+    for wt, outcome in zip(rows, read, strict=True):
+        if isinstance(outcome, BaseException):
+            log.warning("could not read worktree %s: %s", wt.path, outcome)
+            continue
+        worktree_data.append(outcome)
+
+    return {
+        "name": project_name,
+        "path": str(project_path),
+        "stack_tip": base_store.read_stack_tip(),
+        "repo_url": repo_url,
+        "worktrees": worktree_data,
+    }
+
+
+async def _worktree_row(
+    wt: WorktreeInfo,
+    *,
+    project_path: Path,
+    project_name: str,
+    closed_paths: set[Path],
+    bases: dict[str, str],
+    open_prs: dict[str, PrStatus] | None,
+    repo_url: str | None,
+    branch_sessions: dict[str, list[str]],
+    live_sessions: session_discovery.LiveSessionSet,
+    limit: asyncio.Semaphore,
+) -> dict[str, Any]:
+    """One worktree's row.
+
+    Everything the row needs that is shared across the project — the PR batch,
+    the closed set, the bases, the repo URL — is passed in, so this reads only
+    what is specific to ``wt``. ``limit`` caps those reads against every other
+    row and project.
+    """
+    display_name = (
+        extract_worktree_name_from_folder(project_name, wt.path.name) or wt.path.name
+    )
+
+    if wt.path in closed_paths:
+        return {
+            "name": display_name,
+            "folder": wt.path.name,
+            "path": str(wt.path),
+            "branch": wt.branch or None,
+            "base": None,
+            "is_closed": True,
+            "dirty_files": 0,
+            "local_commits": 0,
+            "pr_number": None,
+            "pr_url": None,
+            "pr_commits": None,
+            "pr_state": None,
+            "pr_draft": None,
+            "pushed_commits": None,
+            "app_url": None,
+            "app_running": False,
+            "session_count": 0,
+            "session_stopped": False,
+        }
+
+    base = bases.get(wt.branch or "")
+    # The three subprocess reads below are what the cap is for. Held together
+    # rather than one permit each, so a row that takes a permit finishes and
+    # gives it back, instead of queueing again between its own reads.
+    async with limit:
         dirty_count = len(await get_worktree_dirty_files_async(wt.path))
         local_commits = await get_local_only_commits_async(wt.path, wt.branch)
 
@@ -268,44 +370,32 @@ async def _project_data(
         if not is_open_pr(pr) and wt.branch:
             pushed_commits = await get_pushed_commit_count_async(wt.path, wt.branch)
 
-        session_count = live_sessions.count_for(wt.path)
-        stopped = not session_count and session_stopped(
-            wt.path, wt.branch, branch_sessions
-        )
+    session_count = live_sessions.count_for(wt.path)
+    stopped = not session_count and session_stopped(wt.path, wt.branch, branch_sessions)
 
-        app_url = None
-        app_running = False
-        app_info = get_app_url(project_path, display_name)
-        if app_info:
-            app_url, app_running = app_info
-
-        worktree_data.append(
-            {
-                "name": display_name,
-                "folder": wt.path.name,
-                "path": str(wt.path),
-                "branch": wt.branch or None,
-                "base": base,
-                "is_closed": False,
-                "dirty_files": dirty_count,
-                "local_commits": local_commits,
-                "pr_number": pr.number if pr else None,
-                "pr_url": row_pr_url,
-                "pr_commits": pr.commits if pr else None,
-                "pr_state": pr.state if pr else None,
-                "pr_draft": pr.is_draft if pr else None,
-                "pushed_commits": pushed_commits,
-                "app_url": app_url,
-                "app_running": app_running,
-                "session_count": session_count,
-                "session_stopped": stopped,
-            }
-        )
+    app_url = None
+    app_running = False
+    app_info = get_app_url(project_path, display_name)
+    if app_info:
+        app_url, app_running = app_info
 
     return {
-        "name": project_name,
-        "path": str(project_path),
-        "stack_tip": base_store.read_stack_tip(),
-        "repo_url": repo_url,
-        "worktrees": worktree_data,
+        "name": display_name,
+        "folder": wt.path.name,
+        "path": str(wt.path),
+        "branch": wt.branch or None,
+        "base": base,
+        "is_closed": False,
+        "dirty_files": dirty_count,
+        "local_commits": local_commits,
+        "pr_number": pr.number if pr else None,
+        "pr_url": row_pr_url,
+        "pr_commits": pr.commits if pr else None,
+        "pr_state": pr.state if pr else None,
+        "pr_draft": pr.is_draft if pr else None,
+        "pushed_commits": pushed_commits,
+        "app_url": app_url,
+        "app_running": app_running,
+        "session_count": session_count,
+        "session_stopped": stopped,
     }
