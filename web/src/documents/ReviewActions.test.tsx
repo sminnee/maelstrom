@@ -5,7 +5,7 @@ import { makeDocument } from '../test/fixtures';
 import { ReviewActions } from './ReviewActions';
 
 function bar(status: Document['status']) {
-  render(
+  const { container } = render(
     <ReviewActions
       doc={makeDocument({ status })}
       unresolved={0}
@@ -13,6 +13,7 @@ function bar(status: Document['status']) {
       onRequestChanges={vi.fn()}
     />,
   );
+  return container;
 }
 
 describe('ReviewActions', () => {
@@ -21,10 +22,21 @@ describe('ReviewActions', () => {
     expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
   });
 
-  it('offers nothing once the plan has gone stale', () => {
+  it('offers nothing once the plan has gone stale, and says why', () => {
     bar('stale');
     expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Request changes' })).toBeNull();
     expect(screen.getByText('This version is stale.')).toBeInTheDocument();
+  });
+
+  it('says an approved version is approved', () => {
+    bar('approved');
+    expect(screen.getByText('This version is approved.')).toBeInTheDocument();
+  });
+
+  // A draft blocks nothing, so a review bar would refuse a review nobody asked
+  // for. The user is reading a document, not answering one.
+  it('draws no bar at all on a draft', () => {
+    expect(bar('draft')).toBeEmptyDOMElement();
   });
 });

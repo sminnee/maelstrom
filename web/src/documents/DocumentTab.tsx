@@ -129,14 +129,19 @@ export function DocumentTab({ documentId }: { documentId: string }) {
           />
         )}
       </div>
-      <ReviewActions
-        doc={doc}
-        unresolved={0}
-        onApprove={() => approveDocument.mutateAsync({ documentId, version: doc.version })}
-        onRequestChanges={(summary) =>
-          requestChanges.mutateAsync({ documentId, version: doc.version, summary })
-        }
-      />
+      {/* A plan review is the agent's own wait, answered by the decision above.
+          A bar here would flip the document and retire the item pointing at
+          it, leaving the agent blocked on a request nothing had answered. */}
+      {doc.source.type !== 'plan_review' && (
+        <ReviewActions
+          doc={doc}
+          unresolved={0}
+          onApprove={() => approveDocument.mutateAsync({ documentId, version: doc.version })}
+          onRequestChanges={(summary) =>
+            requestChanges.mutateAsync({ documentId, version: doc.version, summary })
+          }
+        />
+      )}
     </div>
   );
 }

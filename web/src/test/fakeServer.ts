@@ -365,11 +365,7 @@ function read(path: string, server: FakeServer): Reply {
 
 // -- commands --
 
-const NOT_IMPLEMENTED = [
-  /^POST \/api\/documents\/[^/]+\/comments/,
-  /^POST \/api\/documents\/[^/]+\/(approve|request-changes)$/,
-  /^POST \/api\/shaping$/,
-];
+const NOT_IMPLEMENTED = [/^POST \/api\/documents\/[^/]+\/comments/, /^POST \/api\/shaping$/];
 
 /**
  * A command route, with the consequences the real server's world would
@@ -502,6 +498,47 @@ function command(
     }
     server.change({ kind: 'agent', ids: [agentId] });
     if (cleared.length) server.change({ kind: 'attention', ids: cleared });
+    return ok({});
+  }
+
+  m = pathname.match(/^\/api\/documents\/([^/]+)\/(approve|request-changes)$/);
+  if (m && method === 'POST') {
+    const doc = world.documents[m[1]!];
+    if (!doc) return notFound(`document ${m[1]}`);
+    if (doc.version !== b.version) {
+      return error(409, 'stale_version', `Document is at v${doc.version}, not v${b.version}`);
+    }
+    if (doc.status !== 'awaiting-review') {
+      return error(400, 'invalid', `Document is ${doc.status}, not awaiting review`);
+    }
+    if (doc.source.type === 'plan_review') {
+      // A plan review is the agent's own wait; it is answered on the agent.
+      return error(400, 'invalid', 'A plan review is answered on the agent, not the document');
+    }
+    const approving = m[2] === 'approve';
+    if (!approving && !str('summary')?.trim()) {
+      return error(400, 'invalid', 'Say what should change, or leave a comment');
+    }
+    if (!approving) {
+      // Request changes is a relay: the agent hears the summary as a message.
+      server.append(doc.agentId, {
+        id: `m${mint()}`,
+        ts: now(),
+        type: 'message',
+        role: 'user',
+        markdown: `Changes requested on ${doc.title}: ${str('summary')}`,
+      });
+    }
+    world.documents[doc.id] = { ...doc, status: approving ? 'approved' : 'changes-requested' };
+    server.change({ kind: 'document', ids: [doc.id] });
+    const retired: string[] = [];
+    for (const item of Object.values(world.attention)) {
+      if (item.documentId === doc.id && item.clearedAt === null) {
+        world.attention[item.id] = { ...item, clearedAt: now() };
+        retired.push(item.id);
+      }
+    }
+    if (retired.length) server.change({ kind: 'attention', ids: retired });
     return ok({});
   }
 

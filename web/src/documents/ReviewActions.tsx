@@ -16,6 +16,9 @@ export function ReviewActions({
   onRequestChanges: (summary: string) => void | Promise<unknown>;
 }) {
   const [summary, setSummary] = useState('');
+  // A draft is something to read, not a decision to answer: nothing waits
+  // behind it, so it gets no bar rather than one that refuses a review.
+  if (doc.status === 'draft') return null;
   if (doc.status !== 'awaiting-review') {
     return <div className={styles.bar}>This version is {doc.status}.</div>;
   }

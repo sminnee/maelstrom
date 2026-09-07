@@ -77,8 +77,12 @@ export function NodeCardBody({
     return () => observer.disconnect();
   }, [brief, expandedContent]);
 
-  // A free agent has no task, so it owns no documents.
-  const documents = task ? Object.values(world.documents).filter((d) => d.taskId === task.id) : [];
+  // A node owns a document its task holds, or one its agent wrote. Both are
+  // needed: a plan document is found by its task, and a free agent has no
+  // task, so a document it tagged is found by its agent alone.
+  const documents = Object.values(world.documents).filter(
+    (d) => (task && d.taskId === task.id) || (agent && d.agentId === agent.id),
+  );
   // The worktree is where the agent runs, so its branch beats the frontmatter.
   const where = worktree ?? (agent ? world.worktrees[agent.worktreeId] : undefined);
   const meta = [

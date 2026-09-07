@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import { QueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { makeAgent, makeQuestionItem, makeTask, worldWith } from '../test/fixtures';
+import { makeAgent, makeDocument, makeQuestionItem, makeTask, worldWith } from '../test/fixtures';
 import { createFakeServer } from '../test/fakeServer';
 import {
   useAnswer,
@@ -42,6 +42,16 @@ function harness() {
         makeAgent({ id: 'ag2', state: 'exited', exitCode: 1 }),
       ],
       desk: [{ id: 'task:northwind/NORT-7', addedAt: '' }],
+      // d1 awaits review, so the two review hooks have a document to move. A
+      // plan document would not do: its verdict is the agent's wait.
+      documents: [
+        makeDocument({
+          id: 'd1',
+          agentId: 'ag1',
+          kind: 'tasks',
+          source: { type: 'draft_files', paths: ['draft.md'] },
+        }),
+      ],
     }),
     transcripts: {
       ag1: {
@@ -213,6 +223,22 @@ describe('the mutation hooks', () => {
       undefined,
       [keys.desk()],
     ],
+    [
+      'useApproveDocument',
+      useApproveDocument,
+      { documentId: 'd1', version: 1 },
+      'POST /api/documents/d1/approve',
+      { version: 1 },
+      [keys.documents.list(), keys.documents.detail('d1')],
+    ],
+    [
+      'useRequestChanges',
+      useRequestChanges,
+      { documentId: 'd1', version: 1, summary: 'Tighten it' },
+      'POST /api/documents/d1/request-changes',
+      { version: 1, summary: 'Tighten it' },
+      [keys.documents.list(), keys.documents.detail('d1')],
+    ],
   ])(
     '%s sends %s and invalidates what it touched',
     async (_name, hook, vars, request, body, invalidates) => {
@@ -230,8 +256,6 @@ describe('the mutation hooks', () => {
   it.each<[string, () => { mutateAsync: (vars: never) => Promise<unknown> }, unknown]>([
     ['useAddComment', useAddComment, { documentId: 'd1', version: 1, anchor: ANCHOR, body: 'x' }],
     ['useResolveComment', useResolveComment, { documentId: 'd1', commentId: 'c1' }],
-    ['useApproveDocument', useApproveDocument, { documentId: 'd1', version: 1 }],
-    ['useRequestChanges', useRequestChanges, { documentId: 'd1', version: 1, summary: 's' }],
   ])('%s rejects with not_implemented and invalidates nothing', async (_name, hook, vars) => {
     const { invalidate, wrapper } = harness();
     const { result } = renderHook(hook, { wrapper });

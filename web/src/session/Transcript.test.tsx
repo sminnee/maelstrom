@@ -217,6 +217,18 @@ describe('Transcript', () => {
     expect(card).toHaveTextContent('on main');
   });
 
+  it('a tagged message renders as a message, with the tag stripped out of it', () => {
+    // The document is read in its own tab, so the raw tag would be noise here.
+    const items = goldenItems('document-content.jsonl');
+    render(<Transcript items={items} truncatedBefore={false} />);
+    const card = screen
+      .getAllByTestId('transcript-card')
+      .find((c) => c.getAttribute('data-item-type') === 'message')!;
+    expect(within(card).getByText(/Here is the changelog you asked for/)).toBeInTheDocument();
+    expect(card.textContent).not.toContain('doc-content');
+    expect(card.textContent).not.toContain('1.4.0');
+  });
+
   it('a denied permission shows its decision', () => {
     render(<Transcript items={goldenItems('permission-denied.jsonl')} truncatedBefore={false} />);
     const card = screen

@@ -140,6 +140,24 @@ function freeAgent(
   };
 }
 
+export const FREE_NOTES = `# Index reader notes
+
+The reader stamps HEAD onto every row it writes, so a scan that ran against an
+older HEAD is thrown away rather than trusted.
+`;
+
+export const NORT12_NOTES = `# What is red on PR #118
+
+The integration job fails on collation, not on the migration itself: two
+queries order by name without one, so the row order moves between runs.
+`;
+
+export const NORT12_TASKS = `# Iteration 2
+
+- Give both queries an explicit collation.
+- Assert the row order in the integration test, so a silent move fails.
+`;
+
 export const NORT7_PLAN = `# Order export
 
 ## Context
@@ -400,6 +418,42 @@ body rather than the query builder.
 
   const documents: Document[] = [
     {
+      // A free agent's document: it has no task, so only its agent names it.
+      id: 'doc-free-notes',
+      agentId: 'f2c6a9d4',
+      taskId: '',
+      kind: 'other',
+      title: 'Index reader notes',
+      markdown: FREE_NOTES,
+      version: 1,
+      status: 'draft',
+      source: { type: 'message', transcriptItemId: 'f2c6a9d4-notes' },
+    },
+    {
+      id: 'doc-nort12-notes',
+      agentId: 'e5b1d8c3',
+      taskId: 'NORT-12',
+      kind: 'other',
+      title: 'What is red on PR #118',
+      markdown: NORT12_NOTES,
+      version: 1,
+      // A tagged draft: something to read, with no verdict to give on it.
+      status: 'draft',
+      source: { type: 'message', transcriptItemId: 'e5b1d8c3-notes' },
+    },
+    {
+      id: 'doc-nort12-tasks',
+      agentId: 'e5b1d8c3',
+      taskId: 'NORT-12',
+      kind: 'tasks',
+      title: 'Iteration 2',
+      markdown: NORT12_TASKS,
+      version: 1,
+      // The same agent asked for a verdict on this one, so it raises an item.
+      status: 'awaiting-review',
+      source: { type: 'draft_files', paths: ['draft-iter2.md'] },
+    },
+    {
       id: 'doc-nort7-plan',
       agentId: 'a1f3c9e2',
       taskId: 'NORT-7',
@@ -426,6 +480,17 @@ body rather than the query builder.
       requestId: 'req-nort7-plan',
       summary: 'Plan awaiting review',
       raisedAt: T(4),
+      clearedAt: null,
+    },
+    {
+      id: 'att-nort12-doc',
+      kind: 'document_review',
+      agentId: 'e5b1d8c3',
+      taskId: 'NORT-12',
+      documentId: 'doc-nort12-tasks',
+      requestId: null,
+      summary: 'Iteration 2 awaiting review',
+      raisedAt: T(3),
       clearedAt: null,
     },
     {
