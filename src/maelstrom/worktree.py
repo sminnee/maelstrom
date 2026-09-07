@@ -429,26 +429,6 @@ async def get_pushed_commit_count_async(worktree_path: Path, branch: str) -> int
     )
 
 
-def has_root_worktree(project_path: Path) -> bool:
-    """Check if the project has files checked out at the root level.
-
-    Args:
-        project_path: Path to the project root.
-
-    Returns:
-        True if there are tracked files at the root level.
-    """
-    git_dir = project_path / ".git"
-    if not git_dir.exists():
-        return False
-
-    try:
-        result = run_git(["ls-files"], cwd=project_path, quiet=True)
-        return result.stdout.strip() != ""
-    except subprocess.CalledProcessError:
-        return False
-
-
 def get_current_branch(repo_path: Path) -> str:
     """Get the current branch name."""
     result = run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=repo_path, quiet=True)

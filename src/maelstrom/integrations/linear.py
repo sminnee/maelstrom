@@ -400,45 +400,6 @@ def create_issue(
     return result["issueCreate"]["issue"]
 
 
-def create_attachment(issue_id: str, url: str, title: str, subtitle: str = "") -> dict:
-    """Create an attachment on an issue.
-
-    Args:
-        issue_id: The issue's internal ID.
-        url: URL for the attachment.
-        title: Display title for the attachment.
-        subtitle: Optional subtitle text.
-
-    Returns:
-        Created attachment data with id.
-
-    Raises:
-        click.ClickException: If creation fails.
-    """
-    mutation = """
-    mutation CreateAttachment($input: AttachmentCreateInput!) {
-        attachmentCreate(input: $input) {
-            success
-            attachment {
-                id
-            }
-        }
-    }
-    """
-    input_data: dict[str, str] = {
-        "issueId": issue_id,
-        "url": url,
-        "title": title,
-    }
-    if subtitle:
-        input_data["subtitle"] = subtitle
-
-    result = graphql_request(mutation, {"input": input_data})
-    if not result["attachmentCreate"]["success"]:
-        raise click.ClickException("Failed to create attachment")
-    return result["attachmentCreate"]["attachment"]
-
-
 def create_comment(issue_id: str, body: str) -> dict:
     """Create a comment on an issue.
 
