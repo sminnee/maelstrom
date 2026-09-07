@@ -35,9 +35,19 @@ happens at promote time, when the ids to follow exist.
 
 ## Live preview
 
-Run `richview <file>` the moment each draft exists. It opens the draft formatted, so the user
-reads it as a document instead of a diff, and it live-updates — every later edit shows up by
-itself, so run it once per file.
+The moment each draft exists, write a `<doc-file>` tag in your message. It puts the draft in
+front of the user as a document in the orchestrator UI, so the user reads it formatted instead
+of as a diff:
+
+```
+<doc-file kind="tasks" filename="draft-iter1.md" title="Iteration 1">
+```
+
+`filename` is a path in this worktree. `kind` is `tasks` for a draft task file. `title` is what
+the document is called, and defaults to the filename. Write one tag per draft, once per file.
+
+Add `review="true"` only when you want a verdict on the draft. That raises an item on the user's
+desk. A tag without it opens the document to read, and blocks nothing.
 
 ## Sculpt
 
