@@ -596,6 +596,14 @@ build is the thing to fix before a conflict, and `unknown` settles within second
 never a quiet `ready`. A draft pull request reads as a draft instead of its state.
 _Avoid_: PR status, merge state, CI state
 
+**Tone**:
+The reading a colour stands for, as one of six: `good`, `bad`, `busy`, `neutral`, `quiet`,
+`special`. A tone names how a thing reads, never what it is — `bad`, never `ci-failed` — so one
+chip serves a pull request and anything else that reports a state, and each domain keeps its own
+map from its values onto the six. Two states may share a tone when they make the same demand on
+the reader; the icon parts them.
+_Avoid_: Colour, status colour, variant
+
 ## Knowledge stores
 
 **Task notebook**:

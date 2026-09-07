@@ -32,6 +32,9 @@
   --hue-plan: #6ea8fe;
   --hue-build: #2fc4b2;
   --hue-land: #f0b35a;
+  /* Its own purple, not `--hue-shape`: a phase palette tweak must not restyle
+     every archived thing. */
+  --hue-archival: #b58cf6;
 
   /* Semantic: surfaces and lines. */
   --bg: var(--n1);
@@ -69,6 +72,15 @@
   --phase-plan: var(--hue-plan);
   --phase-build: var(--hue-build);
   --phase-land: var(--hue-land);
+  /*
+   * Two readings the state hues do not cover. `--tone-archival` is finished
+   * and filed away; `--tone-dormant` is parked on purpose, waiting on nobody.
+   * Dormant tracks the neutral mark today but is named apart from it, because
+   * "no state known" and "a state, and it is not yet" are different answers
+   * and either may be tuned without dragging the other.
+   */
+  --tone-archival: var(--hue-archival);
+  --tone-dormant: var(--mark-neutral);
   /* The current phase's hue: `base.css` sets it from `[data-phase]`. */
   --phase: var(--fg-faint);
 
@@ -153,6 +165,10 @@
     --hue-danger: #c8324f;
     --hue-ok: #46821d;
     --hue-shape: #7c4fd6;
+    /* Darkened to hold on a light ground, in step with the other hues. A step
+       off `--hue-shape` so a merged PR and a shape-phase node do not read as
+       the same thing. */
+    --hue-archival: #8a52c9;
     --hue-plan: #2f6fd0;
     --hue-build: #128274;
     --hue-land: #9e6a10;
