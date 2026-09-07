@@ -1,7 +1,15 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach } from 'vitest';
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure } from '@testing-library/react';
 import { notifyManager } from '@tanstack/react-query';
+
+// `findBy*` and `waitFor` have their own budget, which `testTimeout` does not
+// reach. The default 1 s is shorter than a contended two-core runner takes to
+// deliver a transcript, so a wait failed there while the test as a whole had
+// 30 s left — a different test each run. Well under `testTimeout`, so a test
+// that waits twice still reports as the wait that hung rather than as a
+// blanket timeout.
+configure({ asyncUtilTimeout: 5_000 });
 
 // The query cache batches its notifications on a timer. Synchronous ones let
 // a test read the screen right after the cache moved, inside the same act.
