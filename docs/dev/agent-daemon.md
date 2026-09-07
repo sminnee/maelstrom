@@ -909,7 +909,7 @@ writes one record per agent to `~/.maelstrom/agents/<agent-id>.json`, holding ex
 | `exit_code` | So `list` still reports the exit after a daemon restart |
 | `pid` | The child, while the record is `running`; `None` once it is known to be gone, so a dead record never names a pid the system has reused. How the next daemon tells a live child from a dead one |
 | `started_at` | When the child was spawned. Orders two `running` records on one session, so the newer wins |
-| `last_status` | What the agent was doing when the last daemon shut down. `idle` means the resume sends no nudge. Reset to `""` on every spawn |
+| `last_status` | What the agent is doing. Written whenever the status changes, so it survives a daemon that never shuts down. Decides which nudge the resume sends. Reset to `""` on every spawn |
 
 The directory is the root's `agents/`, so a daemon on its own root has its own records and
 cannot resume the real daemon's agents.
@@ -939,15 +939,24 @@ tightens a record it finds loose.
   transcript for what it was doing. `mael agent resume` reads the record.
 - **A daemon shutdown stops every child but leaves the records `running`.** So the next daemon
   start resumes them. Restarting the daemon to pick up new code costs nothing.
-- **A resumed agent gets a turn saying why it came back.** A print-mode session sits idle until a
-  user turn arrives, and a permission it was blocked on did not survive. `mael agent resume --text`
-  replaces the default nudge in `agent_model.DEFAULT_RESUME_PROMPT`. The nudge is sent, not
-  recorded: the record keeps the opening prompt, so a child that never wrote a transcript can
-  still be started fresh with it after any number of resumes.
-- **An agent idle at shutdown comes back silent.** Shutdown writes each record's `last_status`,
-  and a daemon start sends no nudge to a record that says `idle`: the agent had nothing in
-  flight, and a restart to pick up new code must not spend a turn on every agent it held. Any
-  other status, or a record too old to carry one, gets the nudge.
+- **What a resumed agent is told follows what it was doing.** A print-mode session sits idle
+  until a user turn arrives, so a resumed agent needs a turn of its own. Which turn depends on
+  the record's `last_status`:
+
+  | `last_status` | The turn the resume sends |
+  | --- | --- |
+  | `idle` | Nothing. A restart to pick up new code must not spend a turn on every agent the daemon held |
+  | `awaiting-permission`, `awaiting-question`, `awaiting-plan-review` | `agent_model.LOST_ASK_RESUME_PROMPT`. The ask is gone, and a silent agent would wait for ever on a reply nobody can give |
+  | Anything else, or a record too old to carry a status | `agent_model.DEFAULT_RESUME_PROMPT` |
+
+  `mael agent resume --text` replaces the nudge. The nudge is sent, not recorded: the record keeps
+  the opening prompt, so a child that never wrote a transcript can still be started fresh with it
+  after any number of resumes.
+- **The record learns the status as the agent runs, not at shutdown.** A daemon that is SIGKILLed
+  or crashes never shuts down. A status written only at shutdown comes back empty, and the resume
+  then nudges every agent — including the idle ones, which pick up work nobody asked for. Whether
+  a daemon stopped the child is a separate flag, `stopped_at_shutdown`: the status says what the
+  agent was doing, never how its child ended.
 - **A daemon shutdown does not record an exit.** Stopping a child ends its stream, which would
   otherwise mark the record `exited` and stop the next daemon resuming it.
 
@@ -970,7 +979,7 @@ cmux carries a long `--settings {…}` JSON before its `--session-id`.
 | `owned` | The record's pid is its child, and this daemon holds it | Nothing |
 | `stray` | The record's pid is its child, and no daemon holds it | Killed. Resumed on a daemon start; left `running` by `gc` |
 | `duplicate` | Another driven `claude` names a running record's session | Killed |
-| `resumable` | The child is gone and the record says why: the last daemon's shutdown wrote `last_status`, or no pid was ever recorded | Resumed on a daemon start |
+| `resumable` | The child is gone and the record says why: `stopped_at_shutdown` is set, or no pid was ever recorded | Resumed on a daemon start |
 | `crashed` | The record's pid is dead or reused, and no shutdown was recorded | Rewritten `exited` |
 | `superseded` | The older of two `running` records on one session | Rewritten `stopped`; its child, if alive, killed |
 | `unknown` | A driven `claude` no running record here names | Reported. Killed only under `--all-roots`, when no root names it |

@@ -46,6 +46,7 @@ from .agent_model import (
     IDLE,
     INTERRUPTED_REASON,
     INTERRUPTIBLE,
+    LOST_ASK_RESUME_PROMPT,
     MESSAGE_CHARS,
     MODES,
     SEQ_KEY,
@@ -55,6 +56,7 @@ from .agent_model import (
     SUB_COMPLETED,
     SUB_RUNNING,
     TRUNCATED,
+    WAITING,
     AgentSpec,
     AgentState,
     DaemonIdentity,
@@ -369,6 +371,7 @@ class Agent:
         cwd: str,
         proc: asyncio.subprocess.Process,
         on_exit: "Callable[[int | None], None] | None" = None,
+        on_status: "Callable[[str], None] | None" = None,
         clock: "Callable[[], str]" = now_iso,
     ):
         self.state = AgentState(agent_id=agent_id, cwd=cwd)
@@ -384,6 +387,9 @@ class Agent:
         # daemon uses it to record the exit, so a crash observed by a daemon
         # that then dies itself is still known to the next one.
         self.on_exit = on_exit
+        # Called with the new status whenever it changes, so the spawn record
+        # survives a daemon that never gets to shut down.
+        self.on_status = on_status
         self.watchers: list[Watcher] = []
         #: Futures waiting on a `control_response` the daemon asked for, by
         #: request id. Only `set-mode` uses one: every other command is
@@ -426,6 +432,8 @@ class Agent:
         """
         before = self.state
         self.state = apply_event(self.state, message, now=self.clock())
+        if self.on_status is not None and self.state.status != before.status:
+            self.on_status(self.state.status)
         self._settle(message)
         # The stamped copy, off the ring the event went to, so a watcher sees
         # the seq that ring holds.
@@ -900,6 +908,7 @@ class AgentDaemon:
             cwd,
             proc,
             on_exit=self._record_exit(agent_id),
+            on_status=self._record_status(agent_id),
             clock=self.clock,
         )
         agent.state = replace(agent.state, pid=proc.pid)
@@ -934,16 +943,36 @@ class AgentDaemon:
 
         return record
 
+    def _record_status(self, agent_id: str) -> Callable[[str], None]:
+        """A callback that keeps ``agent_id``'s record current as it runs.
+
+        A daemon that is SIGKILLed never runs :meth:`shutdown`, so the status
+        cannot wait for it.
+        """
+
+        def record(status: str) -> None:
+            spec = self.specs.read(agent_id)
+            # Only a running record: a stopped or exited one is settled, and
+            # writing to it would contradict what settled it.
+            if spec is None or spec.status != SPEC_RUNNING:
+                return
+            try:
+                self.specs.write(replace(spec, last_status=status))
+            except OSError:
+                # A stale status costs one needless nudge on the next resume.
+                # Letting it out of `record` would reach the pump, which reads
+                # any exception as the child dying and kills a healthy agent.
+                log.warning("agent %s: could not record status", agent_id)
+
+        return record
+
     async def _resume(self, spec: AgentSpec, text: str | None) -> str:
         """Start ``spec``'s agent again, under its own id.
 
         A child that never got its opening prompt wrote no transcript, so it is
         started fresh with its original prompt. Otherwise the transcript is
-        replayed and the agent gets a turn back — see
-        :data:`~maelstrom.agent_model.DEFAULT_RESUME_PROMPT` — unless the last
-        daemon recorded it ``idle`` at shutdown: an agent with nothing in
-        flight has nothing to be told, and a daemon restarted to pick up new
-        code must not wake every idle agent it held.
+        replayed and the turn it gets back follows ``last_status`` — see "The
+        resume rules" in ``docs/dev/agent-daemon.md``.
 
         The transcript on disk is the one fact worth trusting here. A record
         saying no prompt went out cannot be believed: a daemon killed just after
@@ -958,6 +987,8 @@ class AgentDaemon:
             prompt = spec.prompt
         elif spec.last_status == IDLE:
             prompt = ""
+        elif spec.last_status in WAITING:
+            prompt = LOST_ASK_RESUME_PROMPT
         else:
             prompt = DEFAULT_RESUME_PROMPT
         return await self.start_agent(
@@ -1453,15 +1484,22 @@ class AgentDaemon:
         ``running``, which is what makes restarting the daemon to pick up new
         code free.
 
-        Each record also learns what its agent was doing, so the next daemon
-        knows whether the resume needs a nudge. The pid stays: a child the
-        kill misses is that daemon's stray, and the record is how it is found.
+        Each record gets a last status write over what :meth:`_record_status`
+        has already recorded, and the flag that says this daemon stopped the
+        child rather than it dying. The pid stays: a child the kill misses is
+        that daemon's stray, and the record is how it is found.
         """
         for agent in self.agents.values():
             agent.on_exit = None
             spec = self.specs.read(agent.state.agent_id)
             if spec is not None and spec.status == SPEC_RUNNING:
-                self.specs.write(replace(spec, last_status=agent.state.status))
+                self.specs.write(
+                    replace(
+                        spec,
+                        last_status=agent.state.status,
+                        stopped_at_shutdown=True,
+                    )
+                )
         await asyncio.gather(
             *(agent.stop() for agent in self.agents.values()),
             return_exceptions=True,

@@ -37,6 +37,14 @@ AWAITING_PLAN_REVIEW = "awaiting-plan-review"
 #: Terminal: the child process is gone. An exited agent answers nothing.
 EXITED = "exited"
 
+#: States in which the agent is blocked on a person. Narrower than
+#: ``INTERRUPTIBLE``, which also covers a turn the agent is running itself.
+WAITING = (
+    AWAITING_PERMISSION,
+    AWAITING_QUESTION,
+    AWAITING_PLAN_REVIEW,
+)
+
 #: States in which the agent still owes a reply, so a turn exists to interrupt.
 INTERRUPTIBLE = (
     PROCESSING,
@@ -152,12 +160,17 @@ CMUX_HOOKS_DISABLED_ENV = "CMUX_CLAUDE_HOOKS_DISABLED"
 
 #: What a resumed agent is told on its first turn back.
 #:
-#: A print-mode session sits idle until a user turn arrives, and a permission
-#: the agent was blocked on does not survive the restart. So the resume needs a
-#: turn of its own, and that turn has to say why it came.
-DEFAULT_RESUME_PROMPT = (
-    "Your previous process ended unexpectedly. Your last turn may be "
-    "incomplete. Check the working tree and continue from where you left off."
+#: A print-mode session sits idle until a user turn arrives, so the resume
+#: needs a turn of its own.
+DEFAULT_RESUME_PROMPT = "--agent session resumed, continue working--"
+
+#: What a resumed agent that was blocked on a person is told instead.
+#:
+#: The ask did not survive the restart. Left silent the agent would wait for
+#: ever on a reply nobody can now give, so it is told the ask is gone rather
+#: than that its own turn was cut short.
+LOST_ASK_RESUME_PROMPT = (
+    "--user could not answer because the agent restarted, continue working--"
 )
 
 
@@ -278,8 +291,11 @@ class AgentSpec:
     the system has since reused. It is how the next daemon tells "my
     predecessor's child is still alive" from "it died". ``started_at`` orders
     two running records on one session. ``last_status`` is what the agent was
-    doing when the last daemon shut down: an agent that was ``idle`` comes back
-    without the resume nudge. Both are set by the daemon, never by a client.
+    last doing, rewritten on every status change so it survives a daemon that
+    never shuts down; it decides which turn the resume sends.
+    ``stopped_at_shutdown`` says a daemon stopped this child on its way out, so
+    a dead pid is that shutdown's own work rather than a crash. All are set by
+    the daemon, never by a client.
     """
 
     agent_id: str
@@ -294,6 +310,7 @@ class AgentSpec:
     pid: int | None = None
     started_at: str = ""
     last_status: str = ""
+    stopped_at_shutdown: bool = False
 
 
 def build_start_payload(
@@ -353,6 +370,7 @@ def spec_to_dict(spec: AgentSpec) -> dict[str, Any]:
         "pid": spec.pid,
         "started_at": spec.started_at,
         "last_status": spec.last_status,
+        "stopped_at_shutdown": spec.stopped_at_shutdown,
     }
 
 
@@ -376,6 +394,7 @@ def spec_from_dict(data: dict[str, Any]) -> AgentSpec:
         pid=data.get("pid"),
         started_at=data.get("started_at") or "",
         last_status=data.get("last_status") or "",
+        stopped_at_shutdown=bool(data.get("stopped_at_shutdown")),
     )
 
 
