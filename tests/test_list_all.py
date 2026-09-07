@@ -256,3 +256,52 @@ def test_the_project_root_is_excluded_under_a_symlinked_projects_dir(
     ):
         data = asyncio.run(build_list_all_data(link))
     assert [row["name"] for row in data["projects"][0]["worktrees"]] == ["alpha"]
+
+
+def test_the_projects_are_read_at_the_same_time(tmp_path):
+    """Each project's reads are independent, so they must not queue.
+
+    Read one after another, a machine with 16 projects spent 19s in the
+    worktree poll. Every route waits on the first read, so that time was
+    dead air for the whole UI.
+    """
+    for name in ("alpha", "bravo", "charlie", "delta"):
+        (tmp_path / name / ".mael").mkdir(parents=True)
+
+    running = 0
+    overlapped = False
+
+    async def slow_list_worktrees(project_path):
+        nonlocal running, overlapped
+        running += 1
+        overlapped = overlapped or running > 1
+        await asyncio.sleep(0.05)
+        running -= 1
+        return []
+
+    with patch("maelstrom.list_all.list_worktrees_async", slow_list_worktrees):
+        data = asyncio.run(build_list_all_data(tmp_path))
+
+    assert len(data["projects"]) == 4
+    assert overlapped, "the projects were read one after another"
+
+
+def test_one_unreadable_project_does_not_blank_the_others(tmp_path):
+    """A project that cannot be read costs its own row, not the whole read.
+
+    The reads run together, so an unguarded raise from one aborts the gather
+    and the poll returns nothing. Every 15s tick would then blank the UI, and
+    a worktree directory can go between the listing and the row read.
+    """
+    for name in ("alpha", "bravo", "charlie"):
+        (tmp_path / name / ".mael").mkdir(parents=True)
+
+    async def one_project_is_gone(project_path):
+        if project_path.name == "bravo":
+            raise FileNotFoundError(project_path)
+        return []
+
+    with patch("maelstrom.list_all.list_worktrees_async", one_project_is_gone):
+        data = asyncio.run(build_list_all_data(tmp_path))
+
+    assert [p["name"] for p in data["projects"]] == ["alpha", "charlie"]
