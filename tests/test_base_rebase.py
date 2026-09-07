@@ -25,10 +25,10 @@ from maelstrom.worktree import (
     current_stack_tip,
     get_current_branch,
     list_local_branches,
+    rebase_worktree,
     recycle_worktree,
     remote_branch_ages,
     setup_worktree_for_branch,
-    squash_worktree,
     sync_worktree,
     tidy_branches,
 )
@@ -189,7 +189,7 @@ class TestDefaultBaseIsUnchanged:
             return real(cmd, *args, **kwargs)
 
         with patch("maelstrom.shell.subprocess.run", side_effect=spy):
-            result = squash_worktree(parent, skip_fetch=True, squash=False)
+            result = rebase_worktree(parent, skip_fetch=True, squash=False)
 
         assert result.success is True
         assert seen == [["git", "rebase", "--autostash", "origin/main"]]
@@ -202,7 +202,7 @@ class TestDefaultBaseIsUnchanged:
         project_path, parent, _, _ = project_with_stack
         create_commit(parent, "feature.txt", "feature\n", "Feature commit")
 
-        squash_worktree(parent, skip_fetch=True, squash=False)
+        rebase_worktree(parent, skip_fetch=True, squash=False)
 
         assert GitConfigBaseStore(project_path).all() == {}
 
@@ -221,7 +221,7 @@ class TestDefaultBaseIsUnchanged:
             return real(cmd, *args, **kwargs)
 
         with patch("maelstrom.shell.subprocess.run", side_effect=spy):
-            squash_worktree(parent, squash=False)
+            rebase_worktree(parent, squash=False)
 
         assert seen, "expected a fetch"
         assert all("--prune" not in cmd for cmd in seen)
@@ -247,7 +247,7 @@ class TestStackedRebase:
         create_commit(child, "child.txt", "child\n", "Child commit")
         self._stack(project_path, child)
 
-        result = squash_worktree(child, skip_fetch=True, squash=False)
+        result = rebase_worktree(child, skip_fetch=True, squash=False)
 
         assert result.success is True
         assert result.base == "feat/parent"
@@ -262,7 +262,7 @@ class TestStackedRebase:
         create_commit(child, "child.txt", "child\n", "Child commit")
         store = self._stack(project_path, child)
 
-        squash_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, skip_fetch=True, squash=False)
 
         parent_tip = run_git(
             project_path, "rev-parse", "origin/feat/parent"
@@ -276,12 +276,12 @@ class TestStackedRebase:
         _push(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         self._stack(project_path, child)
-        squash_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, skip_fetch=True, squash=False)
 
         create_commit(parent, "parent2.txt", "more\n", "Parent second commit")
         _push(parent, "feat/parent")
 
-        result = squash_worktree(child, skip_fetch=True, squash=False)
+        result = rebase_worktree(child, skip_fetch=True, squash=False)
 
         assert result.success is True
         assert "Parent second commit" in _log(child)
@@ -296,11 +296,11 @@ class TestStackedRebase:
         _push(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         self._stack(project_path, child)
-        squash_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, skip_fetch=True, squash=False)
 
         _advance_origin_main(project_path, remote_path)
 
-        result = squash_worktree(child, skip_fetch=True, squash=False)
+        result = rebase_worktree(child, skip_fetch=True, squash=False)
 
         assert result.success is True
         assert _log(child)[0] == "Child commit"
@@ -319,7 +319,7 @@ class TestStackedRebase:
         _push(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         self._stack(project_path, child)
-        squash_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, skip_fetch=True, squash=False)
 
         # Review churn: the parent's commit is rewritten in place.
         (parent / "shared.txt").write_text("v2\n")
@@ -327,7 +327,7 @@ class TestStackedRebase:
         run_git(parent, "commit", "--amend", "-m", "Parent commit (reviewed)")
         _push(parent, "feat/parent", force=True)
 
-        result = squash_worktree(child, skip_fetch=True, squash=False)
+        result = rebase_worktree(child, skip_fetch=True, squash=False)
 
         assert result.success is True, result.message
         assert result.had_conflicts is False
@@ -352,12 +352,12 @@ class TestStackedRebase:
         create_commit(child, "child.txt", "child\n", "Child commit")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent"))
-        squash_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, skip_fetch=True, squash=False)
 
         # An extra parent commit the child picks up, so the recorded tip moves on.
         create_commit(parent, "shared.txt", "v1\nextra\n", "Parent second commit")
         _push(parent, "feat/parent")
-        squash_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, skip_fetch=True, squash=False)
 
         # Simulate a store that stopped re-recording: pin the tip to the first value.
         store.write("feat/child", BaseRef(branch="feat/parent", tip=first_tip))
@@ -366,7 +366,7 @@ class TestStackedRebase:
         run_git(parent, "commit", "--amend", "-m", "Parent second (reviewed)")
         _push(parent, "feat/parent", force=True)
 
-        result = squash_worktree(
+        result = rebase_worktree(
             child, skip_fetch=True, squash=False, abort_on_conflict=True
         )
 
@@ -397,7 +397,7 @@ class TestBaseTipSafetyGuard:
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent", tip=orphan))
 
-        result = squash_worktree(child, skip_fetch=True, squash=False)
+        result = rebase_worktree(child, skip_fetch=True, squash=False)
 
         assert result.success is True, result.message
         assert "Child commit" in _log(child)
@@ -419,11 +419,11 @@ class TestCollapse:
         create_commit(child, "child.txt", "child\n", "Child commit")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent"))
-        squash_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, skip_fetch=True, squash=False)
 
         _squash_merge_to_main(project_path, remote_path, "feat/parent")
 
-        result = squash_worktree(child, squash=False)
+        result = rebase_worktree(child, squash=False)
 
         assert result.success is True, result.message
         assert result.base_collapsed is True
@@ -439,11 +439,11 @@ class TestCollapse:
         create_commit(child, "child.txt", "child\n", "Child commit")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent"))
-        squash_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, skip_fetch=True, squash=False)
 
         run_git(parent, "push", "origin", "--delete", "feat/parent")
 
-        result = squash_worktree(child, squash=False)
+        result = rebase_worktree(child, squash=False)
 
         assert result.success is True, result.message
         assert result.base_collapsed is True
@@ -462,7 +462,7 @@ class TestCollapse:
         GitConfigBaseStore(project_path).write(
             "feat/child", BaseRef(branch="feat/parent")
         )
-        squash_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, skip_fetch=True, squash=False)
 
         seen: list[list[str]] = []
         real = subprocess.run
@@ -473,7 +473,7 @@ class TestCollapse:
             return real(cmd, *args, **kwargs)
 
         with patch("maelstrom.shell.subprocess.run", side_effect=spy):
-            squash_worktree(child, squash=False)
+            rebase_worktree(child, squash=False)
 
         assert any("--prune" in cmd for cmd in seen)
 
@@ -491,12 +491,12 @@ class TestCollapse:
         create_commit(child, "child.txt", "child\n", "Child commit")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent"))
-        squash_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, skip_fetch=True, squash=False)
 
         # Drop the local remote-tracking ref without touching the remote.
         run_git(project_path, "update-ref", "-d", "refs/remotes/origin/feat/parent")
 
-        result = squash_worktree(child, skip_fetch=True, squash=False)
+        result = rebase_worktree(child, skip_fetch=True, squash=False)
 
         assert result.base_collapsed is False
         assert store.read("feat/child").branch == "feat/parent"
@@ -565,7 +565,7 @@ class TestTidyBranchesRespectsStacks:
         GitConfigBaseStore(project_path).write(
             "feat/child", BaseRef(branch="feat/parent")
         )
-        squash_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, skip_fetch=True, squash=False)
 
         results = tidy_branches(project_path)
 
@@ -617,7 +617,7 @@ class TestTidyBranchesRespectsStacks:
         create_commit(child, "child.txt", "child\n", "Child commit")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent"))
-        squash_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, skip_fetch=True, squash=False)
         recorded = store.read("feat/child")
 
         # Free both worktrees so tidy would otherwise process the branches.

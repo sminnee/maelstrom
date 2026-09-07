@@ -49,7 +49,7 @@ def head(repo):
 
 
 def squash(repo):
-    """Autosquash fixups onto origin/main, as 'mael git squash' does."""
+    """Autosquash fixups onto origin/main, as 'mael sync --squash --no-push' does."""
     run_git(
         repo,
         "-c",

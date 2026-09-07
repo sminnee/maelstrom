@@ -559,7 +559,7 @@ The first command that needs the agent host starts one, as `mael agent` does.
 ## Open risks
 
 - Blocking work runs on the worker thread. `setup_worktree_for_branch` can take tens of seconds,
-  and the launch reply waits for it.
+  and the launch reply waits for it. Every launch pays that cost, including a reopen.
 - The host's watcher queue drops the oldest event at 1000. The drop is marked, so the transcript
   shows a gap, but the dropped events themselves are gone. A lost answer is closed on the next
   reconciliation, whether or not the marker arrives.

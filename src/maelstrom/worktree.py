@@ -28,6 +28,7 @@ from .ports import (
     remove_port_allocation,
 )
 from .rebase_repair import run_resolve_rebase_session
+from .session_discovery import LiveSessionSet
 from .shell import run_cmd
 from .task import DRAFT_WRITE_RULES, DRAFTS_DIR
 from .util import locked_file
@@ -652,7 +653,7 @@ def resolve_rebase_plan(
     return base, plan
 
 
-def squash_worktree(
+def rebase_worktree(
     worktree_path: Path,
     skip_fetch: bool = False,
     squash: bool = True,
@@ -846,7 +847,7 @@ def sync_worktree(
 ) -> SyncResult:
     """Sync a worktree by rebasing against origin/main, then pushing.
 
-    Builds on :func:`squash_worktree` (the fetch + rebase primitive) and adds the
+    Builds on :func:`rebase_worktree` (the fetch + rebase primitive) and adds the
     force-with-lease push of the rebased branch.
 
     Args:
@@ -856,7 +857,7 @@ def sync_worktree(
         squash: If True, autosquash ``fixup!`` commits into their targets while
             rebasing (``git rebase --autosquash``).
         abort_on_conflict: If True, abort the rebase on conflict and restore the
-            worktree (passed through to :func:`squash_worktree`).
+            worktree (passed through to :func:`rebase_worktree`).
         close_if_empty: If True and the branch is empty after a successful rebase
             (HEAD == origin/main), delete the branch (local + remote) and close the
             worktree instead of pushing.
@@ -864,7 +865,7 @@ def sync_worktree(
     Returns:
         SyncResult with status and message.
     """
-    result = squash_worktree(
+    result = rebase_worktree(
         worktree_path,
         skip_fetch=skip_fetch,
         squash=squash,
@@ -1064,7 +1065,7 @@ def _repair_conflicted_rebase(
     return None
 
 
-def squash_worktree_with_autorepair(
+def rebase_worktree_with_autorepair(
     worktree_path: Path,
     *,
     skip_fetch: bool = False,
@@ -1075,7 +1076,7 @@ def squash_worktree_with_autorepair(
     """Rebase a worktree, resolving a conflict with a headless Claude session.
 
     The no-push counterpart of :func:`sync_worktree_with_autorepair`, built on
-    :func:`squash_worktree`. A repaired rebase is the whole job here: nothing is
+    :func:`rebase_worktree`. A repaired rebase is the whole job here: nothing is
     published, so the branch is left rebased and unpushed for the caller to
     inspect.
 
@@ -1095,7 +1096,7 @@ def squash_worktree_with_autorepair(
         SyncResult. ``repaired`` is True when a repair session fixed the rebase.
         ``pushed`` is always False — this function never pushes.
     """
-    first = squash_worktree(
+    first = rebase_worktree(
         worktree_path,
         skip_fetch=skip_fetch,
         squash=squash,
@@ -1189,7 +1190,7 @@ def merge_to_main(
     branch tip, and pushes ``main`` to origin. With ``close=True`` it then tears
     down the worktree and deletes the feature branch.
 
-    Built on the existing primitives — :func:`squash_worktree`,
+    Built on the existing primitives — :func:`rebase_worktree`,
     :func:`close_worktree`, :func:`delete_branch` — so there are no new
     subprocess idioms here.
 
@@ -1208,7 +1209,7 @@ def merge_to_main(
     branch = get_current_branch(worktree_path)
 
     # 1. fetch + sync main + rebase/autosquash onto origin/main
-    result = squash_worktree(worktree_path, squash=squash)
+    result = rebase_worktree(worktree_path, squash=squash)
     if not result.success:
         return result  # conflicts / fetch failure already populated
 
@@ -2393,11 +2394,12 @@ class WorktreeSetup:
     """Result of :func:`setup_worktree_for_branch`.
 
     ``action`` is one of ``"reused"`` (an existing worktree for the branch was
-    returned untouched), ``"recycled"`` (a closed worktree was repurposed), or
+    used again), ``"recycled"`` (a closed worktree was repurposed), or
     ``"created"`` (a fresh worktree was created).
 
-    ``sync`` is the result of the sync that runs when the worktree is opened. It
-    is ``None`` on the ``"reused"`` path, where no sync runs. A ``sync`` that
+    ``sync`` is the result of the rebase that runs when the worktree is opened.
+    Only ``"reused"`` skips the push, and only ``"reused"`` leaves ``sync`` at
+    ``None`` — a live session in the worktree skips the rebase. A ``sync`` that
     failed means the branch was not rebased: the caller must block the launch
     rather than start a session on stale code. The worktree itself is still set
     up, so a repair in place and a re-run will pick it up.
@@ -2406,7 +2408,7 @@ class WorktreeSetup:
     path: Path
     name: str  # NATO name, e.g. "bravo"
     action: str  # "reused" | "recycled" | "created"
-    sync: SyncResult | None = None  # None ⇒ no sync ran (reused)
+    sync: SyncResult | None = None
 
 
 def check_base_exists(project_path: Path, base: str) -> None:
@@ -2489,6 +2491,33 @@ def _resolve_new_branch_base(
     return tip.branch
 
 
+def _rebase_reused_worktree(
+    worktree_path: Path,
+    *,
+    live: LiveSessionSet | None,
+    announce: Callable[[str], None],
+) -> SyncResult | None:
+    """Rebase a worktree being reopened, unless a session is running in it.
+
+    A rebase moves the commits a live agent is building on, and its files under
+    that agent's editor. The sweep finds most sessions, not all, so this narrows
+    the window rather than closing it.
+
+    Returns:
+        The rebase's result, or ``None`` when a live session skipped it.
+    """
+    sessions = (live or LiveSessionSet()).all_for(worktree_path)
+    if sessions:
+        announce(
+            f"Warning: {len(sessions)} live session(s) in {worktree_path.name}; "
+            "skipping the rebase. Run `mael sync --no-push` there when it is idle."
+        )
+        return None
+    return rebase_worktree_with_autorepair(
+        worktree_path, squash=False, announce=announce
+    )
+
+
 def setup_worktree_for_branch(
     project_path: Path,
     project_name: str,
@@ -2497,6 +2526,7 @@ def setup_worktree_for_branch(
     no_recycle: bool = False,
     run_install: bool = True,
     base: str | None = None,
+    live: LiveSessionSet | None = None,
     announce: Callable[[str], None] = print_flushed,
 ) -> WorktreeSetup:
     """Ensure a fully set-up worktree exists for ``branch``; return path+name+action.
@@ -2505,13 +2535,18 @@ def setup_worktree_for_branch(
     someone has moved the project's stack tip off ``main``. This function never
     moves the tip.
 
-    Does NOT launch anything. Idempotent: an existing worktree for ``branch`` is
-    returned as-is — no recycle/create, no install, no CLAUDE.local.md rewrite.
+    Does NOT launch anything. An existing worktree for ``branch`` keeps its setup
+    — no recycle/create, no install, no CLAUDE.local.md rewrite — but its branch
+    is still rebased onto its base, so a reopened worktree never starts on stale
+    code. That rebase does not push.
 
     Args:
         base: Branch to stack ``branch`` on. ``None`` uses the stack tip, which
             is ``main`` unless someone moved it; ``main`` opts this one worktree
             out of a moved tip.
+        live: The live-session sweep, for the reuse rebase's occupancy check.
+            ``None`` sweeps on first use. Pass a sweep taken elsewhere to reuse
+            it.
         announce: Callable taking one line of progress text, for the stale-tip
             warning.
 
@@ -2523,13 +2558,15 @@ def setup_worktree_for_branch(
     """
     project_path = project_path.resolve()
 
-    # Reuse: an existing worktree for the branch is returned untouched.
+    # Reuse: an existing worktree keeps its setup, but not its stale code.
+    # squash=False — reopening is not the moment to autosquash someone's fixups.
     existing = find_worktree_by_branch(project_path, branch)
     if existing is not None:
         name = extract_worktree_name_from_folder(project_name, existing.name)
         if name is None:
             raise ValueError(f"Could not derive worktree name from '{existing.name}'.")
-        return WorktreeSetup(path=existing, name=name, action="reused")
+        sync = _rebase_reused_worktree(existing, live=live, announce=announce)
+        return WorktreeSetup(path=existing, name=name, action="reused", sync=sync)
 
     store = GitConfigBaseStore(project_path)
     # Decided before anything creates the branch: a pre-existing branch keeps the
@@ -2595,7 +2632,7 @@ def setup_worktree_for_branch(
     # commits behind origin/main. Sync before install so install runs against the
     # rebased tree. close_if_empty stays off: a brand-new branch is "empty" and
     # must never be deleted here.
-    sync = sync_worktree_with_autorepair(worktree_path)
+    sync = sync_worktree_with_autorepair(worktree_path, announce=announce)
 
     # Finalize (recycle + create): write CLAUDE.local.md, run install command.
     # CLAUDE.local.md is written even when the sync failed. The worktree exists

@@ -71,9 +71,10 @@ rest as deferred. Run `/code-review` again to review them: the first run tags it
 an explicit SHA or range. Run the same command again to take the next 8, or name a narrower
 range if you want different commits.
 
-It runs `mael git squash` first, so the review sees the commits as they will land instead of
-a history littered with fixups. Rebase conflicts stop the review; a dirty worktree does not,
-because the squash autostashes. This step is skipped when you name an explicit SHA or range.
+It runs `mael sync --squash --no-push` first, so the review sees the commits as they will
+land instead of a history littered with fixups. Rebase conflicts stop the review; a dirty
+worktree does not, because the rebase autostashes. This step is skipped when you name an
+explicit SHA or range.
 
 Then it spawns **read-only sub-agents**, all running concurrently, so the diff never enters the
 parent's context. Two kinds run:
@@ -221,7 +222,7 @@ Normally you merge on GitHub. To merge locally:
 ```bash
 mael git merge            # rebase onto main, fast-forward main, push
 mael git merge --close    # ...then close the worktree and delete the branch
-mael git squash           # autosquash fixups without pushing
+mael sync --squash --no-push   # autosquash fixups without pushing
 ```
 
 Then release the Linear issue when it actually ships:

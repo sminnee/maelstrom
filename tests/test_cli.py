@@ -1017,10 +1017,18 @@ class TestCmdAddRecycle:
             patch("maelstrom.worktree.update_claude_local_md", return_value=False)
         )
         stack.enter_context(patch("maelstrom.worktree.run_install_cmd"))
-        # An opened worktree is synced before finalize; these mocks have no real git.
+        # An opened worktree is rebased before finalize; these mocks have no real
+        # git. A reused worktree takes the no-push variant, a new one the pushing
+        # variant, so both are stubbed.
         stack.enter_context(
             patch(
                 "maelstrom.worktree.sync_worktree_with_autorepair",
+                return_value=_sync_result(),
+            )
+        )
+        stack.enter_context(
+            patch(
+                "maelstrom.worktree.rebase_worktree_with_autorepair",
                 return_value=_sync_result(),
             )
         )
@@ -1133,10 +1141,18 @@ class TestCmdAddExistingBranch:
                 return_value="bravo",
             )
         )
-        # An opened worktree is synced before finalize; these mocks have no real git.
+        # An opened worktree is rebased before finalize; these mocks have no real
+        # git. A reused worktree takes the no-push variant, a new one the pushing
+        # variant, so both are stubbed.
         stack.enter_context(
             patch(
                 "maelstrom.worktree.sync_worktree_with_autorepair",
+                return_value=_sync_result(),
+            )
+        )
+        stack.enter_context(
+            patch(
+                "maelstrom.worktree.rebase_worktree_with_autorepair",
                 return_value=_sync_result(),
             )
         )
@@ -1293,8 +1309,8 @@ class TestCmdAddSync:
         assert "resolved by a headless Claude session" in result.output
         launch.assert_called_once()
 
-    def test_reused_worktree_reports_no_sync(self, tmp_path):
-        """``sync is None`` (the reuse path) prints nothing and never blocks."""
+    def test_a_sync_that_never_ran_reports_nothing(self, tmp_path):
+        """``sync is None`` prints nothing and never blocks."""
         result, launch = self._run(tmp_path, None)
 
         assert result.exit_code == 0, result.output

@@ -103,12 +103,20 @@ and can be many commits behind. A conflict is handed to a headless Claude sessio
 resolves it — see [the sync section](#keeping-worktrees-current). If the rebase cannot be
 completed, `mael add` reports the failure and does not start the session.
 
-That rebase is a full `mael sync`, so **opening a worktree force-pushes the rebased branch
+A new worktree gets a full `mael sync`, so **opening one force-pushes the rebased branch
 to origin** when the branch is already on the remote. The push uses `--force-with-lease`,
-so it refuses to overwrite remote commits maelstrom has not seen. It still rewrites the
-branch history, so anyone else holding a local copy of that branch has to reset onto it.
-A branch that exists only locally is not pushed. `mael add` with no branch never rebases
-or pushes: there is no branch to rebase.
+so it refuses to overwrite remote commits maelstrom has not seen. The push still rewrites
+the branch history, so anyone else holding a local copy of that branch has to reset onto
+it. A branch that exists only locally is not pushed. `mael add` with no branch never
+rebases or pushes: there is no branch to rebase.
+
+Reopening a worktree that is already there rebases it too, so a second `mael add` or
+`mael task run` on the same branch picks up whatever landed on `main` in between. A reopen
+differs from a fresh open in three ways:
+
+- It does not push, so a force-push never rewrites history under work in progress.
+- It leaves `fixup!` commits alone.
+- It stashes uncommitted work, rebases, and puts the work back.
 
 ## Recycling
 
@@ -245,15 +253,19 @@ changed, and why a rebase that failed now passes.
 Every command that rebases takes the flag:
 
 ```bash
-mael sync --autorepair             # this worktree
-mael sync-all --autorepair         # every worktree, one session per conflict
-mael git squash --autorepair       # rebase and autosquash, no push
-mael gh create-pr ME-41 --autorepair   # the pre-push sync
+mael sync --autorepair                    # this worktree
+mael sync --squash --no-push --autorepair # tidy fixups, publish nothing
+mael sync-all --autorepair                # every worktree, one session per conflict
+mael gh create-pr ME-41 --autorepair      # the pre-push sync
 ```
 
 `--autorepair` is off by default on all four. The flag starts an unattended agent, so it
 is for commands you run yourself. An agent already in a session resolves its own conflicts
 instead of starting a second session to do it.
+
+Opening a worktree is the exception: it always repairs, with no flag to ask for it. An open
+runs unattended — `mael task run` starts a session nobody is watching — so a conflict that
+stopped and waited would strand the task.
 
 ## Tidying branches
 

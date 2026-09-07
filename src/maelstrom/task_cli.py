@@ -221,11 +221,14 @@ def _run_task(
     plan = plan_launch(project, task)
     has_session_id = harness != HARNESS_OPENCODE
     session_id = plan.session_id if has_session_id else None
+    # One sweep answers both questions below: is this task already running, and
+    # is anything running in the worktree the open is about to rebase.
+    live = session_discovery.LiveSessionSet()
     # Refuse a second parallel launch *of this task*. A finished session leaves
     # nothing running, so a finished task stays re-runnable.
     if has_session_id:
         try:
-            check_not_live(task.id, plan.session_id, session_discovery.LiveSessionSet())
+            check_not_live(task.id, plan.session_id, live)
         except LaunchBlocked as e:
             raise click.ClickException(str(e))
 
@@ -289,6 +292,7 @@ def _run_task(
             branch,
             run_install=False,
             base=task.base or None,
+            live=live,
             announce=click.echo,
         )
     except (ValueError, WorktreeError) as e:

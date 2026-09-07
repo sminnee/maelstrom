@@ -12,6 +12,16 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **Reopening a worktree rebases it.** `mael add` and `mael task run` already rebased a worktree
+  they created or recycled. A worktree that already held the branch was left as it was, so the
+  session started on stale code. A reopen now rebases too. That rebase does not push, and it
+  leaves `fixup!` commits alone.
+
+- **`mael git squash` is now `mael sync --squash --no-push`.** `mael sync` gained `--no-push`,
+  which rebases the branch and leaves the remote alone. `--no-push` is rejected with `--close`,
+  because deleting the remote branch is a push. **To upgrade:** replace `mael git squash` with
+  `mael sync --squash --no-push`.
+
 - **Stacking is opt-in.** `mael add` bases a new branch on `main` and leaves the stack tip where
   it is. It used to move the tip to each new branch, so the next worktree stacked on the last
   one. Move the tip with `mael stack-tip <branch>`, or pass `--base`, to stack. A project whose

@@ -33,13 +33,13 @@ from maelstrom.worktree import (
     list_worktrees,
     managed_keys_in_env,
     read_env_file,
+    rebase_worktree,
     reclaim_or_allocate_ports,
     remove_worktree,
     remove_worktree_by_path,
     run_git,
     setup_claude_memory_symlink,
     setup_worktree_for_branch,
-    squash_worktree,
     sync_worktree,
     update_claude_local_md,
     write_env_file,
@@ -1003,7 +1003,11 @@ class TestSetupWorktreeForBranch:
         assert install.call_count == 0
 
     def test_idempotent_reuse(self, git_repo_with_remote):
-        """Calling twice for the same branch reuses the worktree untouched."""
+        """Calling twice for the same branch reuses the worktree's setup.
+
+        The second call rebases the branch, but re-runs no install and rewrites
+        no CLAUDE.local.md.
+        """
         first = setup_worktree_for_branch(
             git_repo_with_remote, "test-repo", "feature/reuse"
         )
@@ -1022,6 +1026,7 @@ class TestSetupWorktreeForBranch:
             assert local_md.call_count == 0
 
         assert second.action == "reused"
+        assert second.sync is not None
         assert second.path == first.path
         assert len(list_worktrees(git_repo_with_remote)) == before
 
@@ -1945,7 +1950,7 @@ class TestSyncWorktreeSquash:
 
 
 class TestSquashWorktree:
-    """Tests for the squash_worktree primitive (rebase only, never pushes)."""
+    """Tests for the rebase_worktree primitive (rebase only, never pushes)."""
 
     def _make_repo_with_fixup(self, repo):
         TestSyncWorktreeSquash()._make_repo_with_fixup(repo)
@@ -1957,7 +1962,7 @@ class TestSquashWorktree:
         repo.mkdir()
         self._make_repo_with_fixup(repo)
 
-        result = squash_worktree(repo, skip_fetch=True, squash=True)
+        result = rebase_worktree(repo, skip_fetch=True, squash=True)
         assert result.success, result.message
 
         log_after = run_git(repo, "log", "--oneline").stdout
@@ -1966,7 +1971,7 @@ class TestSquashWorktree:
         assert len(log_after.strip().splitlines()) == 2
         assert (repo / "feature.txt").read_text() == "v2\n"
 
-        # squash_worktree must never push.
+        # rebase_worktree must never push.
         assert not result.pushed
         assert result.push_message is None
 
@@ -1977,7 +1982,7 @@ class TestSquashWorktree:
         repo.mkdir()
         self._make_repo_with_fixup(repo)
 
-        result = squash_worktree(repo, skip_fetch=True, squash=False)
+        result = rebase_worktree(repo, skip_fetch=True, squash=False)
         assert result.success, result.message
 
         # Plain rebase leaves the fixup! commit untouched.

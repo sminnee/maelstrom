@@ -36,9 +36,9 @@ names and ports stay stable over time.
 The three verbs differ in what they preserve. Close preserves, remove deletes.
 
 **Open**:
-Put a branch into a worktree ready to work in: create the worktree or recycle a closed one,
-then rebase the branch onto its base before the session starts. Reusing a worktree that
-already holds the branch is not opening it — nothing is set up and no rebase runs.
+Put a branch into a worktree ready to work in: create the worktree, recycle a closed one, or
+reuse the one that already holds the branch, then rebase the branch onto its base before the
+session starts. A reused worktree keeps the setup it has, and its rebase does not push.
 _Avoid_: Set up, provision
 
 **Base**:

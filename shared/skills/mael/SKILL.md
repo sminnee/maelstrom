@@ -13,7 +13,7 @@ and exit codes. That output is authoritative and lists flags this guide does not
 unavailable to you, ask the user rather than guessing a flag.
 
 **Commands that reach the network need `dangerouslyDisableSandbox: true`** — `mael sync`,
-`mael git squash`, `mael gh …`, and raw `git push/fetch/pull`.
+`mael gh …`, and raw `git push/fetch/pull`.
 
 Read-only git (`status`, `log`, `show`, `diff`) does not. In a project that auto-approves sandboxed
 Bash, adding the flag actively hurts: it lifts the command out of the sandbox onto the prompt path,
