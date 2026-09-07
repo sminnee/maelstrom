@@ -72,13 +72,8 @@
   --phase-plan: var(--hue-plan);
   --phase-build: var(--hue-build);
   --phase-land: var(--hue-land);
-  /*
-   * Two readings the state hues do not cover. `--tone-archival` is finished
-   * and filed away; `--tone-dormant` is parked on purpose, waiting on nobody.
-   * Dormant tracks the neutral mark today but is named apart from it, because
-   * "no state known" and "a state, and it is not yet" are different answers
-   * and either may be tuned without dragging the other.
-   */
+  /* Two readings the state hues do not cover. `--tone-archival` is finished and
+     filed away; `--tone-dormant` is parked on purpose, waiting on nobody. */
   --tone-archival: var(--hue-archival);
   --tone-dormant: var(--mark-neutral);
   /* The current phase's hue: `base.css` sets it from `[data-phase]`. */

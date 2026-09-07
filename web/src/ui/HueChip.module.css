@@ -118,13 +118,8 @@
   opacity: 1;
 }
 
-/*
- * Only the large chip opens. A canvas node is 220px wide with `overflow:
- * hidden`, and its meta line already truncates four things against each other,
- * so a chip that grew there would clip against the node's own edge and re-cut
- * the task id under the pointer. Where there is no room to open into, the
- * colour and the icon carry the reading and the card holds the word.
- */
+/* Only the large chip opens: a 220px canvas node has no room to open into.
+   See `docs/dev/orchestrator-ui.md`. */
 .chip[data-size='large'] {
   padding: 2px 5px;
 }

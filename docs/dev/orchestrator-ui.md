@@ -254,13 +254,29 @@ request without joining two fields; a worktree with no PR draws none. The dev en
 only while the environment runs, and the 15-second worktree poll makes it appear and
 disappear on its own.
 
-The PR link says its state as well as its number — `PR #278 · CI running`. The state is one of
+A pull request draws as one chip wherever it appears — a collapsed node, a deck row, the card's
+footer — so the same PR reads the same everywhere. `shell/PrChip.tsx` is that chip: `#278` in the
+colour GitHub gives the same fact, behind the GitHub mark, linking to the PR. The state is one of
 six values the server decides, listed under **PR state** in `CONTEXT.md`, so the UI never
-re-derives it from raw GitHub fields. `selectors/status.ts` turns the value into words.
-`shell/PrChip.tsx` draws the same reading as a `#278` chip with a coloured dot on a collapsed
-node and a deck row; the chip's `title` repeats the state in words, because colour alone must
-not carry it. The same 15-second poll moves the label from `CI running` to `ready to merge` on
-its own.
+re-derives it from raw GitHub fields. The same 15-second poll moves a chip from
+amber to green on its own.
+
+`selectors/status.ts` turns the value into words and into a **tone**, the reading a colour stands
+for. Six tones cover seven states: merged is `special` and ready is `good` — settled is not the
+same as your turn; a failed check and a conflict are both `bad`, because both are the same demand
+on the operator. Colour is never the only channel — the chip's `aria-label` and `title` name the
+state in words at every size, and the large chip opens to show it.
+
+`ui/HueChip.tsx` is the chip underneath, and it knows nothing about pull requests: a caller hands
+it a tone, a word, and the mark of the service it points at. The large chip opens on hover **and**
+on keyboard focus to say its state, growing a grid track from `0fr` to `1fr` so no width is ever
+named and a long state like `merge conflicts` cannot clip. The word is pinned to the track's right
+edge, so it slides in from the left as the track opens rather than unwrapping letter by letter.
+
+The small chip does not open: a canvas node is 220px wide and
+clips, and its meta line already truncates four things against each other, so a chip that grew
+there would cut the task id under the pointer. Where there is no room to open into, the colour
+carries the reading and the word waits behind the pointer.
 
 A node resolves its worktree from its agent first, then from the open worktree on its branch,
 which is what keeps a finished task showing its pull request. `selectors/graph.ts` holds both
