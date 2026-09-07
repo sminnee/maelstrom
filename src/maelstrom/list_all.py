@@ -265,7 +265,12 @@ async def _project_data(
     async with limit:
         worktrees = await list_worktrees_async(project_path)
     # Branch → task session ids for this project (stopped-marker detection).
-    branch_sessions = branch_session_ids(project_name)
+    # Off the loop: it parses every task file for the project, measured at 2.4s
+    # across 16 projects, and holding the loop for that gives back the
+    # concurrency the gather buys. A thread is safe because the scan passes
+    # ``no_index=True`` and so never touches the SQLite index, which is bound to
+    # the thread that opened it.
+    branch_sessions = await asyncio.to_thread(branch_session_ids, project_name)
     # One PR lookup per project, not per worktree. The batch is repo-scoped, so
     # it belongs here rather than in the worktree loop below. A project whose
     # worktrees are all detached has no branch to ask about, and `list-all`
