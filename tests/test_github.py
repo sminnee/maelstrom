@@ -1,6 +1,5 @@
 """Tests for GitHub polling helpers."""
 
-import asyncio
 import contextlib
 import json
 import subprocess
@@ -16,11 +15,9 @@ from maelstrom.github import (
     create_pr,
     create_project_repo,
     get_open_prs,
-    get_open_prs_async,
     get_pr_checks,
     get_pr_comments,
     get_pr_for_branch,
-    get_pr_for_branch_async,
     get_repo_info,
     get_run_artifacts,
     get_worktree_code,
@@ -404,7 +401,7 @@ def _ok(stdout):
 
 
 def _query_of(call):
-    """The GraphQL document a ``run_cmd`` call carries."""
+    """The GraphQL document a ``run_cmd_async`` call carries."""
     argv = call[0][0]
     return argv[argv.index("-f") + 1]
 
@@ -419,38 +416,47 @@ class TestGetPrForBranch:
 
     @staticmethod
     def _list(payload):
-        return patch("maelstrom.github.run_cmd", return_value=_ok(payload))
+        return patch("maelstrom.github.run_cmd_async", return_value=_ok(payload))
 
-    def test_a_branch_with_a_pr_answers_its_number_and_commit_count(self):
+    async def test_a_branch_with_a_pr_answers_its_number_and_commit_count(self):
         payload = json.dumps(
             {"number": 42, "commits": 5, "url": "https://x/pull/42", "isDraft": False}
         )
         with self._list(payload):
-            pr = get_pr_for_branch(Path("."), "feat/a")
+            pr = await get_pr_for_branch(Path("."), "feat/a")
         assert pr is not None
         assert (pr.number, pr.commits, pr.url) == (42, 5, "https://x/pull/42")
 
-    def test_it_claims_no_state_it_did_not_look_up(self):
+    async def test_it_claims_no_state_it_did_not_look_up(self):
         payload = json.dumps({"number": 42, "commits": 1, "url": "", "isDraft": False})
         with self._list(payload):
-            pr = get_pr_for_branch(Path("."), "feat/a")
+            pr = await get_pr_for_branch(Path("."), "feat/a")
         assert pr is not None
         assert pr.state == "unknown"
 
-    def test_a_branch_with_no_pr_answers_nothing(self):
+    async def test_a_branch_with_no_pr_answers_nothing(self):
         with self._list(""):
-            assert get_pr_for_branch(Path("."), "feat/a") is None
+            assert await get_pr_for_branch(Path("."), "feat/a") is None
 
-    def test_a_failed_call_answers_nothing(self):
+    async def test_a_failed_call_answers_nothing(self):
         with patch(
-            "maelstrom.github.run_cmd",
+            "maelstrom.github.run_cmd_async",
             return_value=SimpleNamespace(returncode=1, stdout="", stderr="boom"),
         ):
-            assert get_pr_for_branch(Path("."), "feat/a") is None
+            assert await get_pr_for_branch(Path("."), "feat/a") is None
 
-    def test_unparseable_output_answers_nothing(self):
+    async def test_unparseable_output_answers_nothing(self):
         with self._list("not json"):
-            assert get_pr_for_branch(Path("."), "feat/a") is None
+            assert await get_pr_for_branch(Path("."), "feat/a") is None
+
+    async def test_a_missing_gh_answers_nothing(self):
+        """``gh`` absent raises from the spawn, before any exit code exists.
+
+        The fallback reader degrades to a blank cell rather than failing the
+        row, as the batch reader does.
+        """
+        with patch("maelstrom.github.run_cmd_async", side_effect=FileNotFoundError):
+            assert await get_pr_for_branch(Path("."), "feat/a") is None
 
 
 class TestGetOpenPrs:
@@ -465,7 +471,7 @@ class TestGetOpenPrs:
     poll, so a walk would get slower for the life of the repo.
     """
 
-    def test_maps_every_branch_it_asked_about(self):
+    async def test_maps_every_branch_it_asked_about(self):
         page = _graphql_page(
             {
                 "refactor/document-derivatives": [
@@ -474,8 +480,8 @@ class TestGetOpenPrs:
                 "feat/pgsql-users": [_node(1543, "feat/pgsql-users", 2)],
             }
         )
-        with patch("maelstrom.github.run_cmd", return_value=_ok(page)):
-            prs = get_open_prs(
+        with patch("maelstrom.github.run_cmd_async", return_value=_ok(page)):
+            prs = await get_open_prs(
                 Path("."), {"refactor/document-derivatives", "feat/pgsql-users"}
             )
         assert prs is not None
@@ -484,13 +490,13 @@ class TestGetOpenPrs:
             "feat/pgsql-users": (1543, 2),
         }
 
-    def test_the_query_asks_for_every_field_the_state_rule_reads(self):
+    async def test_the_query_asks_for_every_field_the_state_rule_reads(self):
         """The parser decides a state from these five. A query that drops one
         would read every PR as `ready` and say nothing was wrong."""
         with patch(
-            "maelstrom.github.run_cmd", return_value=_ok(_graphql_page({}))
+            "maelstrom.github.run_cmd_async", return_value=_ok(_graphql_page({}))
         ) as run:
-            get_open_prs(Path("."), {"feat/a"})
+            await get_open_prs(Path("."), {"feat/a"})
         query = _query_of(run.call_args)
         for field in ("url", "isDraft", "state", "mergeable", "statusCheckRollup"):
             assert field in query
@@ -504,52 +510,53 @@ class TestGetOpenPrs:
         for alias in aliases:
             assert f"{alias}: pullRequests(" in query
 
-    def test_it_asks_only_about_the_branches_it_was_given(self):
+    async def test_it_asks_only_about_the_branches_it_was_given(self):
         with patch(
-            "maelstrom.github.run_cmd", return_value=_ok(_graphql_page({}))
+            "maelstrom.github.run_cmd_async", return_value=_ok(_graphql_page({}))
         ) as run:
-            get_open_prs(Path("."), {"feat/a", "feat/b"})
+            await get_open_prs(Path("."), {"feat/a", "feat/b"})
         query = _query_of(run.call_args)
         assert 'headRefName: "feat/a"' in query
         assert 'headRefName: "feat/b"' in query
 
-    def test_it_asks_in_one_round_trip(self):
+    async def test_it_asks_in_one_round_trip(self):
         with patch(
-            "maelstrom.github.run_cmd", return_value=_ok(_graphql_page({}))
+            "maelstrom.github.run_cmd_async", return_value=_ok(_graphql_page({}))
         ) as run:
-            get_open_prs(Path("."), {f"feat/{n}" for n in range(20)})
+            await get_open_prs(Path("."), {f"feat/{n}" for n in range(20)})
         assert run.call_count == 1
 
-    def test_it_includes_merged_prs(self):
+    async def test_it_includes_merged_prs(self):
         """A branch whose PR merged must still resolve, or `merged` never shows."""
         with patch(
-            "maelstrom.github.run_cmd", return_value=_ok(_graphql_page({}))
+            "maelstrom.github.run_cmd_async", return_value=_ok(_graphql_page({}))
         ) as run:
-            get_open_prs(Path("."), {"feat/a"})
+            await get_open_prs(Path("."), {"feat/a"})
         assert "states: [OPEN, MERGED]" in _query_of(run.call_args)
 
-    def test_a_branch_name_with_a_quote_in_it_cannot_break_the_query(self):
+    async def test_a_branch_name_with_a_quote_in_it_cannot_break_the_query(self):
         """Branch names are git refs, not literals we control. An unescaped one
         would end the string argument and make the document unparseable."""
         with patch(
-            "maelstrom.github.run_cmd", return_value=_ok(_graphql_page({}))
+            "maelstrom.github.run_cmd_async", return_value=_ok(_graphql_page({}))
         ) as run:
-            get_open_prs(Path("."), {'feat/a"} evil {'})
+            await get_open_prs(Path("."), {'feat/a"} evil {'})
         assert '"' in _query_of(run.call_args)
 
-    def test_no_branches_asks_nothing_at_all(self):
+    async def test_no_branches_asks_nothing_at_all(self):
         """A project whose worktrees are all detached has nothing to look up."""
-        with patch("maelstrom.github.run_cmd") as run:
-            assert get_open_prs(Path("."), set()) == {}
+        with patch("maelstrom.github.run_cmd_async") as run:
+            assert await get_open_prs(Path("."), set()) == {}
         run.assert_not_called()
 
-    def test_a_branch_with_no_pr_is_absent_rather_than_an_error(self):
+    async def test_a_branch_with_no_pr_is_absent_rather_than_an_error(self):
         with patch(
-            "maelstrom.github.run_cmd", return_value=_ok(_graphql_page({"one": []}))
+            "maelstrom.github.run_cmd_async",
+            return_value=_ok(_graphql_page({"one": []})),
         ):
-            assert get_open_prs(Path("."), {"one"}) == {}
+            assert await get_open_prs(Path("."), {"one"}) == {}
 
-    def test_an_open_pr_beats_a_merged_one_on_the_same_branch(self):
+    async def test_an_open_pr_beats_a_merged_one_on_the_same_branch(self):
         """`create-pr` opens a new PR on a branch whose last PR merged, so a
         recycled branch is routine. The open PR is the work in hand."""
         page = _graphql_page(
@@ -560,12 +567,12 @@ class TestGetOpenPrs:
                 ]
             }
         )
-        with patch("maelstrom.github.run_cmd", return_value=_ok(page)):
-            prs = get_open_prs(Path("."), {"one"})
+        with patch("maelstrom.github.run_cmd_async", return_value=_ok(page)):
+            prs = await get_open_prs(Path("."), {"one"})
         assert prs is not None
         assert prs["one"].number == 8
 
-    def test_a_partial_answer_is_used_rather_than_thrown_away(self):
+    async def test_a_partial_answer_is_used_rather_than_thrown_away(self):
         """gh exits 1 when any field was refused, even though it printed the
         rest. A token without the checks scope must still get its PR numbers."""
         payload = json.dumps(
@@ -577,35 +584,35 @@ class TestGetOpenPrs:
             }
         )
         with patch(
-            "maelstrom.github.run_cmd",
+            "maelstrom.github.run_cmd_async",
             return_value=SimpleNamespace(returncode=1, stdout=payload, stderr="denied"),
         ):
-            prs = get_open_prs(Path("."), {"one"})
+            prs = await get_open_prs(Path("."), {"one"})
         assert prs is not None
         assert prs["one"].number == 42
 
-    def test_a_failed_call_is_distinct_from_a_branch_with_no_pr(self):
+    async def test_a_failed_call_is_distinct_from_a_branch_with_no_pr(self):
         """A batch failure must not blank the whole column silently. ``None``
         lets the caller fall back per branch; ``{}`` would claim no PRs exist."""
         with patch(
-            "maelstrom.github.run_cmd",
+            "maelstrom.github.run_cmd_async",
             return_value=SimpleNamespace(returncode=1, stdout="", stderr="boom"),
         ):
-            assert get_open_prs(Path("."), {"one"}) is None
+            assert await get_open_prs(Path("."), {"one"}) is None
 
-    def test_missing_gh_is_a_failure_not_an_empty_repo(self):
-        with patch("maelstrom.github.run_cmd", side_effect=FileNotFoundError):
-            assert get_open_prs(Path("."), {"one"}) is None
+    async def test_missing_gh_is_a_failure_not_an_empty_repo(self):
+        with patch("maelstrom.github.run_cmd_async", side_effect=FileNotFoundError):
+            assert await get_open_prs(Path("."), {"one"}) is None
 
-    def test_unparseable_output_is_a_failure_not_an_empty_repo(self):
-        with patch("maelstrom.github.run_cmd", return_value=_ok("not json")):
-            assert get_open_prs(Path("."), {"one"}) is None
+    async def test_unparseable_output_is_a_failure_not_an_empty_repo(self):
+        with patch("maelstrom.github.run_cmd_async", return_value=_ok("not json")):
+            assert await get_open_prs(Path("."), {"one"}) is None
 
-    def test_a_graphql_error_payload_is_a_failure(self):
+    async def test_a_graphql_error_payload_is_a_failure(self):
         """gh exits 0 on a GraphQL error payload, so returncode is not enough."""
         errors = json.dumps({"errors": [{"message": "rate limited"}]})
-        with patch("maelstrom.github.run_cmd", return_value=_ok(errors)):
-            assert get_open_prs(Path("."), {"one"}) is None
+        with patch("maelstrom.github.run_cmd_async", return_value=_ok(errors)):
+            assert await get_open_prs(Path("."), {"one"}) is None
 
 
 class TestCreatePrRegistersTheStack:
@@ -937,77 +944,6 @@ class TestGetRepoInfoUnexpectedFormat:
             with pytest.raises(GitHubError) as excinfo:
                 get_repo_info(Path("."))
         assert not isinstance(excinfo.value, GitHubCommandFailed)
-
-
-class TestTheAsyncPrReaders:
-    """The two PR reads the orchestrator server makes, driven on a loop.
-
-    The sync twins above are what ``mael list`` calls; these are what
-    ``build_list_all_data`` calls, and until now nothing exercised them. Their
-    degradation is the point: this runs on a 15-second poll, so a ``gh`` that
-    is missing, unauthenticated or answering rubbish must cost the PR column
-    rather than the whole read.
-    """
-
-    @staticmethod
-    def _replies(**kwargs):
-        return patch("maelstrom.github.run_cmd_async", **kwargs)
-
-    def test_a_branch_with_a_pr_answers_its_number_and_commit_count(self):
-        payload = json.dumps(
-            {"number": 42, "commits": 5, "url": "https://x/pull/42", "isDraft": False}
-        )
-        with self._replies(return_value=_ok(payload)):
-            pr = asyncio.run(get_pr_for_branch_async(Path("."), "feat/a"))
-        assert pr is not None
-        assert (pr.number, pr.commits, pr.url) == (42, 5, "https://x/pull/42")
-
-    def test_a_branch_with_no_pr_answers_nothing(self):
-        with self._replies(return_value=_ok("")):
-            assert asyncio.run(get_pr_for_branch_async(Path("."), "feat/a")) is None
-
-    def test_unparseable_output_answers_nothing(self):
-        with self._replies(return_value=_ok("not json")):
-            assert asyncio.run(get_pr_for_branch_async(Path("."), "feat/a")) is None
-
-    def test_a_missing_gh_answers_nothing(self):
-        """``gh`` absent raises from the spawn; the row degrades, it does not fail."""
-        with self._replies(side_effect=FileNotFoundError("gh")):
-            assert asyncio.run(get_pr_for_branch_async(Path("."), "feat/a")) is None
-
-    def test_it_answers_every_branch_from_one_call(self):
-        payload = json.dumps(
-            {
-                "data": {
-                    "repository": {
-                        "b0": {"nodes": [{"number": 1, "commits": {"totalCount": 2}}]},
-                        "b1": {"nodes": [{"number": 3, "commits": {"totalCount": 4}}]},
-                    }
-                }
-            }
-        )
-        with self._replies(return_value=_ok(payload)) as run:
-            prs = asyncio.run(get_open_prs_async(Path("."), {"feat/a", "feat/b"}))
-        assert run.call_count == 1
-        assert prs is not None
-        assert {b: p.number for b, p in prs.items()} == {"feat/a": 1, "feat/b": 3}
-
-    def test_no_branches_costs_no_call(self):
-        with self._replies() as run:
-            assert asyncio.run(get_open_prs_async(Path("."), set())) == {}
-        run.assert_not_called()
-
-    def test_a_refused_query_is_told_apart_from_no_prs(self):
-        """``None`` means "could not ask", which the caller retries per branch.
-
-        An empty dict would claim every branch has no PR, blanking the column.
-        """
-        with self._replies(return_value=_ok("")):
-            assert asyncio.run(get_open_prs_async(Path("."), {"feat/a"})) is None
-
-    def test_unparseable_output_is_told_apart_from_no_prs(self):
-        with self._replies(return_value=_ok("not json")):
-            assert asyncio.run(get_open_prs_async(Path("."), {"feat/a"})) is None
 
 
 class TestCreatePrUsesThePrDraft:

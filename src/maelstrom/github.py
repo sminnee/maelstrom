@@ -6,18 +6,16 @@ logic — the dataclasses, the parsers, the stack walk, the errors — lives in
 ``github_model`` and needs no subprocess to exercise.
 
 Most functions shell out through ``run_cmd`` or ``run_git`` and block. The two
-the orchestrator server reads on its poll — :func:`get_open_prs_async` and
-:func:`get_pr_for_branch_async` — use ``run_cmd_async`` instead, so a network
-round trip does not stall the loop serving the sockets. Each has a blocking
-twin beside it. ``mael list`` calls :func:`get_open_prs`;
-:func:`get_pr_for_branch` has no caller left, and is kept as the CLI-side
-fallback its async twin already serves.
+the orchestrator server reads on its poll — :func:`get_open_prs` and
+:func:`get_pr_for_branch` — are coroutines over ``run_cmd_async``, so a network
+round trip does not stall the loop serving the sockets. There is one form of
+each: no blocking twin to keep in step.
 
 ``run_cmd`` and ``run_cmd_async`` are the mock seams these functions are tested
 through; nothing wraps either, so a test can patch this module's attribute
 directly. Prefer the argv builders and parsers — ``_open_prs_query``,
 ``_parse_pr_for_branch`` and their siblings — where a test can use them: those
-are pure, shared by both twins, and stay put when the transport changes.
+are pure and stay put when the transport changes.
 """
 
 import json
@@ -172,7 +170,7 @@ def create_project_repo(
         raise GitHubCliMissing("gh")
 
 
-def get_pr_for_branch(cwd: Path, branch: str) -> PrStatus | None:
+async def get_pr_for_branch(cwd: Path, branch: str) -> PrStatus | None:
     """One branch's pull request, looked up alone when the batch call failed.
 
     ``gh pr list`` carries no check rollup and no mergeability, so ``state``
@@ -186,15 +184,7 @@ def get_pr_for_branch(cwd: Path, branch: str) -> PrStatus | None:
     Returns:
         The branch's pull request, or ``None`` when it has none.
     """
-    try:
-        result = run_cmd(_pr_for_branch_argv(branch), cwd=cwd, quiet=True, check=False)
-        return _parse_pr_for_branch(result)
-    except (ValueError, TypeError, FileNotFoundError, json.JSONDecodeError):
-        return None
 
-
-async def get_pr_for_branch_async(cwd: Path, branch: str) -> PrStatus | None:
-    """:func:`get_pr_for_branch`, without blocking the calling thread."""
     try:
         result = await run_cmd_async(
             _pr_for_branch_argv(branch), cwd=cwd, quiet=True, check=False
@@ -291,12 +281,15 @@ def _open_prs_query(branches: list[str]) -> tuple[str, dict[str, str]]:
     return query, aliases
 
 
-def get_open_prs(cwd: Path, branches: set[str]) -> dict[str, PrStatus] | None:
+async def get_open_prs(cwd: Path, branches: set[str]) -> dict[str, PrStatus] | None:
     """Map branch -> its pull request, for each of ``branches`` that has one.
 
     One GraphQL call for every branch, in place of one ``gh pr list`` each. On a
     project with seven worktrees that is ~0.7s instead of ~5.6s, which is most of
     what ``mael list`` spends.
+
+    The slowest read on the orchestrator's worktree poll: one network round
+    trip per project, on a loop that is serving sockets while it waits.
 
     Args:
         cwd: Working directory (must be in a git repo).
@@ -307,28 +300,6 @@ def get_open_prs(cwd: Path, branches: set[str]) -> dict[str, PrStatus] | None:
         request. ``{}`` when none of them does. ``None`` when the lookup failed,
         so the caller can fall back per branch rather than render every PR as
         absent — an empty column and a broken ``gh`` must not look the same.
-    """
-    if not branches:
-        return {}
-    query, aliases = _open_prs_query(sorted(branches))
-    try:
-        result = run_cmd(_open_prs_argv(query), cwd=cwd, quiet=True, check=False)
-        # Not the exit code: gh exits 1 on any refused field, having printed
-        # the rest. The parser raises when nothing usable came back.
-        if not result.stdout.strip():
-            return None
-        return parse_open_prs(result.stdout.strip(), aliases)
-    except (ValueError, KeyError, TypeError, FileNotFoundError, json.JSONDecodeError):
-        return None
-
-
-async def get_open_prs_async(
-    cwd: Path, branches: set[str]
-) -> dict[str, PrStatus] | None:
-    """:func:`get_open_prs`, without blocking the calling thread.
-
-    The slowest read on the orchestrator's worktree poll: one network round
-    trip per project, on a loop that is serving sockets while it waits.
     """
     if not branches:
         return {}

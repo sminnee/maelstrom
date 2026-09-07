@@ -183,7 +183,7 @@ async def _find_session(id: str | None) -> session_discovery.LiveSession:
             "CLAUDE_PID is set."
         )
 
-    live = session_discovery.LiveSessionSet()
+    live = await session_discovery.LiveSessionSet().sweep()
     for handle in handles:
         try:
             return live.resolve(handle)
