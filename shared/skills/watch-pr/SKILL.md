@@ -55,7 +55,8 @@ Run this loop. Each iteration is one CI cycle.
 5. **Commit each fix**, classifying it:
 
    - **Related to this PR** (the PR's own changes caused the failure) → commit as a **fixup**
-     targeting the commit that introduced the problem:
+     targeting the commit that introduced the problem. On a presented branch that is the story
+     commit whose decision the fix revises:
 
      ```bash
      git add <files>
@@ -101,6 +102,9 @@ Run this loop. Each iteration is one CI cycle.
   genuinely cannot fix (report what's blocking you and stop).
 - **Stay on the PR's branch.** Never make a new branch here. Every fixup and every `chore:` commit
   goes on the branch that is already checked out.
+- **Never run `/present` here.** The branch was presented once, before review, and its commits are
+  story commits the reviewer has already read. A fix is a `fixup!` on the story commit whose
+  decision it revises, or a `chore:` when it revises none.
 - **Fix everything CI reports**, not just failures attributable to this PR — a red pipeline blocks
   the merge regardless of cause.
 - **Fixup vs chore** is the key call each fix: PR-caused → `git commit --fixup <sha>`;
