@@ -54,7 +54,7 @@ from .agent_server import (
 )
 from .agent_spec_store import JsonAgentSpecStore
 from .agent_transport import (
-    UNREACHABLE_MARKER,
+    KIND_UNREACHABLE,
     DaemonClient,
     DaemonPaths,
     RootUnset,
@@ -173,7 +173,7 @@ def cmd_daemon_status() -> None:
         # answers "no such agent", which reads here as a fault in this command
         # rather than in the daemon it is asking. Say what it means instead.
         error = reply["error"]
-        if UNREACHABLE_MARKER in error:
+        if reply.get("kind"):
             click.echo(f"Error: {error}", err=True)
         else:
             click.echo(
@@ -240,7 +240,10 @@ def _reconcile_root(paths: DaemonPaths, *, act: bool) -> _RootReport:
         held = {row["id"] for row in rows if not row.get("parent")}
         verdicts = [Verdict(**v) for v in reply.get("verdicts", [])]
         return _RootReport(paths, verdicts, list(reply.get("killed", [])), held, True)
-    if UNREACHABLE_MARKER not in reply["error"]:
+    # Only an absent daemon licenses the spec-file fallback below. A denial
+    # means a daemon is probably still holding these agents, so killing the
+    # strays it reports would kill live ones.
+    if reply.get("kind") != KIND_UNREACHABLE:
         raise click.ClickException(reply["error"])
     specs = JsonAgentSpecStore(paths.spec_dir)
     try:

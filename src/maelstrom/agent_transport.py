@@ -210,15 +210,27 @@ def unreachable_message(paths: DaemonPaths) -> str:
     )
 
 
-def connect_failure(socket_path: str, error: OSError) -> str:
-    """The message for a connect that did not land.
+#: No daemon holds this root: nothing is listening on the socket.
+KIND_UNREACHABLE = "unreachable"
+
+#: The socket is there and the connect was refused, usually by a sandbox.
+KIND_DENIED = "denied"
+
+
+def connect_failure(socket_path: str, error: OSError) -> dict[str, str]:
+    """The reply for a connect that did not land.
 
     Every connect site maps its failure here, so a denial cannot read as an
-    absent daemon at one call site and correctly at another.
+    absent daemon at one call site and correctly at another. ``kind`` is what
+    callers branch on: a caller matching the message text would break on a
+    reword, and one of them decides whether a daemon still holds live agents.
     """
     if isinstance(error, PermissionError):
-        return denied_message(socket_path)
-    return unreachable_message(DaemonPaths.for_socket(socket_path))
+        return {"error": denied_message(socket_path), "kind": KIND_DENIED}
+    return {
+        "error": unreachable_message(DaemonPaths.for_socket(socket_path)),
+        "kind": KIND_UNREACHABLE,
+    }
 
 
 async def request_over_socket(
@@ -237,7 +249,7 @@ async def request_over_socket(
     try:
         reader, writer = await open_connection(socket_path)
     except (OSError, asyncio.TimeoutError) as error:
-        return {"error": connect_failure(socket_path, error)}
+        return connect_failure(socket_path, error)
     try:
         writer.write((json.dumps(payload) + "\n").encode())
         await writer.drain()
@@ -382,7 +394,7 @@ class SocketAsyncDaemonClient:
         try:
             reader, writer = await open_connection(self.socket_path)
         except (OSError, asyncio.TimeoutError) as error:
-            yield {"error": connect_failure(self.socket_path, error)}
+            yield connect_failure(self.socket_path, error)
             return
         try:
             writer.write(
