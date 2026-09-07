@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import pytest
 
-from maelstrom.github_model import PrStatus
+from maelstrom.github_model import PrStatus, RateLimited
 from maelstrom.list_all import (
     build_list_all_data,
     project_repo_url,
@@ -561,3 +561,105 @@ def test_the_project_store_reads_do_not_block_the_other_projects(tmp_path):
 
     assert len(data["projects"]) == 4
     assert probe.peak > 1, "the store reads ran one after another"
+
+
+def _row_not_asked(project_path, *, remembered):
+    """The one worktree row `build_list_all_data` makes when the branch is
+    outside the active set, so no batch call is made for it at all.
+
+    ``remembered`` is what an earlier poll learned about the branch. The batch
+    is patched to fail the test if it is called: a branch outside the active
+    set must cost no network read.
+    """
+    branches = {wt.branch for wt in list_worktrees(project_path) if wt.branch}
+    cache = {branch: remembered for branch in branches} if remembered else {}
+
+    async def _never(*_args, **_kwargs):
+        raise AssertionError("a branch outside the active set was asked about")
+
+    with (
+        patch("maelstrom.list_all.get_open_prs", new=_never),
+        patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
+    ):
+        data = asyncio.run(
+            build_list_all_data(
+                project_path.parent, active_branches=set(), pr_cache=cache
+            )
+        )
+    return data["projects"][0]["worktrees"][0]
+
+
+def test_a_branch_outside_the_active_set_keeps_its_last_known_pr(
+    project_with_worktree,  # noqa: F811
+):
+    """Not asked is not the same as no PR.
+
+    A branch the poll skips must keep what the last poll learned. Reporting
+    `None` would tell the reader the PR was gone, which is worse than stale.
+    """
+    project_path, _worktree_path, _remote = project_with_worktree
+    (project_path / ".mael").touch()
+    row = _row_not_asked(project_path, remembered=_pr(42, state="ci-running"))
+    assert (row["pr_number"], row["pr_state"]) == (42, "ci-running")
+
+
+def test_a_branch_outside_the_active_set_with_nothing_remembered_has_no_pr(
+    project_with_worktree,  # noqa: F811
+):
+    """The cold case: skipped, and nothing cached. The row carries no PR, and
+    still makes no call to find that out."""
+    project_path, _worktree_path, _remote = project_with_worktree
+    (project_path / ".mael").touch()
+    row = _row_not_asked(project_path, remembered=None)
+    assert (row["pr_number"], row["pr_state"]) == (None, None)
+
+
+def test_a_rate_limited_batch_does_not_look_each_branch_up(
+    project_with_worktree,  # noqa: F811
+):
+    """The amplification guard.
+
+    A failed batch normally falls back to one lookup per branch. Doing that to
+    a rate limit turns one refused call into one call per worktree and keeps
+    the budget spent, so the rate-limited case must make no fallback call at
+    all. Asserting the row's contents would pass either way — what matters is
+    that the fallback is never reached.
+    """
+    project_path, _worktree_path, _remote = project_with_worktree
+    (project_path / ".mael").touch()
+
+    async def _rate_limited(*_args, **_kwargs):
+        raise RateLimited("GraphQL rate limit: [{'type': 'RATE_LIMIT'}]")
+
+    async def _never(*_args, **_kwargs):
+        raise AssertionError("a rate limit was answered by a per-branch lookup")
+
+    with (
+        patch("maelstrom.list_all.get_open_prs", new=_rate_limited),
+        patch("maelstrom.list_all.get_pr_for_branch", new=_never),
+        patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
+    ):
+        data = asyncio.run(build_list_all_data(project_path.parent))
+
+    assert data["projects"][0]["worktrees"][0]["pr_number"] is None
+
+
+def test_an_ordinary_batch_failure_still_looks_each_branch_up(
+    project_with_worktree,  # noqa: F811
+):
+    """A missing scope or a broken `gh` is still worth a per-branch lookup: it
+    keeps one blank row rather than a blank column. Only a rate limit is not."""
+    project_path, _worktree_path, _remote = project_with_worktree
+    (project_path / ".mael").touch()
+
+    async def _failed(*_args, **_kwargs):
+        return None
+
+    with (
+        patch("maelstrom.list_all.get_open_prs", new=_failed),
+        patch("maelstrom.list_all.get_pr_for_branch", return_value=_pr(7)),
+        patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
+    ):
+        data = asyncio.run(build_list_all_data(project_path.parent))
+
+    assert data["projects"][0]["worktrees"][0]["pr_number"] == 7

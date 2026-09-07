@@ -42,6 +42,7 @@ from .github_model import (
     PRInfo,
     PrStatus,
     PullRequestNotMergeable,
+    RateLimited,
     SyncFailed,
     is_missing_pr_error,
     parse_artifacts,
@@ -311,6 +312,10 @@ async def get_open_prs(cwd: Path, branches: set[str]) -> dict[str, PrStatus] | N
         if not result.stdout.strip():
             return None
         return parse_open_prs(result.stdout.strip(), aliases)
+    except RateLimited:
+        # Distinct from the failures below, which return ``None`` and are
+        # answered per branch. The caller decides what a row shows.
+        raise
     except (ValueError, KeyError, TypeError, FileNotFoundError, json.JSONDecodeError):
         return None
 

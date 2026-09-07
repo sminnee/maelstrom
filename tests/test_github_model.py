@@ -20,6 +20,7 @@ from maelstrom.github_model import (
     PRInfo,
     PrStatus,
     PullRequestNotMergeable,
+    RateLimited,
     SyncFailed,
     is_missing_pr_error,
     parse_artifacts,
@@ -529,6 +530,53 @@ class TestParseOpenPrs:
         payload = json.dumps({"errors": [{"message": "rate limited"}], "data": None})
         with pytest.raises(ValueError):
             parse_open_prs(payload, {"b0": "feat/a"})
+
+    def test_a_rate_limit_is_told_apart_from_other_failures(self):
+        """A rate limit must not be answered by falling back per branch: that
+        turns one refused call into one call per worktree. The payload is the
+        only signal, so the error type has to carry it.
+
+        The payload is the one GitHub really sent, not a hand-written shape.
+        """
+        payload = json.dumps(
+            {
+                "errors": [
+                    {
+                        "type": "RATE_LIMIT",
+                        "code": "graphql_rate_limit",
+                        "message": "API rate limit already exceeded for user ID 59968.",
+                    }
+                ],
+                "data": None,
+            }
+        )
+        with pytest.raises(RateLimited):
+            parse_open_prs(payload, {"b0": "feat/a"})
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            {"type": "RATE_LIMIT"},
+            {"code": "graphql_rate_limit"},
+        ],
+        ids=["type-only", "code-only"],
+    )
+    def test_either_rate_limit_marker_is_enough(self, error):
+        """The real payload carries both markers, so one test covering it cannot
+        say whether either alone is read. GitHub is not obliged to send both."""
+        payload = json.dumps({"errors": [error], "data": None})
+        with pytest.raises(RateLimited):
+            parse_open_prs(payload, {"b0": "feat/a"})
+
+    def test_a_non_rate_limit_failure_is_not_a_rate_limit(self):
+        """A missing scope still falls back per branch, so it must stay an
+        ordinary failure."""
+        payload = json.dumps(
+            {"errors": [{"message": "Could not resolve to a Repository"}], "data": None}
+        )
+        with pytest.raises(ValueError) as caught:
+            parse_open_prs(payload, {"b0": "feat/a"})
+        assert not isinstance(caught.value, RateLimited)
 
     def test_a_denied_rollup_keeps_the_rest_of_the_answer(self):
         """A token without the checks scope is refused `statusCheckRollup` per

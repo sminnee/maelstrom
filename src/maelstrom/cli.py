@@ -37,7 +37,7 @@ from .github import (
     wait_for_merge,
 )
 from .github_cli import gh as gh_cli
-from .github_model import GitHubError, PrStatus, is_open_pr
+from .github_model import GitHubError, PrStatus, RateLimited, is_open_pr
 from .integrations.linear import linear
 from .integrations.sentry import sentry
 from .integrations.slack import slack
@@ -649,9 +649,19 @@ async def cmd_list(project):
     branch_sessions = branch_session_ids(project_name)
     # Every open PR in one call, rather than one `gh pr list` per row. The
     # per-branch call is ~0.8s, so this is most of the command's runtime.
-    open_prs = await get_open_prs(
-        project_path, {wt.branch for wt, _ in open_worktrees if wt.branch}
-    )
+    try:
+        open_prs = await get_open_prs(
+            project_path, {wt.branch for wt, _ in open_worktrees if wt.branch}
+        )
+    except RateLimited:
+        # An empty batch, not a failed one: looking each branch up on its own
+        # cannot succeed either, and would spend what is left of the budget.
+        # The PR column reads blank, and a warning says why.
+        click.echo(
+            "GitHub rate limit reached; the PR column is blank for this read.",
+            err=True,
+        )
+        open_prs = {}
 
     # Gather extended info for each open worktree
     rows = []
