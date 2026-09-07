@@ -18,18 +18,18 @@ from typing import Any
 from . import session_discovery
 from . import task as task_model
 from .base_store import GitConfigBaseStore
-from .github import get_open_prs, get_pr_for_branch
+from .github import get_open_prs_async, get_pr_for_branch_async
 from .github_model import PrStatus, is_open_pr
 from .ports import get_app_url
 from .task_store import GitFileStore
 from .worktree import (
-    closed_worktrees,
+    closed_worktrees_async,
     find_all_projects,
-    get_local_only_commits,
-    get_pushed_commit_count,
-    get_worktree_dirty_files,
-    list_worktrees,
-    run_git,
+    get_local_only_commits_async,
+    get_pushed_commit_count_async,
+    get_worktree_dirty_files_async,
+    list_worktrees_async,
+    run_git_async,
 )
 from .worktree_model import extract_worktree_name_from_folder, has_claude_transcript
 
@@ -60,15 +60,16 @@ def branch_session_ids(project_name: str) -> dict[str, list[str]]:
         return {}
 
 
-def resolve_pr(
+async def resolve_pr(
     open_prs: dict[str, PrStatus] | None,
     project_path: Path,
     branch: str | None,
 ) -> PrStatus | None:
     """Resolve ``branch`` to its pull request, or ``None`` when it has none.
 
-    ``open_prs`` is the batch from :func:`get_open_prs`, or ``None`` when that
-    call failed. A successful batch is authoritative: a branch missing from it
+    ``open_prs`` is the batch from
+    :func:`~maelstrom.github.get_open_prs_async`, or ``None`` when that call
+    failed. A successful batch is authoritative: a branch missing from it
     has no PR, so we answer without a second network call. A failed batch falls
     back to the per-branch lookup, which keeps a broken ``gh`` no worse than it
     was before batching — one blank row rather than a blank column.
@@ -77,7 +78,7 @@ def resolve_pr(
         return None
     if open_prs is not None:
         return open_prs.get(branch)
-    return get_pr_for_branch(project_path, branch)
+    return await get_pr_for_branch_async(project_path, branch)
 
 
 def session_display(count: int, stopped: bool) -> str:
@@ -132,7 +133,7 @@ def pr_url(repo_url: str | None, pr_number: int | None) -> str | None:
     return f"{repo_url}/pull/{pr_number}"
 
 
-def project_repo_url(project_path: Path) -> str | None:
+async def project_repo_url(project_path: Path) -> str | None:
     """The project's browse URL, read from ``remote.origin.url``.
 
     Read from git config rather than ``gh``: ``build_list_all_data`` runs on the
@@ -145,7 +146,7 @@ def project_repo_url(project_path: Path) -> str | None:
     project its PR links, not the whole read.
     """
     try:
-        result = run_git(
+        result = await run_git_async(
             ["config", "--get", "remote.origin.url"],
             cwd=project_path,
             quiet=True,
@@ -158,7 +159,7 @@ def project_repo_url(project_path: Path) -> str | None:
     return repo_url_from_remote(result.stdout)
 
 
-def build_list_all_data(projects_dir: Path) -> dict[str, Any]:
+async def build_list_all_data(projects_dir: Path) -> dict[str, Any]:
     """Every project under ``projects_dir`` with its worktrees, as ``list-all`` data.
 
     The shape is what ``mael --json list-all`` prints: ``{"projects": [...]}``,
@@ -171,12 +172,12 @@ def build_list_all_data(projects_dir: Path) -> dict[str, Any]:
     projects = find_all_projects(projects_dir)
     # One live-session sweep shared across every project/worktree row, plus a
     # memo so the per-session worktree-list lookup runs once, not per row.
-    live_sessions = session_discovery.LiveSessionSet()
+    live_sessions = await session_discovery.LiveSessionSet().sweep()
 
     projects_data = []
     for project_path in projects:
         project_name = project_path.name
-        worktrees = list_worktrees(project_path)
+        worktrees = await list_worktrees_async(project_path)
         worktree_data = []
         # Branch → task session ids for this project (stopped-marker detection).
         branch_sessions = branch_session_ids(project_name)
@@ -185,12 +186,12 @@ def build_list_all_data(projects_dir: Path) -> dict[str, Any]:
         # detached has no branch to ask about, and `list-all` visits every
         # project — so skip the round trip rather than spend one per project.
         branches = {wt.branch for wt in worktrees if wt.branch}
-        open_prs = get_open_prs(project_path, branches) if branches else {}
+        open_prs = await get_open_prs_async(project_path, branches) if branches else {}
         # Likewise the closed check: one batch per project, not two subprocesses
         # per worktree.
-        closed_paths = closed_worktrees(project_path, worktrees)
+        closed_paths = await closed_worktrees_async(project_path, worktrees)
         # One repo lookup per project answers the PR URL for every row.
-        repo_url = project_repo_url(project_path)
+        repo_url = await project_repo_url(project_path)
         # One store read per project answers the base for every row.
         base_store = GitConfigBaseStore(project_path)
         bases = base_store.all()
@@ -232,15 +233,15 @@ def build_list_all_data(projects_dir: Path) -> dict[str, Any]:
                 continue
 
             base = bases.get(wt.branch or "")
-            dirty_count = len(get_worktree_dirty_files(wt.path))
-            local_commits = get_local_only_commits(wt.path, wt.branch)
+            dirty_count = len(await get_worktree_dirty_files_async(wt.path))
+            local_commits = await get_local_only_commits_async(wt.path, wt.branch)
 
-            pr = resolve_pr(open_prs, project_path, wt.branch)
+            pr = await resolve_pr(open_prs, project_path, wt.branch)
             # The per-branch fallback answers a number but no URL, so join one.
             row_pr_url = (pr.url or pr_url(repo_url, pr.number)) if pr else None
             pushed_commits = None
             if not is_open_pr(pr) and wt.branch:
-                pushed_commits = get_pushed_commit_count(wt.path, wt.branch)
+                pushed_commits = await get_pushed_commit_count_async(wt.path, wt.branch)
 
             session_count = live_sessions.count_for(wt.path)
             stopped = not session_count and session_stopped(

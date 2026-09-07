@@ -42,7 +42,7 @@ from .github_model import (
     stack_chain,
 )
 from .project_scaffold import scaffold_files
-from .shell import run_cmd
+from .shell import run_cmd, run_cmd_async
 from .worktree import (
     get_current_branch,
     run_git,
@@ -209,36 +209,56 @@ def get_pr_for_branch(cwd: Path, branch: str) -> PrStatus | None:
         The branch's pull request, or ``None`` when it has none.
     """
     try:
-        result = run_cmd(
-            [
-                "gh",
-                "pr",
-                "list",
-                "--head",
-                branch,
-                "--json",
-                "number,commits,url,isDraft",
-                "-q",
-                ".[0] | {number, commits: (.commits | length), url, isDraft}",
-            ],
-            cwd=cwd,
-            quiet=True,
-            check=False,
-        )
-        if result.returncode != 0 or not result.stdout.strip():
-            return None
-        data = json.loads(result.stdout.strip())
-        if not isinstance(data, dict) or data.get("number") is None:
-            return None
-        return PrStatus(
-            number=int(data["number"]),
-            commits=int(data.get("commits") or 0),
-            url=data.get("url") or "",
-            state="unknown",
-            is_draft=bool(data.get("isDraft")),
-        )
+        result = run_cmd(_pr_for_branch_argv(branch), cwd=cwd, quiet=True, check=False)
+        return _parse_pr_for_branch(result)
     except (ValueError, TypeError, FileNotFoundError, json.JSONDecodeError):
         return None
+
+
+async def get_pr_for_branch_async(cwd: Path, branch: str) -> PrStatus | None:
+    """:func:`get_pr_for_branch`, without blocking the calling thread."""
+    try:
+        result = await run_cmd_async(
+            _pr_for_branch_argv(branch), cwd=cwd, quiet=True, check=False
+        )
+        return _parse_pr_for_branch(result)
+    except (ValueError, TypeError, FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def _pr_for_branch_argv(branch: str) -> list[str]:
+    """The ``gh pr list`` argv that asks for one branch's newest pull request."""
+    return [
+        "gh",
+        "pr",
+        "list",
+        "--head",
+        branch,
+        "--json",
+        "number,commits,url,isDraft",
+        "-q",
+        ".[0] | {number, commits: (.commits | length), url, isDraft}",
+    ]
+
+
+def _parse_pr_for_branch(result: subprocess.CompletedProcess) -> PrStatus | None:
+    """Read a ``gh pr list`` result back as a :class:`PrStatus`, or ``None``.
+
+    ``state`` is ``unknown``: ``gh pr list`` carries no check rollup, so the
+    row says nothing rather than claiming a state nothing looked up.
+    """
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    data = json.loads(result.stdout.strip())
+    if not isinstance(data, dict) or data.get("number") is None:
+        return None
+    return PrStatus(
+        number=int(data["number"]),
+        commits=int(data.get("commits") or 0),
+        url=data.get("url") or "",
+        state="unknown",
+        is_draft=bool(data.get("isDraft")),
+    )
 
 
 # Each named branch's most recent pull requests, in one round trip.
@@ -314,22 +334,7 @@ def get_open_prs(cwd: Path, branches: set[str]) -> dict[str, PrStatus] | None:
         return {}
     query, aliases = _open_prs_query(sorted(branches))
     try:
-        result = run_cmd(
-            [
-                "gh",
-                "api",
-                "graphql",
-                "-f",
-                f"query={query}",
-                "-F",
-                "owner=:owner",
-                "-F",
-                "repo=:repo",
-            ],
-            cwd=cwd,
-            quiet=True,
-            check=False,
-        )
+        result = run_cmd(_open_prs_argv(query), cwd=cwd, quiet=True, check=False)
         # Not the exit code: gh exits 1 on any refused field, having printed
         # the rest. The parser raises when nothing usable came back.
         if not result.stdout.strip():
@@ -337,6 +342,43 @@ def get_open_prs(cwd: Path, branches: set[str]) -> dict[str, PrStatus] | None:
         return parse_open_prs(result.stdout.strip(), aliases)
     except (ValueError, KeyError, TypeError, FileNotFoundError, json.JSONDecodeError):
         return None
+
+
+async def get_open_prs_async(
+    cwd: Path, branches: set[str]
+) -> dict[str, PrStatus] | None:
+    """:func:`get_open_prs`, without blocking the calling thread.
+
+    The slowest read on the orchestrator's worktree poll: one network round
+    trip per project, on a loop that is serving sockets while it waits.
+    """
+    if not branches:
+        return {}
+    query, aliases = _open_prs_query(sorted(branches))
+    try:
+        result = await run_cmd_async(
+            _open_prs_argv(query), cwd=cwd, quiet=True, check=False
+        )
+        if not result.stdout.strip():
+            return None
+        return parse_open_prs(result.stdout.strip(), aliases)
+    except (ValueError, KeyError, TypeError, FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def _open_prs_argv(query: str) -> list[str]:
+    """The ``gh api graphql`` argv that asks ``query`` of the current repo."""
+    return [
+        "gh",
+        "api",
+        "graphql",
+        "-f",
+        f"query={query}",
+        "-F",
+        "owner=:owner",
+        "-F",
+        "repo=:repo",
+    ]
 
 
 def get_pr_url(cwd: Path) -> str:

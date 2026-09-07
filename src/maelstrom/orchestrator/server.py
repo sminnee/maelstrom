@@ -9,6 +9,7 @@ serve is documented in ``docs/dev/orchestrator-server.md``.
 """
 
 import asyncio
+import inspect
 import logging
 import uuid
 from collections.abc import Callable
@@ -221,12 +222,20 @@ class Orchestrator:
                 log.exception("refresh failed")
 
     async def _run(self, fn: Callable[..., Any], *args: Any) -> Any:
-        """Run blocking source work off the loop, when an executor was given."""
-        if self.executor is None:
-            return fn(*args)
-        return await asyncio.get_running_loop().run_in_executor(
-            self.executor, fn, *args
-        )
+        """Run source work off the loop, when it blocks and an executor was given.
+
+        A source that is already async needs neither: it hands back an
+        awaitable, which is awaited here rather than offloaded. So a source
+        converted to ``async`` keeps working through this one call site, and a
+        source still blocking keeps its thread.
+        """
+        if self.executor is None or inspect.iscoroutinefunction(fn):
+            result = fn(*args)
+        else:
+            result = await asyncio.get_running_loop().run_in_executor(
+                self.executor, fn, *args
+            )
+        return await result if inspect.isawaitable(result) else result
 
     # -- keeping the world fresh --
 
