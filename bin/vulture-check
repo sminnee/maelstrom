@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# The Python dead-code gate. Vulture runs twice: the production pass reads src/
+# alone and only reports, the test pass reads src/ and tests/ and fails the
+# build. See docs/dev/dead-code.md for why, and for what to do with a finding.
+#
+# Run this rather than vulture directly. [tool.vulture] configures the
+# production pass alone; the test pass is the flags below. CI calls this script
+# too, so the two cannot drift, and tests/test_dead_code_config.py holds the
+# flags to the table.
+set -euo pipefail
+
+echo "== vulture: production pass (report only) =="
+echo "Reached from tests/ but not from src/. Read it; it does not fail the build."
+# Vulture exits 3 when it finds something and 1 when it fails to run. Only the
+# first is expected here, so anything else still stops the script: a pass that
+# crashes must not read as a pass that found nothing.
+status=0
+uv run vulture || status=$?
+if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then
+  echo "vulture failed to run (exit $status)" >&2
+  exit "$status"
+fi
+
+echo
+echo "== vulture: test pass (the gate) =="
+# Command-line values replace the table rather than adding to it, so this pass
+# restates every setting it needs. Only the paths differ, plus the pytest names.
+uv run vulture \
+  --min-confidence=60 \
+  --ignore-decorators='@click.*,@*.command,@*.group,@*.result_callback,@property,@dataclass,@staticmethod,@classmethod,@overload,@routes.*,@pytest.*' \
+  --ignore-names='compose,on_*,action_*,BINDINGS,CSS,list_commands,get_command,InMemory*,test_*,pytest_*,mock_*' \
+  src tests .vulture_whitelist.py
+echo "No dead code."
