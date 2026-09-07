@@ -78,5 +78,9 @@ goes stale.
 - **PORT_BASE** is a 3-digit number (300-999) the allocator picks per NATO worktree; each
   service port = `PORT_BASE * 10 + index`. `_main` uses `main_port_base:` — see
   `docs/reference/configuration.md`.
+- **Never hardcode a port, and never start a service by hand.** Add it to `services:` in
+  `.maelstrom.yaml` with a name in its `ports:` list, and run it with `mael env start <name>`.
+  Several worktrees serve at once, so a port you picked yourself collides with the next one. A
+  worktree whose `.env` predates a service has no port for it: `mael env reset` adds it.
 - When creating worktrees, an existing `.env` from the project root is merged with generated
   port vars, with `$VAR` substitution.
