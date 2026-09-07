@@ -4,7 +4,7 @@ A ``ShellExpr`` is a closed union; the supported shell-feature set is deliberate
 small and fixed — adding a node means editing this union AND the two matches below,
 so the surface stays reviewable. ``list[str]`` (a bare argv) is a first-class member.
 
-Three public entry points, all owned here so callers stay shell-agnostic:
+The public entry points, all owned here so callers stay shell-agnostic:
 
 - ``describe`` — the human-readable shell string, for echo lines and test
   assertions. Display only; nothing executes it.
@@ -17,14 +17,16 @@ Three public entry points, all owned here so callers stay shell-agnostic:
 - ``exec_cmd`` — exec-replace, never returning. Split from ``run_cmd`` because an
   exec has no result to check, no output to capture, and no wait to bound, so
   those options would be dead weight on one of the two paths.
-
 - ``async_run_cmd`` — the same wait on an event loop, for a caller that holds
   one for many jobs. It returns the exit code rather than raising on it, and
   always captures: a server has no script to abort and no stdout to itself.
+- ``run_cmd_async`` — ``run_cmd``'s contract on an event loop: same arguments,
+  same ``CompletedProcess``, same raise on a non-zero exit. A blocking caller
+  converts by adding ``await``.
 
-``run_cmd``, ``exec_cmd`` and ``async_run_cmd`` together are the execution
-chokepoint: every command in the codebase routes through one of them, so they
-are the seam to mock / log / intercept. Each writes the command it runs to this
+``run_cmd``, ``exec_cmd``, ``async_run_cmd`` and ``run_cmd_async`` together are
+the execution chokepoint: every command in the codebase routes through one of
+them, so they are the seam to mock / log / intercept. Each writes the command it runs to this
 module's logger, so one handler sees every command whatever the caller.
 
 These functions own the accidental complexity of running a command — quoting,
@@ -212,6 +214,34 @@ async def async_run_cmd(
         err.decode("utf-8", "replace"),
         proc.returncode if proc.returncode is not None else -1,
     )
+
+
+async def run_cmd_async(
+    cmd: ShellExpr,
+    *,
+    cwd: Path | None = None,
+    quiet: bool = False,
+    check: bool = True,
+    env: dict | None = None,
+    timeout: float | None = None,
+) -> subprocess.CompletedProcess:
+    """:func:`run_cmd`'s contract, without blocking the calling thread.
+
+    Same arguments, same :class:`~subprocess.CompletedProcess`, and the same
+    ``CalledProcessError`` when ``check`` is set, so a caller converts by
+    adding ``await``. Prefer this in anything a server awaits; :func:`run_cmd`
+    stays the right call in a script, where blocking is what you want.
+
+    There is no ``stream``: streaming interleaves output from every concurrent
+    job, so a caller that wants it wants :func:`run_cmd`.
+    """
+    if not quiet:
+        _echo(cmd)
+    out, err, code = await async_run_cmd(cmd, cwd=cwd, env=env, timeout=timeout)
+    result = subprocess.CompletedProcess(to_argv(cmd), code, out, err)
+    if check:
+        result.check_returncode()
+    return result
 
 
 def _kill_group(proc: "asyncio.subprocess.Process") -> None:
