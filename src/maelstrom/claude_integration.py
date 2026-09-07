@@ -3,7 +3,6 @@
 import json
 import os
 import shutil
-import subprocess
 from pathlib import Path
 
 
@@ -14,12 +13,6 @@ def get_shared_dir() -> Path:
     if dev_path.exists():
         return dev_path
     raise FileNotFoundError("Could not locate maelstrom shared directory")
-
-
-def get_channel_dir() -> Path:
-    """Get path to the bun-based session-channel project."""
-    module_dir = Path(__file__).parent
-    return module_dir.parent.parent / "tools" / "mael-session-channel"
 
 
 def _symlink_items(source_dir: Path, target_dir: Path) -> list[str]:
@@ -122,46 +115,6 @@ def install_sandbox_exclusions(path: Path | None = None) -> list[str]:
     return [f"Installed sandbox exclusions in {path}: {', '.join(added)}"]
 
 
-def install_session_channel() -> list[str]:
-    """Register the mael-session MCP channel in ~/.claude.json."""
-    path = Path.home() / ".claude.json"
-    data = read_json(path)
-
-    servers = data.setdefault("mcpServers", {})
-    if not isinstance(servers, dict):
-        return [f"Cannot install: {path} has non-object mcpServers"]
-
-    entry = {"command": "mael", "args": ["session-channel"]}
-    if servers.get("mael-session") == entry:
-        return [f"MCP channel already registered in {path}"]
-
-    servers["mael-session"] = entry
-    _write_json(path, data)
-    return [f"Registered MCP channel mael-session in {path}"]
-
-
-# (Claude Code hook name, matcher, record-event-arg) for every hook we install.
-# Matcher "" matches all firings of the event; otherwise it's an exact string
-# (or regex for tool-name matchers). The third element is the argument passed
-# to `mael session record`.
-_SESSION_HOOKS: list[tuple[str, str, str]] = [
-    ("UserPromptSubmit", "", "user-prompt-submit"),
-    ("Stop", "", "stop"),
-    ("StopFailure", "", "stop-failure"),
-    ("Notification", "permission_prompt", "permission-prompt"),
-    ("Notification", "elicitation_dialog", "elicitation-prompt"),
-    ("Notification", "idle_prompt", "idle-prompt"),
-    ("PreToolUse", "AskUserQuestion|ExitPlanMode", "ask-user-pre"),
-    ("PostToolUse", "AskUserQuestion|ExitPlanMode", "ask-user-post"),
-    # Heartbeats: bump updated_at on every tool call without changing state.
-    # Lets `mael session list` detect ESC / interrupt while still tolerating
-    # long-running tools.
-    ("PreToolUse", "", "heartbeat"),
-    ("PostToolUse", "", "heartbeat"),
-    ("SessionEnd", "", "session-end"),
-]
-
-
 def _strip_mael_hooks(blocks: list) -> tuple[list, bool]:
     """Return (cleaned_blocks, removed_any) for a hook event's blocks list.
 
@@ -198,75 +151,69 @@ def _strip_mael_hooks(blocks: list) -> tuple[list, bool]:
     return cleaned, removed
 
 
-def install_session_hooks() -> list[str]:
-    """Install all session-tracking hooks in ~/.claude/settings.json.
+def remove_session_hooks(path: Path | None = None) -> list[str]:
+    """Clear `mael session record …` hooks an older `mael install` wrote.
 
-    Removes any pre-existing `mael session record …` entries first so re-runs
-    are idempotent and stale event/matcher combinations get cleaned up.
+    Those hooks fed the session registry, which no longer exists, so each one
+    now runs a command that is gone. `path` defaults to the real
+    `~/.claude/settings.json` and exists for the tests.
+
+    An event whose blocks all belonged to `mael` is dropped, because an event
+    key with no hooks under it says nothing. The `hooks` object itself is left
+    even when empty: it is the user's, and this file belongs to Claude Code.
     """
-    path = Path.home() / ".claude" / "settings.json"
+    path = path if path is not None else Path.home() / ".claude" / "settings.json"
     data = read_json(path)
 
-    hooks = data.setdefault("hooks", {})
+    hooks = data.get("hooks")
     if not isinstance(hooks, dict):
-        return [f"Cannot install: {path} has non-object hooks"]
+        return []
 
-    # First pass: strip any prior mael entries across every hook event.
-    any_removed = False
+    removed_any = False
     for event_name, existing in list(hooks.items()):
         if not isinstance(existing, list):
             continue
         cleaned, removed = _strip_mael_hooks(existing)
         if removed:
-            any_removed = True
-            hooks[event_name] = cleaned
+            removed_any = True
+            if cleaned:
+                hooks[event_name] = cleaned
+            else:
+                del hooks[event_name]
 
-    # Second pass: install each (event, matcher, record-arg) entry.
-    for event_name, matcher, record_arg in _SESSION_HOOKS:
-        entry = {"type": "command", "command": f"mael session record {record_arg}"}
-        block = {"matcher": matcher, "hooks": [entry]}
-        existing = hooks.get(event_name)
-        if isinstance(existing, list):
-            existing.append(block)
-        else:
-            hooks[event_name] = [block]
-
+    if not removed_any:
+        return []
     _write_json(path, data)
-    action = "Reinstalled" if any_removed else "Installed"
-    return [f"{action} mael session hooks in {path}"]
+    return [f"Removed stale mael session hooks from {path}"]
 
 
-def install_session_channel_deps() -> list[str]:
-    """Run `bun install` inside tools/mael-session-channel/."""
-    channel_dir = get_channel_dir()
-    if not channel_dir.exists():
-        return [f"Channel dir not found at {channel_dir}; skipping bun install"]
+def remove_session_channel(path: Path | None = None) -> list[str]:
+    """Clear the `mael-session` MCP entry an older `mael install` wrote.
 
-    node_modules = channel_dir / "node_modules"
-    if node_modules.exists():
-        return [f"Channel deps already installed in {channel_dir}"]
+    It pointed at `mael session-channel`, which no longer exists, so Claude
+    Code would try to spawn a missing command on every session.
 
-    try:
-        subprocess.run(
-            ["bun", "install"],
-            cwd=channel_dir,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except FileNotFoundError:
-        return [
-            "WARNING: bun not found on PATH; install from https://bun.sh.",
-            "The session-tracking channel will not start until bun is installed.",
-        ]
-    except subprocess.CalledProcessError as e:
-        return [f"WARNING: bun install failed: {e.stderr or e.stdout or e}"]
+    Only an entry that still runs `mael` is removed. The key is the user's file,
+    so one they repurposed for a server of their own is left alone rather than
+    deleted on a name match.
+    """
+    path = path if path is not None else Path.home() / ".claude.json"
+    data = read_json(path)
 
-    return [f"Installed channel deps in {channel_dir}"]
+    servers = data.get("mcpServers")
+    if not isinstance(servers, dict):
+        return []
+    entry = servers.get("mael-session")
+    if not isinstance(entry, dict) or entry.get("command") != "mael":
+        return []
+
+    del servers["mael-session"]
+    _write_json(path, data)
+    return [f"Removed stale mael-session MCP entry from {path}"]
 
 
-def install_claude_integration(*, monitor: bool = True) -> list[str]:
-    """Install skills, hooks, and (optionally) the session monitor."""
+def install_claude_integration() -> list[str]:
+    """Install skills and hooks, and clear what older versions installed."""
     shared = get_shared_dir()
     claude_dir = Path.home() / ".claude"
 
@@ -284,10 +231,8 @@ def install_claude_integration(*, monitor: bool = True) -> list[str]:
 
     messages.extend(install_sandbox_exclusions())
 
-    if monitor:
-        messages.extend(install_session_channel())
-        messages.extend(install_session_hooks())
-        messages.extend(install_session_channel_deps())
+    messages.extend(remove_session_hooks())
+    messages.extend(remove_session_channel())
 
     # Keep an opted-in scheduled-task agent in sync (self-heals its `mael` path
     # after a self-update). A no-op when the opt-in marker is absent or off-mac.

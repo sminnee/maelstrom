@@ -1266,7 +1266,7 @@ class TestRunHere:
         command = launch.exec.call_args.args[0]
         # Orphan task self-parents, so MAEL_TASK_PARENT rides alongside the id.
         # The deterministic --session-id pins the task's Claude session and is
-        # also exported as MAEL_TASK_SESSION_ID for the session-channel registry.
+        # also exported as MAEL_TASK_SESSION_ID, the key it was launched under.
         sid = model.session_id_for("p", t.id)
         assert describe(command) == (
             f"mael task prompt {t.id} --project p "

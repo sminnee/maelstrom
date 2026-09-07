@@ -290,12 +290,11 @@ so what ran stays answerable afterwards. This is not a sandbox.
 - `agent_cli.py` — the thin CLI. It parses flags, sends one command, and prints the reply.
 
 `agent_model.py` holds no I/O at all, so replaying a transcript through `apply_event` gives the
-same state every time, with no subprocess and no socket — the way `session_view.build_session_row`
-works. `tests/test_agent_model.py` does exactly that against the recorded fixtures.
+same state every time, with no subprocess and no socket. `tests/test_agent_model.py` does exactly
+that against the recorded fixtures.
 
-The state comes from observed events, not from hook inference. So the daemon needs no equivalent
-of `session_view.STALE_PROCESSING_SECS`, and an interrupt is visible rather than leaving a
-session stuck in `processing`.
+The state comes from observed events, not from hook inference. So an interrupt is visible, rather
+than leaving a session stuck in `processing` until a timeout decides it is stale.
 
 ## When an agent dies
 

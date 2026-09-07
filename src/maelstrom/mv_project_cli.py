@@ -33,7 +33,6 @@ from .env_cli import make_store as make_env_store
 from .mv_project import DirMove, MovePlan, build_move_plan, rekey_claude_json
 from .ports import rename_project_allocations
 from .session_discovery import LiveSession, all_live_sessions
-from .session_store import read_session_file, sessions_dir
 from .task_cli import open_index
 from .task_store import GitFileStore
 from .util import abbreviate_home, locked_file
@@ -503,32 +502,6 @@ def repoint_global_symlinks(plan: MovePlan) -> int:
     return count
 
 
-def prune_stale_sessions(plan: MovePlan) -> int:
-    """Drop session registry entries whose ``cwd`` was under the old path.
-
-    Those sessions were stopped by the precondition check (or were already
-    dead); their recorded cwd no longer exists, so the entry is stale.
-    """
-    sdir = sessions_dir()
-    if not sdir.is_dir():
-        return 0
-    count = 0
-    for path in sorted(sdir.glob("*.json")):
-        session = read_session_file(path)
-        if not session:
-            continue
-        cwd = session.get("cwd")
-        if not isinstance(cwd, str):
-            continue
-        if _is_under(Path(cwd), plan.old_project_path):
-            try:
-                path.unlink()
-                count += 1
-            except OSError:
-                continue
-    return count
-
-
 def refresh_worktree_files(plan: MovePlan) -> None:
     """Regenerate each worktree's ``.claude/CLAUDE.local.md``.
 
@@ -668,7 +641,6 @@ def cmd_mv_project(
         claude_dirs = migrate_claude_dirs(plan)
         migrate_claude_json(plan, home)
         symlinks = repoint_global_symlinks(plan)
-        pruned = prune_stale_sessions(plan)
         refresh_worktree_files(plan)
         if git_url:
             set_git_remote(plan, git_url)
@@ -686,8 +658,6 @@ def cmd_mv_project(
     click.echo(f"  Tasks:           {task_count} re-keyed; index rebuilt")
     click.echo(f"  Claude projects: {claude_dirs} dirs moved")
     click.echo(f"  Global symlinks: {symlinks} re-pointed")
-    if pruned:
-        click.echo(f"  Sessions:        {pruned} stale entries pruned")
 
     for warning in plan.warnings:
         click.echo("")

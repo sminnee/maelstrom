@@ -154,9 +154,12 @@ def test_install_integration_skips_launchd_without_marker(home, monkeypatch):
     bootstrap = MagicMock()
     monkeypatch.setattr(sl, "_bootstrap", bootstrap)
     monkeypatch.setattr(sl, "_bootout", MagicMock())
-    # Avoid the heavyweight skill/hook/channel work; just exercise the wire-in.
+    # Avoid the heavyweight skill/hook work; just exercise the wire-in. HOME is
+    # already redirected, so the sandbox-exclusion write and the two cleanup
+    # passes land under tmp_path rather than the real ~/.claude.
     monkeypatch.setattr(ci, "get_shared_dir", lambda: home / "nonexistent-shared")
-    msgs = ci.install_claude_integration(monitor=False)
+    monkeypatch.setattr(ci.Path, "home", classmethod(lambda cls: home))
+    msgs = ci.install_claude_integration()
     bootstrap.assert_not_called()
     assert any("not enabled" in m for m in msgs)
 

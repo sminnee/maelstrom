@@ -3,8 +3,7 @@
 Pure model layer, per ``docs/dev/architecture-patterns.md``: the reducer
 (:func:`apply_event`), the row builder (:func:`build_agent_row`), the argv, and
 the messages written back to the child. No I/O, no clock, no subprocess — so
-the state machine is exercisable by replaying a recorded transcript, the way
-``session_view.build_session_row`` is.
+the state machine is exercisable by replaying a recorded transcript.
 
 The event shapes here were recorded from live agents on v2.1.252 and v2.1.260
 and saved as ``tests/fixtures/agent_events/``. ``docs/dev/agent-daemon.md`` documents the
@@ -26,9 +25,8 @@ if TYPE_CHECKING:  # a runtime import would pull a module that shells out to `pg
 QUESTION_TOOL = "AskUserQuestion"
 PLAN_TOOL = "ExitPlanMode"
 
-# The states an agent can be in. Unlike the hook-derived states in
-# ``session_view``, every one of these is observed from an event rather than
-# inferred, so there is no staleness fudge here and an interrupt is visible.
+# The states an agent can be in. Every one is observed from an event rather
+# than inferred, so there is no staleness fudge here and an interrupt is visible.
 IDLE = "idle"
 PROCESSING = "processing"
 AWAITING_PERMISSION = "awaiting-permission"
@@ -1088,7 +1086,7 @@ def build_agent_row(state: AgentState) -> dict[str, Any]:
     """Everything ``mael agent list`` shows about one agent, as a flat dict.
 
     Every key is always present; a field with nothing to report is an empty
-    string. Same contract as ``session_view.build_session_row``, so ``--json``
+    string. Same contract as ``session_cli.build_session_row``, so ``--json``
     can emit it as-is.
 
     ``waiting_on`` is the point of the whole mechanism: an agent that is blocked
@@ -1187,10 +1185,9 @@ def age_of(seconds: float) -> str:
     """``seconds`` as the one short unit a table cell holds.
 
     Rounds down, so "2h" means at least two hours. Anything under a minute is
-    "now" — a listing of stopped sessions never needs second precision.
-    :func:`~maelstrom.session_view.age_since` takes a timestamp instead, and
-    shows the seconds. ``ago`` in ``web/src/protocol/time.ts`` is this rule for
-    the UI, which says "<1m" rather than "now".
+    "now" — a listing of stopped sessions never needs second precision. ``ago``
+    in ``web/src/protocol/time.ts`` is this rule for the UI, which says "<1m"
+    rather than "now".
     """
     if seconds < 60:
         return "now"

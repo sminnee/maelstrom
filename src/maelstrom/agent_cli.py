@@ -4,7 +4,7 @@ The thin CLI over :mod:`maelstrom.agent_server`. Every command is one NDJSON
 round-trip to the daemon's control socket, so this module holds no state and
 does no agent logic: it parses flags, sends a command, and prints the reply.
 Rendering goes through ``build_agent_row`` in the model layer, the way
-``session_cli`` renders through ``session_view``.
+``session_cli`` renders a live ``claude`` process.
 
 No command starts a daemon. The environment manager does: `mael self-env
 start` runs the everyday daemon and `mael env start` runs this worktree's.

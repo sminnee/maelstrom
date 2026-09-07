@@ -98,6 +98,10 @@ mael task reconcile          # show the mismatches
 mael task reconcile --fix    # apply the corrections
 ```
 
+A task does not close itself. The session that was working on it closes it with
+`mael task status done`, so a session that crashed, or one you stopped part-way, leaves the
+task behind. That is what reconcile is for.
+
 Reconcile corrects three mismatches:
 
 | Observed state | Evidence | Corrected to |

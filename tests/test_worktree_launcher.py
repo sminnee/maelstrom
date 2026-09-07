@@ -322,10 +322,10 @@ class TestBuildTaskLaunchLine:
         )
 
     def test_session_id_appended(self):
-        # session_id also rides as MAEL_TASK_SESSION_ID on the claude segment so
-        # the session-channel can key the registry on the task's derived id. The
-        # name pairs with MAEL_TASK_ID/MAEL_TASK_PARENT: it is a task key, not a
-        # reference to the conversation running now.
+        # session_id also rides as MAEL_TASK_SESSION_ID on the claude segment, so
+        # a session can name the key it was launched under. The name pairs with
+        # MAEL_TASK_ID/MAEL_TASK_PARENT: it is a task key, not a reference to the
+        # conversation running now.
         assert describe(
             build_task_launch_line("proj", "t1", "plan", session_id="abc-123")
         ) == (
@@ -628,8 +628,8 @@ class TestLaunchAgentInWorktree:
                 "session": "sess-1",
                 "env": {
                     "MAEL_TASK_ID": "t1",
-                    # The session-channel hook keys the registry on this, the
-                    # same way the legacy pipeline's env prefix does.
+                    # The task key, carried the same way the legacy
+                    # pipeline's env prefix carries it.
                     "MAEL_TASK_SESSION_ID": "sess-1",
                 },
                 "resume": True,

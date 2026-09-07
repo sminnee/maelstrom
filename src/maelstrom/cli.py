@@ -54,7 +54,6 @@ from .ports import get_app_url
 from .project_cli import project as project_cli
 from .schedule_launchd import schedule_group
 from .session_cli import session as session_cli
-from .session_cli import session_channel as session_channel_cmd
 from .status_cli import status as status_cli
 from .table import draw_table
 from .task_cli import _harness_options as _harness_flags
@@ -1738,7 +1737,6 @@ cli.add_command(sentry)
 cli.add_command(slack)
 cli.add_command(uptimerobot)
 cli.add_command(session_cli)
-cli.add_command(session_channel_cmd)
 cli.add_command(task_cli)
 cli.add_command(wiki_cli)
 cli.add_command(schedule_group)

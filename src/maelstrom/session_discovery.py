@@ -6,19 +6,19 @@ worktree it was launched in, so one ``pgrep -x claude`` plus one batched
 ``lsof -a -d cwd`` gives every live session's real worktree path in ~0.03s. A
 third batched call — ``ps -o command=`` — reads each process's command line so
 we can recover the ``--session-id`` ``mael`` launched it with, the durable link
-back to the task even when the registry has no file for the session.
+back to the task.
 
-This deliberately does **not** consult transcript files or the ``~/.maelstrom``
-session registry to decide liveness:
+This deliberately does **not** consult transcript files to decide liveness,
+and a session registry was tried and removed:
 
 - A running ``claude`` CLI does not hold its transcript file-descriptor open
   (it appends-and-closes), so ``lsof`` on transcripts reports nothing for live
   sessions and false-positives on editor tabs — an empirically wrong signal,
   and slow (a system-wide ``lsof`` sweep per worktree made ``mael list`` take
   ~49s).
-- The registry (``~/.maelstrom/sessions/*.json``) misses the current session
-  and its ``state`` goes stale, so it cannot be the liveness authority. It
-  survives only as *optional enrichment* for ``mael session list``.
+- A registry (``~/.maelstrom/sessions/*.json``), written per session, missed
+  the current session and let its ``state`` go stale, so it could never be the
+  liveness authority. It has been removed.
 
 ``pgrep`` finds most sessions, not all of them: the ``claude`` that runs ``mael``
 can be missing from its own sweep. So a caller that already holds a pid —
@@ -30,8 +30,7 @@ Callers work through :class:`LiveSessionSet`, which sweeps once on first use,
 then answers per-worktree questions (``count_for`` / ``active_for`` / ``all_for``)
 off that shared list — each session attributing itself to a worktree via
 :attr:`LiveSession.worktree`. It sits above
-:func:`maelstrom.task.session_id_for` and beside :mod:`maelstrom.session_store`,
-with no import cycle: ``session_store`` never imports this module.
+:func:`maelstrom.task.session_id_for`.
 """
 
 import asyncio

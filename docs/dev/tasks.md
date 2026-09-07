@@ -127,7 +127,7 @@ The whole sweep costs ~0.03s. Callers work through `LiveSessionSet`, which sweep
 once on first use and then answers per-worktree questions off that shared list,
 so a pass over many worktrees still shells out only once.
 
-**Rejected alternatives.** Neither transcripts nor the registry can decide
+**Rejected alternatives.** Neither transcripts nor a registry can decide
 liveness:
 
 - **Transcript + `lsof`.** A running `claude` CLI appends to its transcript and
@@ -135,9 +135,10 @@ liveness:
   therefore reports nothing for live sessions, and false-positives on editor
   tabs. It is also slow: a system-wide `lsof` sweep per worktree made `mael list`
   take ~49s.
-- **The `~/.maelstrom` session registry.** It misses the current session and its
-  `state` goes stale, so it cannot be the authority. It survives only as
-  *optional enrichment* for `mael session list`.
+- **A `~/.maelstrom` session registry.** One existed, written per session by an
+  MCP channel. It missed the current session and its `state` went stale, so it
+  could never be the authority; it has been removed. What a driven agent is
+  doing now comes from the agent daemon, which `mael agent list` reads.
 
 `mael task run` consults the live sweep before launching and **refuses only when
 the session is live** (naming the pid and worktree, hinting `mael task
@@ -145,15 +146,9 @@ reconcile`). A *finished* task is deliberately **not** blocked — it must stay
 re-runnable. `mael list`, `mael session list` and `mael task reconcile` read the
 same source, so all four always agree.
 
-The registry's primary key is the same derived id. `mael task run` exports it as
-`MAEL_TASK_SESSION_ID` on the `claude` command, and the session-channel records
-that as the registry `session_id`. Discovery does not depend on this — it globs
-by id — but it keeps the registry-hint fast-path and `reconcile`'s primary-key
-match trustworthy.
-
-The harness does export a session id of its own, as `CLAUDE_CODE_SESSION_ID`, but
+The harness exports a session id of its own, as `CLAUDE_CODE_SESSION_ID`, but
 that id cannot key a task. `CLAUDE_CODE_SESSION_ID` names the conversation running
 now, and a `/clear` starts a new conversation and moves it. The derived id never
-moves, so the registry keys on the derived id. `mael session info` and
+moves, which is why the task index keys on it. `mael session info` and
 `mael session end` are the commands that want the live id, and they read
 `CLAUDE_CODE_SESSION_ID` for it.

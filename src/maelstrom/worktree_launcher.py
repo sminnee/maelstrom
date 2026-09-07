@@ -200,9 +200,8 @@ def build_task_launch_line(
     front-of-line scoping bug unrepresentable: env is a property of a single
     ``Command``, never of the whole ``Pipeline``. ``session_id`` pins the task's
     deterministic Claude session id (see :func:`build_claude_command`) and also
-    rides as ``MAEL_TASK_SESSION_ID`` so the session-channel keys the
-    ``~/.maelstrom`` registry on it, which is what ``reconcile`` and
-    ``session list`` match on.
+    rides as ``MAEL_TASK_SESSION_ID``, so a session can name the key its task
+    was launched under.
 
     The name pairs with ``MAEL_TASK_ID`` / ``MAEL_TASK_PARENT`` because that is
     what it is: a **task key**, not a reference to the conversation running now.

@@ -76,6 +76,17 @@ class TaskMeta:
     session_id: str = ""
 
 
+class TaskLookup(Protocol):
+    """The reverse session-id lookup, on its own.
+
+    A caller that only needs "which task is this session running?" — the agent
+    daemon, ``mael session list`` — depends on this rather than on the whole of
+    :class:`TaskIndex`, so a fake in its tests is one method.
+    """
+
+    def find_by_session_id(self, session_id: str) -> TaskMeta | None: ...
+
+
 class TaskIndex(Protocol):
     """A metadata index over the task notebook, keyed by ``(project, id)``.
 

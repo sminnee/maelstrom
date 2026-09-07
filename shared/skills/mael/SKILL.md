@@ -252,8 +252,7 @@ it applies to all mael projects.
 6. **Close the task.** Run `mael task status done` (defaults to `$MAEL_TASK_ID`). The PR is
    pushed, so the work is handed off — close it now, while you reliably can, rather than
    after the CI watch. A leftover PR is visible and gets chased; a task left in
-   `in-progress/` is invisible and blocks its chain. The SessionEnd hook is only a
-   backstop; don't rely on it.
+   `in-progress/` is invisible and blocks its chain. Nothing else closes it for you.
 7. Run `/watch-pr` — take CI to green autonomously: fix each failure
    (fixup for PR-caused, `chore:` for unrelated), `mael sync` to re-push, and loop
    until CI passes or times out.
@@ -270,10 +269,9 @@ task (step 6), and the CI watch (step 7). Run steps 1–7 and report what happen
 **The PR is the completion signal** — once it's raised, the work is no longer in danger of being
 forgotten: an open PR is visible on GitHub and gets chased. The task is the fragile half, so close
 it as soon as the PR is pushed, before it can go stray if CI drags on, the session dies, or the PR
-is merged before you get back to it. The SessionEnd hook moves the task to `done` when the session
-ends, but it can fail silently (if `mael` isn't on PATH, git is unavailable, or the process is
-killed). Don't rely on it — run `mael task status done` explicitly at step 6 so the task closes
-deterministically.
+is merged before you get back to it. **A task does not close itself.** Run
+`mael task status done` at step 6; `mael task reconcile` is the only other thing that will ever
+move it, and only when someone runs it.
 
 If the project supplies `docs/review/coding-standards.md` and/or
 `docs/review/review-guide.md`, the review sub-agent loads them automatically.
@@ -283,16 +281,16 @@ If the project supplies `docs/review/coding-standards.md` and/or
 `mael session end` stops this session and leaves the worktree in place. The always-on rule for
 *when* to run it is in the project header — this section covers what it does not.
 
-`mael session end` does not close the task. The Claude `session-end` hook closes it, and that
-hook is a backstop: it can fail silently. Close the task explicitly at step 6 above, then end the
-session. Never end the session *instead of* closing the task.
+`mael session end` does not close the task, and nothing else does either. Close it explicitly at
+step 6 above, then end the session. Never end the session *instead of* closing the task — the
+task would stay `in-progress` and block everything that follows it.
 
 Ending a session does not tear down the worktree, its branch, or its ports. `mael close` does
 that. So a session ended in error costs a `claude --resume`, and nothing else.
 
 A session with a task still in progress is not finished, whoever says otherwise. Run the
-task-completion flow to the end first — the hook would move that task to `done` on the way out,
-which marks unfinished work complete.
+task-completion flow to the end first, so the task closes because the work is done rather than
+being left behind.
 
 ## Working with PR failures
 
