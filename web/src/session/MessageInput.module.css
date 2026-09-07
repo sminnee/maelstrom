@@ -1,5 +1,8 @@
 .form {
   display: flex;
+  /* The attach wrapper is a column of textarea then Attach, so a stretched
+     Send would stand as tall as both. It sits on the textarea's own row. */
+  align-items: flex-start;
   gap: 8px;
   padding: 8px 12px;
   /* The bottom of a pushed session screen, so it clears the home indicator. */
@@ -7,8 +10,18 @@
   border-top: 1px solid var(--border);
   background: var(--bg-raised);
 }
-.input {
+/* The composer is a row, so the attach wrapper is the part that grows.
+   `min-width: 0` defeats the automatic minimum: without it the textarea's
+   intrinsic `cols` width becomes a floor and the row cannot shrink. */
+.attach {
   flex: 1;
+  min-width: 0;
+}
+.input {
+  /* `.field` is a column, so it stretches this to full width already. Stated
+     so an `align-items` change there cannot silently re-break the composer. */
+  width: 100%;
+  box-sizing: border-box;
   font: inherit;
   color: inherit;
   background: var(--bg-sunken);
@@ -16,4 +29,15 @@
   border-radius: var(--radius);
   padding: 6px 8px;
   resize: vertical;
+  /* The composer shares the panel's height with the transcript, so an
+     unbounded drag can squeeze the transcript to nothing. 12em is about half
+     a short panel, which is as far as the composer should ever take. */
+  max-height: 12em;
+}
+/* A phone has no useful resize handle, and the keyboard already takes half the
+   height. Matches the draft field in NewWork. */
+@media (max-width: 839px) {
+  .input {
+    resize: none;
+  }
 }
