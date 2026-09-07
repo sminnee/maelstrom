@@ -87,7 +87,7 @@ A **task-backed** launch — `mael task run` or `mael task next --run` — expor
 |---|---|
 | `MAEL_TASK_ID` | The launched task's id. `mael task status done` and `mael task get-status` fall back to it, so a session can close its own task without naming it. `mael task current` reports it as `ID:STATUS`. |
 | `MAEL_TASK_PARENT` | The launching task's `parent`, or its own id when it has none. New tasks default their `--parent` to it, so a session's follow-ups continue the same chain and land in the same PR. |
-| `MAEL_TASK_SESSION_ID` | The task's derived Claude session id — a **task key, not a reference to the session running now**. No Python reads it. The only consumer is the session-channel, which uses it to key the task's file in the `~/.maelstrom` registry. |
+| `MAEL_TASK_SESSION_ID` | The task's derived Claude session id — a **task key, not a reference to the session running now**. Exported so a session can name the key it was launched under; nothing in maelstrom reads it back. |
 
 `MAEL_TASK_SESSION_ID` rides on the `claude` command line rather than in the environment dict
 beside `MAEL_TASK_ID`, but a task-backed launch is the only path that sets any of the three.

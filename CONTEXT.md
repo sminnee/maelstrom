@@ -162,9 +162,9 @@ _Avoid_: Closed session (a closed worktree is a different thing), ended session,
 
 **Task session id**:
 The session id derived from the project name and the task id. The task session id exists before
-the session is launched and never changes, so it is what links a session back to its task. It
-keys the session's file in the registry, and rides into the session as `MAEL_TASK_SESSION_ID`.
-Use the task session id to answer "which task is this?".
+the session is launched and never changes, so it is what links a session back to its task. The
+task index keys on it, and it rides into the session as `MAEL_TASK_SESSION_ID`. Use the task
+session id to answer "which task is this?".
 _Avoid_: Session id (for this concept)
 
 **Session id**:
@@ -172,9 +172,6 @@ The id of the conversation running now, reported by Claude Code as `CLAUDE_CODE_
 `/clear` starts a new conversation and moves the session id, so it is not stable and cannot key
 a task. Use the session id to answer "which conversation am I in now?". A session starts with
 its task session id as its session id, so the two agree until the first `/clear`.
-
-`session_key` is neither term: it is the registry filename only. `session_key` holds the task
-session id where maelstrom launched the session, and `claude-<pid>` where it did not.
 
 **Workspace**:
 A cmux workspace named `<project>-<worktree>`, holding three panes: pane 0 the Claude session,

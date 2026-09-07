@@ -170,9 +170,8 @@ the rest of its chain** — every task that follows it stays unactionable. So cl
 you reliably can, rather than after a CI watch that might drag on, time out, or lose its
 session.
 
-The SessionEnd hook moves the task to `done` when the session ends. That hook can fail
-silently: `mael` may not be on `PATH`, git may be unavailable, or the process may be killed.
-Run `mael task status done` explicitly.
+A task does not close itself. Run `mael task status done`. If a session dies before it gets
+there, `mael task reconcile --fix` finds the task and closes it.
 
 ## Taking CI to green
 

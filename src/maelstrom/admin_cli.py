@@ -15,14 +15,9 @@ from .worktree_model import MAIN_WORKTREE_FOLDER
 
 
 @click.command("install")
-@click.option(
-    "--no-monitor",
-    is_flag=True,
-    help="Skip installing the session-tracking MCP channel, hooks, and channel dependencies.",
-)
-def cmd_install(no_monitor):
+def cmd_install():
     """Install maelstrom's Claude Code skills and hooks."""
-    messages = install_claude_integration(monitor=not no_monitor)
+    messages = install_claude_integration()
     for msg in messages:
         click.echo(msg)
 

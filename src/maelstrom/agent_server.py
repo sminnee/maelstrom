@@ -95,7 +95,7 @@ from .session_discovery import (
     ProcessTableUnavailable,
     list_claude_processes,
 )
-from .session_view import TaskLookup
+from .task_index import TaskLookup
 from .transcript_store import ClaudeTranscriptStore, TranscriptStore
 from .util import now_iso
 from .worktree_model import has_claude_transcript
@@ -810,7 +810,7 @@ class AgentDaemon:
         """The task each session ran for, keyed by session id.
 
         The index is opened once for the whole listing, as
-        ``session_view.build_session_row`` does — a per-session open would run
+        ``session_cli.session_list`` does — a per-session open would run
         ``ensure_excludes`` and build a connection hundreds of times.
 
         A listing is worth more than its task column, so a failure blanks the

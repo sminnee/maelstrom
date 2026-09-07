@@ -90,6 +90,6 @@ End the session when:
 
 **Finish outstanding work first.** If a task is still in progress, a PR is unpushed, or
 `/watch-pr` is still running, run the task-completion flow above to the end, then end the
-session. This holds even when the user is the one who said the work is done — the session-end
-hook moves the task to `done` on the way out, so ending early marks unfinished work complete.
-`/mael` carries the full rule.
+session. This holds even when the user is the one who said the work is done — a task does not
+close itself, so a session that ends first leaves it `in-progress`, blocking everything that
+follows it. `/mael` carries the full rule.

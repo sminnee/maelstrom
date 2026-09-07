@@ -1,7 +1,7 @@
 """What ``mael agent attach`` shows, derived from one agent's raw event stream.
 
 Pure model layer, per ``docs/dev/architecture-patterns.md``, and the sibling of
-``session_view``: a reducer over the attach stream plus the small derivations
+``session_cli``: a reducer over the attach stream plus the small derivations
 the TUI renders. No I/O, no clock, no widgets — so the whole view is
 exercisable by replaying a recorded transcript.
 

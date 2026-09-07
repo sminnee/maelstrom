@@ -2553,7 +2553,7 @@ def test_a_listing_opens_the_task_index_once_not_once_per_session():
 
     Each open runs `ensure_excludes()`, a `PRAGMA journal_mode=WAL` and a
     `CREATE TABLE IF NOT EXISTS` before its one-row SELECT, which is what
-    `session_view` avoids by taking the index as a collaborator.
+    `session_cli` avoids by opening the index once for the whole listing.
     """
     metas = [_meta(f"s{i}", cwd="/tmp/x") for i in range(20)]
     daemon, _ = _stopped_daemon(metas)

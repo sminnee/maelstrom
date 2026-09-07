@@ -35,9 +35,9 @@ mael install
 ### Prerequisites
 
 [uv](https://docs.astral.sh/uv/), git, [Claude Code](https://claude.com/claude-code),
-[cmux](https://github.com/sminnee/cmux), [GitHub CLI](https://cli.github.com/) and
-[bun](https://bun.sh/). Only `uv` and git are needed to create worktrees; cmux and Claude
-Code are needed to launch agent sessions. See
+[cmux](https://github.com/sminnee/cmux) and [GitHub CLI](https://cli.github.com/). Only `uv`
+and git are needed to create worktrees; cmux and Claude Code are needed to launch agent
+sessions. See
 [Getting started](docs/guide/getting-started.md#prerequisites) for what each one is for and
 how to install it.
 
