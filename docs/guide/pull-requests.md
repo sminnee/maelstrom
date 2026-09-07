@@ -9,24 +9,29 @@ sequence **without asking**. The gates are the project's automated checks — te
 type check, as CLAUDE.md defines them:
 
 1. Commit the implementation.
-2. Run `/code-review`.
-3. Triage the findings: apply what is correct and in scope, discard what does not apply, and
+2. Run `/present` to re-cut the branch into story commits.
+3. Run `/code-review`.
+4. Triage the findings: apply what is correct and in scope, discard what does not apply, and
    write scope changes and potential refactors into `.drafts/pr.md` under
    `## Raised by review, not actioned`.
-4. Commit each fix as a `--fixup` commit targeting the commit that introduced the issue. Do
-   not amend.
-5. Push: `mael gh create-pr <ISSUE-ID> --squash`.
-6. **Close the task:** `mael task status done`.
-7. Run `/watch-pr` to take CI (continuous integration) to green.
+5. Commit each fix as a `--fixup` commit targeting the story commit it revises. Do not amend.
+6. Push: `mael gh create-pr <ISSUE-ID> --squash`.
+7. **Close the task:** `mael task status done`.
+8. Run `/watch-pr` to take CI (continuous integration) to green.
 
-With nothing worth applying, steps 3 and 4 are skipped.
+With nothing worth applying, steps 4 and 5 are skipped.
 
 This overrides the usual "only commit when asked" rule. In a maelstrom project it is
 always on, because an agent that stops to ask at each step cannot run unattended.
 
 ## Commits
 
-Use a prefix and append the Linear issue in brackets:
+**The commits you make while you build are working history.** Commit as often as you like, and
+`wip:` is a fine subject. `/present` squashes them and re-cuts the final diff into story commits,
+so the order you worked in is never the order a reviewer reads.
+
+The message rules below apply from `/present` onward; the mechanics apply throughout. Use a prefix
+and append the Linear issue in brackets:
 
 | Prefix | For |
 |---|---|
@@ -41,6 +46,18 @@ git add src/maelstrom/ports.py
 printf 'feat: widen the port range [PROJ-123]\n\nDetail.\n' | git commit -F -
 ```
 
+A story commit's body states the decision, and its `Review:` trailer says how deep to read it:
+
+```
+feat: store the base tip per branch [PROJ-12]
+
+Why this decision, what it replaces, what was rejected. Mermaid allowed.
+
+Review: read
+```
+
+See [Presenting the change](#presenting-the-change) for what each depth means.
+
 Check where you are before pushing:
 
 ```bash
@@ -48,9 +65,37 @@ mael git status                # branch, diff stats, recent commits
 mael gh show-code --committed  # everything since branching from main
 ```
 
+## Presenting the change
+
+Serious review is the bottleneck, and the chronological commits of a build are not the story a
+reviewer needs. `/present` re-cuts them:
+
+```bash
+/present
+```
+
+It squashes the branch, then partitions the final diff into three to eight story commits — one per
+design decision, ordered so each reads on top of the last. The reviewer then reads them in order on
+the PR's Commits tab.
+
+**The invariant is the tree, not the story.** The final tree equals the tree the branch had before
+the pass, and the working history is the undo.
+
+**Present runs once per task**, at the end of the build, before `/code-review`. After it, every
+change is a `fixup!` on the story commit it revises, or a `chore:` when it revises none. A later
+task in a chain re-presents the whole branch from scratch; what present refuses is a branch that
+already carries fixups.
+
+See the journey afterwards:
+
+```bash
+git log refs/mael/history/<branch>/<stamp>
+```
+
 ### Uncommitting a branch
 
-Use this to re-cut a branch's commits into a story the reviewer can follow.
+`/present` runs this command for you. Run it yourself only before review has started, to re-cut a
+branch's commits by hand.
 
 ```bash
 mael git uncommit-branch
@@ -92,7 +137,12 @@ rebase. A note also survives a change to the commit it sits on, so a commit that
 after review is not reviewed again. The run reports each commit it skips, so you can see when
 that happens.
 
-**One run reviews at most 8 commits** — the oldest 8 that are not yet reviewed. It reports the
+A presented branch is reviewed fresh: its story commits are new objects, so they carry no
+`reviewed` note.
+
+**One run reviews at most 8 commits** — the oldest 8 that are not yet reviewed. A presented branch
+fits in one run by design, because present caps decisions at eight. A `chore:` or a fixup landing
+before the review can push it over, and the run then defers the overflow. It reports the
 rest as deferred. Run `/code-review` again to review them: the first run tags its commits
 `reviewed`, so the second run skips them and takes the next 8. The cap holds even when you name
 an explicit SHA or range. Run the same command again to take the next 8, or name a narrower
@@ -106,9 +156,13 @@ explicit SHA or range.
 Then it spawns **read-only sub-agents**, all running concurrently, so the diff never enters the
 parent's context. Two kinds run:
 
-- **One per commit**, reviewing that commit's code. Each reviewer may read *later* commits in
-  the branch, so work finished by a follow-up commit is not reported as a problem.
-- **One for the whole branch**, reviewing prose: comments, docstrings, and documents.
+- **One per story commit**, reviewing that decision. The reviewer is told the commit's review
+  depth, and it judges the decision the body states against the diff the commit makes. Each
+  reviewer may read *later* commits in the branch, so work finished by a follow-up commit is not
+  reported as a problem.
+- **One for the whole branch**, reviewing prose: comments, docstrings, and documents. It also
+  reads the story whole — whether the partition is honest, and whether `.drafts/pr.md` describes
+  the branch the commits actually make.
 
 The prose reviewer exists because the commit reviewers cannot do its job. They weigh
 architecture above language, and each one sees a single commit — so a paragraph copied into
@@ -145,7 +199,7 @@ too and take precedence.
 
 ### Fixups, not amends
 
-Commit each fix as a `fixup!` commit aimed at the commit that introduced the problem:
+Commit each fix as a `fixup!` commit aimed at the story commit whose decision it revises:
 
 ```bash
 git commit --fixup <sha>
@@ -195,7 +249,7 @@ the issue "In Review" before the work is actually complete.
 
 ## Why the task closes before the CI watch
 
-Step 6 comes before step 7 deliberately.
+Step 7 comes before step 8 deliberately.
 
 **The pull request is the completion signal.** Once it is raised the work cannot be
 forgotten: an open PR is visible on GitHub and gets chased.

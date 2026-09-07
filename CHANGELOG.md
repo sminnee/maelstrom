@@ -17,6 +17,20 @@ release while that section is empty, and retitles it to the version it is releas
   `mael linear plan` writes. The kind shows only for a project whose `.maelstrom.yaml` sets
   `linear.team_id`.
 
+- **`/present` re-cuts a finished branch into story commits, and joins the finishing sequence.**
+  After the build is green the pass squashes the branch and partitions the final diff into one
+  commit per design decision, each explaining the decision in its body and carrying a `Review:`
+  trailer that tells the reviewer how deep to read it — `read` for logic, `scan` for mechanical
+  work. The reviewer then reads the change as a story on the PR's Commits tab. The chronological
+  commits are kept under `refs/mael/history/<branch>/<stamp>`, which is the undo, and the final
+  tree always equals the tree the branch already had.
+
+  The flow becomes commit, `/present`, `/code-review`, fixups, PR push, close the task,
+  `/watch-pr`. Two rules follow. Build commits are now working history, so commit as often as you
+  like while building and `wip:` is fine. After present, every change is a `fixup!` on the story
+  commit whose decision it revises, or a `chore:`. Present runs once per task and never during
+  Land. `/code-review` reads each commit's depth and judges the decision its body states.
+
 ### Removed
 
 - **Session tracking is gone: the registry, its MCP channel, and its eleven hooks.** A Bun MCP

@@ -426,6 +426,26 @@ the base, saves the working history, then resets. Nothing is discarded — every
 working tree, ready to be committed again.
 _Avoid_: Reset, unwind, squash (which combines commits rather than removing them)
 
+**Story commit**:
+One commit per design decision, holding the decision's rationale in its body and its review depth
+in a `Review:` trailer. Story commits are the unit of review: a reviewer reads them in order on the
+PR's Commits tab. They replace the chronological commits of the build, so a story commit says
+*why*, never *when*.
+_Avoid_: Logical commit, atomic commit, curated commit
+
+**Review depth**:
+How closely a story commit must be read, set by its `Review:` trailer. `read` means read every
+line, because the logic is the risk. `scan` means confirm the diff is what the subject says and
+nothing else hides in it, which suits mechanical work. A commit with no trailer is `read`.
+_Avoid_: Severity, priority, review level
+
+**Present**:
+To squash a branch's chronological build commits into a working history, then re-cut the same
+final diff into story commits. Present runs once per task, at the end of build, before the
+branch's own review, and never during land. The tree is the invariant: a wrong partition gives a
+wrong story, never a wrong tree.
+_Avoid_: Curate, reorganise, tidy
+
 ## Orchestrator UI
 
 **Phase**:
@@ -444,7 +464,8 @@ skipped.
 Producing an agreed plan for one task. Ends at the plan-review checkpoint.
 
 **Build**:
-Building the code, running its own review, opening the PR. Ends when the PR first ships.
+Building the code, presenting it, running its own review, opening the PR. Ends when the PR first
+ships.
 
 **Land**:
 Answering CI failures and review feedback on an open PR. Ends when it merges.
