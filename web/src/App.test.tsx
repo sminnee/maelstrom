@@ -1025,8 +1025,10 @@ describe('review in a document tab', () => {
     await user.click(await within(expanded()).findByRole('link', { name: /plan\.md v1/ }));
     const tab = await screen.findByTestId('document-tab');
     const inline = within(await within(tab).findByTestId('inline-decision'));
-    // The decision shows what the agent said before it asked.
-    expect(await inline.findByText('Before this')).toBeInTheDocument();
+    // The decision shows what the agent said before it asked. The rail only
+    // draws once the transcript has delivered those items, so wait for the
+    // rail rather than for the heading inside it.
+    expect(await inline.findByTestId('decision-context')).toHaveTextContent('Before this');
     await user.click(inline.getAllByRole('checkbox')[0]!);
     await user.click(inline.getByRole('button', { name: 'Next' }));
     await user.click(inline.getAllByRole('radio')[0]!);
