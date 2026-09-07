@@ -70,7 +70,7 @@ def test_check_not_live_refuses_a_task_with_a_live_session():
     check_not_live("NORT-7", "other", live)
 
 
-def test_check_synced_refuses_a_failed_sync_and_passes_a_reused_worktree():
+def test_check_synced_refuses_a_failed_sync_and_passes_one_that_never_ran():
     failed = WorktreeSetup(
         path=None,  # type: ignore[arg-type]
         name="alpha",

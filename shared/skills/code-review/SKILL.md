@@ -54,7 +54,7 @@ This is what runs when the user types `/code-review`. Follow these steps in orde
 Run:
 
 ```bash
-mael git squash
+mael sync --squash --no-push
 ```
 
 This rebases the branch onto `origin/main` and autosquashes any `fixup!` commits, so the review
@@ -339,8 +339,8 @@ neither row — step 6 routed it to step 7c, and it stays unfixed until the user
 Hard rules:
 
 - **Never `--amend`** existing commits.
-- **Don't run the autosquash rebase yourself** — leave that to the user (`mael sync --squash` or
-  `mael git squash`). Step 1 of the *next* review will pick them up.
+- **Don't run the autosquash rebase yourself** — leave that to the user
+  (`mael sync --squash`). Step 1 of the *next* review will pick them up.
 
 ### 7b. Tag the remaining commits
 

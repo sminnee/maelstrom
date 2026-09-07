@@ -28,15 +28,16 @@ from maelstrom.ports import (
     record_port_allocation,
 )
 from maelstrom.rebase_repair import _REPAIR_TIMEOUT, run_resolve_rebase_session
+from maelstrom.task_launch import LaunchBlocked, check_synced
 from maelstrom.worktree import (
     CloseResult,
     SyncResult,
     _detach_and_free_ports,
     close_worktree,
     get_current_branch,
+    rebase_worktree,
+    rebase_worktree_with_autorepair,
     setup_worktree_for_branch,
-    squash_worktree,
-    squash_worktree_with_autorepair,
     sync_worktree,
     sync_worktree_with_autorepair,
 )
@@ -182,12 +183,12 @@ def _make_conflict(project_path: Path, worktree_path: Path, remote_path: Path) -
 
 
 # ---------------------------------------------------------------------------
-# squash_worktree(abort_on_conflict=…)
+# rebase_worktree(abort_on_conflict=…)
 # ---------------------------------------------------------------------------
 
 
 class TestSquashAbort:
-    """`squash_worktree(abort_on_conflict=…)`."""
+    """`rebase_worktree(abort_on_conflict=…)`."""
 
     def _make_conflict(self, project_path, worktree_path, remote_path):
         _make_conflict(project_path, worktree_path, remote_path)
@@ -197,7 +198,7 @@ class TestSquashAbort:
         self._make_conflict(project_path, worktree_path, remote_path)
         head_before = _current_head(worktree_path)
 
-        result = squash_worktree(worktree_path, skip_fetch=True, abort_on_conflict=True)
+        result = rebase_worktree(worktree_path, skip_fetch=True, abort_on_conflict=True)
 
         assert result.success is False
         assert result.had_conflicts is True
@@ -210,7 +211,7 @@ class TestSquashAbort:
         project_path, worktree_path, remote_path = project_with_worktree
         self._make_conflict(project_path, worktree_path, remote_path)
 
-        result = squash_worktree(worktree_path, skip_fetch=True)
+        result = rebase_worktree(worktree_path, skip_fetch=True)
 
         assert result.success is False
         assert result.had_conflicts is True
@@ -227,7 +228,7 @@ class TestSquashAbort:
         create_commit(worktree_path, "feature.txt", "feature\n", "Feature commit")
         _advance_origin_main(project_path, remote_path)
 
-        result = squash_worktree(worktree_path, skip_fetch=True, abort_on_conflict=True)
+        result = rebase_worktree(worktree_path, skip_fetch=True, abort_on_conflict=True)
 
         assert result.success is True
         assert result.aborted is False
@@ -603,7 +604,7 @@ class TestSyncAutorepair:
     ):
         """A rebase can fail with no conflict, leaving no rebase in progress.
 
-        ``squash_worktree`` reports ``had_conflicts`` for any non-zero rebase
+        ``rebase_worktree`` reports ``had_conflicts`` for any non-zero rebase
         exit, so the conflict flag alone must not trigger a repair session:
         there would be nothing for it to resolve.
         """
@@ -655,14 +656,14 @@ class TestSyncAutorepair:
 
 
 class TestSquashAutorepair:
-    """`squash_worktree_with_autorepair`: repair a rebase, and never push."""
+    """`rebase_worktree_with_autorepair`: repair a rebase, and never push."""
 
     def test_successful_repair_completes_the_rebase_without_pushing(
         self, project_with_worktree
     ):
         """The squash variant rebases only.
 
-        `mael git squash` publishes nothing, so a repaired rebase must leave
+        `mael sync --no-push` publishes nothing, so a repaired rebase must leave
         origin where it was.
         """
         project_path, worktree_path, remote_path = project_with_worktree
@@ -670,7 +671,7 @@ class TestSquashAutorepair:
         origin_before = _current_head_of_ref(worktree_path, "origin/feature/work")
         _make_conflict(project_path, worktree_path, remote_path)
 
-        result = squash_worktree_with_autorepair(
+        result = rebase_worktree_with_autorepair(
             worktree_path,
             skip_fetch=True,
             repair_runner=_repairing_runner,
@@ -695,7 +696,7 @@ class TestSquashAutorepair:
         _make_conflict(project_path, worktree_path, remote_path)
         head_before = _current_head(worktree_path)
 
-        result = squash_worktree_with_autorepair(
+        result = rebase_worktree_with_autorepair(
             worktree_path,
             skip_fetch=True,
             repair_runner=_idle_runner,
@@ -713,7 +714,7 @@ class TestSquashAutorepair:
         _advance_origin_main(project_path, remote_path)
         runner = MagicMock()
 
-        result = squash_worktree_with_autorepair(
+        result = rebase_worktree_with_autorepair(
             worktree_path,
             skip_fetch=True,
             repair_runner=runner,
@@ -814,22 +815,124 @@ class TestSetupWorktreeSyncOnOpen:
         )
         assert merged.returncode == 0
 
-    def test_reused_worktree_is_never_synced(
+    def test_reused_worktree_is_rebased_without_pushing(
         self, project_with_worktree, quiet_finalize
     ):
+        """Reopening a worktree puts its branch on current code, and stops there.
+
+        The remote is left alone: an agent may be live in the worktree, and a
+        force-push would rewrite history under it.
+        """
         project_path, worktree_path, remote_path = project_with_worktree
         # The fixture's alpha worktree already has feature/work checked out.
-        with patch("maelstrom.worktree.sync_worktree_with_autorepair") as sync:
-            result = setup_worktree_for_branch(
-                project_path,
-                "test-repo",
-                "feature/work",
-                run_install=False,
-            )
+        create_commit(worktree_path, "work.txt", "work\n", "Branch work")
+        _push_branch(worktree_path, "feature/work")
+        remote_before = run_git(
+            worktree_path, "rev-parse", "origin/feature/work"
+        ).stdout.strip()
+        _advance_origin_main(project_path, remote_path)
+
+        result = setup_worktree_for_branch(
+            project_path,
+            "test-repo",
+            "feature/work",
+            run_install=False,
+        )
+
+        assert result.action == "reused"
+        assert result.sync is not None
+        assert result.sync.success is True, result.sync.message
+        assert result.sync.pushed is False
+        merged = run_git(
+            result.path,
+            "merge-base",
+            "--is-ancestor",
+            "origin/main",
+            "HEAD",
+            check=False,
+        )
+        assert merged.returncode == 0
+        # The remote branch is untouched.
+        assert (
+            run_git(worktree_path, "rev-parse", "origin/feature/work").stdout.strip()
+            == remote_before
+        )
+
+    def test_a_live_session_skips_the_reuse_rebase(
+        self, project_with_worktree, quiet_finalize
+    ):
+        """A rebase under a running agent rewrites the commits it is building on."""
+        project_path, worktree_path, remote_path = project_with_worktree
+        create_commit(worktree_path, "work.txt", "work\n", "Branch work")
+        _advance_origin_main(project_path, remote_path)
+        head_before = _current_head(worktree_path)
+        live = MagicMock()
+        live.all_for.return_value = [MagicMock()]
+        lines: list[str] = []
+
+        result = setup_worktree_for_branch(
+            project_path,
+            "test-repo",
+            "feature/work",
+            run_install=False,
+            live=live,
+            announce=lines.append,
+        )
 
         assert result.action == "reused"
         assert result.sync is None
-        sync.assert_not_called()
+        assert _current_head(worktree_path) == head_before
+        assert any("live session" in line for line in lines), lines
+
+    def test_reuse_does_not_autosquash_fixup_commits(
+        self, project_with_worktree, quiet_finalize
+    ):
+        """A reopen is not a squash: a pending fixup! survives as its own commit."""
+        project_path, worktree_path, remote_path = project_with_worktree
+        create_commit(worktree_path, "work.txt", "work\n", "Branch work")
+        create_commit(worktree_path, "more.txt", "more\n", "fixup! Branch work")
+        _advance_origin_main(project_path, remote_path)
+
+        result = setup_worktree_for_branch(
+            project_path,
+            "test-repo",
+            "feature/work",
+            run_install=False,
+        )
+
+        assert result.sync is not None and result.sync.success is True
+        subjects = run_git(
+            result.path, "log", "--format=%s", "origin/main..HEAD"
+        ).stdout.split("\n")
+        assert "fixup! Branch work" in subjects
+
+    def test_reuse_keeps_uncommitted_work(self, project_with_worktree, quiet_finalize):
+        """The rebase autostashes, so a dirty worktree is rebased, not refused."""
+        project_path, worktree_path, remote_path = project_with_worktree
+        create_commit(worktree_path, "work.txt", "work\n", "Branch work")
+        _advance_origin_main(project_path, remote_path)
+        scratch = worktree_path / "scratch.txt"
+        scratch.write_text("work in progress\n")
+
+        result = setup_worktree_for_branch(
+            project_path,
+            "test-repo",
+            "feature/work",
+            run_install=False,
+        )
+
+        assert result.sync is not None
+        assert result.sync.success is True, result.sync.message
+        assert scratch.read_text() == "work in progress\n"
+        merged = run_git(
+            result.path,
+            "merge-base",
+            "--is-ancestor",
+            "origin/main",
+            "HEAD",
+            check=False,
+        )
+        assert merged.returncode == 0
 
     def test_brand_new_branch_is_synced_but_never_closed(
         self, project_with_worktree, quiet_finalize
@@ -932,6 +1035,47 @@ class TestSetupWorktreeSyncOnOpen:
         assert result.sync is not None
         assert result.sync.success is True, result.sync.message
         assert result.sync.repaired is True
+
+    def test_a_failed_reuse_rebase_blocks_the_launch(
+        self, project_with_worktree, quiet_finalize
+    ):
+        """Reuse does not make stale code safe: an unrepaired conflict still blocks."""
+        project_path, worktree_path, remote_path = project_with_worktree
+        # Conflict the alpha worktree's own branch against origin/main.
+        (worktree_path / "README.md").write_text("# Feature version\n")
+        run_git(worktree_path, "add", "README.md")
+        run_git(worktree_path, "commit", "-m", "Feature README")
+        with TemporaryDirectory() as tmpdir:
+            clone = Path(tmpdir) / "pusher"
+            subprocess.run(
+                ["git", "clone", str(remote_path), str(clone)],
+                check=True,
+                capture_output=True,
+            )
+            run_git(clone, "config", "user.email", "test@test.com")
+            run_git(clone, "config", "user.name", "Test")
+            (clone / "README.md").write_text("# Upstream version\n")
+            run_git(clone, "add", "README.md")
+            run_git(clone, "commit", "-m", "Upstream README")
+            run_git(clone, "push", "origin", "HEAD:main")
+        run_git(project_path, "fetch", "origin")
+        run_git(worktree_path, "fetch", "origin")
+
+        with patch(
+            "maelstrom.worktree.run_resolve_rebase_session",
+            side_effect=_idle_runner,
+        ):
+            result = setup_worktree_for_branch(
+                project_path,
+                "test-repo",
+                "feature/work",
+                run_install=False,
+            )
+
+        assert result.action == "reused"
+        assert result.sync is not None and result.sync.success is False
+        with pytest.raises(LaunchBlocked):
+            check_synced("t1", "feature/work", result)
 
     def _conflicting_branch(self, project_path, worktree_path, remote_path):
         """A pushed branch whose README edit conflicts with a later origin/main edit."""
@@ -1124,6 +1268,119 @@ class TestSyncCli:
         _, kwargs = mock_sync.call_args
         assert kwargs["abort_on_conflict"] is True
         assert kwargs["close_if_empty"] is True
+
+
+class TestSyncNoPushAgainstRealGit:
+    """`mael sync --no-push` against a real remote: rebases, publishes nothing."""
+
+    def test_no_push_rebases_and_leaves_origin_where_it_was(
+        self, project_with_worktree
+    ):
+        project_path, worktree_path, remote_path = project_with_worktree
+        create_commit(worktree_path, "work.txt", "work\n", "Branch work")
+        _push_branch(worktree_path, "feature/work")
+        remote_before = run_git(
+            worktree_path, "rev-parse", "origin/feature/work"
+        ).stdout.strip()
+        _advance_origin_main(project_path, remote_path)
+
+        result = rebase_worktree(worktree_path, squash=False)
+
+        assert result.success is True, result.message
+        assert result.pushed is False
+        merged = run_git(
+            worktree_path,
+            "merge-base",
+            "--is-ancestor",
+            "origin/main",
+            "HEAD",
+            check=False,
+        )
+        assert merged.returncode == 0
+        assert (
+            run_git(worktree_path, "rev-parse", "origin/feature/work").stdout.strip()
+            == remote_before
+        )
+
+
+class TestSyncNoPush:
+    """`mael sync --no-push` — rebase locally, leave the remote alone."""
+
+    def _ctx(self):
+        mock_ctx = MagicMock()
+        mock_ctx.worktree = "alpha"
+        mock_ctx.project = "myproject"
+        mock_ctx.worktree_path = MagicMock()
+        mock_ctx.worktree_path.exists.return_value = True
+        return mock_ctx
+
+    def _run(self, args):
+        rebased = SyncResult(
+            success=True,
+            branch="feature/work",
+            message="Rebased feature/work onto origin/main",
+        )
+        runner = CliRunner()
+        with (
+            patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
+            patch("maelstrom.cli.sync_worktree", return_value=rebased) as sync,
+            patch(
+                "maelstrom.cli.sync_worktree_with_autorepair", return_value=rebased
+            ) as sync_repair,
+            patch("maelstrom.cli.rebase_worktree", return_value=rebased) as squash,
+            patch(
+                "maelstrom.cli.rebase_worktree_with_autorepair", return_value=rebased
+            ) as squash_repair,
+        ):
+            result = runner.invoke(cli, ["sync", "myproject.alpha", *args])
+        return result, (sync, sync_repair, squash, squash_repair)
+
+    def test_no_push_rebases_without_pushing(self):
+        result, (sync, sync_repair, squash, squash_repair) = self._run(["--no-push"])
+
+        assert result.exit_code == 0, result.output
+        squash.assert_called_once()
+        sync.assert_not_called()
+        sync_repair.assert_not_called()
+        squash_repair.assert_not_called()
+
+    def test_no_push_does_not_autosquash_by_default(self):
+        _, (_, _, squash, _) = self._run(["--no-push"])
+
+        _, kwargs = squash.call_args
+        assert kwargs["squash"] is False
+
+    def test_squash_no_push_autosquashes(self):
+        _, (_, _, squash, _) = self._run(["--squash", "--no-push"])
+
+        _, kwargs = squash.call_args
+        assert kwargs["squash"] is True
+
+    def test_no_push_with_autorepair_uses_the_repairing_rebase(self):
+        result, (sync, sync_repair, squash, squash_repair) = self._run(
+            ["--no-push", "--autorepair"]
+        )
+
+        assert result.exit_code == 0, result.output
+        squash_repair.assert_called_once()
+        squash.assert_not_called()
+        sync.assert_not_called()
+        sync_repair.assert_not_called()
+
+    def test_pushing_stays_the_default(self):
+        result, (sync, _, squash, _) = self._run([])
+
+        assert result.exit_code == 0, result.output
+        sync.assert_called_once()
+        squash.assert_not_called()
+
+    def test_no_push_with_close_is_a_usage_error(self):
+        """--close deletes the remote branch, which is a push."""
+        result, (_, _, squash, _) = self._run(["--no-push", "--close"])
+
+        assert result.exit_code != 0
+        assert "--no-push cannot be combined with --close" in result.output
+        squash.assert_not_called()
 
 
 class TestSyncBaseCli:

@@ -46,7 +46,7 @@ directory.
 
 | Command | Description |
 |---|---|
-| `mael add [BRANCH]` | Add a worktree for `BRANCH`, and rebase `BRANCH` onto its base before the session starts. A new branch bases on `main`, unless the project's stack tip has been moved. Recycles a closed worktree when one exists. With no `BRANCH`, creates a fresh worktree detached at `origin/main`: there is no branch to rebase, and no worktree is recycled. |
+| `mael add [BRANCH]` | Add a worktree for `BRANCH`, and rebase `BRANCH` onto its base before the session starts. A new branch bases on `main`, unless the project's stack tip has been moved. Recycles a closed worktree when one exists. An existing worktree for `BRANCH` is reused and rebased too, but that rebase does not push. With no `BRANCH`, creates a fresh worktree detached at `origin/main`: there is no branch to rebase, and no worktree is recycled. |
 | `mael add-project GIT_URL` | Clone a repository and set it up for maelstrom. |
 | `mael create-project NAME` | Create a GitHub repository with the maelstrom stub files, check it out, and open a worktree on `feat/start-project`. |
 | `mael mv-project OLD NEW` | Rename a project and everything derived from its name. |
@@ -161,11 +161,13 @@ records those as stopped, not crashed, so a closed worktree leaves nothing in `m
 | `--squash` | Autosquash `fixup!` commits while rebasing onto the base. A `fixup!` aimed at a commit in the *parent* branch does not squash — put it in the parent's worktree. |
 | `--base TEXT` | Stack this branch on `TEXT` before rebasing. `main` unstacks it. Rejects a self-base or a cycle with exit code 1. |
 | `--abort` | On conflict, abort the rebase and restore the worktree. |
-| `--close` | If the branch is empty after the rebase, delete it (local and remote) and close the worktree. |
+| `--close` | If the branch is empty after the rebase, delete it (local and remote) and close the worktree. Rejected with `--no-push`. |
+| `--no-push` | Rebase only, and leave the remote branch alone. Use it when something else may be working in the worktree. |
 | `--autorepair` | On conflict, run a headless Claude session (`/resolve-rebase-conflicts`) to resolve it and continue the rebase. Announces the repair, then streams the session's output to the console. Supersedes `--abort`: a failure aborts and restores the worktree, except where the session finished the rebase on another branch and there is nothing to abort. |
 
 ```bash
 mael sync --autorepair             # let a headless session resolve the conflict
+mael sync --squash --no-push       # tidy fixup! commits, publish nothing
 mael sync --base feat/parent       # stack this branch on feat/parent, then rebase
 mael sync --base main              # unstack it again
 ```
@@ -216,7 +218,7 @@ mael eject                         # just leave the stack
 See [stacking.md](../dev/stacking.md) for the full model.
 
 `--autorepair` is available on every command that rebases: `mael sync`, `mael sync-all`,
-`mael git squash`, and `mael gh create-pr`. Each one is off by default. The flag starts an
+and `mael gh create-pr`. Each one is off by default. The flag starts an
 unattended agent, so it is for commands you run yourself. An agent already in a session
 resolves its own conflicts instead.
 
@@ -349,7 +351,7 @@ The task notebook. See [tasks.md](../guide/tasks.md).
 | `mael task promote FILE` | Create a task from a draft file, print its id, delete the file. |
 | `mael task load-many FILE` | Create a chain of tasks from a marked plan file. `-` reads stdin. |
 | `mael task next` | Print the id of the next actionable task. |
-| `mael task run ID` | Launch a task as a Claude session. Creates its worktree first, and rebases the branch onto its base. A failed rebase blocks the launch and leaves the task TODO. |
+| `mael task run ID` | Launch a task as a Claude session. Creates its worktree first, and rebases the branch onto its base. A reused worktree is rebased without pushing. A failed rebase blocks the launch and leaves the task TODO. |
 | `mael task list` | List actionable tasks. |
 | `mael task show ID` | Show a summary of a task. |
 | `mael task get-status [ID]` | Print a task's status alone. Defaults to `$MAEL_TASK_ID`. |
@@ -850,20 +852,14 @@ Exit codes: 0 = passed, 1 = failed, 2 = timeout.
 | Command | Description |
 |---|---|
 | `mael git status [TARGET]` | Show a compact git status summary. |
-| `mael git squash [TARGET]` | Rebase onto the branch's base (`origin/main` unless the branch is stacked), autosquashing `fixup!` commits. Does not push. |
 | `mael git merge [TARGET]` | Rebase the current branch onto main, fast-forward main to it, and push. |
 
 ```bash
 mael git status              # compact summary; the only other --json consumer
-mael git squash              # tidy fixups without pushing
 mael git merge --close       # merge, then close the worktree
 ```
 
-**`mael git squash`**
-
-| Option | Description |
-|---|---|
-| `--autorepair` | On conflict, run a headless Claude session (`/resolve-rebase-conflicts`) to resolve it and continue the rebase. The command still pushes nothing. |
+To autosquash `fixup!` commits without pushing, use `mael sync --squash --no-push`.
 
 **`mael git merge`**
 

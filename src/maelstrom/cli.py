@@ -79,6 +79,8 @@ from .worktree import (
     get_pushed_commit_count,
     get_worktree_dirty_files,
     list_worktrees,
+    rebase_worktree,
+    rebase_worktree_with_autorepair,
     remove_worktree_by_path,
     run_git,
     run_install_cmd,
@@ -139,9 +141,9 @@ def _launch_claude_or_raise(
 def _report_open_sync(sync: SyncResult | None) -> None:
     """Echo the result of the sync that ran when a worktree was opened.
 
-    ``None`` means no sync ran (the worktree was reused), so there is nothing to
-    say. A failure exits non-zero: the caller must not launch a session onto
-    code that was never rebased.
+    ``None`` means no sync ran, so there is nothing to say. A failure exits
+    non-zero: the caller must not launch a session onto code that was never
+    rebased.
     """
     if sync is None:
         return
@@ -447,10 +449,8 @@ def cmd_add(
         click.echo(f"Worktree created at: {worktree_path}")
         click.echo(f"  → {ctx.project}/{wt_name} (created)")
 
-    # Opening a worktree rebases its branch onto origin/main first. A failed sync
-    # blocks the launch: a session must never start on unrebased code. Reported
-    # after the env regen above so a retry (which reuses the worktree, and so
-    # never syncs) doesn't skip the regen.
+    # Opening a worktree rebases its branch onto its base first. A failed sync
+    # blocks the launch: a session must never start on unrebased code.
     _report_open_sync(result.sync)
 
     app_info = get_app_url(project_path, wt_name)
@@ -1139,19 +1139,33 @@ def cmd_eject(target):
     help="If the branch is empty after rebasing, delete it (local + remote) and close the worktree",
 )
 @click.option(
+    "--no-push",
+    "no_push",
+    is_flag=True,
+    help="Rebase only; leave the remote branch alone",
+)
+@click.option(
     "--autorepair",
     is_flag=True,
     help="On rebase conflict, run a headless Claude session "
     "(/resolve-rebase-conflicts) to resolve and continue",
 )
-def cmd_sync(target, squash, base, abort, close, autorepair):
+def cmd_sync(target, squash, base, abort, close, no_push, autorepair):
     """Rebase worktree against its base branch (origin/main by default).
 
     With --autorepair, a rebase conflict starts a headless Claude session that
     resolves it and continues the rebase. This supersedes --abort: an autorepair
     failure aborts and restores the worktree, except where the session finished
     the rebase on another branch and there is nothing to abort.
+
+    With --no-push the branch is rebased and left unpushed, so the remote keeps
+    the history it has. Use it when something else may be working in the
+    worktree: `--squash --no-push` tidies fixup! commits without publishing them.
     """
+    # --close deletes the remote branch, which is a push.
+    if no_push and close:
+        raise click.UsageError("--no-push cannot be combined with --close")
+
     try:
         ctx = resolve_context(
             target,
@@ -1175,7 +1189,20 @@ def cmd_sync(target, squash, base, abort, close, autorepair):
         )
     else:
         click.echo(f"Syncing {ctx.worktree} with {target_label}...")
-    if autorepair:
+    if no_push:
+        if autorepair:
+            result = rebase_worktree_with_autorepair(
+                worktree_path,
+                squash=squash,
+                announce=click.echo,
+            )
+        else:
+            result = rebase_worktree(
+                worktree_path,
+                squash=squash,
+                abort_on_conflict=abort,
+            )
+    elif autorepair:
         result = sync_worktree_with_autorepair(
             worktree_path,
             squash=squash,
