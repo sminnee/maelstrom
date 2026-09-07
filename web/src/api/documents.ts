@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Anchor, Document } from '../protocol/documents';
-import type { CommentId, DocumentId } from '../protocol/ids';
+import type { CommentId, DocumentId, TaskId } from '../protocol/ids';
 import type { DocumentRow } from '../selectors/world';
 import { useApi } from './ApiProvider';
 import { keys } from './keys';
@@ -32,8 +32,8 @@ export function useDocument(documentId: DocumentId | null) {
  * below answers 501 today, so the invalidation waits for the server to serve
  * them; the shape is here so the hooks land ready.
  */
-function useDocumentMutation<V extends { documentId: DocumentId }>(
-  send: (api: ReturnType<typeof useApi>, vars: V) => Promise<unknown>,
+function useDocumentMutation<V extends { documentId: DocumentId }, R = unknown>(
+  send: (api: ReturnType<typeof useApi>, vars: V) => Promise<R>,
 ) {
   const api = useApi();
   const queryClient = useQueryClient();
@@ -63,9 +63,16 @@ export function useResolveComment() {
   );
 }
 
+/** What an approve replies: the tasks it created, for a task set. */
+export interface ApproveResult {
+  taskIds?: TaskId[];
+}
+
 export function useApproveDocument() {
   return useDocumentMutation((api, vars: { documentId: DocumentId; version: number }) =>
-    api.post(`/api/documents/${vars.documentId}/approve`, { version: vars.version }),
+    api.post<ApproveResult>(`/api/documents/${vars.documentId}/approve`, {
+      version: vars.version,
+    }),
   );
 }
 

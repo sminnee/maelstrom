@@ -9,6 +9,9 @@ Two forms::
 
     <doc-file kind="tasks" filename=".drafts/iter1.md" title="Iteration 1">
 
+``filename`` may name several files, comma-separated. A task set is one
+document holding the whole chain, so one tag names every draft in it.
+
 See ``docs/dev/orchestrator-server.md``, "A tagged document", for the design.
 """
 
@@ -37,14 +40,15 @@ _FILE_TAG = re.compile(rf"<doc-file\b{_ATTRIBUTES}>")
 class DocumentTag:
     """One tag: what to call the document, and where its body comes from.
 
-    ``filename`` is empty for a ``<doc-content>`` tag, whose body is
+    ``filenames`` is empty for a ``<doc-content>`` tag, whose body is
     ``markdown``. For a ``<doc-file>`` tag ``markdown`` is empty and the
-    filename names the file to read.
+    filenames name the files to read, in the order the tag listed them — which
+    for a task set is the order the chain runs in.
     """
 
     kind: str
     title: str
-    filename: str
+    filenames: tuple[str, ...]
     markdown: str
     review: bool
 
@@ -74,7 +78,7 @@ def read_tags(text: str) -> TaggedMessage:
                 DocumentTag(
                     kind=_kind_of(attributes),
                     title=attributes.get("title", "") or _kind_of(attributes),
-                    filename="",
+                    filenames=(),
                     markdown=match.group(2),
                     review=_review_of(attributes),
                 ),
@@ -87,16 +91,18 @@ def read_tags(text: str) -> TaggedMessage:
             # A `<doc-file>` inside a `<doc-content>` body is that body's text.
             continue
         attributes = _attributes(match.group(1))
-        filename = attributes.get("filename", "")
+        filenames = _filenames_of(attributes)
         tags.append(
             (
                 match.start(),
                 DocumentTag(
                     kind=_kind_of(attributes),
+                    # The first name, not the whole list: a set is titled by
+                    # its head when the agent gave it no name of its own.
                     title=attributes.get("title", "")
-                    or filename
+                    or (filenames[0] if filenames else "")
                     or _kind_of(attributes),
-                    filename=filename,
+                    filenames=filenames,
                     markdown="",
                     review=_review_of(attributes),
                 ),
@@ -123,6 +129,16 @@ def _without(text: str, spans: list[tuple[int, int]]) -> str:
 
 def _attributes(raw: str) -> dict[str, str]:
     return {name: value for name, value in _ATTRIBUTE.findall(raw)}
+
+
+def _filenames_of(attributes: dict[str, str]) -> tuple[str, ...]:
+    """The files a ``<doc-file>`` tag names, comma-separated, in order.
+
+    One name is the ordinary case and reads as a one-file set. Blanks are
+    dropped, so a trailing comma names no extra file.
+    """
+    raw = attributes.get("filename", "")
+    return tuple(name.strip() for name in raw.split(",") if name.strip())
 
 
 def _kind_of(attributes: dict[str, str]) -> str:

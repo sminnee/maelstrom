@@ -4,6 +4,16 @@ import { describeError } from '../api/http';
 import { AppButton } from '../ui/AppButton';
 import styles from './ReviewActions.module.css';
 
+/**
+ * What Approve does, said plainly. Approving a task set writes the drafts into
+ * the notebook, so the button names that rather than reading as mere agreement.
+ */
+function approveLabel(doc: Document) {
+  return doc.kind === 'tasks' && doc.source.type === 'draft_files'
+    ? 'Approve and create tasks'
+    : 'Approve';
+}
+
 export function ReviewActions({
   doc,
   unresolved,
@@ -43,7 +53,7 @@ export function ReviewActions({
         errorChildren={describeError}
         onClick={() => onApprove()}
       >
-        Approve
+        {approveLabel(doc)}
       </AppButton>
     </div>
   );

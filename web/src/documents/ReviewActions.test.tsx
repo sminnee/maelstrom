@@ -37,4 +37,29 @@ describe('ReviewActions', () => {
   it('draws no bar at all on a draft', () => {
     expect(bar('draft')).toBeEmptyDOMElement();
   });
+
+  it('names what approving a task set does, because it writes to the notebook', () => {
+    render(
+      <ReviewActions
+        doc={makeDocument({ kind: 'tasks', source: { type: 'draft_files', paths: ['d.md'] } })}
+        unresolved={0}
+        onApprove={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Approve and create tasks' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+  });
+
+  it('keeps the plain label on every other kind', () => {
+    render(
+      <ReviewActions
+        doc={makeDocument({ kind: 'other' })}
+        unresolved={0}
+        onApprove={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
+  });
 });

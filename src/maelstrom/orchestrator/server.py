@@ -13,6 +13,7 @@ import logging
 import uuid
 from collections.abc import Callable
 from concurrent.futures import Executor
+from pathlib import Path
 from typing import Any
 
 from ..agent_model import AGENT_DETAIL, AGENT_EXITED, BACKLOG_END, SEQ_KEY, TRUNCATED
@@ -24,6 +25,7 @@ from ..util import now_iso
 from . import desk as desk_model
 from .daemon_bridge import AsyncDaemonClient
 from .desk import DeskTable, desk_id_for_agent, desk_id_for_task
+from .document_tags import stays_within
 from .hubs import COALESCE_SECS, WS_QUEUE_LIMIT, NoticeHub, TranscriptHub
 from .normalise import (
     NormaliseContext,
@@ -36,7 +38,15 @@ from .normalise import (
     revive_agent,
 )
 from .notices import notices_for
-from .protocol import HOST_ID, Agent, Host, ServerEvent, TranscriptItem, World
+from .protocol import (
+    HOST_ID,
+    Agent,
+    Document,
+    Host,
+    ServerEvent,
+    TranscriptItem,
+    World,
+)
 from .sources import TaskSource, WorktreeSource
 from .transcript_log import (
     TRANSCRIPT_RING,
@@ -74,6 +84,18 @@ CHILD_DETACH_SECS = 5.0
 
 def _refused(code: str, message: str) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message}}
+
+
+def _is_task_set(document: Document) -> bool:
+    """Whether approving this document should promote draft files.
+
+    Only a ``tasks`` document minted from a ``<doc-file>`` tag names drafts. A
+    task set written inline has no files to promote, so approving it is the
+    verdict alone.
+    """
+    return (
+        document["kind"] == "tasks" and document["source"].get("type") == "draft_files"
+    )
 
 
 class AgentWatch:
@@ -1038,13 +1060,91 @@ class Orchestrator:
         return {"ok": True, "result": {"agentId": agent_id}}
 
     async def _approve_document(self, command: dict[str, Any]) -> dict[str, Any]:
-        """The user's verdict on a document, and nothing more.
+        """The user's verdict on a document, and — for a task set — the tasks.
 
-        Approval is not something the agent is told: it asked for a verdict
-        and the answer is on the document. Nothing reaches the child.
+        Approving a task set also promotes its drafts; every other kind is the
+        verdict alone.
+
+        A verdict alone reaches nobody: the agent asked for one and the answer
+        is on the document. A promote does reach the agent, because it consumed
+        the agent's draft files and created work the agent has to know the ids
+        of. Without that message the session waits on a plan it cannot see was
+        approved.
         """
-        self._settle_document(command["documentId"], "approved")
-        return {"ok": True, "result": {}}
+        document = self.world["documents"][command["documentId"]]
+        created: list[str] = []
+        if _is_task_set(document):
+            created, refused = await self._promote_drafts(document)
+            if refused:
+                return refused
+        self._settle_document(document["id"], "approved")
+        if created:
+            await self._tell_agent_of_promote(document, created)
+        return {"ok": True, "result": {"taskIds": created}}
+
+    async def _tell_agent_of_promote(
+        self, document: Document, created: list[str]
+    ) -> None:
+        """Tell the agent its drafts became tasks, and which ones.
+
+        Best-effort, after the fact: the tasks exist and the document is
+        settled, so a host that will not carry the message must not turn a
+        successful approve into a refusal. The user sees the ids either way.
+        """
+        ids = ", ".join(created)
+        await self._ask_host(
+            {
+                "cmd": "say",
+                "id": document["agentId"],
+                "text": (
+                    f"Approved {document['title']} in the orchestrator UI, which "
+                    f"promoted the drafts. The tasks now exist: {ids}. "
+                    f"Do not promote them again."
+                ),
+            }
+        )
+
+    async def _promote_drafts(
+        self, document: Document
+    ) -> tuple[list[str], dict[str, Any] | None]:
+        """Promote a task set's drafts, or say which one stopped it.
+
+        The paths resolve against the agent's worktree and nothing outside it,
+        as reading them did.
+        """
+        agent = self.world["agents"].get(document["agentId"])
+        cwd = agent["cwd"] if agent else ""
+        # The agent's project, not the task's: a free agent may plan a chain
+        # too, and its worktree is what says where the tasks belong.
+        project = agent["project"] if agent else ""
+        if not project:
+            return [], _refused("invalid", "The agent is in no project's worktree")
+        paths: list[Path] = []
+        for name in document["source"].get("paths", []):
+            if not stays_within(cwd, name):
+                return [], _refused("invalid", f"{name} is not a file in the worktree")
+            paths.append(Path(cwd) / name)
+        try:
+            created = await self._run(
+                self.tasks.promote, project, paths, self._chain_parent(document)
+            )
+        except ValueError as exc:
+            return [], _refused("invalid", str(exc))
+        await self.refresh_tasks(force=True)
+        return created, None
+
+    def _chain_parent(self, document: Document) -> str:
+        """The parent the promoted tasks join, as ``$MAEL_TASK_PARENT`` decides it.
+
+        A planning session chains what it creates under its own parent, or
+        under itself when it has none, so the whole chain shares one branch and
+        one PR. The document names the planning task, so the server reads the
+        same answer off the world.
+        """
+        task = self.world["tasks"].get(document["taskId"])
+        if task is None:
+            return ""
+        return task["parent"] or task["notebookId"]
 
     async def _request_changes(self, command: dict[str, Any]) -> dict[str, Any]:
         """Send the document back, and relay the summary to the agent.

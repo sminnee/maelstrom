@@ -57,7 +57,7 @@ function Screen({ screen }: { screen: MobileScreen }) {
         ) : screen.kind === 'session' ? (
           <SessionTab agentId={screen.agentId} />
         ) : (
-          <DocumentTab documentId={screen.documentId} />
+          <DocumentTab key={screen.documentId} documentId={screen.documentId} />
         )}
       </div>
     </div>

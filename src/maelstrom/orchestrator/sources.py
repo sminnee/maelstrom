@@ -124,6 +124,19 @@ class TaskSource(Protocol):
         """
         ...
 
+    def promote(self, project: str, paths: list[Path], parent: str) -> list[str]:
+        """Create one task per draft file, chained in the order given.
+
+        The whole set is one notebook write: a draft that will not parse
+        leaves nothing created and no file consumed. Returns the wire ids, in
+        the order the drafts were listed.
+
+        Raises:
+            ValueError: If a draft is missing or does not parse. The message
+                names the file, so the user knows which one to fix.
+        """
+        ...
+
 
 class WorktreeSource(Protocol):
     """``list-all``, as projects and their worktrees."""
@@ -235,6 +248,49 @@ class NotebookTaskSource:
         with self._stamped() as index:
             task = model.create(self.store, project=project, index=index, **wanted)
         return task_key(project, task.id)
+
+    def promote(self, project: str, paths: list[Path], parent: str) -> list[str]:
+        """Promote every draft in one transaction, wiring the chain as it goes.
+
+        The first task follows the end of its parent's child-chain, exactly as
+        ``mael task promote --follow-end '*'`` wires it; each later one follows
+        the task before it. See ``docs/dev/orchestrator-server.md``,
+        "Approving a task set".
+        """
+        created: list[str] = []
+        with self._stamped():
+            with self.store.transaction(message=f"task: promote {len(paths)} draft(s)"):
+                for path in paths:
+                    follows = (
+                        [created[-1]]
+                        if created
+                        else model._resolve_follow_end(self.store, project, "*", parent)
+                    )
+                    try:
+                        # The draft's own parent wins, as it does through the
+                        # CLI: a planning session that named one meant it.
+                        draft = model.read_draft(path)
+                        # A cache outside the transaction: a row here would
+                        # outlive a rollback.
+                        task = model.promote_draft(
+                            self.store,
+                            project=project,
+                            path=path,
+                            overrides={"parent": draft.parent or parent},
+                            draft=draft,
+                            follows=follows,
+                            index=None,
+                            # Deferred until the transaction commits; see
+                            # `consume_draft`.
+                            consume=False,
+                        )
+                    except (OSError, ValueError) as exc:
+                        raise ValueError(f"{path.name}: {exc}") from exc
+                    created.append(task.id)
+        # Committed: the drafts have moved into the notebook, so consume them.
+        for path in paths:
+            model.consume_draft(path)
+        return [task_key(project, task_id) for task_id in created]
 
     def _move(self, project: str, task_id: str, status: str) -> None:
         with self._stamped() as index:

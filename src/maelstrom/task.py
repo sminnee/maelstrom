@@ -30,8 +30,7 @@ from .util import now_iso
 
 if TYPE_CHECKING:
     # Only needed for annotations, so keep these type-checking-only and
-    # reference them in string form below. ``Path`` names a draft file the
-    # caller opens; the notebook itself reaches the disk only through its store.
+    # reference them in string form below.
     from pathlib import Path
 
     from .session_discovery import LiveSession
@@ -1029,10 +1028,6 @@ PROMOTABLE_FIELDS = (
 def read_draft(path: "Path") -> Task:
     """The unsaved task a draft file describes.
 
-    Split out of :func:`promote_draft` for a caller that must read a recipe
-    field — the draft's own ``parent`` — before it can resolve the follows the
-    promote needs.
-
     Raises:
         FileNotFoundError: If ``path`` names no file.
         ValueError: If the draft does not parse (see :func:`parse_draft`).
@@ -1064,11 +1059,9 @@ def promote_draft(
     The file is deleted only after the task is in the store: a draft that fails
     to parse is left where the user can fix it, and nothing was created.
 
-    ``consume=False`` leaves the file, for a caller promoting a whole set in one
-    transaction: git can roll the notebook back but not a file outside it, so
-    such a caller deletes the set itself once the transaction has committed.
-    Use :func:`consume_draft` for that. ``draft`` reuses a :func:`read_draft`
-    the caller already did, rather than reading the file a second time.
+    ``consume=False`` leaves the file for a caller that promotes a whole set in
+    one transaction and calls :func:`consume_draft` after it commits. ``draft``
+    reuses a :func:`read_draft` the caller already did.
 
     Raises:
         FileNotFoundError: If ``path`` names no file.
@@ -1090,10 +1083,22 @@ def promote_draft(
         index=index,
         **fields,
     )
-    # The draft has moved into the notebook; consume it so nothing stale
-    # lingers in the worktree.
-    path.unlink()
+    if consume:
+        consume_draft(path)
     return task
+
+
+def consume_draft(path: "Path") -> None:
+    """Delete a draft whose task now exists.
+
+    A promoted draft left on disk gets promoted a second time, so consuming it
+    is part of promoting it — separated only so a caller promoting a set can
+    defer every deletion until the whole set is committed.
+
+    ``missing_ok``: a set's deletions run after its transaction commits, so a
+    file already gone must not raise and undo a promote that succeeded.
+    """
+    path.unlink(missing_ok=True)
 
 
 # --- plan-file (load-many) parsing + batch creation ---

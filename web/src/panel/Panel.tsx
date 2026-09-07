@@ -69,6 +69,8 @@ function TabBody({ tab }: { tab: PanelTab }) {
     case 'session':
       return <SessionTab agentId={tab.agentId} />;
     case 'document':
-      return <DocumentTab documentId={tab.documentId} />;
+      // Keyed: the tab holds per-document mutation state, so a reused
+      // fiber would show one document's created tasks under the next.
+      return <DocumentTab key={tab.documentId} documentId={tab.documentId} />;
   }
 }
