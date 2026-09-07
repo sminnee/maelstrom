@@ -6,6 +6,8 @@ checked here once, against the bare-clone-plus-worktree fixture.
 
 import asyncio
 import dataclasses
+import threading
+import time
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from unittest.mock import patch
@@ -463,3 +465,4 @@ def test_one_unreadable_worktree_does_not_blank_the_others(tmp_path):
         "alpha-0",
         "alpha-2",
     ]
+
