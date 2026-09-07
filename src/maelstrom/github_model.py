@@ -203,6 +203,27 @@ def stack_chain(branch: str, bases: dict[str, str]) -> list[str]:
 PrState = Literal["merged", "ci-failed", "ci-running", "conflict", "unknown", "ready"]
 
 
+def _is_rate_limit(errors: list[dict]) -> bool:
+    """Whether a GraphQL error list says the budget is spent.
+
+    Matches on ``type``/``code`` rather than the message, which carries a user
+    id and is not a stable string.
+    """
+    return any(
+        error.get("type") == "RATE_LIMIT" or error.get("code") == "graphql_rate_limit"
+        for error in errors
+    )
+
+
+class RateLimited(ValueError):
+    """The GraphQL budget is spent, so the read cannot be retried right now.
+
+    A ``ValueError`` so that callers written before this class still catch it.
+    GitHub reports a spent budget with HTTP 200 and an error in the body, so
+    nothing but the payload says it happened.
+    """
+
+
 def is_open_pr(pr: "PrStatus | None") -> bool:
     """Whether ``pr`` is a pull request still waiting to merge.
 
@@ -450,10 +471,13 @@ def parse_open_prs(payload: str, aliases: dict[str, str]) -> dict[str, PrStatus]
         Branch name -> its pull request, for those branches that have one.
 
     Raises:
-        ValueError: If the payload carries no repository at all — a rate limit,
-            or a token that cannot read the repo. The exit code does not say:
-            gh exits 0 on a rate limit, and 1 on a payload that is complete
-            apart from one refused field.
+        RateLimited: If the payload says the GraphQL budget is spent. Told
+            apart from the failures below because a caller must not answer it
+            by looking each branch up on its own.
+        ValueError: If the payload carries no repository for any other reason —
+            a token that cannot read the repo. The exit code does not say: gh
+            exits 0 on a rate limit, and 1 on a payload that is complete apart
+            from one refused field.
         json.JSONDecodeError: If ``payload`` is not JSON.
         KeyError, TypeError: If the payload has an unexpected shape.
     """
@@ -462,7 +486,10 @@ def parse_open_prs(payload: str, aliases: dict[str, str]) -> dict[str, PrStatus]
     if repository is None:
         # No data at all. gh exits 0 on a rate limit or a missing scope, so the
         # payload is the only signal that the read failed.
-        raise ValueError(f"GraphQL query failed: {data.get('errors')}")
+        errors = data.get("errors") or []
+        if _is_rate_limit(errors):
+            raise RateLimited(f"GraphQL rate limit: {errors}")
+        raise ValueError(f"GraphQL query failed: {errors}")
     # Errors beside data are per-field, and the answer is still worth having: a
     # token without the checks scope is refused `statusCheckRollup` on every
     # node and given the rest. What it cannot read must read as `unknown`, not
