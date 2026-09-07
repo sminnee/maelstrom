@@ -12,11 +12,23 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **The orchestrator server says what it is doing.** It writes timestamped logs to stderr, which
+  `mael env logs orchestrator` tails. `--log-level` sets how much; the default is `info`, which
+  names every command the server shells out. See
+  [orchestrator-server.md](docs/dev/orchestrator-server.md).
+
 - **An agent can show you a picture.** It writes `<image src="docs/shot.png" alt="What it is">`
   in a message, and the picture appears where it wrote it. A file outside its worktree, or one
   that is not there, is refused and the message says so.
 
 ### Changed
+
+- **A service restart appends to its log rather than truncating it.** A service that died left
+  nothing to read, because the restart that followed wiped the log of the crash that caused it.
+
+- **The orchestrator answers while it reads.** It shelled out for worktrees, PRs and sessions on
+  one thread, so a read of every project — 19s on a large machine — blocked every request behind
+  it. Those reads now run on its event loop, and the projects are read together.
 
 - **Reopening a worktree rebases it.** `mael add` and `mael task run` already rebased a worktree
   they created or recycled. A worktree that already held the branch was left as it was, so the

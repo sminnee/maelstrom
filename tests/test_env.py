@@ -1543,6 +1543,40 @@ class TestTailLogFile:
         result = tail_log_file(log, n=100)
         assert len(result) == 2
 
+    def test_it_reads_only_the_end_of_a_large_file(self, tmp_path):
+        """A long-lived service's log must not be read whole to show its tail.
+
+        The logs are appended, never truncated, and one on this machine has
+        reached 187 MB. Reading it whole to print 100 lines costs that much
+        memory every time someone runs ``mael env logs``.
+        """
+        log = tmp_path / "big.log"
+        log.write_text("\n".join(f"line {i}" for i in range(200_000)))
+        size = log.stat().st_size
+
+        read = 0
+        real_open = Path.open
+
+        def counting_open(self, *args, **kwargs):
+            handle = real_open(self, *args, **kwargs)
+            if self == log:
+                inner_read = handle.read
+
+                def tracked(*a, **k):
+                    nonlocal read
+                    chunk = inner_read(*a, **k)
+                    read += len(chunk)
+                    return chunk
+
+                handle.read = tracked
+            return handle
+
+        with patch.object(Path, "open", counting_open):
+            result = tail_log_file(log, n=5)
+
+        assert result[-1] == "line 199999"
+        assert read < size / 10, f"read {read} of {size} bytes"
+
     def test_missing_file(self, tmp_path):
         """Returns empty list for missing file."""
         result = tail_log_file(tmp_path / "missing.log")
@@ -2884,3 +2918,29 @@ class TestServiceEnvExpands:
             )
         child_env = spawned[0]
         assert child_env["CACHE_DIR"] == "/home/tester/.cache/p-delta"
+
+
+class TestServiceLogsSurviveARestart:
+    """A restart must not destroy the log of the run that made it necessary.
+
+    A service that dies is normally restarted at once, and the restart used to
+    truncate the log, so the crash that prompted it left nothing to read.
+    """
+
+    def test_a_restart_appends_to_the_log_rather_than_truncating_it(self, tmp_path):
+        logs = tmp_path / "logs"
+        logs.mkdir()
+        (logs / "web.log").write_text("=== an earlier run ===\nthe crash\n")
+
+        def fake_popen(argv, **kwargs):
+            proc = MagicMock()
+            proc.pid = 4242
+            return proc
+
+        svc = ResolvedService(name="web", command="serve", env={})
+        with patch("maelstrom.env.Popen", fake_popen):
+            _spawn_services([svc], tmp_path, {}, logs, "2026-09-07T00:00:00+00:00")
+
+        text = (logs / "web.log").read_text()
+        assert "the crash" in text, "the previous run's log was truncated"
+        assert "2026-09-07T00:00:00+00:00" in text

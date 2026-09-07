@@ -723,11 +723,12 @@ agents from the agent host, over HTTP. See
 
 | Command | Description |
 |---|---|
-| `mael orchestrator serve` | Run the orchestrator server in the foreground. `--host` (default `127.0.0.1`), `--port` (default `8765`). The agent host is the daemon `MAEL_AGENT_ROOT` names, so a worktree's orchestrator talks to that worktree's daemon. |
+| `mael orchestrator serve` | Run the orchestrator server in the foreground. `--host` (default `127.0.0.1`), `--port` (default `8765`), `--log-level` (`debug`, `info`, `warning`, `error`; default `info`). The agent host is the daemon `MAEL_AGENT_ROOT` names, so a worktree's orchestrator talks to that worktree's daemon. |
 
 ```bash
 mael orchestrator serve                     # http://127.0.0.1:8765
 mael orchestrator serve --port 3072         # what mael env start runs, on the worktree's port
+mael orchestrator serve --log-level warning # quieter: drop the per-command trace
 ```
 
 The first command that needs the agent host starts one, as `mael agent` does. Under maelstrom,

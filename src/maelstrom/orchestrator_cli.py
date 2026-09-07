@@ -7,6 +7,7 @@ an :class:`~maelstrom.orchestrator.server.Orchestrator` and serves it. See
 """
 
 import asyncio
+import logging
 import sys
 from concurrent.futures import Executor, ThreadPoolExecutor
 from pathlib import Path
@@ -88,15 +89,58 @@ def build_orchestrator(*, executor: Executor | None = None) -> Orchestrator:
     )
 
 
-def run_server(host: str, port: int) -> None:
+#: What every log line looks like. The time and the level come first, because
+#: the question asked of this file is always "what happened, and when".
+LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
+
+#: Levels a reader may ask for, loudest last.
+LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
+
+DEFAULT_LOG_LEVEL = "INFO"
+
+
+def setup_logging(level: str = DEFAULT_LOG_LEVEL) -> None:
+    """Send timestamped logs to stderr, which ``mael env`` captures to a file.
+
+    Configured here rather than in :func:`build_app`, because the test suite
+    runs the real app and must not inherit a global logging setup.
+
+    ``aiohttp.access`` is left at WARNING on purpose: it is a live default that
+    would otherwise write a line per SSE ping once a handler exists at INFO.
+    """
+    logging.basicConfig(
+        level=getattr(logging, level.upper()),
+        format=LOG_FORMAT,
+        stream=sys.stderr,
+        force=True,
+    )
+    logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
+
+
+def _log_unhandled(_loop: asyncio.AbstractEventLoop, context: dict) -> None:
+    """Log what a task died of when nobody was awaiting it to find out."""
+    logging.getLogger("maelstrom.orchestrator").error(
+        "unhandled error in the event loop: %s",
+        context.get("message", "(no message)"),
+        exc_info=context.get("exception"),
+    )
+
+
+def run_server(host: str, port: int, log_level: str = DEFAULT_LOG_LEVEL) -> None:
     """Build the orchestrator and serve it until interrupted.
 
     The worker pool lives for the serve call, so an interrupt does not wait on
     a read in flight past the point the server has stopped.
     """
+    setup_logging(log_level)
+
+    async def serve() -> None:
+        asyncio.get_running_loop().set_exception_handler(_log_unhandled)
+        await serve_app(build_app(orchestrator), host, port)
+
     with ThreadPoolExecutor(max_workers=1) as executor:
         orchestrator = build_orchestrator(executor=executor)
-        asyncio.run(serve_app(build_app(orchestrator), host, port))
+        asyncio.run(serve())
 
 
 @click.group()
@@ -109,7 +153,14 @@ def orchestrator() -> None:
 @click.option(
     "--port", default=DEFAULT_PORT, show_default=True, type=int, help="Bind port."
 )
-def cmd_serve(host: str, port: int) -> None:
+@click.option(
+    "--log-level",
+    default=DEFAULT_LOG_LEVEL,
+    show_default=True,
+    type=click.Choice(LOG_LEVELS, case_sensitive=False),
+    help="How much to log.",
+)
+def cmd_serve(host: str, port: int, log_level: str) -> None:
     """Run the orchestrator server in the foreground.
 
     The agent host is the daemon ``MAEL_AGENT_ROOT`` names, so a worktree's
@@ -117,7 +168,7 @@ def cmd_serve(host: str, port: int) -> None:
     """
     click.echo(f"Serving on http://{host}:{port}", err=True)
     try:
-        run_server(host, port)
+        run_server(host, port, log_level)
     except KeyboardInterrupt:
         pass
     except OSError as exc:

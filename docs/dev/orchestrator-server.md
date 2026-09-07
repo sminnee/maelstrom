@@ -31,7 +31,7 @@ carries and nothing maps between a dataclass and the wire.
 | `../desk_store.py` | storage | `DeskStore`: the desk as one JSON file at `~/.maelstrom/desk.json`, or in memory |
 | `server.py` | service | `Orchestrator`: the world, the pollers, one watch per agent, the transcript logs, the commands, and the hubs it tells |
 | `routes.py` | adapter | `build_app`: the aiohttp app that puts an `Orchestrator` on the network — every route, the error mapping — and `serving` / `serve_app` to run it |
-| `../orchestrator_cli.py` | CLI | `mael orchestrator serve` |
+| `../orchestrator_cli.py` | CLI | `mael orchestrator serve`, and the logging the server runs under |
 
 `task_launch.py` at the top level holds the launch plan and its two guards, shared with
 `mael task run`. `list_all.py` holds the rows both `mael list-all` and the server read.
@@ -676,14 +676,46 @@ anything else to `invalid`.
 
 ```bash
 mael orchestrator serve                                # http://127.0.0.1:8765
-mael orchestrator serve --port 3072 --socket /tmp/agent.sock
+mael orchestrator serve --port 3072 --log-level warning
 mael env start                                         # in this repo: web and orchestrator together
 ```
 
 The server is one aiohttp app, built by `routes.build_app`. It binds the port first, so a port
 in use fails at once, then reads every source once, then serves.
 
+The agent host is the daemon `MAEL_AGENT_ROOT` names, so a worktree's orchestrator talks to that
+worktree's daemon. There is no flag for it.
+
 The first command that needs the agent host starts one, as `mael agent` does.
+
+## Diagnostics
+
+The server writes timestamped logs to stderr. Under `mael env` that stream lands in
+`~/.maelstrom/logs/<project>/<worktree>/orchestrator.log`, which `mael env logs` tails.
+
+| Level | What it carries |
+| --- | --- |
+| `debug` | Everything below, plus aiohttp's and asyncio's own detail. Maelstrom logs nothing at this level yet |
+| `info` | Every shell-out, as `shell.py` records it |
+| `warning` | A refused attach, a missing backlog marker, an unreachable host |
+| `error` | A failed refresh, a failed command, and anything that escapes a task |
+
+`--log-level` sets it; the default is `info`.
+
+```bash
+mael orchestrator serve --log-level warning            # drop the per-command trace
+mael env logs orchestrator                             # tail the running server
+```
+
+Two rules keep the file worth reading:
+
+- **The log is appended, never truncated.** A service that dies is restarted at once. A restart
+  that truncated the log destroyed the record of the crash that caused it.
+- **The HTTP access log stays off.** The notice stream pings every client every 15 seconds, so an
+  access line per request would bury what the log is read for.
+
+Logging is configured in `orchestrator_cli.setup_logging`, not in `build_app`. The test suite runs
+the real app, and a global logging setup inside `build_app` would follow it into every test.
 
 ## Open risks
 

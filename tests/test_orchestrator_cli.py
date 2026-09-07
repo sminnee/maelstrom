@@ -1,11 +1,19 @@
 """``mael orchestrator serve``, with the server itself patched out."""
 
+import asyncio
+import logging
+import re
 from unittest.mock import patch
 
 from click.testing import CliRunner
 
 from maelstrom.cli import cli
-from maelstrom.orchestrator_cli import DEFAULT_HOST, DEFAULT_PORT
+from maelstrom.orchestrator_cli import (
+    DEFAULT_HOST,
+    DEFAULT_LOG_LEVEL,
+    DEFAULT_PORT,
+    run_server,
+)
 
 
 def test_serve_passes_its_flags_to_the_server():
@@ -14,14 +22,14 @@ def test_serve_passes_its_flags_to_the_server():
             cli, ["orchestrator", "serve", "--host", "0.0.0.0", "--port", "9000"]
         )
     assert result.exit_code == 0, result.output
-    run_server.assert_called_once_with("0.0.0.0", 9000)
+    run_server.assert_called_once_with("0.0.0.0", 9000, DEFAULT_LOG_LEVEL)
 
 
 def test_serve_defaults_to_localhost_and_the_default_port():
     with patch("maelstrom.orchestrator_cli.run_server") as run_server:
         result = CliRunner().invoke(cli, ["orchestrator", "serve"])
     assert result.exit_code == 0, result.output
-    run_server.assert_called_once_with(DEFAULT_HOST, DEFAULT_PORT)
+    run_server.assert_called_once_with(DEFAULT_HOST, DEFAULT_PORT, DEFAULT_LOG_LEVEL)
 
 
 def test_serve_takes_no_root_flag():
@@ -97,3 +105,54 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
     )
     assert open_wt.call_args.kwargs["run_install"] is False
     assert open_wt.call_args.kwargs["base"] == "feat/base"
+
+
+def test_serve_sets_up_logging_with_timestamps_before_it_serves():
+    """The log must name when and how bad, or a crash leaves nothing to read.
+
+    Without configuration every ``log.exception`` goes to the root logger's
+    last-resort handler: no timestamp, no level, and every ``log.info``
+    dropped.
+    """
+    with (
+        patch("maelstrom.orchestrator_cli.serve_app"),
+        patch("maelstrom.orchestrator_cli.build_orchestrator"),
+    ):
+        run_server(DEFAULT_HOST, DEFAULT_PORT, log_level="INFO")
+    root = logging.getLogger()
+    assert root.level == logging.INFO
+    assert root.handlers, "no handler was installed"
+    formatter = root.handlers[0].formatter
+    assert formatter is not None
+    line = formatter.format(
+        logging.LogRecord("m", logging.WARNING, "p", 1, "the message", None, None)
+    )
+    assert "the message" in line
+    assert "WARNING" in line
+    # A timestamp, not just the text.
+    assert re.search(r"\d{4}-\d{2}-\d{2}", line), line
+
+
+def test_an_exception_that_escapes_a_task_is_logged(capsys):
+    """A task that dies with nobody awaiting it must still say so."""
+    captured = {}
+
+    async def scenario(*_args):
+        captured["handler"] = asyncio.get_running_loop().get_exception_handler()
+
+    with (
+        patch("maelstrom.orchestrator_cli.build_orchestrator"),
+        patch("maelstrom.orchestrator_cli.build_app"),
+        patch("maelstrom.orchestrator_cli.serve_app", new=scenario),
+    ):
+        run_server(DEFAULT_HOST, DEFAULT_PORT)
+
+    assert captured["handler"] is not None, "no loop exception handler was installed"
+
+    loop = asyncio.new_event_loop()
+    try:
+        captured["handler"](loop, {"message": "task blew up"})
+    finally:
+        loop.close()
+    # Stderr, because that is the stream ``mael env`` captures to the log file.
+    assert "task blew up" in capsys.readouterr().err
