@@ -21,9 +21,14 @@ colors:
 typography:
   large:
     fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif"
-    fontSize: '15px'
+    fontSize: '18px'
     fontWeight: 600
     lineHeight: 1.3
+  reading:
+    fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif"
+    fontSize: '16px'
+    fontWeight: 400
+    lineHeight: 1.55
   body:
     fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif"
     fontSize: '13px'
@@ -205,10 +210,17 @@ faces, because that is what ships.
 
 Five steps, each with one job. Sizes are the `--text-*` tokens; no component names its own.
 
-- **Large** (600, 15px, 1.3): the task title on an expanded node. The one place type is
-  allowed to be large.
-- **Body** (400, 13px, 1.4): the default. Node titles, decision text, transcript prose, table
-  rows, controls. This is the size the operator reads all day.
+The ramp has two halves, because the app has two jobs. The chrome is scanned and must stay
+dense; prose is read and must not.
+
+- **Reading** (`--text-md`, 400, 16px, 1.55): markdown, wherever it appears — a transcript
+  message, a document, the decision rail. Prose is read start to end, so it is set well above
+  the chrome around it rather than on the same step.
+- **Chrome** (`--text-ui`, 400, 13px, 1.4): the body size everything else inherits. Node titles,
+  table rows, controls, the task list. The canvas keeps this size whatever prose does, because
+  the board's job is to hold many units at once.
+- **Display** (`--text-lg` 18px, `--text-xl` 21px): markdown's own `h2` and `h1`. Nothing in the
+  chrome uses them.
 - **Label** (500, 12px): metadata and secondary lines — the state line, the footer, filter
   fields, tab titles. Also the mono step: task ids, branches, worktree paths, code.
 - **Small** (400, 11px): the dense mono register — a tool call's summary row, the transcript's
@@ -229,15 +241,14 @@ the operator drags it wider. Two measures, because the panel's two surfaces read
 - `--measure-panel` — the transcript, scanned in blocks between tool rows, and already narrowed
   by the 3.5rem time gutter.
 
-Both are set in `ch`, but tuned by the count that actually renders: `ch` is the width of "0",
-which in these faces is about a fifth wider than the average character, so the token's number is
-lower than the character count it produces. Both land inside 45–75 characters.
+Both are 80ch. One measure, because a document and a transcript message are the same act of
+reading and a reader moving between them should not meet two line lengths.
 
 ### Named Rules
 
 **The Legibility Floor Rule.** 10px is the smallest type in the system, and it is only ever
-used for a tracked uppercase micro-label — never for prose, and never for a sentence. Body text
-is 13px. Density is bought with tighter space and shorter lines, never by shrinking type below
+used for a tracked uppercase micro-label — never for prose, and never for a sentence. Chrome is
+13px and prose is 16px. Density is bought with tighter space and shorter lines, never by shrinking type below
 the floor. Every step clears WCAG AA against its own ground in both schemes; the 10px label is
 the tightest, and it is measured, not assumed.
 
@@ -501,6 +512,20 @@ clamps to about ten lines and fades at the cut, with a control that opens it in 
 idiom the node card uses for a long brief. The heading is also a fold, so a rail the operator
 has already read can be put away entirely. It opens by default and the state does not persist,
 because the panel keeps no view state across renders.
+
+## Seeing a change
+
+`pnpm ladle`, or `mael env start ladle`, serves a workbench of the components against fixtures in
+`src/session/transcript.fixture.ts`. It needs no orchestrator, no daemon and no live agent.
+
+Use it before a visual change and after. jsdom computes no layout, so the test suite cannot
+answer whether prose ranks above a tool row, where a measure wraps, or how a run of calls reads —
+and a live session is a slow and unrepeatable way to ask. The stories carry the states worth
+checking: prose against tool calls, a long ledger run, the truncation note, the narrow layout
+under the 30rem container query, a wide panel, and every markdown element at panel width.
+
+Ladle's theme control switches the scheme the stories report, so check both. Light is not a
+courtesy mode.
 
 ## Do's and Don'ts
 

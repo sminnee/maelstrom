@@ -70,7 +70,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: var(--text-md);
+  font-size: var(--text-ui);
   font-weight: 500;
   line-height: 1.25;
 }

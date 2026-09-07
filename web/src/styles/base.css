@@ -11,7 +11,7 @@ body {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font);
-  font-size: var(--text-md);
+  font-size: var(--text-ui);
   line-height: 1.4;
   scrollbar-color: var(--border-strong) transparent;
   accent-color: var(--accent);

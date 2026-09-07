@@ -26,7 +26,7 @@
   cursor: pointer;
 }
 .title {
-  font-size: var(--text-md);
+  font-size: var(--text-ui);
   font-weight: 500;
   color: var(--fg);
   /* Two lines, then the ellipsis: a phone's width makes one line too little to

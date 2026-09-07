@@ -4,6 +4,7 @@
  * reads at its own width, so each sets its own.
  */
 .markdown {
+  font-size: var(--text-md);
   line-height: var(--leading-prose);
   overflow-wrap: anywhere;
 }
@@ -23,33 +24,29 @@
 .markdown h6 {
   /* More space above than below, so a heading binds to the text it introduces
      rather than floating between two blocks. */
-  margin: var(--space-4) 0 var(--space-1);
+  margin: var(--space-5) 0 var(--space-2);
   line-height: var(--leading-tight);
   font-weight: var(--weight-semibold);
   color: var(--fg);
 }
 .markdown h1 {
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
+  font-size: var(--text-xl);
   letter-spacing: -0.01em;
 }
 .markdown h2 {
-  font-size: var(--text-md);
+  font-size: var(--text-lg);
+  letter-spacing: -0.005em;
 }
 /*
  * This is content an agent wrote, not chrome. It carries file paths and symbol
  * names, so the case is load-bearing and must not be transformed, and a heading
  * never takes a tone weaker than the text it introduces.
  */
-.markdown h3 {
-  font-size: var(--text-md);
-  font-weight: var(--weight-medium);
-}
+.markdown h3,
 .markdown h4,
 .markdown h5,
 .markdown h6 {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
+  font-size: var(--text-md);
 }
 
 .markdown p {
