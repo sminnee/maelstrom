@@ -1,0 +1,82 @@
+{
+  "world": {
+    "projects": {},
+    "worktrees": {},
+    "tasks": {},
+    "agents": {
+      "ag1": {
+        "id": "ag1",
+        "parent": "",
+        "description": "",
+        "state": "idle",
+        "session": "7f1c2a90-8b34-4d6e-9a12-5c7e0d3b4f68",
+        "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
+        "model": "claude-opus-5",
+        "permissionMode": "normal",
+        "waitingOn": "",
+        "lastMessage": "I have drafted the tasks. Read it and tell me what to change",
+        "lastMessageAt": "2026-09-05T03:00:04.000Z",
+        "costUsd": 0.0312,
+        "taskId": "NORT-7",
+        "project": "northwind",
+        "worktreeId": "northwind-alpha",
+        "exitCode": null,
+        "pendingRequestId": null,
+        "pid": null
+      }
+    },
+    "documents": {
+      "ag1-3": {
+        "id": "ag1-3",
+        "agentId": "ag1",
+        "taskId": "NORT-7",
+        "kind": "tasks",
+        "title": "Iteration 1",
+        "markdown": "# Iteration 1\n\n- Parse the tag.\n- Mint the document.\n",
+        "version": 1,
+        "status": "draft",
+        "source": {
+          "type": "draft_files",
+          "paths": [
+            "draft-iter1.md"
+          ]
+        }
+      }
+    },
+    "comments": {},
+    "attention": {},
+    "desk": {},
+    "host": {}
+  },
+  "transcripts": {
+    "ag1": {
+      "agentId": "ag1",
+      "items": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "sessionId": "7f1c2a90-8b34-4d6e-9a12-5c7e0d3b4f68",
+          "model": "claude-opus-5",
+          "id": "ag1-1",
+          "ts": "2026-09-05T03:00:00.000Z"
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "I have drafted the tasks.\n\nRead it and tell me what to change.",
+          "id": "ag1-2",
+          "ts": "2026-09-05T03:00:04.000Z"
+        },
+        {
+          "type": "turn_result",
+          "subtype": "success",
+          "costUsd": 0.0312,
+          "durationMs": 1500,
+          "id": "ag1-4",
+          "ts": "2026-09-05T03:00:05.000Z"
+        }
+      ],
+      "truncatedBefore": false
+    }
+  }
+}
