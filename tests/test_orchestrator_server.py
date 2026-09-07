@@ -4005,3 +4005,22 @@ def test_the_poll_reads_again_once_the_stand_off_passes(harness_factory):
         return harness.worktrees.reads - settled
 
     assert asyncio.run(scenario()) > 0
+
+
+def test_the_poll_asks_only_about_the_branches_on_the_desk(harness):
+    """The read is narrowed to what the desk names.
+
+    GitHub charges by node count, so asking about every branch in every project
+    is what spends the budget. The desk is the set the user is working on.
+    """
+    harness.add_task("NORT-7", branch="feat/orders")
+
+    async def scenario():
+        await harness.orch.start()
+        await harness.orch._add_to_desk("task:northwind/NORT-7")
+        with harness.orch.notices.subscribe():
+            await asyncio.sleep(0.05)
+        await harness.orch.stop()
+        return harness.worktrees.asked
+
+    assert asyncio.run(scenario()) == {"feat/orders"}

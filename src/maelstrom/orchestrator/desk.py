@@ -5,8 +5,8 @@ function returns a new table and never changes the one it is given, so the
 server decides when a change is published and saved.
 """
 
-from collections.abc import Container, Iterable
-from typing import Literal, cast
+from collections.abc import Container, Iterable, Mapping
+from typing import Any, Literal, cast
 
 from .protocol import DeskEntry
 from .world_build import split_task_key
@@ -96,6 +96,43 @@ def drop_unknown_agents(table: DeskTable, agent_ids: Container[str]) -> DeskTabl
     applies — see :func:`prune`.
     """
     return {k: v for k, v in table.items() if _keeps_agent(k, agent_ids)}
+
+
+def active_branches(
+    table: DeskTable,
+    *,
+    agents: Mapping[str, Any],
+    worktrees: Mapping[str, Any],
+    tasks: Mapping[str, Any],
+) -> set[str]:
+    """The branches worth asking GitHub about: those with someone at them.
+
+    A branch is active when the desk has an entry at it. A task names its
+    branch in the notebook; an agent reaches its branch through ``worktreeId``.
+    The desk is kept by the task and agent polls, neither of which reads
+    GitHub, so this never depends on the answer it narrows.
+
+    ``worktreeId`` is set by matching an agent's ``cwd`` against the worktrees
+    the world holds, and the agent poll relinks it. Between a worktree
+    appearing and that relink the id is empty, so ``cwd`` answers instead.
+    """
+    branches: set[str] = set()
+    by_path = {wt.get("path"): wt for wt in worktrees.values()}
+    for desk_id in table:
+        if task_id := _task_of(desk_id):
+            if branch := (tasks.get(task_id) or {}).get("branch"):
+                branches.add(branch)
+            continue
+        agent_id = _agent_of(desk_id)
+        if agent_id is None:
+            continue
+        agent = agents.get(agent_id) or {}
+        worktree = worktrees.get(agent.get("worktreeId") or "") or by_path.get(
+            agent.get("cwd") or ""
+        )
+        if branch := (worktree or {}).get("branch"):
+            branches.add(branch)
+    return branches
 
 
 def _keeps_agent(desk_id: str, agent_ids: Container[str]) -> bool:

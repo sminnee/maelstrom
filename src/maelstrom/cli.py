@@ -37,7 +37,13 @@ from .github import (
     wait_for_merge,
 )
 from .github_cli import gh as gh_cli
-from .github_model import GitHubError, PrStatus, RateLimited, is_open_pr
+from .github_model import (
+    GitHubError,
+    PrStatus,
+    RateLimited,
+    is_open_pr,
+    pr_from_row,
+)
 from .integrations.linear import linear
 from .integrations.sentry import sentry
 from .integrations.slack import slack
@@ -730,23 +736,6 @@ async def cmd_list(project):
         click.echo(f"\nClosed environments: {', '.join(closed_names)}")
 
 
-def _row_pr(wt: dict) -> PrStatus | None:
-    """The pull request a ``list-all`` row carries, back as a :class:`PrStatus`.
-
-    ``list-all`` prints JSON, so a row holds flat keys rather than the record.
-    Rebuilding it here lets both tables render through one :func:`pr_display`.
-    """
-    if not wt["pr_number"]:
-        return None
-    return PrStatus(
-        number=wt["pr_number"],
-        commits=wt["pr_commits"] or 0,
-        url=wt["pr_url"] or "",
-        state=wt["pr_state"] or "unknown",
-        is_draft=bool(wt["pr_draft"]),
-    )
-
-
 def _list_all_row(project_name: str, wt: dict) -> dict:
     """One table row of ``mael list-all`` from one ``build_list_all_data`` row."""
     # A stacked branch reads "child ← parent", so the whole stack is
@@ -754,7 +743,7 @@ def _list_all_row(project_name: str, wt: dict) -> dict:
     branch_display = wt["branch"] or "(detached)"
     if wt["base"]:
         branch_display = f"{branch_display} \u2190 {wt['base']}"
-    pr_cell = pr_display(_row_pr(wt), wt["pushed_commits"] or 0)
+    pr_cell = pr_display(pr_from_row(wt), wt["pushed_commits"] or 0)
     session_cell = session_display(wt["session_count"], wt["session_stopped"])
     app_display = ""
     if wt["app_url"]:

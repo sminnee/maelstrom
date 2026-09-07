@@ -75,7 +75,12 @@ log = logging.getLogger(__name__)
 #: How often the notebook's version is checked.
 TASK_POLL_SECS = 2.0
 #: How often ``list-all`` is re-read. It shells out per worktree, so not often.
-WORKTREE_POLL_SECS = 15.0
+#:
+#: The read also asks GitHub about the branches on the desk, and GraphQL is
+#: charged by node count against a budget that refills hourly. A minute is slow
+#: enough to leave that budget for the work, and fast enough that a PR chip and
+#: a dev-env link still appear on their own.
+WORKTREE_POLL_SECS = 60.0
 #: How often the agent host's ``list`` is reconciled against the world.
 AGENT_POLL_SECS = 2.0
 #: How many consecutive failed agent polls make the host unreachable. Two, so
@@ -426,11 +431,27 @@ class Orchestrator:
         await self._prune_desk()
 
     async def refresh_worktrees(self) -> None:
-        """Re-read ``list-all``, one read in flight at a time."""
+        """Re-read ``list-all``, one read in flight at a time.
+
+        The read asks GitHub only about the branches on the desk. GraphQL is
+        charged by node count and the budget refills hourly, so asking about
+        every branch in every project is what spends it. A branch left out
+        keeps the pull request the last read saw; see
+        :func:`maelstrom.list_all.resolve_pr`.
+        """
         if self._worktree_read.locked():
             return
+        # Read before the await; the world below is re-read after it, because
+        # the read yields and the world can move while it runs.
+        before = self.world
+        active = desk_model.active_branches(
+            before["desk"],
+            agents=before["agents"],
+            worktrees=before["worktrees"],
+            tasks=before["tasks"],
+        )
         async with self._worktree_read:
-            projects, worktrees = await self._run(self.worktrees.read)
+            projects, worktrees = await self._run(self.worktrees.read, active)
         if getattr(self.worktrees, "rate_limited", False):
             self._stand_off_until = (
                 asyncio.get_running_loop().time() + self._rate_limit_cooldown

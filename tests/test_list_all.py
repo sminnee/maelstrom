@@ -572,7 +572,8 @@ def _row_not_asked(project_path, *, remembered):
     set must cost no network read.
     """
     branches = {wt.branch for wt in list_worktrees(project_path) if wt.branch}
-    cache = {branch: remembered for branch in branches} if remembered else {}
+    by_branch = {branch: remembered for branch in branches} if remembered else {}
+    cache = {project_path.name: by_branch}
 
     async def _never(*_args, **_kwargs):
         raise AssertionError("a branch outside the active set was asked about")
@@ -639,9 +640,40 @@ def test_a_rate_limited_batch_does_not_look_each_branch_up(
         patch("maelstrom.list_all.get_pr_for_branch", new=_never),
         patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
-        data = asyncio.run(build_list_all_data(project_path.parent))
+        with pytest.raises(RateLimited):
+            asyncio.run(build_list_all_data(project_path.parent))
 
-    assert data["projects"][0]["worktrees"][0]["pr_number"] is None
+
+def test_a_rate_limited_read_still_shows_what_the_last_one_learned(
+    project_with_worktree,  # noqa: F811
+):
+    """The rows survive the refusal.
+
+    A spent budget must not blank the PR column: the rows carry what the last
+    read learned, and the caller reads them off the error so one refused
+    project does not cost the whole world its pull requests.
+    """
+    project_path, _worktree_path, _remote = project_with_worktree
+    (project_path / ".mael").touch()
+    branches = {wt.branch for wt in list_worktrees(project_path) if wt.branch}
+    cache = {project_path.name: {branch: _pr(42) for branch in branches}}
+
+    async def _rate_limited(*_args, **_kwargs):
+        raise RateLimited("spent")
+
+    with (
+        patch("maelstrom.list_all.get_open_prs", new=_rate_limited),
+        patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
+        pytest.raises(RateLimited) as caught,
+    ):
+        asyncio.run(
+            build_list_all_data(
+                project_path.parent, active_branches=branches, pr_cache=cache
+            )
+        )
+
+    data = caught.value.args[1]
+    assert data["projects"][0]["worktrees"][0]["pr_number"] == 42
 
 
 def test_an_ordinary_batch_failure_still_looks_each_branch_up(
@@ -663,3 +695,37 @@ def test_an_ordinary_batch_failure_still_looks_each_branch_up(
         data = asyncio.run(build_list_all_data(project_path.parent))
 
     assert data["projects"][0]["worktrees"][0]["pr_number"] == 7
+
+
+def test_one_projects_cached_pr_is_not_shown_on_another(
+    project_with_worktree,  # noqa: F811
+):
+    """Branch names are not unique across projects.
+
+    Every project's `_main` sits on `main`, so a cache keyed by branch alone
+    would answer one project's row with another project's pull request. A wrong
+    PR is worse than the stale one the cache exists to keep.
+    """
+    project_path, _worktree_path, _remote = project_with_worktree
+    (project_path / ".mael").touch()
+    branches = {wt.branch for wt in list_worktrees(project_path) if wt.branch}
+    other = {branch: _pr(99) for branch in branches}
+
+    async def _never(*_args, **_kwargs):
+        raise AssertionError("a branch outside the active set was asked about")
+
+    with (
+        patch("maelstrom.list_all.get_open_prs", new=_never),
+        patch("maelstrom.session_discovery.LiveSessionSet.count_for", return_value=0),
+    ):
+        data = asyncio.run(
+            build_list_all_data(
+                project_path.parent,
+                active_branches=set(),
+                # The cache holds the same branch names under a project that is
+                # not the one being read.
+                pr_cache={"some-other-project": other},
+            )
+        )
+
+    assert data["projects"][0]["worktrees"][0]["pr_number"] is None

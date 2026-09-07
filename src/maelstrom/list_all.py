@@ -155,7 +155,7 @@ async def project_repo_url(project_path: Path) -> str | None:
     """The project's browse URL, read from ``remote.origin.url``.
 
     Read from git config rather than ``gh``: ``build_list_all_data`` runs on the
-    orchestrator's 15-second poll, and a subprocess round trip per project per
+    orchestrator's worktree poll, and a subprocess round trip per project per
     poll would cost far more than a value that never changes is worth.
 
     Returns ``None`` for a project with no origin, and for a directory git
@@ -197,7 +197,7 @@ async def build_list_all_data(
     concurrency: int = DEFAULT_CONCURRENCY,
     *,
     active_branches: set[str] | None = None,
-    pr_cache: dict[str, PrStatus] | None = None,
+    pr_cache: dict[str, dict[str, PrStatus]] | None = None,
 ) -> dict[str, Any]:
     """Every project under ``projects_dir`` with its worktrees, as ``list-all`` data.
 
@@ -217,9 +217,11 @@ async def build_list_all_data(
     what exhausts the hourly budget. ``None`` asks about all of them, which is
     what ``mael list-all`` wants: a one-shot read has no budget to protect.
 
-    ``pr_cache`` answers the branches that were not asked about. Without it a
-    skipped branch would read as *no pull request* rather than *not asked*,
-    which tells the reader the PR went away — worse than showing it stale.
+    ``pr_cache`` answers the branches that were not asked about, keyed by
+    project and then by branch; see :func:`resolve_pr` for why the two must
+    read differently. Branch names are not unique across projects — every
+    project's ``_main`` sits on ``main`` — so a flat key would answer one
+    project's row with another's pull request.
     """
     projects = find_all_projects(projects_dir)
     # One live-session sweep shared across every project/worktree row, plus a
@@ -230,6 +232,10 @@ async def build_list_all_data(
     # coroutine that waits on another: a project holding a permit while its
     # worktrees queue for one would deadlock the whole read.
     limit = asyncio.Semaphore(concurrency)
+    # Projects whose pull request read was refused for quota. Collected rather
+    # than raised per project: every project fails the same way once the budget
+    # is spent, and the caller needs to hear it once.
+    spent: list[str] = []
 
     # Each project's reads are independent, so they run together. Read one
     # after another, 16 projects took 19s here, and every route waits on this.
@@ -240,7 +246,8 @@ async def build_list_all_data(
                 live_sessions,
                 limit,
                 active_branches=active_branches,
-                pr_cache=pr_cache or {},
+                pr_cache=(pr_cache or {}).get(project_path.name, {}),
+                spent=spent,
             )
             for project_path in projects
         ),
@@ -249,13 +256,22 @@ async def build_list_all_data(
 
     # A project that cannot be read costs its own row, not the whole read. A
     # worktree directory can go between the listing and the row read, and the
-    # server polls this every 15s: one raise would blank the UI on every tick.
+    # server polls this on its worktree poll: one raise would blank the UI.
     projects_data = []
     for project_path, outcome in zip(projects, read, strict=True):
         if isinstance(outcome, BaseException):
             log.warning("could not read project %s: %s", project_path.name, outcome)
             continue
         projects_data.append(outcome)
+    if spent:
+        # Raised after the rows are built, so a caller that wants them can keep
+        # them from the exception rather than losing the whole read. The rows
+        # already carry each branch's last known pull request.
+        raise RateLimited(
+            f"GitHub GraphQL budget spent; {len(spent)} projects kept their "
+            f"last known PR state",
+            {"projects": projects_data},
+        )
     return {"projects": projects_data}
 
 
@@ -292,6 +308,7 @@ async def _project_data(
     *,
     active_branches: set[str] | None = None,
     pr_cache: dict[str, PrStatus] | None = None,
+    spent: list[str] | None = None,
 ) -> dict[str, Any]:
     """One project's row, with a row per worktree under it.
 
@@ -319,9 +336,6 @@ async def _project_data(
     # worktrees are all detached has no branch to ask about, and `list-all`
     # visits every project — so skip the round trip rather than spend one.
     branches = {wt.branch for wt in worktrees if wt.branch}
-    # Only the branches being worked on are worth a network read. The query
-    # costs 20 pull-request nodes per branch, so this is the difference between
-    # a handful of nodes and every branch in every project.
     asked = branches if active_branches is None else branches & active_branches
     open_prs = {}
     if asked:
@@ -330,14 +344,12 @@ async def _project_data(
             try:
                 open_prs = await get_open_prs(project_path, asked)
             except RateLimited:
-                # The budget is spent, so every other project is about to fail
-                # the same way. Treat the branches as not asked: the rows keep
-                # what the last poll learned, and nothing looks them up one by
-                # one, which is what would keep the budget spent.
-                log.warning(
-                    "GitHub rate limit reached; %s keeps its last known PR state",
-                    project_path.name,
-                )
+                # Empty ``asked`` so the rows keep what the last poll learned
+                # and nothing looks a branch up on its own. Every other project
+                # is about to fail the same way, so the caller is told once
+                # rather than each of them raising.
+                if spent is not None:
+                    spent.append(project_name)
                 asked = set()
     async with limit:
         # Likewise the closed check: one batch per project, not two

@@ -523,6 +523,13 @@ its task list row; a free agent leaves from its node only. There is one desk tod
 user later.
 _Avoid_: Workspace, board, pinned
 
+**Active branch**:
+A branch with a desk entry at it — a task through the notebook, an agent through its worktree.
+The worktree poll asks GitHub about active branches only, because GraphQL is charged by node
+count against a budget that refills hourly. A branch off the desk keeps the pull request the last
+read saw, rather than reading as having none.
+_Avoid_: Watched branch, live branch
+
 **Free agent**:
 An agent with no task. A launch pins a task session id on the agent, so an agent that carries
 none matches no task. A free agent is started by hand in a worktree, or from the orchestrator

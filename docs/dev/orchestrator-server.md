@@ -239,7 +239,7 @@ snapshot and its first live one.
 | Source | How | Interval |
 |---|---|---|
 | Tasks | Poll the notebook's git HEAD. On change, read every project's tasks and diff | 2 s |
-| Worktrees and projects | Re-read `build_list_all_data`, one read in flight at a time | 15 s |
+| Worktrees and projects | Re-read `build_list_all_data`, one read in flight at a time, and only while a client is watching | 60 s |
 | Agents | Reconcile the host's `list` against the world | 2 s |
 | Desk | Read once at start, pruned on every task refresh, joined by every live agent, and written through on change | — |
 | Host | One entity, `agent-host`, saying whether the agent host answers. Set by every agent poll; published only when it changes | with the agent poll |
@@ -249,6 +249,41 @@ thread that opens it, so a pool of one keeps every read on the same connection.
 
 `diff_kind` turns two readings of one table into upserts and removes. An unchanged entity yields
 nothing, so a poll that finds no change is silent.
+
+### What the worktree poll costs
+
+The worktree read asks GitHub for the pull request on each branch. GitHub charges GraphQL by the
+number of nodes a query asks for, not by the number of calls, and the budget is 5000 points an
+hour. The query asks for 20 pull requests per branch, so a wide project costs many times a narrow
+one. Three rules keep that cost inside the budget.
+
+**The poll asks only about the branches on the desk.** `desk.active_branches` joins each desk
+entry to its branch: a `task:` entry through the notebook, an `agent:` entry through its
+worktree. `worktreeId` carries that join, and the agent poll relinks it; between a worktree
+appearing and that relink the id is empty, so the agent's `cwd` answers instead.
+
+A branch off the desk is *not asked about*, which is not the same as *having no pull request*.
+`ListAllWorktreeSource` keeps the last pull request it saw, by project and then by branch, and
+answers from it. Read the two the same way and a live pull request would vanish from its row the
+moment the poll stopped asking about its branch. The key holds the project because branch names
+are not unique across projects — every project's `_main` sits on `main`.
+
+**The poll idles while nobody watches.** The UI never polls; it is told what changed. A read with
+no client subscribed therefore buys nothing. A client that subscribes triggers the read at once,
+so the first paint is current rather than up to a minute old.
+
+**A refused read stands off for 10 minutes.** GitHub reports a spent budget with HTTP 200 and an
+error in the body, so `parse_open_prs` reads the payload and raises `RateLimited`. Other read
+failures fall back to one lookup per branch; a rate limit must not, because that turns one
+refused call per project into one call per worktree and keeps the budget spent.
+
+`build_list_all_data` builds every row before it reports the refusal, so a spent budget costs the
+pull request column rather than the read. `ListAllWorktreeSource` sets `rate_limited`, and the
+server holds one stand-off deadline that both the poll and an arriving client check — the web
+client retries a dropped notice stream every 30 seconds, and without the shared deadline each
+retry would ask GitHub again. The cooldown is fixed rather than read from the reset header: `gh`
+does not pass that header back, and an exhausted hourly window has been seen reporting a reset 84
+seconds away.
 
 ### Agents
 

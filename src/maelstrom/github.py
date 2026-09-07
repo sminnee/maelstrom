@@ -237,7 +237,7 @@ def _parse_pr_for_branch(result: subprocess.CompletedProcess) -> PrStatus | None
 # commit's rollup inside the budget.
 #
 # Naming the branches keeps the cost proportional to the worktree count, not the
-# repo's history — this runs on the 15-second poll, and merged PRs only
+# repo's history — this runs on the worktree poll, and merged PRs only
 # accumulate. ``first: 20`` covers a recycled branch (see ``_pick_pr``) with
 # room to spare: past that the open PR could fall off the end and the branch
 # would read as merged while work is still live.
