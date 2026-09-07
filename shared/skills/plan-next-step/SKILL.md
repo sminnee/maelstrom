@@ -10,7 +10,8 @@ metadata:
 # Plan Next Step Command
 
 **Load the `planning` skill first** — it carries the draft-file mechanics this command relies
-on: create drafts early, `richview` each one, sculpt, then promote on approval.
+on: create drafts early, tag each one for the user to read, sculpt, then promote on
+approval.
 
 This skill runs **inside a session that `mael` launched** — it is the fuzzy-tail planner of a
 multi-session notebook chain. `mael task next --run` reached a `plan-next-step` task and
@@ -77,8 +78,9 @@ reality, plan the top item, and hand the next planner an updated tail.
    mael task draft draft-tail.md "Plan next step" --command plan-next-step --mode normal --model opus
    ```
 
-   Run `richview <file>` the moment each draft exists — it live-updates, so every later edit
-   shows up by itself. Sculpt the bodies with the user; see **Draft bodies** below.
+   Tag each draft the moment it exists, so the user reads it as a document — see the `planning`
+   skill, "Live preview", for the syntax. Sculpt the bodies with the user; see **Draft bodies**
+   below.
 
 4. **Promote on approval**: once the user approves the drafts, run — in this order:
 

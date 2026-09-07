@@ -425,9 +425,20 @@ Building the code, running its own review, opening the PR. Ends when the PR firs
 Answering CI failures and review feedback on an open PR. Ends when it merges.
 
 **Document**:
-A versioned markdown artefact an agent produces for a checkpoint: a plan, a task set, a PR
-description, a review.
+A versioned markdown artefact an agent puts in front of the user: a plan, a task set, a PR
+description, a review, a document bound for the repo. A document that stands at a checkpoint
+awaits review. A document the user was only asked to read is a **draft**, and blocks nothing.
 _Avoid_: Artefact, output, file
+
+**Document tag**:
+The marker an agent writes in the text of an ordinary message to put a document in front of the
+user. `<doc-content>` carries the markdown inline; `<doc-file>` names a file in the agent's
+worktree, resolved against that directory and nothing outside it. The tag names the document's
+`kind` and `title`, and is cut out of the message the transcript shows. A tag opens its document
+at `draft`; `review="true"` opens it awaiting review instead, which is what raises an attention
+item. The names carry nothing maelstrom-specific, so another frontend may render them its own
+way.
+_Avoid_: Directive, macro, shortcode
 
 **Comment**:
 Feedback anchored to a span of one document version. Requesting changes sends the unresolved

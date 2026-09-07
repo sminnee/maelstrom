@@ -184,7 +184,9 @@ and `blocked` with no agent — the card drops them and the status stands alone.
 keeps them: it has no status control, so there the words are the only reading. A free agent has
 no task, so its card has no status control. Esc, the close button and a click on the canvas
 collapse it — but with the status picker open, Esc closes the picker only. The attention chip
-expands the next node that needs the user.
+expands the next node that needs the user. `selectors/attention.ts` ranks the open items: plan
+reviews, then document reviews, then questions, then permissions, then the rest, oldest first
+within each.
 
 The session tab head carries a mode chip naming the agent's permission mode. A click moves the
 agent to the next mode: plan, then auto, then normal. The chip shows the mode the child last
@@ -235,13 +237,24 @@ wait.
 
 The panel holds session and document tabs only. A panel link opens a session or a document as
 a tab; `shell/PanelLink.tsx` says why links, not buttons. Every tab carries a phase chip and
-its task id, so two agents' tabs are told apart.
+its task id, so two agents' tabs are told apart. A node card lists every document its node has,
+whatever raised it — a plan review, or a tag the agent wrote in its own message.
 
 Group by `project` and `branch` draw one hairline lane per group. Group by `none` draws no
 lanes. Whatever the grouping, the board runs left to right in three progress zones — done,
 running, not started — whose boundaries line up across every lane. One strip of labels names
 them above the board. `canvas/columns.ts` assigns the zone and the column; it is pure, it sees
 one lane at a time, and `canvas/layout.ts` aligns the zones and packs the rows.
+
+A **plan** document draws no review bar either, and for a different reason: its verdict is the
+agent's wait, so the decision card answers it and a bar would leave the agent blocked. See
+`orchestrator-server.md`, "Commands".
+
+A **draft** document draws no review bar at all. It is something to read: nothing waits behind
+it, so `documents/ReviewActions.tsx` returns nothing rather than a bar refusing a review nobody
+asked for. Every other status keeps the bar — `awaiting-review` offers Approve and Request
+changes, and the rest read "This version is {status}." See `CONTEXT.md`, "Document tag", for how
+an agent asks for one status or the other.
 
 Commenting on a document takes one drag. Selecting text shows a "Comment on selection" control
 level with the selection. Clicking it paints the selection in a stronger highlight and opens the

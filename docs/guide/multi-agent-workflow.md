@@ -27,7 +27,8 @@ mael task add "Fix flaky port test" --run
 New tasks default to plan mode, so a bare `--run` opens a planning session.
 
 Inside that session, the agent researches the codebase, discusses the approach with you,
-and sculpts **draft task files** — one file per future task, previewed live with `richview`.
+and sculpts **draft task files** — one file per future task, each shown as a document in the
+orchestrator UI.
 A draft is inert: it becomes a real task only when it is promoted into the notebook.
 
 ### Drafts become tasks

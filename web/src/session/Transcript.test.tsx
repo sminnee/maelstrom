@@ -218,7 +218,6 @@ describe('Transcript', () => {
   });
 
   it('a tagged message renders as a message, with the tag stripped out of it', () => {
-    // The document is read in its own tab, so the raw tag would be noise here.
     const items = goldenItems('document-content.jsonl');
     render(<Transcript items={items} truncatedBefore={false} />);
     const card = screen

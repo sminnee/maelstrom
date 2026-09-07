@@ -21,9 +21,9 @@ format, in the worktree directory. A draft is not in the notebook. It is inert u
 `mael task promote` loads it, so approval is structural — nothing you draft can run until you
 promote it.
 
-The planning skills open each draft in [`richview`](https://github.com/sminnee/richview) as
-soon as they write it, so you read the plan formatted. `richview` live-updates, so later edits
-appear without a second command.
+The planning skills show each draft in the orchestrator UI as soon as they write it, so you
+read the plan formatted. The agent does this by writing a `<doc-file>` tag in its message; the
+draft opens as a document on the task's card. Later edits are shown the same way.
 
 ## Starting a plan
 
@@ -55,7 +55,7 @@ The `plan-task` skill runs there. It:
 
 1. Researches the codebase with Explore sub-agents.
 2. Classifies the work as single-session or multi-session.
-3. Creates the draft task files early and opens each in `richview`.
+3. Creates the draft task files early and shows each as a document.
 4. Sculpts the drafts with you interactively.
 5. Promotes the drafts once you approve them.
 

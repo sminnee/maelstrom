@@ -77,9 +77,8 @@ export function NodeCardBody({
     return () => observer.disconnect();
   }, [brief, expandedContent]);
 
-  // A node owns a document its task holds, or one its agent wrote. Both are
-  // needed: a plan document is found by its task, and a free agent has no
-  // task, so a document it tagged is found by its agent alone.
+  // A plan document is found by its task; a free agent has no task, so a
+  // document it tagged is found by its agent alone.
   const documents = Object.values(world.documents).filter(
     (d) => (task && d.taskId === task.id) || (agent && d.agentId === agent.id),
   );

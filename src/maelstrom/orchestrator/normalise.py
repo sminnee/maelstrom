@@ -22,8 +22,7 @@ from .protocol import Agent, Attention, ClientState, Document, ServerEvent
 Dict = dict[str, Any]
 
 #: Reads the file a ``<doc-file>`` tag names, given the agent's ``cwd``. The
-#: one piece of I/O the normaliser does, injected so its goldens do not depend
-#: on a directory this machine has.
+#: normaliser's one piece of I/O, injected.
 ReadFile = Callable[[str, str], str | None]
 
 
@@ -565,12 +564,7 @@ class _Emitter:
             )
 
     def _file_body(self, filename: str, read_file: ReadFile) -> str:
-        """``filename``'s content, or prose saying why the user is not reading it.
-
-        A file that cannot be read yields a document that says so rather than
-        no document at all: silence would leave the agent believing it showed
-        something.
-        """
+        """``filename``'s content, or prose saying why the user is not reading it."""
         cwd = self.agent_entity["cwd"]
         body = read_file(cwd, filename) if stays_within(cwd, filename) else None
         if body is not None:

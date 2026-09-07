@@ -73,6 +73,58 @@ A shell command does not move the agent to `processing`: the two turns carry no 
 assistant event that follows moves the state on its own. See
 [agent-daemon.md](agent-daemon.md#running-a-shell-command) for the wire format.
 
+## A tagged document
+
+An agent puts a document in front of the user by writing a marker in the text of an ordinary
+assistant message. The normaliser reads that marker and mints a document, exactly as it mints a
+plan document from `ExitPlanMode`. **The agent host does not change**: it relays assistant
+messages untouched already, so it carries no document payload and learns nothing new.
+
+Two forms, both read by `document_tags.read_tags`:
+
+```
+<doc-content kind="other" title="Changelog draft">
+## 1.4.0
+- the markdown body, inline
+</doc-content>
+
+<doc-file kind="tasks" filename="draft-iter1.md" title="Iteration 1">
+```
+
+`<doc-content>` carries the body inline, so the server reads no file and the form works for a
+document that is not a file at all. `<doc-file>` names a file the server reads. `kind` is one of
+`plan`, `tasks`, `pr`, `review` and `other`; an unrecognised kind reads as `other`, so a typo
+shows a document rather than dropping it. `title` defaults to the filename, then to the kind. One
+message may carry several tags, and each yields one document.
+
+The tag names are **frontend-agnostic**: another frontend may render these its own way, so
+nothing in a tag name is maelstrom's. Only a `kind` value may be.
+
+Every tag is cut out of the message the transcript shows. The user reads a document in its own
+tab, so raw tag syntax on the transcript would only be noise.
+
+A `<doc-file>` resolves against the agent's own `cwd` — the worktree the agent row already
+carries — **and nothing outside it**. `document_tags.stays_within` refuses a path that escapes,
+before anything is read, so a tag can never show a file elsewhere on the machine. A file that
+cannot be read yields a document whose body says so, rather than no document at all: silence
+would leave the agent believing it showed something.
+
+Reading that file is the normaliser's one piece of I/O, and it is injected as `read_file`, so a
+golden does not depend on a directory this machine has.
+
+A tagged document opens at `draft`, not `awaiting-review`: a plan review is `awaiting-review`
+because a real wait blocks behind it, and a tag blocks nothing. A changelog the user was asked to
+read must not present as a decision. `review="true"` is how an agent asks for a verdict, and only
+that raises an attention item, of kind `document_review`.
+
+A document minted again by the same agent with the same `kind` and `title`, while the previous
+one is `changes-requested`, becomes the **next version of the same document**, so its comments
+stay attached. That is the plan document's rule, shared as `_Emitter.previous_version`. Anything
+else starts at version 1.
+
+A document is **not persisted**. It lives in the world and dies with a server restart, exactly as
+a plan document does. A document store is out of scope.
+
 ## Keeping the world fresh
 
 The server holds one `WorldState`. Every change to the world is an event applied through
@@ -376,6 +428,8 @@ check being missing, both answer 400 `invalid`.
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
 | `POST /api/desk` | `{id}`, a desk id | `desk.add` | `{}` |
 | `DELETE /api/desk/{deskId}` | the desk id, URL-encoded | `desk.remove` | `{}` |
+| `POST /api/documents/{id}/approve` | `{version}` | `document.approve` | `{}` |
+| `POST /api/documents/{id}/request-changes` | `{version, summary}` | `document.requestChanges` | `{}` |
 
 ## Attachments
 
@@ -428,6 +482,21 @@ notebook: a status change moves the task through `move_with_actions`, so the sta
 as `mael task status` fires them, and a patch writes the fields it is given. Both force a task
 refresh, as a launch does, so the change is in the world before the reply.
 
+The two document commands are the server's own too: a document lives in the world, not in the
+notebook and not on the host. **Approve** moves the document to `approved` and tells nobody — the
+agent asked for a verdict, and the answer is on the document. **Request changes** moves it to
+`changes-requested` and relays the summary to the agent as an `agent.say`, so the agent hears what
+to fix. The relay comes first: a summary the host refuses never reached the agent, so the document
+stays awaiting a review nobody has answered. Both retire the attention item the document raised.
+Neither touches the notebook. Both **refuse a plan document**: a plan review is the agent's own
+wait, ended by `agent.approve` or `agent.deny` on the request it blocks. Settling the document
+instead would flip its status, retire the attention item pointing the user at it, and leave the
+child blocked on a control request nobody could now answer. The UI draws no review bar on a plan
+document for the same reason — its decision card answers the wait.
+
+`comment.add` and `comment.resolve` still answer 501 — an anchored selection has its own storage
+question.
+
 A create adds its task to the desk whether or not it launches: work the user has just ordered
 belongs on the canvas either way. A launch adds its task to the desk too. A second
 `POST /api/desk` for an entry already on the desk answers `{}` and raises no notice. A `DELETE`
@@ -436,8 +505,8 @@ stops.
 
 ### The host owns the control plane
 
-The four commands that write to the child — `agent.approve`, `agent.deny`, `agent.answer` and
-`agent.say` — are pure relays. The server validates, asks the host, and returns. It builds no
+The commands that write to the child are pure relays: `agent.approve`, `agent.deny`,
+`agent.answer`, `agent.say`, and the `say` a `document.requestChanges` sends. The server validates, asks the host, and returns. It builds no
 reply of its own.
 
 This works because the host records the `control_response` it writes onto the child's event

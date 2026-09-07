@@ -34,8 +34,6 @@ describe('ReviewActions', () => {
     expect(screen.getByText('This version is approved.')).toBeInTheDocument();
   });
 
-  // A draft blocks nothing, so a review bar would refuse a review nobody asked
-  // for. The user is reading a document, not answering one.
   it('draws no bar at all on a draft', () => {
     expect(bar('draft')).toBeEmptyDOMElement();
   });

@@ -10,7 +10,8 @@ metadata:
 # Plan Task Command
 
 **Load the `planning` skill first** — it carries the draft-file mechanics this command relies
-on: create drafts early, `richview` each one, sculpt, then promote on approval.
+on: create drafts early, tag each one for the user to read, sculpt, then promote on
+approval.
 
 This skill runs **inside a session that `mael` launched** — it is not a command you type in a
 shell you opened yourself. `mael linear plan <issue>` (or `mael task add … --command plan-task`)
@@ -26,8 +27,8 @@ implement the work yourself.
 1. **Read the brief** from the initial prompt.
 2. **Research the codebase** with Explore subagents.
 3. **Classify** single-session vs multi-session.
-4. **Draft early, sculpt interactively** — draft task files, previewed with `richview`,
-   refined with the user.
+4. **Draft early, sculpt interactively** — draft task files, each tagged for the user to
+   read, refined with the user.
 5. **Promote on approval** — create the chain and launch its head in a separate session.
 
 ## Command Logic
@@ -59,8 +60,8 @@ implement the work yourself.
    mael task draft draft-tail.md "Plan next step" --command plan-next-step --mode normal --model opus
    ```
 
-   Run `richview <file>` the moment each draft exists — it live-updates, so every later edit
-   shows up by itself.
+   Tag each draft the moment it exists, so the user reads it as a document — see the `planning`
+   skill, "Live preview", for the syntax. One tag per file.
 
 5. **Sculpt with the user**: edit the draft bodies directly as the plan firms up — see
    **Draft bodies** below for what each Content section carries. Discuss approach and
@@ -153,7 +154,8 @@ stays on one model. Leave `--model` unset on execute drafts: an unset model laun
 ## Draft bodies
 
 The draft's `## Content` section becomes the **execute task's content** — the plan the execute
-session reads and implements directly. Edit it in place; `richview` shows every change.
+session reads and implements directly. Edit it in place, then tag the file again so the user
+reads the change.
 
 ### Single-session — one execute draft
 
