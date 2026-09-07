@@ -28,18 +28,6 @@
 .contextHead:hover {
   color: var(--fg-muted);
 }
-/* A caret that turns, so the fold's state reads without the words for it. */
-.caret {
-  transition: transform var(--duration-fast) ease-out;
-}
-.context[open] .caret {
-  transform: rotate(90deg);
-}
-@media (prefers-reduced-motion: reduce) {
-  .caret {
-    transition: none;
-  }
-}
 /*
  * The clamp. A long message would otherwise push the thing being reviewed off
  * the screen. The fade marks the cut, the same way the expanded node card
@@ -83,4 +71,76 @@
 }
 .tool {
   font-weight: var(--weight-semibold);
+}
+
+/* The dock register: one band, laid out across rather than down. */
+.decision[data-variant='dock'][data-binary] {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+/* Its own short line: four controls do not fit one row on a phone. */
+.decision[data-variant='dock'][data-binary] > .docked {
+  flex: 1 0 100%;
+  display: flex;
+  justify-content: flex-end;
+}
+/* Docked, the prompt stops being a card — see `web/DESIGN.md`, "Review Dock". */
+.decision[data-variant='dock'][data-binary] > div:not(.docked) {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  border: none;
+  background: none;
+}
+.decision[data-variant='dock'][data-binary] [data-role='prompt-head'] {
+  display: none;
+}
+/* The sentence stays only where it carries the link to the plan. */
+.decision[data-variant='dock'][data-binary] [data-role='prompt-text']:not([data-linked]) {
+  display: none;
+}
+/* The actions on one row, the deny field taking what the buttons leave. */
+.decision[data-variant='dock'][data-binary] [data-role='prompt-actions'] {
+  flex: 1;
+  flex-wrap: nowrap;
+  gap: var(--space-2);
+}
+.decision[data-variant='dock'][data-binary] [data-role='prompt-actions'] input {
+  flex: 1;
+  min-width: 0;
+}
+/* The anchor the sheet lifts from. */
+.docked {
+  position: relative;
+  flex: none;
+}
+.contextToggle {
+  white-space: nowrap;
+}
+/* Over the document, never pushing it. Overlapping earns the card lift. */
+.sheet {
+  position: absolute;
+  bottom: calc(100% + var(--space-2));
+  left: 0;
+  z-index: var(--z-card);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: max(28ch, 100%);
+  max-width: min(var(--measure-panel), 90vw);
+  max-height: 50vh;
+  overflow: auto;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-card);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
 }

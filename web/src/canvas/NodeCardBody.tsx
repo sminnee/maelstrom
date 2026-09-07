@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useStop } from '../api/agents';
 import { useRemoveFromDesk } from '../api/desk';
 import { useLaunch, useSetStatus, useTask } from '../api/tasks';
@@ -20,6 +20,7 @@ import { phaseLabel } from '../protocol/phase';
 import { ago, clockTime, silentFor } from '../protocol/time';
 import { useNow } from '../ui/useNow';
 import { AppButton } from '../ui/AppButton';
+import { useClamped } from '../ui/useClamped';
 import { StatusPicker } from '../ui/StatusPicker';
 import styles from './NodeCard.module.css';
 
@@ -58,26 +59,13 @@ export function NodeCardBody({
   const removeFromDesk = useRemoveFromDesk();
   const briefBox = useRef<HTMLDivElement>(null);
   const [expandedContent, setExpandedContent] = useState(false);
-  const [longContent, setLongContent] = useState(false);
   const [picking, setPicking] = useState(false);
   const { task, agent, worktree } = node;
   // The list holds slim rows, so the brief comes from the task's detail.
   const detail = useTask(task?.id ?? null);
   const brief = detail.data?.content.trim() ?? '';
 
-  // The clamp is a rendered height, so only the rendered brief says whether it
-  // overflows. Counting source lines misses a long line that wraps, and offers
-  // a toggle on short lines that already fit.
-  useLayoutEffect(() => {
-    const el = briefBox.current;
-    if (!el) return;
-    const measure = () => setLongContent(el.scrollHeight > el.clientHeight + 1);
-    measure();
-    if (typeof ResizeObserver !== 'function') return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [brief, expandedContent]);
+  const longContent = useClamped(briefBox, [brief, expandedContent]);
 
   // A plan document is found by its task; a free agent has no task, so a
   // document it tagged is found by its agent alone.

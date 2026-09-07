@@ -587,6 +587,12 @@ The block an expanded node or a document shows when an agent waits on the user: 
 messages before the wait, then the prompt (question, permission or plan review).
 _Avoid_: Checkpoint UI, prompt card
 
+**Review dock**:
+The band under a document holding whatever waits on the user there: an agent's own wait, or the
+document's own review route. One dock, so a reader answers in one place whoever is asking. See
+`web/DESIGN.md`, "Review Dock".
+_Avoid_: Action bar, footer
+
 **Panel link**:
 A link that opens a session or a document as a tab in the right panel. It carries the
 open-in-panel icon.

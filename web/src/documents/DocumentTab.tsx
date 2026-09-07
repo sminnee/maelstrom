@@ -55,6 +55,8 @@ export function DocumentTab({ documentId }: { documentId: string }) {
     // Re-run when the pending anchor or the rendered text changes.
   }, [pendingAnchor, doc?.markdown]);
 
+  // Narrowed, so the dock's `DecisionCard` branch keeps a defined agent.
+  const waiting = agent !== undefined && agent.pendingRequestIds.length > 0 ? agent : null;
   const phase = task ? phaseForCommand(task.command) : null;
   const created = approveDocument.data?.taskIds;
 
@@ -97,11 +99,6 @@ export function DocumentTab({ documentId }: { documentId: string }) {
           )}
         </div>
       </header>
-      {!!agent?.pendingRequestIds.length && (
-        <div className={styles.question} data-testid="inline-decision">
-          <DecisionCard agent={agent} />
-        </div>
-      )}
       <div className={styles.split}>
         <div className={styles.body} ref={body} data-testid="document-body">
           <Markdown source={doc.markdown} className={styles.prose} />
@@ -129,19 +126,23 @@ export function DocumentTab({ documentId }: { documentId: string }) {
           />
         )}
       </div>
-      {/* A plan review is the agent's own wait, answered by the decision above.
-          A bar here would flip the document and retire the item pointing at
-          it, leaving the agent blocked on a request nothing had answered. */}
-      {doc.source.type !== 'plan_review' && (
-        <ReviewActions
-          doc={doc}
-          unresolved={0}
-          onApprove={() => approveDocument.mutateAsync({ documentId, version: doc.version })}
-          onRequestChanges={(summary) =>
-            requestChanges.mutateAsync({ documentId, version: doc.version, summary })
-          }
-        />
-      )}
+      {/* One dock, below the document, whoever is waiting. An agent's own wait
+          answers the agent, never the document — see `web/DESIGN.md`, "Review
+          Dock", and `orchestrator-server.md`, "Commands". */}
+      <div className={styles.dock} data-waiting={waiting || undefined} data-testid="review-dock">
+        {waiting ? (
+          <DecisionCard agent={waiting} variant="dock" inDocumentId={documentId} />
+        ) : (
+          <ReviewActions
+            doc={doc}
+            unresolved={0}
+            onApprove={() => approveDocument.mutateAsync({ documentId, version: doc.version })}
+            onRequestChanges={(summary) =>
+              requestChanges.mutateAsync({ documentId, version: doc.version, summary })
+            }
+          />
+        )}
+      </div>
       {/* Approving a task set writes to the notebook, so say what it wrote.
           An approve that reports nothing reads as one that did nothing. The
           tasks are not launched: approving a plan and starting work are two

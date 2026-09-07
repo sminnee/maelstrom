@@ -221,7 +221,10 @@ follows AskUserQuestion's shape; `session/cards/QuestionPrompt.tsx` says why eve
 sends together. A permission shows the tool input with Approve and Deny. A plan review links
 to the plan with Approve and Deny. Deny sends the reason as the agent's tool result, and the
 agent carries on with it. The expanded node and the document tab render the same
-`DecisionCard`, so the two agree.
+`DecisionCard`, so the two agree. A `variant` prop says which surface it draws on: `block` is the
+card, where the decision is read and the context rail is inline and open; `dock` is the band
+under a document, where the context becomes a control and the prompt loses its own border. See
+`web/DESIGN.md`, "Review Dock".
 
 A prompt reads one of three ways: open, answered, or stale — see `CONTEXT.md`, "Stale prompt". The
 transcript keeps a stale prompt, showing what was asked and reading "no longer pending", with no
@@ -288,15 +291,18 @@ running, not started — whose boundaries line up across every lane. One strip o
 them above the board. `canvas/columns.ts` assigns the zone and the column; it is pure, it sees
 one lane at a time, and `canvas/layout.ts` aligns the zones and packs the rows.
 
-A **plan** document draws no review bar either, and for a different reason: its verdict is the
-agent's wait, so the decision card answers it and a bar would leave the agent blocked. See
-`orchestrator-server.md`, "Commands".
+An agent's wait and the document's own review route share one place: the dock under the document.
+`documents/DocumentTab.tsx` renders one `.dock` wrapper and gives it to whichever is waiting.
 
-A **draft** document draws no review bar at all. It is something to read: nothing waits behind
-it, so `documents/ReviewActions.tsx` returns nothing rather than a bar refusing a review nobody
-asked for. Every other status keeps the bar — `awaiting-review` offers Approve and Request
-changes, and the rest read "This version is {status}." See `CONTEXT.md`, "Document tag", for how
-an agent asks for one status or the other.
+A **plan** document's verdict is the agent's wait, so the dock draws `DecisionCard` with
+`variant="dock"` and the answer goes to the agent. See `orchestrator-server.md`, "Commands", for
+why the document's own route is refused.
+
+A **draft** document draws nothing. It is something to read: nothing waits behind it, so
+`documents/ReviewActions.tsx` returns nothing rather than a bar refusing a review nobody asked
+for. Every other status keeps the bar — `awaiting-review` offers Approve and Request changes, and
+the rest read "This version is {status}." See `CONTEXT.md`, "Document tag", for how an agent asks
+for one status or the other.
 
 `worktree` is the one grouping whose lanes come from the world rather than from the nodes. Every
 other grouping derives a lane from the nodes in it, so a lane holding nothing never appears. Here
