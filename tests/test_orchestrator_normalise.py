@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from maelstrom.orchestrator.document_tags import read_worktree_file
 from maelstrom.orchestrator.normalise import (
     NormaliseContext,
     _skill_loaded,
@@ -138,17 +139,37 @@ class Replayed:
         return self.state[key]
 
 
+#: The worktree file the ``<doc-file>`` fixtures name. Every other name reads
+#: as missing.
+DRAFT_FILES = {
+    "draft-iter1.md": "# Iteration 1\n\n- Parse the tag.\n- Mint the document.\n"
+}
+
+
+def fake_reader(files: dict[str, str] | None = None):
+    """A ``read_file`` serving ``files`` by name, and nothing else."""
+    served = DRAFT_FILES if files is None else files
+
+    def read(cwd: str, filename: str) -> str | None:
+        return served.get(filename)
+
+    return read
+
+
 def replay(
     name: str,
     *,
     stop_before_control_response: bool = False,
     parent_tool_use_id: str | None = None,
     agent: dict | None = None,
+    read_file=None,
 ) -> Replayed:
     """Replay ``name`` into ``agent`` (a seed idle agent by default).
 
     ``parent_tool_use_id`` keeps only the lines a subagent produced under that
     call — the stream the host serves for an ``attach`` to its dotted id.
+
+    ``read_file`` stands in for the worktree a ``<doc-file>`` tag names.
     """
     out_state = Replayed(seed([agent or make_agent(id="ag1", state="idle")]))
     ctx = context_for_agent("ag1")
@@ -164,7 +185,9 @@ def replay(
             and ctx.pending
         ):
             break
-        out = normalise_stream_event(out_state.state, ctx, raw, NOW)
+        out = normalise_stream_event(
+            out_state.state, ctx, raw, NOW, read_file=read_file or fake_reader()
+        )
         ctx = out.ctx
         out_state.take(out.events)
     out_state.ctx = ctx
@@ -930,3 +953,246 @@ def test_the_detail_frame_of_a_new_wait_retires_the_one_the_world_held():
         False,
     ]
     assert [a["requestId"] for a in open_attention(replayed)] == ["req-10"]
+
+
+# -- documents an agent tags in its own message --
+
+
+def documents_of(replayed: Replayed) -> list[dict]:
+    return list(replayed.state["world"]["documents"].values())
+
+
+def test_a_doc_content_tag_mints_a_draft_document_from_the_message():
+    state = replay("document-content.jsonl")
+    [doc] = documents_of(state)
+    assert doc["kind"] == "other"
+    assert doc["title"] == "Changelog draft"
+    assert doc["markdown"].startswith("## 1.4.0")
+    assert doc["version"] == 1
+    # A draft blocks nothing, so nothing waits on the user.
+    assert doc["status"] == "draft"
+    assert open_attention(state) == []
+
+
+def test_a_doc_content_tag_names_the_message_it_came_from():
+    state = replay("document-content.jsonl")
+    [doc] = documents_of(state)
+    [message] = items_of(state, "message")
+    assert doc["source"] == {"type": "message", "transcriptItemId": message["id"]}
+
+
+def test_the_tag_is_stripped_from_the_message_the_transcript_shows():
+    """The user reads the document in its tab; the raw tag would be noise."""
+    state = replay("document-content.jsonl")
+    [message] = items_of(state, "message")
+    assert "<doc-content" not in message["markdown"]
+    assert "## 1.4.0" not in message["markdown"]
+    assert message["markdown"].startswith("Here is the changelog")
+    assert message["markdown"].endswith("Tell me what to change.")
+
+
+def test_a_message_that_is_only_a_tag_still_leaves_the_document():
+    state = replay("document-file.jsonl", read_file=fake_reader())
+    assert len(documents_of(state)) == 1
+    assert "<doc-file" not in items_of(state, "message")[0]["markdown"]
+
+
+def test_a_doc_file_tag_mints_a_document_holding_the_files_content():
+    state = replay("document-file.jsonl")
+    [doc] = documents_of(state)
+    assert doc["kind"] == "tasks"
+    assert doc["title"] == "Iteration 1"
+    assert doc["markdown"] == DRAFT_FILES["draft-iter1.md"]
+    assert doc["source"] == {"type": "draft_files", "paths": ["draft-iter1.md"]}
+
+
+def test_a_doc_file_tag_naming_a_file_that_cannot_be_read_still_mints_a_document():
+    """An unreadable file mints a document that says so."""
+    state = replay("document-file-missing.jsonl")
+    [doc] = documents_of(state)
+    assert doc["kind"] == "plan"
+    assert doc["title"] == "no-such-draft.md"
+    assert "no-such-draft.md" in doc["markdown"]
+    assert doc["status"] == "draft"
+
+
+def test_a_doc_file_tag_whose_filename_escapes_the_worktree_reads_nothing():
+    read_calls = []
+
+    def reader(cwd: str, filename: str) -> str | None:
+        read_calls.append(filename)
+        return "root:x:0:0:root:/root:/bin/sh\n"
+
+    state = replay("document-file-escaping.jsonl", read_file=reader)
+    [doc] = documents_of(state)
+    assert "root:x:0:0" not in doc["markdown"]
+    assert "../../../etc/passwd" in doc["markdown"]
+    assert read_calls == []
+
+
+def test_one_message_may_carry_more_than_one_tag():
+    state = replay("document-both.jsonl")
+    docs = documents_of(state)
+    assert [d["title"] for d in docs] == ["Release note", "Iteration 1"]
+    assert [d["kind"] for d in docs] == ["other", "tasks"]
+
+
+def test_review_true_opens_the_document_awaiting_review_and_raises_attention():
+    state = replay("document-both.jsonl")
+    by_title = {d["title"]: d for d in documents_of(state)}
+    assert by_title["Release note"]["status"] == "draft"
+    assert by_title["Iteration 1"]["status"] == "awaiting-review"
+    [item] = open_attention(state)
+    assert item["kind"] == "document_review"
+    assert item["documentId"] == by_title["Iteration 1"]["id"]
+    assert item["summary"] == "Iteration 1 awaiting review"
+
+
+def test_an_unrecognised_kind_reads_as_other_rather_than_dropping_the_document():
+    state = seed([make_agent(id="ag1", state="idle")])
+    replayed = Replayed(state)
+    out = normalise_stream_event(
+        state,
+        context_for_agent("ag1"),
+        tag_message('<doc-content kind="taks" title="Typo">\nBody.\n</doc-content>'),
+        NOW,
+        read_file=fake_reader(),
+    )
+    replayed.take(out.events)
+    [doc] = documents_of(replayed)
+    assert doc["kind"] == "other"
+
+
+def tag_message(text: str) -> dict:
+    return {
+        "type": "assistant",
+        "message": {"role": "assistant", "content": [{"type": "text", "text": text}]},
+        "session_id": "sess-1",
+    }
+
+
+def test_a_tag_with_no_title_falls_back_to_the_filename_then_the_kind():
+    state = seed([make_agent(id="ag1", state="idle")])
+    replayed = Replayed(state)
+    ctx = context_for_agent("ag1")
+    for text in (
+        '<doc-file kind="tasks" filename="draft-iter1.md">',
+        '<doc-content kind="review">\nBody.\n</doc-content>',
+    ):
+        out = normalise_stream_event(
+            replayed.state, ctx, tag_message(text), NOW, read_file=fake_reader()
+        )
+        ctx = out.ctx
+        replayed.take(out.events)
+    assert [d["title"] for d in documents_of(replayed)] == ["draft-iter1.md", "review"]
+
+
+def test_a_re_mint_versions_a_changes_requested_document_forward():
+    """The plan document's rule: the comments stay attached to one document."""
+    state = seed([make_agent(id="ag1", state="idle")])
+    replayed = Replayed(state)
+    ctx = context_for_agent("ag1")
+    tag = '<doc-content kind="tasks" title="Iteration 1">\nDo the first thing.\n</doc-content>'
+    out = normalise_stream_event(
+        replayed.state, ctx, tag_message(tag), NOW, read_file=fake_reader()
+    )
+    ctx = out.ctx
+    replayed.take(out.events)
+    [first] = documents_of(replayed)
+    replayed.take(
+        [
+            {
+                "type": "upsert",
+                "kind": "document",
+                "entity": {**first, "status": "changes-requested"},
+            }
+        ]
+    )
+    again = '<doc-content kind="tasks" title="Iteration 1">\nDo it properly.\n</doc-content>'
+    out = normalise_stream_event(
+        replayed.state, ctx, tag_message(again), NOW, read_file=fake_reader()
+    )
+    replayed.take(out.events)
+    [doc] = documents_of(replayed)
+    assert doc["id"] == first["id"]
+    assert doc["version"] == 2
+    assert doc["status"] == "draft"
+    assert doc["markdown"].strip() == "Do it properly."
+
+
+def test_a_re_mint_of_a_document_still_open_is_a_new_document():
+    state = seed([make_agent(id="ag1", state="idle")])
+    replayed = Replayed(state)
+    ctx = context_for_agent("ag1")
+    tag = (
+        '<doc-content kind="tasks" title="Iteration 1">\nDo the thing.\n</doc-content>'
+    )
+    for _ in range(2):
+        out = normalise_stream_event(
+            replayed.state, ctx, tag_message(tag), NOW, read_file=fake_reader()
+        )
+        ctx = out.ctx
+        replayed.take(out.events)
+    docs = documents_of(replayed)
+    assert len(docs) == 2
+    assert [d["version"] for d in docs] == [1, 1]
+
+
+def test_a_subagent_writes_no_document():
+    """A subagent's stream is a transcript and its last message, nothing more."""
+    state = seed([make_agent(id="ag1", parent="ag0", state="idle")])
+    replayed = Replayed(state)
+    tag = '<doc-content kind="other" title="Note">\nBody.\n</doc-content>'
+    out = normalise_stream_event(
+        state, context_for_agent("ag1"), tag_message(tag), NOW, read_file=fake_reader()
+    )
+    replayed.take(out.events)
+    assert documents_of(replayed) == []
+
+
+def test_the_real_reader_serves_a_file_in_the_worktree_and_refuses_one_outside(
+    tmp_path,
+):
+    """The guard, over a real directory: only what the worktree holds is read."""
+    (tmp_path / "draft.md").write_text("# Draft\n")
+    outside = tmp_path.parent / "secret.md"
+    outside.write_text("secret\n")
+    cwd = str(tmp_path)
+    assert read_worktree_file(cwd, "draft.md") == "# Draft\n"
+    assert read_worktree_file(cwd, "../secret.md") is None
+    assert read_worktree_file(cwd, str(outside)) is None
+    assert read_worktree_file(cwd, "no-such-file.md") is None
+    assert read_worktree_file("", "draft.md") is None
+
+
+def test_an_attribute_value_may_hold_an_angle_bracket():
+    """A tag ends at the `>` that closes it, not at one inside a quoted value.
+
+    An agent writing a placeholder — or a title with a `>` in it — otherwise
+    lost its filename silently and minted an empty document under the kind.
+    """
+    state = seed([make_agent(id="ag1", state="idle")])
+    replayed = Replayed(state)
+    out = normalise_stream_event(
+        state,
+        context_for_agent("ag1"),
+        tag_message('<doc-file kind="tasks" filename="draft-iter1.md" title="A > B">'),
+        NOW,
+        read_file=fake_reader(),
+    )
+    replayed.take(out.events)
+    [doc] = documents_of(replayed)
+    assert doc["title"] == "A > B"
+    assert doc["source"]["paths"] == ["draft-iter1.md"]
+    assert doc["markdown"] == DRAFT_FILES["draft-iter1.md"]
+    assert items_of(replayed, "message")[0]["markdown"] == ""
+
+
+def test_a_symlink_out_of_the_worktree_is_refused(tmp_path):
+    """``resolve`` follows the link, so the guard sees where it really lands."""
+    worktree = tmp_path / "wt"
+    worktree.mkdir()
+    secret = tmp_path / "secret.md"
+    secret.write_text("secret\n")
+    (worktree / "link.md").symlink_to(secret)
+    assert read_worktree_file(str(worktree), "link.md") is None

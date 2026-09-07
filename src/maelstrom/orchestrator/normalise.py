@@ -3,20 +3,28 @@
 A port of ``web/src/protocol/normalise.ts``. The state machine follows
 :func:`maelstrom.agent_model.apply_event`: a pending request outranks assistant
 output, a ``control_response`` for the pending request ends the wait, a
-``result`` ends the turn idle. Pure: no I/O, no clock.
+``result`` ends the turn idle. No clock, and the one read it does — the file a
+``<doc-file>`` tag names — is injected, so a test decides what it sees.
 
 The TypeScript module is the reference; see "Normaliser parity" in
 ``docs/dev/orchestrator-server.md``.
 """
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
 from ..agent_model import PLAN_TOOL, QUESTION_TOOL, TS_KEY, from_wire_mode
+from .document_tags import DocumentTag, read_tags, read_worktree_file, stays_within
 from .protocol import Agent, Attention, ClientState, Document, ServerEvent
 
 Dict = dict[str, Any]
+
+#: Reads the file a ``<doc-file>`` tag names, given the agent's ``cwd``. The
+#: one piece of I/O the normaliser does, injected so its goldens do not depend
+#: on a directory this machine has.
+ReadFile = Callable[[str, str], str | None]
 
 
 def _mode_of(raw: Dict) -> str:
@@ -142,7 +150,12 @@ def normalise_gap(
 
 
 def normalise_stream_event(
-    state: ClientState, ctx: NormaliseContext, raw: Dict, now: str
+    state: ClientState,
+    ctx: NormaliseContext,
+    raw: Dict,
+    now: str,
+    *,
+    read_file: ReadFile = read_worktree_file,
 ) -> Normalised:
     """One raw agent-host event, as the events the UI wants.
 
@@ -154,7 +167,10 @@ def normalise_stream_event(
     more. Its state comes from the host's row, its asks are the parent's
     waits, and it raises no attention and writes no document — so on a stream
     whose agent has a ``parent`` the agent patch is limited to ``lastMessage``
-    and a ``control_request`` is ignored.
+    and a ``control_request`` is ignored, and a document tag is left as text.
+
+    ``read_file`` reads the file a ``<doc-file>`` tag names, against the
+    agent's own ``cwd``.
     """
     agent = state["world"]["agents"].get(ctx.agent_id)
     if agent is None:
@@ -263,8 +279,15 @@ def normalise_stream_event(
     elif kind == "assistant":
         for block in _blocks(raw):
             if block.get("type") == "text" and _str(block.get("text")):
-                text = _str(block["text"])
-                out.append({"type": "message", "role": "assistant", "markdown": text})
+                # A subagent writes no document, so its tags stay as text.
+                tagged = read_tags(_str(block["text"])) if not is_child else None
+                text = tagged.text if tagged else _str(block["text"])
+                item_id = out.append(
+                    {"type": "message", "role": "assistant", "markdown": text}
+                )
+                if tagged:
+                    for tag in tagged.tags:
+                        out.tagged_document(tag, item_id, read_file)
                 out.ctx = replace(out.ctx, last_assistant_text=text)
                 out.agent(
                     {
@@ -486,6 +509,77 @@ class _Emitter:
         open_calls.pop(tool_use_id, None)
         self.ctx = replace(self.ctx, open_tool_calls=open_calls)
 
+    def previous_version(self, kind: str, title: str) -> Document | None:
+        """The document this one is the next version of, if there is one.
+
+        A document sent back for changes comes around again as the next
+        version of the same document, so its comments stay attached. Anything
+        else — no such document, or one still open — starts at version 1.
+        """
+        return next(
+            (
+                d
+                for d in self.state["world"]["documents"].values()
+                if d["agentId"] == self.ctx.agent_id
+                and d["kind"] == kind
+                and d["title"] == title
+                and d["status"] == "changes-requested"
+            ),
+            None,
+        )
+
+    def tagged_document(
+        self, tag: DocumentTag, item_id: str, read_file: ReadFile
+    ) -> None:
+        """Mint the document one ``<doc-content>`` or ``<doc-file>`` tag asks for.
+
+        A tagged document opens at ``draft``: nothing waits behind it, so a
+        changelog the user was asked to read must not present as a decision.
+        ``review="true"`` is how an agent asks for a verdict, and only that
+        raises an attention item.
+        """
+        if tag.filename:
+            markdown = self._file_body(tag.filename, read_file)
+            source: Dict = {"type": "draft_files", "paths": [tag.filename]}
+        else:
+            markdown = tag.markdown
+            source = {"type": "message", "transcriptItemId": item_id}
+        previous = self.previous_version(tag.kind, tag.title)
+        document_id = previous["id"] if previous else self.new_id()
+        doc: Document = {
+            "id": document_id,
+            "agentId": self.ctx.agent_id,
+            "taskId": self.agent_entity["taskId"],
+            "kind": tag.kind,
+            "title": tag.title,
+            "markdown": markdown,
+            "version": (previous["version"] if previous else 0) + 1,
+            "status": "awaiting-review" if tag.review else "draft",
+            "source": source,
+        }
+        self.local_documents[document_id] = doc
+        self.events.append({"type": "upsert", "kind": "document", "entity": doc})
+        if tag.review:
+            self.raise_attention(
+                "document_review", f"{tag.title} awaiting review", None, document_id
+            )
+
+    def _file_body(self, filename: str, read_file: ReadFile) -> str:
+        """``filename``'s content, or prose saying why the user is not reading it.
+
+        A file that cannot be read yields a document that says so rather than
+        no document at all: silence would leave the agent believing it showed
+        something.
+        """
+        cwd = self.agent_entity["cwd"]
+        body = read_file(cwd, filename) if stays_within(cwd, filename) else None
+        if body is not None:
+            return body
+        return (
+            f"`{filename}` could not be read.\n\n"
+            f"The agent named it, and it is not a readable file in `{cwd or 'its worktree'}`."
+        )
+
     def request(
         self, request_id: str, tool_use_id: str, tool: str, inp: Dict, description: str
     ) -> None:
@@ -500,18 +594,7 @@ class _Emitter:
             wait_state = "awaiting-question"
         elif tool == PLAN_TOOL:
             plan = _str(inp.get("plan"))
-            # A plan sent back for changes comes around again as the next
-            # version of the same document, so its comments stay attached.
-            previous = next(
-                (
-                    d
-                    for d in self.state["world"]["documents"].values()
-                    if d["agentId"] == self.ctx.agent_id
-                    and d["kind"] == "plan"
-                    and d["status"] == "changes-requested"
-                ),
-                None,
-            )
+            previous = self.previous_version("plan", "plan.md")
             document_id = previous["id"] if previous else self.new_id()
             doc: Document = {
                 "id": document_id,
