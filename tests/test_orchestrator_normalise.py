@@ -1006,6 +1006,47 @@ def test_a_doc_file_tag_mints_a_document_holding_the_files_content():
     assert doc["source"] == {"type": "draft_files", "paths": ["draft-iter1.md"]}
 
 
+def test_a_doc_file_tag_may_name_a_whole_set_of_files():
+    """A task set is one document, so one tag names every draft in the chain."""
+    state = seed([make_agent(id="ag1", state="idle")])
+    replayed = Replayed(state)
+    out = normalise_stream_event(
+        state,
+        context_for_agent("ag1"),
+        tag_message(
+            '<doc-file kind="tasks" filename="draft-one.md, draft-two.md" '
+            'title="Iteration 1">'
+        ),
+        NOW,
+        read_file=fake_reader({"draft-one.md": "# One\n", "draft-two.md": "# Two\n"}),
+    )
+    replayed.take(out.events)
+    [doc] = documents_of(replayed)
+    # The order is the order the tag lists, which is the order approve promotes.
+    assert doc["source"] == {
+        "type": "draft_files",
+        "paths": ["draft-one.md", "draft-two.md"],
+    }
+    # One document to read, so the bodies come through together.
+    assert "# One" in doc["markdown"]
+    assert "# Two" in doc["markdown"]
+
+
+def test_a_set_whose_title_is_unset_falls_back_to_the_first_filename():
+    state = seed([make_agent(id="ag1", state="idle")])
+    replayed = Replayed(state)
+    out = normalise_stream_event(
+        state,
+        context_for_agent("ag1"),
+        tag_message('<doc-file kind="tasks" filename="draft-one.md, draft-two.md">'),
+        NOW,
+        read_file=fake_reader({"draft-one.md": "# One\n", "draft-two.md": "# Two\n"}),
+    )
+    replayed.take(out.events)
+    [doc] = documents_of(replayed)
+    assert doc["title"] == "draft-one.md"
+
+
 def test_a_doc_file_tag_naming_a_file_that_cannot_be_read_still_mints_a_document():
     """An unreadable file mints a document that says so."""
     state = replay("document-file-missing.jsonl")

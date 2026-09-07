@@ -21,6 +21,7 @@ from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
 from maelstrom.orchestrator.routes import build_app, serving
 from maelstrom.orchestrator.server import Orchestrator
 from maelstrom.orchestrator.sources import InMemoryWorktreeSource, NotebookTaskSource
+from maelstrom.orchestrator.world_build import split_task_key
 from maelstrom.worktree import WorktreeSetup
 
 from .agent_fixtures import read_stamped_fixture
@@ -3145,3 +3146,305 @@ def test_a_plan_document_is_not_reviewed_through_the_document_routes(harness):
     assert [a["kind"] for a in attention["attention"]] == ["plan_review"]
     assert agent["pendingRequestIds"]
     assert host_calls(harness) == []
+
+
+# --- approving a task set ----------------------------------------------------
+#
+# Approving a `tasks` document promotes its drafts into the notebook, so these
+# need a real notebook (`InMemoryStore.transaction` is a no-op and cannot roll
+# back) and a real directory to hold the draft files.
+
+
+@pytest.fixture
+def notebook_harness(tmp_path):
+    """A harness over a git-backed notebook, with the agent in a real worktree."""
+    from maelstrom.task_store import GitFileStore
+
+    worktree = tmp_path / "northwind-alpha"
+    worktree.mkdir()
+    harness = Harness(GitFileStore(tmp_path / "notebook"))
+    harness.worktrees.worktrees[0]["path"] = str(worktree)
+    harness.daemon.rows["ag1"] = agent_row(cwd=str(worktree))
+    harness.worktree = worktree
+    return harness
+
+
+def write_draft(harness, name: str, title: str, **fields) -> None:
+    (harness.worktree / name).write_text(model.draft_markdown(title=title, **fields))
+
+
+def tasks_tag(*filenames: str, title: str = "Iteration 1") -> str:
+    """One `<doc-file>` tag naming the whole chain, asking for a verdict on it."""
+    names = ", ".join(filenames)
+    return (
+        "Here is the plan.\n\n"
+        f'<doc-file kind="tasks" filename="{names}" title="{title}" review="true">'
+    )
+
+
+async def approve_tasks(api, stream, harness, *filenames: str, title="Iteration 1"):
+    """Tag the drafts as one task-set document, approve it, and return the reply."""
+    harness.daemon.push("ag1", tag_event(tasks_tag(*filenames, title=title)))
+    body = await settled(
+        stream, api, "document", "/api/documents", lambda b: b["documents"]
+    )
+    row = body["documents"][0]
+    reply = await api.post(
+        f"/api/documents/{row['id']}/approve", {"version": row["version"]}
+    )
+    return row, reply
+
+
+def notebook_titles(harness) -> list[str]:
+    """The titles in the notebook, read as the server reads it.
+
+    ``no_index=True`` so this is the store's own answer. The index is a cache
+    outside the store's transaction, and a rolled-back promote must not be
+    visible in either — the world is built from this same read.
+    """
+    return [
+        t.title for t in model.list_tasks(harness.store, project=PROJECT, no_index=True)
+    ]
+
+
+def test_approving_a_task_set_creates_the_tasks_and_consumes_the_drafts(
+    notebook_harness,
+):
+    harness = notebook_harness
+    write_draft(harness, "draft-one.md", "First step", mode="auto")
+    write_draft(harness, "draft-two.md", "Second step", command="plan-next-step")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                row, reply = await approve_tasks(
+                    api, stream, harness, "draft-one.md", "draft-two.md"
+                )
+                return reply, await api.get_json(f"/api/documents/{row['id']}")
+
+    reply, doc = run(scenario())
+    assert reply.status == 200, reply.body
+    assert notebook_titles(harness) == ["First step", "Second step"]
+    assert doc["status"] == "approved"
+    # A promoted draft that stays on disk gets promoted twice.
+    assert not (harness.worktree / "draft-one.md").exists()
+    assert not (harness.worktree / "draft-two.md").exists()
+
+
+def test_the_reply_carries_the_ids_it_created(notebook_harness):
+    """An approve that reports nothing reads as an approve that did nothing."""
+    harness = notebook_harness
+    write_draft(harness, "draft-one.md", "First step")
+    write_draft(harness, "draft-two.md", "Second step")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                _, reply = await approve_tasks(
+                    api, stream, harness, "draft-one.md", "draft-two.md"
+                )
+                return reply
+
+    reply = run(scenario())
+    # Wire ids, as every other task the UI links to carries.
+    created = reply.body["taskIds"]
+    assert len(created) == 2
+    titles = [
+        model.load(harness.store, *split_task_key(task_id)).title for task_id in created
+    ]
+    assert titles == ["First step", "Second step"]
+
+
+def test_the_agent_is_told_its_drafts_became_tasks(notebook_harness):
+    """The approval consumed the agent's files, so the agent has to hear of it.
+
+    Without this the planning session waits on a plan it cannot see was
+    approved, and may promote the drafts a second time.
+    """
+    harness = notebook_harness
+    write_draft(harness, "draft-one.md", "First step")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                _, reply = await approve_tasks(api, stream, harness, "draft-one.md")
+                return reply
+
+    reply = run(scenario())
+    [said] = [c for c in harness.daemon.calls if c["cmd"] == "say"]
+    assert said["id"] == "ag1"
+    for expected in (*reply.body["taskIds"], "Iteration 1", "not promote them again"):
+        assert expected in said["text"]
+
+
+def test_approving_anything_but_a_task_set_still_tells_nobody(notebook_harness):
+    """A verdict alone is on the document; only a promote reaches the agent."""
+    harness = notebook_harness
+    write_draft(harness, "notes.md", "Not a task set")
+    tag = (
+        "Here are the notes.\n\n"
+        '<doc-file kind="other" filename="notes.md" title="Notes" review="true">'
+    )
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event(tag))
+                body = await settled(
+                    stream, api, "document", "/api/documents", lambda b: b["documents"]
+                )
+                row = body["documents"][0]
+                return await api.post(
+                    f"/api/documents/{row['id']}/approve", {"version": row["version"]}
+                )
+
+    reply = run(scenario())
+    assert reply.status == 200
+    assert host_calls(harness) == []
+
+
+def test_the_chain_is_wired_in_document_order(notebook_harness):
+    """The head is actionable; the second waits behind it."""
+    harness = notebook_harness
+    write_draft(harness, "draft-one.md", "First step")
+    write_draft(harness, "draft-two.md", "Second step")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await approve_tasks(
+                    api, stream, harness, "draft-one.md", "draft-two.md"
+                )
+
+    run(scenario())
+    tasks = {t.title: t for t in model.list_tasks(harness.store, project=PROJECT)}
+    first, second = tasks["First step"], tasks["Second step"]
+    assert second.follows == [first.id]
+    assert first.follows == []
+    # Asserted through the model's own listing, as `mael task next` reads it.
+    assert model.is_actionable(first, harness.store)
+    assert not model.is_actionable(second, harness.store)
+
+
+def test_the_chain_joins_the_planning_task_s_parent(notebook_harness):
+    """One chain, one branch, one PR — as ``$MAEL_TASK_PARENT`` decides it."""
+    harness = notebook_harness
+    harness.add_task("linear.NORT-9.1", parent="linear.NORT-9", title="Plan the work")
+    harness.daemon.rows["ag1"] = agent_row(
+        cwd=str(harness.worktree),
+        session=model.session_id_for(PROJECT, "linear.NORT-9.1"),
+    )
+    write_draft(harness, "draft-one.md", "First step")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await until(api, "/api/agents", lambda b: b["agents"][0]["taskId"])
+                await approve_tasks(api, stream, harness, "draft-one.md")
+
+    run(scenario())
+    created = [
+        t
+        for t in model.list_tasks(harness.store, project=PROJECT, no_index=True)
+        if t.title == "First step"
+    ]
+    assert [t.parent for t in created] == ["linear.NORT-9"]
+
+
+def test_a_draft_that_names_its_own_parent_keeps_it(notebook_harness):
+    """A planning session that named a parent meant it, as through the CLI."""
+    harness = notebook_harness
+    write_draft(harness, "draft-one.md", "First step", parent="linear.NORT-42")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await approve_tasks(api, stream, harness, "draft-one.md")
+
+    run(scenario())
+    [created] = model.list_tasks(harness.store, project=PROJECT, no_index=True)
+    assert created.parent == "linear.NORT-42"
+
+
+def test_a_draft_that_will_not_parse_creates_nothing_and_names_itself(
+    notebook_harness,
+):
+    """One transaction: an invalid draft leaves the notebook untouched."""
+    harness = notebook_harness
+    write_draft(harness, "draft-one.md", "First step")
+    (harness.worktree / "draft-two.md").write_text('---\ntitle: "unclosed\n---\n\nB.\n')
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                row, reply = await approve_tasks(
+                    api, stream, harness, "draft-one.md", "draft-two.md"
+                )
+                return reply, await api.get_json(f"/api/documents/{row['id']}")
+
+    reply, doc = run(scenario())
+    assert reply.status == 400
+    assert reply.body["error"]["code"] == "invalid"
+    # The user is looking at the document and needs to know which one to fix.
+    assert "draft-two.md" in reply.body["error"]["message"]
+    assert notebook_titles(harness) == []
+    # Half-deleted drafts would leave the user with no plan to fix.
+    assert (harness.worktree / "draft-one.md").exists()
+    assert (harness.worktree / "draft-two.md").exists()
+    assert doc["status"] == "awaiting-review"
+
+
+def test_a_draft_path_that_escapes_the_worktree_is_refused(notebook_harness):
+    harness = notebook_harness
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                row, reply = await approve_tasks(api, stream, harness, "../escape.md")
+                return reply, await api.get_json(f"/api/documents/{row['id']}")
+
+    reply, doc = run(scenario())
+    assert reply.status == 400
+    assert "escape.md" in reply.body["error"]["message"]
+    assert notebook_titles(harness) == []
+    assert doc["status"] == "awaiting-review"
+
+
+def test_approving_a_document_of_another_kind_writes_no_task(notebook_harness):
+    """Only a task set promotes; every other kind is a verdict and nothing more."""
+    harness = notebook_harness
+    write_draft(harness, "notes.md", "Not a task set")
+    tag = (
+        "Here are the notes.\n\n"
+        '<doc-file kind="other" filename="notes.md" title="Notes" review="true">'
+    )
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event(tag))
+                body = await settled(
+                    stream, api, "document", "/api/documents", lambda b: b["documents"]
+                )
+                row = body["documents"][0]
+                reply = await api.post(
+                    f"/api/documents/{row['id']}/approve", {"version": row["version"]}
+                )
+                return reply, await api.get_json(f"/api/documents/{row['id']}")
+
+    reply, doc = run(scenario())
+    assert reply.status == 200
+    assert doc["status"] == "approved"
+    assert notebook_titles(harness) == []
+    # The file was only ever read, so it stays where the agent wrote it.
+    assert (harness.worktree / "notes.md").exists()

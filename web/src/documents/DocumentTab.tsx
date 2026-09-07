@@ -56,6 +56,7 @@ export function DocumentTab({ documentId }: { documentId: string }) {
   }, [pendingAnchor, doc?.markdown]);
 
   const phase = task ? phaseForCommand(task.command) : null;
+  const created = approveDocument.data?.taskIds;
 
   if (!doc) {
     const gone = document.error instanceof ApiError && document.error.code === 'unknown_id';
@@ -141,6 +142,16 @@ export function DocumentTab({ documentId }: { documentId: string }) {
             requestChanges.mutateAsync({ documentId, version: doc.version, summary })
           }
         />
+      )}
+      {/* Approving a task set writes to the notebook, so say what it wrote.
+          An approve that reports nothing reads as one that did nothing. The
+          tasks are not launched: approving a plan and starting work are two
+          decisions, and the task list already offers Launch. */}
+      {!!created?.length && (
+        <div className={styles.created} data-testid="created-tasks">
+          Created {created.length === 1 ? '1 task' : `${created.length} tasks`}:{' '}
+          {created.join(', ')}
+        </div>
       )}
     </div>
   );

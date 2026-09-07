@@ -860,9 +860,11 @@ describe('review in a document tab', () => {
     const tab = await screen.findByTestId('document-tab');
     expect(tab).toHaveTextContent('awaiting review');
     expect(within(tab).queryByRole('textbox', { name: 'Summary of requested changes' })).toBeNull();
-    // The decision that does answer the wait is on the document instead.
-    const decision = within(await within(tab).findByTestId('inline-decision'));
-    expect(decision.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
+    // Nor does the document draw the decision itself: `skipPlanReview` leaves
+    // the wait to the agent's own node card, so it is answered in one place.
+    // The card's own Approve is covered by "approving a plan from the expanded
+    // node" above.
+    expect(within(tab).queryByRole('button', { name: 'Approve' })).toBeNull();
   });
 });
 
@@ -896,6 +898,64 @@ describe('a document an agent tagged in its own message', () => {
     );
   });
 
+  it('a task set says its approve writes tasks, and reports the ones it created', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('NORT-12');
+    await user.click(within(expanded()).getByRole('link', { name: /Iteration 2 v1/ }));
+    expect(docTab('doc-nort12-tasks')).toBeInTheDocument();
+    const tab = await screen.findByTestId('document-tab');
+    // The button writes to the notebook, so it says so.
+    const approve = await within(tab).findByRole('button', {
+      name: 'Approve and create tasks',
+    });
+    await user.click(approve);
+    // An approve that reports nothing reads as an approve that did nothing.
+    const created = await screen.findByTestId('created-tasks');
+    expect(created).toHaveTextContent('Created 1 task');
+    // The id it names is a real task the world now holds.
+    const [, id] = created.textContent!.match(/Created 1 task: (\S+)/)!;
+    expect(server.world.tasks[id!]).toBeDefined();
+    // Approving a plan and starting work are two decisions: nothing launched.
+    expect(server.world.tasks[id!]!.status).toBe('todo');
+  });
+
+  it("does not carry one document's created tasks onto the next", async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('NORT-12');
+    await user.click(within(expanded()).getByRole('link', { name: /Iteration 2 v1/ }));
+    const tab = await screen.findByTestId('document-tab');
+    await user.click(await within(tab).findByRole('button', { name: 'Approve and create tasks' }));
+    await screen.findByTestId('created-tasks');
+    // A second document did not create those tasks, and must not claim them.
+    await user.click(within(expanded()).getByRole('link', { name: /What is red on PR #118 v1/ }));
+    expect(docTab('doc-nort12-notes')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId('document-tab')).toHaveTextContent('fails on collation'),
+    );
+    expect(screen.queryByTestId('created-tasks')).toBeNull();
+  });
+
+  it('a refusal to create the tasks shows on the button, and names the draft', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.refuse(/POST \/api\/documents\/[^/]+\/approve$/, {
+      status: 400,
+      code: 'invalid',
+      message: 'draft-iter2.md: Draft has no title.',
+    });
+    clickNode('NORT-12');
+    await user.click(within(expanded()).getByRole('link', { name: /Iteration 2 v1/ }));
+    const tab = await screen.findByTestId('document-tab');
+    await user.click(await within(tab).findByRole('button', { name: 'Approve and create tasks' }));
+    const failed = await within(tab).findByRole('button', { name: 'Failed' });
+    // The user is looking at the document and needs to know which draft to fix.
+    expect(failed).toHaveAttribute('title', 'draft-iter2.md: Draft has no title.');
+    // Nothing was created, so the document still awaits its verdict.
+    expect(screen.getByTestId('document-tab')).toHaveTextContent('awaiting review');
+  });
+
   it('a document asking for a verdict offers one, and approving moves its status', async () => {
     const user = userEvent.setup();
     await renderApp();
@@ -905,7 +965,8 @@ describe('a document an agent tagged in its own message', () => {
     expect(docTab('doc-nort12-tasks')).toBeInTheDocument();
     const tab = await screen.findByTestId('document-tab');
     await waitFor(() => expect(tab).toHaveTextContent('explicit collation'));
-    await user.click(within(tab).getByRole('button', { name: 'Approve' }));
+    // A task set names what its approve does — see the labelling case above.
+    await user.click(within(tab).getByRole('button', { name: 'Approve and create tasks' }));
     await waitFor(() => expect(screen.getByTestId('document-tab')).toHaveTextContent('approved'));
     // The item it raised is retired with it.
     await waitFor(() => expect(chipCount()).toBe(2));

@@ -529,6 +529,24 @@ function command(
         markdown: `Changes requested on ${doc.title}: ${str('summary')}`,
       });
     }
+    // Approving a task set promotes its drafts: the gate is structural, so
+    // until the user approves, nothing was created.
+    const taskIds: TaskId[] = [];
+    if (approving && doc.kind === 'tasks' && doc.source.type === 'draft_files') {
+      const agent = world.agents[doc.agentId];
+      const project = agent?.project ?? '';
+      for (const [i, path] of doc.source.paths.entries()) {
+        const taskId = `${project}/NEW-${mint()}`;
+        world.tasks[taskId] = {
+          ...makeNewTask(taskId, project, path.replace(/^draft-|\.md$/g, ''), {}),
+          // Chained in document order, as the notebook wires them.
+          follows: i === 0 ? [] : [taskIds[i - 1]!],
+          actionable: i === 0,
+        };
+        taskIds.push(taskId);
+      }
+      server.change({ kind: 'task', ids: taskIds });
+    }
     world.documents[doc.id] = { ...doc, status: approving ? 'approved' : 'changes-requested' };
     server.change({ kind: 'document', ids: [doc.id] });
     const retired: string[] = [];
@@ -539,7 +557,7 @@ function command(
       }
     }
     if (retired.length) server.change({ kind: 'attention', ids: retired });
-    return ok({});
+    return ok({ taskIds });
   }
 
   m = pathname.match(/^\/api\/tasks\/(.+)\/launch$/);

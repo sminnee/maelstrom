@@ -537,9 +537,9 @@ class _Emitter:
         ``review="true"`` is how an agent asks for a verdict, and only that
         raises an attention item.
         """
-        if tag.filename:
-            markdown = self._file_body(tag.filename, read_file)
-            source: Dict = {"type": "draft_files", "paths": [tag.filename]}
+        if tag.filenames:
+            markdown = self._file_bodies(tag.filenames, read_file)
+            source: Dict = {"type": "draft_files", "paths": list(tag.filenames)}
         else:
             markdown = tag.markdown
             source = {"type": "message", "transcriptItemId": item_id}
@@ -562,6 +562,20 @@ class _Emitter:
             self.raise_attention(
                 "document_review", f"{tag.title} awaiting review", None, document_id
             )
+
+    def _file_bodies(self, filenames: tuple[str, ...], read_file: ReadFile) -> str:
+        """Every named file's content, as one document to read.
+
+        A set of drafts is one chain, so the user reads it as one document
+        rather than opening a tab per file. Each body is headed by its
+        filename when there is more than one, so the reader can tell them
+        apart and knows which one to name when asking for a change.
+        """
+        if len(filenames) == 1:
+            return self._file_body(filenames[0], read_file)
+        return "\n\n".join(
+            f"## {name}\n\n{self._file_body(name, read_file)}" for name in filenames
+        )
 
     def _file_body(self, filename: str, read_file: ReadFile) -> str:
         """``filename``'s content, or prose saying why the user is not reading it."""
