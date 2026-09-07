@@ -10,7 +10,6 @@ socket client, and a scripted fake that records calls.
 """
 
 import asyncio
-import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
@@ -29,10 +28,6 @@ from ..agent_model import (
 )
 from ..agent_transport import (
     attach_command,
-    connect_failure,
-    open_connection,
-    request_over_socket,
-    resolve_socket_path,
 )
 
 
@@ -237,43 +232,3 @@ class ScriptedAsyncDaemonClient:
     def attached(self) -> list[str]:
         """Agent ids with a stream open right now."""
         return [agent_id for agent_id, queues in self._queues.items() if queues]
-
-
-@dataclass
-class SocketAsyncDaemonClient:
-    """The real client, over the daemon's Unix domain socket.
-
-    Runs on the server's own event loop, so it shares the async body with
-    :class:`~maelstrom.agent_transport.SocketDaemonClient` rather than that
-    class itself, which wraps ``asyncio.run`` and cannot nest. A connection
-    failure comes back as a reply whose ``error`` explains it, never an
-    exception.
-    """
-
-    socket_path: str = field(default_factory=resolve_socket_path)
-
-    async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return await request_over_socket(self.socket_path, payload)
-
-    async def attach(
-        self, agent_id: str, from_seq: int = 0, epoch: str = ""
-    ) -> AsyncIterator[dict[str, Any]]:
-        try:
-            reader, writer = await open_connection(self.socket_path)
-        except (OSError, asyncio.TimeoutError) as error:
-            yield connect_failure(self.socket_path, error)
-            return
-        try:
-            command = attach_command(agent_id, from_seq, epoch)
-            writer.write((json.dumps(command) + "\n").encode())
-            await writer.drain()
-            while True:
-                line = await reader.readline()
-                if not line:
-                    return
-                try:
-                    yield json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-        finally:
-            writer.close()
