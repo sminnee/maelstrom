@@ -43,6 +43,8 @@
    * where the same darkening reads as disabled.
    */
   --bg-field: var(--n0);
+  /* The wash under the row a pointer or the keyboard is on. */
+  --bg-hover: var(--n3);
   --border: var(--n3);
   --border-strong: var(--n4);
 
@@ -135,6 +137,7 @@
     --bg-sunken: #e4e7ee;
     /* A field stays the lightest surface here: darkening it reads as disabled. */
     --bg-field: var(--white);
+    --bg-hover: #e8ebf1;
     --border: #d9dde6;
     --border-strong: #b8bfcc;
 

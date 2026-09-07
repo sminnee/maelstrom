@@ -6,6 +6,7 @@ import { UNSET_MODEL, MODELS } from '../protocol/models';
 import { KNOWN_COMMANDS } from '../protocol/phase';
 import { withoutRef, type Attachment } from '../api/attachments';
 import { AttachField } from '../ui/AttachField';
+import { ComboBox, type ComboOption } from '../ui/ComboBox';
 import styles from '../ui/Dialog.module.css';
 
 /** From `task.PRIORITIES`, highest first. */
@@ -13,6 +14,14 @@ const PRIORITIES = ['critical', 'high', 'medium', 'low'];
 
 /** Every editable field of a task, as a form holds them. */
 export type TaskDraft = Required<TaskEdit>;
+
+/** The known commands, plus the empty one that means "run the task itself". */
+const COMMAND_OPTIONS: readonly ComboOption[] = [
+  // A bare `{ value: '' }` renders as a blank row with no accessible name, so
+  // the empty command says what choosing it means.
+  { value: '', label: 'Run the task itself' },
+  ...KNOWN_COMMANDS.map((value) => ({ value })),
+];
 
 /**
  * A task's fields: Title, Content and Branch, with the rest folded into
@@ -35,7 +44,6 @@ export function TaskFields({
   // The content field shows the whole task body: it grows to fit, and the
   // dialog scrolls.
   // Document-global, so two field sets on one page must not share it.
-  const commands = useId();
   const contentId = useId();
   const content = useRef<HTMLTextAreaElement>(null);
   const [attached, setAttached] = useState<Attachment[]>([]);
@@ -94,17 +102,11 @@ export function TaskFields({
           <span>Command</span>
           {/* Free-form in the notebook, so this offers the known ones and
               keeps anything else typed. Empty runs the task itself. */}
-          <input
-            list={commands}
+          <ComboBox
             value={draft.command}
-            onChange={(e) => onChange({ command: e.target.value })}
+            options={COMMAND_OPTIONS}
+            onChange={(command) => onChange({ command })}
           />
-          <datalist id={commands}>
-            <option value="" />
-            {KNOWN_COMMANDS.map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </datalist>
         </label>
         <label className={styles.field}>
           <span>Mode</span>

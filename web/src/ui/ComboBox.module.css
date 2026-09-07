@@ -1,0 +1,54 @@
+/*
+ * The field is a plain input: `Dialog.module.css`'s `.field input` rule dresses
+ * it, so a combo box in a dialog matches the inputs either side of it.
+ */
+.box {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.box input {
+  width: 100%;
+}
+.list {
+  position: absolute;
+  /* Below the field, and over whatever follows it in the dialog. */
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: var(--z-card);
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  /* Long lists scroll rather than running off the dialog. */
+  max-height: 15rem;
+  overflow-y: auto;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+.list li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--fg);
+  cursor: pointer;
+}
+.active {
+  background: var(--bg-hover);
+}
+.value {
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+/* The label explains the value, so it gives way first when the row is tight. */
+.label {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
