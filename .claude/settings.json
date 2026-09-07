@@ -7,7 +7,9 @@
       "Bash(pnpm test:*)",
       "Bash(git add:*)",
       "Bash(bin/lint:*)",
-      "Bash(printf:*)"
+      "Bash(printf:*)",
+      "Write(.drafts/**)",
+      "Edit(.drafts/**)"
     ]
   },
   "sandbox": {

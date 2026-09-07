@@ -1,5 +1,6 @@
 """Tests for maelstrom.worktree module."""
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -1201,7 +1202,7 @@ class TestUpdateClaudeLocalMd:
         assert content.count("@.claude/CLAUDE.local.md") == 1
 
     def test_adds_gitignore_entry(self, tmp_path, monkeypatch):
-        """Test that .claude/CLAUDE.local.md is added to .gitignore."""
+        """Test that the entries mael generates are added to .gitignore."""
         project_path = tmp_path / "myproject"
         project_path.mkdir()
         worktree_path = project_path / "myproject-alpha"
@@ -1214,8 +1215,50 @@ class TestUpdateClaudeLocalMd:
 
         update_claude_local_md(project_path, worktree_path, "alpha")
 
-        content = (worktree_path / ".gitignore").read_text()
-        assert ".claude/CLAUDE.local.md" in content.splitlines()
+        lines = (worktree_path / ".gitignore").read_text().splitlines()
+        assert ".claude/CLAUDE.local.md" in lines
+        assert ".drafts/" in lines
+
+    def test_allows_writes_to_the_drafts_directory(self, tmp_path, monkeypatch):
+        """A planning session sculpts drafts; each edit must not cost a prompt."""
+        project_path = tmp_path / "myproject"
+        project_path.mkdir()
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir()
+
+        monkeypatch.setattr("maelstrom.ports.get_app_url", lambda *a: None)
+
+        update_claude_local_md(project_path, worktree_path, "alpha")
+
+        settings = json.loads((worktree_path / ".claude" / "settings.json").read_text())
+        allow = settings["permissions"]["allow"]
+        assert "Write(.drafts/**)" in allow
+        assert "Edit(.drafts/**)" in allow
+
+    def test_keeps_the_rules_a_project_already_set(self, tmp_path, monkeypatch):
+        """The merge adds; it never drops a rule the user owns."""
+        project_path = tmp_path / "myproject"
+        project_path.mkdir()
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir()
+        claude_dir = worktree_path / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "settings.json").write_text(
+            json.dumps(
+                {"permissions": {"allow": ["Bash(uv run:*)"]}, "env": {"A": "1"}}
+            )
+        )
+
+        monkeypatch.setattr("maelstrom.ports.get_app_url", lambda *a: None)
+
+        update_claude_local_md(project_path, worktree_path, "alpha")
+        update_claude_local_md(project_path, worktree_path, "alpha")
+
+        settings = json.loads((claude_dir / "settings.json").read_text())
+        allow = settings["permissions"]["allow"]
+        assert "Bash(uv run:*)" in allow
+        assert settings["env"] == {"A": "1"}
+        assert allow.count("Write(.drafts/**)") == 1
 
     def test_does_not_duplicate_gitignore_entry(self, tmp_path, monkeypatch):
         """Test that .gitignore entry is not duplicated."""
@@ -1226,12 +1269,15 @@ class TestUpdateClaudeLocalMd:
 
         monkeypatch.setattr("maelstrom.ports.get_app_url", lambda *a: None)
 
-        (worktree_path / ".gitignore").write_text(".env\n.claude/CLAUDE.local.md\n")
+        (worktree_path / ".gitignore").write_text(
+            ".env\n.claude/CLAUDE.local.md\n.drafts/\n"
+        )
 
         update_claude_local_md(project_path, worktree_path, "alpha")
 
         content = (worktree_path / ".gitignore").read_text()
         assert content.count(".claude/CLAUDE.local.md") == 1
+        assert content.count(".drafts/") == 1
 
     def test_creates_gitignore_if_missing(self, tmp_path, monkeypatch):
         """Test that .gitignore is created if it doesn't exist."""
@@ -1246,7 +1292,9 @@ class TestUpdateClaudeLocalMd:
 
         gitignore = worktree_path / ".gitignore"
         assert gitignore.exists()
-        assert ".claude/CLAUDE.local.md" in gitignore.read_text().splitlines()
+        lines = gitignore.read_text().splitlines()
+        assert ".claude/CLAUDE.local.md" in lines
+        assert ".drafts/" in lines
 
 
 class TestReclaimOrAllocatePorts:

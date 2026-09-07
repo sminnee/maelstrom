@@ -17,7 +17,7 @@ Execute session(s) — auto mode, own worktree
 ```
 
 The planning session writes **draft task files**: one file per future task, in the task-file
-format, in the worktree directory. A draft is not in the notebook. It is inert until
+format, in the worktree's `.drafts/` directory. A draft is not in the notebook. It is inert until
 `mael task promote` loads it, so approval is structural — nothing you draft can run until you
 promote it.
 
@@ -69,7 +69,7 @@ forbids source edits; the session's only output is the drafts.
 `mael task draft` writes a draft file. It takes the same recipe flags as `mael task add`:
 
 ```bash
-mael task draft draft-iter1.md "Execute: PROJ-123 — add avatar upload" \
+mael task draft .drafts/iter1.md "Execute: PROJ-123 — add avatar upload" \
     --mode auto --pre-action linear.in-progress
 ```
 
@@ -79,16 +79,22 @@ receives. `draft` refuses to overwrite an existing file unless you pass `--force
 sculpted draft survives a re-run. A hand-written file in the same format works too; the
 command is just the path that guarantees a valid one.
 
-Draft files sit untracked in the worktree while you plan. Promotion consumes them; delete any
-draft you abandon, so it cannot be swept into a later commit.
+Draft files sit in `.drafts/` while you plan. `mael` creates the directory and gitignores it, so
+a draft never reaches a commit. Promotion consumes each file; delete any draft you abandon.
+
+A planning session edits a draft many times. `mael` adds `Write(.drafts/**)` and
+`Edit(.drafts/**)` to `.claude/settings.json`, so those edits raise no permission prompt. It
+adds the rules and changes nothing else in the file. A new project carries them from its first
+commit; an existing worktree gets them the next time it opens. A rule reaches the next session,
+not one already running.
 
 ## Promoting drafts
 
 `mael task promote` creates the task from a draft, prints the new id, and deletes the file:
 
 ```bash
-mael task promote draft-iter1.md --follow-end '*'   # prints e.g. linear.PROJ-123.2
-mael task promote draft-tail.md --follow linear.PROJ-123.2
+mael task promote .drafts/iter1.md --follow-end '*'   # prints e.g. linear.PROJ-123.2
+mael task promote .drafts/tail.md --follow linear.PROJ-123.2
 ```
 
 Chain wiring happens here, not in the draft: `--follow` and `--follow-end` run at promote
@@ -103,7 +109,7 @@ no title — the file is left untouched and no task is created.
 commits. One execute draft:
 
 ```bash
-mael task draft draft-iter.md "Execute: PROJ-123 — add avatar upload" \
+mael task draft .drafts/iter.md "Execute: PROJ-123 — add avatar upload" \
     --mode auto --pre-action linear.in-progress
 ```
 
@@ -114,7 +120,7 @@ verification.
 concrete execute draft plus a `plan-next-step` tail carrying the remaining work:
 
 ```bash
-mael task draft draft-tail.md "Plan next step" \
+mael task draft .drafts/tail.md "Plan next step" \
     --command plan-next-step --mode normal --model opus
 ```
 
@@ -146,8 +152,8 @@ instead of running its plan.
 
 ```bash
 mael linear set-status PROJ-123 planned   # mirror to Linear
-mael task promote draft-iter1.md --follow-end '*'
-mael task promote draft-tail.md --follow <id from the line above>
+mael task promote .drafts/iter1.md --follow-end '*'
+mael task promote .drafts/tail.md --follow <id from the line above>
 mael task status done                     # close this planning task
 mael task next --run --parent "$MAEL_TASK_PARENT"   # head now actionable — launches it
 mael session end                          # stop this planning session

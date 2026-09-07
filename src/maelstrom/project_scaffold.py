@@ -4,12 +4,22 @@ Pure content generation — no filesystem access. :func:`create_project_repo` in
 ``github.py`` writes these into the seed commit.
 """
 
-GITIGNORE = """\
+import json
+
+from .task import DRAFT_WRITE_RULES, DRAFTS_DIR
+
+GITIGNORE = f"""\
 # Maelstrom generates these per worktree. Do not commit them.
 .env
 .claude/CLAUDE.local.md
 AGENTS.md
+{DRAFTS_DIR}
 """
+
+#: Drafts are gitignored scratch, so a planning session may write them unprompted.
+SETTINGS_JSON = (
+    json.dumps({"permissions": {"allow": list(DRAFT_WRITE_RULES)}}, indent=2) + "\n"
+)
 
 MAELSTROM_YAML = """\
 # Maelstrom project configuration. Every key is optional.
@@ -40,6 +50,7 @@ def scaffold_files(name: str) -> dict[str, str]:
     """
     return {
         ".gitignore": GITIGNORE,
+        ".claude/settings.json": SETTINGS_JSON,
         ".maelstrom.yaml": MAELSTROM_YAML,
         "README.md": f"# {name}\n\nA maelstrom-managed project.\n",
         "CLAUDE.md": f"@.claude/CLAUDE.local.md\n\n# {name}\n",

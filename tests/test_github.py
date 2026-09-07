@@ -159,7 +159,14 @@ class TestCreateProjectRepo:
         def _run(cmd, cwd=None, quiet=False, check=True, **kwargs):
             if cmd[:2] == ["git", "add"]:
                 assert cwd is not None
-                written.update({p.name: p.read_text() for p in cwd.iterdir()})
+                # rglob, not iterdir: a stub may sit in a subdirectory.
+                written.update(
+                    {
+                        str(p.relative_to(cwd)): p.read_text()
+                        for p in cwd.rglob("*")
+                        if p.is_file()
+                    }
+                )
             return subprocess.CompletedProcess(cmd, 0, stdout="url\n", stderr="")
 
         with patch("maelstrom.github.run_cmd", side_effect=_run):
@@ -167,6 +174,7 @@ class TestCreateProjectRepo:
 
         assert set(written) == {
             ".gitignore",
+            ".claude/settings.json",
             ".maelstrom.yaml",
             "README.md",
             "CLAUDE.md",

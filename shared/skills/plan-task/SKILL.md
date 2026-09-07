@@ -54,10 +54,10 @@ implement the work yourself.
 
    ```bash
    # The head execute task (always):
-   mael task draft draft-iter1.md "Execute: <ID> — <short desc>" --mode auto --pre-action linear.in-progress
+   mael task draft .drafts/iter1.md "Execute: <ID> — <short desc>" --mode auto --pre-action linear.in-progress
 
    # Multi-session only — the fuzzy-tail planner:
-   mael task draft draft-tail.md "Plan next step" --command plan-next-step --mode normal --model opus
+   mael task draft .drafts/tail.md "Plan next step" --command plan-next-step --mode normal --model opus
    ```
 
    Tag each draft the moment it exists, so the user reads it as a document — see the `planning`
@@ -72,8 +72,8 @@ implement the work yourself.
 
    ```bash
    mael linear set-status <ID> planned              # mirror the plan to Linear (no plan body written)
-   mael task promote draft-iter1.md --follow-end '*'    # creates the head; echoes its id
-   mael task promote draft-tail.md --follow <id1>       # multi-session only; <id1> = the echoed head id
+   mael task promote .drafts/iter1.md --follow-end '*'    # creates the head; echoes its id
+   mael task promote .drafts/tail.md --follow <id1>       # multi-session only; <id1> = the echoed head id
    mael task status done                            # close this planning task ($MAEL_TASK_ID)
    mael task next --run --parent "$MAEL_TASK_PARENT"    # head now actionable — launches it
    mael session end                                 # stop this planning session
@@ -187,7 +187,7 @@ existing tests it needs — tests to merge, split, delete or re-home.
 
 ### Multi-session — execute draft + tail draft
 
-The `draft-iter1.md` body carries the first iteration in detail plus the overall picture:
+The `.drafts/iter1.md` body carries the first iteration in detail plus the overall picture:
 
 ```markdown
 # <ID>: <Title> — Iteration 1
@@ -215,7 +215,7 @@ existing tests it needs — tests to merge, split, delete or re-home.
 How to test this iteration.
 ```
 
-The `draft-tail.md` body carries the remaining-work picture — it must not be an empty
+The `.drafts/tail.md` body carries the remaining-work picture — it must not be an empty
 placeholder:
 
 ```markdown

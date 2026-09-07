@@ -140,15 +140,15 @@ mirrors itself without manual `set-status` calls.
 
 ## Drafts and promotion
 
-A **draft** is a task file outside the notebook. It sits in the worktree directory, invisible
+A **draft** is a task file outside the notebook. It sits in the worktree's `.drafts/` directory, invisible
 to `list`, `next`, and follow-end resolution, until `promote` loads it into the store. This
 is how planning sessions hand work off — the draft is sculpted first, then promoted on
 approval. See [planning.md](planning.md).
 
 ```bash
-mael task draft d1.md "Execute: add avatar upload" --mode auto \
+mael task draft .drafts/d1.md "Execute: add avatar upload" --mode auto \
     --pre-action linear.in-progress          # write the draft file
-mael task promote d1.md --follow-end '*'     # create the task, print its id, delete the file
+mael task promote .drafts/d1.md --follow-end '*'  # create the task, print its id, delete the file
 ```
 
 `draft` takes the same recipe flags as `add` (`--command`, `--mode`, `--model`,

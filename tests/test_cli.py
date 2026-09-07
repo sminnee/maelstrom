@@ -1691,7 +1691,9 @@ class TestCreateProjectIntegration:
         seed = tmp_path / "seed"
         seed.mkdir()
         for filename, content in scaffold_files(repo_name).items():
-            (seed / filename).write_text(content)
+            path = seed / filename
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
         for cmd in (
             ["git", "init", "-b", "main"],
             ["git", "add", "-A"],

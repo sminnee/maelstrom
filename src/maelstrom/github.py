@@ -119,7 +119,9 @@ def create_project_repo(
             repo_dir = Path(td) / local_name
             repo_dir.mkdir()
             for filename, content in scaffold_files(local_name).items():
-                (repo_dir / filename).write_text(content)
+                path = repo_dir / filename
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content)
 
             run_cmd(["git", "init", "-b", "main"], cwd=repo_dir, quiet=True)
             run_cmd(["git", "add", "-A"], cwd=repo_dir, quiet=True)

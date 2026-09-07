@@ -73,6 +73,15 @@ DEFAULT_MODE = "plan"
 # moved, and an empty ``model`` stays the notebook's word for "unset".
 DEFAULT_MODEL = "opus"
 
+# Where a planning session writes its drafts. Named here because the draft
+# concept lives in this module; `worktree.py` gitignores it and
+# `project_scaffold.py` seeds the same entry, and both must stay in step.
+DRAFTS_DIR = ".drafts/"
+
+# What lets an agent sculpt a draft without a permission ask per edit. Seeded
+# into a new project and merged into an existing worktree's settings.
+DRAFT_WRITE_RULES = (f"Write({DRAFTS_DIR}**)", f"Edit({DRAFTS_DIR}**)")
+
 # Task priorities, highest first; the tuple index *is* the sort rank
 # (critical=0 … low=3, lower sorts first). A missing/blank priority is treated
 # as the default, so existing on-disk tasks keep working with no migration.

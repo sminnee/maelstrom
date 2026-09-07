@@ -422,10 +422,11 @@ Writes a task file to `FILE` instead of the store. The file is inert — invisib
 | `--force` | Overwrite `FILE` if it already exists. Without it an existing file is an error. |
 
 `draft` has no `--follow`, `--follow-end`, `--run` or `--template` — chain wiring and
-launching happen at promote time. Prints the path it wrote.
+launching happen at promote time. Prints the path it wrote. It creates `FILE`'s parent
+directory. Drafts belong in `.drafts/`, which `mael` gitignores.
 
 ```bash
-mael task draft d1.md "Execute: add avatar upload" --mode auto \
+mael task draft .drafts/d1.md "Execute: add avatar upload" --mode auto \
     --pre-action linear.in-progress
 ```
 
@@ -446,8 +447,8 @@ Takes `--project` and the recipe flags (`-c/--command`, `-m/--mode`, `-b/--branc
 | `--follow-end TEXT` | Follow the end leaves of the given id's follows-chain. Repeatable. Quote `"*"`. |
 
 ```bash
-id=$(mael task promote d1.md --follow-end '*')   # capture the id to chain the next promote
-mael task promote d2.md --follow "$id"
+id=$(mael task promote .drafts/d1.md --follow-end '*')  # capture the id to chain the next promote
+mael task promote .drafts/d2.md --follow "$id"
 ```
 
 **`mael task update`**

@@ -66,8 +66,8 @@ When you approve the plan, the session promotes each draft in dependency order, 
 own planning task, and launches the head:
 
 ```bash
-mael task promote draft-iter1.md --follow-end '*'   # create the head; prints its id
-mael task promote draft-tail.md --follow <that id>  # multi-session only
+mael task promote .drafts/iter1.md --follow-end '*'   # create the head; prints its id
+mael task promote .drafts/tail.md --follow <that id>  # multi-session only
 mael task status done                               # close the planning task
 mael task next --run --parent "$MAEL_TASK_PARENT"   # head now actionable — launches it
 mael session end                                    # stop the planning session
