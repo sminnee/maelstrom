@@ -193,7 +193,7 @@ def denied_message(socket_path: str) -> str:
         f"Cannot connect to the agent daemon socket at {socket_path}: "
         "permission denied. The daemon may well be running — a sandbox can "
         "deny a socket connect. Check with `mael agent daemon status` outside "
-        "the sandbox, and add `mael task:*` to `sandbox.excludedCommands` if so."
+        "the sandbox, and run `mael admin install` if so."
     )
 
 
