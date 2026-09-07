@@ -247,6 +247,14 @@ request without joining two fields; a worktree with no PR draws none. The dev en
 only while the environment runs, and the 15-second worktree poll makes it appear and
 disappear on its own.
 
+The PR link says its state as well as its number — `PR #278 · CI running`. The state is one of
+six values the server decides, listed under **PR state** in `CONTEXT.md`, so the UI never
+re-derives it from raw GitHub fields. `selectors/status.ts` turns the value into words.
+`shell/PrChip.tsx` draws the same reading as a `#278` chip with a coloured dot on a collapsed
+node and a deck row; the chip's `title` repeats the state in words, because colour alone must
+not carry it. The same 15-second poll moves the label from `CI running` to `ready to merge` on
+its own.
+
 A node resolves its worktree from its agent first, then from the open worktree on its branch,
 which is what keeps a finished task showing its pull request. `selectors/graph.ts` holds both
 steps.

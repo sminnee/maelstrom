@@ -16,15 +16,15 @@ from maelstrom.github_model import (
     GitHubError,
     NoChecksFound,
     NoPullRequest,
-    OpenPrsPage,
     PRComment,
     PRInfo,
+    PrStatus,
     PullRequestNotMergeable,
     SyncFailed,
     is_missing_pr_error,
     parse_artifacts,
     parse_check_runs,
-    parse_open_prs_page,
+    parse_open_prs,
     parse_pr_comments,
     parse_pr_info,
     run_id_from_link,
@@ -393,57 +393,215 @@ class TestParseArtifacts:
         assert parse_artifacts("[]") == []
 
 
-class TestParseOpenPrsPage:
-    """`parse_open_prs_page` — one page of the open-PR GraphQL query."""
+class TestParseOpenPrs:
+    """`parse_open_prs` — the open-PR query's answer, one connection per branch."""
 
     @staticmethod
-    def _payload(nodes, has_next=False, cursor=None):
+    def _node(**over):
+        """A GraphQL PR node: open, mergeable, checks green. Override per case."""
+        node = {
+            "number": 7,
+            "headRefName": "feat/a",
+            "url": "https://github.com/acme/repo/pull/7",
+            "isDraft": False,
+            "state": "OPEN",
+            "mergeable": "MERGEABLE",
+            "commits": {
+                "totalCount": 3,
+                "nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}],
+            },
+        }
+        if "rollup" in over:
+            rollup = over.pop("rollup")
+            node["commits"]["nodes"] = [{"commit": {"statusCheckRollup": rollup}}]
+        node.update(over)
+        return node
+
+    @staticmethod
+    def _payload(*per_branch):
+        """One aliased connection per branch, in the order they were asked."""
         return json.dumps(
             {
                 "data": {
                     "repository": {
-                        "pullRequests": {
-                            "nodes": nodes,
-                            "pageInfo": {
-                                "hasNextPage": has_next,
-                                "endCursor": cursor,
-                            },
-                        }
+                        f"b{i}": {"nodes": nodes} for i, nodes in enumerate(per_branch)
                     }
                 }
             }
         )
 
-    def test_maps_each_node_by_branch(self):
-        page = parse_open_prs_page(
-            self._payload(
-                [
-                    {
-                        "number": 7,
-                        "headRefName": "feat/a",
-                        "commits": {"totalCount": 3},
-                    }
-                ]
+    def _one(self, **over):
+        """The `PrStatus` for a single branch carrying a single PR."""
+        return parse_open_prs(self._payload([self._node(**over)]), {"b0": "feat/a"})[
+            "feat/a"
+        ]
+
+    def test_maps_each_answer_to_the_branch_that_was_asked(self):
+        payload = self._payload([self._node()])
+        assert parse_open_prs(payload, {"b0": "feat/a"}) == {
+            "feat/a": PrStatus(
+                number=7,
+                commits=3,
+                url="https://github.com/acme/repo/pull/7",
+                state="ready",
+                is_draft=False,
             )
-        )
-        assert page == OpenPrsPage(prs={"feat/a": (7, 3)}, has_next=False, cursor=None)
+        }
 
-    def test_a_page_with_more_carries_its_cursor(self):
-        page = parse_open_prs_page(self._payload([], has_next=True, cursor="C1"))
-        assert (page.has_next, page.cursor) == (True, "C1")
+    def test_the_branch_is_the_one_asked_about_not_the_one_echoed(self):
+        """The alias is positional. A `headRefName` that disagrees — a rename
+        mid-poll — must not key the answer under a branch nobody asked for."""
+        payload = self._payload([self._node(headRefName="stale/name")])
+        assert list(parse_open_prs(payload, {"b0": "feat/a"})) == ["feat/a"]
 
-    def test_an_empty_repo_maps_to_nothing(self):
-        assert parse_open_prs_page(self._payload([])).prs == {}
+    def test_a_branch_with_no_pr_is_absent(self):
+        assert parse_open_prs(self._payload([]), {"b0": "feat/a"}) == {}
+
+    def test_each_branch_reads_its_own_connection(self):
+        payload = self._payload([self._node(number=1)], [], [self._node(number=3)])
+        prs = parse_open_prs(payload, {"b0": "feat/a", "b1": "feat/b", "b2": "feat/c"})
+        assert {b: s.number for b, s in prs.items()} == {"feat/a": 1, "feat/c": 3}
+
+    def test_a_draft_pr_says_so(self):
+        assert self._one(isDraft=True).is_draft is True
+
+    @pytest.mark.parametrize(
+        ("node", "expected"),
+        [
+            pytest.param({"state": "MERGED"}, "merged", id="merged"),
+            pytest.param({"rollup": {"state": "PENDING"}}, "ci-running", id="pending"),
+            pytest.param(
+                {"rollup": {"state": "EXPECTED"}}, "ci-running", id="expected"
+            ),
+            pytest.param({"rollup": {"state": "FAILURE"}}, "ci-failed", id="failure"),
+            pytest.param({"rollup": {"state": "ERROR"}}, "ci-failed", id="error"),
+            pytest.param({"mergeable": "CONFLICTING"}, "conflict", id="conflicting"),
+            pytest.param({}, "ready", id="mergeable-and-green"),
+            pytest.param(
+                {"mergeable": "UNKNOWN"}, "unknown", id="mergeability-pending"
+            ),
+            pytest.param({"rollup": None}, "ready", id="a-repo-with-no-ci"),
+        ],
+    )
+    def test_the_state_reads_the_pr(self, node, expected):
+        """One state per PR, from the merge, the checks and the mergeability."""
+        assert self._one(**node).state == expected
+
+    def test_a_merged_pr_reads_merged_however_its_last_ci_run_went(self):
+        assert self._one(state="MERGED", rollup={"state": "FAILURE"}).state == "merged"
+
+    def test_a_merged_pr_reads_merged_though_github_forgets_its_mergeability(self):
+        """GitHub answers `UNKNOWN` for a PR that is already in. Reading that
+        first would turn every merged PR into an `unknown`."""
+        assert self._one(state="MERGED", mergeable="UNKNOWN").state == "merged"
+
+    def test_a_failed_check_beats_a_conflict(self):
+        """CI first, then conflicts: a red build is the thing to answer."""
+        assert self._one(
+            mergeable="CONFLICTING", rollup={"state": "FAILURE"}
+        ).state == ("ci-failed")
+
+    def test_a_conflict_outranks_unknown_mergeability(self):
+        """`UNKNOWN` only reads as unknown; a definite `CONFLICTING` is definite."""
+        assert self._one(mergeable="CONFLICTING").state == "conflict"
+
+    def test_an_open_pr_beats_a_merged_one_on_the_same_branch(self):
+        """A recycled branch is normal here: `create-pr` opens a new PR on a
+        branch whose last PR merged. The open one is the work in hand."""
+        nodes = [
+            self._node(number=9, state="MERGED"),
+            self._node(number=3, state="OPEN"),
+        ]
+        prs = parse_open_prs(self._payload(nodes), {"b0": "feat/a"})
+        assert prs["feat/a"].number == 3
+
+    def test_the_newest_merged_pr_wins_when_none_is_open(self):
+        """The query orders newest first, so the head of the list is the last word."""
+        nodes = [
+            self._node(number=9, state="MERGED"),
+            self._node(number=3, state="MERGED"),
+        ]
+        prs = parse_open_prs(self._payload(nodes), {"b0": "feat/a"})
+        assert prs["feat/a"].number == 9
 
     def test_a_graphql_error_payload_raises(self):
         """gh exits 0 on a rate limit, so the payload is the only signal."""
         payload = json.dumps({"errors": [{"message": "rate limited"}], "data": None})
         with pytest.raises(ValueError):
-            parse_open_prs_page(payload)
+            parse_open_prs(payload, {"b0": "feat/a"})
+
+    def test_a_denied_rollup_keeps_the_rest_of_the_answer(self):
+        """A token without the checks scope is refused `statusCheckRollup` per
+        node, and GitHub answers the rest. Losing the whole read over that would
+        drop the number, the URL and the merge state, which the token may read.
+        """
+        payload = json.dumps(
+            {
+                "data": {"repository": {"b0": {"nodes": [self._node(rollup=None)]}}},
+                "errors": [
+                    {
+                        "type": "FORBIDDEN",
+                        "path": ["repository", "b0", "nodes", 0, "commits"],
+                        "message": "Resource not accessible by personal access token",
+                    }
+                ],
+            }
+        )
+        prs = parse_open_prs(payload, {"b0": "feat/a"})
+        assert prs["feat/a"].number == 7
+
+    def test_a_denied_rollup_is_unknown_rather_than_a_false_ready(self):
+        """A refused rollup and a repo with no CI both answer `null`. Reading
+        the refusal as `ready` would call a red PR ready to merge, which is the
+        worst way to be wrong. The errors array is what tells them apart."""
+        payload = json.dumps(
+            {
+                "data": {"repository": {"b0": {"nodes": [self._node(rollup=None)]}}},
+                "errors": [
+                    {
+                        "type": "FORBIDDEN",
+                        "path": ["repository", "b0", "nodes", 0, "commits"],
+                        "message": "Resource not accessible by personal access token",
+                    }
+                ],
+            }
+        )
+        assert parse_open_prs(payload, {"b0": "feat/a"})["feat/a"].state == "unknown"
+
+    def test_a_repo_with_no_ci_and_no_errors_is_still_ready(self):
+        """No rollup and no refusal means the repo runs no checks. A spinner
+        that never stops would be worse than silence."""
+        payload = self._payload([self._node(rollup=None)])
+        assert parse_open_prs(payload, {"b0": "feat/a"})["feat/a"].state == "ready"
+
+    def test_a_denied_rollup_does_not_mask_a_merged_pr(self):
+        """A merged PR is done, whatever the token could not read."""
+        payload = json.dumps(
+            {
+                "data": {
+                    "repository": {
+                        "b0": {"nodes": [self._node(rollup=None, state="MERGED")]}
+                    }
+                },
+                "errors": [
+                    {"message": "Resource not accessible by personal access token"}
+                ],
+            }
+        )
+        assert parse_open_prs(payload, {"b0": "feat/a"})["feat/a"].state == "merged"
+
+    def test_an_error_with_no_data_at_all_still_raises(self):
+        """A rate limit answers errors and nothing else. That is a failed read,
+        and the caller must fall back rather than render every PR as absent."""
+        payload = json.dumps(
+            {"data": {"repository": None}, "errors": [{"message": "rate limited"}]}
+        )
+        with pytest.raises(ValueError):
+            parse_open_prs(payload, {"b0": "feat/a"})
 
     def test_unparseable_output_raises(self):
         with pytest.raises(json.JSONDecodeError):
-            parse_open_prs_page("not json")
+            parse_open_prs("not json", {"b0": "feat/a"})
 
 
 class TestGitHubErrors:

@@ -105,13 +105,17 @@ Closed worktrees are not rows. `mael list` names them on one line under the tabl
 | `BRANCH` | The checked-out branch, or `(detached)`. A stacked branch reads `feat/child ← feat/parent` | Never blank |
 | `DIRTY FILES` | How many files `git status` reports as changed | No uncommitted changes |
 | `LOCAL COMMITS` | Commits that exist only on this machine | Nothing unpushed |
-| `PR (COMMITS)` | `#1766 (6)` — the open pull request and its commit count | No pull request and nothing pushed |
+| `PR (COMMITS)` | `#1766 (6)` — the open pull request and its commit count. A merged one reads `#1766 merged (2)`, where the count is what has been pushed since | No pull request and nothing pushed |
 | `APP` | The app URL when the app runs, `*3030` when it does not | The worktree has no port allocation, or the project has no `APP`/`FRONTEND` service |
 | `SESSION` | The number of live sessions, or `— stopped` | The worktree has never run a session |
 
 Every count renders blank at zero. So "clean", "nothing unpushed" and "not pushed at all" all
 look the same — an empty cell. Read a blank as "nothing to tell you here", not as a zero you
 can act on.
+
+A branch whose pull request merged reads `merged`, and the count beside it is the commits
+pushed since — the work waiting for a new pull request. A recycled branch is normal: `mael gh
+create-pr` opens a new pull request on a branch whose last one merged.
 
 A `(detached)` row goes further. `LOCAL COMMITS` and `PR (COMMITS)` are both keyed on the
 branch name, so a detached worktree reports them blank without checking anything. Nothing was

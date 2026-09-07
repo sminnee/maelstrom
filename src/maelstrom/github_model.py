@@ -14,6 +14,7 @@ dependency).
 
 import json
 from dataclasses import dataclass, field
+from typing import Literal, get_args
 
 from .worktree_model import MAIN_BRANCH
 
@@ -190,13 +191,36 @@ def stack_chain(branch: str, bases: dict[str, str]) -> list[str]:
     return chain
 
 
-@dataclass(frozen=True)
-class OpenPrsPage:
-    """One page of the open-PR query: the branches it names and where to go next."""
+#: How close a pull request is to merging — see **PR state** in ``CONTEXT.md``.
+#: The web UI mirrors this union in ``web/src/protocol/entities.ts``.
+PrState = Literal["merged", "ci-failed", "ci-running", "conflict", "unknown", "ready"]
 
-    prs: dict[str, tuple[int, int]]
-    has_next: bool
-    cursor: str | None
+#: Every value :data:`PrState` can take, in reading order.
+PR_STATES: tuple[PrState, ...] = get_args(PrState)
+
+
+def is_open_pr(pr: "PrStatus | None") -> bool:
+    """Whether ``pr`` is a pull request still waiting to merge.
+
+    The PR lookup answers merged pull requests too, so a branch whose last PR
+    merged still resolves to one. That branch needs a new PR, so the readers
+    that ask "does this branch have a PR yet?" must not count the merged one.
+    """
+    return pr is not None and pr.state != "merged"
+
+
+@dataclass(frozen=True)
+class PrStatus:
+    """A branch's pull request, and how close it is to merging.
+
+    ``state`` is one of :data:`PR_STATES`.
+    """
+
+    number: int
+    commits: int
+    url: str
+    state: PrState
+    is_draft: bool
 
 
 def parse_pr_info(payload: str) -> PRInfo:
@@ -356,34 +380,118 @@ def parse_artifacts(payload: str) -> list[Artifact]:
     ]
 
 
-def parse_open_prs_page(payload: str) -> OpenPrsPage:
-    """Read one page of the open-PR GraphQL query.
+#: Rollup states that mean the build is still deciding. GitHub also answers
+#: ``EXPECTED`` for a check a commit status promised but has not reported yet.
+_CI_RUNNING = frozenset({"PENDING", "EXPECTED"})
+
+#: Rollup states that mean the build is red.
+_CI_FAILED = frozenset({"FAILURE", "ERROR"})
+
+
+def _pr_state(node: dict, *, rollup_readable: bool = True) -> PrState:
+    """How close ``node``'s pull request is to merging.
+
+    One of :data:`PR_STATES`, tested in the order they are listed — see
+    **PR state** in ``CONTEXT.md`` for why that order.
+
+    ``rollup_readable`` is false when GitHub refused ``statusCheckRollup``. A
+    refusal and a repo with no CI both answer ``null``, and reading the refusal
+    as ``ready`` would call a red pull request ready to merge.
+    """
+    if node.get("state") == "MERGED":
+        return "merged"
+    rollup = (node.get("commits", {}).get("nodes") or [{}])[0].get("commit", {}).get(
+        "statusCheckRollup"
+    ) or {}
+    check_state = rollup.get("state")
+    if check_state in _CI_FAILED:
+        return "ci-failed"
+    if check_state in _CI_RUNNING:
+        return "ci-running"
+    if check_state is None and not rollup_readable:
+        return "unknown"
+    # No rollup, and nothing refused: the repo runs no checks on this commit,
+    # which is green. A spinner that never stops would be worse than silence.
+    mergeable = node.get("mergeable")
+    if mergeable == "CONFLICTING":
+        return "conflict"
+    if mergeable == "UNKNOWN":
+        return "unknown"
+    return "ready"
+
+
+def _pr_status(node: dict, *, rollup_readable: bool = True) -> PrStatus:
+    """One GraphQL PR node as a :class:`PrStatus`."""
+    return PrStatus(
+        number=int(node["number"]),
+        commits=int(node["commits"]["totalCount"]),
+        url=node.get("url") or "",
+        state=_pr_state(node, rollup_readable=rollup_readable),
+        is_draft=bool(node.get("isDraft")),
+    )
+
+
+def parse_open_prs(payload: str, aliases: dict[str, str]) -> dict[str, PrStatus]:
+    """Read the open-PR query: one aliased connection per branch.
+
+    ``aliases`` comes back from the query builder beside the document, so the
+    answers key on the branch that was asked about rather than on the
+    ``headRefName`` GitHub echoes.
 
     Args:
         payload: The raw JSON object ``gh api graphql`` printed.
+        aliases: Alias -> branch, as the query builder returned it.
 
     Returns:
-        The branches this page names, and whether another page follows.
+        Branch name -> its pull request, for those branches that have one.
 
     Raises:
-        ValueError: If the payload carries GraphQL errors. gh exits 0 on a rate
-            limit or a missing scope, so the payload is the only signal that the
-            data is not there.
+        ValueError: If the payload carries no repository at all — a rate limit,
+            or a token that cannot read the repo. The exit code does not say:
+            gh exits 0 on a rate limit, and 1 on a payload that is complete
+            apart from one refused field.
         json.JSONDecodeError: If ``payload`` is not JSON.
         KeyError, TypeError: If the payload has an unexpected shape.
     """
     data = json.loads(payload)
-    if data.get("errors"):
-        raise ValueError(f"GraphQL query failed: {data['errors']}")
-    connection = data["data"]["repository"]["pullRequests"]
+    repository = (data.get("data") or {}).get("repository")
+    if repository is None:
+        # No data at all. gh exits 0 on a rate limit or a missing scope, so the
+        # payload is the only signal that the read failed.
+        raise ValueError(f"GraphQL query failed: {data.get('errors')}")
+    # Errors beside data are per-field, and the answer is still worth having: a
+    # token without the checks scope is refused `statusCheckRollup` on every
+    # node and given the rest. What it cannot read must read as `unknown`, not
+    # as the `ready` an absent rollup otherwise means.
+    rollup_readable = not _rollup_refused(data.get("errors") or [])
 
-    prs = {
-        node["headRefName"]: (int(node["number"]), int(node["commits"]["totalCount"]))
-        for node in connection["nodes"]
-    }
-    page_info = connection.get("pageInfo") or {}
-    return OpenPrsPage(
-        prs=prs,
-        has_next=bool(page_info.get("hasNextPage")),
-        cursor=page_info.get("endCursor"),
+    prs: dict[str, PrStatus] = {}
+    for alias, branch in aliases.items():
+        nodes = (repository.get(alias) or {}).get("nodes") or []
+        if node := _pick_pr(nodes):
+            prs[branch] = _pr_status(node, rollup_readable=rollup_readable)
+    return prs
+
+
+def _rollup_refused(errors: list[dict]) -> bool:
+    """Whether any error names a check rollup the token could not read.
+
+    GitHub reports one error per refused node, each with the field's path. The
+    answer applies to the whole read: the scope is the token's, not one PR's.
+    """
+    return any(
+        "statusCheckRollup" in (error.get("path") or [])
+        or "commits" in (error.get("path") or [])
+        for error in errors
     )
+
+
+def _pick_pr(nodes: list[dict]) -> dict | None:
+    """The pull request a branch's connection is about, from a newest-first list.
+
+    A branch can carry several — ``create-pr`` opens a new one on a branch whose
+    last PR merged. An open PR wins; otherwise the newest merged one.
+    """
+    if not nodes:
+        return None
+    return next((n for n in nodes if n.get("state") == "OPEN"), nodes[0])

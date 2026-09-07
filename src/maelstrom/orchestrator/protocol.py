@@ -41,6 +41,9 @@ class Worktree(TypedDict):
     localCommits: int
     prNumber: int | None
     prUrl: str
+    #: A :data:`maelstrom.github_model.PrState`, or ``""`` with no PR.
+    prState: str
+    prDraft: bool
     appUrl: str
     appRunning: bool
     sessionCount: int

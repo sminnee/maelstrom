@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
+from maelstrom import github
 from maelstrom.base_store import InMemoryBaseStore
 from maelstrom.github import (
     create_pr,
@@ -16,6 +17,7 @@ from maelstrom.github import (
     get_open_prs,
     get_pr_checks,
     get_pr_comments,
+    get_pr_for_branch,
     get_repo_info,
     get_run_artifacts,
     get_worktree_code,
@@ -358,94 +360,248 @@ class TestCreatePrAutorepair:
                 create_pr(cwd=tmp_path, autorepair=True)
 
 
-def _graphql_page(nodes, has_next=False, cursor=None):
-    """Build one ``gh api graphql`` response page."""
+def _graphql_page(by_branch):
+    """Build a ``gh api graphql`` response: one aliased connection per branch.
+
+    ``get_open_prs`` sorts the branches before it builds the aliases, so the
+    fake answers in that same order.
+    """
     return json.dumps(
         {
             "data": {
                 "repository": {
-                    "pullRequests": {
-                        "nodes": nodes,
-                        "pageInfo": {"hasNextPage": has_next, "endCursor": cursor},
-                    }
+                    f"b{i}": {"nodes": by_branch[branch]}
+                    for i, branch in enumerate(sorted(by_branch))
                 }
             }
         }
     )
 
 
-def _node(number, branch, commits):
-    return {"number": number, "headRefName": branch, "commits": {"totalCount": commits}}
+def _node(number, branch, commits, **over):
+    node = {
+        "number": number,
+        "headRefName": branch,
+        "url": f"https://github.com/acme/repo/pull/{number}",
+        "isDraft": False,
+        "state": "OPEN",
+        "mergeable": "MERGEABLE",
+        "commits": {
+            "totalCount": commits,
+            "nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}],
+        },
+    }
+    node.update(over)
+    return node
 
 
 def _ok(stdout):
     return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
 
 
-class TestGetOpenPrs:
-    """One GraphQL call replaces one ``gh pr list`` per branch.
+def _query_of(call):
+    """The GraphQL document a ``run_cmd`` call carries."""
+    argv = call[0][0]
+    return argv[argv.index("-f") + 1]
 
-    The per-branch REST call cost ~0.8s each and dominated ``mael list``. The
-    batch must return the same numbers, and must fail in a way callers can tell
-    apart from "this repo has no open PRs".
+
+class TestGetPrForBranch:
+    """The per-branch fallback, for when the batch call failed.
+
+    It answers from `gh pr list`, which does not carry a check rollup, so the
+    PR it returns reads as `unknown` rather than claiming a state it never
+    looked up. A degraded row still shows a PR — better than none at all.
     """
 
-    def test_maps_every_open_pr_by_branch(self):
+    @staticmethod
+    def _list(payload):
+        return patch("maelstrom.github.run_cmd", return_value=_ok(payload))
+
+    def test_a_branch_with_a_pr_answers_its_number_and_commit_count(self):
+        payload = json.dumps(
+            {"number": 42, "commits": 5, "url": "https://x/pull/42", "isDraft": False}
+        )
+        with self._list(payload):
+            pr = get_pr_for_branch(Path("."), "feat/a")
+        assert pr is not None
+        assert (pr.number, pr.commits, pr.url) == (42, 5, "https://x/pull/42")
+
+    def test_it_claims_no_state_it_did_not_look_up(self):
+        payload = json.dumps({"number": 42, "commits": 1, "url": "", "isDraft": False})
+        with self._list(payload):
+            pr = get_pr_for_branch(Path("."), "feat/a")
+        assert pr is not None
+        assert pr.state == "unknown"
+
+    def test_a_branch_with_no_pr_answers_nothing(self):
+        with self._list(""):
+            assert get_pr_for_branch(Path("."), "feat/a") is None
+
+    def test_a_failed_call_answers_nothing(self):
+        with patch(
+            "maelstrom.github.run_cmd",
+            return_value=SimpleNamespace(returncode=1, stdout="", stderr="boom"),
+        ):
+            assert get_pr_for_branch(Path("."), "feat/a") is None
+
+    def test_unparseable_output_answers_nothing(self):
+        with self._list("not json"):
+            assert get_pr_for_branch(Path("."), "feat/a") is None
+
+
+class TestGetOpenPrs:
+    """One GraphQL call answers every branch, in place of one ``gh pr list`` each.
+
+    The per-branch REST call cost ~0.8s and dominated ``mael list``. The batch
+    must return the same numbers, and must fail in a way callers can tell apart
+    from "this branch has no PR".
+
+    It asks about named branches rather than walking the repo's pull requests:
+    merged PRs only accumulate, and this runs on the orchestrator's 15-second
+    poll, so a walk would get slower for the life of the repo.
+    """
+
+    def test_maps_every_branch_it_asked_about(self):
         page = _graphql_page(
-            [
-                _node(1837, "refactor/document-derivatives", 10),
-                _node(1543, "feat/pgsql-users", 2),
-            ]
+            {
+                "refactor/document-derivatives": [
+                    _node(1837, "refactor/document-derivatives", 10)
+                ],
+                "feat/pgsql-users": [_node(1543, "feat/pgsql-users", 2)],
+            }
         )
         with patch("maelstrom.github.run_cmd", return_value=_ok(page)):
-            assert get_open_prs(Path(".")) == {
-                "refactor/document-derivatives": (1837, 10),
-                "feat/pgsql-users": (1543, 2),
+            prs = get_open_prs(
+                Path("."), {"refactor/document-derivatives", "feat/pgsql-users"}
+            )
+        assert prs is not None
+        assert {b: (s.number, s.commits) for b, s in prs.items()} == {
+            "refactor/document-derivatives": (1837, 10),
+            "feat/pgsql-users": (1543, 2),
+        }
+
+    def test_the_query_asks_for_every_field_the_state_rule_reads(self):
+        """The parser decides a state from these five. A query that drops one
+        would read every PR as `ready` and say nothing was wrong."""
+        with patch(
+            "maelstrom.github.run_cmd", return_value=_ok(_graphql_page({}))
+        ) as run:
+            get_open_prs(Path("."), {"feat/a"})
+        query = _query_of(run.call_args)
+        for field in ("url", "isDraft", "state", "mergeable", "statusCheckRollup"):
+            assert field in query
+
+    def test_the_query_and_its_aliases_are_one_value(self):
+        """The alias is how an answer finds its branch. Handing the caller the
+        document and the mapping together is what stops the two enumerations
+        drifting apart and silently keying every PR to the wrong branch."""
+        query, aliases = github._open_prs_query(["feat/a", "feat/b"])
+        assert aliases == {"b0": "feat/a", "b1": "feat/b"}
+        for alias in aliases:
+            assert f"{alias}: pullRequests(" in query
+
+    def test_it_asks_only_about_the_branches_it_was_given(self):
+        with patch(
+            "maelstrom.github.run_cmd", return_value=_ok(_graphql_page({}))
+        ) as run:
+            get_open_prs(Path("."), {"feat/a", "feat/b"})
+        query = _query_of(run.call_args)
+        assert 'headRefName: "feat/a"' in query
+        assert 'headRefName: "feat/b"' in query
+
+    def test_it_asks_in_one_round_trip(self):
+        with patch(
+            "maelstrom.github.run_cmd", return_value=_ok(_graphql_page({}))
+        ) as run:
+            get_open_prs(Path("."), {f"feat/{n}" for n in range(20)})
+        assert run.call_count == 1
+
+    def test_it_includes_merged_prs(self):
+        """A branch whose PR merged must still resolve, or `merged` never shows."""
+        with patch(
+            "maelstrom.github.run_cmd", return_value=_ok(_graphql_page({}))
+        ) as run:
+            get_open_prs(Path("."), {"feat/a"})
+        assert "states: [OPEN, MERGED]" in _query_of(run.call_args)
+
+    def test_a_branch_name_with_a_quote_in_it_cannot_break_the_query(self):
+        """Branch names are git refs, not literals we control. An unescaped one
+        would end the string argument and make the document unparseable."""
+        with patch(
+            "maelstrom.github.run_cmd", return_value=_ok(_graphql_page({}))
+        ) as run:
+            get_open_prs(Path("."), {'feat/a"} evil {'})
+        assert '"' in _query_of(run.call_args)
+
+    def test_no_branches_asks_nothing_at_all(self):
+        """A project whose worktrees are all detached has nothing to look up."""
+        with patch("maelstrom.github.run_cmd") as run:
+            assert get_open_prs(Path("."), set()) == {}
+        run.assert_not_called()
+
+    def test_a_branch_with_no_pr_is_absent_rather_than_an_error(self):
+        with patch(
+            "maelstrom.github.run_cmd", return_value=_ok(_graphql_page({"one": []}))
+        ):
+            assert get_open_prs(Path("."), {"one"}) == {}
+
+    def test_an_open_pr_beats_a_merged_one_on_the_same_branch(self):
+        """`create-pr` opens a new PR on a branch whose last PR merged, so a
+        recycled branch is routine. The open PR is the work in hand."""
+        page = _graphql_page(
+            {
+                "one": [
+                    _node(9, "one", 1, state="MERGED"),
+                    _node(8, "one", 2, state="OPEN"),
+                ]
             }
+        )
+        with patch("maelstrom.github.run_cmd", return_value=_ok(page)):
+            prs = get_open_prs(Path("."), {"one"})
+        assert prs is not None
+        assert prs["one"].number == 8
 
-    def test_a_repo_with_no_open_prs_maps_to_nothing(self):
-        with patch("maelstrom.github.run_cmd", return_value=_ok(_graphql_page([]))):
-            assert get_open_prs(Path(".")) == {}
+    def test_a_partial_answer_is_used_rather_than_thrown_away(self):
+        """gh exits 1 when any field was refused, even though it printed the
+        rest. A token without the checks scope must still get its PR numbers."""
+        payload = json.dumps(
+            {
+                "data": {"repository": {"b0": {"nodes": [_node(42, "one", 3)]}}},
+                "errors": [
+                    {"message": "Resource not accessible by personal access token"}
+                ],
+            }
+        )
+        with patch(
+            "maelstrom.github.run_cmd",
+            return_value=SimpleNamespace(returncode=1, stdout=payload, stderr="denied"),
+        ):
+            prs = get_open_prs(Path("."), {"one"})
+        assert prs is not None
+        assert prs["one"].number == 42
 
-    def test_follows_pagination_to_the_last_page(self):
-        """``first:`` is a page size, not a total. A repo with more open PRs
-        than one page must not silently lose the overflow — a missing branch
-        renders blank, which reads as "no PR"."""
-        pages = [
-            _ok(_graphql_page([_node(1, "one", 3)], has_next=True, cursor="CUR")),
-            _ok(_graphql_page([_node(2, "two", 4)])),
-        ]
-        with patch("maelstrom.github.run_cmd", side_effect=pages) as run:
-            assert get_open_prs(Path(".")) == {"one": (1, 3), "two": (2, 4)}
-        assert run.call_count == 2
-        # The cursor goes through -f, not -F. -F types the value, so a cursor
-        # that looks like a number is sent as one and GraphQL rejects it
-        # against the declared String.
-        second = run.call_args_list[1][0][0]
-        assert second[second.index("after=CUR") - 1] == "-f"
-
-    def test_a_failed_call_is_distinct_from_an_empty_repo(self):
+    def test_a_failed_call_is_distinct_from_a_branch_with_no_pr(self):
         """A batch failure must not blank the whole column silently. ``None``
         lets the caller fall back per branch; ``{}`` would claim no PRs exist."""
         with patch(
             "maelstrom.github.run_cmd",
             return_value=SimpleNamespace(returncode=1, stdout="", stderr="boom"),
         ):
-            assert get_open_prs(Path(".")) is None
+            assert get_open_prs(Path("."), {"one"}) is None
 
     def test_missing_gh_is_a_failure_not_an_empty_repo(self):
         with patch("maelstrom.github.run_cmd", side_effect=FileNotFoundError):
-            assert get_open_prs(Path(".")) is None
+            assert get_open_prs(Path("."), {"one"}) is None
 
     def test_unparseable_output_is_a_failure_not_an_empty_repo(self):
         with patch("maelstrom.github.run_cmd", return_value=_ok("not json")):
-            assert get_open_prs(Path(".")) is None
+            assert get_open_prs(Path("."), {"one"}) is None
 
     def test_a_graphql_error_payload_is_a_failure(self):
         """gh exits 0 on a GraphQL error payload, so returncode is not enough."""
         errors = json.dumps({"errors": [{"message": "rate limited"}]})
         with patch("maelstrom.github.run_cmd", return_value=_ok(errors)):
-            assert get_open_prs(Path(".")) is None
+            assert get_open_prs(Path("."), {"one"}) is None
 
 
 class TestCreatePrRegistersTheStack:

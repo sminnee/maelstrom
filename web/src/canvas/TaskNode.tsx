@@ -6,6 +6,7 @@ import { nodeTitle } from '../selectors/graph';
 import { phaseLabel } from '../protocol/phase';
 import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
+import { PrChip } from '../shell/PrChip';
 import { useAppStore } from '../store/store';
 import styles from './TaskNode.module.css';
 
@@ -82,7 +83,7 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
         )}
         <span className={styles.id}>{nodeIdLine(node)}</span>
         {node.worktree && <span className={styles.worktree}>{node.worktree.nato}</span>}
-        {node.worktree?.prNumber && <span className={styles.pr}>#{node.worktree.prNumber}</span>}
+        <PrChip worktree={node.worktree} className={styles.pr} />
         {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
       </div>
       <Handle type="source" position={Position.Right} className={styles.handle} />
