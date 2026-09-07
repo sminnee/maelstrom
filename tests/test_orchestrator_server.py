@@ -294,6 +294,21 @@ def harness(store):
     return Harness(store)
 
 
+@pytest.fixture
+def harness_factory(store):
+    """A harness built with constructor options, for a test that needs one.
+
+    Options reach ``Orchestrator`` through ``Harness``'s own ``**over``, so a
+    test tunes the server the way production does rather than by writing a
+    private attribute.
+    """
+
+    def build(**over):
+        return Harness(store, **over)
+
+    return build
+
+
 def run(coro):
     return asyncio.run(coro)
 
@@ -3882,3 +3897,111 @@ def test_a_socket_for_an_unknown_agent_is_not_left_registered(harness):
                 return len(app[SOCKETS])
 
     assert run(scenario()) == 0
+
+
+def test_the_worktree_poll_is_idle_while_no_client_watches(harness):
+    """Nobody is reading, so the read is worth nothing.
+
+    The worktree read is the one that calls GitHub, and GitHub charges for it
+    by the hour. Polling it into an empty room is what spends the budget the
+    user needs to raise a PR.
+    """
+
+    async def scenario():
+        await harness.orch.start()
+        # `start` builds the world once before serving anyone, and that read
+        # stands. What must not happen is the poll repeating it into an empty
+        # room, so count from after start rather than from zero.
+        settled = harness.worktrees.reads
+        await asyncio.sleep(0.1)
+        await harness.orch.stop()
+        return harness.worktrees.reads - settled
+
+    assert asyncio.run(scenario()) == 0
+
+
+def test_a_client_arriving_is_read_for_at_once(harness_factory):
+    """The first client must not wait a whole interval to see the world.
+
+    Gating on readers only pays if arriving is what triggers the read, so the
+    interval never shows through as a stale first paint.
+
+    The interval is long here so that only the arrival can read: a subscriber
+    ungates the poller too, and awaiting the catch-up yields, so a short
+    interval lets a tick land in the same window and counts two reads.
+    """
+    harness = harness_factory(worktree_poll=30.0)
+
+    async def scenario():
+        await harness.orch.start()
+        before = harness.worktrees.reads
+        with harness.orch.notices.subscribe():
+            assert harness.orch._catch_up is not None
+            await harness.orch._catch_up
+        after = harness.worktrees.reads
+        await harness.orch.stop()
+        return after - before
+
+    assert asyncio.run(scenario()) == 1
+
+
+def test_a_rate_limited_read_stands_the_poll_off(harness_factory):
+    """Retrying a spent budget at the usual cadence keeps it spent.
+
+    The source reports the refusal rather than raising: the rows it built still
+    stand, and only the pull request column is missing.
+    """
+    harness = harness_factory(rate_limit_cooldown=30.0)
+    harness.worktrees.rate_limited = True
+
+    async def scenario():
+        await harness.orch.start()
+        settled = harness.worktrees.reads
+        with harness.orch.notices.subscribe():
+            await asyncio.sleep(0.15)
+        await harness.orch.stop()
+        return harness.worktrees.reads - settled
+
+    # 0.15s of a 0.02s interval is roughly 7 ticks, and a subscriber arriving
+    # would normally read too. The stand-off must collapse every one of them.
+    assert asyncio.run(scenario()) == 0
+
+
+def test_a_client_arriving_cannot_walk_past_the_stand_off(harness_factory):
+    """A reconnecting browser must not defeat the cooldown.
+
+    The web client retries a dropped notice stream every 30 seconds, and each
+    retry is a new first subscriber. Reading on arrival without checking the
+    stand-off would ask GitHub every 30s through a window the poll believes it
+    is waiting out.
+    """
+    harness = harness_factory(rate_limit_cooldown=30.0)
+    harness.worktrees.rate_limited = True
+
+    async def scenario():
+        await harness.orch.start()
+        settled = harness.worktrees.reads
+        for _ in range(5):
+            with harness.orch.notices.subscribe():
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+        await harness.orch.stop()
+        return harness.worktrees.reads - settled
+
+    assert asyncio.run(scenario()) == 0
+
+
+def test_the_poll_reads_again_once_the_stand_off_passes(harness_factory):
+    """The stand-off ends. A budget that refills must be picked up."""
+    harness = harness_factory(rate_limit_cooldown=0.03)
+    harness.worktrees.rate_limited = True
+
+    async def scenario():
+        await harness.orch.start()
+        settled = harness.worktrees.reads
+        with harness.orch.notices.subscribe():
+            await asyncio.sleep(0.15)
+        await harness.orch.stop()
+        return harness.worktrees.reads - settled
+
+    assert asyncio.run(scenario()) > 0
