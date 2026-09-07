@@ -1033,7 +1033,13 @@ describe('review in a document tab', () => {
     // The decision shows what the agent said before it asked. The rail only
     // draws once the transcript has delivered those items, so wait for the
     // rail rather than for the heading inside it.
-    expect(await inline.findByTestId('decision-context')).toHaveTextContent('Before this');
+    // The rail waits on the transcript socket, which opens, snapshots and
+    // reduces across several ticks — a loaded CI runner takes far longer than
+    // the 1 s default. Same ceiling as `findFirstTranscriptItem` below, and
+    // for the same reason: it bounds a hang rather than tuning a wait.
+    expect(
+      await inline.findByTestId('decision-context', undefined, { timeout: 25_000 }),
+    ).toHaveTextContent('Before this');
     await user.click(inline.getAllByRole('checkbox')[0]!);
     await user.click(inline.getByRole('button', { name: 'Next' }));
     await user.click(inline.getAllByRole('radio')[0]!);
