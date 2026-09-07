@@ -106,7 +106,9 @@ def test_start_forwards_a_session_id():
 
 def test_answer_sends_the_choice():
     _, client = run_cli(["answer", "a1", "Green"])
-    assert client.calls == [{"cmd": "answer", "id": "a1", "choice": "Green"}]
+    assert client.calls == [
+        {"cmd": "answer", "id": "a1", "choice": "Green", "request": ""}
+    ]
 
 
 def test_interrupt_sends_the_interrupt_command():
@@ -132,6 +134,18 @@ def test_attach_refuses_without_a_terminal_and_names_tail():
     assert result.exit_code != 0
     assert "mael agent tail -f a1" in result.output
     assert client.calls == []
+
+
+def test_approve_names_the_request_when_given_one():
+    """With several waits open the daemon needs to be told which."""
+    _, client = run_cli(["approve", "a1", "--request", "req-2"])
+    assert client.calls[0]["request"] == "req-2"
+
+
+def test_approve_names_no_request_by_default():
+    """Omitted means "the only one", which is what a single wait needs."""
+    _, client = run_cli(["approve", "a1"])
+    assert client.calls[0].get("request", "") == ""
 
 
 def test_deny_sends_the_reason():

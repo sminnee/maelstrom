@@ -1682,6 +1682,135 @@ def test_a_refused_mode_does_not_undo_the_approval():
     assert spec.permission_mode is None
 
 
+def _two_asks_agent():
+    """An agent with both concurrent asks open, and what it was sent."""
+    agent, sent = _answering_agent()
+    agent.state = replay(
+        "subagent-permission-concurrent.jsonl", stop_before_control=True
+    )
+    for line in (
+        (FIXTURES / "subagent-permission-concurrent.jsonl").read_text().splitlines()
+    ):
+        if not line.strip():
+            continue
+        event = json.loads(line)
+        if event.get("type") == "control_request" and event["request_id"] not in _asks(
+            agent.state
+        ):
+            agent.state = apply_event(agent.state, event)
+        if len(_asks(agent.state)) == 2:
+            break
+    return agent, sent
+
+
+def _asks(state):
+    """Every open ask, the agent's own and its subagents'."""
+    from maelstrom.agent_model import open_asks
+
+    return open_asks(state)
+
+
+def test_interrupt_denies_a_subagents_ask_too():
+    """An undenied ask leaves its caller blocked on a reply that never comes.
+
+    A subagent's ask is filed on the subagent, so an interrupt that reads only
+    the agent's own waits denies nothing at all in the case that matters.
+    """
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    agent, sent = _two_asks_agent()
+    daemon.agents["a1"] = agent
+    open_ids = list(_asks(agent.state))
+    assert agent.state.own_pending == {}, "both asks belong to subagents"
+
+    asyncio.run(_handle(daemon, {"cmd": "interrupt", "id": "a1"}))
+
+    denied = [
+        m["response"]["request_id"] for m in sent if m.get("type") == "control_response"
+    ]
+    assert sorted(denied) == sorted(open_ids)
+
+
+def test_a_notified_subagents_open_ask_is_denied():
+    """The subagent has gone, but its request id is live on the parent's pipe.
+
+    Nothing else will answer it: the ask is off the state the moment the
+    notification lands, so the daemon has to deny it on the way out or the
+    child holds an unanswered `can_use_tool` for ever.
+    """
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    agent, sent = _two_asks_agent()
+    daemon.agents["a1"] = agent
+    doomed = agent.state.subagents["a1.1"]
+    [ask] = doomed.pending.values()
+
+    orphaned = agent.record(
+        {
+            "type": "system",
+            "subtype": "task_notification",
+            "tool_use_id": doomed.tool_use_id,
+            "status": "completed",
+            "summary": "done",
+        }
+    )
+
+    # `record` is sync and the reply is not, so it reports what the pump denies.
+    assert [p.request_id for p in orphaned] == [ask.request_id]
+    assert agent.state.subagents["a1.1"].pending == {}
+
+
+def test_a_named_request_is_the_one_answered():
+    """With two asks open, the reply must carry the id the caller named."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    agent, sent = _two_asks_agent()
+    daemon.agents["a1"] = agent
+    second = list(_asks(agent.state))[1]
+
+    reply = asyncio.run(
+        _handle(daemon, {"cmd": "approve", "id": "a1", "request": second})
+    )
+
+    assert reply == {"ok": True}
+    assert [m["response"]["request_id"] for m in sent] == [second]
+
+
+def test_answering_one_ask_leaves_the_other_open():
+    """The whole point: one approval releases one caller."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    agent, _ = _two_asks_agent()
+    daemon.agents["a1"] = agent
+    first, second = list(_asks(agent.state))
+
+    asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1", "request": second}))
+
+    assert list(_asks(agent.state)) == [first]
+
+
+def test_a_request_the_agent_does_not_hold_is_refused():
+    """A stale id must not silently answer whichever wait is current."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    agent, sent = _two_asks_agent()
+    daemon.agents["a1"] = agent
+
+    reply = asyncio.run(
+        _handle(daemon, {"cmd": "approve", "id": "a1", "request": "nope"})
+    )
+
+    assert "error" in reply
+    assert sent == []
+
+
+def test_naming_no_request_with_several_open_is_refused():
+    """Omitting the id means "the only one"; with two it is ambiguous."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    agent, sent = _two_asks_agent()
+    daemon.agents["a1"] = agent
+
+    reply = asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+
+    assert "error" in reply
+    assert sent == []
+
+
 def test_approving_an_ordinary_permission_leaves_the_mode_alone():
     """Only a plan review carries the operator's "go and do it"."""
     daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
@@ -1703,7 +1832,7 @@ def test_answering_clears_the_wait_at_once():
     daemon.agents["a1"] = agent
     asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
 
-    assert agent.state.pending is None
+    assert agent.state.own_pending == {}
 
 
 # --- the detail frame: what the agent waits on, said on attach ---------------
@@ -1745,7 +1874,8 @@ def test_the_detail_frame_names_the_request_a_wait_can_be_answered_with():
     agent.state = replay("permission-request.jsonl", stop_before_control=True)
     daemon.agents["a1"] = agent
     first = attach_frames(daemon, "a1")[0]
-    assert first["agent"]["request_id"] == agent.state.pending.request_id
+    [only] = agent.state.own_pending.values()
+    assert first["agent"]["request_id"] == only.request_id
 
 
 def test_the_detail_frame_comes_before_the_backlog():

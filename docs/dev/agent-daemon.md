@@ -605,9 +605,9 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 | `show` | `id` | `{"agent": <detail>}`, as `mael agent show --json` prints |
 | `say` | `id`, `text`; optional `attachments` | `{"ok": true}` |
 | `run` | `id`, `command` | `{"ok": true}` |
-| `approve` | `id` | `{"ok": true}`, plus `"mode": "auto"` or `"warning": "<why not>"` for a plan review |
-| `deny` | `id`; optional `reason` | `{"ok": true}` |
-| `answer` | `id`; `answers` (a map keyed by question text) or `choice` | `{"ok": true}` |
+| `approve` | `id`; optional `request` | `{"ok": true}`, plus `"mode": "auto"` or `"warning": "<why not>"` for a plan review |
+| `deny` | `id`; optional `request`, `reason` | `{"ok": true}` |
+| `answer` | `id`; optional `request`; `answers` (a map keyed by question text) or `choice` | `{"ok": true}` |
 | `interrupt` | `id` | `{"ok": true}` |
 | `set-mode` | `id`, `mode` (`plan`, `normal` or `auto`) | `{"ok": true, "mode": "<mode>"}` |
 | `stop` | `id` | `{"ok": true}` |
@@ -764,6 +764,11 @@ The request also carries `request.agent_id`, which is the `task_id` of the subag
 `task_started`. Nothing reads that field yet. `waiting_subagent` instead comes from a scan of
 each subagent's ring for the `tool_use` block that opened the call. The scan finds nothing when
 the block has left the ring, and nothing when the ring was never filled.
+
+`request` names which wait to answer. An agent can hold several, its own and its subagents'.
+Omit it and the daemon answers the only open one, refusing when there is more than one. An id the
+agent does not hold is refused rather than falling back to whichever wait is current: the caller
+answered something it could see, and that wait is over.
 
 **Two subagents can block on a permission at the same time.** Claude Code does not serialise the
 asks. `tests/fixtures/agent_events/subagent-permission-concurrent.jsonl` records two open at

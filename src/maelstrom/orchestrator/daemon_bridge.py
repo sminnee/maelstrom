@@ -208,7 +208,11 @@ class ScriptedAsyncDaemonClient:
         state = AgentState(agent_id=agent_id, cwd=self.rows[agent_id].get("cwd", ""))
         pending = self.pending.get(agent_id)
         if pending is not None:
-            state = replace(state, pending=pending, status=pending.wait_kind)
+            state = replace(
+                state,
+                own_pending={pending.request_id: pending},
+                status=pending.wait_kind,
+            )
         return build_agent_detail(state)
 
     def _echo_for(self, payload: dict[str, Any], command: str) -> dict[str, Any] | None:
