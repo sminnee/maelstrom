@@ -3,8 +3,9 @@
   flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
-  /* The gutter is sized here so every row shares one column edge, and the
-     container query below can collapse it in one place. */
+  /* Named here so every row shares one column edge. The narrow-panel rule
+     below re-cuts the whole track rather than zeroing this, because a
+     container cannot be styled by its own container query. */
   --gutter: 3.5rem;
   container-type: inline-size;
 }
@@ -29,18 +30,26 @@
   white-space: nowrap;
 }
 /* The panel is resizable, so this is the panel's width, not the viewport's.
-   Too narrow for a column: the mark moves above the card instead. */
-@container (max-width: 22rem) {
-  .transcript {
-    --gutter: 0;
-  }
-  /* The column is gone, so its gap would only indent every unmarked row. */
+   `container-type: inline-size` measures the content box, so `.transcript`'s
+   own side padding is already subtracted — 12px each side, so 24px in all:
+   a 430px phone reports ~406px.
+   30rem clears every phone. Below it the 3.5rem column plus its 12px gap costs
+   68px — a sixth of the row — for a mark on a minority of rows, so the mark
+   moves above the card instead.
+
+   The card drops to one column rather than zeroing `--gutter`: a container
+   cannot be styled by its own container query, so setting the variable on
+   `.transcript` never reached the track and left the mark spanning a two-track
+   row, which pushed the card into the 3.5rem column. */
+@container (max-width: 30rem) {
   .card {
-    column-gap: 0;
+    grid-template-columns: 1fr;
+    /* One column, so the whole gap goes: a column gap would only indent every
+       unmarked row, and a row gap would pad one in below an empty mark. */
+    gap: 0;
   }
   .gutter {
     text-align: left;
-    grid-column: 1 / -1;
   }
 }
 .note,
