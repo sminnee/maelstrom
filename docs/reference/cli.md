@@ -231,18 +231,15 @@ resolves its own conflicts instead.
 | `mael open [TARGET]` | Start a Claude Code session in a worktree. `--harness daemon\|claude\|opencode`, or the `--claude` / `--opencode` shorthands, picks the runner. |
 | `mael add [BRANCH]` | Add a worktree for a branch and start a session in it. Takes the same harness flags. |
 | `mael ide [TARGET]` | Open a worktree in the configured editor. |
-| `mael session list` | List active Claude Code sessions. |
+| `mael session list` | List running Claude Code sessions. |
 | `mael session info [ID]` | Show the fields of one session. Defaults to the session you run it in. |
 | `mael session end [ID]` | Stop one session and leave its worktree in place. Defaults to the session you run it in. |
-| `mael session record EVENT` | Update session state from a Claude Code hook event. Reads the payload as JSON on stdin. Not meant for humans. |
 | `mael cmux status` | Report whether maelstrom can place a session into cmux. Starts cmux if it is down. Exits non-zero when cmux cannot be reached. |
-| `mael status set TEXT` | Set the workspace status text shown in the cmux status bar. |
-| `mael status clear` | Clear the workspace status. |
 
 ```bash
 mael open                          # Claude session in the current worktree
 mael open myproject.b              # ...in bravo
-mael session list                  # what is running, and in what state
+mael session list                  # what is running
 mael session info                  # the session you are in
 mael session info 97894d02         # ...named by an id prefix from the ID column
 mael session info 4242             # ...named by a pid from the PID column
@@ -316,26 +313,11 @@ child of the session, so it signals its parent and exits once the parent is gone
 
 An ended session stays on disk. Its transcript is complete, and `claude --resume` opens it again.
 
-`mael session end` does not close the task the session was launched for. The Claude `session-end`
-hook still fires as the session shuts down, and that hook closes the task.
+`mael session end` does not close the task the session was launched for. Nothing does it for
+you: close it with `mael task status done`, and use `mael task reconcile` to find one a dead
+session left behind.
 
 None of the other commands here take options beyond `--help`.
-
-**`mael session record`**
-
-`EVENT` is one of a fixed set. Each value maps to the session state maelstrom records:
-
-| `EVENT` | Session state |
-|---|---|
-| `user-prompt-submit`, `ask-user-post` | `processing` |
-| `stop`, `stop-failure`, `idle-prompt` | `idle` |
-| `permission-prompt`, `elicitation-prompt` | `awaiting-permission` |
-| `ask-user-pre` | `awaiting-user-input` |
-| `session-end` | Closes the launching task and deletes the session file. Sets no state. |
-| `heartbeat` | Bumps `updated_at` and leaves the state alone. |
-
-`mael install` wires each hook to the right value, so you never pass `EVENT` yourself. An
-unknown `EVENT` exits 2.
 
 ---
 
@@ -1021,7 +1003,6 @@ None of these take options beyond `--help`.
 | `mael install` | Install maelstrom's Claude Code skills and hooks into `~/.claude/`. |
 | `mael self-update` | Update maelstrom to the latest version from git. Also points the `mael` on your PATH at the everyday daemon's root, so a bare `mael agent …` reaches it. |
 | `mael self-env <VERB>` | `mael env <VERB>` aimed at maelstrom's own `_main`. `mael self-env start` runs the everyday agent daemon, which is a service of that environment. |
-| `mael session-channel` | Launch the Bun-based session-tracking MCP channel. Invoked by Claude Code, not by humans. |
 
 ```bash
 mael install                 # skills and hooks into ~/.claude/
@@ -1032,10 +1013,4 @@ mael self-env status
 mael self-env restart agent-daemon   # the everyday daemon picks up new code
 mael self-env stop
 ```
-
-**`mael install`**
-
-| Option | Description |
-|---|---|
-| `--no-monitor` | Skip the session-tracking MCP channel, its hooks and its dependencies. |
 
