@@ -5,6 +5,7 @@ import inspect
 import json
 import os
 import subprocess
+from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -25,6 +26,7 @@ from maelstrom.worktree import (
     add_project,
     close_worktree,
     closed_worktrees,
+    closed_worktrees_async,
     copy_back_new_env_vars,
     create_worktree,
     find_closed_worktree,
@@ -39,6 +41,7 @@ from maelstrom.worktree import (
     get_worktree_dirty_files_async,
     is_worktree_closed,
     list_worktrees,
+    list_worktrees_async,
     managed_keys_in_env,
     read_env_file,
     rebase_worktree,
@@ -46,6 +49,7 @@ from maelstrom.worktree import (
     remove_worktree,
     remove_worktree_by_path,
     run_git,
+    run_git_async,
     setup_claude_memory_symlink,
     setup_worktree_for_branch,
     sync_worktree,
@@ -63,6 +67,9 @@ from maelstrom.worktree_model import (
     is_worktree_closable,
     parse_env_text,
 )
+from tests.git_helpers import create_commit
+from tests.git_helpers import run_git as git
+from tests.test_sync_flags import project_with_worktree  # noqa: F401,F811
 
 
 class TestWriteEnvFile:
@@ -1740,21 +1747,41 @@ class TestRegenerateEnvFile:
 # worktree can vanish between the listing and the read whichever one is asked,
 # so the guard has to hold on both sides.
 MISSING_PATH_READERS = [
-    (get_worktree_dirty_files, []),
-    (get_worktree_dirty_files_async, []),
-    (get_commits_ahead, 0),
-    (get_commits_ahead_async, 0),
-    (lambda p: get_local_only_commits(p, "feature/work"), 0),
-    (lambda p: get_local_only_commits_async(p, "feature/work"), 0),
-    (lambda p: get_pushed_commit_count(p, "feature/work"), None),
-    (lambda p: get_pushed_commit_count_async(p, "feature/work"), None),
+    ("get_worktree_dirty_files", get_worktree_dirty_files, []),
+    ("get_worktree_dirty_files_async", get_worktree_dirty_files_async, []),
+    ("get_commits_ahead", get_commits_ahead, 0),
+    ("get_commits_ahead_async", get_commits_ahead_async, 0),
+    (
+        "get_local_only_commits",
+        partial(get_local_only_commits, branch="feature/work"),
+        0,
+    ),
+    (
+        "get_local_only_commits_async",
+        partial(get_local_only_commits_async, branch="feature/work"),
+        0,
+    ),
+    (
+        "get_pushed_commit_count",
+        partial(get_pushed_commit_count, branch="feature/work"),
+        None,
+    ),
+    (
+        "get_pushed_commit_count_async",
+        partial(get_pushed_commit_count_async, branch="feature/work"),
+        None,
+    ),
 ]
 
 
 class TestStaleWorktreeHandling:
     """Tests for handling worktrees whose directories no longer exist."""
 
-    @pytest.mark.parametrize("read, expected", MISSING_PATH_READERS)
+    @pytest.mark.parametrize(
+        "read, expected",
+        [(read, expected) for _, read, expected in MISSING_PATH_READERS],
+        ids=[name for name, _, _ in MISSING_PATH_READERS],
+    )
     def test_a_reader_answers_for_a_worktree_that_has_gone(self, read, expected):
         """Each per-row reader degrades to its empty answer, sync or async.
 
@@ -2439,3 +2466,97 @@ class TestRunGitCheck:
         result = run_git(["rev-parse", "--git-dir"], cwd=repo, quiet=True, check=False)
         assert result.returncode == 0
         assert result.stdout.strip()
+
+
+class TestTheAsyncReaders:
+    """The reads ``list-all`` makes, driven on an event loop.
+
+    These are the forms the orchestrator server actually runs; the sync twins
+    beside them serve the CLI. They are exercised against a real repository
+    rather than a mocked ``run_cmd``, so they pin what git answers rather than
+    what a stub was told to say — and so they keep working when the transport
+    beneath them changes.
+    """
+
+    def test_it_reads_the_dirty_files(self, project_with_worktree):  # noqa: F811
+        _, worktree_path, _ = project_with_worktree
+        (worktree_path / "new.txt").write_text("hello\n")
+
+        assert asyncio.run(get_worktree_dirty_files_async(worktree_path)) == ["new.txt"]
+
+    def test_a_clean_worktree_has_no_dirty_files(self, project_with_worktree):  # noqa: F811
+        _, worktree_path, _ = project_with_worktree
+
+        assert asyncio.run(get_worktree_dirty_files_async(worktree_path)) == []
+
+    def test_it_counts_the_commits_ahead_of_main(self, project_with_worktree):  # noqa: F811
+        _, worktree_path, _ = project_with_worktree
+        create_commit(worktree_path, "a.txt", "a\n", "First")
+        create_commit(worktree_path, "b.txt", "b\n", "Second")
+
+        assert asyncio.run(get_commits_ahead_async(worktree_path)) == 2
+
+    def test_an_unpushed_branch_counts_every_commit_as_local(
+        self,
+        project_with_worktree,  # noqa: F811
+    ):
+        """With no remote branch the count falls back to commits ahead of main."""
+        _, worktree_path, _ = project_with_worktree
+        create_commit(worktree_path, "a.txt", "a\n", "First")
+
+        count = asyncio.run(get_local_only_commits_async(worktree_path, "feature/work"))
+        assert count == 1
+
+    def test_a_pushed_commit_is_not_local_only(self, project_with_worktree):  # noqa: F811
+        _, worktree_path, _ = project_with_worktree
+        create_commit(worktree_path, "a.txt", "a\n", "Pushed")
+        git(worktree_path, "push", "origin", "feature/work:feature/work")
+        git(worktree_path, "fetch", "origin")
+        create_commit(worktree_path, "b.txt", "b\n", "Local only")
+
+        count = asyncio.run(get_local_only_commits_async(worktree_path, "feature/work"))
+        assert count == 1
+
+    def test_an_unpushed_branch_has_no_pushed_count(self, project_with_worktree):  # noqa: F811
+        _, worktree_path, _ = project_with_worktree
+
+        pushed = asyncio.run(
+            get_pushed_commit_count_async(worktree_path, "feature/work")
+        )
+        assert pushed is None
+
+    def test_it_counts_the_pushed_commits(self, project_with_worktree):  # noqa: F811
+        _, worktree_path, _ = project_with_worktree
+        create_commit(worktree_path, "a.txt", "a\n", "Pushed")
+        git(worktree_path, "push", "origin", "feature/work:feature/work")
+        git(worktree_path, "fetch", "origin")
+
+        pushed = asyncio.run(
+            get_pushed_commit_count_async(worktree_path, "feature/work")
+        )
+        assert pushed == 1
+
+    def test_it_lists_the_worktrees(self, project_with_worktree):  # noqa: F811
+        project_path, worktree_path, _ = project_with_worktree
+
+        listed = asyncio.run(list_worktrees_async(project_path))
+
+        assert worktree_path.resolve() in {wt.path.resolve() for wt in listed}
+
+    def test_a_worktree_on_a_branch_is_never_closed(self, project_with_worktree):  # noqa: F811
+        """The branch check short-circuits, as the sync batch does."""
+        project_path, _, _ = project_with_worktree
+        listed = asyncio.run(list_worktrees_async(project_path))
+
+        closed = asyncio.run(closed_worktrees_async(project_path, listed))
+
+        assert closed == set()
+
+    def test_run_git_async_reads_the_branch(self, project_with_worktree):  # noqa: F811
+        _, worktree_path, _ = project_with_worktree
+
+        result = asyncio.run(
+            run_git_async(["rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree_path)
+        )
+
+        assert result.stdout.strip() == "feature/work"
