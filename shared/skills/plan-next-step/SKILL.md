@@ -78,9 +78,9 @@ reality, plan the top item, and hand the next planner an updated tail.
    mael task draft .drafts/tail.md "Plan next step" --command plan-next-step --mode normal --model opus
    ```
 
-   Tag each draft the moment it exists, so the user reads it as a document — see the `planning`
-   skill, "Live preview", for the syntax. Sculpt the bodies with the user; see **Draft bodies**
-   below.
+   Tag the drafts the moment they exist, so the user reads the plan as a document — see the
+   `planning` skill, "Live preview", for the syntax. One tag names the whole set, in chain
+   order, with `review="true"`. Sculpt the bodies with the user; see **Draft bodies** below.
 
 4. **Promote on approval**: once the user approves the drafts, run — in this order:
 
@@ -91,6 +91,11 @@ reality, plan the top item, and hand the next planner an updated tail.
    mael task next --run --parent "$MAEL_TASK_PARENT"   # step now actionable — launches it
    mael session end                                # stop this planning session
    ```
+
+   **Approved in the orchestrator UI instead?** The tasks already exist — approving the document
+   created them, and you get a message naming the ids. Skip the two `promote` lines only. The
+   task close, the launch and the session end all still run, and the step id comes from that
+   message. See "Promote or discard" in the `planning` skill.
 
    `--follow-end '*'` appends the step after the leaves of the parent's existing child-chain —
    which includes **this planning task**, still in-progress. So `mael task status done` must
