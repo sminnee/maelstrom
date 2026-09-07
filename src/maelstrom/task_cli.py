@@ -13,7 +13,7 @@ from pathlib import Path
 
 import click
 
-from . import session_discovery, session_store, task_actions
+from . import session_discovery, task_actions
 from . import task as model  # noqa: F401  (module, used as `model.*`)
 
 # Second binding of the same module, for the few functions that take a `model`
@@ -1683,14 +1683,16 @@ def task_update(
             raise click.ClickException(
                 f"Cannot change the id of in-progress task {id}; move it back to todo first."
             )
-        # Rename intentionally uses the registry check (any *registered*
-        # session, not just a live one): re-keying a task out from under a
-        # session that recorded the old id — even a stale entry — is unsafe,
-        # whereas a relaunch (which uses the stricter is_live discovery) only
-        # needs to avoid a genuinely racing process.
-        if session_store.find_live_session_for_task(proj, id) is not None:
+        # Re-keying underneath a live session would orphan it. Asked directly,
+        # not via `check_not_live`, whose message advises a relaunch. Swept here,
+        # not at the top: only this path asks, and the sweep shells out.
+        live = session_discovery.LiveSessionSet().for_session_id(
+            task_model.session_id_for(proj, id)
+        )
+        if live is not None:
             raise click.ClickException(
-                f"Task {id} has an open Claude session; close it before changing its id."
+                f"Task {id} has a live Claude session (pid {live.pid}); "
+                f"close it before changing its id."
             )
         try:
             task_model.rename(store, proj, id, new_id, index=index)
