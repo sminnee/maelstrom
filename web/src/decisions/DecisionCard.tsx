@@ -24,20 +24,11 @@ import styles from './DecisionCard.module.css';
  * An agent can be blocked on several at once — see `docs/dev/agent-daemon.md`,
  * "A subagent's permission ask" — and each is answered on its own.
  */
-export function DecisionCard({
-  agent,
-  skipPlanReview = false,
-}: {
-  agent: Agent;
-  /** The document tab's review bar owns a plan review, so it is not drawn twice. */
-  skipPlanReview?: boolean;
-}) {
+export function DecisionCard({ agent }: { agent: Agent }) {
   const transcript = useAgentStream(agent.id);
   const detail = useAgent(agent.id);
   const held = new Set(agent.pendingRequestIds);
-  const waits = (detail.data?.pendingRequests ?? [])
-    .filter((w) => held.has(w.requestId))
-    .filter((w) => !(skipPlanReview && w.type === 'plan_review'));
+  const waits = (detail.data?.pendingRequests ?? []).filter((w) => held.has(w.requestId));
   if (waits.length === 0) return null;
   return (
     <>
