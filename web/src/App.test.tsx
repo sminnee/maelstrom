@@ -172,7 +172,7 @@ describe('change notices', () => {
     expect(nodeState('NORT-9')).toBe('working');
     askQuestion(server);
     await waitFor(() => expect(nodeState('NORT-9')).toBe('needs-attention'));
-    expect(chipCount()).toBe(3);
+    expect(chipCount()).toBe(4);
   });
 
   it('a notice for a task the world no longer holds takes its node away', async () => {
@@ -513,13 +513,18 @@ describe('the attention chip', () => {
     const user = userEvent.setup();
     await renderApp();
     const chip = screen.getByTestId('attention-chip');
-    await user.click(chip);
-    const first = expanded().getAttribute('aria-label');
-    await user.click(chip);
-    const second = expanded().getAttribute('aria-label');
-    expect(new Set([first, second])).toEqual(
-      new Set(['Plan the order export', 'Shape the orchestrator UI']),
-    );
+    const seen: (string | null)[] = [];
+    for (let i = 0; i < 3; i++) {
+      await user.click(chip);
+      seen.push(expanded().getAttribute('aria-label'));
+    }
+    // The rank, not the age: by raisedAt alone the question would come first.
+    // Plan review, then document review, then question.
+    expect(seen).toEqual([
+      'Plan the order export',
+      'Rotate auth tokens',
+      'Shape the orchestrator UI',
+    ]);
   });
 
   it('counts only the nodes the filters leave on the canvas', async () => {
@@ -818,7 +823,7 @@ describe('review in a document tab', () => {
     await waitFor(() => expect(nodeState('NORT-9')).not.toBe('needs-attention'));
   });
 
-  it('one drag offers a comment; adding it and requesting changes say the server does not do that yet', async () => {
+  it('one drag offers a comment, and adding it says the server does not do that yet', async () => {
     const user = userEvent.setup();
     await renderApp();
     clickNode('NORT-7');
@@ -841,13 +846,69 @@ describe('review in a document tab', () => {
       'Make the cap configurable.',
     );
 
-    await user.type(
-      screen.getByRole('textbox', { name: 'Summary of requested changes' }),
-      'Tighten it.',
-    );
-    await user.click(screen.getByRole('button', { name: 'Request changes' }));
-    expect(await screen.findAllByRole('button', { name: 'Not implemented yet' })).toHaveLength(2);
     expect(screen.getByTestId('document-tab')).toHaveTextContent('awaiting review');
+  });
+
+  it('a plan review is answered on the agent, so its document offers no bar', async () => {
+    // The wait is the agent's ExitPlanMode call. A review bar here would flip
+    // the document, retire the item pointing at it, and leave the agent
+    // blocked on a request nothing had answered.
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('NORT-7');
+    await user.click(within(expanded()).getByRole('link', { name: /plan\.md v1/ }));
+    const tab = await screen.findByTestId('document-tab');
+    expect(tab).toHaveTextContent('awaiting review');
+    expect(within(tab).queryByRole('textbox', { name: 'Summary of requested changes' })).toBeNull();
+    // The decision that does answer the wait is on the document instead.
+    const decision = within(await within(tab).findByTestId('inline-decision'));
+    expect(decision.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
+  });
+});
+
+describe('a document an agent tagged in its own message', () => {
+  /** The document's own id, so a find-by-shape cannot hit the seed's plan. */
+  const docTab = (documentId: string) =>
+    document.querySelector(`[role="tab"][data-tab-key="document:${documentId}"]`);
+
+  it('a draft opens from its node card and offers no review', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('NORT-12');
+    await user.click(within(expanded()).getByRole('link', { name: /What is red on PR #118 v1/ }));
+    expect(docTab('doc-nort12-notes')).toBeInTheDocument();
+    const tab = await screen.findByTestId('document-tab');
+    await waitFor(() => expect(tab).toHaveTextContent('fails on collation'));
+    // Nothing waits on the user, so there is no verdict to give.
+    expect(within(tab).queryByRole('button', { name: 'Approve' })).toBeNull();
+    expect(within(tab).queryByRole('button', { name: 'Request changes' })).toBeNull();
+    expect(tab).not.toHaveTextContent('This version is draft.');
+  });
+
+  it("a free agent's document lists on its card, though it has no task", async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('f2c6a9d4');
+    await user.click(within(expanded()).getByRole('link', { name: /Index reader notes v1/ }));
+    expect(docTab('doc-free-notes')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId('document-tab')).toHaveTextContent('stamps HEAD onto every row'),
+    );
+  });
+
+  it('a document asking for a verdict offers one, and approving moves its status', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    expect(chipCount()).toBe(3);
+    clickNode('NORT-12');
+    await user.click(within(expanded()).getByRole('link', { name: /Iteration 2 v1/ }));
+    expect(docTab('doc-nort12-tasks')).toBeInTheDocument();
+    const tab = await screen.findByTestId('document-tab');
+    await waitFor(() => expect(tab).toHaveTextContent('explicit collation'));
+    await user.click(within(tab).getByRole('button', { name: 'Approve' }));
+    await waitFor(() => expect(screen.getByTestId('document-tab')).toHaveTextContent('approved'));
+    // The item it raised is retired with it.
+    await waitFor(() => expect(chipCount()).toBe(2));
   });
 });
 
