@@ -1,0 +1,143 @@
+/*
+ * The chip is a two-track grid: everything at rest, then the word in a track
+ * that grows from nothing. `1fr` animates where `auto` does not, so the word's
+ * width is never named anywhere — the track derives it, and a long state like
+ * "merge conflicts" cannot outgrow a ceiling because there is no ceiling.
+ */
+.chip {
+  display: inline-grid;
+  /* Two tracks, always: everything at rest, then the word. More children than
+     tracks would wrap into rows, so the resting content is one flex box in
+     track one rather than three grid items. */
+  grid-template-columns: auto 0fr;
+  align-items: center;
+  flex: none;
+
+  box-sizing: border-box;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--chip-tone) 45%, transparent);
+  background: color-mix(in srgb, var(--chip-tone) 14%, transparent);
+  color: var(--chip-tone);
+
+  font-family: var(--font);
+  line-height: 1;
+  white-space: nowrap;
+  text-decoration: none;
+
+  transition: grid-template-columns var(--duration-fast) ease-out;
+}
+
+/* One place a tone becomes a colour. Everything above reads `--chip-tone` and
+   never names a token again, the way `base.css` sets `--phase` per phase. */
+.chip[data-tone='good'] {
+  --chip-tone: var(--ok);
+}
+.chip[data-tone='bad'] {
+  --chip-tone: var(--danger);
+}
+.chip[data-tone='busy'] {
+  --chip-tone: var(--attention);
+}
+.chip[data-tone='neutral'] {
+  --chip-tone: var(--mark-neutral);
+}
+.chip[data-tone='quiet'] {
+  --chip-tone: var(--tone-dormant);
+}
+.chip[data-tone='special'] {
+  --chip-tone: var(--tone-archival);
+}
+
+/* Track one: the chip at rest, on one line. */
+.rest {
+  display: flex;
+  align-items: center;
+  /* The mark and the number are two things, not one word. */
+  gap: 4px;
+  min-width: 0;
+}
+
+.brand,
+.icon {
+  display: block;
+  flex: none;
+}
+/* The service mark is a whisper next to the state: it says where this goes,
+   not how it is doing. */
+.brand {
+  opacity: 0.55;
+}
+
+/*
+ * The number and the word it opens to are one line of text, so they take one
+ * face. `line-height: 1` on the chip left them sitting high: their glyphs fill
+ * less of the box than the icon beside them, and centring two boxes is not
+ * centring what is drawn in them. A matched line-height puts both on the
+ * icon's optical centre.
+ */
+.number,
+.word {
+  display: block;
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  line-height: 12px;
+  /* The last pixel is by eye. Mono digits sit high in their line box, so a
+     centred box still reads a pixel above the mark beside it. */
+  transform: translateY(1px);
+}
+.number {
+  letter-spacing: -0.01em;
+}
+
+/*
+ * The growing track. It clips; the word does not.
+ *
+ * `justify-content: end` pins the word to the track's right edge, so a track
+ * that opens uncovers it from the left and the word slides in rather than
+ * unwrapping letter by letter. Its right edge is still where it lands.
+ */
+.wordCell {
+  display: flex;
+  justify-content: end;
+  overflow: hidden;
+  min-width: 0;
+}
+.word {
+  padding-left: 5px;
+  padding-right: 1px;
+  white-space: nowrap;
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  /* It arrives as well as slides: a wipe alone reads as a mask, not a word. */
+  opacity: 0;
+  transition: opacity var(--duration-fast) ease-out;
+}
+.chip[data-size='large']:hover .word,
+.chip[data-size='large']:focus-visible .word {
+  opacity: 1;
+}
+
+/*
+ * Only the large chip opens. A canvas node is 220px wide with `overflow:
+ * hidden`, and its meta line already truncates four things against each other,
+ * so a chip that grew there would clip against the node's own edge and re-cut
+ * the task id under the pointer. Where there is no room to open into, the
+ * colour and the icon carry the reading and the card holds the word.
+ */
+.chip[data-size='large'] {
+  padding: 2px 5px;
+}
+.chip[data-size='large']:hover,
+.chip[data-size='large']:focus-visible {
+  grid-template-columns: auto 1fr;
+}
+
+.chip[data-size='small'] {
+  padding: 1px 4px;
+}
+.chip[data-size='small'] .word {
+  /* The word is still in the tree for a screen reader; it is the visible copy
+     that has nowhere to go. */
+  display: none;
+}
