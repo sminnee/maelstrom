@@ -420,7 +420,10 @@ def _spawn_services(
             expanded = {k: Template(v).safe_substitute(env) for k, v in svc.env.items()}
             svc_env = {**env, **expanded}
         log_file = log_dir / f"{svc.name}.log"
-        log_fh = open(log_file, "w")  # noqa: SIM115
+        # Appended, not truncated: a service is usually restarted right after
+        # it dies, and truncating here destroys the log of the crash that
+        # prompted the restart.
+        log_fh = open(log_file, "a")  # noqa: SIM115
         log_fh.write(f"\n=== Service started: {now} ===\n")
         log_fh.flush()
         proc = Popen(
@@ -1164,13 +1167,33 @@ def get_log_files(store: EnvStore, project: str, worktree: str) -> dict[str, Pat
     return {p.stem: p for p in sorted(log_dir.glob("*.log"))}
 
 
+#: How much of a log file's end to read per attempt when tailing it.
+TAIL_CHUNK_BYTES = 64 * 1024
+
+
 def tail_log_file(log_path: Path, n: int = 100) -> list[str]:
     """Read the last N lines from a log file.
+
+    Reads from the end rather than the whole file: the logs are appended and
+    never truncated, so one of a long-lived service reaches hundreds of MB, and
+    reading it whole to print a screenful costs that much memory.
 
     Returns empty list if the file is missing, empty, or unreadable.
     """
     try:
-        lines = log_path.read_text().splitlines()
+        with log_path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            end = handle.tell()
+            size = 0
+            chunks: list[bytes] = []
+            # Widen until the tail holds n newlines, or the file runs out.
+            while size < end:
+                size = min(size + TAIL_CHUNK_BYTES, end)
+                handle.seek(end - size)
+                chunks = [handle.read(size)]
+                if chunks[0].count(b"\n") > n:
+                    break
+        lines = b"".join(chunks).decode("utf-8", "replace").splitlines()
         return lines[-n:] if lines else []
     except OSError:
         return []
