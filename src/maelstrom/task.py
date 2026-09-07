@@ -29,8 +29,11 @@ from .task_store import GitFileStore, TaskStore, tasks_root
 from .util import now_iso
 
 if TYPE_CHECKING:
-    # Only needed for the reconcile annotations, so keep it type-checking-only
-    # and reference ``LiveSession`` as a string form below.
+    # Only needed for annotations, so keep these type-checking-only and
+    # reference them in string form below. ``Path`` names a draft file the
+    # caller opens; the notebook itself reaches the disk only through its store.
+    from pathlib import Path
+
     from .session_discovery import LiveSession
 
 
@@ -1004,6 +1007,92 @@ def parse_draft(text: str) -> Task:
     task = Task.from_markdown(text)
     if not task.title.strip():
         raise ValueError("Draft has no title.")
+    return task
+
+
+#: The draft fields a promote may override. Each is a recipe field a caller may
+#: state instead of the file: everything ``mael task draft`` writes, and nothing
+#: identity holds.
+PROMOTABLE_FIELDS = (
+    "command",
+    "mode",
+    "model",
+    "base",
+    "priority",
+    "branch",
+    "parent",
+    "pre_action",
+    "post_action",
+)
+
+
+def read_draft(path: "Path") -> Task:
+    """The unsaved task a draft file describes.
+
+    Split out of :func:`promote_draft` for a caller that must read a recipe
+    field — the draft's own ``parent`` — before it can resolve the follows the
+    promote needs.
+
+    Raises:
+        FileNotFoundError: If ``path`` names no file.
+        ValueError: If the draft does not parse (see :func:`parse_draft`).
+    """
+    if not path.is_file():
+        raise FileNotFoundError(f"Draft file not found: {path}")
+    return parse_draft(path.read_text())
+
+
+def promote_draft(
+    store: TaskStore,
+    *,
+    project: str,
+    path: "Path",
+    overrides: dict[str, str | None] | None = None,
+    follows: list[str] | None = None,
+    index: TaskIndex | None = None,
+    consume: bool = True,
+    draft: Task | None = None,
+) -> Task:
+    """Create the task a draft file describes, then consume the file.
+
+    The one promote step, shared by ``mael task promote`` and the orchestrator's
+    approval of a task-set document. The draft's recipe fields seed the task;
+    an ``overrides`` entry that is not ``None`` wins over the file's value, so a
+    caller with no opinion passes ``None`` rather than the field's default.
+    ``follows`` is wired here, at the moment the ids it names exist.
+
+    The file is deleted only after the task is in the store: a draft that fails
+    to parse is left where the user can fix it, and nothing was created.
+
+    ``consume=False`` leaves the file, for a caller promoting a whole set in one
+    transaction: git can roll the notebook back but not a file outside it, so
+    such a caller deletes the set itself once the transaction has committed.
+    Use :func:`consume_draft` for that. ``draft`` reuses a :func:`read_draft`
+    the caller already did, rather than reading the file a second time.
+
+    Raises:
+        FileNotFoundError: If ``path`` names no file.
+        ValueError: If the draft does not parse (see :func:`parse_draft`).
+    """
+    if draft is None:
+        draft = read_draft(path)
+    given = overrides or {}
+    fields = {
+        name: value if (value := given.get(name)) is not None else getattr(draft, name)
+        for name in PROMOTABLE_FIELDS
+    }
+    task = create(
+        store,
+        project=project,
+        title=draft.title,
+        content=draft.content,
+        follows=list(follows or []),
+        index=index,
+        **fields,
+    )
+    # The draft has moved into the notebook; consume it so nothing stale
+    # lingers in the worktree.
+    path.unlink()
     return task
 
 

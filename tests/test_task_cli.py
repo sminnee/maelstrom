@@ -1506,6 +1506,17 @@ class TestPromote:
         assert t.parent == "linear.NORT-9"
         assert t.follows == [existing.id]
 
+    def test_a_bad_flag_is_not_blamed_on_the_draft(self, runner, store, tmp_path):
+        # The draft parsed; what failed is the flag, so the message must not
+        # name the file and send the user to edit a file that is fine.
+        f = self._draft(runner, tmp_path)
+        result = runner.invoke(
+            task_cli.task, ["promote", str(f), "--priority", "urgnet"]
+        )
+        assert result.exit_code != 0
+        assert "urgnet" in result.output
+        assert str(f) not in result.output
+
     def test_promote_missing_file_errors(self, runner, store, tmp_path):
         result = runner.invoke(task_cli.task, ["promote", str(tmp_path / "absent.md")])
         assert result.exit_code != 0

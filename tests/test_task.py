@@ -280,6 +280,74 @@ class TestParseDraft:
             model.parse_draft('---\ntitle: "unclosed\n---\n\nBody.\n')
 
 
+class TestPromoteDraft:
+    """The promote step the CLI and the orchestrator share."""
+
+    def _draft(self, tmp_path, name="d.md", **fields):
+        path = tmp_path / name
+        path.write_text(model.draft_markdown(**fields))
+        return path
+
+    def test_creates_the_task_the_draft_describes(self, store, tmp_path):
+        path = self._draft(
+            tmp_path,
+            title="Execute: demo",
+            command="plan-next-step",
+            mode="auto",
+            model="opus",
+            pre_action="linear.in-progress",
+            content="The plan body.",
+        )
+        task = model.promote_draft(store, project="p", path=path)
+        loaded = model.load(store, "p", task.id)
+        assert loaded.title == "Execute: demo"
+        assert loaded.command == "plan-next-step"
+        assert loaded.mode == "auto"
+        assert loaded.model == "opus"
+        assert loaded.pre_action == "linear.in-progress"
+        assert loaded.content == "The plan body."
+        assert loaded.status == model.STATUS_TODO
+
+    def test_consumes_the_file_once_the_task_exists(self, store, tmp_path):
+        path = self._draft(tmp_path, title="T")
+        model.promote_draft(store, project="p", path=path)
+        assert not path.exists()
+
+    def test_an_override_wins_over_the_file(self, store, tmp_path):
+        path = self._draft(tmp_path, title="T", mode="auto")
+        task = model.promote_draft(
+            store, project="p", path=path, overrides={"mode": "normal"}
+        )
+        assert model.load(store, "p", task.id).mode == "normal"
+
+    def test_an_override_of_none_leaves_the_file_field_alone(self, store, tmp_path):
+        # The CLI passes None for a flag the user did not give.
+        path = self._draft(tmp_path, title="T", mode="auto")
+        task = model.promote_draft(
+            store, project="p", path=path, overrides={"mode": None}
+        )
+        assert model.load(store, "p", task.id).mode == "auto"
+
+    def test_wires_the_follows_it_is_given(self, store, tmp_path):
+        first = model.create(store, project="p", title="first")
+        path = self._draft(tmp_path, title="T")
+        task = model.promote_draft(store, project="p", path=path, follows=[first.id])
+        assert model.load(store, "p", task.id).follows == [first.id]
+
+    def test_a_missing_file_raises_and_creates_nothing(self, store, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            model.promote_draft(store, project="p", path=tmp_path / "absent.md")
+        assert model.list_tasks(store, project="p") == []
+
+    def test_a_bad_draft_raises_and_leaves_the_file(self, store, tmp_path):
+        path = tmp_path / "d.md"
+        path.write_text('---\ntitle: "unclosed\n---\n\nBody.\n')
+        with pytest.raises(ValueError):
+            model.promote_draft(store, project="p", path=path)
+        assert path.exists()
+        assert model.list_tasks(store, project="p") == []
+
+
 # --- id allocation ---
 
 

@@ -879,31 +879,51 @@ def task_promote(
     created; the file is deleted only after the task exists in the store.
     """
     path = Path(file)
-    if not path.is_file():
-        raise click.ClickException(f"Draft file not found: {file}")
+    # The parent decides which chain a `--follow-end '*'` appends to, so the
+    # draft is read before the follows are resolved, and handed to the promote
+    # rather than read again. The draft's own parent is the fallback, and an
+    # unset flag defaults as `add` does.
     try:
-        draft = task_model.parse_draft(path.read_text())
+        draft = task_model.read_draft(path)
+    except FileNotFoundError:
+        raise click.ClickException(f"Draft file not found: {file}")
     except ValueError as e:
         raise click.ClickException(f"{file}: {e}")
-    add_task(
-        title=draft.title,
-        project=project,
-        command=command if command is not None else draft.command,
-        mode=mode if mode is not None else draft.mode,
-        model=model if model is not None else draft.model,
-        base=base if base is not None else draft.base,
-        priority=priority if priority is not None else draft.priority,
-        branch=branch if branch is not None else draft.branch,
-        parent=parent if parent is not None else draft.parent,
-        pre_action=pre_action if pre_action is not None else draft.pre_action,
-        post_action=post_action if post_action is not None else draft.post_action,
-        follows=follows,
-        follow_ends=follow_ends,
-        content=draft.content,
-    )
-    # The draft has moved into the notebook; consume it so nothing stale
-    # lingers in the worktree.
-    path.unlink()
+    proj = _resolve_project(project)
+    store = _store()
+    index, was_fresh = _mutate_index(store)
+    effective_parent = _default_parent(parent if parent is not None else draft.parent)
+    resolved = list(follows)
+    for end_id in follow_ends:
+        resolved.extend(
+            task_model._resolve_follow_end(store, proj, end_id, effective_parent)
+        )
+    try:
+        created = task_model.promote_draft(
+            store,
+            project=proj,
+            path=path,
+            overrides={
+                "command": command,
+                "mode": mode,
+                "model": model,
+                "base": base,
+                "priority": priority,
+                "branch": branch,
+                "parent": effective_parent,
+                "pre_action": pre_action,
+                "post_action": post_action,
+            },
+            follows=list(dict.fromkeys(resolved)),
+            index=index,
+            draft=draft,
+        )
+    # The draft already parsed, so what reaches here is a flag the notebook
+    # refuses — not the file's fault, and not to be blamed on it.
+    except ValueError as e:
+        raise click.ClickException(str(e))
+    click.echo(created.id)
+    _restamp(store, index, was_fresh=was_fresh)
 
 
 @task.command("load-many")
