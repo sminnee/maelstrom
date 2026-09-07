@@ -28,12 +28,11 @@ from ..agent_model import (
     reply_for_denial,
 )
 from ..agent_transport import (
-    DaemonPaths,
     attach_command,
+    connect_failure,
     open_connection,
     request_over_socket,
     resolve_socket_path,
-    unreachable_message,
 )
 
 
@@ -261,10 +260,8 @@ class SocketAsyncDaemonClient:
     ) -> AsyncIterator[dict[str, Any]]:
         try:
             reader, writer = await open_connection(self.socket_path)
-        except (OSError, asyncio.TimeoutError):
-            yield {
-                "error": unreachable_message(DaemonPaths.for_socket(self.socket_path))
-            }
+        except (OSError, asyncio.TimeoutError) as error:
+            yield {"error": connect_failure(self.socket_path, error)}
             return
         try:
             command = attach_command(agent_id, from_seq, epoch)

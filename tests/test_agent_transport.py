@@ -9,13 +9,17 @@ sandbox" in ``CONTRIBUTING.md``.
 """
 
 import asyncio
+import errno
 import json
+import os
 import socket
 
 import pytest
 
 from maelstrom.agent_transport import (
     STREAM_LIMIT,
+    UNREACHABLE_MARKER,
+    SocketAsyncDaemonClient,
     SocketDaemonClient,
     request_over_socket,
 )
@@ -131,3 +135,77 @@ class TestNothingStartsADaemon:
         reply = SocketDaemonClient(missing).request({"cmd": "list"})
         assert "No agent daemon on" in reply["error"]
         assert spawned == []
+
+
+@pytest.fixture()
+def deny_connect(monkeypatch):
+    """Fail the next connect with `code`, raised as a bare `OSError`.
+
+    Raising `OSError(EPERM, ...)` rather than `PermissionError` directly is the
+    point: CPython maps the errno to the subclass, and that mapping is what
+    picks the message. A test raising the subclass would assume it.
+    """
+
+    def deny(code):
+        async def refuse(*args, **kwargs):
+            raise OSError(code, os.strerror(code))
+
+        monkeypatch.setattr("maelstrom.agent_transport.open_connection", refuse)
+
+    return deny
+
+
+class TestADeniedConnectIsNotAnAbsentDaemon:
+    """A sandbox denies the connect; the daemon is alive on the other side."""
+
+    @pytest.mark.parametrize("code", [errno.EPERM, errno.EACCES])
+    def test_a_denied_connect_names_the_denial_and_drops_the_marker(
+        self, tmp_path, monkeypatch, deny_connect, code
+    ):
+        """`agent_cli` reads the marker as "no daemon holds these agents"."""
+        socket_path = str(tmp_path / "agent-daemon.sock")
+        deny_connect(code)
+        reply = asyncio.run(request_over_socket(socket_path, {"cmd": "list"}))
+        assert "permission denied" in reply["error"].lower()
+        assert socket_path in reply["error"]
+        assert UNREACHABLE_MARKER not in reply["error"]
+
+    def test_an_absent_socket_still_reads_as_an_absent_daemon(self, tmp_path):
+        """The reframing must not swallow the case it split away from."""
+        missing = str(tmp_path / "gone" / "agent-daemon.sock")
+        reply = asyncio.run(request_over_socket(missing, {"cmd": "list"}))
+        assert UNREACHABLE_MARKER in reply["error"]
+
+
+class TestEveryConnectSiteTellsTheCasesApart:
+    """All three connect sites map a failure the same way.
+
+    `request_over_socket` is one of three. `AsyncDaemonClient.attach` and the
+    orchestrator's `SocketAsyncDaemonClient.attach` open their own connections,
+    so a denial reported correctly by one and as an absent daemon by another is
+    the same trap in a different place.
+    """
+
+    def test_the_async_attach_names_a_denial(self, tmp_path, deny_connect):
+        socket_path = str(tmp_path / "agent-daemon.sock")
+        deny_connect(errno.EPERM)
+
+        async def first_line():
+            async for line in SocketAsyncDaemonClient(socket_path).attach("a1"):
+                return line
+            return {}
+
+        reply = asyncio.run(first_line())
+        assert "permission denied" in reply["error"].lower()
+        assert UNREACHABLE_MARKER not in reply["error"]
+
+    def test_the_async_attach_still_names_an_absent_daemon(self, tmp_path):
+        missing = str(tmp_path / "gone" / "agent-daemon.sock")
+
+        async def first_line():
+            async for line in SocketAsyncDaemonClient(missing).attach("a1"):
+                return line
+            return {}
+
+        reply = asyncio.run(first_line())
+        assert UNREACHABLE_MARKER in reply["error"]
