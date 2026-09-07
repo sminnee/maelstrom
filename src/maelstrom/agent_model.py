@@ -549,6 +549,10 @@ class AgentState:
     #: Every dotted id ever handed out, by the ``Agent`` call's tool use id.
     #: Outlives eviction, so an ordinal is never reused.
     subagent_ids: dict[str, str] = field(default_factory=dict)
+    #: The same dotted ids, by the ``task_started`` id Claude Code knows the
+    #: subagent as. A ``can_use_tool`` names its asker under ``agent_id``, and
+    #: this is what turns that into a dotted id.
+    subagent_tasks: dict[str, str] = field(default_factory=dict)
 
 
 #: How many events to keep per agent for ``attach`` to render on connect.
@@ -701,6 +705,7 @@ def apply_event(
                 str(event["tool_use_id"]),
                 description=str(event.get("description") or ""),
                 subagent_type=str(event.get("subagent_type") or ""),
+                task_id=str(event.get("task_id") or ""),
             )
         return state
 
@@ -729,7 +734,7 @@ def apply_event(
             tool_name=request.get("tool_name", ""),
             input=request.get("input") or {},
             description=request.get("description", "") or "",
-            subagent=_ring_holding_call(state, str(request.get("tool_use_id") or "")),
+            subagent=_asker(state, str(request.get("agent_id") or "")),
         )
         return replace(state, status=pending.wait_kind, pending=pending)
 
@@ -790,6 +795,17 @@ def subagent_of(state: AgentState, event: dict[str, Any]) -> str:
     return dotted if dotted in state.subagents else ""
 
 
+def _asker(state: AgentState, task_id: str) -> str:
+    """The dotted id of the subagent ``task_id`` names, else ``""``.
+
+    ``task_id`` is what a ``can_use_tool`` carries under ``agent_id``. Like
+    :data:`AgentState.subagent_ids`, the map outlives eviction, so an id whose
+    state has gone answers ``""``: it names no stream a reader could open.
+    """
+    dotted = state.subagent_tasks.get(task_id, "")
+    return dotted if dotted in state.subagents else ""
+
+
 def _holds_call(recent: tuple[dict[str, Any], ...], tool_use_id: str) -> bool:
     """Whether ``recent`` carries the ``tool_use`` block with ``tool_use_id``."""
     for event in reversed(recent):
@@ -811,6 +827,11 @@ def _ring_holding_call(state: AgentState, tool_use_id: str) -> str:
     The parent's ring is not searched: ``""`` is the answer for a call the
     parent made, and also for one that rolled out of every ring. A subagent
     opens once and asks rarely, so the scan is not on the hot path.
+
+    Only :func:`_open_subagent` calls this, to place a new subagent at its
+    level. A ``can_use_tool`` names its asker under ``agent_id`` and needs no
+    scan; ``task_started`` gives a depth but not a parent, so a spawn still
+    does.
     """
     if not tool_use_id:
         return ""
@@ -826,6 +847,7 @@ def _open_subagent(
     *,
     description: str = "",
     subagent_type: str = "",
+    task_id: str = "",
 ) -> AgentState:
     """``state`` with a subagent open for ``tool_use_id``.
 
@@ -853,10 +875,14 @@ def _open_subagent(
         description=description,
         subagent_type=subagent_type,
     )
+    tasks = state.subagent_tasks
+    if task_id:
+        tasks = {**tasks, task_id: dotted}
     return replace(
         state,
         subagents=subagents,
         subagent_ids={**state.subagent_ids, tool_use_id: dotted},
+        subagent_tasks=tasks,
     )
 
 

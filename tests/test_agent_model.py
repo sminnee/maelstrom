@@ -12,6 +12,7 @@ so the request arrives bare and the plan is in a message instead.
 
 import base64
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -1425,18 +1426,47 @@ class TestConcurrentSubagentPermissions:
         asked = {e["request_id"] for e in events if e.get("type") == "control_request"}
         assert asked - answered, "one ask was never answered"
 
-    def test_neither_ask_is_attributed_to_its_subagent(self, events):
-        """The second defect. ``_ring_holding_call`` finds nothing here.
+    def test_each_ask_is_attributed_to_the_subagent_that_raised_it(self, events):
+        """``agent_id`` names the subagent, so a ring scan is not needed.
 
-        It scans each subagent's ring for the ``tool_use`` block that opened
-        the call. A recording of a parent carries no parented events, so the
-        rings are empty of them and both asks read as the parent's own -- even
-        though ``agent_id`` names the subagent exactly.
+        A recording of a parent carries no parented events, so the subagent
+        rings hold no ``tool_use`` block to scan. The ask says whose it is.
+        """
+        first = self.replay_to_ask(events, 1)
+        assert first.pending is not None
+        assert first.pending.subagent == "a1.1"
+        assert build_agent_detail(first)["waiting_subagent"] == "a1.1"
+
+        second = self.replay_to_ask(events, 2)
+        assert second.pending is not None
+        assert second.pending.subagent == "a1.2"
+
+    def test_an_evicted_subagent_is_not_named(self, events):
+        """``subagent_tasks`` outlives eviction, as ``subagent_ids`` does.
+
+        A dotted id whose state has gone names no stream a reader could open,
+        so the ask reads as the parent's own rather than pointing at nothing.
         """
         state = self.replay_to_ask(events, 1)
         assert state.pending is not None
-        assert state.pending.subagent == ""
-        assert build_agent_detail(state)["waiting_subagent"] == ""
+        assert state.pending.subagent == "a1.1"
+
+        # Evict the subagent the ask named, keeping the task map.
+        gone = replace(state, subagents={})
+        again = apply_event(
+            gone,
+            {
+                "type": "control_request",
+                "request_id": "r-late",
+                "request": {
+                    "subtype": "can_use_tool",
+                    "tool_name": "WebFetch",
+                    "agent_id": next(iter(state.subagent_tasks)),
+                },
+            },
+        )
+        assert again.pending is not None
+        assert again.pending.subagent == ""
 
     def test_both_subagents_are_known_even_so(self, events):
         """The subagents themselves open fine; only the wait loses them."""
