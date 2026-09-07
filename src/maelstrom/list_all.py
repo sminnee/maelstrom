@@ -14,6 +14,7 @@ per caller.
 import asyncio
 import logging
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -226,6 +227,27 @@ async def build_list_all_data(
     return {"projects": projects_data}
 
 
+@dataclass(frozen=True)
+class _ProjectContext:
+    """What every worktree row in one project needs, read once for all of them.
+
+    Each field is a per-project batch — the PR lookup, the closed set, the
+    bases, the repo URL — so a row reads only what is specific to itself.
+    ``limit`` is shared with every other project too, so the two fan-out
+    levels draw on one budget.
+    """
+
+    path: Path
+    name: str
+    closed_paths: set[Path]
+    bases: dict[str, str]
+    open_prs: dict[str, PrStatus] | None
+    repo_url: str | None
+    branch_sessions: dict[str, list[str]]
+    live_sessions: session_discovery.LiveSessionSet
+    limit: asyncio.Semaphore
+
+
 async def _project_data(
     project_path: Path,
     live_sessions: session_discovery.LiveSessionSet,
@@ -272,22 +294,19 @@ async def _project_data(
     # projects already read at the same time, which left the whole read
     # bounded by the slowest single project — a user who adds worktrees to one
     # project would otherwise slow down the poll for all of them.
+    context = _ProjectContext(
+        path=project_path,
+        name=project_name,
+        closed_paths=closed_paths,
+        bases=bases,
+        open_prs=open_prs,
+        repo_url=repo_url,
+        branch_sessions=branch_sessions,
+        live_sessions=live_sessions,
+        limit=limit,
+    )
     read = await asyncio.gather(
-        *(
-            _worktree_row(
-                wt,
-                project_path=project_path,
-                project_name=project_name,
-                closed_paths=closed_paths,
-                bases=bases,
-                open_prs=open_prs,
-                repo_url=repo_url,
-                branch_sessions=branch_sessions,
-                live_sessions=live_sessions,
-                limit=limit,
-            )
-            for wt in rows
-        ),
+        *(_worktree_row(wt, context) for wt in rows),
         return_exceptions=True,
     )
 
@@ -309,31 +328,17 @@ async def _project_data(
     }
 
 
-async def _worktree_row(
-    wt: WorktreeInfo,
-    *,
-    project_path: Path,
-    project_name: str,
-    closed_paths: set[Path],
-    bases: dict[str, str],
-    open_prs: dict[str, PrStatus] | None,
-    repo_url: str | None,
-    branch_sessions: dict[str, list[str]],
-    live_sessions: session_discovery.LiveSessionSet,
-    limit: asyncio.Semaphore,
-) -> dict[str, Any]:
+async def _worktree_row(wt: WorktreeInfo, ctx: _ProjectContext) -> dict[str, Any]:
     """One worktree's row.
 
-    Everything the row needs that is shared across the project — the PR batch,
-    the closed set, the bases, the repo URL — is passed in, so this reads only
-    what is specific to ``wt``. ``limit`` caps those reads against every other
-    row and project.
+    ``wt`` is what varies per row; ``ctx`` is everything the project already
+    read for all of them.
     """
     display_name = (
-        extract_worktree_name_from_folder(project_name, wt.path.name) or wt.path.name
+        extract_worktree_name_from_folder(ctx.name, wt.path.name) or wt.path.name
     )
 
-    if wt.path in closed_paths:
+    if wt.path in ctx.closed_paths:
         return {
             "name": display_name,
             "folder": wt.path.name,
@@ -355,27 +360,29 @@ async def _worktree_row(
             "session_stopped": False,
         }
 
-    base = bases.get(wt.branch or "")
+    base = ctx.bases.get(wt.branch or "")
     # The three subprocess reads below are what the cap is for. Held together
     # rather than one permit each, so a row that takes a permit finishes and
     # gives it back, instead of queueing again between its own reads.
-    async with limit:
+    async with ctx.limit:
         dirty_count = len(await get_worktree_dirty_files_async(wt.path))
         local_commits = await get_local_only_commits_async(wt.path, wt.branch)
 
-        pr = await resolve_pr(open_prs, project_path, wt.branch)
+        pr = await resolve_pr(ctx.open_prs, ctx.path, wt.branch)
         # The per-branch fallback answers a number but no URL, so join one.
-        row_pr_url = (pr.url or pr_url(repo_url, pr.number)) if pr else None
+        row_pr_url = (pr.url or pr_url(ctx.repo_url, pr.number)) if pr else None
         pushed_commits = None
         if not is_open_pr(pr) and wt.branch:
             pushed_commits = await get_pushed_commit_count_async(wt.path, wt.branch)
 
-    session_count = live_sessions.count_for(wt.path)
-    stopped = not session_count and session_stopped(wt.path, wt.branch, branch_sessions)
+    session_count = ctx.live_sessions.count_for(wt.path)
+    stopped = not session_count and session_stopped(
+        wt.path, wt.branch, ctx.branch_sessions
+    )
 
     app_url = None
     app_running = False
-    app_info = get_app_url(project_path, display_name)
+    app_info = get_app_url(ctx.path, display_name)
     if app_info:
         app_url, app_running = app_info
 
