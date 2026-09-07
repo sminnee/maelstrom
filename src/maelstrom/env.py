@@ -9,6 +9,7 @@ import signal
 import subprocess
 import time
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -395,6 +396,26 @@ def is_service_alive(pid: int) -> bool:
 # --- Start / Stop / Status ---
 
 
+#: How large a service log may grow before a restart rolls it over.
+MAX_LOG_BYTES = 20 * 1024 * 1024
+
+
+def _roll_over_if_large(log_file: Path) -> None:
+    """Move an oversized log aside, so appending cannot grow one forever.
+
+    The previous run is what a crash investigation needs, so the old file is
+    kept as ``.log.1`` rather than deleted. Two files is the whole history:
+    the one before that is dropped.
+    """
+    try:
+        if log_file.stat().st_size <= MAX_LOG_BYTES:
+            return
+    except OSError:
+        return
+    with suppress(OSError):
+        log_file.replace(log_file.with_suffix(".log.1"))
+
+
 def _spawn_services(
     services: list[ResolvedService],
     cwd: Path,
@@ -420,6 +441,7 @@ def _spawn_services(
             expanded = {k: Template(v).safe_substitute(env) for k, v in svc.env.items()}
             svc_env = {**env, **expanded}
         log_file = log_dir / f"{svc.name}.log"
+        _roll_over_if_large(log_file)
         # Appended, not truncated: a service is usually restarted right after
         # it dies, and truncating here destroys the log of the crash that
         # prompted the restart.

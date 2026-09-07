@@ -9,6 +9,7 @@ import pytest
 
 from maelstrom.config import ServiceDef
 from maelstrom.env import (
+    MAX_LOG_BYTES,
     EnvState,
     ProcfileEntry,
     ResolvedService,
@@ -2926,6 +2927,30 @@ class TestServiceLogsSurviveARestart:
     A service that dies is normally restarted at once, and the restart used to
     truncate the log, so the crash that prompted it left nothing to read.
     """
+
+    def test_a_log_past_the_cap_rolls_over_rather_than_growing_forever(self, tmp_path):
+        """Appending must not let a log grow without limit.
+
+        One log on this machine reached 187 MB. The previous run still has to
+        survive the restart, so the old file is kept as ``.log.1`` rather than
+        deleted.
+        """
+        logs = tmp_path / "logs"
+        logs.mkdir()
+        big = logs / "web.log"
+        big.write_text("x" * (MAX_LOG_BYTES + 1))
+
+        def fake_popen(argv, **kwargs):
+            proc = MagicMock()
+            proc.pid = 4242
+            return proc
+
+        svc = ResolvedService(name="web", command="serve", env={})
+        with patch("maelstrom.env.Popen", fake_popen):
+            _spawn_services([svc], tmp_path, {}, logs, "2026-09-07T00:00:00+00:00")
+
+        assert big.stat().st_size < MAX_LOG_BYTES
+        assert (logs / "web.log.1").stat().st_size > MAX_LOG_BYTES
 
     def test_a_restart_appends_to_the_log_rather_than_truncating_it(self, tmp_path):
         logs = tmp_path / "logs"

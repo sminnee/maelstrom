@@ -710,7 +710,9 @@ mael env logs orchestrator                             # tail the running server
 Two rules keep the file worth reading:
 
 - **The log is appended, never truncated.** A service that dies is restarted at once. A restart
-  that truncated the log destroyed the record of the crash that caused it.
+  that truncated the log destroyed the record of the crash that caused it. A restart rolls the
+  log over at 20 MB instead, keeping the previous file as `.log.1`, so growth stays bounded
+  without losing the run before.
 - **The HTTP access log stays off.** The notice stream pings every client every 15 seconds, so an
   access line per request would bury what the log is read for.
 
