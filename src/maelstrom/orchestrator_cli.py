@@ -12,10 +12,9 @@ from concurrent.futures import Executor, ThreadPoolExecutor
 
 import click
 
-from .agent_transport import daemon_paths
+from .agent_transport import SocketAsyncDaemonClient, daemon_paths
 from .context import load_global_config
 from .desk_store import JsonDeskStore
-from .orchestrator.daemon_bridge import SocketAsyncDaemonClient
 from .orchestrator.routes import build_app, serve_app
 from .orchestrator.server import Orchestrator
 from .orchestrator.sources import ListAllWorktreeSource, NotebookTaskSource

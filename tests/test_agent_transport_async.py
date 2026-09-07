@@ -1,8 +1,8 @@
-"""The real agent-host client, against a stand-in daemon on a socketpair.
+"""`SocketAsyncDaemonClient`, against a stand-in daemon on a socketpair.
 
+The async client the orchestrator server and `mael agent attach` both drive.
 The scripted fake drives every server test; this is the one place the socket
-framing and the three error replies the server's code mapping relies on are
-exercised for real.
+framing and the error replies that fake stands in for are exercised for real.
 
 Each connection is one ``socketpair``, served by ``handler`` as a task on the
 caller's loop.
@@ -13,8 +13,7 @@ import json
 import socket
 from unittest.mock import patch
 
-from maelstrom.agent_transport import STREAM_LIMIT
-from maelstrom.orchestrator.daemon_bridge import SocketAsyncDaemonClient
+from maelstrom.agent_transport import STREAM_LIMIT, SocketAsyncDaemonClient
 
 
 async def _serve(handler, body):
@@ -34,7 +33,7 @@ async def _serve(handler, body):
     # name. Both bindings need the stand-in.
     with (
         patch("maelstrom.agent_transport.open_connection", fake_open),
-        patch("maelstrom.orchestrator.daemon_bridge.open_connection", fake_open),
+        patch("maelstrom.agent_transport.open_connection", fake_open),
     ):
         try:
             return await body(SocketAsyncDaemonClient("unused.sock"))
