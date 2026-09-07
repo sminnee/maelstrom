@@ -144,7 +144,7 @@ the seams come from. Two consequences for this workflow:
 
 - **The plan carries the seams.** Planners write a **Seams under test** section into each execute
   block, so an unattended `mode: auto` session inherits agreed seams instead of stopping to ask.
-- **Refactoring is not part of the loop.** It belongs to the review stage — step 2 of the
+- **Refactoring is not part of the loop.** It belongs to the review stage — step 3 of the
   task-completion flow below. Get to green first, then let review find the cleanups. Re-cutting
   existing tests is the `tdd` skill's shaping step, done green before red.
 
@@ -154,6 +154,12 @@ the seams come from. Two consequences for this workflow:
 Run the project's test suite and linting as defined in CLAUDE.md.
 
 ## Committing
+
+**Build commits are working history.** Commit as often as you like while you build — `wip:` is
+fine, and nothing here needs a well-formed message yet. `/present` squashes the lot and re-cuts
+the final diff into story commits, so the order you worked in is never what the reviewer reads.
+The message rules below — the prefix table, the body, the fixup discipline — apply **from present
+onward**. The mechanics apply throughout: `printf` beats a heredoc on a `wip:` commit too.
 
 **Use `printf` piped to `git commit -F -`** — heredocs fail in the sandbox:
 
@@ -177,11 +183,12 @@ read `git log`. To reword a commit deeper in the stack, script `git rebase -i` w
 `git log -S` or `git blame`, one fixup per root cause, so each change autosquashes back into the
 commit that introduced it. This applies to typecheck, test, lint and formatter failures alike.
 
-**A deep fixup on a long stack often cannot autosquash** — intermediate commits touched the same
-lines, so the rebase halts and the later picks re-conflict after a hand-resolve. Check first with
-`git log --oneline <target>..<fixup>~1 -- <files>`; if anything intervenes, retarget the fixup to the
-last commit its content depends on. Note that a non-interactive `git rebase --autosquash` never
-invokes `GIT_SEQUENCE_EDITOR` — use `rebase -i --autosquash` with a scripted editor.
+A fixup on a long stack can fail to autosquash, where intermediate commits touched the same lines.
+A presented branch rarely hits this — it holds a handful of story commits, and a fixup targets the
+one whose decision it revises. Where it does happen, check with
+`git log --oneline <target>..<fixup>~1 -- <files>` and retarget the fixup to the last commit its
+content depends on. Note that a non-interactive `git rebase --autosquash` never invokes
+`GIT_SEQUENCE_EDITOR` — use `rebase -i --autosquash` with a scripted editor.
 
 **In a rebase, the correct conflict side flips between commits.** Where a later commit rewrites a
 file an earlier one created: at the rewriting commit `--theirs` is the final text, but at the earlier
@@ -240,40 +247,45 @@ This is a hard override of the global "only commit when explicitly asked" rule �
 it applies to all mael projects.
 
 1. Commit the implementation work.
-2. `/code-review` — review committed changes, one read-only sub-agent per commit.
+2. `/present` — re-cut the branch into story commits, one per design decision, each with its
+   rationale in the body and a `Review:` trailer saying how deep to read it. The chronological
+   commits stay under `refs/mael/history/<branch>/<stamp>`, which is the undo. Run it once per
+   task, here. A later task in a chain re-presents the whole branch from scratch; what present
+   refuses is a branch that already carries fixups.
+3. `/code-review` — review the story commits, one read-only sub-agent per commit.
    Findings come back under **Summary**, **Design decisions**, **Findings** — not ranked by
    severity.
-3. Triage the findings by what the fix costs: apply the ones that are correct and in scope,
+4. Triage the findings by what the fix costs: apply the ones that are correct and in scope,
    discard the ones that don't apply. Write the rest — scope changes and potential refactors —
    into `.drafts/pr.md` under a `## Raised by review, not actioned` heading.
-4. Commit the review fixes as `--fixup` commits — one per finding fixed,
-   targeting the commit that introduced the issue. See the code-review skill for
-   the exact procedure. Do not amend existing commits.
-5. Push the PR: `mael gh create-pr <ISSUE-ID> --squash`. The `--squash` flag
+5. Commit the review fixes as `--fixup` commits — one per finding fixed, targeting the **story
+   commit** whose decision it revises. See the code-review skill for the exact procedure. Do not
+   amend, and do not present again.
+6. Push the PR: `mael gh create-pr <ISSUE-ID> --squash`. The `--squash` flag
    autosquashes the `fixup!` commits into their targets as it rebases onto
    `origin/main` before pushing, so the PR lands with a clean history.
-6. **Close the task.** Run `mael task status done` (defaults to `$MAEL_TASK_ID`). The PR is
+7. **Close the task.** Run `mael task status done` (defaults to `$MAEL_TASK_ID`). The PR is
    pushed, so the work is handed off — close it now, while you reliably can, rather than
    after the CI watch. A leftover PR is visible and gets chased; a task left in
    `in-progress/` is invisible and blocks its chain. Nothing else closes it for you.
-7. Run `/watch-pr` — take CI to green autonomously: fix each failure
+8. Run `/watch-pr` — take CI to green autonomously: fix each failure
    (fixup for PR-caused, `chore:` for unrelated), `mael sync` to re-push, and loop
    until CI passes or times out.
 
-If step 2 returns nothing worth applying, skip steps 3–4 and go straight to step 5.
+If step 3 returns nothing worth applying, skip steps 4–5 and go straight to step 6.
 
-This sequence runs unattended, so there is no one to answer a scope question mid-run. Step 3's
+This sequence runs unattended, so there is no one to answer a scope question mid-run. Step 4's
 carry-forward is how a scope decision still reaches the user without blocking the push. Never
 silently drop one.
 
-The **entire** sequence runs without confirmation — including the PR push (step 5), closing the
-task (step 6), and the CI watch (step 7). Run steps 1–7 and report what happened.
+The **entire** sequence runs without confirmation — including the PR push (step 6), closing the
+task (step 7), and the CI watch (step 8). Run steps 1–8 and report what happened.
 
 **The PR is the completion signal** — once it's raised, the work is no longer in danger of being
 forgotten: an open PR is visible on GitHub and gets chased. The task is the fragile half, so close
 it as soon as the PR is pushed, before it can go stray if CI drags on, the session dies, or the PR
 is merged before you get back to it. **A task does not close itself.** Run
-`mael task status done` at step 6; `mael task reconcile` is the only other thing that will ever
+`mael task status done` at step 7; `mael task reconcile` is the only other thing that will ever
 move it, and only when someone runs it.
 
 If the project supplies `docs/review/coding-standards.md` and/or
@@ -285,7 +297,7 @@ If the project supplies `docs/review/coding-standards.md` and/or
 *when* to run it is in the project header — this section covers what it does not.
 
 `mael session end` does not close the task, and nothing else does either. Close it explicitly at
-step 6 above, then end the session. Never end the session *instead of* closing the task — the
+step 7 above, then end the session. Never end the session *instead of* closing the task — the
 task would stay `in-progress` and block everything that follows it.
 
 Ending a session does not tear down the worktree, its branch, or its ports. `mael close` does

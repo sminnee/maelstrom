@@ -45,7 +45,7 @@ internals. Where you get them depends on how the work arrived:
 
 Use `codebase-design` for the vocabulary when the boundary itself is the open question.
 
-Refactoring is not part of the loop — it belongs to `/code-review`, step 2 of the task-completion
+Refactoring is not part of the loop — it belongs to `/code-review`, step 3 of the task-completion
 flow. Get to green first. Re-cutting existing tests is different: the `tdd` skill does that green,
 before red.
 
@@ -66,10 +66,10 @@ sentence caps, vocabulary, and a re-read pass to run before you finish.
 ## Finishing a task — run automatically, do not wait to be asked
 
 When implementation work is complete and gates (tests, lint, typecheck) pass, run the
-**task-completion flow in `/mael`**: commit, `/code-review`, fixups, PR push, close the task,
-`/watch-pr`. Run it **without prompting the user**. This overrides the default "only commit when
-asked" rule for mael projects, and the whole sequence is unattended — the PR push, the task
-close, and the CI watch all run without confirmation.
+**task-completion flow in `/mael`**: commit, `/present`, `/code-review`, fixups, PR push, close
+the task, `/watch-pr`. Run it **without prompting the user**. This overrides the default "only
+commit when asked" rule for mael projects, and the whole sequence is unattended — the PR push, the
+task close, and the CI watch all run without confirmation.
 
 **The PR is the completion signal.** Once it is raised the work is visible and gets chased, so
 close the task as soon as the PR is pushed: `mael task status done`. `/mael` carries the steps

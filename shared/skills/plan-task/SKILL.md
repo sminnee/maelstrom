@@ -147,8 +147,8 @@ someone moves it on explicitly.
 - `--mode auto` on every **execute** draft — it runs the plan as-is unattended (Claude's
   classifier-vetted auto permission mode), no skill. An execute task has an empty `command`:
   it runs **no skill** (not a re-plan) and finishes via the project's always-on "Finishing a
-  task" rule (commit → `/code-review` → fixups → `create-pr --squash` → `task status done` →
-  `/watch-pr`).
+  task" rule (commit → `/present` → `/code-review` → fixups → `create-pr --squash` →
+  `task status done` → `/watch-pr`).
 - `--mode normal` on the **`plan-next-step`** tail draft — the next increment is planned
   afresh in a normal-permission session that writes its own drafts.
 
