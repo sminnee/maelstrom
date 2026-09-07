@@ -1,10 +1,16 @@
 """Where the orchestrator server reads tasks and worktrees from.
 
 Storage layer. Each source is a Protocol with a real implementation over the
-notebook or ``list-all`` and an in-memory one for tests. The methods block:
-the server runs them in its executor, so a slow git read never stalls the
-socket. Both return wire entities built by :mod:`.world_build`, so the server
-holds one shape of the world and diffs readings of it.
+notebook or ``list-all`` and an in-memory one for tests. Both return wire
+entities built by :mod:`.world_build`, so the server holds one shape of the
+world and diffs readings of it.
+
+The two sources reach the loop differently. :class:`ListAllWorktreeSource`
+awaits its git and ``gh`` calls, so it runs on the loop and never stalls the
+socket. Every :class:`NotebookTaskSource` method blocks, so the server runs it
+in its executor — a pool of one thread; see ``docs/dev/orchestrator-server.md``
+for why one. A source may block or answer with an awaitable, and the server
+takes either, so neither kind needs help from the caller.
 """
 
 from collections.abc import Awaitable, Callable, Iterator

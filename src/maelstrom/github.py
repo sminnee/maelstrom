@@ -1,12 +1,23 @@
 """GitHub transport for maelstrom projects — the adapter over ``gh`` and ``git``.
 
-Every function here shells out through ``run_cmd`` or ``run_git``, hands the raw
-output to a parser in ``github_model``, and turns a failure into a typed
-``GitHubError``. The domain logic — the dataclasses, the parsers, the stack walk,
-the errors — lives in ``github_model`` and needs no subprocess to exercise.
+Every function here shells out, hands the raw output to a parser in
+``github_model``, and turns a failure into a typed ``GitHubError``. The domain
+logic — the dataclasses, the parsers, the stack walk, the errors — lives in
+``github_model`` and needs no subprocess to exercise.
 
-``run_cmd`` is the mock seam these functions are tested through; nothing wraps it,
-so a test can patch this module's attribute directly.
+Most functions shell out through ``run_cmd`` or ``run_git`` and block. The two
+the orchestrator server reads on its poll — :func:`get_open_prs_async` and
+:func:`get_pr_for_branch_async` — use ``run_cmd_async`` instead, so a network
+round trip does not stall the loop serving the sockets. Each has a blocking
+twin beside it. ``mael list`` calls :func:`get_open_prs`;
+:func:`get_pr_for_branch` has no caller left, and is kept as the CLI-side
+fallback its async twin already serves.
+
+``run_cmd`` and ``run_cmd_async`` are the mock seams these functions are tested
+through; nothing wraps either, so a test can patch this module's attribute
+directly. Prefer the argv builders and parsers — ``_open_prs_query``,
+``_parse_pr_for_branch`` and their siblings — where a test can use them: those
+are pure, shared by both twins, and stay put when the transport changes.
 """
 
 import json
