@@ -3143,5 +3143,5 @@ def test_a_plan_document_is_not_reviewed_through_the_document_routes(harness):
     # that points the user at it is still open, and the child is still blocked.
     assert doc["status"] == "awaiting-review"
     assert [a["kind"] for a in attention["attention"]] == ["plan_review"]
-    assert agent["pendingRequestId"]
+    assert agent["pendingRequestIds"]
     assert host_calls(harness) == []
