@@ -55,7 +55,7 @@ from .agent_server import (
 from .agent_spec_store import JsonAgentSpecStore
 from .agent_transport import (
     KIND_UNREACHABLE,
-    DaemonClient,
+    AsyncDaemonClient,
     DaemonPaths,
     RootUnset,
     SocketAsyncDaemonClient,
@@ -88,7 +88,7 @@ LIST_COLUMNS = [
 SUBAGENT_COLUMNS = ["id", "state", "description", "last_message"]
 
 
-def _daemon_at(paths: DaemonPaths | None) -> DaemonClient:
+def _daemon_at(paths: DaemonPaths | None) -> AsyncDaemonClient:
     """A client for one daemon root, or for this environment's when given none.
 
     Goes through ``client_factory`` either way, so a test fake still
@@ -99,13 +99,13 @@ def _daemon_at(paths: DaemonPaths | None) -> DaemonClient:
     return daemon_client(socket_path=socket_path)
 
 
-def _send(payload: dict[str, Any]) -> dict[str, Any]:
+async def _send(payload: dict[str, Any]) -> dict[str, Any]:
     """Send one command, printing the daemon's error and exiting on failure.
 
     A ``warning`` is not a failure: the command did what was asked, and
     something alongside it did not. It prints and the command still succeeds.
     """
-    reply = _daemon_at(None).request(payload)
+    reply = await _daemon_at(None).request(payload)
     if "error" in reply:
         click.echo(f"Error: {reply['error']}", err=True)
         sys.exit(1)
@@ -157,7 +157,7 @@ async def cmd_daemon_serve() -> None:
 
 
 @cmd_daemon.command("status")
-def cmd_daemon_status() -> None:
+async def cmd_daemon_status() -> None:
     """Say which daemon is serving this root, and what code it runs.
 
     One root can be served by a daemon spawned from any worktree, and it
@@ -168,7 +168,7 @@ def cmd_daemon_status() -> None:
     # No skew warning: the serving tree is what this command was asked for, so
     # it belongs in the `source` row rather than in a warning printed
     # immediately above it.
-    reply = _daemon_at(paths).request({"cmd": "ping"})
+    reply = await _daemon_at(paths).request({"cmd": "ping"})
     if "error" in reply:
         # A daemon predating `ping` falls through to the agent lookup and
         # answers "no such agent", which reads here as a fault in this command
@@ -235,9 +235,9 @@ async def _reconcile_root(paths: DaemonPaths, *, act: bool) -> _RootReport:
             daemon answered something other than "no daemon here".
     """
     client = _daemon_at(paths)
-    reply = client.request({"cmd": "gc" if act else "reconcile"})
+    reply = await client.request({"cmd": "gc" if act else "reconcile"})
     if "error" not in reply:
-        rows = client.request({"cmd": "list"}).get("agents", [])
+        rows = (await client.request({"cmd": "list"})).get("agents", [])
         held = {row["id"] for row in rows if not row.get("parent")}
         verdicts = [Verdict(**v) for v in reply.get("verdicts", [])]
         return _RootReport(paths, verdicts, list(reply.get("killed", [])), held, True)
@@ -421,7 +421,7 @@ def _started(stamp: str) -> str:
     default=None,
     help="Pin the Claude session id the agent reports.",
 )
-def cmd_start(
+async def cmd_start(
     cwd: str,
     prompt: str,
     mode: str | None,
@@ -429,7 +429,7 @@ def cmd_start(
     session_id: str | None,
 ) -> None:
     """Start an agent in CWD."""
-    reply = _send(
+    reply = await _send(
         build_start_payload(
             Path(cwd).resolve(),
             prompt=prompt,
@@ -456,7 +456,7 @@ def cmd_start(
     help="Only sessions from this worktree (project.worktree).",
 )
 @click.option("--project", help="Only sessions from this project.")
-def cmd_list(
+async def cmd_list(
     as_json: bool,
     stopped: bool,
     show_all: bool,
@@ -482,7 +482,7 @@ def cmd_list(
         payload["scope"] = SCOPE_STOPPED
     if cwd:
         payload["cwd"] = cwd
-    rows = _send(payload).get("agents", [])
+    rows = (await _send(payload)).get("agents", [])
     if as_json:
         click.echo(json.dumps(rows, indent=2))
         return
@@ -552,9 +552,9 @@ def _filter_cwd(worktree_opt: str | None, project: str | None) -> str:
 @agent.command("show")
 @click.argument("agent_id")
 @click.option("--json", "as_json", is_flag=True, help="Emit the detail as JSON.")
-def cmd_show(agent_id: str, as_json: bool) -> None:
+async def cmd_show(agent_id: str, as_json: bool) -> None:
     """Show one agent in full: what it said, and what it waits on."""
-    detail = _send({"cmd": "show", "id": agent_id})["agent"]
+    detail = (await _send({"cmd": "show", "id": agent_id}))["agent"]
     if as_json:
         click.echo(json.dumps(detail, indent=2))
         return
@@ -638,22 +638,22 @@ def _print_detail(detail: dict[str, Any]) -> None:
 @agent.command("say")
 @click.argument("agent_id")
 @click.argument("text")
-def cmd_say(agent_id: str, text: str) -> None:
+async def cmd_say(agent_id: str, text: str) -> None:
     """Send TEXT to an agent as a user message."""
-    _send({"cmd": "say", "id": agent_id, "text": text})
+    await _send({"cmd": "say", "id": agent_id, "text": text})
 
 
 @agent.command("run")
 @click.argument("agent_id")
 @click.argument("command")
-def cmd_run(agent_id: str, command: str) -> None:
+async def cmd_run(agent_id: str, command: str) -> None:
     """Run COMMAND in the agent's directory and give it the output.
 
     The same thing a `!` line does in the Claude Code terminal: the host runs
     it, and the command and its output become context. Maelstrom asks the agent
     for nothing, though the agent often remarks on what it read.
     """
-    _send({"cmd": "run", "id": agent_id, "command": command})
+    await _send({"cmd": "run", "id": agent_id, "command": command})
 
 
 @agent.command("answer")
@@ -665,9 +665,11 @@ def cmd_run(agent_id: str, command: str) -> None:
     default="",
     help="Which wait to answer. Needed only when several are open.",
 )
-def cmd_answer(agent_id: str, choice: str, request_id: str) -> None:
+async def cmd_answer(agent_id: str, choice: str, request_id: str) -> None:
     """Answer an agent's pending question with CHOICE."""
-    _send({"cmd": "answer", "id": agent_id, "choice": choice, "request": request_id})
+    await _send(
+        {"cmd": "answer", "id": agent_id, "choice": choice, "request": request_id}
+    )
 
 
 @agent.command("approve")
@@ -678,9 +680,9 @@ def cmd_answer(agent_id: str, choice: str, request_id: str) -> None:
     default="",
     help="Which wait to answer. Needed only when several are open.",
 )
-def cmd_approve(agent_id: str, request_id: str) -> None:
+async def cmd_approve(agent_id: str, request_id: str) -> None:
     """Approve an agent's pending plan or tool call."""
-    _send({"cmd": "approve", "id": agent_id, "request": request_id})
+    await _send({"cmd": "approve", "id": agent_id, "request": request_id})
 
 
 @agent.command("deny")
@@ -692,35 +694,37 @@ def cmd_approve(agent_id: str, request_id: str) -> None:
     default="",
     help="Which wait to answer. Needed only when several are open.",
 )
-def cmd_deny(agent_id: str, reason: str, request_id: str) -> None:
+async def cmd_deny(agent_id: str, reason: str, request_id: str) -> None:
     """Deny an agent's pending plan or tool call."""
-    _send({"cmd": "deny", "id": agent_id, "reason": reason, "request": request_id})
+    await _send(
+        {"cmd": "deny", "id": agent_id, "reason": reason, "request": request_id}
+    )
 
 
 @agent.command("interrupt")
 @click.argument("agent_id")
-def cmd_interrupt(agent_id: str) -> None:
+async def cmd_interrupt(agent_id: str) -> None:
     """Abandon the turn an agent is running, leaving the agent alive.
 
     A pending permission ask or question is denied first. ``stop`` is what
     ends an agent.
     """
-    _send({"cmd": "interrupt", "id": agent_id})
+    await _send({"cmd": "interrupt", "id": agent_id})
 
 
 @agent.command("set-mode")
 @click.argument("agent_id")
 @click.argument("mode", type=click.Choice(MODES))
-def cmd_set_mode(agent_id: str, mode: str) -> None:
+async def cmd_set_mode(agent_id: str, mode: str) -> None:
     """Change the permission mode of a running agent."""
-    _send({"cmd": "set-mode", "id": agent_id, "mode": mode})
+    await _send({"cmd": "set-mode", "id": agent_id, "mode": mode})
 
 
 @agent.command("stop")
 @click.argument("agent_id")
-def cmd_stop(agent_id: str) -> None:
+async def cmd_stop(agent_id: str) -> None:
     """Stop an agent."""
-    _send({"cmd": "stop", "id": agent_id})
+    await _send({"cmd": "stop", "id": agent_id})
 
 
 @agent.command("resume")
@@ -731,14 +735,14 @@ def cmd_stop(agent_id: str) -> None:
     default="",
     help="What to tell the agent on its first turn back.",
 )
-def cmd_resume(agent_id: str, text: str) -> None:
+async def cmd_resume(agent_id: str, text: str) -> None:
     """Start an exited agent again, keeping its id and its conversation.
 
     ``claude`` writes a transcript for a driven agent, so the conversation
     survives a crashed child, a crashed daemon or a reboot. Without ``--text``
     the agent is told its process ended and to carry on from where it was.
     """
-    _send({"cmd": "resume", "id": agent_id, "text": text})
+    await _send({"cmd": "resume", "id": agent_id, "text": text})
 
 
 @agent.command("attach")

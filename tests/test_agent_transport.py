@@ -22,7 +22,6 @@ from maelstrom.agent_transport import (
     STREAM_LIMIT,
     UNREACHABLE_MARKER,
     SocketAsyncDaemonClient,
-    SocketDaemonClient,
     request_over_socket,
 )
 
@@ -81,21 +80,17 @@ def test_a_reply_larger_than_the_default_stream_limit_round_trips(connected_pair
     assert len(reply["agents"]) == 1000
 
 
-def test_a_large_reply_round_trips_through_the_blocking_client(connected_pair):
-    """``SocketDaemonClient`` is what every CLI command actually uses."""
+async def test_a_large_reply_round_trips_through_the_cli_client(connected_pair):
+    """``SocketAsyncDaemonClient`` is what every CLI command actually uses."""
     rows = [{"id": f"s{i}", "label": "x" * 200} for i in range(1000)]
 
-    async def run():
-        server = connected_pair({"agents": rows})
-        try:
-            client = SocketDaemonClient("unused.sock")
-            return await asyncio.get_running_loop().run_in_executor(
-                None, client.request, {"cmd": "list"}
-            )
-        finally:
-            await asyncio.wait_for(server, timeout=SERVE_TIMEOUT)
+    server = connected_pair({"agents": rows})
+    try:
+        reply = await SocketAsyncDaemonClient("unused.sock").request({"cmd": "list"})
+    finally:
+        await asyncio.wait_for(server, timeout=SERVE_TIMEOUT)
 
-    assert len(asyncio.run(run())["agents"]) == 1000
+    assert len(reply["agents"]) == 1000
 
 
 class TestNothingStartsADaemon:
@@ -127,14 +122,14 @@ class TestNothingStartsADaemon:
         asyncio.run(request_over_socket(missing, {"cmd": "list"}))
         assert spawned == []
 
-    def test_the_blocking_client_spawns_nothing_either(self, tmp_path, monkeypatch):
-        """`SocketDaemonClient` is what every CLI command actually uses."""
+    async def test_the_cli_client_spawns_nothing_either(self, tmp_path, monkeypatch):
+        """`SocketAsyncDaemonClient` is what every CLI command actually uses."""
         spawned = []
         monkeypatch.setattr(
             "subprocess.Popen", lambda *a, **k: spawned.append(a) or None
         )
         missing = str(tmp_path / "gone" / "agent-daemon.sock")
-        reply = SocketDaemonClient(missing).request({"cmd": "list"})
+        reply = await SocketAsyncDaemonClient(missing).request({"cmd": "list"})
         assert "No agent daemon on" in reply["error"]
         assert spawned == []
 
