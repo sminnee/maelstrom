@@ -19,7 +19,7 @@ from maelstrom.agent_model import PendingRequest, reply_for_approval
 from maelstrom.branch_name import TaskNames
 from maelstrom.orchestrator import server
 from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
-from maelstrom.orchestrator.routes import build_app, serving
+from maelstrom.orchestrator.routes import SOCKETS, build_app, serving
 from maelstrom.orchestrator.server import Orchestrator
 from maelstrom.orchestrator.sources import (
     CloseBlocked,
@@ -2511,6 +2511,37 @@ def test_a_client_that_leaves_while_attaching_does_not_strand_the_watch(
     assert "ag1.1" not in run(scenario())
 
 
+def test_a_shutdown_closes_the_open_sockets_rather_than_dropping_them(harness):
+    """A restart must send a close frame, not just drop the transport.
+
+    Both stream handlers loop until cancelled, so a shutdown used to reach
+    the timeout with the socket still open. The client then waited out the
+    timeout to learn the server had gone.
+
+    The assertion is on the frame, not on ``close_code``: aiohttp's client
+    reports 1006 either way under ``handler_cancellation``.
+    """
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with aiohttp.ClientSession() as session:
+            async with harness.serving() as port:
+                ws = await session.ws_connect(
+                    f"http://127.0.0.1:{port}/api/agents/ag1/stream"
+                )
+                await ws_next(ws)
+            # The server has now shut down under the socket. Read what the
+            # client is told: a close frame, or a dropped transport.
+            started = asyncio.get_running_loop().time()
+            message = await ws.receive(timeout=2.0)
+            return message.type, asyncio.get_running_loop().time() - started
+
+    kind, waited = run(scenario())
+    assert kind is aiohttp.WSMsgType.CLOSE, kind
+    # Promptly, rather than after the shutdown timeout ran out.
+    assert waited < 0.5, waited
+
+
 def test_a_socket_that_reopens_within_the_grace_keeps_the_watch(store):
     harness = Harness(store, child_detach=0.5)
     harness.daemon.rows["ag1"] = agent_row()
@@ -3685,3 +3716,25 @@ def test_a_registered_file_that_is_gone_is_unknown(harness, tmp_path):
     reply = run(scenario())
     assert reply.status == 404
     assert reply.body["error"]["code"] == "unknown_id"
+
+
+def test_a_socket_for_an_unknown_agent_is_not_left_registered(harness):
+    """The unknown-id path closes itself, so it must leave nothing behind.
+
+    A socket left in the shutdown set outlives the request, and the UI
+    reconnects on every drop — so a stale agent id leaks one per attempt.
+    """
+    harness.daemon.rows["ag1"] = agent_row()
+    app = build_app(harness.orch)
+
+    async def scenario():
+        async with serving(app, "127.0.0.1", 0) as port:
+            async with aiohttp.ClientSession(
+                base_url=f"http://127.0.0.1:{port}"
+            ) as session:
+                for _ in range(3):
+                    async with session.ws_connect("/api/agents/nobody/stream") as ws:
+                        await ws.receive()
+                return len(app[SOCKETS])
+
+    assert run(scenario()) == 0
