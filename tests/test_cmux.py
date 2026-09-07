@@ -11,7 +11,6 @@ from maelstrom.cmux.client import (
     _find_cmux_cli,
     current_client,
     ensure_cmux_running,
-    is_cmux_mode,
 )
 from maelstrom.cmux.model import (
     BrowserTab,
@@ -198,7 +197,7 @@ def _ping_reply(raw):
 
 
 class TestCurrentClient:
-    """Tests for current_client / is_cmux_mode."""
+    """Tests for current_client."""
 
     def test_unset_socket_falls_back_to_default(self):
         # Unset/empty CMUX_SOCKET_PATH falls back to DEFAULT_SOCKET_PATH and
@@ -222,12 +221,11 @@ class TestCurrentClient:
             patch("maelstrom.cmux.client._find_cmux_cli", return_value=None),
         ):
             assert current_client() is None
-            assert is_cmux_mode() is False
 
     def test_none_when_socket_dead(self):
         # Env + binary present, but ping yields CmuxResult(None): the daemon is
-        # gone (the app was quit). current_client must return None, not a
-        # live-looking client — is_cmux_mode() must be honest.
+        # gone (the app was quit). current_client must return None rather than a
+        # live-looking client.
         with (
             patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/c.sock"}),
             patch(
@@ -237,7 +235,6 @@ class TestCurrentClient:
             patch("subprocess.run", side_effect=_ping_reply(None)),
         ):
             assert current_client() is None
-            assert is_cmux_mode() is False
 
     def test_returns_client_when_ping_replies(self):
         with (
@@ -250,7 +247,6 @@ class TestCurrentClient:
         ):
             client = current_client()
             assert isinstance(client, SubprocessCmuxClient)
-            assert is_cmux_mode() is True
 
 
 class TestEnsureCmuxRunning:
@@ -814,55 +810,8 @@ class TestEnsureAbsentBrowser:
         assert not any(c[0] == "close-surface" for c in client.calls)
 
 
-class TestEnsureAbsentPane:
-    """CmuxLayout.ensure_absent_pane — collapse a pane, if present."""
-
-    def test_closes_present_pane(self):
-        def fn(*args):
-            if args[0] == "list-panes":
-                return "pane:0 pane:1 pane:2"
-            if args[0] == "list-pane-surfaces":
-                return '  surface:55  terminal  "x"'
-            if args[0] == "close-surface":
-                return "OK"
-            return None
-
-        lay, client = _layout(fn)
-        assert lay.ensure_absent_pane(2) is True
-        assert ("close-surface", "--surface", "surface:55") in client.calls
-
-    def test_no_op_when_pane_absent(self):
-        lay, client = _layout({("list-panes",): "pane:0 pane:1"})
-        assert lay.ensure_absent_pane(2) is False
-        assert not any(c[0] == "close-surface" for c in client.calls)
-
-
-class TestStatusAndClose:
-    """CmuxLayout.set_status / clear_status / close."""
-
-    def test_set_status(self):
-        lay, client = _layout(
-            {
-                ("set-status", "task", "Working", "--icon", "hammer"): "OK",
-            }
-        )
-        assert lay.set_status("Working") is True
-        assert (
-            "set-status",
-            "task",
-            "Working",
-            "--icon",
-            "hammer",
-        ) in client.calls
-
-    def test_set_status_false_on_failure(self):
-        lay, _ = _layout(lambda *a: None)
-        assert lay.set_status("Working") is False
-
-    def test_clear_status(self):
-        lay, client = _layout({("clear-status", "task"): "OK"})
-        assert lay.clear_status() is True
-        assert ("clear-status", "task") in client.calls
+class TestClose:
+    """CmuxLayout.close."""
 
     def test_close_closes_matching_workspace(self):
         def fn(*args):

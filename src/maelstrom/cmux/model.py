@@ -240,31 +240,7 @@ class CmuxLayout:
             return False
         return self._close_surface(browser.ref)
 
-    def ensure_absent_pane(self, pane_index: int) -> bool:
-        """Collapse the pane at ``pane_index`` (close its surface), if present."""
-        pane_ref = self._pane_at_index(None, pane_index)
-        if pane_ref is None:
-            return False
-        surface = self._pane_surface(pane_ref)
-        if surface is None:
-            return False
-        return self._close_surface(surface)
-
-    # === status / teardown ===
-
-    def set_status(self, text: str) -> bool:
-        """Set the cmux task status line."""
-        return self._client.run(
-            "set-status",
-            "task",
-            text,
-            "--icon",
-            "hammer",
-        ).ok
-
-    def clear_status(self) -> bool:
-        """Clear the cmux task status line."""
-        return self._client.run("clear-status", "task").ok
+    # === teardown ===
 
     def close(self) -> bool:
         """Close the whole workspace. No-op (False) if it doesn't exist."""
