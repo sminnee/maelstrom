@@ -27,6 +27,9 @@ export interface Project {
   stackTip: string;
 }
 
+/** How close a pull request is to merging. Decided in Python — see **PR state** in `CONTEXT.md`. */
+export type PrState = 'merged' | 'ci-failed' | 'ci-running' | 'conflict' | 'unknown' | 'ready';
+
 /** Mirrors one row of `mael --json list-all`. */
 export interface Worktree {
   id: WorktreeId;
@@ -41,6 +44,9 @@ export interface Worktree {
   prNumber: number | null;
   /** The PR's browse URL, or `''` when there is no PR or no browse URL for the repo. */
   prUrl: string;
+  /** How close the PR is to merging, or `''` when there is no PR. */
+  prState: PrState | '';
+  prDraft: boolean;
   appUrl: string;
   appRunning: boolean;
   sessionCount: number;

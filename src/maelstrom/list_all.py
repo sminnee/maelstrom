@@ -18,7 +18,8 @@ from typing import Any
 from . import session_discovery
 from . import task as task_model
 from .base_store import GitConfigBaseStore
-from .github import get_open_prs, get_pr_number_and_commits
+from .github import get_open_prs, get_pr_for_branch
+from .github_model import PrStatus, is_open_pr
 from .ports import get_app_url
 from .task_store import GitFileStore
 from .worktree import (
@@ -59,20 +60,24 @@ def branch_session_ids(project_name: str) -> dict[str, list[str]]:
         return {}
 
 
-def resolve_pr(open_prs, project_path, branch):
-    """Resolve ``branch`` to ``(pr_number, commit_count)`` for the PR column.
+def resolve_pr(
+    open_prs: dict[str, PrStatus] | None,
+    project_path: Path,
+    branch: str | None,
+) -> PrStatus | None:
+    """Resolve ``branch`` to its pull request, or ``None`` when it has none.
 
-    ``open_prs`` is the whole-repo batch from :func:`get_open_prs`, or ``None``
-    when that call failed. A successful batch is authoritative: a branch missing
-    from it has no open PR, so we answer without a second network call. A failed
-    batch falls back to the per-branch lookup, which keeps a broken ``gh`` no
-    worse than it was before batching — one blank row rather than a blank column.
+    ``open_prs`` is the batch from :func:`get_open_prs`, or ``None`` when that
+    call failed. A successful batch is authoritative: a branch missing from it
+    has no PR, so we answer without a second network call. A failed batch falls
+    back to the per-branch lookup, which keeps a broken ``gh`` no worse than it
+    was before batching — one blank row rather than a blank column.
     """
     if not branch:
-        return (None, None)
+        return None
     if open_prs is not None:
-        return open_prs.get(branch, (None, None))
-    return get_pr_number_and_commits(project_path, branch)
+        return open_prs.get(branch)
+    return get_pr_for_branch(project_path, branch)
 
 
 def session_display(count: int, stopped: bool) -> str:
@@ -179,9 +184,8 @@ def build_list_all_data(projects_dir: Path) -> dict[str, Any]:
         # so it belongs inside this loop. A project whose worktrees are all
         # detached has no branch to ask about, and `list-all` visits every
         # project — so skip the round trip rather than spend one per project.
-        open_prs = (
-            get_open_prs(project_path) if any(wt.branch for wt in worktrees) else {}
-        )
+        branches = {wt.branch for wt in worktrees if wt.branch}
+        open_prs = get_open_prs(project_path, branches) if branches else {}
         # Likewise the closed check: one batch per project, not two subprocesses
         # per worktree.
         closed_paths = closed_worktrees(project_path, worktrees)
@@ -216,6 +220,8 @@ def build_list_all_data(projects_dir: Path) -> dict[str, Any]:
                         "pr_number": None,
                         "pr_url": None,
                         "pr_commits": None,
+                        "pr_state": None,
+                        "pr_draft": None,
                         "pushed_commits": None,
                         "app_url": None,
                         "app_running": False,
@@ -229,9 +235,11 @@ def build_list_all_data(projects_dir: Path) -> dict[str, Any]:
             dirty_count = len(get_worktree_dirty_files(wt.path))
             local_commits = get_local_only_commits(wt.path, wt.branch)
 
-            pr_num, pr_commits = resolve_pr(open_prs, project_path, wt.branch)
+            pr = resolve_pr(open_prs, project_path, wt.branch)
+            # The per-branch fallback answers a number but no URL, so join one.
+            row_pr_url = (pr.url or pr_url(repo_url, pr.number)) if pr else None
             pushed_commits = None
-            if not pr_num and wt.branch:
+            if not is_open_pr(pr) and wt.branch:
                 pushed_commits = get_pushed_commit_count(wt.path, wt.branch)
 
             session_count = live_sessions.count_for(wt.path)
@@ -255,9 +263,11 @@ def build_list_all_data(projects_dir: Path) -> dict[str, Any]:
                     "is_closed": False,
                     "dirty_files": dirty_count,
                     "local_commits": local_commits,
-                    "pr_number": pr_num,
-                    "pr_url": pr_url(repo_url, pr_num),
-                    "pr_commits": pr_commits,
+                    "pr_number": pr.number if pr else None,
+                    "pr_url": row_pr_url,
+                    "pr_commits": pr.commits if pr else None,
+                    "pr_state": pr.state if pr else None,
+                    "pr_draft": pr.is_draft if pr else None,
                     "pushed_commits": pushed_commits,
                     "app_url": app_url,
                     "app_running": app_running,

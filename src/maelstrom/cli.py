@@ -35,7 +35,7 @@ from .github import (
     wait_for_merge,
 )
 from .github_cli import gh as gh_cli
-from .github_model import GitHubError
+from .github_model import GitHubError, PrStatus, is_open_pr
 from .integrations.linear import linear
 from .integrations.sentry import sentry
 from .integrations.slack import slack
@@ -568,6 +568,23 @@ def cmd_remove(targets, force):
 cli.add_command(cmd_remove, name="rm")
 
 
+def pr_display(pr: PrStatus | None, pushed: int) -> str:
+    """The ``PR (COMMITS)`` cell: which pull request, and what is waiting.
+
+    A merged pull request says ``merged``. The branch needs a new one, so a bare
+    ``#42 (5)`` would read as work already up for review. Its ``pushed`` count
+    is the commits waiting for that new PR, which is the number to act on.
+
+    >>> pr_display(None, 3)
+    '(3)'
+    """
+    if pr is None:
+        return f"({pushed})" if pushed else ""
+    if pr.state == "merged":
+        return f"#{pr.number} merged ({pushed})" if pushed else f"#{pr.number} merged"
+    return f"#{pr.number} ({pr.commits})"
+
+
 @cli.command("list")
 @click.argument("project", required=False, default=None)
 def cmd_list(project):
@@ -632,7 +649,9 @@ def cmd_list(project):
     branch_sessions = branch_session_ids(project_name)
     # Every open PR in one call, rather than one `gh pr list` per row. The
     # per-branch call is ~0.8s, so this is most of the command's runtime.
-    open_prs = get_open_prs(project_path)
+    open_prs = get_open_prs(
+        project_path, {wt.branch for wt, _ in open_worktrees if wt.branch}
+    )
 
     # Gather extended info for each open worktree
     rows = []
@@ -647,16 +666,14 @@ def cmd_list(project):
         local_commits = get_local_only_commits(wt.path, wt.branch)
         local_display = str(local_commits) if local_commits > 0 else ""
 
-        # PR info (number and commit count)
-        pr_num, pr_commits = resolve_pr(open_prs, project_path, wt.branch)
-        if pr_num:
-            pr_display = f"#{pr_num} ({pr_commits})"
-        elif wt.branch:
-            # Check for pushed commits without PR
-            pushed_commits = get_pushed_commit_count(wt.path, wt.branch)
-            pr_display = f"({pushed_commits})" if pushed_commits else ""
-        else:
-            pr_display = ""
+        # PR info (number, state and commit count)
+        pr = resolve_pr(open_prs, project_path, wt.branch)
+        pushed = (
+            get_pushed_commit_count(wt.path, wt.branch) or 0
+            if wt.branch and not is_open_pr(pr)
+            else 0
+        )
+        pr_cell = pr_display(pr, pushed)
 
         # Live Claude session count, or a stopped marker when a transcript exists.
         session_count = live_sessions.count_for(wt.path)
@@ -679,7 +696,7 @@ def cmd_list(project):
                 "BRANCH": branch_display,
                 "DIRTY FILES": dirty_display,
                 "LOCAL COMMITS": local_display,
-                "PR (COMMITS)": pr_display,
+                "PR (COMMITS)": pr_cell,
                 "APP": app_display,
                 "SESSION": session_cell,
             }
@@ -702,6 +719,23 @@ def cmd_list(project):
         click.echo(f"\nClosed environments: {', '.join(closed_names)}")
 
 
+def _row_pr(wt: dict) -> PrStatus | None:
+    """The pull request a ``list-all`` row carries, back as a :class:`PrStatus`.
+
+    ``list-all`` prints JSON, so a row holds flat keys rather than the record.
+    Rebuilding it here lets both tables render through one :func:`pr_display`.
+    """
+    if not wt["pr_number"]:
+        return None
+    return PrStatus(
+        number=wt["pr_number"],
+        commits=wt["pr_commits"] or 0,
+        url=wt["pr_url"] or "",
+        state=wt["pr_state"] or "unknown",
+        is_draft=bool(wt["pr_draft"]),
+    )
+
+
 def _list_all_row(project_name: str, wt: dict) -> dict:
     """One table row of ``mael list-all`` from one ``build_list_all_data`` row."""
     # A stacked branch reads "child ← parent", so the whole stack is
@@ -709,12 +743,7 @@ def _list_all_row(project_name: str, wt: dict) -> dict:
     branch_display = wt["branch"] or "(detached)"
     if wt["base"]:
         branch_display = f"{branch_display} \u2190 {wt['base']}"
-    if wt["pr_number"]:
-        pr_display = f"#{wt['pr_number']} ({wt['pr_commits']})"
-    elif wt["pushed_commits"]:
-        pr_display = f"({wt['pushed_commits']})"
-    else:
-        pr_display = ""
+    pr_cell = pr_display(_row_pr(wt), wt["pushed_commits"] or 0)
     session_cell = session_display(wt["session_count"], wt["session_stopped"])
     app_display = ""
     if wt["app_url"]:
@@ -726,7 +755,7 @@ def _list_all_row(project_name: str, wt: dict) -> dict:
         "BRANCH": branch_display,
         "DIRTY FILES": str(wt["dirty_files"]) if wt["dirty_files"] else "",
         "LOCAL COMMITS": str(wt["local_commits"]) if wt["local_commits"] > 0 else "",
-        "PR (COMMITS)": pr_display,
+        "PR (COMMITS)": pr_cell,
         "APP": app_display,
         "SESSION": session_cell,
     }

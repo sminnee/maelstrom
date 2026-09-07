@@ -5,6 +5,7 @@ import type { GraphNode } from '../selectors/graph';
 import { nodeTitle } from '../selectors/graph';
 import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
+import { PrChip } from '../shell/PrChip';
 import styles from './DeckRow.module.css';
 
 /**
@@ -53,7 +54,7 @@ export function DeckRow({ node, onOpen }: { node: GraphNode; onOpen: () => void 
             {node.task ? node.task.notebookId : node.id.slice(0, 8)}
           </span>
           {node.worktree && <span className={styles.worktree}>{node.worktree.nato}</span>}
-          {node.worktree?.prNumber && <span className={styles.pr}>#{node.worktree.prNumber}</span>}
+          <PrChip worktree={node.worktree} className={styles.pr} />
           {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
         </span>
       </button>

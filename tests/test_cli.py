@@ -11,8 +11,8 @@ from unittest.mock import ANY, MagicMock, patch
 
 from click.testing import CliRunner
 
-from maelstrom.cli import cli
-from maelstrom.github_model import PullRequestNotMergeable
+from maelstrom.cli import cli, pr_display
+from maelstrom.github_model import PrStatus, PullRequestNotMergeable
 from maelstrom.list_all import resolve_pr
 from maelstrom.project_scaffold import scaffold_files
 from maelstrom.worktree import SyncResult, WorktreeInfo, WorktreeSetup
@@ -21,6 +21,42 @@ from maelstrom.worktree_model import (
     UnclosableWorktreeError,
     WorktreeNamesExhaustedError,
 )
+
+
+def _pr(number, *, commits=1, state="ready"):
+    """A `PrStatus` for a row that only cares which PR it is."""
+    return PrStatus(
+        number=number,
+        commits=commits,
+        url=f"https://github.com/acme/repo/pull/{number}",
+        state=state,
+        is_draft=False,
+    )
+
+
+class TestPrDisplay:
+    """The `PR (COMMITS)` cell of `mael list`.
+
+    The PR lookup answers merged pull requests too, so the cell has to tell a
+    branch that still has work to land from one whose PR is already in.
+    """
+
+    def test_an_open_pr_reads_its_number_and_commit_count(self):
+        assert pr_display(_pr(42, commits=5), 0) == "#42 (5)"
+
+    def test_a_merged_pr_says_so_rather_than_reading_like_an_open_one(self):
+        """A recycled branch needs a new PR. A bare `#42 (5)` would say the
+        work is already up for review."""
+        assert pr_display(_pr(42, commits=5, state="merged"), 3) == "#42 merged (3)"
+
+    def test_a_merged_pr_with_nothing_pushed_since_still_says_merged(self):
+        assert pr_display(_pr(42, state="merged"), 0) == "#42 merged"
+
+    def test_a_branch_with_no_pr_reads_its_pushed_commits(self):
+        assert pr_display(None, 3) == "(3)"
+
+    def test_a_branch_with_nothing_pushed_and_no_pr_reads_empty(self):
+        assert pr_display(None, 0) == ""
 
 
 class TestResolvePr:
@@ -33,32 +69,33 @@ class TestResolvePr:
     """
 
     def test_a_hit_in_the_batch_needs_no_further_call(self):
-        batch = {"feat/x": (42, 5)}
-        with patch("maelstrom.list_all.get_pr_number_and_commits") as per_branch:
-            assert resolve_pr(batch, Path("/p"), "feat/x") == (42, 5)
+        batch = {"feat/x": _pr(42, commits=5)}
+        with patch("maelstrom.list_all.get_pr_for_branch") as per_branch:
+            assert resolve_pr(batch, Path("/p"), "feat/x") == _pr(42, commits=5)
         per_branch.assert_not_called()
 
     def test_a_miss_in_a_good_batch_is_no_pr_not_a_lookup(self):
-        with patch("maelstrom.list_all.get_pr_number_and_commits") as per_branch:
-            assert resolve_pr({"other": (1, 1)}, Path("/p"), "feat/x") == (None, None)
+        with patch("maelstrom.list_all.get_pr_for_branch") as per_branch:
+            assert resolve_pr({"other": _pr(1)}, Path("/p"), "feat/x") is None
         per_branch.assert_not_called()
 
     def test_an_empty_batch_still_answers_without_a_lookup(self):
-        with patch("maelstrom.list_all.get_pr_number_and_commits") as per_branch:
-            assert resolve_pr({}, Path("/p"), "feat/x") == (None, None)
+        with patch("maelstrom.list_all.get_pr_for_branch") as per_branch:
+            assert resolve_pr({}, Path("/p"), "feat/x") is None
         per_branch.assert_not_called()
 
     def test_a_failed_batch_falls_back_to_the_per_branch_call(self):
         with patch(
-            "maelstrom.list_all.get_pr_number_and_commits", return_value=(7, 3)
+            "maelstrom.list_all.get_pr_for_branch",
+            return_value=_pr(7, commits=3),
         ) as per_branch:
-            assert resolve_pr(None, Path("/p"), "feat/x") == (7, 3)
+            assert resolve_pr(None, Path("/p"), "feat/x") == _pr(7, commits=3)
         per_branch.assert_called_once_with(Path("/p"), "feat/x")
 
     def test_a_detached_worktree_is_never_looked_up(self):
         """Both PR columns key on the branch name, so there is nothing to ask."""
-        with patch("maelstrom.list_all.get_pr_number_and_commits") as per_branch:
-            assert resolve_pr(None, Path("/p"), None) == (None, None)
+        with patch("maelstrom.list_all.get_pr_for_branch") as per_branch:
+            assert resolve_pr(None, Path("/p"), None) is None
         per_branch.assert_not_called()
 
     def test_list_all_reads_the_batch_not_one_call_per_row(self):
@@ -95,9 +132,9 @@ class TestResolvePr:
                 patch("maelstrom.list_all.get_local_only_commits", return_value=0),
                 patch(
                     "maelstrom.list_all.get_open_prs",
-                    return_value={"feat/test": (99, 7)},
+                    return_value={"feat/test": _pr(99, commits=7)},
                 ),
-                patch("maelstrom.list_all.get_pr_number_and_commits", side_effect=boom),
+                patch("maelstrom.list_all.get_pr_for_branch", side_effect=boom),
                 patch(
                     "maelstrom.session_discovery.LiveSessionSet.count_for",
                     return_value=0,
@@ -252,8 +289,8 @@ class TestListAllJson:
                                 return_value=2,
                             ):
                                 with patch(
-                                    "maelstrom.list_all.get_pr_number_and_commits",
-                                    return_value=(42, 5),
+                                    "maelstrom.list_all.get_pr_for_branch",
+                                    return_value=_pr(42, commits=5),
                                 ):
                                     with patch(
                                         "maelstrom.session_discovery.LiveSessionSet.count_for",
@@ -317,8 +354,8 @@ class TestListAllJson:
                                 return_value=0,
                             ):
                                 with patch(
-                                    "maelstrom.list_all.get_pr_number_and_commits",
-                                    return_value=(None, None),
+                                    "maelstrom.list_all.get_pr_for_branch",
+                                    return_value=None,
                                 ):
                                     with patch(
                                         "maelstrom.list_all.get_pushed_commit_count",

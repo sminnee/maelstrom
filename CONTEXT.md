@@ -560,6 +560,25 @@ dev environment. It carries the external-link icon, so a reader tells it from a 
 before clicking.
 _Avoid_: Outbound link, web link
 
+**PR state**:
+How close a worktree's pull request is to merging, as one of six values. The server decides it
+from the merge, the head commit's check rollup and GitHub's mergeability, so every reader shows
+one reading.
+
+| Value | Means |
+|---|---|
+| `merged` | The pull request merged |
+| `ci-failed` | A check failed |
+| `ci-running` | A check is pending or running |
+| `conflict` | Checks pass, and the branch does not merge cleanly |
+| `unknown` | GitHub has not answered mergeability yet |
+| `ready` | Checks pass, and the branch merges cleanly |
+
+The order above is the order the rule reads them, and it is the order a user asks in. A red
+build is the thing to fix before a conflict, and `unknown` settles within seconds of a push —
+never a quiet `ready`. A draft pull request reads as a draft instead of its state.
+_Avoid_: PR status, merge state, CI state
+
 ## Knowledge stores
 
 **Task notebook**:

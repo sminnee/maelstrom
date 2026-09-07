@@ -22,6 +22,8 @@ export function makeWorktree(over: Partial<Worktree> = {}): Worktree {
     localCommits: 0,
     prNumber: null,
     prUrl: '',
+    prState: '',
+    prDraft: false,
     appUrl: '',
     appRunning: false,
     sessionCount: 0,

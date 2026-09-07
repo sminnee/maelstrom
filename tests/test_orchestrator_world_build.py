@@ -120,6 +120,8 @@ LIST_ALL_ROW = {
     "app_running": True,
     "session_count": 1,
     "pr_url": "https://github.com/acme/northwind/pull/42",
+    "pr_state": "ready",
+    "pr_draft": False,
 }
 
 
@@ -137,6 +139,8 @@ def test_worktree_entity_mirrors_a_list_all_row():
         "localCommits": 1,
         "prNumber": 42,
         "prUrl": "https://github.com/acme/northwind/pull/42",
+        "prState": "ready",
+        "prDraft": False,
         "appUrl": "http://localhost:3070",
         "appRunning": True,
         "sessionCount": 1,
@@ -170,6 +174,28 @@ def test_worktree_entity_carries_the_pr_url():
         },
     )
     assert entity["prUrl"] == "https://github.com/acme/northwind/pull/118"
+
+
+def test_worktree_entity_carries_the_prs_state():
+    """The state is decided in Python, so the card reads it rather than
+    re-deriving it from raw GitHub fields."""
+    entity = worktree_entity(
+        "northwind",
+        {
+            "name": "alpha",
+            "path": "/p",
+            "pr_number": 118,
+            "pr_state": "ci-running",
+            "pr_draft": True,
+        },
+    )
+    assert (entity["prState"], entity["prDraft"]) == ("ci-running", True)
+
+
+def test_worktree_entity_without_a_pr_carries_no_state():
+    """A row with no PR carries no state, so the card draws no chip at all."""
+    entity = worktree_entity("northwind", {"name": "alpha", "path": "/p"})
+    assert (entity["prState"], entity["prDraft"]) == ("", False)
 
 
 def test_worktree_entity_without_a_pr_url_carries_an_empty_string():

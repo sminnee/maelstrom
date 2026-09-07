@@ -10,7 +10,7 @@ import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
 import { driftFixLabel, driftSentence } from '../protocol/progress';
 import type { GraphNode } from '../selectors/graph';
 import { isLive, nodeTitle } from '../selectors/graph';
-import { describeDocumentStatus } from '../selectors/status';
+import { describeDocumentStatus, describePrState } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { toolCallTitle } from '../session/toolCards';
 import { ExternalLink } from '../shell/ExternalLink';
@@ -93,6 +93,7 @@ export function NodeCardBody({
     agent?.costUsd ? `$${agent.costUsd.toFixed(2)}` : '',
   ].filter(Boolean);
   const prUrl = where?.prUrl ?? '';
+  const prState = describePrState(where?.prState ?? '', where?.prDraft ?? false);
   // A stopped env, or a worktree with no web-facing port, draws nothing.
   const appUrl = where?.appRunning && where.appUrl ? where.appUrl : '';
   const title = nodeTitle(node);
@@ -229,7 +230,12 @@ export function NodeCardBody({
               {d.title} v{d.version} · {describeDocumentStatus(d.status)}
             </PanelLink>
           ))}
-          {prUrl && <ExternalLink href={prUrl}>PR #{where?.prNumber}</ExternalLink>}
+          {prUrl && (
+            <ExternalLink href={prUrl}>
+              PR #{where?.prNumber}
+              {prState && ` · ${prState}`}
+            </ExternalLink>
+          )}
           {appUrl && <ExternalLink href={appUrl}>Dev env</ExternalLink>}
         </div>
         <div className={styles.commands}>

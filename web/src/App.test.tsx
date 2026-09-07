@@ -157,14 +157,51 @@ describe('App', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('reads the PR number in the collapsed node identity', async () => {
+  it('reads the PR number and its state in the collapsed node identity', async () => {
     await renderApp();
-    const node = document.querySelector('[data-task-id="NORT-12"]');
+    const node = document.querySelector('[data-task-id="NORT-12"]') as HTMLElement;
     // The meta row is a reading, not a link: the whole node is already a click target.
     expect(node).toHaveTextContent('#118');
-    expect(within(node as HTMLElement).queryByRole('link', { name: /#118/ })).toBeNull();
+    expect(within(node).queryByRole('link', { name: /#118/ })).toBeNull();
+    // The chip carries the state too, so the board reads without expanding a node.
+    const chip = within(node).getByTitle('CI running');
+    expect(chip).toHaveAttribute('data-pr-state', 'ci-running');
     // A task on a worktree with no PR says nothing.
     expect(document.querySelector('[data-task-id="NORT-9"]')).not.toHaveTextContent('#118');
+  });
+
+  it('reads a draft PR as a draft on the chip, whatever its checks say', async () => {
+    const { server } = await renderApp();
+    act(() => {
+      server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {
+        w.worktrees['northwind-delta'] = {
+          ...w.worktrees['northwind-delta']!,
+          prState: 'ci-failed',
+          prDraft: true,
+        };
+      });
+    });
+    await waitFor(() => {
+      const node = document.querySelector('[data-task-id="NORT-12"]') as HTMLElement;
+      // Draft wins, so the chip must not read as the failure underneath it.
+      expect(within(node).getByTitle('draft')).toHaveAttribute('data-pr-state', 'draft');
+    });
+  });
+
+  it('follows the PR state on the collapsed node as CI finishes', async () => {
+    const { server } = await renderApp();
+    act(() => {
+      server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {
+        w.worktrees['northwind-delta'] = {
+          ...w.worktrees['northwind-delta']!,
+          prState: 'ci-failed',
+        };
+      });
+    });
+    await waitFor(() => {
+      const node = document.querySelector('[data-task-id="NORT-12"]') as HTMLElement;
+      expect(within(node).getByTitle('CI failed')).toHaveAttribute('data-pr-state', 'ci-failed');
+    });
   });
 
   it('draws a free agent once, named by the worktree it runs in', async () => {
@@ -312,12 +349,51 @@ describe('the expanded node', () => {
   });
 
   describe('external links', () => {
-    it('links the PR at the repo pull URL, in a new tab', async () => {
+    it('links the PR at its own URL, saying its state, in a new tab', async () => {
       await renderApp();
       clickNode('NORT-12');
-      const link = within(expanded()).getByRole('link', { name: 'PR #118' });
+      const link = within(expanded()).getByRole('link', { name: 'PR #118 · CI running' });
       expect(link).toHaveAttribute('href', 'https://github.com/acme/northwind/pull/118');
       expect(link).toHaveAttribute('target', '_blank');
+    });
+
+    it('follows the PR state as CI finishes, without a reload', async () => {
+      const { server } = await renderApp();
+      clickNode('NORT-12');
+      expect(
+        within(expanded()).getByRole('link', { name: 'PR #118 · CI running' }),
+      ).toBeInTheDocument();
+      act(() => {
+        server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {
+          w.worktrees['northwind-delta'] = {
+            ...w.worktrees['northwind-delta']!,
+            prState: 'ready',
+          };
+        });
+      });
+      await waitFor(() =>
+        expect(
+          within(expanded()).getByRole('link', { name: 'PR #118 · ready to merge' }),
+        ).toBeInTheDocument(),
+      );
+    });
+
+    it('says a draft PR is a draft, whatever its checks are doing', async () => {
+      const { server } = await renderApp();
+      clickNode('NORT-12');
+      act(() => {
+        server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {
+          w.worktrees['northwind-delta'] = {
+            ...w.worktrees['northwind-delta']!,
+            prDraft: true,
+          };
+        });
+      });
+      await waitFor(() =>
+        expect(
+          within(expanded()).getByRole('link', { name: 'PR #118 · draft' }),
+        ).toBeInTheDocument(),
+      );
     });
 
     it('links the dev env only while it runs, and drops the link when it stops', async () => {
@@ -339,7 +415,9 @@ describe('the expanded node', () => {
         expect(within(expanded()).queryByRole('link', { name: 'Dev env' })).toBeNull(),
       );
       // The PR link is not the dev env's: it stays.
-      expect(within(expanded()).getByRole('link', { name: 'PR #118' })).toBeInTheDocument();
+      expect(
+        within(expanded()).getByRole('link', { name: 'PR #118 · CI running' }),
+      ).toBeInTheDocument();
     });
   });
 

@@ -30,12 +30,13 @@ from .github_model import (
     NoPullRequest,
     PRComment,
     PRInfo,
+    PrStatus,
     PullRequestNotMergeable,
     SyncFailed,
     is_missing_pr_error,
     parse_artifacts,
     parse_check_runs,
-    parse_open_prs_page,
+    parse_open_prs,
     parse_pr_comments,
     parse_pr_info,
     stack_chain,
@@ -193,15 +194,19 @@ def get_pr_number_for_branch(cwd: Path, branch: str) -> int | None:
         return None
 
 
-def get_pr_number_and_commits(cwd: Path, branch: str) -> tuple[int | None, int | None]:
-    """Get PR number and commit count for a given branch.
+def get_pr_for_branch(cwd: Path, branch: str) -> PrStatus | None:
+    """One branch's pull request, looked up alone when the batch call failed.
+
+    ``gh pr list`` carries no check rollup and no mergeability, so ``state``
+    comes back ``unknown`` rather than claiming a state nothing looked up. The
+    next poll re-runs the batch.
 
     Args:
         cwd: Working directory (must be in a git repo).
         branch: Branch name to look up.
 
     Returns:
-        Tuple of (pr_number, commit_count). Both None if no PR exists.
+        The branch's pull request, or ``None`` when it has none.
     """
     try:
         result = run_cmd(
@@ -212,96 +217,124 @@ def get_pr_number_and_commits(cwd: Path, branch: str) -> tuple[int | None, int |
                 "--head",
                 branch,
                 "--json",
-                "number,commits",
+                "number,commits,url,isDraft",
                 "-q",
-                ".[0] | [.number, (.commits | length)]",
+                ".[0] | {number, commits: (.commits | length), url, isDraft}",
             ],
             cwd=cwd,
             quiet=True,
             check=False,
         )
         if result.returncode != 0 or not result.stdout.strip():
-            return (None, None)
-        # Parse the JSON array [number, commit_count]
+            return None
         data = json.loads(result.stdout.strip())
-        if isinstance(data, list) and len(data) == 2 and data[0] is not None:
-            return (int(data[0]), int(data[1]))
-        return (None, None)
-    except (ValueError, FileNotFoundError, json.JSONDecodeError):
-        return (None, None)
+        if not isinstance(data, dict) or data.get("number") is None:
+            return None
+        return PrStatus(
+            number=int(data["number"]),
+            commits=int(data.get("commits") or 0),
+            url=data.get("url") or "",
+            state="unknown",
+            is_draft=bool(data.get("isDraft")),
+        )
+    except (ValueError, TypeError, FileNotFoundError, json.JSONDecodeError):
+        return None
 
 
-# Open PRs and their commit counts, for the whole repo, in one round trip.
+# Each named branch's most recent pull requests, in one round trip.
 #
-# ``gh pr list --json commits`` cannot do this in bulk: its ``commits`` field
-# expands every commit object (with authors), so asking for 100 PRs exceeds
-# GitHub's 500,000-node budget and the call fails outright. Selecting
-# ``commits { totalCount }`` asks for the count instead of the commits, which
-# stays well inside the budget. Same number, one request rather than one per
-# branch.
-_OPEN_PRS_QUERY = """
-query($owner: String!, $repo: String!, $after: String) {
-  repository(owner: $owner, name: $repo) {
-    pullRequests(states: OPEN, first: 100, after: $after) {
-      nodes { number headRefName commits { totalCount } }
-      pageInfo { hasNextPage endCursor }
-    }
-  }
-}
+# ``gh pr list --json commits`` expands every commit object, so 100 PRs exceeds
+# GitHub's 500,000-node budget. ``commits(last: 1)`` gets the count and the head
+# commit's rollup inside the budget.
+#
+# Naming the branches keeps the cost proportional to the worktree count, not the
+# repo's history — this runs on the 15-second poll, and merged PRs only
+# accumulate. ``first: 20`` covers a recycled branch (see ``_pick_pr``) with
+# room to spare: past that the open PR could fall off the end and the branch
+# would read as merged while work is still live.
+_PR_FIELDS = """
+      nodes {
+        number headRefName url isDraft state mergeable
+        commits(last: 1) {
+          totalCount
+          nodes { commit { statusCheckRollup { state } } }
+        }
+      }
 """
 
-# Bound the paging loop. 100 pages is 10,000 open PRs — far past any real repo,
-# and a backstop against a malformed cursor looping forever.
-_OPEN_PRS_MAX_PAGES = 100
+
+def _open_prs_query(branches: list[str]) -> tuple[str, dict[str, str]]:
+    """One GraphQL document asking about each of ``branches`` under its own alias.
+
+    Returns the document and the alias -> branch mapping that reads its answers
+    back. The two go together: an answer only finds its branch through the
+    alias, so building them apart would let the two enumerations drift and key
+    every pull request to the wrong branch, silently.
+
+    A branch name is a git ref, not a literal we control, so it goes through
+    ``json.dumps`` — an unescaped quote would end the string argument and make
+    the whole document unparseable.
+    """
+    aliases = {f"b{i}": branch for i, branch in enumerate(branches)}
+    fields = "\n".join(
+        f"    {alias}: pullRequests("
+        f"states: [OPEN, MERGED], headRefName: {json.dumps(branch)}, "
+        f"orderBy: {{field: CREATED_AT, direction: DESC}}, first: 20"
+        f") {{{_PR_FIELDS}    }}"
+        for alias, branch in aliases.items()
+    )
+    query = (
+        "query($owner: String!, $repo: String!) {\n"
+        "  repository(owner: $owner, name: $repo) {\n"
+        f"{fields}\n"
+        "  }\n"
+        "}\n"
+    )
+    return query, aliases
 
 
-def get_open_prs(cwd: Path) -> dict[str, tuple[int, int]] | None:
-    """Map branch -> (pr_number, commit_count) for every open PR in the repo.
+def get_open_prs(cwd: Path, branches: set[str]) -> dict[str, PrStatus] | None:
+    """Map branch -> its pull request, for each of ``branches`` that has one.
 
-    One GraphQL call for the whole repo, in place of one ``gh pr list`` per
-    branch. On a project with seven worktrees that is ~0.7s instead of ~5.6s,
-    which is most of what ``mael list`` spends.
+    One GraphQL call for every branch, in place of one ``gh pr list`` each. On a
+    project with seven worktrees that is ~0.7s instead of ~5.6s, which is most of
+    what ``mael list`` spends.
 
     Args:
         cwd: Working directory (must be in a git repo).
+        branches: The branches to look up. Empty asks nothing.
 
     Returns:
-        Branch name -> (PR number, commit count) for every open PR. ``{}`` when
-        the repo genuinely has none. ``None`` when the lookup failed, so the
-        caller can fall back per branch rather than render every PR as absent —
-        an empty column and a broken ``gh`` must not look the same.
+        Branch name -> :class:`PrStatus`, for those branches that have a pull
+        request. ``{}`` when none of them does. ``None`` when the lookup failed,
+        so the caller can fall back per branch rather than render every PR as
+        absent — an empty column and a broken ``gh`` must not look the same.
     """
-    prs: dict[str, tuple[int, int]] = {}
-    cursor: str | None = None
+    if not branches:
+        return {}
+    query, aliases = _open_prs_query(sorted(branches))
     try:
-        for _ in range(_OPEN_PRS_MAX_PAGES):
-            cmd = [
+        result = run_cmd(
+            [
                 "gh",
                 "api",
                 "graphql",
                 "-f",
-                f"query={_OPEN_PRS_QUERY}",
+                f"query={query}",
                 "-F",
                 "owner=:owner",
                 "-F",
                 "repo=:repo",
-            ]
-            if cursor:
-                # -f, not -F: the cursor is a declared String. -F coerces a
-                # value that looks like a number, and GraphQL then rejects it.
-                cmd += ["-f", f"after={cursor}"]
-            result = run_cmd(cmd, cwd=cwd, quiet=True, check=False)
-            if result.returncode != 0 or not result.stdout.strip():
-                return None
-
-            page = parse_open_prs_page(result.stdout.strip())
-            prs.update(page.prs)
-            if not page.has_next or not page.cursor:
-                return prs
-            cursor = page.cursor
-        # Ran out of pages before the cursor did. Report failure rather than a
-        # truncated map that would silently blank the overflow branches.
-        return None
+            ],
+            cwd=cwd,
+            quiet=True,
+            check=False,
+        )
+        # Not the exit code: gh exits 1 on any refused field, having printed
+        # the rest. The parser raises when nothing usable came back.
+        if not result.stdout.strip():
+            return None
+        return parse_open_prs(result.stdout.strip(), aliases)
     except (ValueError, KeyError, TypeError, FileNotFoundError, json.JSONDecodeError):
         return None
 
