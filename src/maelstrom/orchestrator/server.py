@@ -597,6 +597,17 @@ class Orchestrator:
             return
         self._detaches[agent_id] = asyncio.create_task(self._detach_later(agent_id))
 
+    def release_unwatched(self, agent_id: str) -> None:
+        """Start the detach grace for a watch no socket ever subscribed to.
+
+        ``ensure_attached`` runs before a socket subscribes, so a client that
+        goes away inside it leaves a watch that :meth:`_transcript_idle` never
+        hears about. A watch some other socket is reading is left alone.
+        """
+        if self.transcripts.count(agent_id):
+            return
+        self._transcript_idle(agent_id)
+
     async def _detach_later(self, agent_id: str) -> None:
         try:
             await asyncio.sleep(self._child_detach)

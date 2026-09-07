@@ -612,7 +612,13 @@ async def _transcript_stream(request: web.Request) -> web.WebSocketResponse:
     if agent_id not in orch.world["agents"]:
         await ws.close(code=CLOSE_UNKNOWN_ID, message=b"unknown_id")
         return ws
-    await orch.ensure_attached(agent_id)
+    try:
+        await orch.ensure_attached(agent_id)
+    except asyncio.CancelledError:
+        # The client left inside the attach. Nothing subscribed, so the idle
+        # check that normally releases the watch will never run for it.
+        orch.release_unwatched(agent_id)
+        raise
     from_seq = _int_or_none(request.query.get("from"))
     with orch.transcripts.subscribe(agent_id) as subscriber:
         log = orch.transcript_log(agent_id)
@@ -623,28 +629,43 @@ async def _transcript_stream(request: web.Request) -> web.WebSocketResponse:
             opening = {"type": "transcript.replay", "seq": log.seq, "frames": replay}
         await ws.send_json(opening)
         closed = asyncio.create_task(_until_closed(ws))
+        # One task spans the loop, so a frame the socket does not take is still
+        # waited on by the same task next time round rather than a fresh one.
+        nxt = asyncio.create_task(subscriber.next())
         try:
             while not ws.closed:
-                nxt = asyncio.create_task(subscriber.next())
                 done, _ = await asyncio.wait(
                     {nxt, closed}, return_when=asyncio.FIRST_COMPLETED
                 )
                 if nxt not in done:
-                    nxt.cancel()
                     break
                 frame = nxt.result()
+                nxt = asyncio.create_task(subscriber.next())
                 if isinstance(frame, Lagging):
                     # The reader must be out of ``receive()`` first: a close
                     # that races a receive drops the transport before the
                     # client's acknowledgement, and the client sees 1006.
-                    closed.cancel()
-                    await asyncio.gather(closed, return_exceptions=True)
+                    await _stop(closed)
                     await ws.close(code=CLOSE_LAGGING, message=b"lagging")
                     break
-                await ws.send_json(frame)
+                try:
+                    await ws.send_json(frame)
+                except (ConnectionResetError, RuntimeError):
+                    # The socket went between the loop's check and this write.
+                    break
         finally:
-            closed.cancel()
+            # Both are cancelled *and* awaited: a task merely told to stop is
+            # still pending when it is collected, which is what Python reports
+            # as "Task was destroyed but it is pending".
+            await _stop(nxt, closed)
     return ws
+
+
+async def _stop(*tasks: asyncio.Task) -> None:
+    """Cancel ``tasks`` and wait for each to finish, ignoring how it ended."""
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def _until_closed(ws: web.WebSocketResponse) -> None:
@@ -678,8 +699,13 @@ async def serving(app: web.Application, host: str, port: int) -> AsyncIterator[i
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     # A client that goes away cancels its handler, so a notice stream ends
     # with its reader rather than at the next ping.
+    # ``access_log=None`` because the notice stream pings every client every
+    # 15s: an access line per ping would bury what the log is read for.
     runner = web.AppRunner(
-        app, handler_cancellation=True, shutdown_timeout=SHUTDOWN_SECS
+        app,
+        handler_cancellation=True,
+        shutdown_timeout=SHUTDOWN_SECS,
+        access_log=None,
     )
     started = False
     try:
