@@ -37,6 +37,12 @@
   --bg: var(--n1);
   --bg-raised: var(--n2);
   --bg-sunken: var(--n0);
+  /*
+   * The fill of anything the operator types into. It tracks `--bg-sunken` on a
+   * dark ground, where recessed reads as editable, but parts from it in light,
+   * where the same darkening reads as disabled.
+   */
+  --bg-field: var(--n0);
   --border: var(--n3);
   --border-strong: var(--n4);
 
@@ -44,6 +50,12 @@
   --fg: var(--n8);
   --fg-muted: var(--n6);
   --fg-faint: var(--n5-text);
+  /*
+   * The fill of a dot or a bar reporting no state. It is not text, so it is not
+   * bound by the contrast floor that tunes `--fg-faint` — keeping them apart
+   * stops a contrast fix from silently restyling every neutral dot.
+   */
+  --mark-neutral: var(--n5);
   --fg-on-hue: var(--black);
 
   /* Semantic: meaning. */
@@ -63,13 +75,33 @@
 
   --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* The tight radius an inline chip takes; 6px reads as a button at that size. */
+  --radius-sm: 3px;
   --radius: 6px;
   --radius-lg: 10px;
 
+  /* `--text-2xs` is the floor: a tracked uppercase micro-label only. At 10px,
+     sentence case in `--fg-faint` stops clearing AA. */
+  --text-2xs: 10px;
   --text-xs: 11px;
   --text-sm: 12px;
   --text-md: 13px;
   --text-lg: 15px;
+
+  /* Leading by job: a dense control, an interface line, a paragraph read. */
+  --leading-tight: 1.3;
+  --leading-ui: 1.4;
+  --leading-prose: 1.55;
+  /* Uppercase needs the extra space to stop reading as one word. */
+  --tracking-micro: 0.08em;
+
+  /* Tuned by the character count that renders, not the `ch` number, which is
+     the width of "0" and runs wider — see DESIGN.md, "Measure". */
+  --measure-prose: 56ch;
+  --measure-panel: 64ch;
+
+  --weight-medium: 500;
+  --weight-semibold: 600;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -91,13 +123,18 @@
   :root {
     --bg: var(--n9);
     --bg-raised: var(--white);
-    --bg-sunken: #eef0f4;
+    /* A clear step under `--bg`: at #eef0f4 a code block read as flat page. */
+    --bg-sunken: #e4e7ee;
+    /* A field stays the lightest surface here: darkening it reads as disabled. */
+    --bg-field: var(--white);
     --border: #d9dde6;
     --border-strong: #b8bfcc;
 
     --fg: var(--n2);
+    --mark-neutral: #99a1b0;
     --fg-muted: #4f5768;
-    --fg-faint: #6b7385;
+    /* Clears AA (4.83:1) on `--bg` at the 10px micro-label; #6b7385 was 4.47. */
+    --fg-faint: #666e7d;
     --fg-on-hue: var(--white);
 
     --hue-accent: #3b6fd6;

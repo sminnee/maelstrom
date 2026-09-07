@@ -47,6 +47,19 @@ pre {
   font-family: var(--mono);
   font-size: var(--text-sm);
 }
+/*
+ * Every disclosure in the app hides the native marker and draws its own
+ * affordance, so the reset lives here rather than in each component that
+ * forgets it. `list-style` covers the standard; the pseudo-element covers
+ * WebKit, which still paints a triangle without it.
+ */
+summary {
+  cursor: pointer;
+  list-style: none;
+}
+summary::-webkit-details-marker {
+  display: none;
+}
 
 /* The one place a phase becomes a colour. Anything under a phased element reads `--phase`. */
 [data-phase='shape'] {

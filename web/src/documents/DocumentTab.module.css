@@ -11,19 +11,19 @@
   display: flex;
   gap: 8px;
   align-items: baseline;
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-family: var(--mono);
   color: var(--fg-muted);
 }
 .task {
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--fg);
 }
 .phase {
   color: var(--phase);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 10px;
+  letter-spacing: var(--tracking-micro);
+  font-size: var(--text-2xs);
 }
 .title {
   color: var(--fg);
@@ -57,11 +57,21 @@
 .sessionLink {
   font-size: var(--text-xs);
 }
+/*
+ * The prose column. The comment margin beside it is a fixed 220px that never
+ * shrinks, so without a measure every extra pixel of panel width went into
+ * longer lines — dragging the panel wider made a document harder to read, not
+ * easier. Capped and centred, the extra width becomes gutter instead.
+ */
 .body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 12px 14px;
+  padding: var(--space-4) var(--space-4) var(--space-5);
+}
+.prose {
+  max-width: var(--measure-prose);
+  margin-inline: auto;
 }
 .empty {
   padding: 24px;
@@ -80,5 +90,5 @@
   padding: 8px 12px;
   border-top: 1px solid var(--border);
   color: var(--fg-faint);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }

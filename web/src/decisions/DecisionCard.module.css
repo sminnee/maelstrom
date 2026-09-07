@@ -3,23 +3,76 @@
   flex-direction: column;
   gap: var(--space-2);
 }
+/*
+ * What the agent said and did before it asked. This is context for the
+ * decision, so it must never outrank the decision or the document under it.
+ * `contextBefore` caps it at three items, but one item can be a whole message,
+ * so the count alone does not bound the height — the clamp below does.
+ */
 .context {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-2) var(--space-3);
   border-left: 2px solid var(--border-strong);
   color: var(--fg-muted);
   font-size: var(--text-sm);
 }
+/* The heading is the fold's control, so it takes the whole row and a pointer. */
 .contextHead {
-  font-size: var(--text-xs);
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-2xs);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking-micro);
   color: var(--fg-faint);
+}
+.contextHead:hover {
+  color: var(--fg-muted);
+}
+/* A caret that turns, so the fold's state reads without the words for it. */
+.caret {
+  transition: transform var(--duration-fast) ease-out;
+}
+.context[open] .caret {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .caret {
+    transition: none;
+  }
+}
+/*
+ * The clamp. A long message would otherwise push the thing being reviewed off
+ * the screen. The fade marks the cut, the same way the expanded node card
+ * marks a clamped brief — one vocabulary for "there is more here".
+ */
+.contextBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: 0 var(--space-3) var(--space-2);
+  max-height: 11em;
+  overflow: hidden;
+  /* A mask reads only alpha, so any opaque token serves; naming a hex here
+     would break the One Source Rule. */
+  -webkit-mask-image: linear-gradient(to bottom, var(--fg) calc(100% - 1.5em), transparent);
+  mask-image: linear-gradient(to bottom, var(--fg) calc(100% - 1.5em), transparent);
+}
+/* Opened out, the rail shows everything and scrolls if it must. */
+.contextBody[data-expanded] {
+  max-height: 22em;
+  overflow: auto;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.more {
+  align-self: flex-start;
+  margin-left: var(--space-3);
+  margin-bottom: var(--space-2);
+  font-size: var(--text-xs);
 }
 .said {
   font-size: var(--text-sm);
+  line-height: var(--leading-prose);
 }
 .did {
   font-family: var(--mono);
@@ -29,5 +82,5 @@
   text-overflow: ellipsis;
 }
 .tool {
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }

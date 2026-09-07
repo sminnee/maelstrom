@@ -19,31 +19,35 @@ colors:
   phase-build: '#2fc4b2'
   phase-land: '#f0b35a'
 typography:
-  title:
-    fontFamily: "Inter, system-ui, -apple-system, 'Segoe UI', sans-serif"
-    fontSize: '16px'
+  large:
+    fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif"
+    fontSize: '15px'
     fontWeight: 600
     lineHeight: 1.3
   body:
-    fontFamily: "Inter, system-ui, -apple-system, 'Segoe UI', sans-serif"
-    fontSize: '14px'
+    fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif"
+    fontSize: '13px'
     fontWeight: 400
     lineHeight: 1.4
   label:
-    fontFamily: "Inter, system-ui, -apple-system, 'Segoe UI', sans-serif"
+    fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif"
     fontSize: '12px'
     fontWeight: 500
-    lineHeight: 1.35
+  small:
+    fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif"
+    fontSize: '11px'
+    fontWeight: 400
   micro:
-    fontFamily: "Inter, system-ui, -apple-system, 'Segoe UI', sans-serif"
-    fontSize: '12px'
+    fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif"
+    fontSize: '10px'
     fontWeight: 500
-    letterSpacing: '0.06em'
+    letterSpacing: '0.08em'
   mono:
-    fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace'
     fontSize: '12px'
     fontWeight: 400
 rounded:
+  xs: '3px'
   sm: '6px'
   lg: '10px'
   pill: '999px'
@@ -183,31 +187,59 @@ a glow. If a second thing starts glowing, the design has stopped ranking and sta
 
 ## Typography
 
-**Interface Font:** Inter (with `system-ui`, `-apple-system`, `Segoe UI`, sans-serif)
-**Mono Font:** JetBrains Mono (with `ui-monospace`, `SFMono-Regular`, Menlo, monospace)
+**Interface Font:** the platform's own UI face — `system-ui`, `-apple-system`, `Segoe UI`, sans-serif
+**Mono Font:** the platform's own mono — `ui-monospace`, `SFMono-Regular`, Menlo, monospace
 
-**Character:** Two neutral workhorses doing different jobs. Inter carries everything a human
-wrote or a human reads. JetBrains Mono carries everything a machine produced — ids, branches,
-paths, commands, tool calls. The switch is semantic, not stylistic: mono is how the interface
-says "this is a literal string you may need to type or match".
+**Character:** Two neutral workhorses doing different jobs. The interface face carries
+everything a human wrote or a human reads. Mono carries everything a machine produced — ids,
+branches, paths, commands, tool calls. The switch is semantic, not stylistic: mono is how the
+interface says "this is a literal string you may need to type or match".
+
+The system loads no webfont. Every face is the one the operating system already has, so text
+paints on the first frame with no swap, no reflow and no invisible period. The tokens name
+Inter and JetBrains Mono ahead of the system stack for anyone who has them installed, but
+nothing is fetched and no metric depends on them: the ramp below is tuned against the system
+faces, because that is what ships.
 
 ### Hierarchy
 
-- **Title** (600, 16px, 1.3): the task title on an expanded node. The one place type is
+Five steps, each with one job. Sizes are the `--text-*` tokens; no component names its own.
+
+- **Large** (600, 15px, 1.3): the task title on an expanded node. The one place type is
   allowed to be large.
-- **Body** (400, 14px, 1.4): the default. Node titles, decision text, transcript prose, table
+- **Body** (400, 13px, 1.4): the default. Node titles, decision text, transcript prose, table
   rows, controls. This is the size the operator reads all day.
-- **Label** (500, 12px, 1.35): metadata and secondary lines — the state line, the footer,
-  filter fields, tab titles.
-- **Micro** (500, 12px, `0.06em`, uppercase): the phase name, section heads such as "NOW", the
-  lane label, table headers. Uppercase and tracked so it reads as a category, not a value.
-- **Mono** (400, 12px): task ids, branch names, worktree paths, tool calls, running commands.
+- **Label** (500, 12px): metadata and secondary lines — the state line, the footer, filter
+  fields, tab titles. Also the mono step: task ids, branches, worktree paths, code.
+- **Small** (400, 11px): the dense mono register — a tool call's summary row, the transcript's
+  time gutter, the session head.
+- **Micro** (500, 10px, `0.08em`, uppercase): the phase name, section heads such as "NOW", the
+  `AGENT` label, a tool call's status. Uppercase and tracked so it reads as a category, not a
+  value.
+
+Leading is a token too, chosen by job rather than by a single ratio: `--leading-tight` (1.3) for
+a heading, `--leading-ui` (1.4) for an interface line, `--leading-prose` (1.55) for a paragraph.
+
+### Measure
+
+Prose is capped, because the panel is resizable and an uncapped column grows without limit as
+the operator drags it wider. Two measures, because the panel's two surfaces read differently:
+
+- `--measure-prose` — the document tab, read start to end.
+- `--measure-panel` — the transcript, scanned in blocks between tool rows, and already narrowed
+  by the 3.5rem time gutter.
+
+Both are set in `ch`, but tuned by the count that actually renders: `ch` is the width of "0",
+which in these faces is about a fifth wider than the average character, so the token's number is
+lower than the character count it produces. Both land inside 45–75 characters.
 
 ### Named Rules
 
-**The Legibility Floor Rule.** 12px is the smallest type in the system, and it is only ever
-used for tracked micro-labels and mono metadata. Body text is 14px. Density is bought with
-tighter space and shorter lines, never by shrinking type below the floor.
+**The Legibility Floor Rule.** 10px is the smallest type in the system, and it is only ever
+used for a tracked uppercase micro-label — never for prose, and never for a sentence. Body text
+is 13px. Density is bought with tighter space and shorter lines, never by shrinking type below
+the floor. Every step clears WCAG AA against its own ground in both schemes; the 10px label is
+the tightest, and it is measured, not assumed.
 
 **The Mono Means Literal Rule.** Monospace marks a string the operator might copy, type or
 match against something else. Prose never uses it, and a mono string is never truncated
@@ -215,6 +247,16 @@ without an ellipsis, because a half-shown id is worse than an obviously cut one.
 
 **The Operator's Words Rule.** State appears in words the operator already owns — "Needs you ·
 plan review" — never a raw agent state, and never a term `CONTEXT.md` lists under `_Avoid_`.
+
+**The Register Is One Value Rule.** The transcript's two registers — prose and ledger — are
+computed once in `Transcript.tsx` and read as `data-register`. Spacing and chrome both derive
+from it, so they cannot disagree. Keying either on the raw item type is how a shell command came
+to draw one register and be spaced as the other.
+
+**The Rank Is Structural Rule.** Two registers on one surface are told apart by more than a
+size step. Where prose and machinery sit side by side — the transcript is the case — prose
+takes the page's baseline with no container, and the machinery takes the chrome. A single step
+on the ramp is not enough to rank two things the eye must separate without reading.
 
 ## Layout
 
@@ -416,6 +458,16 @@ the phase hue. Two channels, two edges, no conflict.
   restatement of "which agent is this".
 - **Count badge:** a 16px amber pill, 700 weight, on the sunken ground. Circular by construction.
 
+### Shell command
+
+A command the operator asked for with a `!` line. `CONTEXT.md` keeps it apart from a Bash tool
+call: the host runs it on the operator's behalf and injects it as user turns, so it is something
+they did, not something the agent did.
+
+It therefore takes the interactive channel rather than the agent's ledger — a Signal Blue wash
+and border, with a tracked `you ran` label — and reads as a quieter sibling of a user turn. A
+tool call recedes; a shell command does not, because the operator put it there.
+
 ### Panel Tabs
 
 A horizontally scrolling strip of square tabs on a raised ground, divided by hairlines, 32px
@@ -442,6 +494,13 @@ text — carries the last three things the agent said or did, with an uppercase 
 Said lines are prose; did lines are mono with a bolded tool name and ellipsis truncation. The
 prompt follows. The same component renders inside the expanded node and inside a document tab,
 so the two can never drift.
+
+The rail is context, so it never outranks what it is context for. Three items is a small count,
+but one item may be a whole message, so the count alone does not bound the height: the rail
+clamps to about ten lines and fades at the cut, with a control that opens it in place — the same
+idiom the node card uses for a long brief. The heading is also a fold, so a rail the operator
+has already read can be put away entirely. It opens by default and the state does not persist,
+because the panel keeps no view state across renders.
 
 ## Do's and Don'ts
 

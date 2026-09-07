@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAgent, useAnswer, useApprove, useDeny } from '../api/agents';
 import type { PendingRequest } from '../api/agents';
 import { useAgentStream } from '../live/useAgentStream';
@@ -6,7 +6,7 @@ import { Markdown } from '../markdown/Markdown';
 import type { Agent } from '../protocol/entities';
 import type { PlanReviewItem, TranscriptItem } from '../protocol/transcript';
 import { documentTab } from '../selectors/tabs';
-import { contextBefore } from '../selectors/transcript';
+import { contextBefore, type ContextItem } from '../selectors/transcript';
 import { PermissionPrompt } from '../session/cards/PermissionPrompt';
 import { QuestionPrompt } from '../session/cards/QuestionPrompt';
 import { toolCallTitle } from '../session/toolCards';
@@ -60,20 +60,7 @@ function OneDecision({
 
   return (
     <section className={styles.decision} data-testid="decision" data-kind={wait.type}>
-      {before.length > 0 && (
-        <div className={styles.context}>
-          <div className={styles.contextHead}>Before this</div>
-          {before.map((item) =>
-            item.type === 'message' ? (
-              <Markdown key={item.id} source={item.markdown} className={styles.said} />
-            ) : (
-              <div key={item.id} className={styles.did}>
-                <span className={styles.tool}>{item.tool}</span> {toolCallTitle(item)}
-              </div>
-            ),
-          )}
-        </div>
-      )}
+      {before.length > 0 && <ContextRail items={before} />}
       {wait.type === 'question' && (
         <QuestionPrompt
           item={wait}
@@ -83,6 +70,71 @@ function OneDecision({
       {wait.type === 'permission_request' && <PermissionPrompt item={wait} onDecide={decide} />}
       {wait.type === 'plan_review' && <PlanReview item={wait} onDecide={decide} />}
     </section>
+  );
+}
+
+/**
+ * The context before a wait, folded away on demand.
+ *
+ * `contextBefore` caps this at three items, but an item may be a whole message,
+ * so three items can still fill the pane and push the plan being reviewed below
+ * the fold. Two controls, because they answer different questions: the clamp
+ * bounds the height of the context the operator wants, and the fold removes
+ * context they have already read.
+ *
+ * Open by default, because the context is usually why the decision makes sense.
+ * The fold is not persisted, for the reason the panel's tabs and filters are
+ * not — see `docs/dev/orchestrator-ui.md`.
+ */
+function ContextRail({ items }: { items: ContextItem[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const body = useRef<HTMLDivElement>(null);
+  const [clamped, setClamped] = useState(false);
+
+  // Whether the clamp is actually cutting anything. Three items is often a few
+  // short lines, and a control that reveals nothing is worse than no control.
+  useEffect(() => {
+    const el = body.current;
+    if (!el) return;
+    const measure = () => setClamped(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [items, expanded]);
+
+  return (
+    <details
+      className={styles.context}
+      open
+      data-testid="decision-context"
+      // Folding it away resets the clamp, so re-opening gives the short rail
+      // rather than whatever height it was left at.
+      onToggle={(e) => !e.currentTarget.open && setExpanded(false)}
+    >
+      <summary className={styles.contextHead}>Before this</summary>
+      <div className={styles.contextBody} ref={body} data-expanded={expanded || undefined}>
+        {items.map((item) =>
+          item.type === 'message' ? (
+            <Markdown key={item.id} source={item.markdown} className={styles.said} />
+          ) : (
+            <div key={item.id} className={styles.did}>
+              <span className={styles.tool}>{item.tool}</span> {toolCallTitle(item)}
+            </div>
+          ),
+        )}
+      </div>
+      {(clamped || expanded) && (
+        <AppButton
+          className={styles.more}
+          variant="quiet"
+          onClick={() => setExpanded((was) => !was)}
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </AppButton>
+      )}
+    </details>
   );
 }
 

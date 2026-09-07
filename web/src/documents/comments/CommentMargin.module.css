@@ -16,7 +16,7 @@
   right: 10px;
   border-color: var(--attention);
   color: var(--attention);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   z-index: 1;
 }
 .composer,
@@ -52,11 +52,11 @@
   gap: 6px;
   align-items: center;
   color: var(--fg-faint);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 .resolve {
   margin-left: auto;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   padding: 0 4px;
 }
 .row {
@@ -72,7 +72,7 @@
 .composer textarea {
   font: inherit;
   color: inherit;
-  background: var(--bg-sunken);
+  background: var(--bg-field);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 4px 6px;
