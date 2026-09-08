@@ -1,5 +1,6 @@
 """CLI commands for maelstrom self-management (install, self-update, self-env)."""
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -11,6 +12,7 @@ from .claude_integration import install_claude_integration
 from .context import get_maelstrom_dir, harden_global_config
 from .env_cli import env
 from .shell import mael_path
+from .util import sanitise_child_env
 from .worktree_model import MAIN_WORKTREE_FOLDER
 
 
@@ -46,13 +48,18 @@ def _write_daemon_root_shim() -> str:
     to the worktree's own `.venv/bin/mael`, and shimming there would corrupt
     that venv while leaving the real PATH entrypoint rootless.
 
+    The lookup runs against a sanitised environment. `mael` lives in
+    `_main/.venv/bin`, and an inherited activation puts that directory first on
+    PATH, so a raw lookup names the venv copy wherever the command is run — and
+    the test above then skips every `mael`, including the one on the real PATH.
+
     Best-effort, like the dependency sync above it: the update has already
     landed by this point, so a `mael` that cannot be rewritten warns rather than
     aborting, and the entrypoint is put back the way it was.
 
     Returns what to tell the user.
     """
-    path = Path(mael_path())
+    path = Path(mael_path(sanitise_child_env(os.environ)))
     root = get_maelstrom_dir() / "daemons" / MAIN_WORKTREE_FOLDER
     if VENV_DIR in path.parts:
         return (

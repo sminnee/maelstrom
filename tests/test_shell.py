@@ -13,6 +13,7 @@ from maelstrom.shell import (
     RawShell,
     describe,
     exec_cmd,
+    mael_path,
     run_cmd,
     run_cmd_async,
     to_argv,
@@ -318,3 +319,52 @@ class TestAuditPrecedesEcho:
 
 class _ExecCalled(Exception):
     """Stands in for the exec that would replace this process."""
+
+
+class TestMaelPath:
+    """`mael` on the user's PATH — not the one a leaked venv put in front of it.
+
+    `mael` itself lives in `_main/.venv/bin`, and a venv activation puts that
+    directory first on PATH. Every child therefore resolves `mael` to the venv
+    copy, whatever the user's own PATH says.
+    """
+
+    def _bin(self, tmp_path, name):
+        d = tmp_path / name
+        d.mkdir(parents=True)
+        mael = d / "mael"
+        mael.write_text("#!/bin/sh\n")
+        mael.chmod(0o755)
+        return d, mael
+
+    def test_finds_mael_on_the_path(self, tmp_path):
+        bin_dir, mael = self._bin(tmp_path, "bin")
+        env = {"PATH": str(bin_dir)}
+
+        assert mael_path(env) == str(mael)
+
+    def test_skips_the_inherited_venv_bin(self, tmp_path):
+        """A leaked VIRTUAL_ENV must not decide which `mael` this names."""
+        venv_bin, _ = self._bin(tmp_path, "_main/.venv/bin")
+        real_bin, real = self._bin(tmp_path, "bin")
+        env = {
+            "PATH": f"{venv_bin}:{real_bin}",
+            "VIRTUAL_ENV": str(tmp_path / "_main" / ".venv"),
+        }
+
+        assert mael_path(env) == str(real)
+
+    def test_uses_the_venv_copy_when_it_is_the_only_one(self, tmp_path):
+        """Stripping the venv must not leave the caller with no `mael` at all."""
+        venv_bin, mael = self._bin(tmp_path, "_main/.venv/bin")
+        env = {
+            "PATH": str(venv_bin),
+            "VIRTUAL_ENV": str(tmp_path / "_main" / ".venv"),
+        }
+
+        assert mael_path(env) == str(mael)
+
+    def test_falls_back_to_the_conventional_location(self, tmp_path):
+        env = {"PATH": str(tmp_path / "empty")}
+
+        assert mael_path(env).endswith("/.local/bin/mael")
