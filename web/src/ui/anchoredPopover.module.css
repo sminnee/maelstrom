@@ -24,13 +24,9 @@
  * check a production build, not only `pnpm dev`.
  */
 .anchored {
-  /* The UA stylesheet centres a popover in the viewport; each component's offsets replace that.
-     A shorthand, so it beats a tying `top`/`left` rather than only preceding it — see above. */
   inset: unset;
-  /* Fixed, not absolute: a top-layer element resolves `absolute` against a transformed ancestor,
-     and the canvas is transformed. */
+  /* Fixed, not absolute: a top-layer element resolves `absolute` against the
+     transformed canvas. */
   position: fixed;
-  /* The explicit anchor, not the implicit `popovertarget` one, which stops resolving under a
-     transformed ancestor. Per-instance, because anchor names are document-global. */
   position-anchor: var(--anchor-name);
 }
