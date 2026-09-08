@@ -25,7 +25,9 @@ module (nothing in it calls the launcher).
 
 import os
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import click
 
@@ -43,18 +45,83 @@ from .shell import (
     run_cmd,
 )
 
-# Harnesses mael can launch. ``daemon`` is the default: the agent daemon runs
-# the ``claude`` child, and the cmux pane runs ``mael agent attach`` as a client
-# of it, so the orchestrator UI sees the session. ``claude`` is the legacy pane
-# runner — a bare ``claude`` in the pane, which nothing but the pane observes.
-# ``opencode`` runs ``opencode2`` instead. OpenCode sessions cannot be pinned to
-# a known session id (ids are server-assigned), so the session-id/resume
-# machinery is claude-only.
 HARNESS_DAEMON = "daemon"
 HARNESS_CLAUDE = "claude"
+HARNESS_CODEX = "codex"
 HARNESS_OPENCODE = "opencode"
 
-HARNESSES = (HARNESS_DAEMON, HARNESS_CLAUDE, HARNESS_OPENCODE)
+
+@dataclass(frozen=True)
+class Harness:
+    """One harness's command, task capabilities, and workspace placement."""
+
+    name: str
+    command: tuple[str, ...] | None
+    prompt_delivery: Literal["stdin", "argument", "option"] | None
+    default: bool = False
+    shorthand: str | None = None
+    prompt_option: str | None = None
+    detects_environment: str | None = None
+    supports_task_session: bool = False
+    supports_permission_mode: bool = False
+    supports_model: bool = False
+    uses_daemon: bool = False
+    open_cmux_workspace: bool = True
+
+
+HARNESS_REGISTRY = (
+    Harness(
+        HARNESS_DAEMON,
+        None,
+        None,
+        default=True,
+        supports_task_session=True,
+        supports_permission_mode=True,
+        supports_model=True,
+        uses_daemon=True,
+        open_cmux_workspace=True,
+    ),
+    Harness(
+        HARNESS_CLAUDE,
+        ("claude",),
+        "stdin",
+        shorthand="--claude",
+        supports_task_session=True,
+        supports_permission_mode=True,
+        supports_model=True,
+        open_cmux_workspace=True,
+    ),
+    Harness(
+        HARNESS_CODEX,
+        ("codex",),
+        "argument",
+        shorthand="--codex",
+        open_cmux_workspace=True,
+    ),
+    Harness(
+        HARNESS_OPENCODE,
+        ("opencode2",),
+        "option",
+        shorthand="--opencode",
+        prompt_option="--prompt",
+        detects_environment="OPENCODE_TERMINAL",
+        open_cmux_workspace=True,
+    ),
+)
+HARNESSES = tuple(spec.name for spec in HARNESS_REGISTRY)
+
+
+def harness_spec(name: str) -> Harness:
+    """Return the registered harness called ``name``."""
+    for spec in HARNESS_REGISTRY:
+        if spec.name == name:
+            return spec
+    raise ValueError(f"Unknown harness: {name!r}")
+
+
+def default_harness() -> Harness:
+    """Return the one harness the registry marks as its default."""
+    return next(spec for spec in HARNESS_REGISTRY if spec.default)
 
 
 def open_worktree(worktree_path: Path, command: str) -> None:
@@ -121,20 +188,18 @@ def build_harness_command(
     model: str | None = None,
     harness: str = HARNESS_CLAUDE,
 ) -> list[str]:
-    """The trailing harness argv — :func:`build_claude_command` dispatched by harness.
-
-    ``claude`` (default) is byte-identical to the historic argv. ``opencode``
-    is a bare ``opencode2``: v1 passes no permission, model or session flags —
-    opencode has no equivalent of ``--session-id`` (ids are server-assigned),
-    and permission modes were deliberately left unmapped.
-    """
-    if harness == HARNESS_OPENCODE:
-        return ["opencode2"]
-    if harness == HARNESS_CLAUDE:
-        return build_claude_command(
-            permission_mode, session_id, resume=resume, model=model
-        )
-    raise ValueError(f"Unknown harness: {harness!r}")
+    """Build a registered direct harness's command line."""
+    spec = harness_spec(harness)
+    if spec.uses_daemon or spec.command is None:
+        raise ValueError(f"Harness {harness!r} has no direct command")
+    argv = list(spec.command)
+    if spec.supports_permission_mode and permission_mode:
+        argv += ["--permission-mode", permission_mode]
+    if spec.supports_model and model:
+        argv += ["--model", model]
+    if spec.supports_task_session and session_id:
+        argv += ["--resume", session_id] if resume else ["--session-id", session_id]
+    return argv
 
 
 def _detect_harness_from_env() -> str | None:
@@ -145,36 +210,36 @@ def _detect_harness_from_env() -> str | None:
     session mael launches sets it, so detecting it would send every nested
     ``mael open`` back to the pane runner.
     """
-    if os.environ.get("OPENCODE_TERMINAL"):
-        return HARNESS_OPENCODE
+    for spec in HARNESS_REGISTRY:
+        if spec.detects_environment and os.environ.get(spec.detects_environment):
+            return spec.name
     return None
 
 
-def resolve_harness(harness: str | None, opencode: bool, claude: bool) -> str:
-    """Merge ``--harness <name>`` with the ``--opencode`` / ``--claude`` shorthands.
+def resolve_harness(harness: str | None, shortcuts: tuple[str, ...] = ()) -> str:
+    """Merge ``--harness <name>`` with registry-derived shorthand flags.
 
     ``--harness`` is ``None`` when the flag was not given. Precedence, strongest
-    first: an explicit flag (``--harness``, ``--opencode`` or ``--claude``), then
+    first: an explicit flag (``--harness`` or a shorthand), then
     the environment the command runs in (a ``mael task run`` typed inside an
     OpenCode session launches OpenCode; ``--harness daemon`` overrides), then the
-    daemon. Two flags that name different harnesses are a user error, whether
-    they are two shorthands (``--claude --opencode``) or a shorthand and a
-    ``--harness`` value (``--harness claude --opencode``).
+    default. Two flags that name different harnesses are a user error.
     """
-    if opencode and claude:
-        raise ValueError("--claude conflicts with --opencode")
-    if opencode:
-        if harness is not None and harness != HARNESS_OPENCODE:
-            raise ValueError(f"--opencode conflicts with --harness {harness}")
-        return HARNESS_OPENCODE
-    if claude:
-        if harness is not None and harness != HARNESS_CLAUDE:
-            raise ValueError(f"--claude conflicts with --harness {harness}")
-        return HARNESS_CLAUDE
+    selected = set(shortcuts)
+    if len(selected) > 1:
+        flags = sorted(
+            harness_spec(name).shorthand or f"--harness {name}" for name in selected
+        )
+        raise ValueError(f"{flags[0]} conflicts with {flags[1]}")
+    if selected:
+        selected_name = selected.pop()
+        flag = harness_spec(selected_name).shorthand or f"--harness {selected_name}"
+        if harness is not None and harness != selected_name:
+            raise ValueError(f"{flag} conflicts with --harness {harness}")
+        return selected_name
     if harness is None:
-        return _detect_harness_from_env() or HARNESS_DAEMON
-    if harness not in HARNESSES:
-        raise ValueError(f"Unknown harness: {harness!r}")
+        return _detect_harness_from_env() or default_harness().name
+    harness_spec(harness)
     return harness
 
 
@@ -189,53 +254,44 @@ def build_task_launch_line(
     model: str | None = None,
     harness: str = HARNESS_CLAUDE,
 ) -> ShellExpr:
-    """The pipeline that launches a task: ``mael task prompt ... | <env> claude ...``.
-
-    The prompt is produced lazily by ``mael task prompt`` and piped into ``claude``
-    on stdin, keeping the launch command line short. ``claude`` stays interactive
-    because stdout remains a TTY (only stdin is piped).
-
-    ``env`` vars attach to the ``claude`` :class:`Command` (the right of the pipe)
-    so the interactive session inherits them. The structure makes the
-    front-of-line scoping bug unrepresentable: env is a property of a single
-    ``Command``, never of the whole ``Pipeline``. ``session_id`` pins the task's
-    deterministic Claude session id (see :func:`build_claude_command`) and also
-    rides as ``MAEL_TASK_SESSION_ID``, so a session can name the key its task
-    was launched under.
-
-    The name pairs with ``MAEL_TASK_ID`` / ``MAEL_TASK_PARENT`` because that is
-    what it is: a **task key**, not a reference to the conversation running now.
-    The harness does export a live session id (``CLAUDE_CODE_SESSION_ID``), but a
-    ``/clear`` moves it, so it cannot key a task. The derived id never moves.
-    """
-    claude_env = dict(env or {})
+    """Build a task's prompt command for the selected direct harness."""
+    spec = harness_spec(harness)
+    if spec.uses_daemon:
+        raise ValueError(f"Harness {harness!r} has no direct task command")
+    command_env = dict(env or {})
     if session_id:
-        claude_env["MAEL_TASK_SESSION_ID"] = session_id
+        command_env["MAEL_TASK_SESSION_ID"] = session_id
     prompt_argv = ["mael", "task", "prompt", task_id, "--project", project]
-    if harness == HARNESS_OPENCODE:
-        # No session id and no claude flags: opencode takes the prompt as a
-        # ``--prompt`` argument, so the lazily-produced `mael task prompt`
-        # output reaches it through a quoted command substitution instead of a
-        # stdin pipe. Everything claude-only (permission mode, model, resume)
-        # is deliberately dropped.
-        return Command(
-            [
-                "opencode2",
-                "--prompt",
-                command_substitution(prompt_argv),
-            ],
-            env=claude_env,
-        )
-    return Pipeline(
-        [
-            Command(prompt_argv),
-            Command(
-                build_claude_command(
-                    permission_mode, session_id, resume=resume, model=model
-                ),
-                env=claude_env,
-            ),
-        ]
+    harness_argv = build_harness_command(
+        permission_mode, session_id, resume=resume, model=model, harness=harness
+    )
+    if spec.prompt_delivery == "stdin":
+        return Pipeline([Command(prompt_argv), Command(harness_argv, env=command_env)])
+    prompt = command_substitution(prompt_argv)
+    if spec.prompt_delivery == "option":
+        assert spec.prompt_option is not None
+        harness_argv += [spec.prompt_option, prompt]
+    else:
+        harness_argv.append(prompt)
+    return Command(harness_argv, env=command_env)
+
+
+def open_cmux_workspace(
+    project: str | None,
+    worktree: str | None,
+    worktree_path: Path,
+    command: ShellExpr,
+) -> bool:
+    """Open a cmux workspace that runs ``command`` in pane 0."""
+    if not (project and worktree):
+        return False
+    install_cmd = load_config_or_default(worktree_path).install_cmd
+    return mael_layout.ensure_worktree_workspace(
+        project,
+        worktree,
+        str(worktree_path),
+        command=describe(command),
+        install_cmd=install_cmd or None,
     )
 
 
@@ -245,32 +301,21 @@ def open_claude_workspace(
     worktree_path: Path,
     command: ShellExpr,
 ) -> bool:
-    """cmux placement: open a new workspace running the command. True if placed.
+    """Compatibility name for :func:`open_cmux_workspace`."""
+    return open_cmux_workspace(project, worktree, worktree_path, command)
 
-    Returns False when not in cmux or when project/worktree are missing — a
-    workspace can't be named without them. The caller treats False as a placement
-    failure (there is no local fallback).
 
-    A reused worktree with a live workspace gets a new Claude tab (carrying the
-    same command line) rather than a duplicate workspace. Only the create path
-    runs the install command, sent into the new workspace's shell pane so it
-    runs visibly there; a reused workspace already installed.
-
-    ``command`` is a :class:`ShellExpr`; cmux runs the workspace via a shell, so
-    it receives the ``describe`` form, and a :class:`Command`'s env already rides
-    on the correct pipe segment, so there is nothing to re-prefix here.
-    """
-    if not (project and worktree):
+def _open_harness_workspace(
+    spec: Harness,
+    project: str | None,
+    worktree: str | None,
+    worktree_path: Path,
+    command: ShellExpr,
+) -> bool:
+    """Place a harness instruction when its registry entry allows cmux."""
+    if not spec.open_cmux_workspace:
         return False
-
-    install_cmd = load_config_or_default(worktree_path).install_cmd
-    return mael_layout.ensure_worktree_workspace(
-        project,
-        worktree,
-        str(worktree_path),
-        command=describe(command),
-        install_cmd=install_cmd or None,
-    )
+    return open_claude_workspace(project, worktree, worktree_path, command)
 
 
 async def launch_agent_in_worktree(
@@ -327,6 +372,8 @@ async def launch_agent_in_worktree(
             err=True,
         )
         return False
+    if not harness_spec(HARNESS_DAEMON).open_cmux_workspace:
+        return True
     if not ensure_cmux_running():
         return False
     return open_claude_workspace(
@@ -372,7 +419,8 @@ async def launch_claude_in_worktree(
     the session's LLM (``claude --model``). Either way env rides inside the
     ``ShellExpr``.
     """
-    if harness == HARNESS_DAEMON:
+    spec = harness_spec(harness)
+    if spec.uses_daemon:
         # The agent start comes first. cmux is only needed for the pane, and
         # starting the app before a launch that then fails would leave the user
         # with a cmux they did not have running.
@@ -411,4 +459,4 @@ async def launch_claude_in_worktree(
             ),
             env=dict(env or {}),
         )
-    return open_claude_workspace(project, worktree, worktree_path, command)
+    return _open_harness_workspace(spec, project, worktree, worktree_path, command)

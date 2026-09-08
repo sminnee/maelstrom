@@ -37,18 +37,32 @@ from .worktree import (
 from .worktree_launcher import (
     HARNESS_CLAUDE,
     HARNESS_DAEMON,
-    HARNESS_OPENCODE,
+    HARNESS_REGISTRY,
     HARNESSES,
     build_task_launch_line,
+    harness_spec,
     launch_claude_in_worktree,
     resolve_harness,
 )
 from .worktree_model import WorktreeError, has_claude_transcript
 
+_HARNESS_SHORTCUTS = "harness_shortcuts"
 
-def resolve_harness_or_fail(
-    harness: str | None, opencode: bool, claude: bool, *, here: bool = False
-) -> str:
+
+def _record_harness_shortcut(name: str):
+    def callback(ctx: click.Context, _param: click.Parameter, value: bool) -> bool:
+        if value:
+            ctx.meta.setdefault(_HARNESS_SHORTCUTS, []).append(name)
+        return value
+
+    return callback
+
+
+def _selected_harness_shortcuts() -> tuple[str, ...]:
+    return tuple(click.get_current_context().meta.get(_HARNESS_SHORTCUTS, ()))
+
+
+def resolve_harness_or_fail(harness: str | None, *, here: bool = False) -> str:
     """The CLI face of :func:`resolve_harness`: errors become ClickExceptions.
 
     One line per call site instead of the four-line try/except each launch
@@ -59,7 +73,7 @@ def resolve_harness_or_fail(
     and says so when the user named the daemon rather than defaulting to it.
     """
     try:
-        resolved = resolve_harness(harness, opencode, claude)
+        resolved = resolve_harness(harness, _selected_harness_shortcuts())
     except ValueError as e:
         raise click.ClickException(str(e))
     if here and resolved == HARNESS_DAEMON:
@@ -74,26 +88,24 @@ def resolve_harness_or_fail(
 
 
 def _harness_options():
-    """The ``--harness`` / ``--opencode`` / ``--claude`` flags shared by launches.
+    """Add the registry's harness selector and shorthand flags to a command.
 
     Applied as ``@_harness_options()``; the command body calls
-    :func:`resolve_harness_or_fail` on the three params. Default (no flag) is
-    the agent daemon, unless the command runs inside an OpenCode session.
+    :func:`resolve_harness_or_fail`. The registry omits a shorthand for its
+    default harness.
     """
 
     def decorator(f):
-        f = click.option(
-            "--claude",
-            "claude_flag",
-            is_flag=True,
-            help="Shorthand for --harness claude (the legacy pane runner).",
-        )(f)
-        f = click.option(
-            "--opencode",
-            "opencode_flag",
-            is_flag=True,
-            help="Shorthand for --harness opencode.",
-        )(f)
+        for spec in reversed(HARNESS_REGISTRY):
+            if spec.shorthand is None:
+                continue
+            f = click.option(
+                spec.shorthand,
+                is_flag=True,
+                expose_value=False,
+                callback=_record_harness_shortcut(spec.name),
+                help=f"Shorthand for --harness {spec.name}.",
+            )(f)
         return click.option(
             "--harness",
             type=click.Choice(HARNESSES),
@@ -217,10 +229,10 @@ async def _run_task(
     """
     index, was_fresh = _mutate_index(store)
     # The plan settles the session id, env, permission mode and branch once,
-    # the same way the orchestrator server does. Claude-only: opencode assigns
-    # its own session ids, so there is nothing to pin, resume, or guard on.
+    # the same way the orchestrator server does. Harnesses without task-session
+    # support cannot pin, resume, or guard their own session ids.
     plan = plan_launch(project, task)
-    has_session_id = harness != HARNESS_OPENCODE
+    has_session_id = harness_spec(harness).supports_task_session
     session_id = plan.session_id if has_session_id else None
     # One sweep answers both questions below: is this task already running, and
     # is anything running in the worktree the open is about to rebase.
@@ -1268,8 +1280,6 @@ async def task_next(
     parent: str | None,
     run: bool,
     harness: str | None,
-    opencode_flag: bool,
-    claude_flag: bool,
     branch: str | None,
     here: bool,
 ) -> None:
@@ -1303,9 +1313,7 @@ async def task_next(
             proj,
             nxt,
             here=here,
-            harness=resolve_harness_or_fail(
-                harness, opencode_flag, claude_flag, here=here
-            ),
+            harness=resolve_harness_or_fail(harness, here=here),
         )
     else:
         click.echo(nxt.id)
@@ -1325,11 +1333,9 @@ async def task_run(
     project: str | None,
     here: bool,
     harness: str | None,
-    opencode_flag: bool,
-    claude_flag: bool,
 ) -> None:
     """Launch a task as a Claude session (ensures its worktree first)."""
-    resolved = resolve_harness_or_fail(harness, opencode_flag, claude_flag, here=here)
+    resolved = resolve_harness_or_fail(harness, here=here)
     proj = _resolve_project(project)
     store = _store()
     try:

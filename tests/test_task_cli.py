@@ -702,6 +702,21 @@ class TestRunHarness:
         assert kwargs["resume"] is False
         assert model.load(store, "p", t.id).status == model.STATUS_IN_PROGRESS
 
+    def test_run_codex_launches_without_session_machinery(
+        self, runner, store, launch, monkeypatch
+    ):
+        def _no_transcript(*a, **k):
+            raise AssertionError("has_claude_transcript must not run for codex")
+
+        monkeypatch.setattr(task_cli, "has_claude_transcript", _no_transcript)
+        t = model.create(store, project="p", title="Plan it")
+        result = runner.invoke(task_cli.task, ["run", t.id, "--codex"])
+        assert result.exit_code == 0, result.output
+        kwargs = launch.session.call_args.kwargs
+        assert kwargs["harness"] == "codex"
+        assert kwargs["session_id"] is None
+        assert kwargs["resume"] is False
+
     def test_run_opencode_skips_duplicate_launch_guard(
         self, runner, store, launch, monkeypatch
     ):
@@ -783,6 +798,17 @@ class TestRunHarness:
         assert result.exit_code == 0, result.output
         assert calls[0].startswith("MAEL_TASK_ID=")
         assert 'opencode2 --prompt "$(mael task prompt' in calls[0]
+
+    def test_run_here_codex_execs_the_codex_line(self, runner, store, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            task_cli, "exec_cmd", lambda cmd, **kw: calls.append(describe(cmd))
+        )
+        t = model.create(store, project="p", title="Plan it")
+        result = runner.invoke(task_cli.task, ["run", t.id, "--here", "--codex"])
+        assert result.exit_code == 0, result.output
+        assert calls[0].startswith("MAEL_TASK_ID=")
+        assert 'codex "$(mael task prompt' in calls[0]
 
     def test_next_run_opencode_threads_the_harness(self, runner, store, launch):
         model.create(store, project="p", title="First")
