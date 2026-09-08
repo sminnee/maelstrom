@@ -127,19 +127,50 @@
    * board's job is to hold many units at once.
    */
   --text-md: 16px;
+  /*
+   * Markdown's section head (`h3`). Nothing in the chrome uses it. One step
+   * over body, because at 16px a section head separated by weight alone does
+   * not rank — see the Rank Is Structural Rule.
+   */
+  --text-md-plus: 17px;
   --text-lg: 18px;
   --text-xl: 21px;
 
   /* Leading by job: a dense control, an interface line, a paragraph read. */
   --leading-tight: 1.3;
   --leading-ui: 1.4;
-  --leading-prose: 1.55;
+  /*
+   * 1.5, not 1.55, so that at `--text-md` the line box is exactly 24px. That
+   * makes the leading and the prose grid below the same number, which is what
+   * lets every block advance a whole number of rows.
+   */
+  --leading-prose: 1.5;
   /* Uppercase needs the extra space to stop reading as one word. */
   --tracking-micro: 0.08em;
 
-  /* One measure for both reading surfaces. */
-  --measure-prose: 80ch;
-  --measure-panel: 80ch;
+  /*
+   * The prose grid. `--space-*` above is the chrome's, tuned against 13px UI
+   * text; borrowed by a 16px reading surface every one of its steps lands
+   * under the line box it is meant to separate. These are multiples of the
+   * 24px line box instead, so a document advances in whole rows.
+   *
+   * Whole pixels, not `em`: the point is one shared rhythm across the document
+   * and the transcript beside it, which is lost if each surface derives its own
+   * from its own size.
+   */
+  --prose-gap: 24px;
+  /* A half row, between list items. See the accepted exception in Markdown.module.css. */
+  --prose-gap-tight: 12px;
+  --prose-gap-loose: 48px;
+
+  /*
+   * One measure for both reading surfaces. 66ch, not the conventional 80: this
+   * is a surface read start to finish, and at 80ch the return sweep to the next
+   * line start is long enough to lose your place — worse here, where a line is
+   * broken up by literals. Compared against 72ch on a real plan document.
+   */
+  --measure-prose: 66ch;
+  --measure-panel: 66ch;
 
   --weight-medium: 500;
   --weight-semibold: 600;

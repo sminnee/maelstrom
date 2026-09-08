@@ -73,7 +73,15 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: var(--space-4) var(--space-4) var(--space-5);
+  /*
+   * Reading space, not chrome space. The top gap was 16px, a chrome value, and
+   * the first line sat tucked under the header. The trailing space lets the end
+   * of a document be scrolled to a comfortable reading position instead of
+   * stranding the last paragraph against the bottom of the screen — this
+   * surface is read start to finish, and the last row of the viewport is the
+   * worst place on the display to finish in.
+   */
+  padding: var(--prose-gap-loose) var(--space-4) 50vh;
 }
 .prose {
   max-width: var(--measure-prose);

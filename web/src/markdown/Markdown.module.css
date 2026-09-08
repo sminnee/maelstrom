@@ -2,6 +2,18 @@
  * Rendered markdown, shared by the transcript, the document tab and the
  * decision rail. It sets rhythm and rank but never a measure: each surface
  * reads at its own width, so each sets its own.
+ *
+ * The vertical rhythm is a 24px grid, and the grid is not laid over the text —
+ * it *is* the text. At `--text-md` (16px) with `--leading-prose` (1.5) the line
+ * box is exactly 24px, so every block advances a whole number of rows and a
+ * long document does not drift. `--space-*` is deliberately absent below: that
+ * scale is tuned against 13px chrome, and every one of its steps lands under
+ * the line box it would be separating here.
+ *
+ * This is a grid in effect, not true baseline alignment: baselines sit at a
+ * font-dependent offset inside the line box, so a heading in `--font-display`
+ * is not collinear with body text in `--font`. Do not chase that with nudges —
+ * it breaks the moment the webfont fails to load.
  */
 .markdown {
   font-size: var(--text-md);
@@ -15,17 +27,34 @@
   margin-bottom: 0;
 }
 
-/* Rank by weight and space, not size: at 13px a one-pixel step is invisible. */
+/*
+ * Headings rank three ways: a face of their own, a size step, and space. The
+ * face does most of the work — a size step alone cannot separate two things the
+ * eye must tell apart without reading them.
+ *
+ * `line-height` is a flat 24px, not `--leading-tight`. At 1.3 the line boxes
+ * come to 27.3 / 23.4 / 22.1px, none of them a grid multiple, and a single
+ * heading then shifts every baseline below it by ~2px — an error that compounds
+ * down exactly the long documents this surface exists to hold. A fixed pixel
+ * also survives a future size change, where a ratio would silently re-derive.
+ *
+ * The margins are whole rows: two above, one below, so the total advance is
+ * 48 + 24 + 24 = 96px (four rows), or 120px when the heading wraps to two lines.
+ * More space above than below, so a heading binds to the text it introduces.
+ *
+ * Note the space above a heading comes from this margin *alone*: it collapses
+ * with the preceding paragraph's 24px bottom margin rather than adding to it.
+ * Raising `--prose-gap` will not widen it.
+ */
 .markdown h1,
 .markdown h2,
 .markdown h3,
 .markdown h4,
 .markdown h5,
 .markdown h6 {
-  /* More space above than below, so a heading binds to the text it introduces
-     rather than floating between two blocks. */
-  margin: var(--space-5) 0 var(--space-2);
-  line-height: var(--leading-tight);
+  margin: var(--prose-gap-loose) 0 var(--prose-gap);
+  font-family: var(--font-display);
+  line-height: 24px;
   font-weight: var(--weight-semibold);
   color: var(--fg);
 }
@@ -42,7 +71,11 @@
  * names, so the case is load-bearing and must not be transformed, and a heading
  * never takes a tone weaker than the text it introduces.
  */
-.markdown h3,
+.markdown h3 {
+  font-size: var(--text-md-plus);
+}
+/* A plan document does not nest past three levels, so these stay at body size
+   and rank on face and space alone. */
 .markdown h4,
 .markdown h5,
 .markdown h6 {
@@ -51,18 +84,43 @@
 
 .markdown p {
   /* Paragraph rhythm is spacing alone. Indenting as well would mark the same
-     boundary twice. */
-  margin: 0 0 var(--space-3);
+     boundary twice. One full row. */
+  margin: 0 0 var(--prose-gap);
 }
 .markdown ul,
 .markdown ol {
   /* The browser's 40px indent is built for a 16px body and swamps a 13px one. */
-  margin: 0 0 var(--space-3);
+  margin: 0 0 var(--prose-gap);
   padding-left: var(--space-5);
 }
+/*
+ * A half row between items — the one deliberate exception to the grid.
+ *
+ * A full row makes a list of short items read as separate paragraphs and loses
+ * the grouping that makes it a list; a half row keeps them together. The cost
+ * is that a list with an even number of items ends half a row off the grid,
+ * until the next heading's 48px top margin re-anchors everything. Item cohesion
+ * is the stronger signal, so the drift is accepted rather than designed out.
+ *
+ * The value before this was 4px, which was *less* than the 24px leading inside
+ * a multi-line item: the space within an item exceeded the space between two,
+ * and a list of paragraphs read as one wall.
+ */
 .markdown li + li {
-  margin-top: var(--space-1);
+  margin-top: var(--prose-gap-tight);
 }
+/*
+ * Without this an item's trailing paragraph margin (24px) stacks on the gap
+ * between items (12px), putting items 36px apart and paragraphs within an item
+ * 24px — the same inside-out spacing, restored from the other direction. This
+ * rule is what makes the 12px above hold.
+ */
+.markdown li > p:last-child {
+  margin-bottom: 0;
+}
+/* A nested list belongs to the item that introduces it, so it stays tight. This
+   is the one gap that is *within* a unit rather than between two, which is why
+   the chrome scale is still the right source for it. */
 .markdown li > ul,
 .markdown li > ol {
   margin: var(--space-1) 0 0;
@@ -72,43 +130,84 @@
   color: var(--fg);
 }
 .markdown hr {
-  margin: var(--space-4) 0;
+  /* A section break, not a block break: two rows either side. */
+  margin: var(--prose-gap-loose) 0;
   border: 0;
   border-top: 1px solid var(--border);
 }
 
+/*
+ * A code block is border and padding as well as text, so its height is not just
+ * a count of lines. 11px of padding is not arbitrary and is not a typo: with the
+ * 1px border it makes the box's own chrome 24px, exactly one row, so the block
+ * comes to (lines + 1) x 24 at every length — 48px at one line, 96px at three,
+ * 264px at ten. Round it to 12px and every code block in the app goes off-grid.
+ *
+ * The size and the inner line box are both relative for the same reason. Both
+ * were the chrome's: `base.css` sets `code, pre` to a flat 12px, which a 16px
+ * reading surface fell through to, and the leading was `--leading-ui`. Code
+ * inside a document is read, not scanned, so it tracks the prose around it.
+ */
 .markdown pre {
   background: var(--bg-sunken);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: var(--space-2);
-  margin: 0 0 var(--space-3);
+  padding: 11px;
+  margin: 0 0 var(--prose-gap);
   overflow-x: auto;
-  line-height: var(--leading-ui);
-}
-.markdown code {
-  background: var(--bg-sunken);
-  padding: 0 3px;
-  border-radius: var(--radius-sm);
-  /* Mono runs large against sans at the same nominal size. Relative, so an
-     inline literal tracks whatever the surrounding text is set at. */
   font-size: 0.92em;
+  line-height: 24px;
 }
+/*
+ * An inline literal is marked by face and tone, with no container. It was a
+ * filled chip, which works for the occasional literal in a transcript message
+ * and fails on a plan document: at six or seven literals per paragraph the eye
+ * reads a row of boxes instead of a sentence.
+ *
+ * The size stays relative so a literal tracks whatever the surrounding text is
+ * set at — mono runs large against sans at the same nominal size.
+ */
+.markdown code {
+  color: var(--fg-literal);
+  font-size: 0.92em;
+  /* A path breaks at a seam rather than mid-token, which is what the
+     container's `anywhere` would do to it. */
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+/*
+ * A literal inside a heading is the one place mono breaks the grid: at 0.92em
+ * its inline box exceeds the heading's flat 24px line box and pushes the block
+ * a pixel taller — enough to walk the rhythm off over a long document. This
+ * must sit after `.markdown code`, which has the same specificity, or source
+ * order silently undoes it.
+ */
+.markdown :is(h1, h2, h3, h4, h5, h6) code {
+  font-size: 1em;
+  line-height: 1;
+}
+/* Inside a block the mono face already marks the register, and tinting a whole
+   block would wash it out. */
 .markdown pre code {
-  background: none;
-  padding: 0;
+  color: inherit;
   font-size: inherit;
 }
 .markdown blockquote {
-  margin: 0 0 var(--space-3);
+  margin: 0 0 var(--prose-gap);
   padding-left: 10px;
   border-left: 2px solid var(--border-strong);
   color: var(--fg-muted);
 }
 .markdown table {
   border-collapse: collapse;
-  margin: 0 0 var(--space-3);
+  margin: 0 0 var(--prose-gap);
 }
+/*
+ * Rows come to 32px, off the 24px grid. A table is an inset object read as a
+ * unit rather than as continuing prose, so its internal rows are exempt:
+ * forcing them onto the outer grid would cost more than it returns. The table's
+ * own margins keep the surrounding flow on the grid.
+ */
 .markdown th,
 .markdown td {
   border: 1px solid var(--border);
