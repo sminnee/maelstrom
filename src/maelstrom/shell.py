@@ -46,7 +46,7 @@ import subprocess
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import NoReturn, assert_never
+from typing import Mapping, NoReturn, assert_never
 
 
 @dataclass(frozen=True)
@@ -253,14 +253,32 @@ def _kill_group(proc: "asyncio.subprocess.Process") -> None:
             proc.kill()
 
 
-def mael_path() -> str:
-    """Absolute path to the ``mael`` binary.
+def mael_path(env: Mapping[str, str] | None = None) -> str:
+    """Absolute path to the ``mael`` binary, resolved against *env*'s ``PATH``.
 
     For spawning ``mael`` from a bare environment — a launchd job, or a daemon
     detached from the starting shell — where a bare ``mael`` may not resolve.
     Lives in ``shell`` because ``schedule_launchd`` is macOS-only.
+
+    An inherited ``VIRTUAL_ENV`` is not allowed to decide the answer. ``mael``
+    itself lives in ``_main/.venv/bin``, and a venv activation puts that
+    directory first on ``PATH``, so every child resolves ``mael`` there
+    whatever the user's own ``PATH`` says. The venv's ``bin`` is searched last
+    instead of first, so it still answers when it is the only copy.
+
+    Args:
+        env: The environment to resolve against. Defaults to ``os.environ``.
     """
-    found = shutil.which("mael")
+    env = os.environ if env is None else env
+    path = env.get("PATH", "")
+    virtual_env = env.get("VIRTUAL_ENV")
+    if virtual_env:
+        venv_bin = str(Path(virtual_env) / "bin")
+        entries = [e for e in path.split(os.pathsep) if e and e != venv_bin]
+        # Kept as a last resort: a machine whose only `mael` is the venv copy
+        # still gets an answer rather than the conventional fallback below.
+        path = os.pathsep.join([*entries, venv_bin])
+    found = shutil.which("mael", path=path)
     if found:
         return found
     # Conventional location, for a PATH that does not carry `mael` yet.
