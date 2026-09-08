@@ -283,9 +283,8 @@ export function zoneForState(state: NodeState): Zone {
     case 'cancelled':
       return 'done';
     // `stopped` and `exited` sit here rather than in done: a run that ended
-    // without the task being marked done is not history, it is unfinished work
-    // that needs the operator, and the done zone is for work that is actually
-    // settled. A stopped session is resumable, which is the clearest case of it.
+    // without the task being marked done is unfinished work, not history, and
+    // the done zone is for work that is actually settled.
     case 'working':
     case 'needs-attention':
     case 'idle':

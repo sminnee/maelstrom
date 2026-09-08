@@ -166,6 +166,12 @@ Guessing a phase for either would state something the notebook never said.
 - **Build Teal** (`--phase-build`): building, reviewing, opening the PR.
 - **Land Amber** (`--phase-land`): answering CI and review on an open PR.
 
+Each phase also carries a drained form, `--phase-dormant`, for a node whose process has stopped.
+It is mixed per phase in `base.css`, at the one ratio `--phase-drain` names, because a custom
+property substitutes where it is declared: derived once against the root fallback it would drain
+every phase to the same grey. **A new phase hue must add its `--phase-dormant` beside its
+`--phase`**, or stopped nodes in that phase lose their edge.
+
 ### Neutral
 
 - **Console Slate** (`--bg`): the field everything sits on.
@@ -388,7 +394,8 @@ edge rather than the content.
 
 **The Left Edge Rule.** The 4px left border carries phase and only phase. A border on any other
 edge means something else — a full border colour is node state, and a shifted border colour
-means attention or fault.
+means attention or fault. The rule governs which channel the edge carries, not how brightly it
+burns: a stopped node drains its phase hue toward the border and the edge is still phase.
 
 ## Components
 
@@ -415,6 +422,13 @@ told apart by where they run, so the worktree sits beside the id rather than onl
 - **Ready:** a hollow dot in the phase hue. Hollow means the work has not started and filled
   means it runs, so the shape tells ready from working even though both take the phase hue.
 - **Idle:** 0.8 opacity. **Queued:** dashed border, 0.65 opacity.
+- **Stopped:** the surface drops to `--bg-sunken`, the phase bar drains to `--phase-dormant`, the
+  dot goes hollow in `--tone-dormant` and the title steps to `--fg-muted`. It recedes by sinking
+  rather than by fading, because a stopped session is resumable: fading it to done's 0.5 would
+  file it as history when it is unfinished work in the running zone. Opacity rises to 0.9 — the
+  surface already carries the backgrounding, and the operator still has to read the card to
+  decide whether to resume it. The expanded card takes the dot alone: it is open because the
+  operator chose to read it, so backgrounding it would fight the act of opening it.
 - **Finalising:** a hollow Clear Green dot. The task is closed and an agent is still carrying
   the PR, so the node reads as closed but not yet settled.
 - **Done:** 0.5 opacity, Clear Green dot. **Cancelled:** 0.5 opacity, faint dot — terminal, but
