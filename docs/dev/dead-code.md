@@ -95,8 +95,10 @@ production list today.
 ## TypeScript
 
 `web/knip.json` configures the test pass. `web/knip.production.json` configures the production pass
-and differs by four lines: it ignores `src/test/**` and `src/session/transcript.fixture.ts`. Knip 6
-has no `extends`, so the two are whole files rather than one and a delta.
+and differs by one key: it ignores `src/test/**` and the story fixtures,
+`src/session/transcript.fixture.ts` and `src/canvas/taskNode.fixture.ts`. A story fixture is reached
+from a story and from nothing else, so the production pass, which does not read stories, calls it an
+unused file. Knip 6 has no `extends`, so the two are whole files rather than one and a delta.
 
 `ignoreExportsUsedInFile` is what makes the gate usable. It drops the two false positives that
 dominate: a constant used only in the file that exports it, and a member of a union that callers

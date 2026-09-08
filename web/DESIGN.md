@@ -574,28 +574,34 @@ that screen onto the stack.
 orchestrator, no daemon and no live agent.
 
 Use it before a visual change and after. jsdom computes no layout, so the test suite cannot
-answer whether prose ranks above a tool row, where a measure wraps, how a run of calls reads, or
-whether a docked control clears the thumb floor. A live session is a slow and unrepeatable way to
-ask.
+answer whether prose ranks above a tool row, where a measure wraps, how a run of calls reads,
+whether a docked control clears the thumb floor, or whether a stopped node reads as quieter than
+an idle one. A live session is a slow and unrepeatable way to ask, and on the board it can only
+show the states its agents happen to be in.
 
 Stories come in two shapes:
 
-| Shape     | Fixture                                            | Use it for                             |
-| --------- | -------------------------------------------------- | -------------------------------------- |
-| Component | `src/session/transcript.fixture.ts`                | one component's states, drawn directly |
-| Whole app | `src/test/seedWorld.ts` + `src/test/fakeServer.ts` | a surface reached by navigating        |
+| Shape     | Fixture                                                               | Use it for                             |
+| --------- | --------------------------------------------------------------------- | -------------------------------------- |
+| Component | `src/session/transcript.fixture.ts`, `src/canvas/taskNode.fixture.ts` | one component's states, drawn directly |
+| Whole app | `src/test/seedWorld.ts` + `src/test/fakeServer.ts`                    | a surface reached by navigating        |
 
 The whole-app shape mounts the real `App` on the fake server, through the same `deps` injection
 `renderApp` uses in the suite. A story therefore runs the production tree rather than a stand-in
 that can drift from it. `Documents / Review dock` is the worked example.
 
+A component fixture that stands for a state builds it with the production reader, never by hand:
+`taskNode.fixture.ts` reads every node's progress through `progressOf`. A story that hand-rolled
+one could draw a state the code cannot produce, which is the one thing a fixture must not do.
+
 The stories carry the states worth checking: prose against tool calls, a long ledger run, the
 truncation note, the narrow layout under the 30rem container query, a wide panel, every markdown
-element at panel width, and the review dock waiting and settled.
+element at panel width, the review dock waiting and settled, and every node state side by side.
 
-Ladle's width control drives the layout break, so the same story at 390px is the phone. Ladle's
-theme control switches the scheme the stories report, so check both. Light is not a courtesy
-mode.
+Ladle's width control drives the layout break, so the same story at 390px is the phone. Check both
+schemes; light is not a courtesy mode. Ladle's theme control switches its own chrome, but a story
+renders in an iframe that follows the operating system, so switch the scheme there — or launch a
+browser with the scheme forced — rather than trusting the toggle.
 
 ## Do's and Don'ts
 
