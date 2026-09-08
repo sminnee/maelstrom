@@ -2037,6 +2037,11 @@ class TestOpenHarness:
         assert result.exit_code == 0, result.output
         assert launch.call_args.kwargs["harness"] == "opencode"
 
+    def test_open_codex_shorthand(self, tmp_path):
+        result, launch = self._invoke(["open", "p/alpha", "--codex"], tmp_path)
+        assert result.exit_code == 0, result.output
+        assert launch.call_args.kwargs["harness"] == "codex"
+
     def test_claude_harness_flag(self, tmp_path):
         result, launch = self._invoke(
             ["open", "p/alpha", "--harness", "opencode"], tmp_path
@@ -2057,6 +2062,13 @@ class TestOpenHarness:
         )
         assert result.exit_code != 0
         assert "--claude" in result.output
+
+    def test_codex_shorthand_conflicts_with_harness_flag(self, tmp_path):
+        result, _ = self._invoke(
+            ["open", "p/alpha", "--harness", "opencode", "--codex"], tmp_path
+        )
+        assert result.exit_code != 0
+        assert "--codex" in result.output
 
 
 class TestAddHarness:

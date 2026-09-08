@@ -228,7 +228,7 @@ resolves its own conflicts instead.
 
 | Command | Description |
 |---|---|
-| `mael open [TARGET]` | Start a Claude Code session in a worktree. `--harness daemon\|claude\|opencode`, or the `--claude` / `--opencode` shorthands, picks the runner. |
+| `mael open [TARGET]` | Start an agent session in a worktree. `--harness daemon\|claude\|codex\|opencode`, or a harness shorthand, picks the runner. |
 | `mael add [BRANCH]` | Add a worktree for a branch and start a session in it. Takes the same harness flags. |
 | `mael ide [TARGET]` | Open a worktree in the configured editor. |
 | `mael session list` | List running Claude Code sessions. |
@@ -248,13 +248,14 @@ mael session end 97894d02          # stop that session
 ```
 
 **Harness choice.** `mael add`, `mael open`, `mael task run` and `mael task next --run`
-take `--harness daemon|claude|opencode` (default `daemon`), or the `--claude` and `--opencode`
-shorthands.
+take `--harness daemon|claude|codex|opencode` (default `daemon`). Each non-default
+harness also has a shorthand: `--claude`, `--codex`, or `--opencode`.
 
 | Harness | What pane 0 runs | Who owns the agent |
 |---|---|---|
 | `daemon` (default) | `mael agent attach <id>` | The agent daemon |
 | `claude` | `claude` | The pane |
+| `codex` | `codex` | The pane |
 | `opencode` | `opencode2` | The pane |
 
 With `daemon` the agent daemon runs the `claude` child, and the pane attaches to it as a client.
@@ -266,6 +267,10 @@ always did.
 With `claude` the pane runs `claude` itself. Nothing outside the pane sees the session, and
 Ctrl-C ends it.
 
+With `codex` the pane runs `codex`. Codex uses its configured model and permissions. Maelstrom
+does not pin, resume, or duplicate-guard Codex sessions. Each Codex launch starts fresh, and the
+task prompt is its opening positional argument.
+
 With `opencode` the session runs `opencode2`. OpenCode assigns its own session ids, so maelstrom
 does not pin, resume, or duplicate-guard those sessions — every opencode launch starts a fresh
 session, and the task prompt reaches it through `--prompt`.
@@ -274,8 +279,7 @@ When no harness flag is given, a shell inside OpenCode (`OPENCODE_TERMINAL=1`) d
 `opencode`. Every other shell defaults to `daemon`. `CLAUDECODE=1` is not a signal: every session
 maelstrom launches sets it, so detecting it would send every nested `mael open` back to the pane
 runner. An explicit flag always wins — pass `--harness daemon` to launch a driven agent from
-inside an OpenCode session. Two flags naming different harnesses is an error — `--claude
---opencode` and `--harness claude --opencode` both exit non-zero.
+inside an OpenCode session. Two harness flags that name different harnesses are an error.
 
 `mael task run --here` runs the session in the current shell, so the daemon has no meaning there.
 That path falls back to `claude`, and warns when you named the daemon rather than defaulting to
@@ -284,6 +288,7 @@ it.
 ```bash
 mael open                    # a driven agent; the pane attaches to it
 mael open --claude           # the legacy pane runner
+mael open --codex            # Codex in the pane
 mael open --harness opencode # opencode2 in the pane
 ```
 
@@ -476,8 +481,8 @@ the field.
 | `--run` | Launch the next actionable task as a session. |
 | `-b`, `--branch TEXT` | Restrict strictly to this branch. No fallback to other branches. |
 | `--here` | With `--run`, launch in the current shell. |
-| `--harness NAME` | Agent harness to launch: `claude` (default) or `opencode`. Defaults to the harness the command runs in when neither flag is given. |
-| `--opencode` | Shorthand for `--harness opencode`. |
+| `--harness NAME` | Agent harness to launch: `daemon` (default), `claude`, `codex`, or `opencode`. |
+| `--claude`, `--codex`, `--opencode` | Shorthand for the matching non-default harness. |
 
 By default `next` prefers a task on the current git branch, then falls back to the global
 next task.
@@ -487,8 +492,8 @@ next task.
 | Option | Description |
 |---|---|
 | `--here` | Launch in the current shell. No worktree, no new workspace. |
-| `--harness NAME` | Agent harness to launch: `claude` (default) or `opencode`. Defaults to the harness the command runs in when neither flag is given. |
-| `--opencode` | Shorthand for `--harness opencode`. |
+| `--harness NAME` | Agent harness to launch: `daemon` (default), `claude`, `codex`, or `opencode`. |
+| `--claude`, `--codex`, `--opencode` | Shorthand for the matching non-default harness. |
 
 **`mael task load-many`**
 
@@ -1038,4 +1043,3 @@ mael self-env status
 mael self-env restart agent-daemon   # the everyday daemon picks up new code
 mael self-env stop
 ```
-

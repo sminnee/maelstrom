@@ -12,6 +12,7 @@ import pytest
 from maelstrom.agent_transport import RecordingDaemonClient
 from maelstrom.shell import Command, Pipeline, describe, exec_cmd
 from maelstrom.worktree_launcher import (
+    HARNESS_REGISTRY,
     build_claude_command,
     build_harness_command,
     build_task_launch_line,
@@ -156,6 +157,14 @@ class TestBuildHarnessCommand:
             "auto", "abc-123", model="opus", harness="opencode"
         ) == ["opencode2"]
 
+    def test_codex_plain_command(self):
+        assert build_harness_command(harness="codex") == ["codex"]
+
+    def test_codex_ignores_claude_only_options(self):
+        assert build_harness_command(
+            "auto", "abc-123", model="opus", harness="codex"
+        ) == ["codex"]
+
     def test_unknown_harness_raises(self):
         with pytest.raises(ValueError, match="harness"):
             build_harness_command(harness="cursor")
@@ -171,77 +180,79 @@ class TestBuildHarnessCommand:
 class TestResolveHarness:
     """Tests for flag + environment precedence in harness resolution.
 
-    The default is the daemon. ``--claude`` and ``--opencode`` are shorthands
-    for the two legacy runners. Environment detection only survives for
-    opencode: an ``OPENCODE_TERMINAL`` session's ``mael task run`` stays in
-    opencode. ``CLAUDECODE`` is deliberately NOT detected — every session mael
-    launches sets it, so detecting it would pin every nested launch to the
-    legacy runner and defeat the daemon default.
+    The default harness has no shorthand. Every other direct harness does.
+    Environment detection only selects OpenCode. ``CLAUDECODE`` is not a
+    signal because every mael launch sets it.
     """
+
+    def test_only_the_default_harness_has_no_shorthand(self):
+        assert [spec.name for spec in HARNESS_REGISTRY if spec.shorthand is None] == [
+            "daemon"
+        ]
 
     def test_no_flag_no_env_is_daemon(self):
         with patch.dict(os.environ, {}, clear=True):
-            assert resolve_harness(None, False, False) == "daemon"
+            assert resolve_harness(None) == "daemon"
 
     def test_claude_flag_selects_claude(self):
         with patch.dict(os.environ, {}, clear=True):
-            assert resolve_harness(None, False, True) == "claude"
+            assert resolve_harness(None, ("claude",)) == "claude"
 
     def test_claude_flag_conflicts_with_other_harness(self):
         with patch.dict(os.environ, {}, clear=True):
             with pytest.raises(ValueError, match="--claude conflicts"):
-                resolve_harness("opencode", False, True)
+                resolve_harness("opencode", ("claude",))
 
     def test_claude_flag_agrees_with_harness_claude(self):
         with patch.dict(os.environ, {}, clear=True):
-            assert resolve_harness("claude", False, True) == "claude"
+            assert resolve_harness("claude", ("claude",)) == "claude"
 
     def test_the_two_shorthands_conflict_with_each_other(self):
         # Every other contradictory pair raises; this one must not quietly
         # pick a winner.
         with patch.dict(os.environ, {}, clear=True):
             with pytest.raises(ValueError, match="--claude conflicts"):
-                resolve_harness(None, True, True)
+                resolve_harness(None, ("opencode", "claude"))
 
     def test_opencode_flag_conflicts_with_other_harness(self):
         with patch.dict(os.environ, {}, clear=True):
             with pytest.raises(ValueError, match="--opencode conflicts"):
-                resolve_harness("claude", True, False)
+                resolve_harness("claude", ("opencode",))
 
     def test_opencode_flag_wins_over_claude_env(self):
         with patch.dict(os.environ, {"CLAUDECODE": "1"}, clear=True):
-            assert resolve_harness(None, True, False) == "opencode"
+            assert resolve_harness(None, ("opencode",)) == "opencode"
 
     def test_harness_flag_wins_over_opencode_env(self):
         with patch.dict(os.environ, {"OPENCODE_TERMINAL": "1"}, clear=True):
-            assert resolve_harness("claude", False, False) == "claude"
+            assert resolve_harness("claude") == "claude"
 
     def test_claude_env_does_not_select_claude(self):
         # Every mael-launched session exports CLAUDECODE=1, so detecting it
         # would make a `mael open` typed inside one fall back to the legacy
         # pane runner.
         with patch.dict(os.environ, {"CLAUDECODE": "1"}, clear=True):
-            assert resolve_harness(None, False, False) == "daemon"
+            assert resolve_harness(None) == "daemon"
 
     def test_opencode_env_detects_opencode(self):
         with patch.dict(os.environ, {"OPENCODE_TERMINAL": "1"}, clear=True):
-            assert resolve_harness(None, False, False) == "opencode"
+            assert resolve_harness(None) == "opencode"
 
     def test_both_env_vars_still_detect_opencode(self):
         # CLAUDECODE no longer votes, so OPENCODE_TERMINAL is the only signal
         # left and it decides.
         env = {"CLAUDECODE": "1", "OPENCODE_TERMINAL": "1"}
         with patch.dict(os.environ, env, clear=True):
-            assert resolve_harness(None, False, False) == "opencode"
+            assert resolve_harness(None) == "opencode"
 
     def test_daemon_is_selectable_by_name(self):
         with patch.dict(os.environ, {"OPENCODE_TERMINAL": "1"}, clear=True):
-            assert resolve_harness("daemon", False, False) == "daemon"
+            assert resolve_harness("daemon") == "daemon"
 
     def test_unknown_harness_raises(self):
         with patch.dict(os.environ, {}, clear=True):
             with pytest.raises(ValueError, match="Unknown harness"):
-                resolve_harness("cursor", False, False)
+                resolve_harness("cursor")
 
 
 class TestBuildTaskLaunchLineOpenCode:
@@ -295,6 +306,24 @@ class TestBuildTaskLaunchLineOpenCode:
             }
             subprocess.run(["sh", "-c", line], env=env, check=True, capture_output=True)
             assert out.read_text().strip() == "the prompt"
+
+
+class TestBuildTaskLaunchLineCodex:
+    """Tests for the Codex task launch line."""
+
+    def test_prompt_is_one_positional_argument(self):
+        assert describe(build_task_launch_line("proj", "t1", harness="codex")) == (
+            'codex "$(mael task prompt t1 --project proj)"'
+        )
+
+    def test_env_prefixes_codex(self):
+        line = describe(
+            build_task_launch_line(
+                "proj", "t1", harness="codex", env={"MAEL_TASK_ID": "t1"}
+            )
+        )
+        assert line.startswith("MAEL_TASK_ID=t1 codex ")
+        assert line.endswith('"$(mael task prompt t1 --project proj)"')
 
 
 class TestBuildTaskLaunchLine:

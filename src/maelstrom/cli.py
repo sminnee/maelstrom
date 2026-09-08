@@ -63,7 +63,7 @@ from .schedule_launchd import schedule_group
 from .session_cli import session as session_cli
 from .table import draw_table
 from .task_cli import _harness_options as _harness_flags
-from .task_cli import add_task, resolve_harness_or_fail
+from .task_cli import _selected_harness_shortcuts, add_task, resolve_harness_or_fail
 from .task_cli import task as task_cli
 from .task_index import StaleTaskIndexError
 from .util import error_text
@@ -324,9 +324,7 @@ async def cmd_create_project(ctx, name, public, description, projects_dir):
     help="Stack the new branch on BASE (default: the project's stack tip). "
     "Use 'main' to start unstacked.",
 )
-async def cmd_add(
-    branch, project, open, no_recycle, base, harness, opencode_flag, claude_flag
-):
+async def cmd_add(branch, project, open, no_recycle, base, harness):
     """Add a new worktree for a branch.
 
     If BRANCH is provided:
@@ -339,7 +337,7 @@ async def cmd_add(
 
     Use --no-recycle to always create a new worktree even when closed ones exist.
     """
-    resolved_harness = resolve_harness_or_fail(harness, opencode_flag, claude_flag)
+    resolved_harness = resolve_harness_or_fail(harness)
     try:
         ctx = resolve_context(
             project,
@@ -378,7 +376,7 @@ async def cmd_add(
             click.echo(f"App: {url}")
         run_install_cmd(worktree_path)
         if open:
-            if harness or opencode_flag or claude_flag:
+            if harness or _selected_harness_shortcuts():
                 # --open starts no session, so the harness flag is inert here.
                 click.echo(
                     "Warning: --open starts an editor, not a session; "
@@ -466,7 +464,7 @@ async def cmd_add(
     # pane on create, blocking in non-cmux), but the editor path has no launcher,
     # so run it blocking here.
     if open:
-        if harness or opencode_flag or claude_flag:
+        if harness or _selected_harness_shortcuts():
             # --open starts no session, so the harness flag is inert here.
             click.echo(
                 "Warning: --open starts an editor, not a session; "
@@ -816,7 +814,7 @@ async def cmd_list_all():
 @cli.command("open")
 @_harness_flags()
 @click.argument("target", required=False, default=None)
-async def cmd_open(target, harness: str | None, opencode_flag: bool, claude_flag: bool):
+async def cmd_open(target, harness: str | None):
     """Start a Claude Code CLI session in a worktree."""
     try:
         ctx = resolve_context(
@@ -836,7 +834,7 @@ async def cmd_open(target, harness: str | None, opencode_flag: bool, claude_flag
         worktree_path,
         ctx.project,
         ctx.worktree,
-        harness=resolve_harness_or_fail(harness, opencode_flag, claude_flag),
+        harness=resolve_harness_or_fail(harness),
     )
 
 
