@@ -15,6 +15,7 @@ export type NodeState =
   | 'working'
   | 'needs-attention'
   | 'idle'
+  | 'stopped'
   | 'finalising'
   | 'done'
   | 'cancelled'
@@ -95,7 +96,7 @@ function nodeState(
   // Ready is the one waiting state the operator can act on, so it is the one
   // that gets a hue: queued is waiting on other work, ready is waiting on them.
   if (!agent) return task?.actionable ? 'ready' : 'queued';
-  if (agent.state === 'exited') return 'idle';
+  if (agent.state === 'exited') return 'stopped';
   if (agent.state === 'processing') return 'working';
   return 'idle';
 }
@@ -130,9 +131,12 @@ function describeState(
       return queuedWords(task);
     case 'needs-attention':
       return needsYouWords(agent);
+    case 'stopped':
+      // A clean exit is the work finishing, not a fault, and a resume brings
+      // the session back, so it says finished rather than naming the exit.
+      return 'Finished';
     case 'idle':
-      // A clean exit is the work finishing, not a fault, so it says so.
-      return agent?.state === 'exited' ? 'Finished' : 'Idle';
+      return 'Idle';
   }
 }
 
@@ -278,12 +282,14 @@ export function zoneForState(state: NodeState): Zone {
     case 'done':
     case 'cancelled':
       return 'done';
-    // `exited` sits here rather than in done: a run that stopped without the
-    // task being marked done is not history, it is unfinished work that needs
-    // the operator, and the done zone is for work that is actually settled.
+    // `stopped` and `exited` sit here rather than in done: a run that ended
+    // without the task being marked done is not history, it is unfinished work
+    // that needs the operator, and the done zone is for work that is actually
+    // settled. A stopped session is resumable, which is the clearest case of it.
     case 'working':
     case 'needs-attention':
     case 'idle':
+    case 'stopped':
     case 'finalising':
     case 'exited':
       return 'running';

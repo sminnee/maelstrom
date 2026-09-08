@@ -63,6 +63,10 @@ disagrees with the agent is drift: `in-progress` with no agent, or `in-progress`
 stopped. Drift draws an amber caret and names both values on the card. It never counts as
 attention, because nothing is waiting on the user.
 
+A stopped agent draws recessed and says `Finished`, and on an `in-progress` task the card offers
+`done` as the fix. It stays in the running zone all the same: the session is resumable, so the
+work is unfinished rather than history.
+
 The card offers a fix only where the client can be sure of one. `finished` offers Mark done, and
 `orphan-session` offers Mark in-progress. `never-ran` offers none: the client reads it from the
 absence of an agent record, and a server that has just restarted has no record of an agent that
