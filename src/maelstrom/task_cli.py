@@ -97,7 +97,7 @@ def _harness_options():
 
     def decorator(f):
         for spec in reversed(HARNESS_REGISTRY):
-            if spec.shorthand is None:
+            if spec.default:
                 continue
             f = click.option(
                 spec.shorthand,

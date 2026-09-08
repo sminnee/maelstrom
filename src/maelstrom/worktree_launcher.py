@@ -58,8 +58,8 @@ class Harness:
     name: str
     command: tuple[str, ...] | None
     prompt_delivery: Literal["stdin", "argument", "option"] | None
+    shorthand: str
     default: bool = False
-    shorthand: str | None = None
     prompt_option: str | None = None
     detects_environment: str | None = None
     supports_task_session: bool = False
@@ -74,6 +74,7 @@ HARNESS_REGISTRY = (
         HARNESS_DAEMON,
         None,
         None,
+        "--daemon",
         default=True,
         supports_task_session=True,
         supports_permission_mode=True,
@@ -85,7 +86,7 @@ HARNESS_REGISTRY = (
         HARNESS_CLAUDE,
         ("claude",),
         "stdin",
-        shorthand="--claude",
+        "--claude",
         supports_task_session=True,
         supports_permission_mode=True,
         supports_model=True,
@@ -95,14 +96,14 @@ HARNESS_REGISTRY = (
         HARNESS_CODEX,
         ("codex",),
         "argument",
-        shorthand="--codex",
+        "--codex",
         open_cmux_workspace=True,
     ),
     Harness(
         HARNESS_OPENCODE,
         ("opencode2",),
         "option",
-        shorthand="--opencode",
+        "--opencode",
         prompt_option="--prompt",
         detects_environment="OPENCODE_TERMINAL",
         open_cmux_workspace=True,
@@ -227,13 +228,11 @@ def resolve_harness(harness: str | None, shortcuts: tuple[str, ...] = ()) -> str
     """
     selected = set(shortcuts)
     if len(selected) > 1:
-        flags = sorted(
-            harness_spec(name).shorthand or f"--harness {name}" for name in selected
-        )
+        flags = sorted(harness_spec(name).shorthand for name in selected)
         raise ValueError(f"{flags[0]} conflicts with {flags[1]}")
     if selected:
         selected_name = selected.pop()
-        flag = harness_spec(selected_name).shorthand or f"--harness {selected_name}"
+        flag = harness_spec(selected_name).shorthand
         if harness is not None and harness != selected_name:
             raise ValueError(f"{flag} conflicts with --harness {harness}")
         return selected_name

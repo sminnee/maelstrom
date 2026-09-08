@@ -185,9 +185,11 @@ class TestResolveHarness:
     signal because every mael launch sets it.
     """
 
-    def test_only_the_default_harness_has_no_shorthand(self):
-        assert [spec.name for spec in HARNESS_REGISTRY if spec.shorthand is None] == [
-            "daemon"
+    def test_only_non_default_harnesses_expose_shorthands(self):
+        assert [spec.shorthand for spec in HARNESS_REGISTRY if not spec.default] == [
+            "--claude",
+            "--codex",
+            "--opencode",
         ]
 
     def test_no_flag_no_env_is_daemon(self):
