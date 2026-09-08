@@ -91,6 +91,15 @@
   --z-card: 10;
 
   --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /*
+   * Markdown's headings only; nothing in the chrome takes it. A face change
+   * ranks a heading categorically, which is what the Rank Is Structural Rule
+   * asks for and what a size step alone cannot do. It falls through to
+   * `--font` literally, rather than restating that stack: a second copy drifts
+   * the first time one of them is edited, and the platform it drops would be
+   * the one where the fallback is most likely to be taken.
+   */
+  --font-display: 'Inter Tight', var(--font);
   --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   /* The tight radius an inline chip takes; 6px reads as a button at that size. */
   --radius-sm: 3px;

@@ -24,6 +24,10 @@ typography:
     fontSize: '18px'
     fontWeight: 600
     lineHeight: 1.3
+  display:
+    fontFamily: "'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif"
+    fontWeight: 600
+    lineHeight: '24px'
   reading:
     fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif"
     fontSize: '16px'
@@ -206,11 +210,18 @@ everything a human wrote or a human reads. Mono carries everything a machine pro
 branches, paths, commands, tool calls. The switch is semantic, not stylistic: mono is how the
 interface says "this is a literal string you may need to type or match".
 
-The system loads no webfont. Every face is the one the operating system already has, so text
-paints on the first frame with no swap, no reflow and no invisible period. The tokens name
-Inter and JetBrains Mono ahead of the system stack for anyone who has them installed, but
-nothing is fetched and no metric depends on them: the ramp below is tuned against the system
-faces, because that is what ships.
+The system fetches one webfont: the display face, Latin subset, at the single weight headings
+use. It is about 22kB and it is served from the bundle, never from a font CDN. This app binds
+local ports and is reached over a tailnet, so an operator console must not need the public
+internet to draw its own headings.
+
+Body text and mono still fetch nothing, so prose paints on the first frame. Headings paint in the
+interface face and swap when the display face arrives. The swap moves glyphs within a heading but
+never moves the text under it: every heading metric is a fixed pixel rather than a ratio, so a
+heading occupies the same rows either way and the grid holds whether the face arrives or not.
+
+The tokens name Inter and JetBrains Mono ahead of the system stack for anyone who has them
+installed, but no metric depends on them.
 
 ### Hierarchy
 
