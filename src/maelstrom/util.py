@@ -16,7 +16,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping
 
 
 def read_content_file(content_file: str | None) -> str:
@@ -101,6 +101,29 @@ def atomic_write_json(
     with open(tmp, "w") as f:
         json.dump(data, f, indent=indent, sort_keys=sort_keys)
     os.replace(tmp, path)
+
+
+#: Variables a child must never inherit, whatever set them.
+#:
+#: ``VIRTUAL_ENV`` is exported by a venv activation, and ``mael`` itself lives in
+#: ``_main/.venv/bin`` — so every process it spawns inherits ``_main``'s venv.
+#: That value names the wrong venv in every worktree but ``_main``, and means
+#: nothing at all to a child that is not a Python program.
+STRIPPED_CHILD_ENV = ("VIRTUAL_ENV",)
+
+
+def sanitise_child_env(env: Mapping[str, str]) -> dict[str, str]:
+    """A copy of *env* without the variables no child should inherit.
+
+    Takes the environment as an argument rather than reading ``os.environ``, so
+    it stays pure and both callers — the service spawner and the agent daemon —
+    can hand it whatever base they hold.
+
+    ``PATH`` is deliberately left alone. It carries ``_main/.venv/bin`` for the
+    same reason ``VIRTUAL_ENV`` does, but rewriting it changes which binary
+    every child resolves, which is a far wider change than this fixes.
+    """
+    return {k: v for k, v in env.items() if k not in STRIPPED_CHILD_ENV}
 
 
 def harden_path(path: Path, mode: int) -> bool:

@@ -30,7 +30,7 @@ from maelstrom.services import (
     discover_container_ip,
 )
 from maelstrom.session_discovery import LiveSession
-from maelstrom.util import now_iso
+from maelstrom.util import now_iso, sanitise_child_env
 from maelstrom.worktree import read_env_file, regenerate_env_file, run_install_cmd
 
 # --- Dataclasses ---
@@ -371,10 +371,12 @@ def remove_shared_state(store: EnvStore, project: str) -> None:
 def build_service_env(worktree_path: Path) -> dict[str, str]:
     """Build the environment dict for spawned services.
 
-    Starts with the current process environment and overlays
-    variables from the worktree's .env file.
+    Starts with the current process environment, minus the variables no child
+    should inherit, and overlays variables from the worktree's .env file. The
+    overlay runs second, so a worktree that names one of the stripped variables
+    deliberately still gets its value.
     """
-    env = os.environ.copy()
+    env = sanitise_child_env(os.environ)
     env.update(read_env_file(worktree_path))
     return env
 

@@ -309,6 +309,22 @@ def test_env_leaves_the_caller_the_last_word():
     assert env["CLAUDECODE"] == "1"
 
 
+def test_env_drops_the_inherited_virtualenv():
+    # The daemon is started as a service from `_main`, so its own VIRTUAL_ENV
+    # names `_main`'s venv — the wrong one for an agent in any other worktree.
+    env = build_agent_env({"PATH": "/bin", "VIRTUAL_ENV": "/p/_main/.venv"}, None)
+    assert "VIRTUAL_ENV" not in env
+    assert env["PATH"] == "/bin"
+
+
+def test_env_lets_a_client_set_the_virtualenv_outright():
+    # The socket contract has no allowlist, and the scrub does not add one.
+    env = build_agent_env(
+        {"VIRTUAL_ENV": "/p/_main/.venv"}, {"VIRTUAL_ENV": "/p/alpha/.venv"}
+    )
+    assert env["VIRTUAL_ENV"] == "/p/alpha/.venv"
+
+
 def test_env_does_not_mutate_the_base():
     base = {"CLAUDECODE": "1"}
     build_agent_env(base, None)
