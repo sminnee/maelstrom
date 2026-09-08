@@ -66,7 +66,8 @@ because the shared pass wrote last. That is the clobber described above.
 
 `mael env start` builds each service's environment in three layers. A later layer wins:
 
-1. The environment of the `mael` process itself.
+1. The environment of the `mael` process itself, less the variables in
+   [Variables never passed on](#variables-never-passed-on).
 2. The worktree's `.env` file.
 3. The service's own `env:` block in `.maelstrom.yaml`, with `$VAR` substituted from layers 1
    and 2. An unknown `$VAR` is left as written, matching shell behaviour.
@@ -77,6 +78,24 @@ values for the same name.
 | Variable | Set by | Meaning |
 |---|---|---|
 | `host_var` (the name you choose) | `mael env start` | The polled VM IP of a shared `apple-container` service, e.g. `DB_HOST`. It lands in the spawn environment of sibling services only, never in `.env`. |
+
+### Variables never passed on
+
+`mael` drops these from its own environment before it starts a child. A child that needs one
+still gets it from a later layer: the worktree's `.env` for a service, or the `env` a socket
+client sends for an agent.
+
+| Variable | Why it is dropped |
+|---|---|
+| `VIRTUAL_ENV` | A venv activation exports this, and `mael` runs from `_main/.venv`. Every child therefore inherits `_main`'s venv, which names the wrong venv in each other worktree and means nothing to a child that is not a Python program. |
+
+`PATH` keeps `_main/.venv/bin` at the front. Rewriting `PATH` would change which binary every
+child resolves, which is a wider change than the problem needs.
+
+Agent sessions drop three more. `CLAUDECODE` and `CLAUDE_CODE_CHILD_SESSION` can stop the child
+writing the transcript a resume depends on. `CMUX_CLAUDE_HOOKS_DISABLED` is set rather than
+dropped: it tells cmux's `claude` shim to run the real binary untouched, because a driven agent
+is not an editor session.
 
 ### Into launched Claude sessions
 

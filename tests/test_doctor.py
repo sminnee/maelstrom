@@ -399,6 +399,62 @@ class TestDoctor:
             assert main_check[0].status == CheckStatus.WARNING
 
 
+class TestCheckEditableInstall:
+    """The shared editable install must point into `_main`.
+
+    A `.pth` repointed at a worktree makes every bare `mael` on the machine run
+    that worktree's in-progress code, which surfaces as a syntax error from a
+    file the user was not editing.
+    """
+
+    def _setup(self, tmp_path, target=None):
+        """A project with `_main/.venv`, whose `.pth` names *target*."""
+        project_path = tmp_path / "proj"
+        site = project_path / "_main" / ".venv" / "lib" / "python3.13" / "site-packages"
+        site.mkdir(parents=True)
+        if target is not None:
+            (site / "_editable_impl_proj.pth").write_text(f"{target}\n")
+        return project_path
+
+    def test_ok_when_it_points_into_main(self, tmp_path):
+        from maelstrom.doctor import _check_editable_install
+
+        project_path = self._setup(tmp_path, tmp_path / "proj" / "_main" / "src")
+
+        result = _check_editable_install(project_path)
+        assert result.status == CheckStatus.OK
+
+    def test_warns_when_it_points_at_a_worktree(self, tmp_path):
+        from maelstrom.doctor import _check_editable_install
+
+        project_path = self._setup(tmp_path, tmp_path / "proj" / "proj-lima" / "src")
+
+        result = _check_editable_install(project_path)
+        assert result.status == CheckStatus.WARNING
+        # Name the wrong target, so the reader sees which worktree captured it.
+        assert "proj-lima" in result.message
+        # And the repair, so they can act without reading the source.
+        assert "uv sync" in result.message
+
+    def test_ok_when_there_is_no_venv(self, tmp_path):
+        """Not every project is installed this way."""
+        from maelstrom.doctor import _check_editable_install
+
+        project_path = tmp_path / "proj"
+        project_path.mkdir()
+
+        result = _check_editable_install(project_path)
+        assert result.status == CheckStatus.OK
+
+    def test_ok_when_the_venv_holds_no_editable_install(self, tmp_path):
+        from maelstrom.doctor import _check_editable_install
+
+        project_path = self._setup(tmp_path, target=None)
+
+        result = _check_editable_install(project_path)
+        assert result.status == CheckStatus.OK
+
+
 class TestCheckSecretFilePerms:
     """Tests for the _check_secret_file_perms doctor check."""
 
