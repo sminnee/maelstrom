@@ -28,15 +28,8 @@
   border-radius: var(--radius);
   box-shadow: var(--shadow-card);
 }
-/*
- * The offsets sit under `:popover-open`, and the pseudo-class is load-bearing.
- * `composes` brings in `inset: unset`, a shorthand for all four offsets, so it
- * competes with these rather than only preceding them. Two bare single-class
- * selectors tie at (0,1,0) and the cascade falls back to injection order, which
- * this file does not control — lose that toss and the offer draws at the
- * viewport origin. `:popover-open` lifts these to (0,2,0), which wins either
- * way. See `anchoredPopover.module.css`.
- */
+/* Under `:popover-open`, not on the bare class — the pseudo-class is what wins
+   the tie against the composed `inset: unset`. See `anchoredPopover.module.css`. */
 .list:popover-open {
   top: calc(anchor(bottom) + 2px);
   left: anchor(left);

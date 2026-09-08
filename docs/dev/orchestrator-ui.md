@@ -368,11 +368,9 @@ backdrop and the focus trap, so neither is written here. Escape arrives as `canc
 control inside can stop first — the combo box does, so one press dismisses its offer and a second
 closes the dialog.
 
-The combo box offer is a `popover`, anchored to its field by CSS. The pattern has two halves,
+The combobox offer is a `popover`, anchored to its field by CSS. The pattern has two halves,
 `ui/useAnchorName.ts` and `ui/anchoredPopover.module.css`, and it is only correct when both are
-applied. Each carries its reasoning; read them before you add a third popover. The one rule worth
-repeating here: a popover's offsets go under `:popover-open`, never on the bare class, or the
-cascade can reset them and the popover draws at the viewport origin.
+applied. Each carries its reasoning; read them before you add a third popover.
 
 CSS anchor positioning is not in Firefox or Safari yet. They fall back to ordinary absolute
 positioning, which reads about right; Chromium is where this is exact.

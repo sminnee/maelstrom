@@ -16,9 +16,8 @@ import { useId, type CSSProperties } from 'react';
  * computes to zero and the popover lands at the viewport origin. The canvas is transformed, so
  * this is not hypothetical here.
  *
- * `useId` supplies the uniqueness, but its output is not always a valid CSS identifier: React 19
- * emits `_r_<base32>_`, which is, and React 18 emitted `:r0:`, which is not. The strip guards that
- * difference, so an upgrade cannot quietly produce a name the browser drops.
+ * `useId` supplies the uniqueness, but its output is not guaranteed to be a valid CSS
+ * identifier — React has emitted `:r0:`, which is not. The strip guards that.
  */
 export function useAnchorName(): { anchorName: string; anchorStyle: CSSProperties } {
   const anchorName = `--el-${useId().replaceAll(':', '')}`;

@@ -599,10 +599,9 @@ open-in-panel icon.
 _Avoid_: Open button
 
 **Offer**:
-The list a combo box shows under its field: the options that match what is typed, which the user
+The list a combobox shows under its field: the options that match what is typed, which the user
 may take or ignore. It narrows as the user types and closes when nothing matches, because the
-field keeps free text either way. It draws in the browser's top layer, so the scrolling dialog
-around it cannot clip it.
+field keeps free text either way.
 _Avoid_: Dropdown, autocomplete list, suggestions, menu
 
 **External link**:
