@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ComboBox, type ComboOption } from './ComboBox';
@@ -49,6 +49,10 @@ function rows() {
 }
 
 describe('ComboBox', () => {
+  // The placement tests spy on `innerHeight` and `scrollHeight`. `restoreMocks`
+  // is not set, so without this they would leak into the tests that follow.
+  afterEach(() => vi.restoreAllMocks());
+
   it('is labelled and reachable as a combobox', () => {
     const { input } = setup(BRANCHES);
     expect(input).toHaveRole('combobox');
@@ -151,6 +155,72 @@ describe('ComboBox', () => {
     const { input } = setup([]);
     await user.click(input);
     expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('anchors the offer to the field, and writes no coordinates of its own', async () => {
+    // jsdom lays out no anchors, so this asserts the contract rather than the pixels — the pair
+    // is joined, and nothing measured the field to write `left`/`top` instead. Only a browser
+    // shows a broken anchor, so this is a guard, not the proof.
+    const user = userEvent.setup();
+    const { input } = setup(BRANCHES);
+    await user.click(input);
+    const list = screen.getByRole('listbox');
+
+    const anchor = input.style.getPropertyValue('--anchor-name');
+    expect(anchor).not.toBe('');
+    expect(list.style.getPropertyValue('--anchor-name')).toBe(anchor);
+    expect(list).toHaveAttribute('popover');
+    expect(list.style.left).toBe('');
+    expect(list.style.top).toBe('');
+  });
+
+  it('opens upward only when the offer does not fit below the field', async () => {
+    // A short window often leaves more room above the field than below it. That
+    // alone must not flip the offer: what matters is whether it fits below,
+    // because a flip a user did not need reads as a jump.
+    const user = userEvent.setup();
+    // 300px tall, field 200px down: 100px below, 200px above. A three-row offer
+    // fits below; a full-height one does not.
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(300);
+    const short = vi.spyOn(HTMLUListElement.prototype, 'scrollHeight', 'get').mockReturnValue(60);
+    const { input } = setup(BRANCHES);
+    // The control measures the field it is anchored to, so place that one.
+    input.getBoundingClientRect = () =>
+      ({ top: 200, bottom: 226, left: 0, right: 100, width: 100, height: 26 }) as DOMRect;
+
+    await user.click(input);
+    expect(screen.getByRole('listbox').dataset.position).toBe('bottom');
+
+    // The same field, with an offer too tall for the room below it. Reopened by
+    // typing: a click does not, because the focus never left the input.
+    await user.keyboard('{Escape}');
+    short.mockReturnValue(400);
+    await user.type(input, 'f');
+    const list = screen.getByRole('listbox');
+    expect(list.dataset.position).toBe('top');
+    // Capped to the room it has, so it cannot run off the top of the screen.
+    expect(list.style.maxHeight).toBe('198px');
+  });
+
+  it('re-places the offer as typing narrows it', async () => {
+    // Typing does not reopen the offer, so a placement made once at open goes
+    // stale: an offer that had to open upward at full height still opens
+    // upward after a keystroke cuts it to one row.
+    const user = userEvent.setup();
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(300);
+    const height = vi.spyOn(HTMLUListElement.prototype, 'scrollHeight', 'get').mockReturnValue(400);
+    const { input } = setup(BRANCHES);
+    // The control measures the field it is anchored to, so place that one.
+    input.getBoundingClientRect = () =>
+      ({ top: 200, bottom: 226, left: 0, right: 100, width: 100, height: 26 }) as DOMRect;
+
+    await user.click(input);
+    expect(screen.getByRole('listbox').dataset.position).toBe('top');
+
+    // One row now, which fits in the 72px below the field.
+    height.mockReturnValue(30);
+    await user.type(input, 'log');
+    expect(screen.getByRole('listbox').dataset.position).toBe('bottom');
   });
 
   it('shows the value it is given', () => {
