@@ -7,8 +7,10 @@ import styles from './StatusPicker.module.css';
  * A task's status, as text until it is clicked, then a native select. A move
  * the server refuses shows its message beside the control.
  *
- * Native, not a popover: the task list scrolls under `overflow: auto` and the
- * canvas pans and zooms, so a popover would clip or sit in the wrong place.
+ * Native, not a popover. The anchored-popover pattern would serve here now --
+ * a popover draws in the top layer, which the scrolling task list and the
+ * panning canvas cannot clip. See `anchoredPopover.module.css`. Moving this
+ * control to it is a separate change.
  *
  * The parent owns which control is picking, because the task list opens one
  * picker at a time across its rows.

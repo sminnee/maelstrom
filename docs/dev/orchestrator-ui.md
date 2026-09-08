@@ -357,6 +357,26 @@ surfaces cannot drift on what a task's fields are.
 offers a list and keeps anything else typed. A row can carry a label apart from its value, so the
 Issue field offers an issue by its title and submits its id.
 
+### The top layer
+
+Two controls draw outside the page's own stacking: the dialog, and the combo box offer inside it.
+Both use the browser's top layer, because a dialog scrolls and an ordinary element cannot escape a
+scrolling ancestor whatever its `z-index`.
+
+`ui/Dialog.tsx` is a native `<dialog>` opened with `showModal()`. That is what supplies the
+backdrop and the focus trap, so neither is written here. Escape arrives as `cancel`, which a
+control inside can stop first — the combo box does, so one press dismisses its offer and a second
+closes the dialog.
+
+The combo box offer is a `popover`, anchored to its field by CSS. The pattern has two halves,
+`ui/useAnchorName.ts` and `ui/anchoredPopover.module.css`, and it is only correct when both are
+applied. Each carries its reasoning; read them before you add a third popover. The one rule worth
+repeating here: a popover's offsets go under `:popover-open`, never on the bare class, or the
+cascade can reset them and the popover draws at the viewport origin.
+
+CSS anchor positioning is not in Firefox or Safari yet. They fall back to ordinary absolute
+positioning, which reads about right; Chromium is where this is exact.
+
 Inference, a launch and a Linear read can each take tens of seconds, so every one of these hooks
 takes `SLOW_CALL_TIMEOUT_MS`. A refusal shows in the form, which stays open holding what was
 typed — the one place besides the task list's status select where a view keeps an error of its
