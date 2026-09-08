@@ -15,6 +15,7 @@ from maelstrom.util import (
     harden_path,
     locked_file,
     now_iso,
+    sanitise_child_env,
 )
 
 
@@ -219,3 +220,27 @@ class TestErrorText:
 
     def test_a_non_string_key_error_arg_is_rendered(self):
         assert error_text(KeyError(42)) == "42"
+
+
+class TestSanitiseChildEnv:
+    """`mael` lives in `_main/.venv/bin`, so a child inherits `_main`'s venv."""
+
+    def test_drops_the_inherited_virtualenv(self):
+        env = sanitise_child_env({"VIRTUAL_ENV": "/p/_main/.venv", "HOME": "/Users/x"})
+        assert "VIRTUAL_ENV" not in env
+        assert env["HOME"] == "/Users/x"
+
+    def test_leaves_path_alone(self):
+        # PATH is deliberately untouched: a child that resolves `mael` or `uv`
+        # through it must keep finding the same binary.
+        path = "/p/_main/.venv/bin:/usr/bin"
+        env = sanitise_child_env({"VIRTUAL_ENV": "/p/_main/.venv", "PATH": path})
+        assert env["PATH"] == path
+
+    def test_does_not_mutate_the_caller_s_environment(self):
+        base = {"VIRTUAL_ENV": "/p/_main/.venv"}
+        sanitise_child_env(base)
+        assert base == {"VIRTUAL_ENV": "/p/_main/.venv"}
+
+    def test_an_environment_without_one_is_unchanged(self):
+        assert sanitise_child_env({"HOME": "/Users/x"}) == {"HOME": "/Users/x"}

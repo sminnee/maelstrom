@@ -344,6 +344,25 @@ class TestBuildServiceEnv:
         env = build_service_env(Path("/some/worktree"))
         assert env["PATH"] == "/usr/bin"
 
+    @patch("maelstrom.env.read_env_file")
+    def test_drops_the_inherited_virtualenv(self, mock_read, monkeypatch):
+        """`mael` runs from `_main/.venv`, which is the wrong venv for a service."""
+        monkeypatch.setenv("VIRTUAL_ENV", "/p/_main/.venv")
+        monkeypatch.setenv("PATH", "/p/_main/.venv/bin:/usr/bin")
+        mock_read.return_value = {}
+        env = build_service_env(Path("/some/worktree"))
+        assert "VIRTUAL_ENV" not in env
+        # PATH is untouched, so the service resolves the same binaries.
+        assert env["PATH"] == "/p/_main/.venv/bin:/usr/bin"
+
+    @patch("maelstrom.env.read_env_file")
+    def test_a_worktree_may_name_its_own_virtualenv(self, mock_read, monkeypatch):
+        """The .env overlay still wins, so a deliberate value survives."""
+        monkeypatch.setenv("VIRTUAL_ENV", "/p/_main/.venv")
+        mock_read.return_value = {"VIRTUAL_ENV": "/p/alpha/.venv"}
+        env = build_service_env(Path("/some/worktree"))
+        assert env["VIRTUAL_ENV"] == "/p/alpha/.venv"
+
 
 class TestIsServiceAlive:
     """Tests for is_service_alive function."""
