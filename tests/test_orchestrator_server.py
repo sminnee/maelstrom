@@ -3991,6 +3991,42 @@ def test_a_client_arriving_is_read_for_at_once(harness_factory):
     assert asyncio.run(scenario()) == 1
 
 
+def test_a_client_reconnecting_inside_the_interval_does_not_read_again(harness_factory):
+    """A stream that drops and returns must not read on every arrival.
+
+    The interval is the floor between reads whatever triggered them. Contrast
+    ``test_a_client_arriving_is_read_for_at_once``: the first arrival reads
+    because the world sat unwatched, and these do not because it did not sit
+    long enough to go stale.
+    """
+    harness = harness_factory(worktree_poll=30.0)
+
+    async def scenario():
+        await harness.orch.start()
+        # The arrival that legitimately reads, so what follows is the
+        # returning client's cost alone.
+        with harness.orch.notices.subscribe():
+            assert harness.orch._catch_up is not None
+            await harness.orch._catch_up
+        settled = harness.worktrees.reads
+        catch_up = harness.orch._catch_up
+        for _ in range(5):
+            with harness.orch.notices.subscribe():
+                # The room empties between these, so each is a first
+                # subscriber — the reconnect this test is about. An
+                # unguarded arrival replaces this task with a fresh read, so
+                # awaiting drains that read rather than sampling the count
+                # while it is still in flight.
+                await harness.orch._catch_up
+        # The guard held: no arrival scheduled a read of its own.
+        assert harness.orch._catch_up is catch_up
+        read = harness.worktrees.reads - settled
+        await harness.orch.stop()
+        return read
+
+    assert asyncio.run(scenario()) == 0
+
+
 def test_a_rate_limited_read_stands_the_poll_off(harness_factory):
     """Retrying a spent budget at the usual cadence keeps it spent.
 

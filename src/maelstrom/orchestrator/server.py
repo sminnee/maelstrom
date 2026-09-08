@@ -190,6 +190,11 @@ class Orchestrator:
         #: has not refused it. Held here rather than as a sleep inside the poll
         #: so an arriving client honours the same stand-off.
         self._stand_off_until: float | None = None
+        #: Loop time the last arrival-triggered read finished, or ``None``
+        #: while no client has been read for. Only arrivals are spaced by it:
+        #: the poll's own tick is already spaced by its sleep. The poll
+        #: interval is the arrival floor by design, so tuning one tunes both.
+        self._served_at: float | None = None
         self._task_version: Any = _NEVER
         self._worktree_read = asyncio.Lock()
         self._pollers: list[asyncio.Task[None]] = []
@@ -271,6 +276,18 @@ class Orchestrator:
             return False
         return True
 
+    def _kept_fresh(self) -> bool:
+        """Whether an arriving client was already read for inside the interval.
+
+        Only a read an arrival triggered counts: ``start`` and the poll both
+        read for clients already watching, so neither says the next client to
+        arrive has been served. See docs/dev/orchestrator-server.md.
+        """
+        if self._served_at is None:
+            return False
+        elapsed = asyncio.get_running_loop().time() - self._served_at
+        return elapsed < self._worktree_poll
+
     def _watch_arrived(self) -> None:
         """Catch the world up for a client that just subscribed.
 
@@ -285,6 +302,8 @@ class Orchestrator:
         if self._catch_up is not None and not self._catch_up.done():
             return
         if self._standing_off():
+            return
+        if self._kept_fresh():
             return
         self._catch_up = asyncio.create_task(self._catch_up_read())
 
@@ -301,6 +320,10 @@ class Orchestrator:
             log.warning("GitHub rate limit reached; serving the last known PR state")
         except Exception:  # noqa: BLE001 — mirrors the poller's own guard
             log.exception("catch-up read failed")
+        finally:
+            # Stamped from the end, and stamped even on failure: a source that
+            # refuses every read must not be asked once per reconnect.
+            self._served_at = asyncio.get_running_loop().time()
 
     async def _poll(
         self,
