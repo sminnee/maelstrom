@@ -68,11 +68,11 @@ def build_orchestrator(*, executor: Executor | None = None) -> Orchestrator:
         except (ValueError, WorktreeError) as exc:
             raise LaunchBlocked(str(exc)) from exc
 
-    def close_worktree(project: str, nato: str, path: str) -> None:
+    async def close_worktree(project: str, nato: str, path: str) -> None:
         # Never forced: unmerged work is refused, and the model's own message
         # is what the button shows. Forcing writes a wip commit and a reopen
         # task, which is too much for one click — ``mael close --force`` does it.
-        outcome = close_worktree_fully(
+        outcome = await close_worktree_fully(
             project, nato, Path(path), projects_dir / project, force=False
         )
         if not outcome.close.success:

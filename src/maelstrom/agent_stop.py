@@ -12,30 +12,20 @@ sweep still runs after, and still catches a session the daemon does not own.
 This lives beside ``agent_cli`` rather than inside it so ``cli`` can import the
 one function without pulling in a Click command group.
 
-The transport is async and no caller here holds a loop — ``mael close`` is a
-synchronous command, and the orchestrator reaches this on its worker thread —
-so this module opens one. Converting ``worktree_close.close_worktree_fully``
-is what removes it.
 """
 
-import asyncio
 from pathlib import Path
 
 from .agent_transport import client as daemon_client
 
 
-def stop_agents_in_worktree(worktree_path: Path) -> list[str]:
+async def stop_agents_in_worktree(worktree_path: Path) -> list[str]:
     """Stop every daemon agent whose cwd is ``worktree_path``. One line each.
 
     Best-effort: a daemon that cannot be reached, or a stop it refuses, is
     reported and never raised. The close must not fail because the daemon is
     down, and the pid sweep that follows still tears the session down.
     """
-    return asyncio.run(_stop_agents_in_worktree(worktree_path))
-
-
-async def _stop_agents_in_worktree(worktree_path: Path) -> list[str]:
-    """The body. :func:`stop_agents_in_worktree` is the sync wrapper."""
     client = daemon_client()
     reply = await client.request({"cmd": "list"})
     if reply.get("error"):

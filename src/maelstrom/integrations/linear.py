@@ -8,6 +8,7 @@ from typing import Any
 
 import click
 
+from ..cli_async import AsyncGroup
 from ..config import load_config_or_default
 from ..context import resolve_context
 
@@ -544,7 +545,7 @@ def get_workspace_labels() -> list[str]:
 # --- Click Commands ---
 
 
-@click.group("linear")
+@click.group("linear", cls=AsyncGroup)
 def linear():
     """Linear task management commands."""
     pass
@@ -827,7 +828,7 @@ def build_plan_task(
     is_flag=True,
     help="With --run, launch in the current shell (no worktree, no new workspace).",
 )
-def cmd_plan(
+async def cmd_plan(
     issue_id: str,
     project: str | None,
     command: str | None,
@@ -868,7 +869,7 @@ def cmd_plan(
     resolved_project = task_cli._resolve_project(project)
     planned = build_plan_task(issue_id, resolved_project, branch=branch)
 
-    task_cli.add_task(
+    await task_cli.add_task(
         title=planned["title"],
         project=resolved_project,
         command=planned["command"] if command is None else command,

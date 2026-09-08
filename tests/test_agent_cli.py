@@ -576,21 +576,21 @@ class TestStopAgentsInWorktree:
     records a crash, leaving a phantom in `mael agent list --all`.
     """
 
-    def _stop(self, replies, path="/wt/alpha"):
+    async def _stop(self, replies, path="/wt/alpha"):
         client = RecordingDaemonClient(replies=list(replies))
         agent_transport.client_factory = lambda **_: client
         try:
-            return stop_agents_in_worktree(Path(path)), client
+            return await stop_agents_in_worktree(Path(path)), client
         finally:
             agent_transport.client_factory = SocketAsyncDaemonClient
 
-    def test_stops_only_the_agents_in_that_worktree(self):
+    async def test_stops_only_the_agents_in_that_worktree(self):
         rows = [
             {"id": "a1", "cwd": "/wt/alpha"},
             {"id": "a2", "cwd": "/wt/bravo"},
             {"id": "a3", "cwd": "/wt/alpha"},
         ]
-        messages, client = self._stop([{"agents": rows}])
+        messages, client = await self._stop([{"agents": rows}])
         assert client.calls == [
             {"cmd": "list"},
             {"cmd": "stop", "id": "a1"},
@@ -598,20 +598,24 @@ class TestStopAgentsInWorktree:
         ]
         assert messages == ["agent a1: stopped", "agent a3: stopped"]
 
-    def test_no_agents_there_sends_no_stop(self):
-        messages, client = self._stop([{"agents": [{"id": "a2", "cwd": "/wt/bravo"}]}])
+    async def test_no_agents_there_sends_no_stop(self):
+        messages, client = await self._stop(
+            [{"agents": [{"id": "a2", "cwd": "/wt/bravo"}]}]
+        )
         assert client.calls == [{"cmd": "list"}]
         assert messages == []
 
-    def test_an_unreachable_daemon_is_silent(self):
+    async def test_an_unreachable_daemon_is_silent(self):
         # The close must not fail because the daemon is down; the pid sweep
         # that follows still tears the session down.
-        messages, client = self._stop([_unreachable("/x")])
+        messages, client = await self._stop([_unreachable("/x")])
         assert messages == []
 
-    def test_a_refused_stop_is_reported_not_raised(self):
+    async def test_a_refused_stop_is_reported_not_raised(self):
         rows = [{"id": "a1", "cwd": "/wt/alpha"}]
-        messages, _ = self._stop([{"agents": rows}, {"error": "agent a1 has exited"}])
+        messages, _ = await self._stop(
+            [{"agents": rows}, {"error": "agent a1 has exited"}]
+        )
         assert messages == ["agent a1: agent a1 has exited"]
 
 

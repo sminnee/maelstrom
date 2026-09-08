@@ -109,7 +109,7 @@ from .worktree_model import (
 START_BRANCH = "feat/start-project"
 
 
-def _launch_claude_or_raise(
+async def _launch_claude_or_raise(
     worktree_path: Path,
     project: str | None,
     worktree: str | None,
@@ -126,7 +126,7 @@ def _launch_claude_or_raise(
     answer, or a cmux that would not start — so this message points at both
     rather than blaming cmux for a failure that was not its.
     """
-    if not launch_claude_in_worktree(
+    if not await launch_claude_in_worktree(
         worktree_path, project=project, worktree=worktree, harness=harness
     ):
         raise click.ClickException(
@@ -216,7 +216,7 @@ def cmd_add_project(git_url, projects_dir):
     help="Base directory for projects (default from ~/.maelstrom/config.yaml or ~/Projects)",
 )
 @click.pass_context
-def cmd_create_project(ctx, name, public, description, projects_dir):
+async def cmd_create_project(ctx, name, public, description, projects_dir):
     """Create a GitHub repository and check it out for use with maelstrom.
 
     NAME is the repository name, optionally as ``owner/name``. The new
@@ -288,7 +288,7 @@ def cmd_create_project(ctx, name, public, description, projects_dir):
     # The repository and the checkout are both done by now, so a failure here
     # must not read as "nothing happened": say what exists and how to retry.
     try:
-        ctx.invoke(cmd_add, branch=START_BRANCH, project=project_name)
+        await ctx.invoke(cmd_add, branch=START_BRANCH, project=project_name)
     except Exception as e:
         raise click.ClickException(
             f"Project is checked out at {project_path}, but opening a worktree "
@@ -318,7 +318,7 @@ def cmd_create_project(ctx, name, public, description, projects_dir):
     help="Stack the new branch on BASE (default: the project's stack tip). "
     "Use 'main' to start unstacked.",
 )
-def cmd_add(
+async def cmd_add(
     branch, project, open, no_recycle, base, harness, opencode_flag, claude_flag
 ):
     """Add a new worktree for a branch.
@@ -388,7 +388,7 @@ def cmd_add(
             except RuntimeError as e:
                 click.echo(f"Warning: Could not open worktree: {e}", err=True)
         else:
-            _launch_claude_or_raise(
+            await _launch_claude_or_raise(
                 worktree_path, ctx.project, wt_name, harness=resolved_harness
             )
         return
@@ -477,7 +477,7 @@ def cmd_add(
         except RuntimeError as e:
             click.echo(f"Warning: Could not open worktree: {e}", err=True)
     else:
-        _launch_claude_or_raise(
+        await _launch_claude_or_raise(
             worktree_path, ctx.project, wt_name, harness=resolved_harness
         )
 
@@ -817,7 +817,7 @@ async def cmd_list_all():
 @cli.command("open")
 @_harness_flags()
 @click.argument("target", required=False, default=None)
-def cmd_open(target, harness: str | None, opencode_flag: bool, claude_flag: bool):
+async def cmd_open(target, harness: str | None, opencode_flag: bool, claude_flag: bool):
     """Start a Claude Code CLI session in a worktree."""
     try:
         ctx = resolve_context(
@@ -833,7 +833,7 @@ def cmd_open(target, harness: str | None, opencode_flag: bool, claude_flag: bool
     if worktree_path is None or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
-    _launch_claude_or_raise(
+    await _launch_claude_or_raise(
         worktree_path,
         ctx.project,
         ctx.worktree,
@@ -1253,7 +1253,7 @@ def cmd_sync(target, squash, base, abort, close, no_push, autorepair):
     help="Close even with unmerged/unresolved work; aborts an in-progress sync and "
     "creates a 'reopen the branch' task.",
 )
-def cmd_close(targets, wait, timeout, interval, force):
+async def cmd_close(targets, wait, timeout, interval, force):
     """Close one or more worktrees (sync, verify clean, checkout main).
 
     Closes a worktree by:
@@ -1320,7 +1320,7 @@ def cmd_close(targets, wait, timeout, interval, force):
                 continue
 
         # In the model, so the orchestrator server runs the same close.
-        outcome = close_worktree_fully(
+        outcome = await close_worktree_fully(
             ctx.project, ctx.worktree, worktree_path, ctx.project_path, force=force
         )
         # The rescue is reported where it ran, before the close is announced.
@@ -1344,7 +1344,7 @@ def cmd_close(targets, wait, timeout, interval, force):
                 and result.branch != "HEAD"
             ):
                 try:
-                    add_task(
+                    await add_task(
                         project=ctx.project,
                         title=f"Reopen {result.branch}",
                         command="reopen-branch",

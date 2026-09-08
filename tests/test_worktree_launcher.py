@@ -581,7 +581,7 @@ class TestLaunchAgentInWorktree:
     ``mael agent attach <id>``.
     """
 
-    def _launch(self, client, **kwargs):
+    async def _launch(self, client, **kwargs):
         with (
             patch("maelstrom.agent_transport.client_factory", lambda **_: client),
             patch("maelstrom.worktree_launcher.ensure_cmux_running", return_value=True),
@@ -590,14 +590,14 @@ class TestLaunchAgentInWorktree:
                 return_value=True,
             ) as mock_open,
         ):
-            placed = launch_agent_in_worktree(
+            placed = await launch_agent_in_worktree(
                 Path("/wt/alpha"), "proj", "alpha", **kwargs
             )
         return placed, mock_open
 
-    def test_places_a_pane_that_attaches_to_the_new_agent(self):
+    async def test_places_a_pane_that_attaches_to_the_new_agent(self):
         client = RecordingDaemonClient(replies=[{"ok": True, "id": "a7"}])
-        placed, mock_open = self._launch(client)
+        placed, mock_open = await self._launch(client)
 
         assert placed is True
         assert client.calls == [{"cmd": "start", "cwd": "/wt/alpha", "resume": False}]
@@ -605,9 +605,9 @@ class TestLaunchAgentInWorktree:
         assert (project, worktree, path) == ("proj", "alpha", Path("/wt/alpha"))
         assert describe(command) == "mael agent attach a7"
 
-    def test_task_launch_sends_the_full_payload(self):
+    async def test_task_launch_sends_the_full_payload(self):
         client = RecordingDaemonClient(replies=[{"ok": True, "id": "a7"}])
-        placed, _ = self._launch(
+        placed, _ = await self._launch(
             client,
             permission_mode="auto",
             env={"MAEL_TASK_ID": "t1"},
@@ -636,7 +636,7 @@ class TestLaunchAgentInWorktree:
             }
         ]
 
-    def test_cmux_is_started_after_the_agent_and_before_the_pane(self):
+    async def test_cmux_is_started_after_the_agent_and_before_the_pane(self):
         # Order matters both ways: no cmux app for a launch that fails, and no
         # placement into a cmux that is down.
         order = []
@@ -655,10 +655,13 @@ class TestLaunchAgentInWorktree:
                 side_effect=lambda *a: order.append("place") or True,
             ),
         ):
-            assert launch_agent_in_worktree(Path("/wt/alpha"), "proj", "alpha") is True
+            assert (
+                await launch_agent_in_worktree(Path("/wt/alpha"), "proj", "alpha")
+                is True
+            )
         assert order == ["start", "cmux", "place"]
 
-    def test_cmux_down_returns_false_and_places_nothing(self):
+    async def test_cmux_down_returns_false_and_places_nothing(self):
         client = RecordingDaemonClient(replies=[{"ok": True, "id": "a7"}])
         with (
             patch("maelstrom.agent_transport.client_factory", lambda **_: client),
@@ -667,28 +670,31 @@ class TestLaunchAgentInWorktree:
             ),
             patch("maelstrom.worktree_launcher.open_claude_workspace") as mock_open,
         ):
-            assert launch_agent_in_worktree(Path("/wt/alpha"), "proj", "alpha") is False
+            assert (
+                await launch_agent_in_worktree(Path("/wt/alpha"), "proj", "alpha")
+                is False
+            )
         mock_open.assert_not_called()
 
-    def test_daemon_error_returns_false_and_reports_the_reason(self, capsys):
+    async def test_daemon_error_returns_false_and_reports_the_reason(self, capsys):
         # An unreachable daemon must not leave an empty pane behind. The
         # caller's own message names cmux, so the daemon's reason has to reach
         # the user here or the diagnosis points at the wrong process.
         client = RecordingDaemonClient(replies=[{"error": "connection refused"}])
-        placed, mock_open = self._launch(client)
+        placed, mock_open = await self._launch(client)
 
         assert placed is False
         mock_open.assert_not_called()
         assert "connection refused" in capsys.readouterr().err
 
-    def test_a_missing_daemon_names_the_command_that_starts_one(self, capsys):
+    async def test_a_missing_daemon_names_the_command_that_starts_one(self, capsys):
         """A launch is where a missing daemon is met most often, and nothing
         starts one any more. The reason has to be actionable."""
         from maelstrom.agent_transport import DaemonPaths, unreachable_message
 
         message = unreachable_message(DaemonPaths(Path("/root/x")))
         client = RecordingDaemonClient(replies=[{"error": message}])
-        placed, mock_open = self._launch(client)
+        placed, mock_open = await self._launch(client)
 
         assert placed is False
         mock_open.assert_not_called()
@@ -696,9 +702,9 @@ class TestLaunchAgentInWorktree:
         assert "No agent daemon on /root/x" in err
         assert "mael self-env start" in err
 
-    def test_reply_without_an_id_returns_false_and_says_so(self, capsys):
+    async def test_reply_without_an_id_returns_false_and_says_so(self, capsys):
         client = RecordingDaemonClient(replies=[{"ok": True}])
-        placed, mock_open = self._launch(client)
+        placed, mock_open = await self._launch(client)
 
         assert placed is False
         mock_open.assert_not_called()
@@ -715,7 +721,7 @@ class TestLaunchClaudeInWorktree:
     this function — so ``exec_cmd`` must NEVER fire here.
     """
 
-    def test_returns_true_when_cmux_up_and_placed(self):
+    async def test_returns_true_when_cmux_up_and_placed(self):
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
             with (
@@ -728,14 +734,14 @@ class TestLaunchClaudeInWorktree:
                 ) as mock_open,
                 patch("maelstrom.worktree_launcher.run_cmd") as mock_run,
             ):
-                placed = launch_claude_in_worktree(
+                placed = await launch_claude_in_worktree(
                     worktree_path, project="proj", worktree="alpha", harness="claude"
                 )
                 assert placed is True
                 mock_open.assert_called_once()
                 mock_run.assert_not_called()
 
-    def test_returns_open_workspace_result_when_cmux_up(self):
+    async def test_returns_open_workspace_result_when_cmux_up(self):
         # cmux is up but placement itself fails → propagate False, still no exec.
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
@@ -749,14 +755,14 @@ class TestLaunchClaudeInWorktree:
                 ) as mock_open,
                 patch("maelstrom.worktree_launcher.run_cmd") as mock_run,
             ):
-                placed = launch_claude_in_worktree(
+                placed = await launch_claude_in_worktree(
                     worktree_path, project="proj", worktree="alpha", harness="claude"
                 )
                 assert placed is False
                 mock_open.assert_called_once()
                 mock_run.assert_not_called()
 
-    def test_daemon_harness_starts_the_agent_before_touching_cmux(self):
+    async def test_daemon_harness_starts_the_agent_before_touching_cmux(self):
         # The agent start comes first: a daemon failure must not leave the user
         # with a cmux app they did not have running, and a "restart cmux"
         # message for a cmux that is fine.
@@ -772,14 +778,14 @@ class TestLaunchClaudeInWorktree:
             ),
             patch("maelstrom.worktree_launcher.open_claude_workspace") as mock_open,
         ):
-            placed = launch_claude_in_worktree(
+            placed = await launch_claude_in_worktree(
                 Path("/wt/alpha"), project="proj", worktree="alpha"
             )
         assert placed is False
         assert calls == []
         mock_open.assert_not_called()
 
-    def test_daemon_harness_routes_to_the_agent_launch(self):
+    async def test_daemon_harness_routes_to_the_agent_launch(self):
         # The default harness. cmux still has to be up (the pane is placed
         # there), but the command is the attach client, not a bare `claude`.
         with (
@@ -789,7 +795,7 @@ class TestLaunchClaudeInWorktree:
                 return_value=True,
             ) as mock_agent,
         ):
-            placed = launch_claude_in_worktree(
+            placed = await launch_claude_in_worktree(
                 Path("/wt/alpha"),
                 project="proj",
                 worktree="alpha",
@@ -815,7 +821,7 @@ class TestLaunchClaudeInWorktree:
             prompt="do the thing",
         )
 
-    def test_claude_harness_still_places_the_legacy_pane(self):
+    async def test_claude_harness_still_places_the_legacy_pane(self):
         with (
             patch("maelstrom.worktree_launcher.ensure_cmux_running", return_value=True),
             patch(
@@ -823,7 +829,7 @@ class TestLaunchClaudeInWorktree:
             ) as mock_open,
             patch("maelstrom.worktree_launcher.launch_agent_in_worktree") as mock_agent,
         ):
-            placed = launch_claude_in_worktree(
+            placed = await launch_claude_in_worktree(
                 Path("/wt/alpha"),
                 project="proj",
                 worktree="alpha",
@@ -833,7 +839,7 @@ class TestLaunchClaudeInWorktree:
         mock_agent.assert_not_called()
         assert describe(mock_open.call_args.args[3]) == "claude"
 
-    def test_returns_false_and_never_execs_when_cmux_down(self):
+    async def test_returns_false_and_never_execs_when_cmux_down(self):
         # cmux can't be started → False, and open_claude_workspace/run_cmd are
         # never reached (no local fallback).
         with TemporaryDirectory() as tmpdir:
@@ -846,7 +852,7 @@ class TestLaunchClaudeInWorktree:
                 patch("maelstrom.worktree_launcher.open_claude_workspace") as mock_open,
                 patch("maelstrom.worktree_launcher.run_cmd") as mock_run,
             ):
-                placed = launch_claude_in_worktree(
+                placed = await launch_claude_in_worktree(
                     worktree_path,
                     project="proj",
                     worktree="alpha",

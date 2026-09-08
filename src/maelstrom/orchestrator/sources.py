@@ -49,8 +49,9 @@ OpenWorktree = Callable[[str, str, str], WorktreeSetup]
 #: Closes one worktree: ``(project, nato, path) -> None``. The server passes
 #: what the world already holds, so the closer resolves nothing itself. Raises
 #: :class:`CloseBlocked` with the reason when it will not close — the message
-#: the user reads on the button.
-CloseWorktree = Callable[[str, str, str], None]
+#: the user reads on the button. Awaited: the close stops the worktree's agents
+#: over the agent host's socket.
+CloseWorktree = Callable[[str, str, str], Awaitable[None]]
 
 
 class CloseBlocked(Exception):

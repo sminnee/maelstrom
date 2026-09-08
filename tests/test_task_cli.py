@@ -7,7 +7,7 @@ project, so no git or cwd resolution happens.
 
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import click
 import pytest
@@ -66,7 +66,8 @@ def launch(monkeypatch, tmp_path):
     )
     # Placement succeeds by default (True) so the task stays IN_PROGRESS; tests
     # that exercise the failure path override ``session.return_value = False``.
-    session = MagicMock(return_value=True)
+    # `AsyncMock`: the launcher is awaited now, and it records calls the same way.
+    session = AsyncMock(return_value=True)
     exec_cmd = MagicMock()
     ensure_cmux = MagicMock(return_value=True)
     monkeypatch.setattr(task_cli, "setup_worktree_for_branch", setup)
@@ -800,7 +801,7 @@ class TestRunHarness:
             lambda *a, **k: SimpleNamespace(project="p", project_path=missing),
         )
         _patch_live_sessions(monkeypatch, [])
-        session = MagicMock()
+        session = AsyncMock()
         monkeypatch.setattr(task_cli, "launch_claude_in_worktree", session)
         result = runner.invoke(task_cli.task, ["run", t.id])
         assert result.exit_code != 0
