@@ -152,8 +152,7 @@ function DockedContext({ items }: { items: ContextItem[] }) {
 
   // On the document, not the button: the sheet scrolls and holds links, so the
   // reader can be focused inside it when they reach for Escape. Stop the event
-  // there, or the panel and the card close on the same key. `Dialog` does the
-  // same for the same reason.
+  // there, or the panel and the card close on the same key.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {

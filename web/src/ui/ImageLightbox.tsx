@@ -11,11 +11,11 @@ import styles from './ImageLightbox.module.css';
  * `<button>`, not a click handler on the image, so the picture is reachable
  * by keyboard as well as by mouse.
  *
- * The overlay is `Dialog`, which already owns the scrim, Escape and the click
- * outside. Nothing about closing is re-implemented here.
+ * The overlay is `Dialog`, which already owns the backdrop, Escape and the
+ * click outside. Nothing about closing is re-implemented here.
  *
  * It is portalled to the body because markdown puts an image inside a `<p>`,
- * and a scrim rendered there would be a `<div>` inside a paragraph — which the
+ * and a `<dialog>` rendered there would be inside a paragraph — which the
  * browser unnests, dropping it out of its own overlay.
  */
 export function ImageLightbox({ src, alt }: { src: string; alt: string }) {
