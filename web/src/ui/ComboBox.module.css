@@ -3,30 +3,50 @@
  * it, so a combo box in a dialog matches the inputs either side of it.
  */
 .box {
-  position: relative;
   display: flex;
   flex-direction: column;
 }
 .box input {
   width: 100%;
+  /* The trigger half of the anchor pair — see `useAnchorName`. The offer is in
+     the top layer, so this is what puts it under the field. */
+  anchor-name: var(--anchor-name);
 }
+/* The shared anchor core. On the bare class because `composes` needs a simple
+   selector; the offsets below keep their own. */
 .list {
-  position: absolute;
-  /* Below the field, and over whatever follows it in the dialog. */
-  top: 100%;
-  left: 0;
-  right: 0;
-  z-index: var(--z-card);
-  margin: 2px 0 0;
+  composes: anchored from './anchoredPopover.module.css';
+  margin: 0;
   padding: 0;
   list-style: none;
-  /* Long lists scroll rather than running off the dialog. */
-  max-height: 15rem;
+  /* Long lists scroll rather than running off the screen. `ComboBox.tsx` lowers
+     this when the field has less room than this above or below it. */
+  max-height: 240px;
   overflow-y: auto;
   background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-card);
+}
+/*
+ * The offsets sit under `:popover-open`, and the pseudo-class is load-bearing.
+ * `composes` brings in `inset: unset`, a shorthand for all four offsets, so it
+ * competes with these rather than only preceding them. Two bare single-class
+ * selectors tie at (0,1,0) and the cascade falls back to injection order, which
+ * this file does not control — lose that toss and the offer draws at the
+ * viewport origin. `:popover-open` lifts these to (0,2,0), which wins either
+ * way. See `anchoredPopover.module.css`.
+ */
+.list:popover-open {
+  top: calc(anchor(bottom) + 2px);
+  left: anchor(left);
+  /* At least as wide as the field; a long label may make it wider. */
+  min-width: anchor-size(width);
+}
+/* Opening upward, when the field has more room above it than below. */
+.list:popover-open[data-position='top'] {
+  top: auto;
+  bottom: calc(anchor(top) + 2px);
 }
 .list li {
   display: flex;

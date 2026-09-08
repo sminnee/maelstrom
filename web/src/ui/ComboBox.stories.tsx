@@ -72,3 +72,24 @@ export const FreeText: Story = () => (
 
 /** Nothing to offer — the field still takes a typed value. */
 export const NoOptions: Story = () => <Field label="Branch" options={[]} />;
+
+/**
+ * The offer inside a box that scrolls, which is what every dialog holding this
+ * control does. The offer is a popover, so it draws in the top layer and over
+ * the box rather than being clipped at its edge.
+ */
+export const InAScrollingBox: Story = () => (
+  <div
+    style={{
+      height: 160,
+      overflow: 'auto',
+      border: '1px dashed var(--border-strong)',
+      background: 'var(--bg-raised)',
+    }}
+  >
+    <Field label="Branch" options={BRANCHES} />
+    <p style={{ fontSize: 12, color: 'var(--fg-muted)', padding: '0 20px 20px' }}>
+      The dashed edge is the scroll box. The offer draws past it.
+    </p>
+  </div>
+);
