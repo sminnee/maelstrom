@@ -18,7 +18,12 @@
   /* The faintest text that still clears AA on `--bg-raised`. */
   --n5-text: #7a8495;
   --n6: #9aa3b5;
-  --n8: #e6e8ee;
+  /* The inline-literal tone. A register apart from `--n8`, not a rank below it
+     — the two move together. See DESIGN.md § Neutral. */
+  --n7: #a8b2c7;
+  /* Body prose. A step below the 15.42:1 this ramp used to end at, which is
+     optimal for a glance and a glare over a long read. 13.63:1 on `--bg`. */
+  --n8: #d7dbe4;
   --n9: #f7f8fa;
   --white: #ffffff;
   --black: #000000;
@@ -53,6 +58,8 @@
 
   /* Semantic: text. */
   --fg: var(--n8);
+  /* An inline literal in prose: a register, not a rank. See DESIGN.md § Neutral. */
+  --fg-literal: var(--n7);
   --fg-muted: var(--n6);
   --fg-faint: var(--n5-text);
   /*
@@ -166,6 +173,9 @@
     --border-strong: #b8bfcc;
 
     --fg: var(--n2);
+    /* 8.78:1 on `--bg`, and a 1.87 step off `--fg` — a clearer separation than
+       dark gets, because a light ground carries a tonal step more readily. */
+    --fg-literal: #3f4757;
     --mark-neutral: #99a1b0;
     --fg-muted: #4f5768;
     /* Clears AA (4.83:1) on `--bg` at the 10px micro-label; #6b7385 was 4.47. */
