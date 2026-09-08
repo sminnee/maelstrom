@@ -23,7 +23,6 @@ Import direction: this module imports ``run_cmd`` from the ``shell`` leaf and
 module (nothing in it calls the launcher).
 """
 
-import asyncio
 import os
 import subprocess
 from pathlib import Path
@@ -274,7 +273,7 @@ def open_claude_workspace(
     )
 
 
-def launch_agent_in_worktree(
+async def launch_agent_in_worktree(
     worktree_path: Path,
     project: str | None,
     worktree: str | None,
@@ -319,9 +318,7 @@ def launch_agent_in_worktree(
         model=model,
         prompt=prompt,
     )
-    # `mael task run` and `mael add` are sync and hold no loop, so this opens
-    # one. Converting the launch path is what removes it.
-    reply = asyncio.run(daemon_client().request(payload))
+    reply = await daemon_client().request(payload)
     error = reply.get("error")
     agent_id = reply.get("id")
     if error or not agent_id:
@@ -340,7 +337,7 @@ def launch_agent_in_worktree(
     )
 
 
-def launch_claude_in_worktree(
+async def launch_claude_in_worktree(
     worktree_path: Path,
     project: str | None,
     worktree: str | None,
@@ -379,7 +376,7 @@ def launch_claude_in_worktree(
         # The agent start comes first. cmux is only needed for the pane, and
         # starting the app before a launch that then fails would leave the user
         # with a cmux they did not have running.
-        return launch_agent_in_worktree(
+        return await launch_agent_in_worktree(
             worktree_path,
             project,
             worktree,

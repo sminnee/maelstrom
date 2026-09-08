@@ -20,6 +20,7 @@ from . import task as model  # noqa: F401  (module, used as `model.*`)
 # *parameter* (the `--model` flag / task field) and would otherwise shadow the
 # alias above. Same module object — not a re-export.
 from . import task as task_model
+from .cli_async import AsyncGroup
 from .cmux.client import ensure_cmux_running
 from .context import resolve_context
 from .shell import exec_cmd
@@ -186,7 +187,7 @@ def _read_content_file(content_file: str | None) -> str:
         raise click.ClickException(f"Content file not found: {content_file}")
 
 
-def _run_task(
+async def _run_task(
     store: GitFileStore,
     project: str,
     task: "model.Task",
@@ -223,7 +224,9 @@ def _run_task(
     session_id = plan.session_id if has_session_id else None
     # One sweep answers both questions below: is this task already running, and
     # is anything running in the worktree the open is about to rebase.
-    live = session_discovery.LiveSessionSet()
+    # Swept here, on the loop: the lazy property falls back to a thread when a
+    # loop is running, and the task index is bound to the thread that opened it.
+    live = await session_discovery.LiveSessionSet().sweep()
     # Refuse a second parallel launch *of this task*. A finished session leaves
     # nothing running, so a finished task stays re-runnable.
     if has_session_id:
@@ -325,7 +328,7 @@ def _run_task(
     suffix = " (resuming)" if resume else ""
     click.echo(f"Running {task.id} on {branch}{suffix}")
     click.echo(f"  → {project}/{result.name} ({result.action})")
-    placed = launch_claude_in_worktree(
+    placed = await launch_claude_in_worktree(
         result.path,
         project=project,
         worktree=result.name,
@@ -584,7 +587,7 @@ def block_task_update_options(f):
     return f
 
 
-@click.group("task")
+@click.group("task", cls=AsyncGroup)
 def task() -> None:
     """Manage the git-backed task notebook."""
 
@@ -630,7 +633,7 @@ def task() -> None:
     is_flag=True,
     help="With --run, launch in the current shell (no worktree, no new workspace).",
 )
-def task_add(
+async def task_add(
     title: str | None,
     project: str | None,
     command: str,
@@ -656,7 +659,7 @@ def task_add(
 ) -> None:
     """Add a new task and print its id."""
     content = _read_content_file(content_file) if content_file is not None else None
-    add_task(
+    await add_task(
         title=title,
         project=project,
         command=command,
@@ -680,7 +683,7 @@ def task_add(
     )
 
 
-def add_task(
+async def add_task(
     *,
     title: str | None = None,
     project: str | None,
@@ -788,7 +791,7 @@ def add_task(
             raise click.ClickException(str(e))
     _restamp(store, index, was_fresh=was_fresh)
     if run:
-        _run_task(store, proj, new, here=here, fresh=True)
+        await _run_task(store, proj, new, here=here, fresh=True)
     return new
 
 
@@ -945,7 +948,7 @@ def task_promote(
         "(no worktree, no new workspace)."
     ),
 )
-def task_load_many(file: str, project: str | None, run: bool, here: bool) -> None:
+async def task_load_many(file: str, project: str | None, run: bool, here: bool) -> None:
     """Create one or more tasks from a marked plan file ('-' reads stdin)."""
     text = _read_content_file(file)
     try:
@@ -977,7 +980,7 @@ def task_load_many(file: str, project: str | None, run: bool, here: bool) -> Non
         # _run_task — after the execvp nothing here reaches the terminal.
         head = created[0]
         click.echo(f"{head.id} starting in this shell.")
-        _run_task(store, proj, head, here=True, fresh=True)
+        await _run_task(store, proj, head, here=True, fresh=True)
         return
 
     # Launch every task in the batch that isn't waiting on a follow — the same
@@ -1012,7 +1015,7 @@ def task_load_many(file: str, project: str | None, run: bool, here: bool) -> Non
         # raised before the status move, so the task is still in todo/ and stays
         # re-runnable via `mael task next --run`.
         try:
-            _run_task(store, proj, t, here=False, fresh=True)
+            await _run_task(store, proj, t, here=False, fresh=True)
         except click.ClickException as e:
             failed += 1
             click.echo(f"warning: {t.id} — {e.format_message()}", err=True)
@@ -1038,7 +1041,7 @@ def _scheduled_projects(project: str | None, all_projects: bool) -> list[str]:
     return [_resolve_project(project)]
 
 
-def _fire_due_templates(
+async def _fire_due_templates(
     store: GitFileStore, project: str, *, now: datetime, run: bool, here: bool
 ) -> list["model.Task"]:
     """Create (and optionally launch) one run per due template in ``project``.
@@ -1091,7 +1094,7 @@ def _fire_due_templates(
         ensure_cmux_running()
     if run:
         for t in created:
-            _run_task(store, project, t, here=here, fresh=True)
+            await _run_task(store, project, t, here=here, fresh=True)
     return created
 
 
@@ -1111,7 +1114,7 @@ def _fire_due_templates(
     is_flag=True,
     help="With --run, launch in the current shell (no worktree, no new workspace).",
 )
-def task_add_scheduled(
+async def task_add_scheduled(
     project: str | None, all_projects: bool, run: bool, here: bool
 ) -> None:
     """Fire every due template: duplicate it into a dated run and advance its watermark.
@@ -1127,7 +1130,7 @@ def task_add_scheduled(
     store = _store()
     total = 0
     for proj in _scheduled_projects(project, all_projects):
-        for t in _fire_due_templates(store, proj, now=now, run=run, here=here):
+        for t in await _fire_due_templates(store, proj, now=now, run=run, here=here):
             click.echo(f"{proj}/{t.id}\t{t.title}")
             total += 1
     if total == 0:
@@ -1260,7 +1263,7 @@ def _next_fire_display(task: "model.Task") -> str:
     is_flag=True,
     help="With --run, launch in the current shell (no worktree, no new workspace).",
 )
-def task_next(
+async def task_next(
     project: str | None,
     parent: str | None,
     run: bool,
@@ -1295,7 +1298,7 @@ def task_next(
     if nxt is None:
         raise click.ClickException("No actionable task.")
     if run:
-        _run_task(
+        await _run_task(
             store,
             proj,
             nxt,
@@ -1317,7 +1320,7 @@ def task_next(
     is_flag=True,
     help="Launch in the current shell (no worktree, no new workspace).",
 )
-def task_run(
+async def task_run(
     id: str,
     project: str | None,
     here: bool,
@@ -1333,7 +1336,7 @@ def task_run(
         t = model.load(store, proj, id)
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
-    _run_task(store, proj, t, here=here, harness=resolved)
+    await _run_task(store, proj, t, here=here, harness=resolved)
 
 
 def _live_sessions_by_task(

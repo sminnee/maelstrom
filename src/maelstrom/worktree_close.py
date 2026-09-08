@@ -15,7 +15,7 @@ real ones. A caller that has no cmux, no daemon or no environment store swaps
 the step rather than the module.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -39,8 +39,8 @@ def _stop_env(project: str, worktree: str) -> list[str]:
     return stop_env(JsonEnvStore(), project, worktree)
 
 
-def _stop_agents(worktree_path: Path) -> list[str]:
-    return stop_agents_in_worktree(worktree_path)
+async def _stop_agents(worktree_path: Path) -> list[str]:
+    return await stop_agents_in_worktree(worktree_path)
 
 
 def _live_sessions(worktree_path: Path) -> Sequence[LiveSession]:
@@ -69,7 +69,8 @@ class CloseSteps:
 
     env_status: Callable[[str, str], Sequence[ServiceStatus] | None] = _env_status
     stop_env: Callable[[str, str], list[str]] = _stop_env
-    stop_agents: Callable[[Path], list[str]] = _stop_agents
+    #: The one awaited step: the agent host is reached over its socket.
+    stop_agents: Callable[[Path], Awaitable[list[str]]] = _stop_agents
     live_sessions: Callable[[Path], Sequence[LiveSession]] = _live_sessions
     stop_sessions: Callable[[Sequence[LiveSession]], list[str]] = _stop_sessions
     copy_back: Callable[[Path, Path], CopyBackResult] = _copy_back
@@ -96,7 +97,7 @@ class FullCloseResult:
     messages_before_copy_back: int = 0
 
 
-def close_worktree_fully(
+async def close_worktree_fully(
     project: str,
     worktree: str,
     worktree_path: Path,
@@ -124,7 +125,7 @@ def close_worktree_fully(
 
     # The daemon first: signalling the pids instead would record a normal close
     # as a crash — see agent_stop.
-    messages.extend(f"  {line}" for line in steps.stop_agents(worktree_path))
+    messages.extend(f"  {line}" for line in await steps.stop_agents(worktree_path))
 
     sessions = steps.live_sessions(worktree_path)
     if sessions:

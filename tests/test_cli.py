@@ -29,6 +29,11 @@ async def _async_none(*args, **kwargs):
     return []
 
 
+async def _completed(value):
+    """An awaitable stand-in for a coroutine command's return."""
+    return value
+
+
 def _pr(number, *, commits=1, state="ready"):
     """A `PrStatus` for a row that only cares which PR it is."""
     return PrStatus(
@@ -1552,6 +1557,10 @@ class TestCreateProject:
             patch("maelstrom.cli.add_project") as mock_add_project,
             patch("maelstrom.cli.cmd_add") as mock_add,
         ):
+            # `cmd_add` is a coroutine command now, and create-project awaits
+            # what `ctx.invoke` hands back, so the stand-in has to be awaitable.
+            mock_add.return_value = None
+            mock_add.side_effect = lambda *a, **k: _completed(None)
             mock_config.return_value = MagicMock(projects_dir=tmp_path)
             mock_add_project.return_value = tmp_path / "proj"
             if add_project_error is not None:
