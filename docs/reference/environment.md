@@ -167,7 +167,7 @@ that lack the key.
 |---|---|---|
 | `CMUX_SOCKET_PATH` | `/tmp/cmux.sock` | Socket maelstrom uses to drive cmux. Set it when cmux listens elsewhere. |
 | `MAEL_AGENT_ROOT` | — | The agent daemon's root: the one directory holding its socket (`agent-daemon.sock`), lock, pid file, log and `agents/` spawn records. There is no default. `mael agent daemon serve` exits 2 without it, and every other `mael agent` command reports that it has no daemon to reach. Each worktree's `.env` carries it, substituted from the project root's `.env` template; a daemon exports its own root to every agent it starts; and `mael self-update` puts the everyday root into the `mael` on your PATH. Replaces `MAEL_AGENT_SOCKET`, `MAEL_AGENT_LOG` and `MAEL_AGENT_SPEC_DIR`. |
-| `ORCHESTRATOR_URL` | `http://localhost:8765` | Where the web dev server proxies `/api` to: the orchestrator's REST routes, its change stream and its per-agent sockets. Read by `vite.config.ts`, not by the bundle, so the built app carries no address. |
+| `ORCHESTRATOR_URL` | `http://localhost:8765` | Where the web dev server proxies `/api` to: the orchestrator's REST routes and its per-agent sockets. Read by `vite.config.ts`, which also passes its port to the dev bundle as `VITE_ORCHESTRATOR_PORT` for the change stream — see [orchestrator-ui.md](../dev/orchestrator-ui.md). |
 | `EDITOR` | `vi` | Editor for `mael task edit` and `mael task add --edit`. |
 | `TMPDIR` | system temp | Scratch directory for artifact downloads. |
 

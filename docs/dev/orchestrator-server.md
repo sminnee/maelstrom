@@ -272,6 +272,11 @@ are not unique across projects — every project's `_main` sits on `main`.
 no client subscribed therefore buys nothing. A client that subscribes triggers the read at once,
 so the first paint is current rather than up to a minute old.
 
+Only a browser counts as a watcher. The web client dials `GET /api/events` directly rather than
+through the dev server's `/api` proxy, because that proxy holds one stream open for its own life
+— see [orchestrator-ui.md](orchestrator-ui.md). A worktree running `mael env start` would
+otherwise poll GitHub for its whole session with no page open.
+
 **A refused read stands off for 10 minutes.** GitHub reports a spent budget with HTTP 200 and an
 error in the body, so `parse_open_prs` reads the payload and raises `RateLimited`. Other read
 failures fall back to one lookup per branch; a rate limit must not, because that turns one

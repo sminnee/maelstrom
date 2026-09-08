@@ -596,13 +596,20 @@ async def _events(request: web.Request) -> web.StreamResponse:
     one more refetch, never a missed change.
     """
     orch = await _ready(request)
-    response = web.StreamResponse(
-        headers={
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        }
-    )
+    headers = {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    }
+    # The page is served by the dev server on its own port and dials this
+    # stream directly, so the read is cross-origin. The echo is equivalent to
+    # `*` here — the server has no auth, and the stream is read without
+    # credentials — but it keeps the header ready for an allowlist.
+    origin = request.headers.get("Origin")
+    if origin:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Vary"] = "Origin"
+    response = web.StreamResponse(headers=headers)
     await response.prepare(request)
     with orch.notices.subscribe() as subscriber:
         await response.write(_sse("reset", {"epoch": orch.epoch}))
