@@ -209,6 +209,10 @@
 .brief :is(h1, h2, h3, h4, h5, h6) {
   margin: var(--space-2) 0 var(--space-1);
   font-size: var(--text-sm);
+  /* The markdown surface pins headings to a flat 24px to hold its prose grid.
+     A card is not on that grid and is height-clamped, so inheriting it would
+     spend most of a line on leading a 12px heading does not need. */
+  line-height: var(--leading-tight);
   font-weight: 600;
   color: var(--fg);
 }
