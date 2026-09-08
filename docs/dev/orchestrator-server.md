@@ -273,9 +273,16 @@ no client subscribed therefore buys nothing. A client that subscribes triggers t
 so the first paint is current rather than up to a minute old.
 
 Only a browser counts as a watcher. The web client dials `GET /api/events` directly rather than
-through the dev server's `/api` proxy, because that proxy holds one stream open for its own life
-— see [orchestrator-ui.md](orchestrator-ui.md). A worktree running `mael env start` would
-otherwise poll GitHub for its whole session with no page open.
+through the dev server's `/api` proxy, which would otherwise hold a stream open with no page —
+see [orchestrator-ui.md](orchestrator-ui.md).
+
+**An arrival inside one interval of the last arrival read is served what that read found.** Every
+subscriber that arrives to an empty hub is a first subscriber, so a stream that drops and returns
+would read on each return: a second poll running at the reconnect rate rather than at
+`WORKTREE_POLL_SECS`. Only a read an arrival triggered counts, so the first client still reads at
+once — `start` reads before it serves anyone, and the poll reads for whoever is already watching.
+The floor therefore bounds the cost of a flapping stream at one read per client turnover, not at
+one per interval.
 
 **A refused read stands off for 10 minutes.** GitHub reports a spent budget with HTTP 200 and an
 error in the body, so `parse_open_prs` reads the payload and raises `RateLimited`. Other read
