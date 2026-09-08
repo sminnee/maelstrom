@@ -3899,6 +3899,52 @@ def test_a_socket_for_an_unknown_agent_is_not_left_registered(harness):
     assert run(scenario()) == 0
 
 
+def test_the_change_stream_may_be_read_from_the_dev_server_s_origin(harness):
+    """The stream is dialled directly, so it answers a cross-origin read.
+
+    The page is served by the dev server on its own port, and the stream skips
+    that server's proxy to reach the orchestrator. Without these headers the
+    browser refuses the `EventSource` and the app never hears a change.
+    """
+
+    async def scenario():
+        async with harness.client() as client:
+            async with client.session.get(
+                "/api/events", headers={"Origin": "http://localhost:3410"}
+            ) as response:
+                assert response.status == 200
+                return {
+                    "allow": response.headers.get("Access-Control-Allow-Origin"),
+                    "vary": response.headers.get("Vary"),
+                }
+
+    assert asyncio.run(scenario()) == {
+        "allow": "http://localhost:3410",
+        # Without this a cache could serve one origin's answer to another.
+        "vary": "Origin",
+    }
+
+
+def test_a_same_origin_read_of_the_change_stream_is_offered_no_origin(harness):
+    """The orchestrator serving its own page needs no cross-origin header.
+
+    A reply naming an origin nobody asked about would be a claim the server
+    cannot make: there is no request origin to echo.
+    """
+
+    async def scenario():
+        async with harness.client() as client:
+            async with client.session.get("/api/events") as response:
+                assert response.status == 200
+                return [
+                    name
+                    for name in ("Access-Control-Allow-Origin", "Vary")
+                    if name in response.headers
+                ]
+
+    assert asyncio.run(scenario()) == []
+
+
 def test_the_worktree_poll_is_idle_while_no_client_watches(harness):
     """Nobody is reading, so the read is worth nothing.
 

@@ -496,10 +496,22 @@ Under maelstrom the `web` service always points at the `orchestrator` service, s
 worktree whose `.env` is missing a port a service needs — `ORCHESTRATOR_PORT`, or `LADLE_PORT` on
 a worktree opened before the workbench existed — needs `mael env reset` once to add it.
 
-Everything the app reaches is same-origin: the dev server proxies `/api` to the orchestrator,
-WebSockets included. `ORCHESTRATOR_URL` names it — see
-[environment.md](../reference/environment.md). `pnpm build` produces a page with no proxy behind
-it: serving `web/dist` needs the orchestrator on the same origin, and nothing does that yet.
+The dev server proxies `/api` to the orchestrator, WebSockets included. `ORCHESTRATOR_URL` names
+it — see [environment.md](../reference/environment.md). `pnpm build` produces a page with no proxy
+behind it: serving `web/dist` needs the orchestrator on the same origin, and nothing does that yet.
+
+**The change stream is the one exception: it skips the proxy.** `eventsUrl` builds its address
+from the page's own protocol and hostname, plus the orchestrator's port. A proxied stream never
+closes — the dev server holds the connection for its own life, so the orchestrator counts a
+watcher whether or not a page is open, and its worktree poll keeps asking GitHub for a room nobody
+is in. Dialling the orchestrator directly means only a real page subscribes, so closing the last
+tab stops the poll.
+
+The port reaches the bundle through `VITE_ORCHESTRATOR_PORT`, which `vite.config.ts` derives from
+`ORCHESTRATOR_URL`. The port alone travels, never the host: the dev server binds every interface
+so the tailnet reaches it, and an address pinned to `localhost` would leave a remote page dialling
+its own machine. `GET /api/events` echoes the request's `Origin` back, so the cross-origin read is
+allowed.
 
 The app has no fake mode. `pnpm dev` with no server behind it shows "Loading the world…" and a
 "Reconnecting…" banner until one appears.

@@ -7,6 +7,7 @@ import type { EventSourceLike } from './live/changeStream';
 import { LiveProvider } from './live/LiveProvider';
 import type { SocketLike } from './live/socketLike';
 import { AppShell } from './shell/AppShell';
+import { eventsUrl } from './eventsUrl';
 
 /** What the app reaches the server through. A test injects fakes for each. */
 export interface AppDeps {
@@ -19,8 +20,8 @@ export interface AppDeps {
   queryClient?: QueryClient;
 }
 
-/** Where the change stream is. Same-origin: the dev proxy carries it to the server. */
-export const EVENTS_URL = '/api/events';
+/** Where the change stream is — see `eventsUrl`. */
+export const EVENTS_URL = eventsUrl(window.location, import.meta.env.VITE_ORCHESTRATOR_PORT);
 
 export function App({ deps }: { deps: AppDeps }) {
   // One client for the life of the app: useMemo may recompute, useState never does.

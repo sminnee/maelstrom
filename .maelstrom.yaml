@@ -13,9 +13,13 @@ services:
     env:
       ORCHESTRATOR_URL: http://localhost:${ORCHESTRATOR_PORT}
 
+  # Bound on every interface, as the web service is: the change stream is
+  # dialled directly rather than through the dev server's proxy, so a page
+  # loaded over the tailnet reaches this port itself. Close that off at the
+  # firewall, as `web/vite.config.ts` says of its own bind.
   orchestrator:
     ports: [ORCHESTRATOR]
-    command: uv run mael orchestrator serve --port ${ORCHESTRATOR_PORT}
+    command: uv run mael orchestrator serve --host 0.0.0.0 --port ${ORCHESTRATOR_PORT}
 
   # The agent daemon of this environment. Its root comes from MAEL_AGENT_ROOT
   # in the worktree's `.env`, substituted per worktree from the project root's
