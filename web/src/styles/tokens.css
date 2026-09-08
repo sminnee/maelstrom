@@ -149,26 +149,16 @@
   --tracking-micro: 0.08em;
 
   /*
-   * The prose grid. `--space-*` above is the chrome's, tuned against 13px UI
-   * text; borrowed by a 16px reading surface every one of its steps lands
-   * under the line box it is meant to separate. These are multiples of the
-   * 24px line box instead, so a document advances in whole rows.
-   *
-   * Whole pixels, not `em`: the point is one shared rhythm across the document
-   * and the transcript beside it, which is lost if each surface derives its own
-   * from its own size.
+   * The prose grid: multiples of the 24px line box. Whole pixels, so a document
+   * and the transcript beside it share one rhythm. Never `--space-*`, which is
+   * the chrome's scale. See DESIGN.md § Rhythm.
    */
   --prose-gap: 24px;
   /* A half row, between list items. See the accepted exception in Markdown.module.css. */
   --prose-gap-tight: 12px;
   --prose-gap-loose: 48px;
 
-  /*
-   * One measure for both reading surfaces. 66ch, not the conventional 80: this
-   * is a surface read start to finish, and at 80ch the return sweep to the next
-   * line start is long enough to lose your place — worse here, where a line is
-   * broken up by literals. Compared against 72ch on a real plan document.
-   */
+  /* One measure for both reading surfaces. 66ch, not 80 — see DESIGN.md § Measure. */
   --measure-prose: 66ch;
   --measure-panel: 66ch;
 

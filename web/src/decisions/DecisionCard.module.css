@@ -58,12 +58,7 @@
   margin-bottom: var(--space-2);
   font-size: var(--text-xs);
 }
-/*
- * This rail reads at 12px, so it opts out of the prose grid as well as the type
- * ramp: at this size a 24px paragraph gap is two full lines and the card reads
- * as sparse. The exception is kept here, beside the font size that causes it,
- * rather than by weakening the grid for the surfaces that do read at 16px.
- */
+/* This rail reads at 12px, where a 24px paragraph gap is two full lines. */
 .said {
   font-size: var(--text-sm);
   line-height: var(--leading-prose);

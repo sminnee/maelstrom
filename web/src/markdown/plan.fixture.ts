@@ -1,10 +1,8 @@
 /**
- * The case the surface is tuned for: a plan document, read start to finish.
- * It is literal-dense on purpose — six or seven inline literals per paragraph,
- * most of them mid-sentence paths and symbol names — because that is the shape
- * that made the previous chip treatment shred the line, and it is the shape a
- * real plan takes. It also carries a heading with a literal inside it, which is
- * the case most likely to expose a clash between the display face and mono.
+ * A literal-dense plan document — the case the markdown surface is tuned for.
+ * It carries a heading with a literal inside it, the case where the display
+ * face and mono can clash, and a four-item list, which is the even-length case
+ * that ends a half row off the grid.
  */
 export const planDocument = `## What already exists — extend, do not invent
 
