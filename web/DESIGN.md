@@ -7,7 +7,7 @@ colors:
   console-slate-sunken: '#0a0c10'
   hairline: '#2a2f3a'
   hairline-strong: '#3d4454'
-  readout: '#e6e8ee'
+  readout: '#d7dbe4'
   readout-muted: '#9aa3b5'
   readout-faint: '#5f6878'
   signal-blue: '#7aa2f7'
@@ -32,7 +32,7 @@ typography:
     fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif"
     fontSize: '16px'
     fontWeight: 400
-    lineHeight: 1.55
+    lineHeight: 1.5
   body:
     fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif"
     fontSize: '13px'
@@ -185,7 +185,13 @@ every phase to the same grey. **A new phase hue must add its `--phase-dormant` b
 - **Hairline** (`--border`) and **Hairline Strong** (`--border-strong`): separation without
   weight. Structure is drawn with one-pixel lines, never with fills or heavy rules.
 - **Readout** (`--fg`), **Readout Muted** (`--fg-muted`), **Readout Faint** (`--fg-faint`):
-  three steps of text presence — the thing itself, its metadata, its scaffolding.
+  three steps of text presence — the thing itself, its metadata, its scaffolding. On dark,
+  `--fg` sits a step below the brightest neutral: 13.63:1 rather than 15.42:1, because these
+  documents are read for minutes at a time and maximum contrast is a glare at that length.
+- **Literal** (`--fg-literal`): an inline literal in prose. It is a register, not a rank, so it
+  is neither `--fg-muted` (which reads as de-emphasised, and a literal is not less important
+  than its sentence) nor a hue (which the Reporting Rule reserves for state, and which would
+  make a literal look like a link). 8.87:1 on dark, 8.78:1 on light.
 
 ### Named Rules
 
@@ -203,12 +209,15 @@ a glow. If a second thing starts glowing, the design has stopped ranking and sta
 ## Typography
 
 **Interface Font:** the platform's own UI face — `system-ui`, `-apple-system`, `Segoe UI`, sans-serif
+**Display Font:** Inter Tight, for markdown headings only
 **Mono Font:** the platform's own mono — `ui-monospace`, `SFMono-Regular`, Menlo, monospace
 
-**Character:** Two neutral workhorses doing different jobs. The interface face carries
+**Character:** Three neutral workhorses doing different jobs. The interface face carries
 everything a human wrote or a human reads. Mono carries everything a machine produced — ids,
 branches, paths, commands, tool calls. The switch is semantic, not stylistic: mono is how the
-interface says "this is a literal string you may need to type or match".
+interface says "this is a literal string you may need to type or match". The display face
+carries markdown headings, and gives a heading a rank the eye reads before the words — a size
+step alone cannot do that at reading size.
 
 The system fetches one webfont: the display face, Latin subset, at the single weight headings
 use. It is about 22kB and it is served from the bundle, never from a font CDN. This app binds
@@ -230,7 +239,7 @@ Five steps, each with one job. Sizes are the `--text-*` tokens; no component nam
 The ramp has two halves, because the app has two jobs. The chrome is scanned and must stay
 dense; prose is read and must not.
 
-- **Reading** (`--text-md`, 400, 16px, 1.55): markdown, wherever it appears — a transcript
+- **Reading** (`--text-md`, 400, 16px, 1.5): markdown, wherever it appears — a transcript
   message, a document, the decision rail. Prose is read start to end, so it is set well above
   the chrome around it rather than on the same step.
 - **Chrome** (`--text-ui`, 400, 13px, 1.4): the body size everything else inherits. Node titles,
@@ -238,6 +247,9 @@ dense; prose is read and must not.
   the board's job is to hold many units at once.
 - **Display** (`--text-lg` 18px, `--text-xl` 21px): markdown's own `h2` and `h1`. Nothing in the
   chrome uses them.
+- **Section head** (`--text-md-plus`, 17px): markdown's `h3`. One step over body, because at
+  reading size a section head separated by weight alone does not rank. Nothing in the chrome
+  uses it.
 - **Label** (500, 12px): metadata and secondary lines — the state line, the footer, filter
   fields, tab titles. Also the mono step: task ids, branches, worktree paths, code.
 - **Small** (400, 11px): the dense mono register — a tool call's summary row, the transcript's
@@ -247,7 +259,7 @@ dense; prose is read and must not.
   value.
 
 Leading is a token too, chosen by job rather than by a single ratio: `--leading-tight` (1.3) for
-a heading, `--leading-ui` (1.4) for an interface line, `--leading-prose` (1.55) for a paragraph.
+a heading, `--leading-ui` (1.4) for an interface line, `--leading-prose` (1.5) for a paragraph.
 
 ### Measure
 
@@ -258,10 +270,48 @@ the operator drags it wider. Two measures, because the panel's two surfaces read
 - `--measure-panel` — the transcript, scanned in blocks between tool rows, and already narrowed
   by the 3.5rem time gutter.
 
-Both are 80ch. One measure, because a document and a transcript message are the same act of
-reading and a reader moving between them should not meet two line lengths.
+Both are 66ch. One measure, because a document and a transcript message are the same act of
+reading and a reader moving between them should not meet two line lengths. 66ch rather than the
+conventional 80, because these documents are read start to finish: at 80ch the sweep back to the
+next line start is long enough to lose your place, and a line broken up by literals makes that
+worse.
+
+### Rhythm
+
+Reading surfaces advance on a 24px grid. The grid is not laid over the text — it is the text:
+at 16px with 1.5 leading the line box is exactly 24px, so the leading and the grid are one
+number. A paragraph break is one row, a list gap a half row, the space above a heading two rows.
+
+`--space-*` is the chrome's scale and never sets prose spacing. That scale is tuned against 13px
+chrome, so on a 16px surface every step lands under the line box it is meant to separate. The
+`--prose-gap*` tokens exist so that a gap can never be narrower than the leading it separates.
+
+Three pieces of arithmetic keep blocks on the grid, and each fails silently if changed:
+
+| Block                  | Rule                               | Why                                                                                           |
+| ---------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------- |
+| Heading                | `line-height: 24px`, a fixed pixel | A ratio re-derives from the size, so a later size change walks the page off the grid          |
+| Heading with a literal | mono drops to `1em`                | At `0.92em` the mono inline box overflows a 24px line and adds a pixel                        |
+| Code block             | `padding: 11px`                    | With the 1px border the box chrome is one row, so a block is `(lines + 1) × 24` at any length |
+
+The space above a heading comes from the heading's own top margin. That margin collapses with
+the paragraph's bottom margin rather than adding to it, so raising the paragraph gap does not
+widen the space above a heading.
+
+Two blocks sit off the grid on purpose. List items take a half row, because a full row makes a
+list of short items read as separate paragraphs; a list with an even number of items therefore
+ends half a row out, until the next heading re-anchors it. Table rows come to 32px, because a
+table is an inset object read as a unit rather than as continuing prose.
+
+This is a grid in effect, not true baseline alignment. Blocks advance in whole rows. Baselines
+sit at a font-dependent offset inside the line box, so a heading in the display face is not
+collinear with body text — and chasing that with nudges would break whenever the webfont fails.
 
 ### Named Rules
+
+**The Prose Rhythm Rule.** Prose spacing is a function of the line box, never of the chrome's
+spacing scale. A reading surface takes `--prose-gap*`; a gap narrower than the leading it
+separates is the failure this prevents.
 
 **The Legibility Floor Rule.** 10px is the smallest type in the system, and it is only ever
 used for a tracked uppercase micro-label — never for prose, and never for a sentence. Chrome is
@@ -272,6 +322,10 @@ the tightest, and it is measured, not assumed.
 **The Mono Means Literal Rule.** Monospace marks a string the operator might copy, type or
 match against something else. Prose never uses it, and a mono string is never truncated
 without an ellipsis, because a half-shown id is worse than an obviously cut one.
+
+A literal inside prose is marked by face and tone alone — mono and `--fg-literal`, with no
+container. A filled chip works for the occasional literal in a transcript message and fails on a
+plan document, where six or seven literals a paragraph turn a sentence into a row of boxes.
 
 **The Operator's Words Rule.** State appears in words the operator already owns — "Needs you ·
 plan review" — never a raw agent state, and never a term `CONTEXT.md` lists under `_Avoid_`.
