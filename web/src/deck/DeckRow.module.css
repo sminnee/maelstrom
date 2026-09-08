@@ -7,6 +7,8 @@
   border-bottom: 1px solid var(--border);
   border-left: 4px solid var(--phase);
   background: var(--bg-raised);
+  /* The sink into the sunken plane crossfades, as it does on the node. */
+  transition: background 0.2s;
 }
 .open {
   flex: 1;
@@ -116,6 +118,12 @@
 .row[data-state='exited'] .dot {
   background: var(--danger);
 }
+/* Hollow says the process is not running, the way `ready` says it has not
+   started. `--tone-dormant` is the token written for exactly this reading. */
+.row[data-state='stopped'] .dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--tone-dormant);
+}
 .row[data-state='needs-attention'] .dot {
   background: var(--attention);
 }
@@ -130,6 +138,20 @@
 }
 .row[data-state='idle'] {
   opacity: 0.8;
+}
+/* Parked — the sunken plane, not a fade. See `TaskNode.module.css`. */
+.row[data-state='stopped'] {
+  opacity: 0.9;
+  background: var(--bg-sunken);
+  border-left-color: var(--phase-dormant);
+}
+/* The title alone: `.state` is already muted at rest here, unlike the canvas,
+   where the status row carries `--fg` and steps down with the rest. */
+.row[data-state='stopped'] .title {
+  color: var(--fg-muted);
+}
+.row[data-state='stopped'] .phase {
+  color: var(--phase-dormant);
 }
 .row[data-state='queued'] {
   opacity: 0.65;

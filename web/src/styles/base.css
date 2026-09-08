@@ -61,18 +61,27 @@ summary::-webkit-details-marker {
   display: none;
 }
 
-/* The one place a phase becomes a colour. Anything under a phased element reads `--phase`. */
+/*
+ * The one place a phase becomes a colour. Anything under a phased element reads
+ * `--phase`. Each phase re-derives `--phase-dormant` with it: a custom property
+ * substitutes where it is declared, so the drained edge has to be mixed here,
+ * beside the hue it drains, rather than once against the root fallback.
+ */
 [data-phase='shape'] {
   --phase: var(--phase-shape);
+  --phase-dormant: color-mix(in srgb, var(--phase-shape) var(--phase-drain), var(--border));
 }
 [data-phase='plan'] {
   --phase: var(--phase-plan);
+  --phase-dormant: color-mix(in srgb, var(--phase-plan) var(--phase-drain), var(--border));
 }
 [data-phase='build'] {
   --phase: var(--phase-build);
+  --phase-dormant: color-mix(in srgb, var(--phase-build) var(--phase-drain), var(--border));
 }
 [data-phase='land'] {
   --phase: var(--phase-land);
+  --phase-dormant: color-mix(in srgb, var(--phase-land) var(--phase-drain), var(--border));
 }
 
 ::highlight(document-comments) {

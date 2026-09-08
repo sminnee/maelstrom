@@ -78,6 +78,14 @@
   --tone-dormant: var(--mark-neutral);
   /* The current phase's hue: `base.css` sets it from `[data-phase]`. */
   --phase: var(--fg-faint);
+  /* How far a stopped node's phase bar drains. One value, because `base.css`
+     mixes it once per phase and a ratio edited in four places out of five
+     gives one phase a different drain with no gate to catch it. */
+  --phase-drain: 40%;
+  /* The phase hue drained, for a stopped node. `base.css` re-derives it per
+     phase; this declaration is the phase-less fallback, tracking `--phase`'s
+     own. See DESIGN.md, "Phase". */
+  --phase-dormant: color-mix(in srgb, var(--phase) var(--phase-drain), var(--border));
 
   --shadow-card: 0 16px 40px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.5);
   --z-card: 10;

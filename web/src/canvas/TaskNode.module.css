@@ -19,6 +19,7 @@
   overflow: hidden;
   transition:
     box-shadow 0.2s,
+    background 0.2s,
     opacity 0.2s;
 }
 .node > * {
@@ -39,6 +40,19 @@
 }
 .node[data-state='idle'] {
   opacity: 0.8;
+}
+/* Parked. Recedes by sinking, not fading — see DESIGN.md, "Stopped". */
+.node[data-state='stopped'] {
+  opacity: 0.9;
+  background: var(--bg-sunken);
+  border-left-color: var(--phase-dormant);
+}
+.node[data-state='stopped'] .title,
+.node[data-state='stopped'] .status {
+  color: var(--fg-muted);
+}
+.node[data-state='stopped'] .phase {
+  color: var(--phase-dormant);
 }
 .node[data-state='queued'] {
   border-style: dashed;
@@ -113,6 +127,12 @@
 }
 .node[data-state='cancelled'] .dot {
   background: var(--mark-neutral);
+}
+/* Hollow says the process is not running, the way `ready` says it has not
+   started. `--tone-dormant` is the token written for exactly this reading. */
+.node[data-state='stopped'] .dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--tone-dormant);
 }
 .node[data-state='exited'] .dot {
   background: var(--danger);
