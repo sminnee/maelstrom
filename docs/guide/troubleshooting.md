@@ -15,7 +15,7 @@ mael task reconcile    # do tasks and sessions agree?
 
 ## `mael doctor`
 
-Doctor runs thirteen checks in order and fixes what it safely can. Each reports **OK**,
+Doctor runs fourteen checks in order and fixes what it safely can. Each reports **OK**,
 **FIXED**, **WARNING** or **ERROR**.
 
 | Check | Fixes |
@@ -33,6 +33,7 @@ Doctor runs thirteen checks in order and fixes what it safely can. Each reports 
 | Port allocations against worktrees | Yes |
 | `.env` section markers | Reports |
 | Permissions on files holding secrets | Yes |
+| `_main`'s editable install points into `_main` | Reports — the repair reinstalls a machine-wide tool, so doctor names it rather than running it. |
 
 Run it against a specific project:
 

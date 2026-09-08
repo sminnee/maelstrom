@@ -487,6 +487,52 @@ def _check_secret_file_perms(project_path: Path) -> CheckResult:
     return CheckResult(CheckStatus.OK, "secret file permissions are restrictive")
 
 
+def _check_editable_install(project_path: Path) -> CheckResult:
+    """Check that the editable install in ``_main``'s venv still points at ``_main``.
+
+    ``mael`` runs from ``_main/.venv``, and that venv holds one editable install
+    pointing at the source it should run. Reinstalling from a worktree repoints
+    it there, so every bare ``mael`` on the machine then runs that worktree's
+    in-progress code — which surfaces as an error from a file the user was not
+    editing, far from the command they typed.
+
+    Reports rather than repairs: the fix reinstalls a machine-wide tool, which
+    is heavier and slower than anything else this command does.
+
+    Returns OK when the target is inside ``_main``, or when the project has no
+    such venv — not every checkout is installed this way. Returns WARNING
+    naming the wrong target and the repair otherwise.
+    """
+    main_path = project_path / MAIN_WORKTREE_FOLDER
+    # Globbed, not spelled out: the file is named after the distribution, and
+    # this check should not be what breaks when that is renamed.
+    pths = sorted(
+        (main_path / ".venv" / "lib").glob("python*/site-packages/_editable_impl_*.pth")
+    )
+    if not pths:
+        return CheckResult(CheckStatus.OK, "no editable install to check")
+
+    strays = []
+    for pth in pths:
+        try:
+            target = Path(pth.read_text().strip().splitlines()[0])
+        except (OSError, IndexError):
+            continue
+        if not target.is_relative_to(main_path):
+            strays.append(str(target))
+
+    if strays:
+        return CheckResult(
+            CheckStatus.WARNING,
+            f"{MAIN_WORKTREE_FOLDER}'s editable install points outside it "
+            f"({', '.join(strays)}) — every bare `mael` runs that code. "
+            f"Repair with: cd {main_path} && uv sync",
+        )
+    return CheckResult(
+        CheckStatus.OK, f"editable install points into {MAIN_WORKTREE_FOLDER}"
+    )
+
+
 def run_doctor(project_path: Path) -> DoctorResult:
     """Run all health checks on a project.
 
@@ -513,6 +559,7 @@ def run_doctor(project_path: Path) -> DoctorResult:
         _check_port_allocations,
         _check_env_markers,
         _check_secret_file_perms,
+        _check_editable_install,
     ]
 
     for check in checks:
