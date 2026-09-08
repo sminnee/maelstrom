@@ -157,6 +157,43 @@ describe('agent streams', () => {
     expect(sockets).toHaveLength(1);
   });
 
+  it('dispose closes the sockets and disarms the grace, leaving the store alone', () => {
+    // The manager outlives the views that used it: a release only arms a
+    // grace timer. Whoever owns the manager disposes it, and that must not
+    // reach a store which by then belongs to someone else.
+    const release = streams.acquire('ag1');
+    sockets[0]!.open();
+    sockets[0]!.receive({
+      type: 'transcript.snapshot',
+      seq: 1,
+      items: [item('m1')],
+      truncatedBefore: false,
+    });
+    release();
+
+    streams.dispose();
+    expect(sockets[0]!.closed).toBe(true);
+    // Left for the next reader of the store, not dropped.
+    expect(store.state['ag1']?.items).toHaveLength(1);
+
+    // The armed grace timer must not fire after dispose.
+    store.state['ag1'] = { ...store.state['ag1']! };
+    vi.advanceTimersByTime(60_000);
+    expect(store.state['ag1']).toBeDefined();
+  });
+
+  it('dispose disarms a pending reconnect', () => {
+    streams.acquire('ag1');
+    sockets[0]!.open();
+    sockets[0]!.serverClose(1006);
+    expect(sockets).toHaveLength(1);
+
+    streams.dispose();
+    vi.advanceTimersByTime(60_000);
+    // No reconnect: the manager is gone, so nothing reopens for it.
+    expect(sockets).toHaveLength(1);
+  });
+
   it('a re-acquire after the grace opens a new socket and refills the store', () => {
     const release = streams.acquire('ag1');
     sockets[0]!.open();
