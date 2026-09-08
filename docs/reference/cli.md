@@ -1026,7 +1026,7 @@ None of these take options beyond `--help`.
 |---|---|
 | `mael doctor [PROJECT]` | Check project health and fix issues automatically. |
 | `mael install` | Install maelstrom's Claude Code skills and hooks into `~/.claude/`. |
-| `mael self-update` | Update maelstrom to the latest version from git. Also points the `mael` on your PATH at the everyday daemon's root, so a bare `mael agent …` reaches it. |
+| `mael self-update` | Update maelstrom to the latest version from git. Always updates `_main`, whichever worktree you run it from — the install is shared by the whole machine. Also points the `mael` on your PATH at the everyday daemon's root, so a bare `mael agent …` reaches it. |
 | `mael self-env <VERB>` | `mael env <VERB>` aimed at maelstrom's own `_main`. `mael self-env start` runs the everyday agent daemon, which is a service of that environment. |
 
 ```bash

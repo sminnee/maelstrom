@@ -98,12 +98,36 @@ def _write_daemon_root_shim() -> str:
     return f"`mael` reaches the daemon on {root}"
 
 
+def resolve_install_root(module_dir: Path) -> Path:
+    """The checkout ``self-update`` reinstalls: ``_main``, not the caller's worktree.
+
+    The editable install is shared by the whole machine, so its target must not
+    depend on which copy of the source happens to be running. Deriving it from
+    ``__file__`` did exactly that: ``mael self-update`` run from a worktree
+    repointed the install at that worktree, and every bare ``mael`` then ran
+    its in-progress code.
+
+    A checkout with no ``_main`` beside it is an ordinary clone rather than a
+    maelstrom project, and updates in place.
+
+    Args:
+        module_dir: The ``maelstrom`` package directory, i.e. ``__file__``'s parent.
+
+    Returns:
+        The checkout to pull and reinstall.
+    """
+    repo_root = module_dir.parent.parent
+    if repo_root.name == MAIN_WORKTREE_FOLDER:
+        return repo_root
+    main = repo_root.parent / MAIN_WORKTREE_FOLDER
+    return main if main.is_dir() else repo_root
+
+
 @click.command("self-update")
 def cmd_self_update():
     """Update maelstrom to the latest version from git."""
-    # Get the maelstrom package root directory
-    module_dir = Path(__file__).parent
-    repo_root = module_dir.parent.parent
+    # Always `_main`, whichever worktree's copy of this code is running.
+    repo_root = resolve_install_root(Path(__file__).parent)
     git_dir = repo_root / ".git"
 
     # Check if it's a git checkout

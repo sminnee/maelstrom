@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from maelstrom.admin_cli import cmd_self_update
+from maelstrom.admin_cli import cmd_self_update, resolve_install_root
 from maelstrom.env import EnvState
 
 
@@ -91,6 +91,38 @@ class TestSelfUpdateDependencySync:
 
         assert result.exit_code != 0
         assert "not installed from a git checkout" in result.output
+
+
+class TestResolveInstallRoot:
+    """The shared editable install points at `_main`, whoever runs the update.
+
+    `self-update` used to derive its target from the running source, so running
+    it from a worktree repointed the install at that worktree's half-written
+    code — and every bare `mael` on the machine ran it.
+    """
+
+    def _checkout(self, tmp_path, name):
+        """A checkout named `name`, returning the `maelstrom/` package dir."""
+        module_dir = tmp_path / name / "src" / "maelstrom"
+        module_dir.mkdir(parents=True)
+        return module_dir
+
+    def test_a_worktree_resolves_to_its_sibling_main(self, tmp_path):
+        module_dir = self._checkout(tmp_path, "maelstrom-lima")
+        (tmp_path / "_main").mkdir()
+
+        assert resolve_install_root(module_dir) == tmp_path / "_main"
+
+    def test_main_resolves_to_itself(self, tmp_path):
+        module_dir = self._checkout(tmp_path, "_main")
+
+        assert resolve_install_root(module_dir) == tmp_path / "_main"
+
+    def test_a_standalone_checkout_resolves_to_itself(self, tmp_path):
+        # No `_main` beside it: an ordinary clone, which updates in place.
+        module_dir = self._checkout(tmp_path, "maelstrom")
+
+        assert resolve_install_root(module_dir) == tmp_path / "maelstrom"
 
 
 class TestSelfEnv:
