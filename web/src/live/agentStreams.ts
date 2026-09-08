@@ -27,6 +27,14 @@ export interface AgentStreamsOptions {
 export interface AgentStreams {
   /** Show an agent's transcript. Returns the release; the last release closes the stream. */
   acquire(agentId: AgentId): () => void;
+  /**
+   * Drop every stream and the timers it is holding, without touching the
+   * store. A release only decrements a refcount and arms a grace timer, so
+   * the manager outlives the views that used it; whoever owns the manager
+   * calls this when it goes, or those timers fire against a store that has
+   * moved on.
+   */
+  dispose(): void;
 }
 
 /** The server closes with these when the agent is unknown, or the reader fell behind. */
@@ -167,6 +175,19 @@ export function createAgentStreams(opts: AgentStreamsOptions): AgentStreams {
           if (stream.refs === 0) close(agentId, stream);
         }, graceMs);
       };
+    },
+    dispose() {
+      for (const stream of streams.values()) {
+        if (stream.reconnectTimer) clearTimeout(stream.reconnectTimer);
+        if (stream.graceTimer) clearTimeout(stream.graceTimer);
+        const socket = stream.socket;
+        stream.socket = null;
+        socket?.close();
+      }
+      // The store is not this manager's to clear. `close` drops a transcript
+      // nobody is showing; a disposed manager is being replaced, and dropping
+      // here would take the transcript from whoever reads the store next.
+      streams.clear();
     },
   };
 }

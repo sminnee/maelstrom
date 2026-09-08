@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '../store/store';
 import { createAgentStreams } from './agentStreams';
@@ -27,6 +27,7 @@ export function LiveProvider({
   children: ReactNode;
 }) {
   const queryClient = useQueryClient();
+  const cancelDispose = useRef<(() => void) | null>(null);
   const setConnection = useAppStore((s) => s.setConnection);
   useEffect(
     () =>
@@ -38,8 +39,11 @@ export function LiveProvider({
       }),
     [url, queryClient, setConnection, eventSourceFactory],
   );
-  // Each view releases its own stream on unmount, so the manager needs no
-  // teardown of its own.
+  // A release only drops a refcount: the stream stays open for `graceMs` so a
+  // view that comes straight back keeps it, which is what carries a transcript
+  // across a StrictMode remount. So the manager is not disposed on unmount --
+  // that unmount is simulated, and closing there would drop the sockets the
+  // remount reuses. It is disposed when the tree is really gone, below.
   const [streams] = useState(() =>
     createAgentStreams({
       socketFactory,
@@ -51,5 +55,18 @@ export function LiveProvider({
       },
     }),
   );
+  // Disposing in the cleanup directly would break StrictMode: its remount runs
+  // the cleanup and then re-runs the effect, so the sockets the remount means
+  // to reuse would already be closed. Deferring by a tick tells the two apart
+  // -- a remount re-runs the effect and cancels the dispose, a real unmount
+  // never does.
+  useEffect(() => {
+    cancelDispose.current?.();
+    cancelDispose.current = null;
+    return () => {
+      const timer = setTimeout(() => streams.dispose(), 0);
+      cancelDispose.current = () => clearTimeout(timer);
+    };
+  }, [streams]);
   return <AgentStreamsContext.Provider value={streams}>{children}</AgentStreamsContext.Provider>;
 }
