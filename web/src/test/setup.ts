@@ -118,4 +118,79 @@ if (!('EventSource' in globalThis)) {
   Object.defineProperty(globalThis, 'EventSource', { writable: true, value: EventSourceStub });
 }
 
+// jsdom implements neither the Popover API nor `<dialog>`'s modal methods, which ComboBox and
+// Dialog both call.
+//
+// The popover stubs cannot be bare no-ops. jsdom's UA stylesheet gives `[popover]` `display:
+// none`, and a real `showPopover()` is what lifts it; with a no-op the element stays hidden, so
+// `getByRole('listbox')` cannot see the offer and every test that reads it fails. So the stubs
+// toggle inline `display` to model what the browser does, and fire `beforetoggle` so a component
+// that positions itself on open still runs.
+if (typeof HTMLElement !== 'undefined') {
+  // Which popovers are open. Held here rather than read back off inline
+  // `display`, because a popover that was never shown has no inline style --
+  // so inferring from it would read as open and inverts the first toggle.
+  const shown = new WeakSet<HTMLElement>();
+  const toggle = (el: HTMLElement, open: boolean) => {
+    const before = new Event('beforetoggle') as Event & { newState: string };
+    before.newState = open ? 'open' : 'closed';
+    el.dispatchEvent(before);
+    el.style.display = open ? 'block' : 'none';
+    if (open) shown.add(el);
+    else shown.delete(el);
+    // The browser fires `toggle` after the state settles. Components mostly
+    // listen for `beforetoggle`, but one that takes `toggle` -- to measure
+    // itself once it has a size -- would get silence without this.
+    const after = new Event('toggle') as Event & { newState: string };
+    after.newState = open ? 'open' : 'closed';
+    el.dispatchEvent(after);
+  };
+  HTMLElement.prototype.showPopover ??= function (this: HTMLElement) {
+    toggle(this, true);
+  };
+  HTMLElement.prototype.hidePopover ??= function (this: HTMLElement) {
+    toggle(this, false);
+  };
+  HTMLElement.prototype.togglePopover ??= function (this: HTMLElement) {
+    const open = !shown.has(this);
+    toggle(this, open);
+    return open;
+  };
+}
+if (typeof HTMLDialogElement !== 'undefined') {
+  HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+    this.open = true;
+    // A modal dialog takes Escape and raises `cancel`, which is how `Dialog`
+    // hears the key. jsdom implements none of that, so without this the Escape
+    // route out of every dialog would go untested.
+    //
+    // Capture phase, on the document. Two reasons, and both decide what the
+    // tests can prove. React attaches its listeners at the root container,
+    // outside the dialog, so a bubble-phase listener here would run first and
+    // could not see a `preventDefault()` from a control inside. And a browser
+    // decides Escape from `defaultPrevented` alone -- `stopPropagation()` does
+    // not stop it, because the close-request is not a listener on the way up.
+    // Capturing first, then re-reading the flag once React has run, models
+    // that: a control must call `preventDefault()` to hold the dialog open,
+    // and a test cannot pass on `stopPropagation()` instead.
+    const onKey = (e: Event) => {
+      if ((e as KeyboardEvent).key !== 'Escape') return;
+      // No containment check: a modal dialog takes Escape wherever the focus
+      // sits, and after a button inside it unmounts the focus is on the body.
+      if (!this.open) return;
+      queueMicrotask(() => {
+        if (e.defaultPrevented || !this.open) return;
+        const cancel = new Event('cancel', { cancelable: true });
+        if (this.dispatchEvent(cancel)) this.close();
+      });
+    };
+    document.addEventListener('keydown', onKey, true);
+    this.addEventListener('close', () => document.removeEventListener('keydown', onKey, true));
+  };
+  HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+    this.open = false;
+    this.dispatchEvent(new Event('close'));
+  };
+}
+
 afterEach(() => cleanup());

@@ -1,0 +1,36 @@
+/*
+ * The CSS half of the anchored-popover pattern, which every popover needs the same.
+ *
+ * A popover sits in the top layer, so no ancestor's `overflow` can clip it. That is why the combo
+ * box offer uses one: `Dialog.module.css` scrolls, and an absolutely positioned list was cut off
+ * at the dialog's edge.
+ *
+ * The pattern has two halves, and it only works when both are applied:
+ *
+ *   1. `composes: anchored from './anchoredPopover.module.css'` on the popover.
+ *   2. `anchor-name: var(--anchor-name)` on the trigger.
+ *
+ * `useAnchorName` supplies the `--anchor-name` both halves read. Each component keeps its own
+ * offsets (`top`/`left`, `min-width`), which is what actually differs between them.
+ *
+ * DECLARE THOSE OFFSETS AT SPECIFICITY (0,2,0) OR HIGHER — under `:popover-open`, or a descendant
+ * selector. Never on the bare class you composed this into.
+ *
+ * `inset: unset` below is a shorthand for all four offsets, so it competes with a component's
+ * `top`/`left` rather than only preceding them. Two bare single-class selectors tie at (0,1,0),
+ * and the cascade then falls back to stylesheet injection order, which no component controls.
+ * Lose that toss and the offsets reset to `auto` and the popover collapses to the viewport
+ * origin. Vite's dev server hides this — its injection order happens to favour the component — so
+ * check a production build, not only `pnpm dev`.
+ */
+.anchored {
+  /* The UA stylesheet centres a popover in the viewport; each component's offsets replace that.
+     A shorthand, so it beats a tying `top`/`left` rather than only preceding it — see above. */
+  inset: unset;
+  /* Fixed, not absolute: a top-layer element resolves `absolute` against a transformed ancestor,
+     and the canvas is transformed. */
+  position: fixed;
+  /* The explicit anchor, not the implicit `popovertarget` one, which stops resolving under a
+     transformed ancestor. Per-instance, because anchor names are document-global. */
+  position-anchor: var(--anchor-name);
+}
