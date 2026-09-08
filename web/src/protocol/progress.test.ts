@@ -59,7 +59,7 @@ const rows: Row[] = [
     status: 'todo',
     actionable: true,
     agent: 'finished',
-    state: 'idle',
+    state: 'stopped',
     words: 'Finished',
     drift: null,
     fixStatus: null,
@@ -106,7 +106,7 @@ const rows: Row[] = [
     status: 'todo',
     actionable: false,
     agent: 'finished',
-    state: 'idle',
+    state: 'stopped',
     words: 'Finished',
     drift: null,
     fixStatus: null,
@@ -149,6 +149,9 @@ const rows: Row[] = [
     drift: null,
     fixStatus: null,
   },
+  // These two rows are the pair the board has to separate: a session whose
+  // process is up and waiting at a prompt, against one that ended and can be
+  // resumed.
   {
     status: 'in-progress',
     actionable: true,
@@ -162,7 +165,7 @@ const rows: Row[] = [
     status: 'in-progress',
     actionable: true,
     agent: 'finished',
-    state: 'idle',
+    state: 'stopped',
     words: 'Finished',
     drift: 'finished',
     fixStatus: 'done',
@@ -209,7 +212,7 @@ const rows: Row[] = [
     status: 'blocked',
     actionable: false,
     agent: 'finished',
-    state: 'idle',
+    state: 'stopped',
     words: 'Finished',
     drift: null,
     fixStatus: null,
@@ -351,7 +354,7 @@ const rows: Row[] = [
     status: 'template',
     actionable: false,
     agent: 'finished',
-    state: 'idle',
+    state: 'stopped',
     words: 'Finished',
     drift: null,
     fixStatus: null,
@@ -462,7 +465,7 @@ describe('progressOf', () => {
       fixStatus: null,
     });
     expect(progressOf(undefined, makeAgent({ state: 'exited', exitCode: 0 }), [])).toMatchObject({
-      state: 'idle',
+      state: 'stopped',
       words: 'Finished',
       drift: null,
     });
@@ -524,6 +527,9 @@ describe('zoneForState', () => {
     ['working', 'running'],
     ['needs-attention', 'running'],
     ['idle', 'running'],
+    // A stopped session is resumable, so it is unfinished work in the running
+    // zone rather than history.
+    ['stopped', 'running'],
     // Work is not settled until CI is green, so finalising stays out of done.
     ['finalising', 'running'],
     // A run that stopped without the task being marked done is unfinished

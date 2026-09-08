@@ -642,7 +642,7 @@ describe('drift between the task file and the agent', () => {
     });
   }
 
-  it('marks a drifting node without changing how it draws', async () => {
+  it('marks a drifting node without escalating it', async () => {
     const { server } = await renderApp();
     const node = () => document.querySelector('[data-task-id="MAEL-40.1"]')!;
     expect(node().querySelector('[data-drift]')).toBeNull();
@@ -650,9 +650,9 @@ describe('drift between the task file and the agent', () => {
     stopAgent(server);
     await waitFor(() => expect(node().querySelector('[data-drift]')).not.toBeNull());
     expect(node().querySelector('[data-drift]')).toHaveAttribute('data-drift', 'finished');
-    // Drift is a fourth channel, not a ninth state: the Single Interrupt Rule
+    // Drift is a channel, not a state of its own: the Single Interrupt Rule
     // keeps the amber border and glow for work that is really blocked.
-    expect(nodeState('MAEL-40.1')).toBe('idle');
+    expect(nodeState('MAEL-40.1')).toBe('stopped');
   });
 
   it('names both values on the card, and its fix moves the task', async () => {
