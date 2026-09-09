@@ -40,10 +40,6 @@ See `docs/dev/` for architecture and design docs:
 - `docs/dev/orchestrator-server.md` — the server behind that app: its layers, how it keeps the
   world fresh, launch, and the routes it serves the UI.
 
-`CONTEXT.md` at the repo root is the domain glossary. Read it before you write prose or name
-anything, and reuse its terms verbatim, including each term's `_Avoid_` list. Add new domain
-terms there rather than defining them inline.
-
 ## User Documentation
 
 User-facing documentation lives in `docs/guide/` and `docs/reference/`. Read it before you
