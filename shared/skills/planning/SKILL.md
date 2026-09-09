@@ -1,123 +1,35 @@
 ---
 name: planning
-description: Draft-file mechanics for planning sessions — write draft task files, sculpt them with the user, promote them into the notebook on approval. Load when a planning skill (plan-task, plan-next-step) or any session builds a task chain interactively.
+description: Draft task files for planning sessions. Use when a session builds a task chain with the user.
 ---
 
-# Planning with draft task files
+# Planning with drafts
 
-A planning session's deliverable is **tasks**, not a document. This skill is the mechanics:
-write **draft task files**, sculpt them with the user, and promote each into the notebook on
-approval. The techniques for *what* to plan (slicing, sizing, chain shape) live in the skill
-that loaded this one.
-
-## What a draft is
-
-A draft is a task file **outside the notebook** — plain markdown in the task-file format (YAML
-frontmatter + Content/Steps/Log sections), sitting in the worktree's `.drafts/` directory. It is
-inert: invisible to `mael task list`, `mael task next`, and follow-end resolution. It becomes a
-real task only when `mael task promote` loads it into the store. That structural gap *is* the
-approval gate — nothing you draft can run until the user approves promotion.
-
-`.drafts/` is gitignored, so an abandoned draft cannot reach a commit.
-
-## Create drafts early
-
-The moment a task's shape emerges, create its draft — don't hold the plan in conversation:
+A draft is an inert task file in `.drafts/`. It becomes a task only through `mael task promote`. Create each draft as soon as its shape is clear:
 
 ```bash
 mael task draft .drafts/<name>.md "<title>" --mode auto --pre-action linear.in-progress
 ```
 
-One file per future task, in the worktree's `.drafts/` directory. The command takes the same
-recipe flags as `mael task add` (`--command`, `--mode`, `--model`, `--priority`,
-`--pre-action`, `--post-action`, `--content-file`, …) and writes a valid task file with the
-identity fields (`id`, `project`, `created`, `follows`) empty. It refuses to overwrite an
-existing file without `--force`. There are no `--follow`/`--follow-end` flags — chain wiring
-happens at promote time, when the ids to follow exist.
-
-## Live preview
-
-The moment the drafts exist, write a `<doc-file>` tag in your message. It puts them in front of
-the user as a document in the orchestrator UI, so the user reads the plan formatted instead of
-as a diff:
+Use one file per future task. Put its execution plan in `## Content`; keep recipe fields in frontmatter. Show the complete chain, in order, as soon as drafts exist:
 
 ```
-<doc-file kind="tasks" filename=".drafts/iter1.md, .drafts/tail.md" title="Iteration 1" review="true">
+<doc-file kind="tasks" filename=".drafts/first.md, .drafts/next.md" title="Plan" review="true">
 ```
 
-`filename` names files in this worktree, comma-separated, **in chain order**. One tag for the
-whole set: a chain is one plan, and the order here is the order approval promotes them in.
-`kind` is `tasks` for draft task files. `title` names the document, and defaults to the first
-filename.
+Edit drafts with the user. Planning changes drafts only; execute sessions own source changes.
 
-`review="true"` opens the document awaiting review, which is what raises an item on the user's
-desk and shows the review bar. A task set is a decision, so give it. A tag without it opens the
-document to read and blocks nothing — that is for a draft still taking shape.
+`promote` deletes a draft and echoes its id; wire later drafts from that id. Drafts have no follow flags because identities do not exist until promotion. The UI document needs `kind="tasks"`, files in chain order, and `review="true"` when it is ready for approval.
 
-## Sculpt
-
-Edit the draft files directly as the plan develops with the user. The `## Content` section is
-the plan the execute session receives — write it for that session. The frontmatter is the
-recipe (`mode`, `command`, `model`, actions); edit it like any other line.
-
-## Promote or discard
-
-The user approves on one of two surfaces, and that decides who promotes. Promoting a set the UI
-already created would make every task twice, so the surface is stated in the message you get.
-
-### Approved in the orchestrator UI
-
-You get a message saying the approval promoted the drafts, and naming the task ids. The tasks
-already exist and your draft files are gone.
-
-Do not run `mael task promote`. Take the ids from that message, then carry on with the rest of
-your closing sequence — close your own planning task, and launch the head.
-
-### Approved in the chat
-
-A cmux session has no document to approve, so the user says yes to you and you promote.
-
-Take each draft **in dependency order**, wiring the chain as you go:
+On chat approval, promote in dependency order. Capture each returned id:
 
 ```bash
-mael task promote .drafts/first.md --follow-end '*'   # echoes the new id
-mael task promote .drafts/second.md --follow <id-from-first>
+mael task promote .drafts/first.md --follow-end '*'
+mael task promote .drafts/next.md --follow <first-id>
 ```
 
-`promote` creates the task (todo), echoes its id, and **deletes the file** — capture each
-echoed id to wire the next `--follow`. Flags override the file's fields, same as
-`add --from`.
+On UI approval, the UI already promoted and deleted the drafts. Use the reported ids. On rejection, delete drafts.
 
-`mael task promote` stays the canonical path either way: the orchestrator calls the same step,
-so both surfaces open the same structural gate.
+After promotion, close the planning task, launch the head with `mael task next --run`, then run `mael session end`. Prefer a few coherent iterations over many small ones.
 
-### Rejected
-
-Delete the draft files. Nothing was created.
-
-## End the session when the plan is launched
-
-Planning is finished once the tasks exist and the first one is launched. Run `mael session end`
-as the last step, after `mael task next --run` reports the launch.
-
-Run it without asking, and without checking first. The launched task runs in its own session, so
-ending this one does not touch it, and an ended session is resumable: `claude --resume` opens it
-again with the transcript complete.
-
-This holds for planning that started outside a task as well. Such a session has no task to close,
-but it still has no work left once the tasks are created and the first is launched.
-
-## Sizing the chain
-
-**Prefer few, large iterations to many small ones.** Bucket remaining work into roughly three
-thematically coherent chunks — backend write plus read surface, traversal plus metrics, frontend plus
-e2e — rather than one iteration per subsystem touchpoint.
-
-Each session carries fixed overhead: re-planning, a PR, a CI round-trip. Below roughly 750 production
-lines that overhead dominates the work, and a chain of nine one-session slices costs far more than
-the three it should have been.
-
-## Discipline
-
-This session plans. It writes draft task files and nothing else: no project source edits, no
-branches, no implementation. The execute sessions the promoted tasks launch own the work.
+The head follows the planning task, so close the planner before launching it. A planning session ends only after the first task launches. Do not end it merely because the drafts exist.

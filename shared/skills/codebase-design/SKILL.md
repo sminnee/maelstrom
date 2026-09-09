@@ -1,129 +1,43 @@
 ---
 name: codebase-design
-description: Shared vocabulary for designing deep modules. Use when the user wants to design or improve a module's interface, find deepening opportunities, decide where a seam goes, make code more testable or AI-navigable, or when another skill needs the deep-module vocabulary.
+description: Vocabulary and rules for designing deep modules. Use to improve an interface, choose a seam, deepen a design, make code testable or AI-navigable, or supply shared design terms.
 metadata:
   opencode/slash: true
 ---
 
-# Codebase Design
+# Codebase design
 
-Design **deep modules**: a lot of behaviour behind a small interface, placed at a clean seam, testable through that interface. Use this language and these principles wherever code is being designed or restructured. The aim is leverage for callers, locality for maintainers, and testability for everyone.
+Design **deep modules**: much behaviour behind a small interface, at a clean seam, tested through that interface.
 
-## Glossary
+## Vocabulary
 
-Use these terms exactly — don't substitute "component," "service," "API," or "boundary." Consistent language is the whole point.
+- **Module**: anything with an interface and implementation. Avoid component, service, and unit.
+- **Interface**: every fact a caller needs, including invariants, ordering, errors, configuration, and performance. Avoid API and signature.
+- **Implementation**: code inside a module.
+- **Seam**: the location where behaviour can change without editing the caller. Avoid boundary.
+- **Adapter**: a concrete implementation at a seam.
+- **Depth**: leverage per unit of interface learned. It is a property of the interface, not implementation size.
+- **Leverage**: capability callers gain from depth.
+- **Locality**: change, knowledge, and verification concentrated in one place.
 
-**Module** — anything with an interface and an implementation. Deliberately scale-agnostic: a function, class, package, or tier-spanning slice. _Avoid_: unit, component, service.
+## Shape the seam
 
-**Interface** — everything a caller must know to use the module correctly: the type signature, but also invariants, ordering constraints, error modes, required configuration, and performance characteristics. _Avoid_: API, signature (too narrow — they refer only to the type-level surface).
+Choose the seam before its implementation. Minimise methods, parameters, ordering rules, configuration, and exposed failures. Prefer one rich operation over coupled caller steps. Hide complexity that callers do not need.
 
-**Implementation** — what's inside a module, its body of code. Distinct from **Adapter**: a thing can be a small adapter with a large implementation (a Postgres repo) or a large adapter with a small implementation (an in-memory fake). Reach for "adapter" when the seam is the topic; "implementation" otherwise.
+Use the deletion test: deleting a deep module spreads its complexity across callers; deleting a pass-through removes little. Callers and tests cross the same interface. Internal seams may support implementation tests, but do not leak them into the external interface.
 
-**Depth** — leverage at the interface: the amount of behaviour a caller (or test) can exercise per unit of interface they have to learn. A module is **deep** when a large amount of behaviour sits behind a small interface, **shallow** when the interface is nearly as complex as the implementation.
+Introduce an adapter only when variation is real. One adapter is hypothetical indirection; two adapters justify a seam. Keep policy in the deep module and transport or infrastructure in adapters. Translate adapter errors at the seam.
 
-**Seam** _(Michael Feathers)_ — a place where you can alter behaviour without editing in that place; the *location* at which a module's interface lives. Where to put the seam is its own design decision, distinct from what goes behind it. _Avoid_: boundary (overloaded with DDD's bounded context).
+Make dependencies inputs rather than construction details. Return useful values rather than relying only on mutation and side effects. These choices make behaviour testable through the interface.
 
-**Adapter** — a concrete thing that satisfies an interface at a seam. Describes *role* (what slot it fills), not substance (what's inside).
+## Refactor rules
 
-**Leverage** — what callers get from depth: more capability per unit of interface they learn. One implementation pays back across N call sites and M tests.
+- Replace the existing mechanism; do not add a parallel one. Extract today's behaviour as the first implementation and delete superseded dependencies.
+- Move a symbol by updating every call site. Leave compatibility shims only for genuine external consumers.
+- Give an extension point a default behaviour. Do not make callers branch on sentinels or opt-in flags.
+- Widen a suitable union before adding a near-duplicate component.
+- A decorator must delegate after its work. Use a callback when delegation is not part of the role.
+- Do not expose one subsystem's model as another subsystem's convenience property. Construct it at the call site.
+- Do not create a module for trivial one-off code. Extract only for reuse or meaningful behaviour.
 
-**Locality** — what maintainers get from depth: change, bugs, knowledge, and verification concentrate in one place rather than spreading across callers. Fix once, fixed everywhere.
-
-## Deep vs shallow
-
-**Deep module** = small interface + lots of implementation:
-
-```
-┌─────────────────────┐
-│   Small Interface   │  ← Few methods, simple params
-├─────────────────────┤
-│                     │
-│  Deep Implementation│  ← Complex logic hidden
-│                     │
-└─────────────────────┘
-```
-
-**Shallow module** = large interface + little implementation (avoid):
-
-```
-┌─────────────────────────────────┐
-│       Large Interface           │  ← Many methods, complex params
-├─────────────────────────────────┤
-│  Thin Implementation            │  ← Just passes through
-└─────────────────────────────────┘
-```
-
-When designing an interface, ask:
-
-- Can I reduce the number of methods?
-- Can I simplify the parameters?
-- Can I hide more complexity inside?
-
-## Principles
-
-- **Depth is a property of the interface, not the implementation.** A deep module can be internally composed of small, mockable, swappable parts — they just aren't part of the interface. A module can have **internal seams** (private to its implementation, used by its own tests) as well as the **external seam** at its interface.
-- **The deletion test.** Imagine deleting the module. If complexity vanishes, it was a pass-through. If complexity reappears across N callers, it was earning its keep.
-- **The interface is the test surface.** Callers and tests cross the same seam. If you want to test *past* the interface, the module is probably the wrong shape.
-- **One adapter means a hypothetical seam. Two adapters means a real one.** Don't introduce a seam unless something actually varies across it.
-
-## Designing for testability
-
-Good interfaces make testing natural:
-
-1. **Accept dependencies, don't create them.**
-
-   ```typescript
-   // Testable
-   function processOrder(order, paymentGateway) {}
-
-   // Hard to test
-   function processOrder(order) {
-     const gateway = new StripeGateway();
-   }
-   ```
-
-2. **Return results, don't produce side effects.**
-
-   ```typescript
-   // Testable
-   function calculateDiscount(cart): Discount {}
-
-   // Hard to test
-   function applyDiscount(cart): void {
-     cart.total -= discount;
-   }
-   ```
-
-3. **Small surface area.** Fewer methods = fewer tests needed. Fewer params = simpler test setup.
-
-## Relationships
-
-- A **Module** has exactly one **Interface** (the surface it presents to callers and tests).
-- **Depth** is a property of a **Module**, measured against its **Interface**.
-- A **Seam** is where a **Module**'s **Interface** lives.
-- An **Adapter** sits at a **Seam** and satisfies the **Interface**.
-- **Depth** produces **Leverage** for callers and **Locality** for maintainers.
-
-## Rejected framings
-
-- **Depth as ratio of implementation-lines to interface-lines** (Ousterhout): rewards padding the implementation. We use depth-as-leverage instead.
-- **"Interface" as the TypeScript `interface` keyword or a class's public methods**: too narrow — interface here includes every fact a caller must know.
-- **"Boundary"**: overloaded with DDD's bounded context. Say **seam** or **interface**.
-
-## Refactor taste
-
-How to shape a change once you know where the seam goes.
-
-- **Swap the existing sink; don't add a parallel one.** Before designing a new seam, find what already does the job. Extract that whole method body behind the new interface, so the old method collapses to one delegating call and today's behaviour becomes the first implementation. Drop the constructor dependencies that only fed the extracted code. Two mechanisms for one concern is an addition wearing an abstraction's clothes.
-- **Clean, not safe.** Delete superseded machinery outright rather than keeping it alive for non-breaking reasons. When the old indirection exists only for a reason the refactor removes, it goes in the same change.
-- **No compatibility shims.** Relocating a symbol means rewriting every call site in the same change — never a re-export left in the old module, which advertises a symbol it no longer owns and never gets cleaned up. Drive it with `find_references` / `rename_symbol`, which handle combined and function-scoped imports that file-by-file edits miss. Stage the migration only for a genuinely external consumer.
-- **A capability, not an opt-in flag.** An extension point gets a default that reproduces today's behaviour, never a `None` sentinel the caller branches on and never a per-class `ClassVar[bool] = False`. If the ability makes sense for most implementers, carry it universally and let the behaviour fall out of what their methods return.
-- **Widen the union before adding a component.** When a type union blocks you, widen it. A new component earns its place only when it changes the value type or takes props the general one cannot express — otherwise it is boilerplate with a second name.
-- **No costume wrappers.** A class implementing a Protocol whose main method never calls the inner object is a callback in costume, not a decorator: two objects satisfy the interface and mean different things, so nobody can reason about which one they hold. A real decorator does its own work *and then* delegates. When tempted to wrap in order to intercept, ask what the interception is for — often the caller already does that bookkeeping itself.
-- **No facade properties.** Don't hang one subsystem's model off another as a `.foo` convenience. It makes the parent own construction it does not conceptually own, and creates a downward import it otherwise would not need. Instantiate at the call site.
-- **No module for a one-liner.** A file whose only job is a string concat earns nothing — extra import graph, extra dead-code surface, no abstraction. Inline it, and point a comment at the source of truth if one exists. Extract for genuine reuse or non-trivial logic.
-
-## Going deeper
-
-- **Deepening a cluster given its dependencies** — see [DEEPENING.md](DEEPENING.md): dependency categories, seam discipline, and replace-don't-layer testing.
-- **Exploring alternative interfaces** — see [DESIGN-IT-TWICE.md](DESIGN-IT-TWICE.md): spin up parallel sub-agents to design the interface several radically different ways, then compare on depth, locality, and seam placement.
+Use [DEEPENING.md](DEEPENING.md) to classify dependencies and replace shallow tests. When materially different interfaces remain plausible, use [DESIGN-IT-TWICE.md](DESIGN-IT-TWICE.md).
