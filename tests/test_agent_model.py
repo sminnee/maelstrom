@@ -249,6 +249,36 @@ def test_a_blocked_agent_still_reports_the_context_it_holds():
     assert state.context_tokens == 18566
 
 
+def test_a_compact_boundary_brings_the_context_down_to_what_it_left():
+    """A compact reports its own result, so the header must not wait to hear.
+
+    Every other reading of occupancy comes off an ``assistant`` event, and
+    after a compact the agent may never speak again. The boundary carries the
+    new occupancy itself, in ``post_tokens``, so the reducer takes it there.
+    """
+    state = replay("compact.jsonl")
+    assert state.context_tokens == 3046
+
+
+def test_a_compact_boundary_without_a_post_count_leaves_the_context_alone():
+    """A malformed boundary must not read as an emptied context.
+
+    ``0`` is a real occupancy, so the guard is on the field being absent
+    rather than on it being falsy.
+    """
+    state = replay("normal-turn.jsonl")
+    boundary = {"type": "system", "subtype": "compact_boundary"}
+    assert apply_event(state, boundary).context_tokens == 24552
+    emptied = {**boundary, "compact_metadata": {"post_tokens": 0}}
+    assert apply_event(state, emptied).context_tokens == 0
+    # No stream event is worth a crash, as ``_sum_usage`` says of every other
+    # count: a malformed boundary leaves the last reading up rather than
+    # taking the agent's state down with it.
+    for broken in ({"post_tokens": "3046"}, {"post_tokens": None}, [], "x"):
+        odd = {**boundary, "compact_metadata": broken}
+        assert apply_event(state, odd).context_tokens == 24552, broken
+
+
 def test_a_dead_agent_is_not_left_looking_like_it_waits():
     """A crashed agent must not keep advertising a wait nobody can answer."""
     state = replay("question-unanswered.jsonl", stop_before_control=True)

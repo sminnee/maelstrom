@@ -846,6 +846,17 @@ def apply_event(
             permission_mode=_mode_of(event) or state.permission_mode,
         )
 
+    if kind == "system" and event.get("subtype") == "compact_boundary":
+        # The one occupancy reading that is not off an `assistant` event — see
+        # docs/dev/agent-daemon.md, "A compact". `0` is a real occupancy, and
+        # a malformed count leaves the level alone: no stream event is worth a
+        # crash, as `_sum_usage` says of every other count.
+        meta = event.get("compact_metadata")
+        post = meta.get("post_tokens") if isinstance(meta, dict) else None
+        if not isinstance(post, int) or isinstance(post, bool):
+            return state
+        return replace(state, context_tokens=post)
+
     if kind == "system" and event.get("subtype") == "status":
         # The child announces its own mode changes here too — see
         # docs/dev/agent-daemon.md, "Changing the permission mode".
