@@ -121,6 +121,12 @@ export interface Agent {
   /** When the agent last said that, ISO 8601; `''` until it has said anything. */
   lastMessageAt: string;
   costUsd: number;
+  /**
+   * Tokens the session has consumed, summed over its turns: how large the
+   * conversation has grown. `0` for a subagent, which has no session of its
+   * own — its size is counted in its parent's total.
+   */
+  totalTokens: number;
   taskId: TaskId;
   project: ProjectId;
   worktreeId: WorktreeId;

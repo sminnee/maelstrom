@@ -106,6 +106,7 @@ function agent(id: string, t: Task, worktreeId: string, over: Partial<Agent> = {
     lastMessage: '',
     lastMessageAt: '',
     costUsd: 0.42,
+    totalTokens: 42_000,
     taskId: t.id,
     project: t.project,
     worktreeId,
@@ -136,6 +137,7 @@ function freeAgent(
     lastMessage: '',
     lastMessageAt: '',
     costUsd: 0,
+    totalTokens: 0,
     taskId: '',
     project,
     worktreeId,
@@ -392,6 +394,7 @@ body rather than the query builder.
       lastMessageAt: T(4),
       pendingRequestIds: ['req-nort7-plan'],
       costUsd: 0.81,
+      totalTokens: 81_400,
     }),
     agent('b7d2e4a0', mael52, 'maelstrom-alpha', {
       state: 'awaiting-question',
@@ -400,21 +403,25 @@ body rather than the query builder.
       lastMessageAt: T(11),
       pendingRequestIds: ['req-mael52-q'],
       costUsd: 1.12,
+      totalTokens: 112_900,
     }),
     agent('c3e8f1b5', mael401, 'maelstrom-bravo', {
       lastMessage: 'Adding the HEAD staleness check to the index reader.',
       lastMessageAt: T(1),
       costUsd: 0.37,
+      totalTokens: 37_200,
     }),
     agent('d9a4c7f1', nort9, 'northwind-bravo', {
       lastMessage: 'Rewriting the migration for the new collation.',
       lastMessageAt: T(22),
       costUsd: 2.05,
+      totalTokens: 1_240_000,
     }),
     agent('e5b1d8c3', nort12, 'northwind-delta', {
       lastMessage: 'CI is red on the integration job; reading the log.',
       lastMessageAt: T(96),
       costUsd: 0.66,
+      totalTokens: 66_800,
     }),
     // A subagent of NORT-9's agent.
     agent('d9a4c7f1.1', nort9, 'northwind-bravo', {
@@ -423,11 +430,13 @@ body rather than the query builder.
       lastMessage: 'Three queries order by name without a collation.',
       lastMessageAt: T(25),
       costUsd: 0,
+      totalTokens: 0,
     }),
     freeAgent('f2c6a9d4', 'maelstrom', 'maelstrom-bravo', {
       lastMessage: 'Reading the index reader before I touch it.',
       lastMessageAt: T(2),
       costUsd: 0.19,
+      totalTokens: 19_500,
     }),
   ];
 
