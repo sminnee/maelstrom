@@ -635,7 +635,7 @@ RECENT_LIMIT = 200
 SUBAGENT_LIMIT = 50
 
 #: How much of the last message to keep, so a whole plan survives the fallback
-#: in :func:`_plan_details` without the field growing without bound.
+#: in :func:`plan_from_pending` without the field growing without bound.
 MESSAGE_CHARS = 8000
 #: How much of the last message a table cell holds.
 MESSAGE_SUMMARY_CHARS = 60
@@ -1494,7 +1494,7 @@ def build_agent_detail(state: AgentState, spawn_session: str = "") -> dict[str, 
     parent is where a user learns the dotted ids ``attach`` and ``tail`` take.
     """
     pending = _oldest(open_asks(state))
-    plan, plan_file = _plan_details(pending, state.last_message)
+    plan, plan_file = plan_from_pending(pending, state.last_message)
     return {
         **build_agent_row(state, spawn_session),
         "message": state.last_message,
@@ -1520,7 +1520,7 @@ def build_subagent_detail(state: AgentState, dotted: str) -> dict[str, Any]:
     """
     sub = state.subagents[dotted]
     pending = _oldest(sub.pending)
-    plan, plan_file = _plan_details(pending, sub.last_message)
+    plan, plan_file = plan_from_pending(pending, sub.last_message)
     return {
         **build_subagent_row(state, dotted),
         "message": _subagent_message(sub),
@@ -1537,7 +1537,9 @@ def build_subagent_detail(state: AgentState, dotted: str) -> dict[str, Any]:
     }
 
 
-def _plan_details(pending: PendingRequest | None, last_message: str) -> tuple[str, str]:
+def plan_from_pending(
+    pending: PendingRequest | None, last_message: str
+) -> tuple[str, str]:
     """The plan under review and the file holding it, else two empty strings.
 
     ``ExitPlanMode`` carries the plan in its own ``input``, under ``plan``, with
@@ -1555,6 +1557,28 @@ def _plan_details(pending: PendingRequest | None, last_message: str) -> tuple[st
     if plan:
         return plan, pending.input.get("planFilePath") or ""
     return last_message, ""
+
+
+def build_plan_handover_prompt(plan_file: str) -> str:
+    """What an agent is told after its plan is approved and its context cleared.
+
+    The file is the handover rather than the text: it is the canonical copy, it
+    has no size limit where a retained message is capped at
+    :data:`MESSAGE_CHARS`, and it outlives the message that announced it. A plan
+    review that names no file never gets here — it is denied instead, because a
+    plan nobody could write down is a failed submission.
+
+    The framing carries as much as the path. An agent that does not know its
+    context was cleared reads the plan as a reminder of a discussion it believes
+    it still holds, and skips the reading the plan assumes it already did.
+    """
+    return (
+        f"Your plan was reviewed and approved. Read {plan_file} and carry it "
+        "out.\n\n"
+        "This is a fresh conversation: the planning discussion is no longer in "
+        "your context, so the plan file is the whole brief. Re-read any file it "
+        "names before you change it."
+    )
 
 
 def _question_details(pending: PendingRequest | None) -> list[dict[str, Any]]:
@@ -1681,6 +1705,18 @@ def _control_response(request_id: str, payload: dict[str, Any]) -> dict[str, Any
 
 #: What an interrupted tool call is told, and what the turn's error says.
 INTERRUPTED_REASON = "Interrupted by user"
+
+#: The slash command that starts a new conversation. It reaches Claude Code as
+#: the text of an ordinary user turn, which is the same path a prompt takes.
+CLEAR_COMMAND = "/clear"
+
+#: Why a plan review with no plan file is denied — see ``docs/dev/agent-daemon.md``.
+#: It reaches the agent verbatim as the tool result, so it says what to do
+#: rather than only what went wrong.
+NO_PLAN_FILE_REASON = (
+    "This plan has no plan file, so it cannot be carried over to a fresh "
+    "context. Write the plan to a file, then call ExitPlanMode again."
+)
 
 #: What a subagent's orphaned ask is denied with. Its subagent ended while it
 #: was open, so nothing can approve it and the caller has to be told.

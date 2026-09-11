@@ -678,7 +678,7 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 | `show` | `id` | `{"agent": <detail>}`, as `mael agent show --json` prints |
 | `say` | `id`, `text`; optional `attachments` | `{"ok": true}` |
 | `run` | `id`, `command` | `{"ok": true}` |
-| `approve` | `id`; optional `request` | `{"ok": true}`, plus `"mode": "auto"` or `"warning": "<why not>"` for a plan review |
+| `approve` | `id`; optional `request` | `{"ok": true}`. For a plan review, plus `"cleared": true` with either `"mode": "auto"` or `"warning": "<why not>"` |
 | `deny` | `id`; optional `request`, `reason` | `{"ok": true}` |
 | `answer` | `id`; optional `request`; `answers` (a map keyed by question text) or `choice` | `{"ok": true}` |
 | `interrupt` | `id` | `{"ok": true}` |
@@ -708,10 +708,39 @@ all.
 that has run before already owns its session id, and claiming it again is refused, so the
 orchestrator sets this from the transcript on disk.
 
-`approve` on a plan review also moves the agent to `auto`. The mode request follows the allow, because
-the child is waiting on that reply. A child that refuses the mode does not undo the approval: the
-reply still says `ok`, and names the refusal under `warning`. `mael agent` prints a warning and
-still exits 0, because the command did what was asked.
+`approve` on a plan review also clears the agent's context and moves it to `auto`. An approved plan
+is settled, so the discussion that produced it — the exploration, the options not taken — has no
+further use and would occupy the window for the whole build. The plan file is the handover.
+
+Six writes, and the order is the design:
+
+1. the allow, because the child is blocked on it, and because it moves the plan document to
+   `approved`;
+2. every other open ask, denied. An `interrupt` answers none of them, and the clear that follows
+   means nothing ever will;
+3. the `interrupt`. The allow starts a turn that would build on the context about to be
+   discarded, and that turn is pure waste;
+4. `/clear`, which reaches Claude Code as the text of an ordinary user turn;
+5. the mode, after the clear so the new conversation carries it;
+6. the handover naming the plan file, last, or the clear would discard it.
+
+A refused mode does not withhold the handover. The clear cannot be undone, so an agent left
+without the plan has no context, no brief and nothing to do.
+
+The context level is reset by hand at step 4. `context_tokens` only ever moves on an `assistant`
+event, and the clear is something the daemon did rather than something it read. Without the reset
+a cleared agent keeps reporting its pre-clear size until it next speaks. The cumulative total is
+spend, so only the level moves.
+
+A plan review naming no plan file is **denied** instead. The agent could not write its plan down,
+so `input` arrives bare and there is no `planFilePath`. The only copy is then a message
+`MESSAGE_CHARS` may have truncated. Handing a cleared context half a plan is worse than saying so:
+the denial reason tells the agent to write the plan to a file and call `ExitPlanMode` again, and
+its context is left intact to do it.
+
+A child that refuses the mode does not undo the approval: the reply still says `ok`, and names the
+refusal under `warning`. `mael agent` prints a warning and still exits 0, because the command did
+what was asked.
 
 `interrupt` abandons the turn the agent is running and leaves the agent alive.
 

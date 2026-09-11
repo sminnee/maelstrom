@@ -1798,14 +1798,117 @@ def test_approving_a_plan_puts_the_agent_into_auto():
 
     reply = asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
 
-    # The reply names the mode, so a caller can see what the approval did.
-    assert reply == {"ok": True, "mode": "auto"}
-    # The allow goes first: the mode request must not overtake the reply the
-    # child is still waiting on.
+    # The reply names the mode and the clear, so a caller can see what the
+    # approval did.
+    assert reply == {"ok": True, "mode": "auto", "cleared": True}
+    # The allow goes first: nothing may overtake the reply the child is still
+    # waiting on.
     assert sent[0]["response"]["response"]["behavior"] == "allow"
-    assert sent[1]["request"] == {"subtype": "set_permission_mode", "mode": "auto"}
 
 
+def test_approving_a_plan_cuts_the_turn_the_allow_starts():
+    """The allow unblocks the child, so the turn it starts is interrupted."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
+    agent, sent = _answering_agent()
+    agent.state = replay("plan-review-with-plan.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+
+    asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+
+    assert sent[1]["request"]["subtype"] == "interrupt"
+
+
+def test_approving_a_plan_clears_then_goes_auto_then_hands_over():
+    """Order is the whole design: the clear must land before the mode, or the
+    new conversation starts back in ``plan``; and the handover last, or it is
+    the thing the clear discards."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
+    agent, sent = _answering_agent()
+    agent.state = replay("plan-review-with-plan.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+
+    asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+
+    assert sent[2]["message"]["content"][0]["text"] == "/clear"
+    assert sent[3]["request"] == {"subtype": "set_permission_mode", "mode": "auto"}
+    # The handover names the plan file rather than carrying the plan: the file
+    # is the canonical copy and has no size limit.
+    handover = sent[4]["message"]["content"][0]["text"]
+    assert ".md" in handover
+    assert "fresh conversation" in handover
+    # The order is the design, so the count is part of it: an extra write, or a
+    # stray one between two of these, is a change worth failing on. Five here
+    # rather than six, because this agent holds no ask but the plan review.
+    assert len(sent) == 5
+
+
+def test_approving_a_plan_forgets_how_full_the_context_was():
+    """``context_tokens`` only ever moves on an assistant event, so a cleared
+    agent would keep reporting its pre-clear size until it next spoke."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
+    agent, _ = _answering_agent()
+    state = replay("plan-review-with-plan.jsonl", stop_before_control=True)
+    agent.state = replace(state, context_tokens=148_000, total_tokens=200_000)
+    daemon.agents["a1"] = agent
+
+    asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+
+    assert daemon.agents["a1"].state.context_tokens == 0
+    # The spend is cumulative and the tokens were spent. Only the level moves.
+    assert daemon.agents["a1"].state.total_tokens == 200_000
+
+
+def test_approving_a_plan_denies_every_other_ask_first():
+    """An interrupt answers no ask, and the clear that follows means nothing
+    ever will — so a subagent's ask would block its caller for ever. It is
+    filed on the subagent, so it outlives the wait the approval allowed."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
+    agent, sent = _answering_agent()
+    agent.state = replay("plan-review-with-plan.jsonl", stop_before_control=True)
+    [plan_ask] = list(_asks(agent.state))
+    for line in (FIXTURES / "subagent-permission.jsonl").read_text().splitlines():
+        event = json.loads(line) if line.strip() else {}
+        if event.get("type") == "control_request":
+            agent.state = apply_event(agent.state, event)
+            break
+    other = [rid for rid in _asks(agent.state) if rid != plan_ask]
+    assert other, "the subagent's ask is open alongside the plan review"
+    daemon.agents["a1"] = agent
+
+    asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1", "request": plan_ask}))
+
+    answered = {
+        m["response"]["request_id"]: m["response"]["response"]["behavior"]
+        for m in sent
+        if m.get("type") == "control_response"
+    }
+    assert answered[plan_ask] == "allow"
+    assert all(answered[rid] == "deny" for rid in other)
+
+
+def test_approving_a_plan_with_no_file_sends_it_back():
+    """A plan the agent could not write down is a failed submission, not a plan
+    to build from: the request arrives bare, and the only text is a message
+    capped at ``MESSAGE_CHARS``. Denying says so and lets the agent retry."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
+    agent, sent = _answering_agent()
+    agent.state = replay("plan-review.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+
+    reply = asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+
+    assert reply["ok"] is True
+    assert reply["cleared"] is False
+    denial = sent[0]["response"]["response"]
+    assert denial["behavior"] == "deny"
+    assert "file" in denial["message"]
+    # Nothing else: the context it still holds is the plan's only copy.
+    assert len(sent) == 1
 
 
 def test_a_listed_agent_reports_the_session_it_was_spawned_on():
@@ -1831,6 +1934,8 @@ def test_an_agent_with_no_spawn_record_still_reports_a_session():
     reply = asyncio.run(_handle(daemon, {"cmd": "list"}))
 
     assert reply["agents"][0]["session"] == "live"
+
+
 def test_approving_a_plan_records_auto_on_the_spawn_record():
     """A mode that misses the spawn record is reverted by the next daemon start."""
     daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
@@ -1850,7 +1955,7 @@ def test_a_refused_mode_does_not_undo_the_approval():
     """The allow already went out, so the plan is accepted either way."""
     daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
     daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
-    agent, _ = _answering_agent(subtype="error")
+    agent, sent = _answering_agent(subtype="error")
     agent.state = replay("plan-review-with-plan.jsonl", stop_before_control=True)
     daemon.agents["a1"] = agent
 
@@ -1858,6 +1963,9 @@ def test_a_refused_mode_does_not_undo_the_approval():
 
     assert reply["ok"] is True
     assert "bad mode" in reply["warning"]
+    # Nor does it withhold the handover. The clear cannot be undone, so an
+    # agent left without the plan has no context, no brief and nothing to do.
+    assert ".md" in sent[4]["message"]["content"][0]["text"]
     # Nothing may report the mode as changed when the child refused it.
     spec = daemon.specs.read("a1")
     assert spec is not None

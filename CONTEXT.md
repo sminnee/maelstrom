@@ -163,8 +163,8 @@ _Avoid_: Closed session (a closed worktree is a different thing), ended session,
 **Task session id**:
 The session id derived from the project name and the task id. The task session id exists before
 the session is launched and never changes, so it is what links a session back to its task. The
-task index keys on it, and it rides into the session as `MAEL_TASK_SESSION_ID`. Use the task
-session id to answer "which task is this?".
+task index keys on it, an agent row reports it, and it rides into the session as
+`MAEL_TASK_SESSION_ID`. Use the task session id to answer "which task is this?".
 _Avoid_: Session id (for this concept)
 
 **Session id**:
@@ -251,13 +251,20 @@ _Avoid_: Clone, double, second copy
 How much a driven agent may do without asking: `plan`, `normal` or `auto`. A task launches under
 one mode, and a running agent can be moved between them — by `mael agent set-mode`, by shift+tab
 in teleport, by the mode chip in the orchestrator UI, or by the daemon when a plan review is
-approved. An approved plan moves the agent to `auto`: the plan is settled, so carrying it out
-does not need approving edit by edit. The three words are the same ones a task carries, so one
-word means one thing.
+approved. An approved plan moves the agent to `auto` and clears its context: the plan is settled,
+so carrying it out does not need approving edit by edit, and the handover is the whole brief.
+The three words are the same ones a task carries, so one word means one thing.
 Claude spells `normal` as `default` on the pipe; nothing outside `agent_model.py` uses that word.
 The mode is read off the agent's own event stream, never from what was asked for, so no surface
 can show a mode the agent refused.
 _Avoid_: Permission level, autonomy, trust level
+
+**Handover**:
+The user turn a driven agent gets after its plan is approved and its context is cleared. It names
+the plan file rather than carrying the plan, and it says the conversation is fresh, so the agent
+re-reads instead of assuming it remembers. The plan file is the canonical copy and has no size
+limit; a plan review that names no file is denied, because there is no handover to make.
+_Avoid_: Handoff, brief, kickoff
 
 **Wait kind**:
 Which of three things a driven agent is blocked on: `awaiting-question`, `awaiting-plan-review`,
