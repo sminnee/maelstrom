@@ -58,7 +58,8 @@ if (!('getBBox' in SVGElement.prototype)) {
 // jsdom has no matchMedia. The app reads two queries through it: the layout
 // mode, and `prefers-reduced-motion` in the node card. The stub answers both
 // from one settable width.
-let viewportWidth = 1440;
+const DEFAULT_VIEWPORT = 1440;
+let viewportWidth: number = DEFAULT_VIEWPORT;
 
 /** Point the stubbed matchMedia at a viewport width. `renderApp` calls this. */
 export function setViewportWidth(width: number) {
@@ -193,4 +194,18 @@ if (typeof HTMLDialogElement !== 'undefined') {
   };
 }
 
-afterEach(() => cleanup());
+afterEach(() => {
+  // Before `cleanup`, which unmounts the tree the dialogs live in. A dialog
+  // left open holds a capture-phase keydown listener on the document, and
+  // `close` is what removes it -- unmounting alone would strand it.
+  for (const dialog of document.querySelectorAll('dialog[open]')) {
+    (dialog as HTMLDialogElement).close();
+  }
+  cleanup();
+  // The stubs above are deterministic and need no restoring. These two carry
+  // state between tests, so a test that left either moved would reach the
+  // next one. `renderApp` resets the store and builds a new QueryClient, so
+  // the app's own state needs nothing here.
+  viewportWidth = DEFAULT_VIEWPORT;
+  mediaListeners.clear();
+});
