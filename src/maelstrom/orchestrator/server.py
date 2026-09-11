@@ -70,6 +70,7 @@ from .world_build import (
     host_usage,
     link_agent,
     parse_agent_state,
+    row_totals,
 )
 
 log = logging.getLogger(__name__)
@@ -753,7 +754,8 @@ class Orchestrator:
         the synthetic row it built from its own payload, which names no mode
         and may name no model or session; the poll adopts the host's real row.
         When the poll gets there first, overwriting it would blank those
-        fields until the next list, and ``_relink`` repairs only the links.
+        fields until the next list, and ``_relink`` repairs only the links and
+        the three numbers the row keeps fresh.
         """
         known = self.world["agents"].get(row["id"])
         if known is not None:
@@ -869,12 +871,31 @@ class Orchestrator:
     async def _relink(self, row: dict[str, Any]) -> None:
         agent = self.world["agents"][row["id"]]
         link = self._link(row)
+        # The host's row carries what the session has spent and how large it has
+        # grown, re-read here on every poll rather than only at adoption. That
+        # is what keeps an agent adopted before its first turn from reading 0
+        # for ever: the live stream moves these numbers only on an event this
+        # server saw, and a synthesised launch row carries none of them.
+        totals = row_totals(row)
         linked: Agent = {
             **agent,
             "taskId": link.task_id,
             "project": link.project,
             "worktreeId": link.worktree_id,
+            # Spend and size only ever climb within one agent, so the larger
+            # reading wins. A poll can carry a row the host stamped before a
+            # turn this server has already seen on the stream, and taking it
+            # flat would walk the numbers backwards between polls.
+            "costUsd": max(agent["costUsd"], totals["costUsd"]),
+            "totalTokens": max(agent["totalTokens"], totals["totalTokens"]),
         }
+        # Occupancy is not monotonic — a compact is meant to drop it — so it
+        # takes the row as it stands. Only when the row is entitled to speak:
+        # a subagent's row reports 0 by construction, and an older host reports
+        # nothing at all, and neither means "the context emptied". The stream's
+        # own reading stands in both cases.
+        if "context_tokens" in row and not row.get("parent"):
+            linked = {**linked, "contextTokens": totals["contextTokens"]}
         if row.get("parent"):
             # A subagent has no stream of its own to learn this from: its ask
             # arrives on the parent's, because a ``control_request`` carries no

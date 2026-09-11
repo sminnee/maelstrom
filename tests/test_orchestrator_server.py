@@ -446,6 +446,75 @@ def test_an_attach_the_host_refuses_is_retried_on_the_next_reconciliation(harnes
     assert len(attaches) == 2
 
 
+def test_a_poll_refreshes_the_numbers_an_adopted_row_did_not_carry(harness):
+    """An agent adopted before its first turn must not read 0 for ever.
+
+    A launch adopts a synthesised row, which carries no spend and no size — the
+    agent has not had a turn yet. The real row arrives on the next poll, and
+    that poll is the only route these numbers have: the live stream moves them
+    only on an event this server itself saw.
+    """
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            before = await api.get_json("/api/agents/ag1")
+            assert (before["totalTokens"], before["contextTokens"]) == (0, 0)
+            harness.daemon.rows["ag1"] = agent_row(
+                cost="0.1496", tokens=24561, context_tokens=24552
+            )
+            await harness.orch.refresh_agents()
+            return await api.get_json("/api/agents/ag1")
+
+    agent = run(scenario())
+    assert (agent["totalTokens"], agent["contextTokens"]) == (24561, 24552)
+    assert agent["costUsd"] == pytest.approx(0.1496)
+
+
+def test_a_stale_row_does_not_walk_the_spend_and_the_size_backwards(harness):
+    """A poll can carry a row stamped before a turn the stream already brought.
+
+    Spend and size only climb within one agent, so the world keeps the larger
+    reading. Occupancy is the exception: it is a level, and a compact is meant
+    to bring it down, so a lower row wins there.
+    """
+    harness.daemon.rows["ag1"] = agent_row(
+        cost="0.5000", tokens=50_000, context_tokens=40_000
+    )
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.get_json("/api/agents/ag1")
+            harness.daemon.rows["ag1"] = agent_row(
+                cost="0.2000", tokens=20_000, context_tokens=9_000
+            )
+            await harness.orch.refresh_agents()
+            return await api.get_json("/api/agents/ag1")
+
+    agent = run(scenario())
+    assert (agent["totalTokens"], agent["contextTokens"]) == (50_000, 9_000)
+    assert agent["costUsd"] == pytest.approx(0.5)
+
+
+def test_a_row_that_reports_no_context_leaves_the_streams_reading_alone(harness):
+    """An older host sends no ``context_tokens``; that is not an empty context.
+
+    Reading a missing field as 0 would wipe what the stream learned on every
+    poll — the symptom this refresh exists to cure, in the other direction.
+    """
+    harness.daemon.rows["ag1"] = agent_row(tokens=100, context_tokens=18_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.get_json("/api/agents/ag1")
+            # The same host, now answering as an older one would.
+            harness.daemon.rows["ag1"] = agent_row(tokens=100)
+            await harness.orch.refresh_agents()
+            return await api.get_json("/api/agents/ag1")
+
+    assert run(scenario())["contextTokens"] == 18_000
+
+
 def test_a_replayed_backlog_does_not_count_its_turns_twice(harness):
     """The row already holds the session total; the backlog must not add it again.
 

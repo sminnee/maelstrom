@@ -97,6 +97,14 @@ restart rebuilds `AgentState` and the total starts again at 0, where `total_cost
 from the host's own report on the next `result`. An attach does not double it: the backlog it
 replays is already in the row the total was seeded from, so only a live turn adds.
 
+The orchestrator re-reads all three numbers off the row on every poll, not only when it adopts
+the agent — otherwise an agent adopted before its first turn, off a synthesised launch row that
+carries none of them, reads 0 until a `result` the server itself saw. Spend and size are taken as
+the larger of the row and what the world holds, because they only climb within one agent: a poll
+can carry a row the host stamped before a turn the stream has already delivered, and taking it
+flat would walk them backwards between polls. Occupancy is taken as it stands, because it is a
+level and a compact is meant to drop it.
+
 ### The account's budget
 
 `rate_limit_event` carries how much of the account's budget is spent. It arrives on its own
