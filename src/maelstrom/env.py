@@ -96,7 +96,10 @@ class SharedEnvState:
     """Persisted state of shared services for a project."""
 
     project: str
-    worktree_path: str  # cwd of the worktree that started them
+    # Where the project's shared environment first came up. A service started
+    # later runs from the worktree that started it, so this names the first one,
+    # not every one.
+    worktree_path: str
     started_at: str  # ISO 8601
     services: list[ServiceState]
     subscribers: list[str]  # worktree names currently using these
@@ -552,11 +555,19 @@ def _start_or_subscribe_shared(
     now: str,
     runner: ContainerRunner,
 ) -> None:
-    """Start shared services if not running, or subscribe to existing ones.
+    """Start the requested shared services the record does not hold, and subscribe.
+
+    Three cases: no record, so start everything requested; a record holding every
+    requested service, so only subscribe; or a record holding some of them, so
+    start the rest and extend it.
+
+    That third case is what keeps the record from freezing at whatever subset was
+    written first, which is reachable without declaring a service late: starting
+    shared services one at a time writes a subset to begin with.
 
     On subscribe, host vars already discovered by the first starter are read back
     from ``SharedEnvState.host_vars`` into ``env`` (rather than re-inspecting), so
-    a late subscriber's command services still resolve ``${host_var}``.
+    a later starter's command services still resolve ``${host_var}``.
     """
     if not shared_services:
         return
@@ -564,34 +575,67 @@ def _start_or_subscribe_shared(
     cleanup_stale_shared(store, project)
     shared_state = load_shared_state(store, project)
 
-    if shared_state is not None:
-        # Shared services already running — reuse their host vars and subscribe.
-        env.update(shared_state.host_vars)
-        if worktree not in shared_state.subscribers:
-            shared_state.subscribers.append(worktree)
-            save_shared_state(store, shared_state)
+    if shared_state is None:
+        # Nothing running for this project yet: start everything requested.
+        log_dir = _get_shared_log_dir(project)
+        service_states, host_vars = _spawn_phased(
+            shared_services,
+            worktree_path,
+            env,
+            log_dir,
+            now,
+            runner,
+        )
+        save_shared_state(
+            store,
+            SharedEnvState(
+                project=project,
+                worktree_path=str(worktree_path),
+                started_at=now,
+                services=service_states,
+                subscribers=[worktree],
+                host_vars=host_vars,
+            ),
+        )
         return
 
-    # Start shared services (container-first, injecting host vars).
-    log_dir = _get_shared_log_dir(project)
-    service_states, host_vars = _spawn_phased(
-        shared_services,
-        worktree_path,
-        env,
-        log_dir,
-        now,
-        runner,
-    )
+    # Recorded vars first, so a service started below resolves a running
+    # sibling's ${host_var} rather than an empty string.
+    env.update(shared_state.host_vars)
 
-    shared_state = SharedEnvState(
-        project=project,
-        worktree_path=str(worktree_path),
-        started_at=now,
-        services=service_states,
-        subscribers=[worktree],
-        host_vars=host_vars,
-    )
-    save_shared_state(store, shared_state)
+    recorded = {s.name for s in shared_state.services}
+    missing = [s for s in shared_services if s.name not in recorded]
+
+    changed = _subscribe(shared_state, worktree)
+    if missing:
+        service_states, host_vars = _spawn_phased(
+            missing,
+            worktree_path,
+            env,
+            _get_shared_log_dir(project),
+            now,
+            runner,
+        )
+        # The record keeps its own worktree_path and started_at: they say where
+        # and when the project's shared environment came up, not this start.
+        shared_state.services.extend(service_states)
+        shared_state.host_vars.update(host_vars)
+        changed = True
+
+    if changed:
+        save_shared_state(store, shared_state)
+
+
+def _subscribe(shared_state: SharedEnvState, worktree: str) -> bool:
+    """Record ``worktree`` as a user of the shared services.
+
+    Returns whether anything changed, so one save can cover a new subscriber, a
+    newly started service, or both.
+    """
+    if worktree in shared_state.subscribers:
+        return False
+    shared_state.subscribers.append(worktree)
+    return True
 
 
 def _merge_service_states(
