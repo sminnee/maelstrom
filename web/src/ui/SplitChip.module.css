@@ -1,0 +1,96 @@
+/*
+ * Two halves in one pill, divided by a hairline.
+ *
+ * The chip sits on the raised top bar, so it takes the sunken `--bg` ground:
+ * it reads as set into the bar rather than stacked on it, which is what keeps
+ * three of them from crowding a 40px strip.
+ *
+ * No width is named anywhere. The label is one short word and the value a few
+ * digits, so both tracks derive from their text and a longer reading widens
+ * the chip instead of clipping.
+ */
+.chip {
+  display: inline-flex;
+  align-items: stretch;
+  flex: none;
+
+  box-sizing: border-box;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  overflow: hidden;
+
+  font-family: var(--font);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* One place a tone becomes a colour, as `HueChip.module.css` does. Only the
+   value reads it: the label says what is measured, which is not news. */
+.chip[data-tone='neutral'] {
+  --chip-tone: var(--fg);
+}
+.chip[data-tone='busy'] {
+  --chip-tone: var(--attention);
+}
+.chip[data-tone='bad'] {
+  --chip-tone: var(--danger);
+}
+.chip[data-tone='good'] {
+  --chip-tone: var(--ok);
+}
+.chip[data-tone='quiet'] {
+  --chip-tone: var(--tone-dormant);
+}
+.chip[data-tone='special'] {
+  --chip-tone: var(--tone-archival);
+}
+
+/*
+ * 11px, not the 10px floor. The Legibility Floor Rule reserves 10px for a
+ * tracked uppercase micro-label, and neither half is one: the label is
+ * lowercase and the value is a mono numeral. These are the two readings the
+ * bar exists to be glanced at, so they sit a step above the floor.
+ */
+.label,
+.value {
+  display: flex;
+  align-items: center;
+  padding: 2px 6px;
+  font-size: var(--text-xs);
+}
+
+/* What is measured. It never changes, so it recedes and lets the number lead. */
+.label {
+  color: var(--fg-faint);
+  letter-spacing: var(--tracking-micro);
+}
+
+/*
+ * The reading. Mono and tabular so the chip holds its width as the percent
+ * ticks: proportional digits would shift the whole bar on every poll.
+ */
+.value {
+  border-left: 1px solid var(--border);
+  color: var(--chip-tone);
+  font-family: var(--mono);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * A reading too old to trust: present, unlit, not hidden, as the attention
+ * chip is at zero. `selectors/usage.ts` says why the tone goes with it.
+ *
+ * Two channels, never colour alone — a dashed divider carries the state for a
+ * reader who cannot separate the faint grey from the neutral one. The divider
+ * is already the chip's one structural line, so breaking it says "this is not
+ * a live reading" without adding a mark.
+ */
+.chip[data-stale] .label,
+.chip[data-stale] .value {
+  color: var(--fg-faint);
+}
+.chip[data-stale] .value {
+  border-left-style: dashed;
+}
