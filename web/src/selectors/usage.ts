@@ -1,8 +1,12 @@
 /**
  * What the top bar's chips read: the account's budget, and how many agents run.
  *
- * Pure, and takes `now` rather than reading the clock, so staleness is a table
- * of cases rather than a timing test. `useNow` is what makes it tick on screen.
+ * Pure, and takes `now` rather than reading the clock, so staleness and pace
+ * are a table of cases rather than a timing test. `useNow` makes it tick.
+ *
+ * A chip's colour reads pace, not a percentage: the budget quotient in
+ * `CONTEXT.md`. The clock is half of every reading here, which is why `now`
+ * reaches further in than the staleness check.
  */
 import type { Agent, Host, HostUsage } from '../protocol/entities';
 import type { ChipTone } from '../protocol/chipTone';
@@ -22,13 +26,54 @@ export type UsageKey = 'fiveHour' | 'sevenDay';
  */
 const STALE_AFTER_MS = 15 * 60_000;
 
-/** Where the tone changes. Below the first, a budget is not yet news. */
-const WARN_AT = 0.75;
-const ALARM_AT = 0.9;
+/**
+ * The most of a window a reading will admit is left, 0 to 1.
+ *
+ * Without it a fresh window is ahead of pace on its first turn, because the
+ * whole window remains and any spend at all clears the quotient. It binds only
+ * while more than 95% of the window is left — a no-op after that — so what it
+ * buys is a quiet start until more than 5% of the budget is gone.
+ */
+const MAX_TIME_LEFT = 0.95;
+
+/**
+ * Where the quotient changes the tone.
+ *
+ * One is the pace the window sets, and the comparison is strict: on pace is
+ * the window working as intended, so the boundary belongs to the quiet side.
+ * 1.5 is an escalation point with no such meaning, so it is inclusive — and
+ * loose either way, because a quotient is a ratio of two floats and lands on
+ * a round number only by luck. 60% spent with exactly three hours of five
+ * left is 1.5 in arithmetic and 1.4999999999999998 here.
+ */
+const AMBER_AT = 1;
+const RED_AT = 1.5;
+
+/**
+ * How long each window runs. Nominal — the wire names the reset but never the
+ * start, so the length is what makes elapsed time readable. See
+ * `docs/dev/agent-daemon.md`.
+ */
+const LENGTH: Record<UsageKey, number> = {
+  fiveHour: 5 * 3_600_000,
+  sevenDay: 7 * 86_400_000,
+};
 
 const NAMES: Record<UsageKey, string> = {
   fiveHour: '5-hour limit',
   sevenDay: '7-day limit',
+};
+
+/**
+ * What each coloured tone says in words.
+ *
+ * Amber and red are two different readings, so they must not share a sentence:
+ * with one clause between them the colour is the only thing telling them
+ * apart, which is what the words exist to avoid.
+ */
+const PACE_WORDS: Partial<Record<ChipTone, string>> = {
+  busy: 'ahead of pace',
+  bad: 'well ahead of pace',
 };
 
 /** What one usage chip shows. */
@@ -40,14 +85,42 @@ export interface UsageChip {
 }
 
 /**
- * The tone a utilisation deserves.
+ * Time remaining over budget remaining: the budget quotient in `CONTEXT.md`.
+ * 1.5 is half again the pace the window can sustain.
  *
- * The thresholds mirror the point Claude Code itself treats as significant, so
- * the bar and the agent agree about when a budget has started to bite.
+ * `null` when the source named no reset, which reaches here as a zero. With no
+ * reset there is no window to pace against, the same way a window with no
+ * figure draws no chip.
  */
-export function usageTone(utilization: number): ChipTone {
-  if (utilization >= ALARM_AT) return 'bad';
-  if (utilization >= WARN_AT) return 'busy';
+export function budgetQuotient(
+  key: UsageKey,
+  utilization: number,
+  resetsAt: number,
+  now: number,
+): number | null {
+  // Negated so an unreadable stamp folds into the same path, as `isStale` does
+  // below: `NaN <= 0` is false, and a NaN quotient would read as on pace.
+  if (!(resetsAt > 0)) return null;
+  // A reset already past leaves no time, never a negative amount: a negative
+  // quotient would sort below every threshold and read as the healthiest
+  // window on the bar.
+  const timeLeft = Math.min(MAX_TIME_LEFT, Math.max(0, (resetsAt * 1000 - now) / LENGTH[key]));
+  const budgetLeft = 1 - utilization;
+  // Nothing left to divide by. A spent budget is past any pace, not undefined.
+  if (budgetLeft <= 0) return Infinity;
+  return timeLeft / budgetLeft;
+}
+
+/**
+ * The tone a quotient deserves.
+ *
+ * On pace is quiet: the budget and the clock running out together is the
+ * window working as intended, not news.
+ */
+export function usageTone(quotient: number | null): ChipTone {
+  if (quotient === null) return 'neutral';
+  if (quotient >= RED_AT) return 'bad';
+  if (quotient > AMBER_AT) return 'busy';
   return 'neutral';
 }
 
@@ -63,13 +136,15 @@ export function usageChip(host: Host | undefined, key: UsageKey, now: number): U
   if (!usage || !window) return null;
   const stale = isStale(usage.at, now);
   const percent = `${Math.round(window.utilization * 100)}%`;
+  const quotient = budgetQuotient(key, window.utilization, window.resetsAt, now);
+  const tone = usageTone(quotient);
   return {
     percent,
     // What the reading deserves, said plainly. `SplitChip` is what refuses to
     // draw it loud while `stale` holds, so this stays the honest figure.
-    tone: usageTone(window.utilization),
+    tone,
     stale,
-    title: titleFor(NAMES[key], percent, window.resetsAt, usage.at, now, stale),
+    title: titleFor(NAMES[key], percent, window.resetsAt, usage.at, now, stale, tone),
   };
 }
 
@@ -88,6 +163,11 @@ function isStale(at: string, now: number): boolean {
  * A stale reading says how old it is instead of when it resets. It cannot
  * vouch for the percentage, so a reset time beside it would invite the reader
  * to plan around a figure that has already moved.
+ *
+ * A coloured chip says why it is coloured. Colour is never the only channel
+ * that carries a reading, and the tone now means something a percentage alone
+ * does not show. A quiet chip stays silent about pace: the clause is the
+ * explanation for the colour, and on the common reading it would be noise.
  */
 function titleFor(
   name: string,
@@ -96,13 +176,15 @@ function titleFor(
   at: string,
   now: number,
   stale: boolean,
+  tone: ChipTone,
 ): string {
   const head = `${name}: ${percent} used`;
   if (stale) return `${head}, as of ${ago(at, now)} ago`;
+  const paced = tone === 'neutral' ? head : `${head}, ${PACE_WORDS[tone] ?? 'ahead of pace'}`;
   const resets = resetsIn(resetsAt, now);
   // A window the source gave no reset for says nothing about one, the same way
   // a window with no figure draws no chip.
-  return resets ? `${head}, resets in ${resets}` : head;
+  return resets ? `${paced}, resets in ${resets}` : paced;
 }
 
 /**
