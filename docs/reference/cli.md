@@ -726,7 +726,7 @@ See [dev-environments.md](../guide/dev-environments.md).
 
 | Command | Description |
 |---|---|
-| `mael env start [SERVICE]` | Run the install command, then start every non-optional service, or one named service. |
+| `mael env start [SERVICE]` | Run the install command, then start every non-optional service, or one named service. Services already running are left alone, so a start repairs a half-started environment rather than refusing. |
 | `mael env stop [SERVICE]` | Stop the environment's services, or one named service. SIGTERM, then SIGKILL after 10s. |
 | `mael env restart [SERVICE]` | Restart services, or one named service. |
 | `mael env status [TARGET]` | Show service PIDs, status and log paths. A declared service that never started shows as `stopped`; `dead` means it started and then died. |

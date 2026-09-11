@@ -123,10 +123,13 @@ them `shared: true`:
     publish: ["${DB_PORT}:5432"]
 ```
 
-The first worktree to start one starts it; later worktrees **subscribe** to the running
-copy. Late subscribers reuse the already-discovered `host_var` IP rather than inspecting
-again. Stopping one worktree's environment leaves a shared service running while another
-worktree still uses it.
+A worktree that finds a shared service already up **subscribes** to it, and reuses the
+already-discovered `host_var` IP rather than inspecting again. Stopping one worktree's
+environment leaves a shared service running while another worktree still uses it.
+
+`mael env start` starts the shared services that are not running, and subscribes you to the
+rest — see [CONTEXT.md](../../CONTEXT.md). Add a shared service to `.maelstrom.yaml` while
+another one runs, and the next start brings it up beside its sibling.
 
 ## Optional services
 
@@ -155,7 +158,9 @@ A named start:
 - starts only that service, not its siblings;
 - skips `install_cmd` — use `mael env restart <name> --install` to reinstall;
 - subscribes to the project's shared services, so the named service reaches the database
-  whether or not the rest of the environment is up.
+  whether or not the rest of the environment is up;
+- starts that service only if it is not already running; the shared subscription above
+  happens either way.
 
 A named stop leaves the other services running, and leaves the main app's browser pane open.
 

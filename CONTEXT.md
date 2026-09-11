@@ -363,7 +363,9 @@ declares an `engine` is a container service; every other service is a command se
 **Shared service**:
 A service marked `shared: true`, started once for the whole project rather than once per
 worktree. A database is the usual case. The project owns shared services; worktrees subscribe
-to them, and they stop when the last subscriber leaves.
+to them, and they stop when the last subscriber leaves. A shared service is a project-level
+singleton, so it counts as running when it runs for any worktree. A start brings up the
+shared services that are not running, whenever they were declared.
 
 **Optional service**:
 A service marked `optional: true`. `mael env start` skips an optional service; `mael env start
