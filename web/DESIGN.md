@@ -270,11 +270,12 @@ the operator drags it wider. Two measures, because the panel's two surfaces read
 - `--measure-panel` — the transcript, scanned in blocks between tool rows, and already narrowed
   by the 3.5rem time gutter.
 
-Both are 66ch. One measure, because a document and a transcript message are the same act of
-reading and a reader moving between them should not meet two line lengths. 66ch rather than the
+Both are 72ch. One measure, because a document and a transcript message are the same act of
+reading and a reader moving between them should not meet two line lengths. 72ch rather than the
 conventional 80, because these documents are read start to finish: at 80ch the sweep back to the
 next line start is long enough to lose your place, and a line broken up by literals makes that
-worse.
+worse. It was 66ch, which held the line too short — the transcript gives 3.5rem of its width to
+the time gutter, so a message there reads narrower than the number says.
 
 ### Rhythm
 
