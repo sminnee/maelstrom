@@ -205,6 +205,14 @@ a reader that shows it must say how old it is.
 _Avoid_: Rate limit, quota, allowance. **Rate limit** in this codebase means GitHub's, which
 refuses a poll and is a different thing entirely.
 
+**Budget quotient**:
+How a usage window is doing: the fraction of the window still to run, over the fraction of the
+budget still unspent. Below one the window resets before the budget runs out. Above one the
+budget goes first, and the figure says by how much. It is what colours the top bar's usage
+chips.
+_Avoid_: Burn rate, pace percentage. Not **utilisation**, which is the raw spend the source
+reports; the quotient is what that spend means against the clock.
+
 **Context occupancy**:
 How full a driven agent's prompt is now, read off the newest `assistant` event on its stream. A
 level, not a total: each reading replaces the last, so it advances mid-turn and falls when the

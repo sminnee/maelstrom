@@ -128,6 +128,12 @@ the account, not about what this agent is doing. One account spans every agent o
 so `list` reports the freshest reading across them once rather than per row, and the
 orchestrator publishes it on the one `Host` entity.
 
+Maelstrom does not copy that 75% rule. Its UI colours the reading by pace, not by the spend:
+the budget quotient in `CONTEXT.md`. That works because the window lengths are nominal — five
+hours and seven days — so the start is read back from `resetsAt` even though the event names
+only the end. A window that ever ran short would make the elapsed time over-report, which
+shrinks the quotient and errs toward quiet.
+
 ### A wait
 
 Every wait — a permission ask, a question, a plan review — arrives as one event shape:
