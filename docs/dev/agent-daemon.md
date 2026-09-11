@@ -87,6 +87,29 @@ restart rebuilds `AgentState` and the total starts again at 0, where `total_cost
 from the host's own report on the next `result`. An attach does not double it: the backlog it
 replays is already in the row the total was seeded from, so only a live turn adds.
 
+### The account's budget
+
+`rate_limit_event` carries how much of the account's budget is spent. It arrives on its own
+cadence as a turn runs, not once per turn:
+
+```json
+{"type": "rate_limit_event",
+ "rate_limit_info": {"status": "allowed", "rateLimitType": "five_hour",
+                     "unifiedWindows": {
+                       "five_hour": {"utilization": 0.07, "resetsAt": 1788241800},
+                       "seven_day": {"utilization": 0.24, "resetsAt": 1788480000}}}}
+```
+
+Two things the shape does not say. `utilization` is quantised to whole percent by the source,
+so a reader shows what it was given and never a finer figure. And the event fires throughout a
+window, not only near its end — the recorded fixtures carry readings from 5% up. Claude Code's
+own UI shows usage only from 75%, but that is a rule in that client, not a gate on the event.
+
+`apply_event` reads it onto `AgentState.usage` and leaves `status` alone: it is a fact about
+the account, not about what this agent is doing. One account spans every agent on the machine,
+so `list` reports the freshest reading across them once rather than per row, and the
+orchestrator publishes it on the one `Host` entity.
+
 ### A wait
 
 Every wait — a permission ask, a question, a plan review — arrives as one event shape:
