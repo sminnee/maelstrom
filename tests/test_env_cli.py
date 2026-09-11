@@ -1184,6 +1184,38 @@ class TestEnvStatusDeclaredServices:
         assert "(optional)" in result.output
 
     @patch("maelstrom.env_cli.get_app_url", return_value=None)
+    @patch("maelstrom.env_cli.get_shared_status", return_value=None)
+    @patch("maelstrom.env_cli.load_env_state")
+    @patch("maelstrom.env_cli.get_env_status")
+    @patch("maelstrom.env_cli.resolve_context")
+    def test_lists_unstarted_shared_service(
+        self, mock_ctx, mock_status, mock_load, mock_shared, mock_app, tmp_path
+    ):
+        """A shared service absent from the record is tagged, not left bare."""
+        project_path = self._project(
+            tmp_path,
+            "services:\n"
+            "  web:\n"
+            "    command: node server.ts\n"
+            "  db:\n"
+            "    command: postgres\n"
+            "    shared: true\n",
+        )
+        mock_ctx.return_value = MagicMock(
+            project="proj", worktree="bravo", project_path=project_path
+        )
+        mock_load.return_value = _make_state()
+        mock_status.return_value = [_make_status("web")]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["env", "status"])
+        assert result.exit_code == 0
+        rows = [ln for ln in result.output.splitlines() if ln.startswith("db")]
+        assert len(rows) == 1
+        assert "(shared)" in rows[0]
+        assert "stopped" in rows[0]
+
+    @patch("maelstrom.env_cli.get_app_url", return_value=None)
     @patch("maelstrom.env_cli.load_env_state")
     @patch("maelstrom.env_cli.get_env_status")
     @patch("maelstrom.env_cli.resolve_context")

@@ -254,7 +254,9 @@ def print_service_status(
         for svc in config.services:
             if svc.name in known:
                 continue
-            label = f"{svc.name} (optional)" if svc.optional else svc.name
+            # config.py rejects a service that is both, so at most one tag applies.
+            tag = "shared" if svc.shared else "optional" if svc.optional else None
+            label = f"{svc.name} ({tag})" if tag else svc.name
             rows.append(
                 {
                     "SERVICE": label,

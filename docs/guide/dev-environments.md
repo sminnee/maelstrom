@@ -176,7 +176,7 @@ mael env start -w askastro.b           # the whole environment, in askastro brav
 The other `env` commands — `status`, `reset`, `open`, `list` — take a worktree in that
 position instead.
 
-`mael env status` tags a stopped optional service `(optional)`.
+`mael env status` tags a stopped service `(optional)` or `(shared)` to match its declaration.
 
 ## An agent daemon per environment
 
