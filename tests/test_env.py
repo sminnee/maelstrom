@@ -832,11 +832,21 @@ class TestStartEnvNamedServices:
         """A named start still subscribes to shared services and gets host vars."""
         mock_log_dir.return_value = tmp_path / "logs"
         mock_services.side_effect = self._services
+        # The record must hold the declared shared service: an empty list now
+        # means "db is missing", which is a gap fill rather than a subscribe.
         mock_shared_load.return_value = SharedEnvState(
             project="proj",
             worktree_path="/project/alpha",
             started_at="2025-01-01T00:00:00+00:00",
-            services=[],
+            services=[
+                ServiceState(
+                    name="db",
+                    command="postgres",
+                    pid=999,
+                    log_file="/tmp/db.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
             subscribers=["alpha"],
             host_vars={"DB_HOST": "10.0.0.5"},
         )
@@ -1958,6 +1968,317 @@ class TestStartEnvShared:
         mock_shared_save.assert_called_once()
         saved = mock_shared_save.call_args[0][1]
         assert saved.subscribers == ["alpha", "bravo"]
+
+
+def _shared_service(name, pid, command="postgres"):
+    """A recorded shared service, as a prior start would have left it."""
+    return ServiceState(
+        name=name,
+        command=command,
+        pid=pid,
+        log_file=f"/tmp/{name}.log",
+        started_at="2025-01-01T00:00:00+00:00",
+    )
+
+
+class TestStartEnvSharedGapFill:
+    """A start must reach shared services the record does not hold.
+
+    The record is written once and was never extended, so a shared service
+    absent from it could never start again. Reaching that state needs no late
+    declaration: starting shared services one at a time is enough.
+    """
+
+    ALL = [
+        ResolvedService(name="web", command="python app.py"),
+        ResolvedService(name="db", command="postgres", shared=True),
+        ResolvedService(name="redis", command="redis-server", shared=True),
+    ]
+
+    def _services(self, worktree_path, project="", *, names=None):
+        """Stand-in for get_services honouring the same `names` contract."""
+        if names is None:
+            return [s for s in self.ALL if not s.optional]
+        return [s for s in self.ALL if s.name in set(names)]
+
+    def _db_only(self):
+        """A record holding db alone — redis declared but never recorded."""
+        return SharedEnvState(
+            project="proj",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[_shared_service("db", 999)],
+            subscribers=["alpha"],
+            host_vars={"DB_HOST": "10.0.0.5"},
+        )
+
+    @patch("maelstrom.env.save_shared_state")
+    @patch("maelstrom.env.save_env_state")
+    @patch("maelstrom.env.Popen")
+    @patch("maelstrom.env.build_service_env", return_value={})
+    @patch("maelstrom.env.get_services")
+    @patch("maelstrom.env.run_install_cmd")
+    @patch("maelstrom.env.get_env_status", return_value=None)
+    @patch("maelstrom.env.cleanup_stale_env")
+    @patch("maelstrom.env.cleanup_stale_shared")
+    @patch("maelstrom.env.load_shared_state")
+    @patch("maelstrom.env._get_shared_log_dir")
+    @patch("maelstrom.env._get_log_dir")
+    def test_named_start_reaches_a_service_the_record_lacks(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """`mael env start redis` starts redis and leaves db running."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        mock_shared_load.return_value = self._db_only()
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"), services=["redis"])
+
+        commands = [c[0][0][2] for c in mock_popen.call_args_list]
+        assert commands == ["redis-server"]
+
+        saved = mock_shared_save.call_args[0][1]
+        assert [s.name for s in saved.services] == ["db", "redis"]
+        assert saved.services[0].pid == 999
+
+    @patch("maelstrom.env.save_shared_state")
+    @patch("maelstrom.env.save_env_state")
+    @patch("maelstrom.env.Popen")
+    @patch("maelstrom.env.build_service_env", return_value={})
+    @patch("maelstrom.env.get_services")
+    @patch("maelstrom.env.run_install_cmd")
+    @patch("maelstrom.env.get_env_status", return_value=None)
+    @patch("maelstrom.env.cleanup_stale_env")
+    @patch("maelstrom.env.cleanup_stale_shared")
+    @patch("maelstrom.env.load_shared_state")
+    @patch("maelstrom.env._get_shared_log_dir")
+    @patch("maelstrom.env._get_log_dir")
+    def test_bare_start_fills_the_gap_without_a_restart(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """A bare start adds the missing shared service, sparing the running one."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        mock_shared_load.return_value = self._db_only()
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"))
+
+        commands = [c[0][0][2] for c in mock_popen.call_args_list]
+        assert "postgres" not in commands
+        assert set(commands) == {"python app.py", "redis-server"}
+
+        saved = mock_shared_save.call_args[0][1]
+        assert [s.name for s in saved.services] == ["db", "redis"]
+
+    @patch("maelstrom.env.save_shared_state")
+    @patch("maelstrom.env.save_env_state")
+    @patch("maelstrom.env.Popen")
+    @patch("maelstrom.env.build_service_env", return_value={})
+    @patch("maelstrom.env.get_services")
+    @patch("maelstrom.env.run_install_cmd")
+    @patch("maelstrom.env.get_env_status", return_value=None)
+    @patch("maelstrom.env.cleanup_stale_env")
+    @patch("maelstrom.env.cleanup_stale_shared")
+    @patch("maelstrom.env._get_shared_log_dir")
+    @patch("maelstrom.env._get_log_dir")
+    def test_shared_services_started_one_at_a_time_both_end_up_recorded(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_cleanup,
+        mock_shared_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """An install script starting db then redis leaves both recorded.
+
+        This needs no late declaration: the first start writes a record
+        holding db alone, which is the subset that used to be permanent.
+        """
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        record: list[SharedEnvState] = []
+        mock_shared_save.side_effect = lambda _store, state: record.append(state)
+
+        with patch("maelstrom.env.load_shared_state", return_value=None):
+            start_env(store, "proj", "bravo", Path("/project/bravo"), services=["db"])
+        assert [s.name for s in record[-1].services] == ["db"]
+
+        with patch("maelstrom.env.load_shared_state", return_value=record[-1]):
+            start_env(
+                store, "proj", "bravo", Path("/project/bravo"), services=["redis"]
+            )
+        assert [s.name for s in record[-1].services] == ["db", "redis"]
+
+    @patch("maelstrom.env.save_shared_state")
+    @patch("maelstrom.env.save_env_state")
+    @patch("maelstrom.env.Popen")
+    @patch("maelstrom.env.build_service_env", return_value={})
+    @patch("maelstrom.env.get_services")
+    @patch("maelstrom.env.run_install_cmd")
+    @patch("maelstrom.env.get_env_status", return_value=None)
+    @patch("maelstrom.env.cleanup_stale_env")
+    @patch("maelstrom.env.cleanup_stale_shared")
+    @patch("maelstrom.env.load_shared_state")
+    @patch("maelstrom.env._get_shared_log_dir")
+    @patch("maelstrom.env._get_log_dir")
+    def test_a_complete_record_spawns_no_shared_service(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """With every shared service recorded, only the local one starts."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        complete = self._db_only()
+        complete.services.append(_shared_service("redis", 998, "redis-server"))
+        mock_shared_load.return_value = complete
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"))
+
+        commands = [c[0][0][2] for c in mock_popen.call_args_list]
+        assert commands == ["python app.py"]
+
+    @patch("maelstrom.env.save_shared_state")
+    @patch("maelstrom.env.save_env_state")
+    @patch("maelstrom.env.Popen")
+    @patch("maelstrom.env.build_service_env", return_value={})
+    @patch("maelstrom.env.get_services")
+    @patch("maelstrom.env.run_install_cmd")
+    @patch("maelstrom.env.get_env_status", return_value=None)
+    @patch("maelstrom.env.cleanup_stale_env")
+    @patch("maelstrom.env.cleanup_stale_shared")
+    @patch("maelstrom.env.load_shared_state")
+    @patch("maelstrom.env._get_shared_log_dir")
+    @patch("maelstrom.env._get_log_dir")
+    def test_a_gap_filled_service_sees_the_recorded_host_vars(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """The new service resolves a running sibling's host var."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        mock_shared_load.return_value = self._db_only()
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"), services=["redis"])
+
+        spawn_env = mock_popen.call_args[1]["env"]
+        assert spawn_env["DB_HOST"] == "10.0.0.5"
+
+    @patch("maelstrom.env.save_shared_state")
+    @patch("maelstrom.env.save_env_state")
+    @patch("maelstrom.env.Popen")
+    @patch("maelstrom.env.build_service_env", return_value={})
+    @patch("maelstrom.env.get_services")
+    @patch("maelstrom.env.run_install_cmd")
+    @patch("maelstrom.env.get_env_status", return_value=None)
+    @patch("maelstrom.env.cleanup_stale_env")
+    @patch("maelstrom.env.cleanup_stale_shared")
+    @patch("maelstrom.env.load_shared_state")
+    @patch("maelstrom.env._get_shared_log_dir")
+    @patch("maelstrom.env._get_log_dir")
+    def test_a_gap_fill_keeps_the_record_identity(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """The record keeps where and when it started; the new service does not."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        mock_shared_load.return_value = self._db_only()
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"), services=["redis"])
+
+        saved = mock_shared_save.call_args[0][1]
+        assert saved.worktree_path == "/project/alpha"
+        assert saved.started_at == "2025-01-01T00:00:00+00:00"
+        redis = next(s for s in saved.services if s.name == "redis")
+        assert redis.started_at != "2025-01-01T00:00:00+00:00"
 
 
 class TestTwoPhaseStartWithIpInjection:
