@@ -13,6 +13,7 @@ for why one. A source may block or answer with an awaitable, and the server
 takes either, so neither kind needs help from the caller.
 """
 
+import asyncio
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -390,6 +391,12 @@ class InMemoryWorktreeSource:
         self.asked: set[str] | None = None
         #: Set by a test that wants the caller to see a refused read.
         self.rate_limited = False
+        #: Set by a test that needs a read to still be in flight while it does
+        #: something else. The real read shells out per worktree and takes
+        #: seconds; this one returns at once, so a test that cares about two
+        #: reads overlapping has no window without it. The test supplies the
+        #: read that waits on it — see ``_use_slow_read``.
+        self.blocked_on: asyncio.Event | None = None
 
     def read(
         self, active_branches: set[str] | None = None

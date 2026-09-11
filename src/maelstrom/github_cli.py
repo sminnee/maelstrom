@@ -19,6 +19,7 @@ from .github import (
     wait_for_review,
 )
 from .github_model import GitHubError, SyncFailed
+from .orchestrator_notify import tell_orchestrator
 
 
 @click.group("gh")
@@ -59,6 +60,10 @@ def _handle_wait_for_review(cwd: Path) -> None:
 def _open_pr_in_cmux(url: str) -> None:
     """Open a PR URL in a cmux browser, recycling any github.com browser. No-op outside cmux."""
     mael_layout.show_pr_browser(url)
+
+
+#: The route that asks an orchestrator to re-read its worktrees at once.
+REFRESH_PATH = "/api/worktrees/refresh"
 
 
 @gh.command("create-pr")
@@ -127,6 +132,10 @@ def gh_create_pr(
         else:
             click.echo(f"Pushed to existing PR: {url}")
         _open_pr_in_cmux(url)
+        # The PR is in no world until something looks it up, and the next
+        # worktree poll is up to a minute away — landing on exactly the moment
+        # the user looks at the card for it. Never raises; see the module.
+        tell_orchestrator(cwd, REFRESH_PATH)
     except (GitHubError, SyncFailed, subprocess.CalledProcessError) as e:
         # CalledProcessError is the belt to `create_pr`'s braces: it converts the
         # git calls it makes directly, but `sync_worktree` and `update_local_main`

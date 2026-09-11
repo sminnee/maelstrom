@@ -13,6 +13,7 @@ from maelstrom.github_model import (
     PRInfo,
     SyncFailed,
 )
+from maelstrom.orchestrator_notify import orchestrator_url, tell_orchestrator
 
 
 class TestFormatSize:
@@ -137,6 +138,60 @@ class TestGhCliRegistration:
     def test_create_pr_leaves_autorepair_off_by_default(self):
         """A PR push must not start an agent unasked."""
         assert self._run_create_pr([])["autorepair"] is False
+
+    def test_create_pr_tells_the_orchestrator(self):
+        """The PR is not in any world until something looks it up, and the next
+        worktree poll is up to a minute away. The canvas would sit without a
+        chip through exactly the moment the user is watching for one."""
+        with (
+            patch("maelstrom.github_cli.resolve_context") as mock_ctx,
+            patch(
+                "maelstrom.github_cli.create_pr",
+                return_value=("https://example/pr", True),
+            ),
+            patch("maelstrom.github_cli._open_pr_in_cmux"),
+            patch("maelstrom.github_cli.tell_orchestrator") as told,
+        ):
+            mock_ctx.return_value.worktree_path = None
+            result = CliRunner().invoke(cli, ["gh", "create-pr"])
+        assert result.exit_code == 0, result.output
+        told.assert_called_once()
+
+    def test_a_pr_still_succeeds_when_no_orchestrator_is_listening(self, tmp_path):
+        """Running `mael gh create-pr` with no UI open is the ordinary case.
+        The PR is already on GitHub, so nothing about telling a server that is
+        not there may fail the command or print an error.
+
+        The real `tell_orchestrator` runs here rather than a patched one: its
+        not-raising is the whole contract, and a fake that cannot raise would
+        assert nothing. `tmp_path` has no `.env`, so it finds no port.
+        """
+        with (
+            patch("maelstrom.github_cli.resolve_context") as mock_ctx,
+            patch(
+                "maelstrom.github_cli.create_pr",
+                return_value=("https://example/pr", True),
+            ),
+            patch("maelstrom.github_cli._open_pr_in_cmux"),
+        ):
+            mock_ctx.return_value.worktree_path = tmp_path
+            result = CliRunner().invoke(cli, ["gh", "create-pr"])
+        assert result.exit_code == 0, result.output
+        assert "PR created" in result.output
+
+    def test_telling_an_orchestrator_that_refuses_the_connection_is_silent(
+        self, tmp_path
+    ):
+        """A port in the `.env` with nothing listening on it: the ordinary case
+        once an orchestrator has been stopped. The command has already pushed."""
+        (tmp_path / ".env").write_text("ORCHESTRATOR_PORT=1\n")
+        tell_orchestrator(tmp_path, "/api/worktrees/refresh")
+
+    def test_a_worktree_with_no_port_tells_nobody(self, tmp_path):
+        """A worktree made before the service existed names no port. It must
+        read as nothing to tell, not as a failure."""
+        assert orchestrator_url(tmp_path, "/x") is None
+        tell_orchestrator(tmp_path, "/x")
 
     def test_show_code_smoke(self):
         with (
