@@ -47,7 +47,23 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-const STATES: PrState[] = ['merged', 'ready', 'ci-failed', 'conflict', 'ci-running', 'unknown'];
+/**
+ * Every reading, in the order a board is read down.
+ *
+ * `satisfies Record<PrState, true>` is what keeps it every reading: an eighth
+ * state is a compile error here rather than a tile nobody notices is missing.
+ */
+const ALL_STATES = {
+  merged: true,
+  ready: true,
+  'ci-failed': true,
+  conflict: true,
+  'ci-running': true,
+  'checks-unreadable': true,
+  unknown: true,
+} satisfies Record<PrState, true>;
+
+const STATES = Object.keys(ALL_STATES) as PrState[];
 
 function worktree(prState: PrState | '', prDraft = false): Worktree {
   return {

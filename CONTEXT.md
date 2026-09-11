@@ -654,7 +654,7 @@ before clicking.
 _Avoid_: Outbound link, web link
 
 **PR state**:
-How close a worktree's pull request is to merging, as one of six values. The server decides it
+How close a worktree's pull request is to merging, as one of seven values. The server decides it
 from the merge, the head commit's check rollup and GitHub's mergeability, so every reader shows
 one reading.
 
@@ -663,6 +663,7 @@ one reading.
 | `merged` | The pull request merged |
 | `ci-failed` | A check failed |
 | `ci-running` | A check is pending or running |
+| `checks-unreadable` | Nothing may read this commit's checks; waiting will not help |
 | `conflict` | Checks pass, and the branch does not merge cleanly |
 | `unknown` | GitHub has not answered mergeability yet |
 | `ready` | Checks pass, and the branch merges cleanly |
@@ -670,7 +671,27 @@ one reading.
 The order above is the order the rule reads them, and it is the order a user asks in. A red
 build is the thing to fix before a conflict, and `unknown` settles within seconds of a push —
 never a quiet `ready`. A draft pull request reads as a draft instead of its state.
+
+`checks-unreadable` and `unknown` part on whether waiting helps, so the first reads quiet rather
+than as a spinner nothing will stop. See **Check rollup**.
 _Avoid_: PR status, merge state, CI state
+
+**Check rollup**:
+GitHub's one-word verdict on a commit's checks, read through GraphQL. The rollup needs the
+`checks=read` token permission, which GitHub no longer offers, so some repositories refuse it and
+answer `null` — the same answer a repository running no CI gives. The refusal arrives beside the
+data as a per-field error, so only the payload says it happened.
+
+A refused rollup falls back to the **Actions run** for the same commit. A repository that refuses
+both reads `checks-unreadable`.
+_Avoid_: Check status, CI rollup, status check
+
+**Actions run**:
+One workflow run, read from the Actions REST API. It carries a status, a conclusion and the
+commit it ran against, and it is how a pull request gets a state when the **check rollup** is
+refused. Runs are read one page per repository rather than one read per branch, and matched on
+the pull request's head commit: a run against an earlier push says nothing about this one.
+_Avoid_: Workflow, job, build
 
 **Tone**:
 The reading a colour stands for, as one of six: `good`, `bad`, `busy`, `neutral`, `quiet`,

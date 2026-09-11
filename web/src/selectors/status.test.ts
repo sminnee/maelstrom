@@ -29,8 +29,15 @@ describe('describePrState', () => {
     expect(describePrState('ci-running', false)).toBe('CI running');
     expect(describePrState('conflict', false)).toBe('merge conflicts');
     expect(describePrState('unknown', false)).toBe('checking');
+    expect(describePrState('checks-unreadable', false)).toBe('checks not readable');
     expect(describePrState('ready', false)).toBe('ready to merge');
     expect(describePrState('ci-failed', true)).toBe('draft');
+  });
+
+  it('parts checks it cannot read from checks still running', () => {
+    // `checking` promises an answer is coming. When the token may not read the
+    // checks at all, none is, so saying so is the only honest reading.
+    expect(describePrState('checks-unreadable', false)).not.toBe(describePrState('unknown', false));
   });
 
   it('draws nothing for no PR', () => {
@@ -57,9 +64,23 @@ describe('prTone', () => {
   });
 
   it('gives every state a tone', () => {
-    const states = ['merged', 'ci-failed', 'ci-running', 'conflict', 'unknown', 'ready'] as const;
+    const states = [
+      'merged',
+      'ci-failed',
+      'ci-running',
+      'conflict',
+      'checks-unreadable',
+      'unknown',
+      'ready',
+    ] as const;
     for (const state of states) expect(prTone(state, false)).toBeTruthy();
     expect(prTone('ci-failed', true)).toBe('quiet');
+  });
+
+  it('does not colour a reading it cannot vouch for', () => {
+    // The same rule the usage chips follow: a value nothing stands behind
+    // gives up its tone rather than shouting in a colour it has not earned.
+    expect(prTone('checks-unreadable', false)).toBe('quiet');
   });
 
   it('reads a state the wire invented as no state at all', () => {

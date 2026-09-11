@@ -105,7 +105,7 @@ Closed worktrees are not rows. `mael list` names them on one line under the tabl
 | `BRANCH` | The checked-out branch, or `(detached)`. A stacked branch reads `feat/child ← feat/parent` | Never blank |
 | `DIRTY FILES` | How many files `git status` reports as changed | No uncommitted changes |
 | `LOCAL COMMITS` | Commits that exist only on this machine | Nothing unpushed |
-| `PR (COMMITS)` | `#1766 (6)` — the open pull request and its commit count. A merged one reads `#1766 merged (2)`, where the count is what has been pushed since | No pull request and nothing pushed |
+| `PR (COMMITS)` | `#1766 (6)` — the open pull request and its commit count. One that asks for something says so: `#1766 failed (6)`, `running`, `conflict`. A merged one reads `#1766 merged (2)`, where the count is what has been pushed since | No pull request and nothing pushed |
 | `APP` | The app URL when the app runs, `*3030` when it does not | The worktree has no port allocation, or the project has no `APP`/`FRONTEND` service |
 | `SESSION` | The number of live sessions, or `— stopped` | The worktree has never run a session |
 
@@ -159,6 +159,11 @@ ref names itself. A branch tracking something else reports against those names r
 
 `#1766 (6)` names an open pull request and the number of commits GitHub says it holds. The
 count comes from GitHub, over the network — it is not derived from your local refs.
+
+A pull request that asks for something names it: `#1766 failed (6)` for a red build, `running`
+while one is going, and `conflict` when the branch does not merge cleanly. A pull request that is
+ready, or whose checks nothing could read, stays the bare number — a word on those would land on
+nearly every row and drown the three that matter. The orchestrator UI's chip parts every state.
 
 `PR (COMMITS)` and `LOCAL COMMITS` count different things, and they do not add up to a total.
 In the example, `charlie` shows `#1766 (6)` beside 76 local commits: the pull request holds the
