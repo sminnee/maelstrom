@@ -31,8 +31,12 @@ export function ReviewActions({
   if (doc.status !== 'awaiting-review') {
     return <div className={styles.bar}>This version is {doc.status}.</div>;
   }
+  // Approve leads, as the primary — see `web/DESIGN.md`, "Review Dock".
   return (
     <div className={styles.bar}>
+      <AppButton variant="primary" errorChildren={describeError} onClick={() => onApprove()}>
+        {approveLabel(doc)}
+      </AppButton>
       <input
         aria-label="Summary of requested changes"
         placeholder={
@@ -47,13 +51,6 @@ export function ReviewActions({
         onClick={() => onRequestChanges(summary.trim())}
       >
         Request changes
-      </AppButton>
-      <AppButton
-        className={styles.approve}
-        errorChildren={describeError}
-        onClick={() => onApprove()}
-      >
-        {approveLabel(doc)}
       </AppButton>
     </div>
   );
