@@ -17,6 +17,7 @@
         "lastMessage": "The subagent found 8 files directly under `docs/dev` (`agent",
         "lastMessageAt": "2026-09-04T08:28:39.109Z",
         "costUsd": 0.337547,
+        "totalTokens": 52421,
         "taskId": "NORT-7",
         "project": "northwind",
         "worktreeId": "northwind-alpha",

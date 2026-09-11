@@ -551,6 +551,12 @@ class AgentState:
     #: never from the spawn record.
     permission_mode: str = ""
     total_cost_usd: float = 0.0
+    #: Tokens this session has consumed, summed over its turns. A ``result``
+    #: reports the turn that just ended, so each one adds — where
+    #: ``total_cost_usd`` on the same event is the session's, and replaces.
+    #: Kept here rather than derived from :data:`recent`, which is a capped
+    #: ring: a long session drops the turns that made up most of its total.
+    total_tokens: int = 0
     #: Exit code of the child, once it has gone. ``None`` while it is alive.
     exit_code: int | None = None
     #: The child's pid while it is alive; ``None`` before the spawn and after
@@ -796,10 +802,41 @@ def apply_event(
             status=IDLE,
             own_pending={},
             total_cost_usd=float(event.get("total_cost_usd") or 0.0),
+            total_tokens=state.total_tokens + tokens_of(event),
             session_id=event.get("session_id", "") or state.session_id,
         )
 
     return state
+
+
+#: The four counts on a ``result``'s ``usage`` that make up a turn's size.
+#: Cache reads and cache writes are billed and occupy the window, so a total
+#: that left them out would under-report a long session by most of its weight.
+USAGE_FIELDS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+)
+
+
+def tokens_of(event: dict[str, Any]) -> int:
+    """How many tokens the turn ``event`` reports, or 0 when it reports none.
+
+    The one reader of a ``result``'s ``usage``, shared by the daemon's state
+    and ``agent_view``'s per-attach total, so the two can never disagree about
+    what a turn cost. A missing or malformed count is 0, never an error: a
+    total is worth showing approximately, and no stream event is worth a crash.
+    """
+    usage = event.get("usage")
+    if not isinstance(usage, dict):
+        return 0
+    total = 0
+    for field_name in USAGE_FIELDS:
+        value = usage.get(field_name)
+        if isinstance(value, int) and not isinstance(value, bool):
+            total += value
+    return total
 
 
 def subagent_of(state: AgentState, event: dict[str, Any]) -> str:
@@ -1122,6 +1159,9 @@ def build_agent_row(state: AgentState) -> dict[str, Any]:
         "last_message": _one_line(state.last_message),
         "last_message_at": state.last_message_at,
         "cost": f"{state.total_cost_usd:.4f}" if state.total_cost_usd else "",
+        # A number, not a formatted string like ``cost``: a reader decides
+        # whether to say 24561 or 25k, and rounding here would lose the choice.
+        "tokens": state.total_tokens,
     }
 
 
@@ -1151,7 +1191,9 @@ def build_subagent_row(state: AgentState, dotted: str) -> dict[str, Any]:
     agent, even for a nested subagent, because that is whose child process
     carries it. ``session``, ``cwd``, ``pid``, ``model`` and ``mode`` are the
     parent's: a subagent runs inside the parent's process, in its directory,
-    under its mode. ``cost`` is empty: its spend is in the parent's total.
+    under its mode. ``cost`` is empty and ``tokens`` is 0 for the same reason:
+    a subagent has no session of its own, so both its spend and its size are in
+    the parent's totals, and repeating them here would double-count.
     ``waiting_on`` is its own — a subagent that asks is blocked itself, and a
     row saying only ``processing`` would hide that.
     """
@@ -1170,6 +1212,7 @@ def build_subagent_row(state: AgentState, dotted: str) -> dict[str, Any]:
         "last_message": _one_line(_subagent_message(sub)),
         "last_message_at": sub.last_message_at,
         "cost": "",
+        "tokens": 0,
     }
 
 

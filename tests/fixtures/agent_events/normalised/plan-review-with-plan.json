@@ -17,6 +17,7 @@
         "lastMessage": "Plan written to `/Users/sminnee/.claude/plans/plan-a-hello-t",
         "lastMessageAt": "2026-09-01T09:52:55.273Z",
         "costUsd": 0,
+        "totalTokens": 0,
         "taskId": "NORT-7",
         "project": "northwind",
         "worktreeId": "northwind-alpha",

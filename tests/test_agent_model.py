@@ -152,6 +152,39 @@ def test_a_result_event_records_the_cost():
     assert state.total_cost_usd == pytest.approx(0.1495855)
 
 
+def test_a_result_event_adds_its_tokens_to_the_running_total():
+    """The turn's four counts, summed: 2 + 14429 + 10121 + 9 off the fixture."""
+    state = replay("normal-turn.jsonl")
+    assert state.total_tokens == 24561
+    assert build_agent_row(state)["tokens"] == 24561
+
+
+def test_a_second_turn_adds_to_the_token_total_rather_than_replacing_it():
+    """A ``result`` reports the turn, not the session — unlike ``total_cost_usd``.
+
+    So two turns of the same size read as twice one turn, while the cost, which
+    the harness already reports for the session, stays as the last one said.
+    """
+    state = replay("normal-turn.jsonl")
+    state = apply_event(
+        state,
+        {
+            "type": "result",
+            "total_cost_usd": 0.1495855,
+            "usage": {"input_tokens": 5, "output_tokens": 7},
+        },
+    )
+    assert state.total_tokens == 24561 + 12
+    assert state.total_cost_usd == pytest.approx(0.1495855)
+
+
+def test_a_result_without_usage_leaves_the_token_total_alone():
+    """A malformed or usage-free result must not zero what the session spent."""
+    state = replay("normal-turn.jsonl")
+    state = apply_event(state, {"type": "result", "total_cost_usd": 0.2})
+    assert state.total_tokens == 24561
+
+
 def test_a_dead_agent_is_not_left_looking_like_it_waits():
     """A crashed agent must not keep advertising a wait nobody can answer."""
     state = replay("question-unanswered.jsonl", stop_before_control=True)
@@ -1194,6 +1227,9 @@ def test_subagent_rows_take_the_row_shape_under_the_parent():
         "waiting_on": "",
         "last_message_at": "",
         "cost": "",
+        # Both blank: a subagent has no session, so its spend and its size
+        # are counted in the parent's totals, not again here.
+        "tokens": 0,
     }
     assert last_message.startswith("`docs/dev` exists")
     assert "\n" not in last_message

@@ -17,6 +17,7 @@
         "lastMessage": "Hello there, friend",
         "lastMessageAt": "2026-09-01T01:42:19.652Z",
         "costUsd": 0.1495855,
+        "totalTokens": 24561,
         "taskId": "NORT-7",
         "project": "northwind",
         "worktreeId": "northwind-alpha",

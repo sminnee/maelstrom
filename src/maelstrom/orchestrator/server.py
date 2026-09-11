@@ -926,7 +926,14 @@ class Orchestrator:
 
     async def _normalise(self, watch: AgentWatch, raw: dict[str, Any]) -> None:
         out = normalise_stream_event(
-            self.state.state, watch.ctx, raw, self.clock(), files=self.files
+            self.state.state,
+            watch.ctx,
+            raw,
+            self.clock(),
+            files=self.files,
+            # A replayed turn is already in the row's own totals: the host
+            # summed it before it handed the row over. Only a live turn adds.
+            replay=not watch.caught_up.is_set(),
         )
         await self._emit(watch, out)
 

@@ -17,6 +17,7 @@
         "lastMessage": "I'll launch both agents concurrently in one message.",
         "lastMessageAt": "2026-09-06T21:55:52.660Z",
         "costUsd": 0,
+        "totalTokens": 0,
         "taskId": "NORT-7",
         "project": "northwind",
         "worktreeId": "northwind-alpha",

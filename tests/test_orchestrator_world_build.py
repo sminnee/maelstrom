@@ -251,10 +251,19 @@ def test_agent_entity_from_a_live_row():
     assert entity["cwd"] == "/Users/dev/Projects/northwind/northwind-alpha"
     assert entity["lastMessage"] == "Hello there, friend"
     assert entity["costUsd"] == pytest.approx(0.1496)
+    assert entity["totalTokens"] == 24561
     assert entity["exitCode"] is None
     assert entity["pendingRequestIds"] == []
     assert entity["taskId"] == "NORT-7"
     assert entity["pid"] is None
+
+
+def test_agent_entity_of_a_row_without_tokens_reports_none_spent():
+    """An older agent host sends no ``tokens``; the field must still be a number."""
+    row = {k: v for k, v in build_agent_row(replay("normal-turn.jsonl")).items()}
+    row.pop("tokens")
+    entity = agent_entity(row, task_id="", project="", worktree_id="")
+    assert entity["totalTokens"] == 0
 
 
 def test_agent_entity_carries_the_childs_pid_when_the_row_has_one():

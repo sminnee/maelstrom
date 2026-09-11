@@ -55,6 +55,7 @@ def make_agent(**over) -> dict:
         "lastMessage": "",
         "lastMessageAt": "",
         "costUsd": 0,
+        "totalTokens": 0,
         "taskId": "NORT-7",
         "project": "northwind",
         "worktreeId": "northwind-alpha",
@@ -309,6 +310,33 @@ def test_a_completed_turn_ends_idle_with_the_cost_and_one_result_line():
     assert agent_of(state)["costUsd"] == 0.1495855
     first = state["transcripts"]["ag1"]["items"][0]
     assert first["sessionId"] == "029ed263-b318-4d4e-a661-32f9c9f23f19"
+
+
+def test_a_completed_turn_adds_its_tokens_to_the_agents_running_total():
+    """The turn's four counts, summed: 2 + 14429 + 10121 + 9 off the fixture."""
+    state = replay("normal-turn.jsonl")
+    assert agent_of(state)["totalTokens"] == 24561
+
+
+def test_a_second_turn_adds_to_the_token_total_rather_than_replacing_it():
+    """The stream must move the number the same way the daemon's state does.
+
+    A ``result`` reports one turn, so the running total is what the header
+    shows. Replacing here would make a long session read as its last turn.
+    """
+    state = replay("normal-turn.jsonl")
+    out = normalise_stream_event(
+        state.state,
+        state.ctx,
+        {
+            "type": "result",
+            "subtype": "success",
+            "usage": {"input_tokens": 5, "output_tokens": 7},
+        },
+        NOW,
+    )
+    state.take(out.events)
+    assert agent_of(state)["totalTokens"] == 24561 + 12
 
 
 def test_plan_review_with_a_plan_yields_a_document_and_one_attention_item():

@@ -74,7 +74,13 @@ it back. `apply_event` ignores the second, whose `request_id` is no longer the p
 
 A turn opens with `system`/`init`, which carries the `session_id`, the model and the permission
 mode. Assistant output arrives as `assistant` events. The turn closes with a `result` event
-carrying `total_cost_usd` and `subtype`.
+carrying `total_cost_usd`, `subtype` and a `usage` block.
+
+The two numbers on that event mean different things. `total_cost_usd` is the session's, so the
+row replaces it. `usage` is the turn's, so the row adds it: `tokens` on the agent row is the
+running sum, and `agent_model.tokens_of` is the one reader of the block. It counts cache reads
+and cache writes as well as input and output, because those are billed and they occupy the
+context window — a total without them under-reports a long session by most of its weight.
 
 ### A wait
 
@@ -813,7 +819,7 @@ On the socket a dotted id works where a read does:
 
 | `cmd` | On a dotted id |
 |---|---|
-| `list` | Every subagent follows its parent's row, in the same shape: `parent` names the parent, `description` is what the parent asked for, `state` is `processing` while it runs, `exited(0)` once completed, `exited(1)` once failed or stopped. `session`, `cwd`, `model` and `mode` are the parent's; `waiting_on` and `cost` are empty; `last_message` is the summary once ended, else the last text, and `last_message_at` says when. A top-level row carries `parent: ""` |
+| `list` | Every subagent follows its parent's row, in the same shape: `parent` names the parent, `description` is what the parent asked for, `state` is `processing` while it runs, `exited(0)` once completed, `exited(1)` once failed or stopped. `session`, `cwd`, `model` and `mode` are the parent's; `waiting_on` and `cost` are empty and `tokens` is 0, because a subagent has no session of its own and both are counted in the parent's totals; `last_message` is the summary once ended, else the last text, and `last_message_at` says when. A top-level row carries `parent: ""` |
 | `show` | The subagent's row plus `message` in full. `show` on a parent adds `subagents`, the child rows, and `waiting_subagent` |
 | `attach` | The subagent's stream: its own `mael_agent_detail`, its ring under its own `mael_seq`, `mael_backlog_end` with its seq, live events, then `mael_agent_exited` with `0` for completed and `1` otherwise, or the parent's code when the parent's process goes. `from` and `epoch` work against the subagent's seq and the parent's epoch |
 | anything else | Refused: `<id>.1 is a subagent of <id>; drive <id>` |
