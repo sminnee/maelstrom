@@ -199,9 +199,9 @@ announced, so a refused change leaves it where it was.
 A second line under it names the worktree, the branch, the model, the session's size in tokens
 and what it has cost. An empty field drops out. This line matters most for a free agent: it has
 no task, so its own transcript is the only place that says where it runs. The size comes from
-`totalTokens` on the agent row, which the daemon sums over the session's turns — the turn lines
-in the transcript carry no money, because their `costUsd` is the session's running total rather
-than the turn's.
+`totalTokens` on the agent row, which the daemon sums over the session's turns. The turn lines in
+the transcript carry no money: their `costUsd` is the session's running total rather than the
+turn's, so the header says it once instead.
 
 A Compact button at the right of that line sends `/compact` to the agent. This is a `say`, not a
 command of maelstrom's own: a slash command reaches Claude Code as the text of a user turn. The

@@ -260,7 +260,7 @@ def test_agent_entity_from_a_live_row():
 
 def test_agent_entity_of_a_row_without_tokens_reports_none_spent():
     """An older agent host sends no ``tokens``; the field must still be a number."""
-    row = {k: v for k, v in build_agent_row(replay("normal-turn.jsonl")).items()}
+    row = build_agent_row(replay("normal-turn.jsonl"))
     row.pop("tokens")
     entity = agent_entity(row, task_id="", project="", worktree_id="")
     assert entity["totalTokens"] == 0
