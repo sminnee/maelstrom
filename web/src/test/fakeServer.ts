@@ -55,7 +55,13 @@ export function emptyFakeWorld(): FakeWorld {
     documents: {},
     attention: {},
     desk: {},
-    host: { id: 'agent-host', reachable: true, since: '2026-06-11T09:00:00Z', socket: '' },
+    host: {
+      id: 'agent-host',
+      reachable: true,
+      since: '2026-06-11T09:00:00Z',
+      socket: '',
+      usage: null,
+    },
   };
 }
 

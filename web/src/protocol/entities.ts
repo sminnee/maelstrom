@@ -175,6 +175,30 @@ export interface HostUsage {
  * entity, id `agent-host`. The server never exits an agent for the host being
  * away, so this is how the app knows the agents it shows are the last known.
  */
+/** One rolling budget the account spends against. */
+export interface UsageWindow {
+  /**
+   * How much of the window is spent, 0 to 1. The source quantises this to
+   * whole percent, so a reader shows what it was given and nothing finer.
+   */
+  utilization: number;
+  /** When the window rolls over, unix seconds. */
+  resetsAt: number;
+}
+
+/**
+ * The account's budget, as the host last heard it.
+ *
+ * A window nobody has reported is `null`. `at` is when the reading was taken:
+ * a reading only arrives while an agent takes a turn, so one taken long ago is
+ * stale and a reader needs the time to know whether to trust it.
+ */
+export interface HostUsage {
+  fiveHour: UsageWindow | null;
+  sevenDay: UsageWindow | null;
+  at: string;
+}
+
 export interface Host {
   id: 'agent-host';
   reachable: boolean;

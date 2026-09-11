@@ -30,6 +30,13 @@
   padding: 2px 10px;
   cursor: pointer;
 }
+/* The readings, as one group: they are read together and must not be split
+   across a wrap boundary while the bar is still wide enough to hold them. */
+.readings {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .views {
   display: flex;
   gap: 4px;

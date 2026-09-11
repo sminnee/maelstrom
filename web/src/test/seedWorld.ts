@@ -531,7 +531,7 @@ body rather than the query builder.
   ];
 
   const world: FakeWorld = {
-    host: { id: 'agent-host', reachable: true, since: T(9), socket: '' },
+    host: { id: 'agent-host', reachable: true, since: T(9), socket: '', usage: null },
     linearIssues: {
       maelstrom: [
         { id: 'MAEL-70', title: 'Add a Linear kind to the new panel', status: 'Todo' },

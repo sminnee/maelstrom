@@ -1,8 +1,10 @@
 import { useLayoutMode } from '../layout/useLayoutMode';
 import { useAppStore } from '../store/store';
 import type { View } from '../store/uiSlice';
+import { AgentsChip } from './AgentsChip';
 import { AttentionChip } from './AttentionChip';
 import { FilterBar } from './FilterBar';
+import { UsageChips } from './UsageChips';
 import styles from './TopBar.module.css';
 
 const VIEWS: { view: View; label: string }[] = [
@@ -44,6 +46,15 @@ export function TopBar() {
         <button type="button" className={styles.new} onClick={() => setNewWorkOpen(true)}>
           New
         </button>
+      </div>
+      {/* The readings sit between New and the attention chip, so the one
+          action and the one alarm keep the edges they already had. */}
+      <div className={styles.readings}>
+        {/* The bar has no spare width, and a phone has least of all. The
+            account's budget is the reading that keeps: it is the same figure
+            a minute later, so it is the one the narrow bar drops. */}
+        {!narrow && <UsageChips />}
+        <AgentsChip />
       </div>
       <AttentionChip />
     </header>
