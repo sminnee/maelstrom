@@ -43,11 +43,27 @@ describe('useNow', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('reads the clock as the first age arrives, not at module load', () => {
+  it('reads the clock as an age arrives, not at module load', () => {
     // Without the re-seed the stored time is as old as the last tick, so an
     // age opens wrong and corrects itself 30s later.
     vi.setSystemTime(5_000_000);
     const { getByTestId } = render(<Clock label="a" />);
     expect(getByTestId('a').textContent).toBe('5000000');
+  });
+
+  it('reads the clock for a late age too, not only the first', () => {
+    // A permanently mounted reader holds the timer open, so a card mounting
+    // later is never the first subscriber. Re-seeding only for the first one
+    // would hand that card a time up to a whole tick old, and an age that
+    // rounds down reads a whole unit short: "3h" for four hours.
+    vi.setSystemTime(1_000_000);
+    render(<Clock label="held" />);
+    // The precondition the case rests on: the timer is already open, so the
+    // late reader is not the first subscriber. Without this the test would
+    // quietly decay into the one above if `held` ever stopped holding it.
+    expect(vi.getTimerCount()).toBe(1);
+    vi.setSystemTime(1_020_000);
+    const late = render(<Clock label="late" />);
+    expect(late.getByTestId('late').textContent).toBe('1020000');
   });
 });

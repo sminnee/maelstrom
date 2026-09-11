@@ -22,11 +22,16 @@ const listeners = new Set<() => void>();
 
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
+  // The stored time is as old as the last tick, which on a page that showed
+  // no age at all is module load. Read the clock as an age arrives, so it
+  // opens correct rather than correcting itself 30s later.
+  //
+  // Every arrival, not only the first: a permanently mounted reader holds the
+  // timer open, so a card mounting later is never the first subscriber and
+  // would otherwise open on a time up to a whole tick old. An age rounds down,
+  // so that reads a whole unit short — "3h" for four hours.
+  now = Date.now();
   if (timer === null) {
-    // The stored time is as old as the last tick, which on a page that showed
-    // no age at all is module load. Read the clock as the first age arrives,
-    // so it opens correct rather than correcting itself 30s later.
-    now = Date.now();
     timer = setInterval(() => {
       now = Date.now();
       for (const l of listeners) l();
