@@ -7,6 +7,7 @@ import type { Agent } from '../protocol/entities';
 import type { PlanReviewItem, TranscriptItem } from '../protocol/transcript';
 import { documentTab } from '../selectors/tabs';
 import { contextBefore, type ContextItem } from '../selectors/transcript';
+import { DecideRow } from '../session/cards/DecideRow';
 import { PermissionPrompt } from '../session/cards/PermissionPrompt';
 import { QuestionPrompt } from '../session/cards/QuestionPrompt';
 import { toolCallTitle } from '../session/toolCards';
@@ -239,7 +240,6 @@ function PlanReview({
   onDecide: (decision: 'approve' | 'deny', reason: string) => void | Promise<unknown>;
   inDocumentId?: string;
 }) {
-  const [reason, setReason] = useState('');
   // In the plan's own tab the link leads nowhere, and on a phone it pushed a
   // second copy of the screen the reader is already on.
   const link = item.documentId && item.documentId !== inDocumentId ? item.documentId : null;
@@ -257,21 +257,7 @@ function PlanReview({
           'The plan is ready.'
         )}
       </div>
-      <div className={cards.options} data-role="prompt-actions">
-        <AppButton variant="primary" onClick={() => onDecide('approve', '')}>
-          Approve
-        </AppButton>
-        <input
-          className={cards.reasonInput}
-          aria-label="Deny reason"
-          placeholder="Reason to deny"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-        />
-        <AppButton disabled={!reason.trim()} onClick={() => onDecide('deny', reason.trim())}>
-          Deny
-        </AppButton>
-      </div>
+      <DecideRow onDecide={onDecide} />
     </div>
   );
 }
