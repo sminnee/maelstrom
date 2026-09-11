@@ -39,19 +39,24 @@ export default defineConfig(({ command }) => {
     test: {
       // Several worktrees run their suites at once, so one worker per core
       // thrashes on jsdom setup rather than computing. A GitHub runner is two
-      // cores, so the default fans ~35 files across them and the slowest file
-      // starves: `App.test.tsx` took 19s on a green run and timed out at 24s
-      // and 28s on the next two, a different test each time. Cap both.
+      // cores, so the default fans the files across them and the slowest one
+      // starves: the former single `App.test.tsx` took 19 s on a green run and
+      // timed out at 24 s and 28 s on the next two, a different test each
+      // time. It is now nine `App.*.test.tsx` files, none of them the outlier
+      // that starved, but the cap still earns its place while a runner has two
+      // cores.
       poolOptions: { forks: { maxForks: 2 } },
       environment: 'jsdom',
       globals: false,
       setupFiles: ['./src/test/setup.ts'],
       css: false,
-      // A cold CI runner is far slower than a dev machine, and the transcript
-      // tests wait on a socket. The default 5 s has failed there on work that
-      // passes locally every time. 15 s was still not enough: `App.test.tsx`
-      // runs in 7.5 s alone on a dev machine and 25 s on a two-core runner, so
-      // a wait inside it can sit for 10 s while the other fork holds the core.
+      // A cold CI runner is far slower than a dev machine. This ceiling was
+      // raised four times chasing flakes that splitting `App.test.tsx` and
+      // setting `asyncUtilTimeout` (see src/test/setup.ts) turned out to
+      // explain, so it is now provisional: no test waits on it deliberately,
+      // and it only bounds a hang. Lower it once CI has run green on the split
+      // for a while -- but measure first, because raising it has never once
+      // fixed anything here.
       testTimeout: 30_000,
     },
   };
