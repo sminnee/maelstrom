@@ -15,7 +15,7 @@ mael task reconcile    # do tasks and sessions agree?
 
 ## `mael doctor`
 
-Doctor runs fourteen checks in order and fixes what it safely can. Each reports **OK**,
+Doctor runs fifteen checks in order and fixes what it safely can. Each reports **OK**,
 **FIXED**, **WARNING** or **ERROR**.
 
 | Check | Fixes |
@@ -25,6 +25,7 @@ Doctor runs fourteen checks in order and fixes what it safely can. Each reports 
 | Standard fetch refspec | Yes |
 | `notes.rewriteRef` | Yes — without it a rebase drops the notes `/code-review` writes. |
 | `origin` remote configured | No |
+| Something can read this repo's checks | No — names the Actions token permission. The one check that reaches the network; it reports OK when it could not find out. |
 | Remote default branch exists | No — try `git fetch origin`. |
 | Default branch tracks its remote | Yes — a bare clone sets no upstream, so `git pull` in `_main` fails. |
 | Local main against origin | Yes |

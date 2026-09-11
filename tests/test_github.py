@@ -597,7 +597,9 @@ class TestGetOpenPrs:
             "maelstrom.github.run_cmd_async", return_value=_ok(_graphql_page({}))
         ) as run:
             await get_open_prs(Path("."), {"feat/a"})
-        assert "oid" in _query_of(run.call_args)
+        # The whole fragment, not the three letters: `oid` has to sit on the
+        # head commit for the match to mean anything.
+        assert "commit { oid statusCheckRollup" in _query_of(run.call_args)
 
     async def test_a_refused_rollup_reads_the_state_off_actions(self):
         """`checks=read` cannot be granted — GitHub no longer offers it — so a

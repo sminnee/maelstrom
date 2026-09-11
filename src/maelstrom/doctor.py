@@ -10,6 +10,7 @@ from .context import (
     GLOBAL_CONFIG_FILENAME_LEGACY,
     get_maelstrom_dir,
 )
+from .github import run_states_argv
 from .ports import ALLOCATIONS_FILENAME, load_port_allocations, remove_port_allocation
 from .shell import run_cmd
 from .util import harden_path
@@ -216,6 +217,75 @@ def _check_origin_remote(project_path: Path) -> CheckResult:
     if result.returncode == 0 and result.stdout.strip():
         return CheckResult(CheckStatus.OK, "origin remote configured")
     return CheckResult(CheckStatus.ERROR, "origin remote not configured")
+
+
+def _check_checks_readable(project_path: Path) -> CheckResult:
+    """Check that something can read this repo's checks.
+
+    A pull request's state comes from GitHub's check rollup, which needs the
+    ``checks=read`` token permission. GitHub no longer offers that permission in
+    the fine-grained PAT UI, so many tokens are refused it; the Actions run
+    answers the same question and can be granted. A repo that refuses both can
+    never report a pull request's checks, and every one of them reads
+    ``checks-unreadable`` with nothing to say why.
+
+    The read goes through the same argv the fallback itself uses, so the two
+    cannot drift into the check passing on a page the fallback never asks for.
+
+    This is the one check that reaches the network, and doctor is what a user
+    runs when something is already wrong. So every way the read can fail short
+    of a refusal — no ``gh``, no network, a read that never answers — reports
+    OK and says it could not find out. Naming a permission on those would be
+    confident advice about a thing nobody looked at.
+    """
+    remote = run_cmd(
+        ["git", "remote", "get-url", "origin"],
+        cwd=project_path,
+        quiet=True,
+        check=False,
+    )
+    if "github.com" not in remote.stdout:
+        # A repo GitHub does not host has no checks to read here, and a local
+        # fixture with no remote at all must not be told to fix a token.
+        return CheckResult(CheckStatus.OK, "not a GitHub repo — no checks to read")
+    try:
+        result = run_cmd(
+            run_states_argv(),
+            cwd=project_path,
+            quiet=True,
+            check=False,
+            timeout=CHECKS_READ_TIMEOUT_SECS,
+        )
+    except (OSError, FileNotFoundError):
+        # `gh` is optional everywhere else it is called; raised from here it
+        # would abort the run and cost every check after this one.
+        return CheckResult(CheckStatus.OK, "gh is not installed — checks not read")
+    except subprocess.TimeoutExpired:
+        return CheckResult(CheckStatus.OK, "GitHub did not answer — checks not read")
+    if result.returncode == 0:
+        return CheckResult(CheckStatus.OK, "checks are readable")
+    if _unreachable(result.stderr):
+        return CheckResult(CheckStatus.OK, "could not reach GitHub — checks not read")
+    return CheckResult(
+        CheckStatus.WARNING,
+        "cannot read this repo's checks — grant its token the Actions "
+        "permission, or pull request states will read as unreadable",
+    )
+
+
+#: How long the one network check waits. Short: doctor prints its results in
+#: order, so a read that hangs leaves the user watching a blank terminal.
+CHECKS_READ_TIMEOUT_SECS = 5.0
+
+#: What ``gh`` says when it could not reach GitHub at all, rather than being
+#: refused by it. A refusal is the only answer that names a permission.
+_UNREACHABLE = ("dial tcp", "no such host", "connection refused", "network is")
+
+
+def _unreachable(stderr: str) -> bool:
+    """Whether ``gh`` failed to reach GitHub rather than being refused by it."""
+    lowered = stderr.lower()
+    return any(mark in lowered for mark in _UNREACHABLE)
 
 
 def _check_origin_main(project_path: Path) -> CheckResult:
@@ -551,6 +621,7 @@ def run_doctor(project_path: Path) -> DoctorResult:
         _check_standard_fetch_refspec,
         _check_notes_rewrite_ref,
         _check_origin_remote,
+        _check_checks_readable,
         _check_origin_main,
         _check_main_upstream,
         _check_local_main_sync,
