@@ -77,6 +77,9 @@ class ScriptedAsyncDaemonClient:
     """
 
     rows: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: What ``list`` reports as the account's budget, as the real host does.
+    #: ``None`` is a host that has heard no reading yet.
+    usage: dict[str, Any] | None = None
     backlog: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     replies: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     calls: list[dict[str, Any]] = field(default_factory=list)
@@ -107,7 +110,7 @@ class ScriptedAsyncDaemonClient:
         if self.replies.get(command):
             return self.replies[command].pop(0)
         if command == "list":
-            return {"agents": list(self.rows.values())}
+            return {"agents": list(self.rows.values()), "usage": self.usage}
         echo = self._echo_for(payload, command)
         if echo is not None:
             self.push(str(payload.get("id", "")), echo)
