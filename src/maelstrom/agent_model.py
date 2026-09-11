@@ -589,6 +589,11 @@ class AgentState:
     #: session drops the turns that made up most of its total. See
     #: ``docs/dev/agent-daemon.md``, "A turn".
     total_tokens: int = 0
+    #: What the agent's prompt last held: a level, not a total. Read off the
+    #: newest ``assistant`` event, so it advances mid-turn and each reading
+    #: replaces the one before. This is the number a reader deciding to
+    #: compact wants — see ``docs/dev/agent-daemon.md``, "A turn".
+    context_tokens: int = 0
     #: The account's budget, as this agent's stream last reported it. Every
     #: agent on the machine reports the same account, so a reader wanting the
     #: machine's figure takes the freshest across agents rather than this one.
@@ -877,6 +882,11 @@ def apply_event(
         # Capture above the guard: the guard protects the status, not the words,
         # and a plan review needs the text the agent wrote just before it asked.
         state = _with_last_message(state, event, now)
+        # Also above the guard, and for the same reason: a blocked agent still
+        # holds its context, so the reading is worth keeping even when the
+        # status below is not. A usage-free event leaves the level alone.
+        if context := context_of(event):
+            state = replace(state, context_tokens=context)
         # A pending wait outranks assistant output. Streaming partials and
         # parallel tool blocks can arrive after a request opens, and letting one
         # set PROCESSING would render a row saying "processing" that still names
@@ -913,15 +923,45 @@ def tokens_of(event: dict[str, Any]) -> int:
 
     The one reader of a ``result``'s ``usage``, shared by the daemon's state
     and ``agent_view``'s per-attach total, so the two can never disagree about
-    what a turn cost. A missing or malformed count is 0, never an error: a
-    total is worth showing approximately, and no stream event is worth a
-    crash. A renamed field upstream therefore reads low rather than raising.
+    what a turn cost.
     """
-    usage = event.get("usage")
+    return _sum_usage(event.get("usage"), USAGE_FIELDS)
+
+
+#: The three counts on an ``assistant``'s ``usage`` that make up the prompt.
+#: ``output_tokens`` is out: it is what the model wrote, not what the prompt
+#: holds. See ``docs/dev/agent-daemon.md``, "A turn".
+CONTEXT_FIELDS = (
+    "input_tokens",
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+)
+
+
+def context_of(event: dict[str, Any]) -> int:
+    """How large ``event``'s prompt was, or 0 when it reports no usage.
+
+    Reads an ``assistant`` event, where ``usage`` sits under ``message`` and
+    describes the one request that event answers — the context the agent held
+    at that moment. A ``result``'s ``usage`` cannot answer this: it sums the
+    turn's requests, so its cache counts run past the window the agent has.
+    """
+    message = event.get("message")
+    usage = message.get("usage") if isinstance(message, dict) else None
+    return _sum_usage(usage, CONTEXT_FIELDS)
+
+
+def _sum_usage(usage: Any, field_names: tuple[str, ...]) -> int:
+    """``field_names`` off a ``usage`` block, summed, skipping what is not a count.
+
+    A missing or malformed count is 0, never an error: a size is worth showing
+    approximately, and no stream event is worth a crash. A renamed field
+    upstream therefore reads low rather than raising.
+    """
     if not isinstance(usage, dict):
         return 0
     total = 0
-    for field_name in USAGE_FIELDS:
+    for field_name in field_names:
         value = usage.get(field_name)
         if isinstance(value, int) and not isinstance(value, bool):
             total += value
@@ -1272,6 +1312,7 @@ def build_agent_row(state: AgentState) -> dict[str, Any]:
         "last_message_at": state.last_message_at,
         "cost": f"{state.total_cost_usd:.4f}" if state.total_cost_usd else "",
         "tokens": state.total_tokens,
+        "context_tokens": state.context_tokens,
     }
 
 
@@ -1301,9 +1342,10 @@ def build_subagent_row(state: AgentState, dotted: str) -> dict[str, Any]:
     agent, even for a nested subagent, because that is whose child process
     carries it. ``session``, ``cwd``, ``pid``, ``model`` and ``mode`` are the
     parent's: a subagent runs inside the parent's process, in its directory,
-    under its mode. ``cost`` is empty and ``tokens`` is 0 for the same reason:
-    a subagent has no session of its own, so both its spend and its size are in
-    the parent's totals, and repeating them here would double-count.
+    under its mode. ``cost`` is empty and both token counts are 0 for the same
+    reason: a subagent has no session of its own, so its spend and its size are
+    in the parent's totals, and repeating them here would double-count. Its
+    context is the parent's prompt, which the parent's own row already reports.
     ``waiting_on`` is its own — a subagent that asks is blocked itself, and a
     row saying only ``processing`` would hide that.
     """
@@ -1323,6 +1365,7 @@ def build_subagent_row(state: AgentState, dotted: str) -> dict[str, Any]:
         "last_message_at": sub.last_message_at,
         "cost": "",
         "tokens": 0,
+        "context_tokens": 0,
     }
 
 
