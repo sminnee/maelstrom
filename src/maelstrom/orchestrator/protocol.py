@@ -143,6 +143,9 @@ class Agent(TypedDict):
     lastMessage: str
     lastMessageAt: str
     costUsd: float
+    #: Tokens the session has consumed, summed over its turns. How large the
+    #: conversation has grown, which is what a reader deciding to compact wants.
+    totalTokens: int
     taskId: str
     project: str
     worktreeId: str

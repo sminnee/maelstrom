@@ -17,6 +17,7 @@
         "lastMessage": "Red and blue.",
         "lastMessageAt": "2026-09-05T08:31:50.614Z",
         "costUsd": 0.1100315,
+        "totalTokens": 23288,
         "taskId": "NORT-7",
         "project": "northwind",
         "worktreeId": "northwind-alpha",

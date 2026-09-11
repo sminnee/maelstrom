@@ -17,6 +17,7 @@
         "lastMessage": "Here is the file. _`../../../etc/passwd` could not be shown.",
         "lastMessageAt": "2026-09-05T05:00:04.000Z",
         "costUsd": 0.0312,
+        "totalTokens": 0,
         "taskId": "NORT-7",
         "project": "northwind",
         "worktreeId": "northwind-alpha",

@@ -190,6 +190,7 @@ def agent_entity(
         "lastMessage": row.get("last_message") or "",
         "lastMessageAt": row.get("last_message_at") or "",
         "costUsd": float(cost),
+        "totalTokens": _tokens(row.get("tokens")),
         "taskId": task_id,
         "project": project,
         "worktreeId": worktree_id,
@@ -202,6 +203,11 @@ def agent_entity(
 def _pid(value: Any) -> int | None:
     """A pid off the row, or ``None`` for anything that is not one."""
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _tokens(value: Any) -> int:
+    """A token total off the row, or 0. A row from an older host carries none."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 @dataclass(frozen=True)

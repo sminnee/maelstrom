@@ -17,6 +17,7 @@
         "lastMessage": "The page title is **\"Example Domain\"**. The content is a sin",
         "lastMessageAt": "2026-09-01T01:47:55.699Z",
         "costUsd": 0.10332249999999998,
+        "totalTokens": 55749,
         "taskId": "NORT-7",
         "project": "northwind",
         "worktreeId": "northwind-alpha",

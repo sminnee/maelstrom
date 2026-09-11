@@ -17,6 +17,7 @@
         "lastMessage": "Created `/private/tmp/claude-501/clean/hello.txt` containing",
         "lastMessageAt": "2026-09-01T01:48:43.790Z",
         "costUsd": 0.20636900000000002,
+        "totalTokens": 131218,
         "taskId": "NORT-7",
         "project": "northwind",
         "worktreeId": "northwind-alpha",

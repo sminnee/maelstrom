@@ -445,6 +445,28 @@ def test_an_attach_the_host_refuses_is_retried_on_the_next_reconciliation(harnes
     assert len(attaches) == 2
 
 
+def test_a_replayed_backlog_does_not_count_its_turns_twice(harness):
+    """The row already holds the session total; the backlog must not add it again.
+
+    ``agent_entity`` seeds ``totalTokens`` from the host's row, which is the
+    whole session. The attach then replays the ring, and those same ``result``
+    events would add their usage a second time. Cost is immune because it
+    replaces; a running total is the first field on this event that adds.
+    """
+    events = read_fixture("normal-turn.jsonl")
+    # What the host's own row says, summed from the very turns the backlog holds.
+    harness.daemon.rows["ag1"] = agent_row(tokens=24561)
+    harness.daemon.backlog["ag1"] = events
+
+    async def scenario():
+        async with harness.client() as api:
+            await transcript_of(api)
+            return await api.get_json("/api/agents/ag1")
+
+    agent = run(scenario())
+    assert agent["totalTokens"] == 24561
+
+
 def test_a_live_turn_lands_on_the_socket_and_in_the_agent_row(harness):
     harness.daemon.rows["ag1"] = agent_row()
 

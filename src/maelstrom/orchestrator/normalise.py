@@ -15,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from ..agent_model import PLAN_TOOL, QUESTION_TOOL, TS_KEY, from_wire_mode
+from ..agent_model import PLAN_TOOL, QUESTION_TOOL, TS_KEY, from_wire_mode, tokens_of
 from ..attachments import markdown_ref
 from ..task import parse_draft
 from .document_tags import (
@@ -200,6 +200,7 @@ def normalise_stream_event(
     *,
     read_file: ReadFile = read_worktree_file,
     files: FileRegistry | None = None,
+    replay: bool = False,
 ) -> Normalised:
     """One raw agent-host event, as the events the UI wants.
 
@@ -219,6 +220,11 @@ def normalise_stream_event(
     ``files`` registers every file an agent names, so an ``<image>`` can be
     served by id later. A caller that passes none gets a registry of its own
     and the ids go nowhere, which is what a golden wants.
+
+    ``replay`` marks an event from the backlog an attach replays rather than a
+    live one. A running total must not add such a turn: the host counted it
+    before it handed over the row the total was seeded from. Only a total is
+    affected — every other field on an event replaces, so replaying it is safe.
     """
     agent = state["world"]["agents"].get(ctx.agent_id)
     if agent is None:
@@ -412,6 +418,9 @@ def normalise_stream_event(
             {
                 "state": "idle",
                 "costUsd": _num(raw.get("total_cost_usd")),
+                # Mirrors ``agent_model.apply_event``, so the live stream and
+                # the next world poll agree on the number.
+                "totalTokens": agent["totalTokens"] + (0 if replay else tokens_of(raw)),
                 "session": _str(raw.get("session_id")) or agent["session"],
             }
         )

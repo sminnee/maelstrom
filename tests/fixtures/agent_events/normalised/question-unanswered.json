@@ -17,6 +17,7 @@
         "lastMessage": "I asked, but the question wasn't answered — no colour was se",
         "lastMessageAt": "2026-09-01T01:48:11.940Z",
         "costUsd": 0.0604885,
+        "totalTokens": 36671,
         "taskId": "NORT-7",
         "project": "northwind",
         "worktreeId": "northwind-alpha",

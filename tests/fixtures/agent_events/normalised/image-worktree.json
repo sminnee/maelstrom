@@ -17,6 +17,7 @@
         "lastMessage": "Here is the failing dialog. ![The failing dialog](/api/files",
         "lastMessageAt": "2026-09-05T04:00:04.000Z",
         "costUsd": 0.0312,
+        "totalTokens": 0,
         "taskId": "NORT-7",
         "project": "northwind",
         "worktreeId": "northwind-alpha",

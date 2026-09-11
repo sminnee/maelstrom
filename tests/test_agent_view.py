@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from maelstrom.agent_model import AGENT_EXITED, BACKLOG_END
+from maelstrom.agent_model import AGENT_EXITED, BACKLOG_END, AgentState, apply_event
 from maelstrom.agent_view import (
     agent_status,
     apply_stream_event,
@@ -233,6 +233,22 @@ def test_a_result_without_usage_adds_nothing():
     view, _ = apply_stream_event(view, _result(10, 5), NOW)
     view, _ = apply_stream_event(view, {"type": "result", "subtype": "success"}, NOW)
     assert view.usage.total == 15
+
+
+def test_the_footers_total_agrees_with_the_agent_rows():
+    """Two readers of one ``usage``, so they must never disagree about a size.
+
+    The TUI sums per attach and the daemon sums into ``AgentState``. Both count
+    the same four fields; this is what stops one of them quietly dropping the
+    cache counts, which are most of a long session's weight.
+    """
+    view = replay("normal-turn.jsonl")
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    for line in (FIXTURES / "normal-turn.jsonl").read_text().splitlines():
+        if line.strip():
+            state = apply_event(state, json.loads(line))
+    assert view.usage.total == state.total_tokens
+    assert state.total_tokens > 0
 
 
 def test_an_exit_marker_after_an_exit_is_not_a_lost_connection():

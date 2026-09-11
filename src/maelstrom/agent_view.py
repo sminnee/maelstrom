@@ -10,9 +10,13 @@ The transcript itself is not reduced here. This module carries a one-agent
 ``orchestrator.normalise``, which is golden-tested against the TypeScript
 reference.
 
-What that normaliser does not carry, this module adds: token usage, the working
-directory, the two ``mael_*`` stream markers, and whether the stream ended
-because the agent did or because the connection went.
+What that normaliser does not carry, this module adds: the working directory,
+the two ``mael_*`` stream markers, and whether the stream ended because the
+agent did or because the connection went.
+
+It also keeps its own token total, split by kind for the footer. The agent row
+carries a session total too, summed by ``agent_model.tokens_of``; this one is
+per attach, and both read the same fields so the two can never disagree.
 """
 
 from dataclasses import dataclass, field, replace
@@ -26,6 +30,7 @@ from .agent_model import (
     PLAN_TOOL,
     QUESTION_TOOL,
     TRUNCATED,
+    USAGE_FIELDS,
 )
 from .orchestrator.normalise import NormaliseContext, normalise_stream_event
 from .orchestrator.normalise import mark_exited as normalise_exited
@@ -114,6 +119,7 @@ def _blank_agent(agent_id: str) -> Agent:
         "lastMessage": "",
         "lastMessageAt": "",
         "costUsd": 0.0,
+        "totalTokens": 0,
         "taskId": "",
         "project": "",
         "worktreeId": "",
@@ -229,14 +235,22 @@ def _with_items(
 
 
 def _usage_of(raw: dict[str, Any]) -> TokenUsage:
+    """The turn's usage, split the way the footer reports it.
+
+    The breakdown is this module's own; the *total* must match what
+    ``agent_model.tokens_of`` puts on the agent row, so the four field names
+    come from :data:`~maelstrom.agent_model.USAGE_FIELDS` rather than being
+    written out twice.
+    """
     usage = raw.get("usage")
     if not isinstance(usage, dict):
         return TokenUsage()
+    read = {name: _int(usage.get(name)) for name in USAGE_FIELDS}
     return TokenUsage(
-        input=_int(usage.get("input_tokens")),
-        output=_int(usage.get("output_tokens")),
-        cache_read=_int(usage.get("cache_read_input_tokens")),
-        cache_creation=_int(usage.get("cache_creation_input_tokens")),
+        input=read["input_tokens"],
+        output=read["output_tokens"],
+        cache_read=read["cache_read_input_tokens"],
+        cache_creation=read["cache_creation_input_tokens"],
     )
 
 
