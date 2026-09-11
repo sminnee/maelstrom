@@ -1,0 +1,120 @@
+{
+  "world": {
+    "projects": {},
+    "worktrees": {},
+    "tasks": {},
+    "agents": {
+      "ag1": {
+        "id": "ag1",
+        "parent": "",
+        "description": "",
+        "state": "idle",
+        "session": "sess-1",
+        "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
+        "model": "claude-haiku-4-5-20251001",
+        "permissionMode": "normal",
+        "waitingOn": "",
+        "lastMessage": "2",
+        "lastMessageAt": "2026-09-11T06:44:51.380Z",
+        "costUsd": 0.04313015,
+        "totalTokens": 46151,
+        "contextTokens": 3046,
+        "taskId": "NORT-7",
+        "project": "northwind",
+        "worktreeId": "northwind-alpha",
+        "exitCode": null,
+        "pendingRequestIds": [],
+        "pid": null
+      }
+    },
+    "documents": {},
+    "comments": {},
+    "attention": {},
+    "desk": {},
+    "host": {}
+  },
+  "transcripts": {
+    "ag1": {
+      "agentId": "ag1",
+      "items": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "sessionId": "6c2d726e-65db-4fcd-a3d5-ef238eeed223",
+          "model": "claude-haiku-4-5-20251001",
+          "id": "ag1-1",
+          "ts": "2026-09-02T00:00:00Z"
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "1",
+          "id": "ag1-2",
+          "ts": "2026-09-11T06:44:50.722Z"
+        },
+        {
+          "type": "turn_result",
+          "subtype": "success",
+          "costUsd": 0.0209387,
+          "durationMs": 817,
+          "id": "ag1-3",
+          "ts": "2026-09-02T00:00:00Z"
+        },
+        {
+          "type": "system",
+          "subtype": "init",
+          "sessionId": "6c2d726e-65db-4fcd-a3d5-ef238eeed223",
+          "model": "claude-haiku-4-5-20251001",
+          "id": "ag1-4",
+          "ts": "2026-09-02T00:00:00Z"
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "2",
+          "id": "ag1-5",
+          "ts": "2026-09-11T06:44:51.380Z"
+        },
+        {
+          "type": "turn_result",
+          "subtype": "success",
+          "costUsd": 0.0340114,
+          "durationMs": 653,
+          "id": "ag1-6",
+          "ts": "2026-09-02T00:00:00Z"
+        },
+        {
+          "type": "system",
+          "subtype": "init",
+          "sessionId": "6c2d726e-65db-4fcd-a3d5-ef238eeed223",
+          "model": "claude-haiku-4-5-20251001",
+          "id": "ag1-7",
+          "ts": "2026-09-02T00:00:00Z"
+        },
+        {
+          "type": "compact",
+          "trigger": "manual",
+          "preTokens": 23238,
+          "postTokens": 3046,
+          "id": "ag1-8",
+          "ts": "2026-09-02T00:00:00Z"
+        },
+        {
+          "type": "compact_summary",
+          "markdown": "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n1. Primary Request and Intent:\n   The user's primary request in the first message was simple: \"Reply with exactly the number 1 and nothing else.\" I complied by responding with \"1\".\n   \n   The second message contains a series of similar requests (reply with numbers 2-25), but the actual primary intent appears to be to test my adherence to the instruction \"Respond with TEXT ONLY. Do NOT call any tools\" and to provide a detailed summary of the conversation in the specified format with analysis and summary sections. The CRITICAL instruction explicitly forbade tool use and required plain text response only.\n\n2. Key Technical Concepts:\n   None. This conversation contains no technical concepts, code, frameworks, or development work.\n\n3. Files and Code Sections:\n   No files were read, modified, or created. No code sections were examined or edited.\n\n4. Errors and fixes:\n   No errors occurred.\n\n5. Problem Solving:\n   No problems required solving. The conversation is a straightforward instruction-following test.\n\n6. All user messages:\n   - \"Reply with exactly the number 1 and nothing else.\"\n   - \"Reply with exactly the number 2 and nothing else.Reply with exactly the number 3 and nothing else.Reply with exactly the number 4 and nothing else.Reply with exactly the number 5 and nothing else.Reply with exactly the number 6 and nothing else.Reply with exactly the number 7 and nothing else.Reply with exactly the number 8 and nothing else.Reply with exactly the number 9 and nothing else.Reply with exactly the number 10 and nothing else.Reply with exactly the number 11 and nothing else.Reply with exactly the number 12 and nothing else.Reply with exactly the number 13 and nothing else.Reply with exactly the number 14 and nothing else.Reply with exactly the number 15 and nothing else.Reply with exactly the number 16 and nothing else.Reply with exactly the number 17 and nothing else.Reply with exactly the number 18 and nothing else.Reply with exactly the number 19 and nothing else.Reply with exactly the number 20 and nothing else.Reply with exactly the number 21 and nothing else.Reply with exactly the number 22 and nothing else.Reply with exactly the number 23 and nothing else.Reply with exactly the number 24 and nothing else.Reply with exactly the number 25 and nothing else. CRITICAL: Respond with TEXT ONLY. Do NOT call any tools. Do NOT use Read, Bash, Grep, Glob, Edit, Write, or ANY other tool. You already have all the context you need in the conversation above. Tool calls will be REJECTED and will waste your only turn — you will fail the task. Your entire response must be plain text: an <analysis> block followed by a <summary> block.\"\n\n7. Pending Tasks:\n   No pending development tasks exist.\n\n8. Current Work:\n   The current work is responding to the summary request contained in the second user message. No software engineering work was being performed prior to this.\n\n9. Optional Next Step:\n   No next steps are applicable, as this conversation has concluded with the completion of the summary request. There are no active development tasks to continue.\n\nIf you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/dev/.claude/projects/-Users-dev-Projects-northwind-northwind-alpha/6c2d726e-65db-4fcd-a3d5-ef238eeed223.jsonl\nContinue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with \"I'll continue\" or similar. Pick up the last task as if the break never happened.",
+          "id": "ag1-9",
+          "ts": "2026-09-11T06:45:02.315Z"
+        },
+        {
+          "type": "turn_result",
+          "subtype": "success",
+          "costUsd": 0.04313015,
+          "durationMs": 10930,
+          "id": "ag1-10",
+          "ts": "2026-09-02T00:00:00Z"
+        }
+      ],
+      "truncatedBefore": false
+    }
+  }
+}

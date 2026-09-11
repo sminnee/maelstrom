@@ -279,6 +279,25 @@ def normalise_stream_event(
             mode = _mode_of(raw)
             if mode:
                 out.agent({"permissionMode": mode})
+        elif raw.get("subtype") == "compact_boundary":
+            # The only event that says a compact finished, in snake_case where
+            # the wire is camelCase — see docs/dev/agent-daemon.md, "A compact".
+            meta = _dict(raw.get("compact_metadata"))
+            post = meta.get("post_tokens")
+            # `0` is a real occupancy, but a non-number is not one at all:
+            # `_num` would turn it into 0 and draw the context as empty.
+            reported = isinstance(post, (int, float)) and not isinstance(post, bool)
+            out.append(
+                {
+                    "type": "compact",
+                    "trigger": _str(meta.get("trigger")) or "manual",
+                    "preTokens": _num(meta.get("pre_tokens")),
+                    "postTokens": _num(post),
+                }
+            )
+            # The compact reports its own occupancy, as in ``apply_event``.
+            if reported:
+                out.agent({"contextTokens": _num(post)})
         elif raw.get("subtype") == "permission_denied":
             out.ctx = replace(
                 out.ctx,
@@ -321,10 +340,19 @@ def normalise_stream_event(
                 # broken by a daemon restart would otherwise leave the binding
                 # set, and the next command's output would land on this item.
                 out.ctx = replace(out.ctx, open_shell=None)
-                if skill is None:
-                    out.append({"type": "message", "role": "user", "markdown": text})
-                else:
+                if _local_command_echo(text):
+                    # Says nothing the transcript does not already say, and
+                    # draws as though the operator typed a raw tag.
+                    continue
+                if skill is not None:
                     out.append({"type": "skill", "skill": skill, "markdown": text})
+                elif _compact_summary(text):
+                    # Thousands of characters the harness wrote, landing right
+                    # under the rule that reports the compact. Folded, it stays
+                    # readable without burying the boundary it belongs to.
+                    out.append({"type": "compact_summary", "markdown": text})
+                else:
+                    out.append({"type": "message", "role": "user", "markdown": text})
                 # A message to the agent is the start of a turn. Without this
                 # the UI shows "idle" until the agent's first event lands,
                 # which reads as though nothing was sent.
@@ -904,6 +932,37 @@ class _Emitter:
 #: writes prose after it, so the whole shape is the test and not the prefix
 #: alone — matching that loosely would fold a real message out of sight.
 _SKILL_OPENING = re.compile(r"^Base directory for this skill: (/\S*)\n\n")
+
+#: The opening of the continuation prompt a compact injects as a user turn.
+#: The whole shape is the test, as with a skill: an operator asking about the
+#: line writes prose after it, and folding that away would hide a real
+#: message. See ``docs/dev/agent-daemon.md``, "A compact".
+_COMPACT_SUMMARY_OPENING = re.compile(
+    r"^This session is being continued from a previous conversation[^\n]*\n"
+)
+
+#: What the host echoes back for a slash command it ran itself. It is plumbing
+#: rather than anything the operator wrote, and a compact leaves one directly
+#: under the rule that already reports the compact.
+#:
+#: ``stdout`` only, and the body may not run past its own closing tag. A
+#: greedy match spans from the first tag to the last, so a turn holding two
+#: echoes either side of a real message would drop the message with them.
+#: ``stderr`` is deliberately left on the transcript: a local command that
+#: failed is the one whose output an operator is looking for.
+_LOCAL_COMMAND_ECHO = re.compile(
+    r"^<local-command-stdout>((?!</local-command-stdout>)[\s\S])*</local-command-stdout>\s*$"
+)
+
+
+def _compact_summary(text: str) -> bool:
+    """Whether a user turn is the summary a compact wrote to continue on."""
+    return _COMPACT_SUMMARY_OPENING.match(text) is not None
+
+
+def _local_command_echo(text: str) -> bool:
+    """Whether a user turn is only the host's echo of a slash command."""
+    return _LOCAL_COMMAND_ECHO.match(text.strip()) is not None
 
 
 def _skill_loaded(text: str) -> str | None:

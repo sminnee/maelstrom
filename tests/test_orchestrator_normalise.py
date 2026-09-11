@@ -374,6 +374,174 @@ def test_a_later_assistant_event_replaces_the_context_rather_than_adding():
     assert agent_of(state)["contextTokens"] == 18162
 
 
+def test_a_compact_boundary_marks_the_transcript_and_brings_the_context_down():
+    """The boundary is the only thing that says a compact finished.
+
+    A refusal — too short a conversation — ends the turn exactly as a success
+    does, so nothing downstream may read "the turn ended" as "it compacted".
+    The item is the signal, and it carries both figures because the rule the
+    UI draws names the fall.
+    """
+    state = replay("compact.jsonl")
+    [item] = items_of(state, "compact")
+    assert item["trigger"] == "manual"
+    assert item["preTokens"] == 23238
+    assert item["postTokens"] == 3046
+    # The occupancy moves in the same step, so the header does not wait for
+    # the agent to speak again — which, after a compact, it may never do.
+    assert agent_of(state)["contextTokens"] == 3046
+
+
+def test_an_autocompact_nobody_clicked_for_is_marked_the_same_way():
+    """``trigger`` is the only thing that tells the two apart, and the
+    operator needs the boundary drawn either way."""
+    state = seed([make_agent(id="ag1", state="processing")])
+    replayed = Replayed(state)
+    out = normalise_stream_event(
+        state,
+        context_for_agent("ag1"),
+        {
+            "type": "system",
+            "subtype": "compact_boundary",
+            "compact_metadata": {"trigger": "auto", "pre_tokens": 9, "post_tokens": 4},
+        },
+        NOW,
+    )
+    replayed.take(out.events)
+    [item] = items_of(replayed, "compact")
+    assert item["trigger"] == "auto"
+
+
+def test_a_compact_boundary_with_no_counts_still_marks_the_boundary():
+    """The rule says a compact happened; the figures only describe it.
+
+    Dropping the item on a missing count would lose the one signal the button
+    waits on, so it would spin until its backstop instead.
+    """
+    state = seed([make_agent(id="ag1", state="processing", contextTokens=500)])
+    replayed = Replayed(state)
+    out = normalise_stream_event(
+        state,
+        context_for_agent("ag1"),
+        {"type": "system", "subtype": "compact_boundary"},
+        NOW,
+    )
+    replayed.take(out.events)
+    assert len(items_of(replayed, "compact")) == 1
+    # Nothing said what the context now holds, so the last reading stands.
+    assert agent_of(replayed)["contextTokens"] == 500
+
+
+def test_the_summary_a_compact_injects_folds_instead_of_filling_the_transcript():
+    """The continuation prompt is written by the harness, not by the operator.
+
+    It runs to thousands of characters and lands directly under the rule that
+    already says a compact happened, so read as an ordinary user turn it buries
+    the boundary it belongs to. It folds, as a loaded skill does.
+    """
+    state = replay("compact.jsonl")
+    summary = items_of(state, "compact_summary")
+    assert len(summary) == 1
+    assert summary[0]["markdown"].startswith("This session is being continued")
+    # Not left as a user message as well.
+    said = [i["markdown"] for i in items_of(state, "message") if i["role"] == "user"]
+    assert not any("session is being continued" in m for m in said)
+
+
+def test_a_user_turn_that_only_quotes_the_summary_opening_stays_a_message():
+    """As with a skill, the prefix alone is not the test.
+
+    An operator asking about the line must not have their message folded away.
+    """
+    state = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    asked = "This session is being continued from a previous conversation — what does that mean?"
+    out = normalise_stream_event(
+        state.state,
+        context_for_agent("ag1"),
+        {"type": "user", "message": {"role": "user", "content": asked}},
+        NOW,
+    )
+    state.take(out.events)
+    assert items_of(state, "compact_summary") == []
+    assert [i["markdown"] for i in items_of(state, "message")] == [asked]
+
+
+def test_the_echo_a_slash_command_leaves_behind_is_not_shown():
+    """`<local-command-stdout>Compacted</local-command-stdout>` is plumbing.
+
+    The host injects it as a user turn, so it draws as though the operator
+    typed a raw tag. The rule above it already says the compact happened.
+    """
+    state = replay("compact.jsonl")
+    said = [i["markdown"] for i in items_of(state, "message")]
+    assert not any("local-command-stdout" in m for m in said)
+
+
+def user_turn(text: str) -> dict:
+    return {"type": "user", "message": {"role": "user", "content": text}}
+
+
+def replay_turn(text: str, **agent_over) -> Replayed:
+    """One user turn, into a seed agent."""
+    state = Replayed(seed([make_agent(id="ag1", state="idle", **agent_over)]))
+    out = normalise_stream_event(
+        state.state, context_for_agent("ag1"), user_turn(text), NOW
+    )
+    state.take(out.events)
+    return state
+
+
+def test_an_echo_asks_the_agent_for_nothing_so_it_does_not_start_a_turn():
+    """Dropping the item must not also drop the state rule with it: an echo
+    is the host talking to itself, so nothing is owed a reply."""
+    state = replay_turn("<local-command-stdout>Compacted </local-command-stdout>")
+    assert state.items == []
+    assert agent_of(state)["state"] == "idle"
+
+
+def test_an_echo_either_side_of_a_message_does_not_take_the_message_with_it():
+    """The match must not span from the first tag to the last.
+
+    A greedy body swallows everything between two echoes, so an operator's
+    words vanish with no turn left to show anything was there.
+    """
+    text = (
+        "<local-command-stdout>out</local-command-stdout>\n\n"
+        "the operator's own words\n"
+        "<local-command-stdout>more</local-command-stdout>"
+    )
+    state = replay_turn(text)
+    assert [i["markdown"] for i in items_of(state, "message")] == [text]
+
+
+def test_a_failed_local_command_keeps_its_output():
+    """Only `stdout` is plumbing. A command that failed is the one whose
+    output the operator is looking for, so `stderr` stays on the transcript."""
+    text = "<local-command-stderr>no such command</local-command-stderr>"
+    state = replay_turn(text)
+    assert [i["markdown"] for i in items_of(state, "message")] == [text]
+
+
+def test_a_boundary_whose_count_is_not_a_number_leaves_the_context_alone():
+    """`_num` would read a string as 0 and draw the context as empty."""
+    state = Replayed(
+        seed([make_agent(id="ag1", state="processing", contextTokens=500)])
+    )
+    out = normalise_stream_event(
+        state.state,
+        context_for_agent("ag1"),
+        {
+            "type": "system",
+            "subtype": "compact_boundary",
+            "compact_metadata": {"post_tokens": "3046"},
+        },
+        NOW,
+    )
+    state.take(out.events)
+    assert len(items_of(state, "compact")) == 1
+    assert agent_of(state)["contextTokens"] == 500
+
+
 def test_plan_review_with_a_plan_yields_a_document_and_one_attention_item():
     state = replay("plan-review-with-plan.jsonl")
     assert agent_of(state)["state"] == "awaiting-plan-review"
