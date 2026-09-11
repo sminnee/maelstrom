@@ -235,6 +235,31 @@ def test_a_result_without_usage_adds_nothing():
     assert view.usage.total == 15
 
 
+def test_the_footer_says_how_full_the_context_is():
+    """The prompt's three counts off the fixture: 2 + 10121 + 14429.
+
+    The same figure the web header draws, so one agent does not read as two
+    sizes on two surfaces. The cumulative total stays on ``view.usage``, which
+    the cost line is derived from.
+    """
+    view = replay("normal-turn.jsonl")
+    assert footer_fields(view, "main")["tokens"] == "24k ctx"
+
+
+def test_the_footers_context_is_the_level_the_stream_last_reported():
+    """A level, not a total: a later, smaller prompt brings the footer down."""
+    view = replay("normal-turn.jsonl")
+    view, _ = apply_stream_event(
+        view,
+        {
+            "type": "assistant",
+            "message": {"content": [], "usage": {"input_tokens": 9_000}},
+        },
+        NOW,
+    )
+    assert footer_fields(view, "main")["tokens"] == "9k ctx"
+
+
 def test_the_footers_total_agrees_with_the_agent_rows():
     """Two readers of one ``usage``, so they must never disagree about a size.
 

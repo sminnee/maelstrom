@@ -627,8 +627,8 @@ terminal UI.
 The screen has three parts. A transcript shows the agent's messages, its tool calls with the
 first few lines of each result, and how each turn ended. A console at the bottom sends what you
 type as a user message, and the transcript shows it. A line above the console says the agent is
-working while it owes a reply. A footer names the working directory, the model, the tokens
-consumed, the git branch, the agent's state and its permission mode.
+working while it owes a reply. A footer names the working directory, the model, how full the
+context is, the git branch, the agent's state and its permission mode.
 
 A `!` line runs a shell command instead of saying something. `!git status` runs the command in
 the agent's working directory, shows it in the transcript, and gives the agent the output. The

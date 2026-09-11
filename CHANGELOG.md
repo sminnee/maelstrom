@@ -102,6 +102,19 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **A session says how full its context is, not how many tokens it has summed.** The header and
+  the TUI footer reported a total over every turn, which re-counts the cached prompt each time: a
+  session holding 23k of context read as 69k after three short turns, and the number ran past any
+  window. Both now report the context, which falls when the agent compacts, and the cost beside it
+  says how much work the session has done. A live agent also no longer reads nothing at all — the
+  orchestrator read those numbers once, when it adopted the agent, so one launched through it
+  stayed at zero until its first turn ended.
+
+- **The orchestrator's side panel opens wider, and prose reads on a longer line.** The panel opens
+  at half the window rather than 460px, capped at 980px; the session header spends that width on
+  one row instead of two, folding back to two when the panel is dragged narrow. The reading
+  measure goes from 66ch to 72ch.
+
 - **A service restart appends to its log rather than truncating it.** A service that died left
   nothing to read, because the restart that followed wiped the log of the crash that caused it.
   A restart rolls the log over at 20 MB, keeping the previous file as `.log.1`.
