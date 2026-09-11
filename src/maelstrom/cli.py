@@ -572,12 +572,31 @@ def cmd_remove(targets, force):
 cli.add_command(cmd_remove, name="rm")
 
 
+#: The word each state earns in the table, where it earns one.
+#:
+#: Only the states that ask something of the reader are named. ``ready`` is the
+#: quiet, common case, and ``unknown``/``checks-unreadable`` say nothing about
+#: the build — a word on those would put one on nearly every row and drown the
+#: three that matter. The chip in the orchestrator UI has room to part them all;
+#: this column does not.
+#: ``merged`` is not here: it answers above, because it alone counts what has
+#: been pushed since rather than what the pull request holds.
+_PR_WORDS = {
+    "ci-failed": "failed",
+    "ci-running": "running",
+    "conflict": "conflict",
+}
+
+
 def pr_display(pr: PrStatus | None, pushed: int) -> str:
     """The ``PR (COMMITS)`` cell: which pull request, and what is waiting.
 
     A merged pull request says ``merged``. The branch needs a new one, so a bare
     ``#42 (5)`` would read as work already up for review. Its ``pushed`` count
     is the commits waiting for that new PR, which is the number to act on.
+
+    A red, running or conflicting pull request says so too, so the table and the
+    orchestrator's chip read the same pull request the same way.
 
     >>> pr_display(None, 3)
     '(3)'
@@ -586,6 +605,8 @@ def pr_display(pr: PrStatus | None, pushed: int) -> str:
         return f"({pushed})" if pushed else ""
     if pr.state == "merged":
         return f"#{pr.number} merged ({pushed})" if pushed else f"#{pr.number} merged"
+    if word := _PR_WORDS.get(pr.state):
+        return f"#{pr.number} {word} ({pr.commits})"
     return f"#{pr.number} ({pr.commits})"
 
 

@@ -30,7 +30,8 @@ export interface Project {
 }
 
 /** How close a pull request is to merging. Decided in Python — see **PR state** in `CONTEXT.md`. */
-export type PrState = 'merged' | 'ci-failed' | 'ci-running' | 'conflict' | 'unknown' | 'ready';
+export type PrState =
+  'merged' | 'ci-failed' | 'ci-running' | 'conflict' | 'checks-unreadable' | 'unknown' | 'ready';
 
 /** Mirrors one row of `mael --json list-all`. */
 export interface Worktree {

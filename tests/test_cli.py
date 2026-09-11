@@ -10,10 +10,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import ANY, MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from maelstrom.cli import cli, pr_display
-from maelstrom.github_model import PrStatus, PullRequestNotMergeable
+from maelstrom.github_model import PrState, PrStatus, PullRequestNotMergeable
 from maelstrom.list_all import resolve_pr
 from maelstrom.project_scaffold import scaffold_files
 from maelstrom.worktree import SyncResult, WorktreeInfo, WorktreeSetup
@@ -34,7 +35,7 @@ async def _completed(value):
     return value
 
 
-def _pr(number, *, commits=1, state="ready"):
+def _pr(number, *, commits=1, state: PrState = "ready"):
     """A `PrStatus` for a row that only cares which PR it is."""
     return PrStatus(
         number=number,
@@ -68,6 +69,31 @@ class TestPrDisplay:
 
     def test_a_branch_with_nothing_pushed_and_no_pr_reads_empty(self):
         assert pr_display(None, 0) == ""
+
+    def test_a_red_build_says_so_in_the_terminal_too(self):
+        """The web chip draws `ci-failed` red while the table said only `#42`,
+        so the same pull request read differently depending on where it was
+        looked at. One state, one reading."""
+        assert pr_display(_pr(42, commits=5, state="ci-failed"), 0) == "#42 failed (5)"
+
+    def test_a_running_build_says_so(self):
+        assert (
+            pr_display(_pr(42, commits=5, state="ci-running"), 0) == "#42 running (5)"
+        )
+
+    def test_a_conflict_says_so(self):
+        assert pr_display(_pr(42, commits=5, state="conflict"), 0) == "#42 conflict (5)"
+
+    def test_a_ready_pr_stays_the_bare_number(self):
+        """`ready` is the quiet case and by far the most common. Labelling it
+        would put a word on nearly every row and drown the ones that matter."""
+        assert pr_display(_pr(42, commits=5, state="ready"), 0) == "#42 (5)"
+
+    @pytest.mark.parametrize("state", ["unknown", "checks-unreadable"])
+    def test_a_state_nothing_could_read_stays_the_bare_number(self, state):
+        """Neither says anything about the build, so neither earns a word in a
+        column this narrow. The chip carries the distinction."""
+        assert pr_display(_pr(42, commits=5, state=state), 0) == "#42 (5)"
 
 
 class TestResolvePr:

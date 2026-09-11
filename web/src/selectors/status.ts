@@ -13,6 +13,7 @@ const PR_STATES: Record<PrState | 'draft', string> = {
   'ci-failed': 'CI failed',
   'ci-running': 'CI running',
   conflict: 'merge conflicts',
+  'checks-unreadable': 'checks not readable',
   unknown: 'checking',
   ready: 'ready to merge',
 };
@@ -44,6 +45,11 @@ export function describePrState(state: PrState | '', isDraft: boolean): string {
  * `ci-failed` and `conflict` share `bad` on purpose — both are the same demand
  * on the operator, and the chip's icon is what tells them apart. `merged` and
  * `ready` part: settled is not the same as your turn.
+ *
+ * `checks-unreadable` is `quiet` for the reason a stale usage chip is: the app
+ * has no reading to stand behind, so it must not draw one in a colour that
+ * claims otherwise. It is not `neutral`, which `unknown` uses to say an answer
+ * is still coming — here none is.
  */
 const PR_TONES: Record<PrState | 'draft', ChipTone> = {
   draft: 'quiet',
@@ -51,6 +57,7 @@ const PR_TONES: Record<PrState | 'draft', ChipTone> = {
   'ci-failed': 'bad',
   'ci-running': 'busy',
   conflict: 'bad',
+  'checks-unreadable': 'quiet',
   unknown: 'neutral',
   ready: 'good',
 };
