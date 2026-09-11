@@ -17,6 +17,16 @@ describe('PermissionPrompt', () => {
     expect(screen.getByText('no longer pending')).toBeInTheDocument();
   });
 
+  // The dock reshapes the prompt into a band by these hooks: it hides the head
+  // and the tool input, and lays the actions out across. Without them a docked
+  // permission keeps its card shape.
+  it('marks its parts for the surface it is drawn on', () => {
+    const { container } = render(<PermissionPrompt item={item()} onDecide={vi.fn()} />);
+    for (const role of ['prompt-head', 'prompt-text', 'prompt-detail', 'prompt-actions']) {
+      expect(container.querySelector(`[data-role="${role}"]`)).toBeInTheDocument();
+    }
+  });
+
   it('shows the decision for an answered request', () => {
     render(<PermissionPrompt item={item({ decision: 'deny', reason: 'too risky' })} />);
     expect(screen.getByText('denied · too risky')).toBeInTheDocument();
