@@ -213,6 +213,30 @@ button is disabled unless the agent is idle with nothing pending, because a comp
 queues behind the work. A subagent gets neither the line nor the button: it has no session, no
 worktree and no pipe of its own.
 
+The button stays busy until the compact ends, which `awaitCompact` decides. The `say` resolves
+when the server accepts the relay, and the relay is all that route does — a compact runs for
+10s–130s after it. So the wait watches the transcript, and settles four ways:
+
+- The boundary arrives. The button clears.
+- The turn ends without one. That is the refusal path, and it reports an error.
+- The agent exits. It appends no transcript item when it goes, so the wait reads its state.
+- Five minutes pass. Past that a spinner lies rather than waits.
+
+See `docs/dev/agent-daemon.md`, "A compact", for why the refusal cannot be read any other way.
+
+The items already on the transcript are remembered by id, not by count. A re-snapshot, a dropped
+transcript and the host's own ring each renumber a positional marker.
+
+The transcript draws a full-width rule at the boundary, naming the fall: `compacted · 23k → 3k
+ctx`. The tool row deliberately carries no rule, because a run of them read as ruled paper. That
+holds where a rule falls on every call. A compact happens a handful of times in a session, and a
+boundary is the one thing a rule is for.
+
+Two turns the harness injects follow that rule. The summary it writes to carry the conversation on
+folds under "carried over", the way a loaded skill body does: it runs to thousands of characters,
+and read as an ordinary turn it buries the boundary above it. The host's own
+`<local-command-stdout>` echo is dropped, because the rule already reports the compact.
+
 A session tab on an agent with subagents draws a strip under the transcript: one link per
 subagent, with a state dot that pulses while it runs, its description, and what it waits on when
 it is blocked. A blocked subagent says so here rather than in the
