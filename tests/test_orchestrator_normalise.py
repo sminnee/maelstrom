@@ -313,6 +313,15 @@ def test_a_completed_turn_ends_idle_with_the_cost_and_one_result_line():
     assert first["sessionId"] == "029ed263-b318-4d4e-a661-32f9c9f23f19"
 
 
+def test_a_turn_leaves_the_session_the_launch_pinned_alone():
+    """The transcript item still reports the live session, because that names
+    the conversation it belongs to. The agent keeps the pinned one: the task
+    link joins on it, and a ``/clear`` moves the live id out from under it."""
+    state = replay("normal-turn.jsonl")
+    assert state["transcripts"]["ag1"]["items"][0]["sessionId"] != "sess-1"
+    assert agent_of(state)["session"] == "sess-1"
+
+
 def test_a_completed_turn_adds_its_tokens_to_the_agents_running_total():
     """The turn's four counts, summed: 2 + 14429 + 10121 + 9 off the fixture."""
     state = replay("normal-turn.jsonl")

@@ -583,10 +583,15 @@ def test_the_row_message_is_one_short_line():
 
 
 def test_detail_is_a_superset_of_the_row():
-    """``show`` and ``list`` must never disagree about the same agent."""
+    """``show`` and ``list`` must never disagree about the same agent.
+
+    The pinned session is passed, because that is the field the two could
+    disagree about: given none, both fall back and agree trivially.
+    """
     state = replay("question-unanswered.jsonl", stop_before_control=True)
-    detail = build_agent_detail(state)
-    assert build_agent_row(state).items() <= detail.items()
+    detail = build_agent_detail(state, "pinned")
+    assert build_agent_row(state, "pinned").items() <= detail.items()
+    assert detail["session"] == "pinned"
 
 
 def test_detail_carries_every_option_with_its_description():

@@ -1141,8 +1141,13 @@ class AgentDaemon:
                 return {"error": f"unknown scope: {scope}"}
             rows = []
             if scope in (SCOPE_RUNNING, SCOPE_ALL):
+                # One read for the listing, not one per agent: a store read is
+                # a file open, and the orchestrator polls `list` every 2s.
+                pinned = {s.agent_id: s.session_id for s in self.specs.list()}
                 for a in self.agents.values():
-                    rows.append(build_agent_row(a.state))
+                    rows.append(
+                        build_agent_row(a.state, pinned.get(a.state.agent_id, ""))
+                    )
                     rows += build_subagent_rows(a.state)
             if scope in (SCOPE_STOPPED, SCOPE_ALL):
                 rows += await self.stopped_rows(payload.get("cwd") or None)
@@ -1200,7 +1205,7 @@ class AgentDaemon:
             return {"error": f"agent {agent.state.agent_id} has exited"}
 
         if command == "show":
-            return {"agent": build_agent_detail(agent.state)}
+            return {"agent": build_agent_detail(agent.state, self._pinned(agent))}
 
         if command == "say":
             try:
@@ -1372,6 +1377,15 @@ class AgentDaemon:
         if spec is not None:
             self.specs.write(replace(spec, permission_mode=mode))
         return None
+
+    def _pinned(self, agent: Agent) -> str:
+        """The session id ``agent``'s spawn record holds, else ``""``.
+
+        What a row and a detail report, rather than the id the agent reports:
+        a ``/clear`` moves that one, and the task link joins on the pinned one.
+        """
+        spec = self.specs.read(agent.state.agent_id)
+        return spec.session_id if spec else ""
 
     def _resolve(self, agent_id: str) -> tuple[Agent | None, str]:
         """The agent ``agent_id`` names, and the dotted subagent id if it is one.
@@ -1619,7 +1633,9 @@ class AgentDaemon:
         watcher = Watcher(dotted, queue)
         agent.watchers.append(watcher)
         try:
-            detail, ring, seq, ended, exit_code = _stream_of(agent.state, dotted)
+            detail, ring, seq, ended, exit_code = _stream_of(
+                agent.state, dotted, self._pinned(agent)
+            )
             frame = {"type": AGENT_DETAIL, "agent": detail}
             writer.write((json.dumps(frame) + "\n").encode())
             held = [e for e in ring if e[SEQ_KEY] > from_seq]
@@ -1667,11 +1683,14 @@ def _stream_of(
     has already ended, and the exit code it ended with. A subagent's stream
     has ended when its notification came or when the parent's process went,
     whichever the state shows.
+
+    ``spawn_session`` reaches the frame for the reason ``show`` takes it: the
+    frame is a detail, and a detail must say what the listing says.
     """
     if not dotted:
         ended = state.status == EXITED
         return (
-            build_agent_detail(state),
+            build_agent_detail(state, spawn_session),
             state.recent,
             state.seq,
             ended,

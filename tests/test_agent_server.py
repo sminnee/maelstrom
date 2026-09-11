@@ -1806,6 +1806,31 @@ def test_approving_a_plan_puts_the_agent_into_auto():
     assert sent[1]["request"] == {"subtype": "set_permission_mode", "mode": "auto"}
 
 
+
+
+def test_a_listed_agent_reports_the_session_it_was_spawned_on():
+    """The task link joins on the pinned id, which a ``/clear`` would move."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="pinned"))
+    agent, _ = _sending_agent()
+    agent.state = replace(agent.state, agent_id="a1", session_id="moved-by-clear")
+    daemon.agents["a1"] = agent
+
+    reply = asyncio.run(_handle(daemon, {"cmd": "list"}))
+
+    assert reply["agents"][0]["session"] == "pinned"
+
+
+def test_an_agent_with_no_spawn_record_still_reports_a_session():
+    """Only the daemon writes a record, but a row is worth serving without one."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    agent, _ = _sending_agent()
+    agent.state = replace(agent.state, agent_id="a1", session_id="live")
+    daemon.agents["a1"] = agent
+
+    reply = asyncio.run(_handle(daemon, {"cmd": "list"}))
+
+    assert reply["agents"][0]["session"] == "live"
 def test_approving_a_plan_records_auto_on_the_spawn_record():
     """A mode that misses the spawn record is reverted by the next daemon start."""
     daemon = AgentDaemon(specs=InMemoryAgentSpecStore())

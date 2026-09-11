@@ -9,7 +9,7 @@
         "parent": "",
         "description": "",
         "state": "idle",
-        "session": "9c4e1a70-2d38-4b52-a1f6-3e8b7c05d924",
+        "session": "sess-1",
         "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
         "model": "claude-opus-5",
         "permissionMode": "normal",
