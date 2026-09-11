@@ -363,30 +363,32 @@ def footer_fields(view: AttachView, branch: str) -> dict[str, str]:
     return {
         "cwd": PurePosixPath(view.cwd).name if view.cwd else "",
         "model": agent["model"] if agent else "",
-        "tokens": _tokens(view.usage),
+        # How full the context is, not what the attach has summed: the footer
+        # is read to decide whether to compact, and a cumulative total re-counts
+        # the cached prompt every turn. ``view.usage`` still carries that total
+        # for the turn lines. See ``docs/dev/agent-daemon.md``, "A turn".
+        "tokens": _context(agent["contextTokens"] if agent else 0),
         "branch": branch,
         "state": agent_status(view),
         "mode": agent["permissionMode"] if agent else "",
     }
 
 
-def _tokens(usage: TokenUsage) -> str:
-    """Total tokens, short enough for a footer.
+def _context(tokens: int) -> str:
+    """How full the context is, short enough for a footer.
 
-    Truncates rather than rounding, so "148k tok" means at least 148,000 and a
-    size never reads larger than the session is. ``contextSize`` in
-    ``web/src/protocol/tokens.ts`` is the same rule, over a different figure:
-    this footer reports the session's cumulative total, where the web header
-    reports how full the context is.
+    Truncates rather than rounding, so "148k ctx" means at least 148,000 and a
+    size never reads larger than the context is. ``contextSize`` in
+    ``web/src/protocol/tokens.ts`` is this rule for the web UI, over the same
+    figure, so one agent reads the same on both surfaces.
     """
-    total = usage.total
-    if not total:
+    if not tokens:
         return ""
-    if total >= 1_000_000:
-        return f"{total // 100_000 / 10:.1f}M tok"
-    if total >= 1000:
-        return f"{total // 1000}k tok"
-    return f"{total} tok"
+    if tokens >= 1_000_000:
+        return f"{tokens // 100_000 / 10:.1f}M ctx"
+    if tokens >= 1000:
+        return f"{tokens // 1000}k ctx"
+    return f"{tokens} ctx"
 
 
 def _str(value: Any) -> str:

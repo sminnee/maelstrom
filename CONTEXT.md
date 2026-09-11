@@ -205,6 +205,16 @@ a reader that shows it must say how old it is.
 _Avoid_: Rate limit, quota, allowance. **Rate limit** in this codebase means GitHub's, which
 refuses a poll and is a different thing entirely.
 
+**Context occupancy**:
+How full a driven agent's prompt is now, read off the newest `assistant` event on its stream. A
+level, not a total: each reading replaces the last, so it advances mid-turn and falls when the
+agent compacts. It is the number that answers whether to compact, and the session header and the
+TUI footer both report it. The **session total** is a different thing: it sums every turn,
+re-counting the cached prompt each time, so it runs past any window and says how much work the
+session has done.
+_Avoid_: Token count, context window usage. Do not call the session total a context size — the
+two numbers differ by an order of magnitude on a long session.
+
 **Agent daemon**:
 The process that holds driven agents and serves the control socket `mael agent` talks to. A
 driven agent's live state dies with the daemon, but its spawn record does not, so a later daemon
