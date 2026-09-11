@@ -32,6 +32,7 @@ export interface UiState {
    * publish to every subscriber of the store.
    */
   newWorkOpen: boolean;
+  /** How wide the panel is, in px. Set by a drag; not persisted across a reload. */
   panelWidth: number;
   /**
    * Which zone the deck list is showing. Narrow layout only: the canvas draws
@@ -45,6 +46,17 @@ export interface UiState {
   mobileStack: MobileScreen[];
 }
 
+/**
+ * How wide the panel opens, given the window.
+ *
+ * Half the window, because the canvas and the panel are both being read; and
+ * never past 980px, because a transcript is prose and prose stops getting
+ * easier to read once the line runs long. `Panel` clamps this again against its
+ * own floor, so a window too narrow to halve still leaves the grip reachable.
+ */
+const openingWidth = () =>
+  Math.min(980, (typeof window === 'undefined' ? 1440 : window.innerWidth) / 2);
+
 export function initialUiState(): UiState {
   return {
     view: 'canvas',
@@ -56,7 +68,7 @@ export function initialUiState(): UiState {
     expandedNodeId: null,
     editingTaskId: null,
     newWorkOpen: false,
-    panelWidth: 460,
+    panelWidth: openingWidth(),
     // Running is where the work the user can act on is.
     deckZone: 'running',
     mobileStack: [],

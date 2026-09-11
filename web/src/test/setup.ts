@@ -60,9 +60,17 @@ if (!('getBBox' in SVGElement.prototype)) {
 // from one settable width.
 let viewportWidth = 1440;
 
-/** Point the stubbed matchMedia at a viewport width. `renderApp` calls this. */
+/**
+ * Point the test viewport at a width. `renderApp` calls this.
+ *
+ * Moves `innerWidth` as well as the stubbed queries, because the app reads
+ * both: the layout mode comes through `matchMedia`, and the panel's opening
+ * width off `window.innerWidth`. One seam for both, or a test asking for a
+ * narrow viewport would get a panel sized for a wide one.
+ */
 export function setViewportWidth(width: number) {
   viewportWidth = width;
+  Object.defineProperty(window, 'innerWidth', { value: width, configurable: true });
   for (const listener of mediaListeners) listener();
 }
 
