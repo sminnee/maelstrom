@@ -73,15 +73,18 @@ class TestSingleEnvWorkflow:
         assert "running" in result.output
         assert "UPTIME" in result.output
 
-        # --- Phase 3: Already-running check ---
-        with pytest.raises(RuntimeError, match="already running"):
-            start_env(
-                store,
-                proj.project_name,
-                proj.worktree_name,
-                proj.worktree_path,
-                skip_install=True,
-            )
+        # --- Phase 3: A second start is harmless ---
+        # A start reconciles, so it leaves the running service alone rather
+        # than refusing. The pid proves nothing was respawned.
+        again = start_env(
+            store,
+            proj.project_name,
+            proj.worktree_name,
+            proj.worktree_path,
+            skip_install=True,
+        )
+        assert [(s.name, s.pid) for s in again.services] == [("web", pid)]
+        assert is_service_alive(pid)
 
         # --- Phase 4: Stop and verify cleanup ---
         messages = stop_env(store, proj.project_name, proj.worktree_name)

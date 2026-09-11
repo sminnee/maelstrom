@@ -603,8 +603,10 @@ def _start_or_subscribe_shared(
     # sibling's ${host_var} rather than an empty string.
     env.update(shared_state.host_vars)
 
-    recorded = {s.name for s in shared_state.services}
-    missing = [s for s in shared_services if s.name not in recorded]
+    # Liveness decides, not the record: a service whose process died is missing
+    # even though its entry survives, so the next start brings it back.
+    live = {s.name for s in shared_state.services if is_service_alive(s.pid)}
+    missing = [s for s in shared_services if s.name not in live]
 
     changed = _subscribe(shared_state, worktree)
     if missing:
@@ -618,7 +620,10 @@ def _start_or_subscribe_shared(
         )
         # The record keeps its own worktree_path and started_at: they say where
         # and when the project's shared environment came up, not this start.
-        shared_state.services.extend(service_states)
+        # Merging replaces a dead entry in place rather than duplicating its name.
+        shared_state.services = _merge_service_states(
+            shared_state.services, service_states
+        )
         shared_state.host_vars.update(host_vars)
         changed = True
 
@@ -666,13 +671,17 @@ def start_env(
     """Start services for a worktree environment.
 
     1. Cleans up stale state
-    2. Refuses to start a service that is already running
+    2. Skips services already running — locally, or anywhere in the project for
+       a shared one
     3. Runs install_cmd (unless skip_install)
     4. Splits services into local and shared (by ``ResolvedService.shared``)
     5. Starts or subscribes to shared services (container-first, injecting IPs)
     6. Spawns local services container-first, injecting any host vars before
        command services so ``${host_var}`` resolves to the live address
     7. Saves and returns state (local services only)
+
+    A start reconciles: it brings up what is declared and not running, so
+    calling it twice is harmless and a service that died comes back.
 
     ``services`` names a subset to start; omit it to start every non-optional
     service. A named start subscribes to the project's shared services, and
@@ -682,7 +691,7 @@ def start_env(
     discovery; tests inject a fake.
 
     Raises:
-        RuntimeError: If a requested service is already running, or none defined.
+        RuntimeError: If the project defines no services.
         ValueError: If a named service is not declared.
         TimeoutError: If an apple-container host var never resolves (start aborts).
     """
@@ -698,15 +707,17 @@ def start_env(
         declared = get_services(worktree_path, project)
         shared_services = [s for s in declared if s.shared]
 
-    status = get_env_status(store, project, worktree)
-    if status is not None:
-        requested = {s.name for s in all_services}
-        alive = [s for s in status if s.alive and s.name in requested]
-        if alive:
-            names = ", ".join(s.name for s in alive)
-            raise RuntimeError(
-                f"Services already running for {project}/{worktree}: {names}"
-            )
+    # A start reconciles rather than refuses: whatever is already up is left
+    # alone and the rest is started, so running it twice is harmless.
+    #
+    # Only local services are filtered here. The shared list is passed on whole,
+    # because _start_or_subscribe_shared runs the same liveness test against the
+    # project's record — and it still has to subscribe this worktree to the
+    # services it finds already running.
+    running = {
+        s.name for s in (get_env_status(store, project, worktree) or []) if s.alive
+    }
+    local_services = [s for s in local_services if s.name not in running]
 
     if not skip_install:
         run_install_cmd(worktree_path)
