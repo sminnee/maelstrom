@@ -568,6 +568,18 @@ minimum height. Inactive tabs are muted text; the active tab takes the field bac
 text, and a 2px Signal Blue inset underline. Each tab carries a phase swatch, the qualified
 task id and a close glyph.
 
+### Session header
+
+Two mono lines above the transcript, on a hairline. The first is the live reading: the agent id,
+its state in words, the permission chip, and what it waits on — the state takes the accent, a
+wait takes Alert Amber. The second is standing context in faint text: worktree, branch, model,
+session size and cost, dot-joined, with a quiet Compact button at the right. An empty field drops
+out rather than showing a zero.
+
+The split is the point. A reader watches the first line and consults the second, so the second
+recedes a step in colour and never competes for the same glance. Both truncate rather than wrap:
+the panel narrows to 320px, and a wrapped head would push the transcript down.
+
 ### Table (task list)
 
 Hairline-separated rows, no zebra, no vertical rules. Headers are tracked uppercase micro-labels

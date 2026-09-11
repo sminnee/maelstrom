@@ -196,6 +196,19 @@ The session tab head carries a mode chip naming the agent's permission mode. A c
 agent to the next mode: plan, then auto, then normal. The chip shows the mode the child last
 announced, so a refused change leaves it where it was.
 
+A second line under it names the worktree, the branch, the model, the session's size in tokens
+and what it has cost. An empty field drops out. This line matters most for a free agent: it has
+no task, so its own transcript is the only place that says where it runs. The size comes from
+`totalTokens` on the agent row, which the daemon sums over the session's turns — the turn lines
+in the transcript carry no money, because their `costUsd` is the session's running total rather
+than the turn's.
+
+A Compact button at the right of that line sends `/compact` to the agent. This is a `say`, not a
+command of maelstrom's own: a slash command reaches Claude Code as the text of a user turn. The
+button is disabled unless the agent is idle with nothing pending, because a compact sent mid-turn
+queues behind the work. A subagent gets neither the line nor the button: it has no session, no
+worktree and no pipe of its own.
+
 A session tab on an agent with subagents draws a strip under the transcript: one link per
 subagent, with a state dot that pulses while it runs, its description, and what it waits on when
 it is blocked. A blocked subagent says so here rather than in the

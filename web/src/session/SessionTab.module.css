@@ -5,12 +5,34 @@
 }
 .head {
   display: flex;
-  gap: 8px;
-  align-items: center;
+  flex-direction: column;
+  gap: 2px;
   padding: 6px 12px;
   border-bottom: 1px solid var(--border);
   font-size: var(--text-xs);
   font-family: var(--mono);
+}
+/* Both rows of the head truncate rather than wrap — see web/DESIGN.md,
+   "Session header". */
+.headLine {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+/* Where the agent runs and what it has spent. Quieter than the line above:
+   this is standing context, not the state the reader came for. */
+.meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-faint);
+}
+.compact {
+  flex: none;
+  white-space: nowrap;
 }
 .agent {
   /* A subagent's line is its id and its description, which is free text. */
