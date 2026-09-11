@@ -40,6 +40,7 @@ from .github_model import (
     NoPullRequest,
     PRComment,
     PRInfo,
+    PrState,
     PrStatus,
     PullRequestNotMergeable,
     RateLimited,
@@ -50,6 +51,8 @@ from .github_model import (
     parse_open_prs,
     parse_pr_comments,
     parse_pr_info,
+    parse_run_states,
+    rollup_refused,
     stack_chain,
 )
 from .project_scaffold import scaffold_files
@@ -246,7 +249,7 @@ _PR_FIELDS = """
         number headRefName url isDraft state mergeable
         commits(last: 1) {
           totalCount
-          nodes { commit { statusCheckRollup { state } } }
+          nodes { commit { oid statusCheckRollup { state } } }
         }
       }
 """
@@ -311,13 +314,65 @@ async def get_open_prs(cwd: Path, branches: set[str]) -> dict[str, PrStatus] | N
         )
         if not result.stdout.strip():
             return None
-        return parse_open_prs(result.stdout.strip(), aliases)
+        payload = result.stdout.strip()
+        run_states = {}
+        if rollup_refused(payload):
+            # The token may not read the check rollup, and never will: the
+            # permission it wants is not one the PAT UI offers. Actions is
+            # grantable and answers the same question, so the repo gets one
+            # more read rather than a column of spinners.
+            run_states = await _get_run_states(cwd)
+        return parse_open_prs(payload, aliases, run_states=run_states)
     except RateLimited:
         # Distinct from the failures below, which return ``None`` and are
         # answered per branch. The caller decides what a row shows.
         raise
     except (ValueError, KeyError, TypeError, FileNotFoundError, json.JSONDecodeError):
         return None
+
+
+async def _get_run_states(cwd: Path) -> dict[str, PrState]:
+    """The CI state of each recent head commit, read from Actions.
+
+    The fallback for a repo whose ``statusCheckRollup`` the token may not read.
+    One page per repo, not one read per branch: the endpoint is repo-scoped and
+    100 runs covered 30 distinct branches on the repo this was measured against,
+    so the cost stays the shape the batching was built for. REST is metered
+    separately from the GraphQL budget, so this does not eat the hourly points.
+
+    A failure answers ``{}`` — the caller then reports that it could not read
+    the checks, rather than inventing a state for every pull request.
+    """
+    try:
+        result = await run_cmd_async(
+            _run_states_argv(), cwd=cwd, quiet=True, check=False
+        )
+    except (OSError, FileNotFoundError):
+        return {}
+    if result.returncode != 0:
+        return {}
+    return parse_run_states(result.stdout.strip())
+
+
+def _run_states_argv() -> list[str]:
+    """The ``gh api`` argv that lists this repo's recent pull-request runs."""
+    return [
+        "gh",
+        "api",
+        f"repos/:owner/:repo/actions/runs?event=pull_request&per_page={_RUNS_PAGE}",
+    ]
+
+
+#: How many workflow runs one fallback read asks for. GitHub's maximum page,
+#: because the runs are shared across every branch in the repo: a smaller page
+#: would answer the busiest branches and leave the rest reading as unreadable.
+#:
+#: One page is a window in time, not a set of branches. Measured against the
+#: busiest repo this runs on, 100 runs reached back nine days and covered 30
+#: distinct branches — far more than any branch still being worked on needs. A
+#: branch whose last build has fallen off the end reads `checks-unreadable`,
+#: which is the honest answer: nothing looked its checks up.
+_RUNS_PAGE = 100
 
 
 def _open_prs_argv(query: str) -> list[str]:

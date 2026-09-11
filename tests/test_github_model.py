@@ -28,6 +28,7 @@ from maelstrom.github_model import (
     parse_open_prs,
     parse_pr_comments,
     parse_pr_info,
+    parse_run_states,
     run_id_from_link,
     stack_chain,
 )
@@ -394,6 +395,111 @@ class TestParseArtifacts:
         assert parse_artifacts("[]") == []
 
 
+class TestParseRunStates:
+    """`parse_run_states` — the Actions answer, when the check rollup is refused.
+
+    The fine-grained PAT permission the rollup needs, `checks=read`, cannot be
+    granted: GitHub no longer lists it. `Actions` can, and answers the same
+    question, so a refused rollup falls back to the workflow runs.
+    """
+
+    @staticmethod
+    def _payload(*runs):
+        """The `.workflow_runs` array, newest first as the API returns it."""
+        return json.dumps(
+            {
+                "workflow_runs": [
+                    {
+                        "head_sha": run.get("sha", "abc123"),
+                        "status": run.get("status", "completed"),
+                        "conclusion": run.get("conclusion"),
+                    }
+                    for run in runs
+                ]
+            }
+        )
+
+    def test_a_green_run_reads_ready(self):
+        payload = self._payload({"conclusion": "success"})
+        assert parse_run_states(payload)["abc123"] == "ready"
+
+    def test_a_failed_run_reads_ci_failed(self):
+        payload = self._payload({"conclusion": "failure"})
+        assert parse_run_states(payload)["abc123"] == "ci-failed"
+
+    def test_a_timed_out_run_is_a_failure(self):
+        """A job killed by the clock is a red build, not an absent one."""
+        payload = self._payload({"conclusion": "timed_out"})
+        assert parse_run_states(payload)["abc123"] == "ci-failed"
+
+    @pytest.mark.parametrize("status", ["in_progress", "queued"])
+    def test_a_running_job_reads_ci_running(self, status):
+        payload = self._payload({"status": status, "conclusion": None})
+        assert parse_run_states(payload)["abc123"] == "ci-running"
+
+    def test_a_running_job_outranks_a_sibling_that_passed(self):
+        """One workflow finishing does not make the commit green while another
+        is still going. The commit is only as done as its slowest job."""
+        payload = self._payload(
+            {"status": "in_progress", "conclusion": None},
+            {"conclusion": "success"},
+        )
+        assert parse_run_states(payload)["abc123"] == "ci-running"
+
+    def test_a_failure_outranks_a_run_still_going(self):
+        """A red build is the thing to answer, as it is for the rollup — see
+        the state order in CONTEXT.md."""
+        payload = self._payload(
+            {"conclusion": "failure"},
+            {"status": "in_progress", "conclusion": None},
+        )
+        assert parse_run_states(payload)["abc123"] == "ci-failed"
+
+    @pytest.mark.parametrize(
+        "conclusion", ["cancelled", "skipped", "neutral", "action_required", "stale"]
+    )
+    def test_a_run_that_judged_nothing_answers_nothing(self, conclusion):
+        """None of these says the commit is good, so none may read as green.
+
+        A cancelled run is the common one: a push superseding the last, or a
+        concurrency group, and 39 of 100 runs on one repo here ended this way.
+        Calling those `ready` would put a green tick on a commit nothing
+        finished checking — the false green the head-commit match exists to
+        prevent, arriving by another door.
+        """
+        payload = self._payload({"conclusion": conclusion})
+        assert parse_run_states(payload) == {}
+
+    def test_a_run_that_judged_nothing_yields_to_one_that_did(self):
+        """Absent, not green — so a sibling run that reached a verdict still
+        answers for the commit."""
+        payload = self._payload(
+            {"conclusion": "cancelled"},
+            {"conclusion": "success"},
+        )
+        assert parse_run_states(payload)["abc123"] == "ready"
+
+    def test_each_commit_keeps_its_own_state(self):
+        """One page covers many branches, so the runs must not pool: a commit
+        answers from its own runs or from none."""
+        payload = self._payload(
+            {"sha": "aaa", "conclusion": "failure"},
+            {"sha": "bbb", "conclusion": "success"},
+        )
+        assert parse_run_states(payload) == {"aaa": "ci-failed", "bbb": "ready"}
+
+    def test_a_commit_with_no_run_is_absent(self):
+        """Absent, not green. The caller must tell "no run yet" from "passed",
+        or a PR pushed seconds ago reads as ready before anything has run."""
+        assert parse_run_states(self._payload()) == {}
+
+    def test_an_unreadable_payload_answers_nothing(self):
+        """A refused or malformed Actions read leaves the caller to say it
+        could not find out, rather than inventing a state."""
+        assert parse_run_states("") == {}
+        assert parse_run_states('{"message": "Not Found"}') == {}
+
+
 class TestParseOpenPrs:
     """`parse_open_prs` — the open-PR query's answer, one connection per branch."""
 
@@ -409,12 +515,21 @@ class TestParseOpenPrs:
             "mergeable": "MERGEABLE",
             "commits": {
                 "totalCount": 3,
-                "nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}],
+                "nodes": [
+                    {
+                        "commit": {
+                            "oid": "deadbee",
+                            "statusCheckRollup": {"state": "SUCCESS"},
+                        }
+                    }
+                ],
             },
         }
         if "rollup" in over:
             rollup = over.pop("rollup")
-            node["commits"]["nodes"] = [{"commit": {"statusCheckRollup": rollup}}]
+            node["commits"]["nodes"] = [
+                {"commit": {"oid": "deadbee", "statusCheckRollup": rollup}}
+            ]
         node.update(over)
         return node
 
@@ -598,10 +713,15 @@ class TestParseOpenPrs:
         prs = parse_open_prs(payload, {"b0": "feat/a"})
         assert prs["feat/a"].number == 7
 
-    def test_a_denied_rollup_is_unknown_rather_than_a_false_ready(self):
+    def test_a_denied_rollup_is_not_a_false_ready(self):
         """A refused rollup and a repo with no CI both answer `null`. Reading
         the refusal as `ready` would call a red PR ready to merge, which is the
-        worst way to be wrong. The errors array is what tells them apart."""
+        worst way to be wrong. The errors array is what tells them apart.
+
+        With nothing to fall back on, the refusal reads as `checks-unreadable`
+        rather than `unknown`: the token will not gain the permission by
+        waiting, so a reader must not be left watching a spinner for ever.
+        """
         payload = json.dumps(
             {
                 "data": {"repository": {"b0": {"nodes": [self._node(rollup=None)]}}},
@@ -614,7 +734,58 @@ class TestParseOpenPrs:
                 ],
             }
         )
-        assert parse_open_prs(payload, {"b0": "feat/a"})["feat/a"].state == "unknown"
+        state = parse_open_prs(payload, {"b0": "feat/a"})["feat/a"].state
+        assert state == "checks-unreadable"
+
+    def test_a_denied_rollup_reads_the_state_actions_gives_instead(self):
+        """`checks=read` cannot be granted, but `Actions` can, and it answers
+        the same question. A run against this PR's head commit is the state."""
+        payload = json.dumps(
+            {
+                "data": {"repository": {"b0": {"nodes": [self._node(rollup=None)]}}},
+                "errors": [
+                    {
+                        "type": "FORBIDDEN",
+                        "path": ["repository", "b0", "nodes", 0, "commits"],
+                        "message": "Resource not accessible by personal access token",
+                    }
+                ],
+            }
+        )
+        prs = parse_open_prs(
+            payload, {"b0": "feat/a"}, run_states={"deadbee": "ci-failed"}
+        )
+        assert prs["feat/a"].state == "ci-failed"
+
+    def test_a_run_against_an_older_commit_is_not_this_prs_answer(self):
+        """Matched on the head commit, so a run from the push before this one
+        says nothing. Reading it would show a green tick for code that has been
+        replaced — the stale-green this fallback must never produce."""
+        payload = json.dumps(
+            {
+                "data": {"repository": {"b0": {"nodes": [self._node(rollup=None)]}}},
+                "errors": [
+                    {
+                        "type": "FORBIDDEN",
+                        "path": ["repository", "b0", "nodes", 0, "commits"],
+                        "message": "Resource not accessible by personal access token",
+                    }
+                ],
+            }
+        )
+        prs = parse_open_prs(payload, {"b0": "feat/a"}, run_states={"0lder": "ready"})
+        assert prs["feat/a"].state == "checks-unreadable"
+
+    def test_a_readable_rollup_ignores_the_actions_answer(self):
+        """The rollup is the better source and is asked first. Actions only
+        answers where it was refused, so a repo that grants checks never pays
+        the extra read nor risks the two disagreeing."""
+        prs = parse_open_prs(
+            self._payload([self._node(rollup={"state": "SUCCESS"})]),
+            {"b0": "feat/a"},
+            run_states={"deadbee": "ci-failed"},
+        )
+        assert prs["feat/a"].state == "ready"
 
     def test_a_repo_with_no_ci_and_no_errors_is_still_ready(self):
         """No rollup and no refusal means the repo runs no checks. A spinner

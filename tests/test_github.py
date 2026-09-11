@@ -389,11 +389,57 @@ def _node(number, branch, commits, **over):
         "mergeable": "MERGEABLE",
         "commits": {
             "totalCount": commits,
-            "nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}],
+            "nodes": [
+                {
+                    "commit": {
+                        "oid": over.pop("oid", "deadbee"),
+                        "statusCheckRollup": {"state": "SUCCESS"},
+                    }
+                }
+            ],
         },
     }
     node.update(over)
     return node
+
+
+def _refused_page(by_branch):
+    """A GraphQL answer whose check rollup the token may not read.
+
+    GitHub answers HTTP 200 with the rest of each node and one error per
+    refused field, so only the payload says the read was incomplete. The
+    refused field itself comes back `null`, which is what makes a refusal
+    indistinguishable from a repo that runs no CI until the errors are read.
+    """
+    page = json.loads(_graphql_page(by_branch))
+    for connection in page["data"]["repository"].values():
+        for node in connection["nodes"]:
+            for commit in node["commits"]["nodes"]:
+                commit["commit"]["statusCheckRollup"] = None
+    page["errors"] = [
+        {
+            "type": "FORBIDDEN",
+            "path": ["repository", "b0", "nodes", 0, "commits"],
+            "message": "Resource not accessible by personal access token",
+        }
+    ]
+    return json.dumps(page)
+
+
+def _runs_page(*runs):
+    """The Actions ``workflow_runs`` array, newest first."""
+    return json.dumps(
+        {
+            "workflow_runs": [
+                {
+                    "head_sha": run.get("sha", "deadbee"),
+                    "status": run.get("status", "completed"),
+                    "conclusion": run.get("conclusion"),
+                }
+                for run in runs
+            ]
+        }
+    )
 
 
 def _ok(stdout):
@@ -542,6 +588,80 @@ class TestGetOpenPrs:
         ) as run:
             await get_open_prs(Path("."), {'feat/a"} evil {'})
         assert '"' in _query_of(run.call_args)
+
+    async def test_it_asks_for_the_head_commit(self):
+        """The Actions fallback matches its runs on the head commit, so the
+        query has to carry it. Without the `oid` a refused repo could only
+        answer from the newest run on any commit — a stale green."""
+        with patch(
+            "maelstrom.github.run_cmd_async", return_value=_ok(_graphql_page({}))
+        ) as run:
+            await get_open_prs(Path("."), {"feat/a"})
+        assert "oid" in _query_of(run.call_args)
+
+    async def test_a_refused_rollup_reads_the_state_off_actions(self):
+        """`checks=read` cannot be granted — GitHub no longer offers it — so a
+        refused rollup would otherwise leave every open PR spinning. `Actions`
+        is grantable and answers the same question about the same commit."""
+        answers = [
+            _ok(_refused_page({"feat/a": [_node(7, "feat/a", 3)]})),
+            _ok(_runs_page({"conclusion": "failure"})),
+        ]
+        with patch("maelstrom.github.run_cmd_async", side_effect=answers):
+            prs = await get_open_prs(Path("."), {"feat/a"})
+        assert prs is not None
+        assert prs["feat/a"].state == "ci-failed"
+
+    async def test_a_readable_rollup_never_asks_actions(self):
+        """One round trip stays one on a repo that grants the permission. The
+        fallback is the exception, so it must cost nothing where it is not
+        needed."""
+        with patch(
+            "maelstrom.github.run_cmd_async",
+            return_value=_ok(_graphql_page({"feat/a": [_node(7, "feat/a", 3)]})),
+        ) as run:
+            await get_open_prs(Path("."), {"feat/a"})
+        assert run.call_count == 1
+
+    async def test_one_actions_read_answers_every_branch(self):
+        """The runs endpoint is per repo, not per branch: one page covers them
+        all. Asking per branch is what the batching exists to avoid."""
+        answers = [
+            _ok(
+                _refused_page(
+                    {
+                        "feat/a": [_node(7, "feat/a", 3, oid="aaa")],
+                        "feat/b": [_node(8, "feat/b", 2, oid="bbb")],
+                    }
+                )
+            ),
+            _ok(
+                _runs_page(
+                    {"sha": "aaa", "conclusion": "failure"},
+                    {"sha": "bbb", "conclusion": "success"},
+                )
+            ),
+        ]
+        with patch("maelstrom.github.run_cmd_async", side_effect=answers) as run:
+            prs = await get_open_prs(Path("."), {"feat/a", "feat/b"})
+        assert run.call_count == 2
+        assert prs is not None
+        assert prs["feat/a"].state == "ci-failed"
+        assert prs["feat/b"].state == "ready"
+
+    async def test_a_refused_actions_read_leaves_the_pr_readable(self):
+        """A repo that grants neither permission still has a number, a URL and
+        a merge state worth showing. It says it cannot read the checks rather
+        than claiming they are still running."""
+        answers = [
+            _ok(_refused_page({"feat/a": [_node(7, "feat/a", 3)]})),
+            SimpleNamespace(returncode=1, stdout="", stderr="403"),
+        ]
+        with patch("maelstrom.github.run_cmd_async", side_effect=answers):
+            prs = await get_open_prs(Path("."), {"feat/a"})
+        assert prs is not None
+        assert prs["feat/a"].number == 7
+        assert prs["feat/a"].state == "checks-unreadable"
 
     async def test_no_branches_asks_nothing_at_all(self):
         """A project whose worktrees are all detached has nothing to look up."""

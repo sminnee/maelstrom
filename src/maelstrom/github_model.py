@@ -200,7 +200,15 @@ def stack_chain(branch: str, bases: dict[str, str]) -> list[str]:
 
 #: How close a pull request is to merging — see **PR state** in ``CONTEXT.md``.
 #: The web UI mirrors this union in ``web/src/protocol/entities.ts``.
-PrState = Literal["merged", "ci-failed", "ci-running", "conflict", "unknown", "ready"]
+PrState = Literal[
+    "merged",
+    "ci-failed",
+    "ci-running",
+    "conflict",
+    "checks-unreadable",
+    "unknown",
+    "ready",
+]
 
 
 def _is_rate_limit(errors: list[dict]) -> bool:
@@ -431,8 +439,91 @@ _CI_RUNNING = frozenset({"PENDING", "EXPECTED"})
 #: Rollup states that mean the build is red.
 _CI_FAILED = frozenset({"FAILURE", "ERROR"})
 
+#: Workflow-run statuses that mean the run has not reached a verdict.
+_RUN_PENDING = frozenset({"in_progress", "queued", "requested", "waiting", "pending"})
 
-def _pr_state(node: dict, *, rollup_readable: bool = True) -> PrState:
+#: Workflow-run conclusions that mean the run judged the commit and failed it.
+_RUN_FAILED = frozenset({"failure", "timed_out", "startup_failure"})
+
+#: Workflow-run conclusions that reached no verdict on the commit. A run that
+#: ended one of these ways says nothing, so it must not read as green: a
+#: cancelled run is the commonest of them — a push superseding the last, or a
+#: concurrency group — and a green tick on a commit nothing finished checking
+#: is the false green this fallback exists to avoid.
+_RUN_INCONCLUSIVE = frozenset(
+    {"cancelled", "skipped", "neutral", "action_required", "stale", None}
+)
+
+
+def parse_run_states(payload: str) -> dict[str, PrState]:
+    """Read ``GET /actions/runs`` into one state per head commit.
+
+    The fallback for a repo whose ``statusCheckRollup`` the token may not read.
+    The permission that field wants, ``checks=read``, is absent from the
+    fine-grained PAT UI and so cannot be granted; ``Actions`` can, and answers
+    the same question about the same commit.
+
+    Runs are reduced per ``head_sha`` in the order the rollup is read — running
+    beats passed, failed beats running — so one commit gets one state however
+    many workflows it ran.
+
+    Args:
+        payload: The raw JSON object the runs endpoint printed.
+
+    Returns:
+        Head commit sha -> its state, for those commits that ran something. A
+        commit absent from the answer has no run *yet*, which is not the same
+        as a run that passed: a caller must not read the gap as green.
+    """
+    try:
+        runs = json.loads(payload).get("workflow_runs") or []
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        # A refused or malformed read says nothing. The caller reports that it
+        # could not find out rather than inventing a state for every commit.
+        return {}
+    states: dict[str, PrState] = {}
+    for run in runs:
+        sha = run.get("head_sha")
+        if not sha:
+            continue
+        conclusion = run.get("conclusion")
+        if run.get("status") in _RUN_PENDING:
+            state: PrState = "ci-running"
+        elif conclusion in _RUN_FAILED:
+            state = "ci-failed"
+        elif conclusion in _RUN_INCONCLUSIVE:
+            # Reached no verdict, so it answers for nothing. Skipped rather
+            # than ranked: a sibling run that did reach one still answers, and
+            # a commit whose every run ended this way stays absent.
+            continue
+        else:
+            state = "ready"
+        states[sha] = _worse(states.get(sha), state)
+    return states
+
+
+#: How loudly each state asks to be answered. The order the rollup reads in.
+_RUN_RANK: dict[str, int] = {"ready": 0, "ci-running": 1, "ci-failed": 2}
+
+
+def _worse(seen: "PrState | None", state: "PrState") -> "PrState":
+    """The state that wins when one commit ran several workflows."""
+    if seen is None:
+        return state
+    return max(seen, state, key=lambda s: _RUN_RANK.get(s, 0))
+
+
+def _head_commit(node: dict) -> dict:
+    """The PR's newest commit, which the query asks for as ``commits(last: 1)``."""
+    return (node.get("commits", {}).get("nodes") or [{}])[0].get("commit", {}) or {}
+
+
+def _pr_state(
+    node: dict,
+    *,
+    rollup_readable: bool = True,
+    run_states: dict[str, PrState] | None = None,
+) -> PrState:
     """How close ``node``'s pull request is to merging.
 
     One of :data:`PrState`, tested in the order they are listed — see
@@ -441,19 +532,29 @@ def _pr_state(node: dict, *, rollup_readable: bool = True) -> PrState:
     ``rollup_readable`` is false when GitHub refused ``statusCheckRollup``. A
     refusal and a repo with no CI both answer ``null``, and reading the refusal
     as ``ready`` would call a red pull request ready to merge.
+
+    ``run_states`` is the Actions answer for that case, by head commit — see
+    :func:`parse_run_states`. It is read only where the rollup was refused, so
+    a repo that grants the permission never pays for it and the two can never
+    disagree. Matching on the commit is what keeps a run from the push before
+    this one out of the answer.
     """
     if node.get("state") == "MERGED":
         return "merged"
-    rollup = (node.get("commits", {}).get("nodes") or [{}])[0].get("commit", {}).get(
-        "statusCheckRollup"
-    ) or {}
+    head = _head_commit(node)
+    rollup = head.get("statusCheckRollup") or {}
     check_state = rollup.get("state")
     if check_state in _CI_FAILED:
         return "ci-failed"
     if check_state in _CI_RUNNING:
         return "ci-running"
     if check_state is None and not rollup_readable:
-        return "unknown"
+        # The rollup is refused. Actions answers the same question where the
+        # token may read it; a commit it says nothing about has no run yet,
+        # which must not read as the `ready` an absent rollup otherwise means.
+        if from_runs := (run_states or {}).get(head.get("oid") or ""):
+            return from_runs
+        return "checks-unreadable"
     # No rollup, and nothing refused: the repo runs no checks on this commit,
     # which is green. A spinner that never stops would be worse than silence.
     mergeable = node.get("mergeable")
@@ -464,18 +565,28 @@ def _pr_state(node: dict, *, rollup_readable: bool = True) -> PrState:
     return "ready"
 
 
-def _pr_status(node: dict, *, rollup_readable: bool = True) -> PrStatus:
+def _pr_status(
+    node: dict,
+    *,
+    rollup_readable: bool = True,
+    run_states: dict[str, PrState] | None = None,
+) -> PrStatus:
     """One GraphQL PR node as a :class:`PrStatus`."""
     return PrStatus(
         number=int(node["number"]),
         commits=int(node["commits"]["totalCount"]),
         url=node.get("url") or "",
-        state=_pr_state(node, rollup_readable=rollup_readable),
+        state=_pr_state(node, rollup_readable=rollup_readable, run_states=run_states),
         is_draft=bool(node.get("isDraft")),
     )
 
 
-def parse_open_prs(payload: str, aliases: dict[str, str]) -> dict[str, PrStatus]:
+def parse_open_prs(
+    payload: str,
+    aliases: dict[str, str],
+    *,
+    run_states: dict[str, PrState] | None = None,
+) -> dict[str, PrStatus]:
     """Read the open-PR query: one aliased connection per branch.
 
     ``aliases`` comes back from the query builder beside the document, so the
@@ -485,6 +596,9 @@ def parse_open_prs(payload: str, aliases: dict[str, str]) -> dict[str, PrStatus]
     Args:
         payload: The raw JSON object ``gh api graphql`` printed.
         aliases: Alias -> branch, as the query builder returned it.
+        run_states: The Actions answer by head commit, for a repo whose check
+            rollup the token may not read. Read only where the rollup was
+            refused; see :func:`parse_run_states`.
 
     Returns:
         Branch name -> its pull request, for those branches that have one.
@@ -510,17 +624,36 @@ def parse_open_prs(payload: str, aliases: dict[str, str]) -> dict[str, PrStatus]
             raise RateLimited(f"GraphQL rate limit: {errors}")
         raise ValueError(f"GraphQL query failed: {errors}")
     # Errors beside data are per-field, and the answer is still worth having: a
-    # token without the checks scope is refused `statusCheckRollup` on every
-    # node and given the rest. What it cannot read must read as `unknown`, not
-    # as the `ready` an absent rollup otherwise means.
+    # token without the checks permission is refused `statusCheckRollup` on
+    # every node and given the rest. What it cannot read must not read as the
+    # `ready` an absent rollup otherwise means.
     rollup_readable = not _rollup_refused(data.get("errors") or [])
 
     prs: dict[str, PrStatus] = {}
     for alias, branch in aliases.items():
         nodes = (repository.get(alias) or {}).get("nodes") or []
         if node := _pick_pr(nodes):
-            prs[branch] = _pr_status(node, rollup_readable=rollup_readable)
+            prs[branch] = _pr_status(
+                node, rollup_readable=rollup_readable, run_states=run_states
+            )
     return prs
+
+
+def rollup_refused(payload: str) -> bool:
+    """Whether ``payload`` says the token may not read the check rollup.
+
+    The transport asks this to decide whether to spend a second read on the
+    Actions fallback, which is why it takes the raw payload: the refusal is
+    reported per field beside the data, so the exit code does not carry it.
+
+    A payload that is not JSON, or that failed outright, is not a refusal —
+    those are the caller's other failure paths, and answering ``True`` here
+    would buy a pointless extra read on every one of them.
+    """
+    try:
+        return _rollup_refused(json.loads(payload).get("errors") or [])
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        return False
 
 
 def _rollup_refused(errors: list[dict]) -> bool:
