@@ -644,12 +644,20 @@ end of the reading path and under the thumb.
 The prompt stops being a card here. The band already carries the rule and the wash, so a second
 border around the same message reads as a box inside a box. The heading goes too, and so does
 the sentence naming the ask: Approve and Deny say the act, and a sentence above them is a kicker
-above a heading.
+above a heading. A permission's tool input goes with them, because a band is no place to read a
+block of JSON.
 
-The context is offered, not spent. `Before this · 3` is a control on its own line, and it opens
-the rail as a sheet over the document rather than pushing it — the document never reflows for a
-decision. The sheet overlaps content it is not part of, so the Overlap Test earns it the card
-lift. Escape closes it.
+**Approve leads, as the primary.** Then the field, then the negative act — Deny, or Request
+changes. Every approval in the dock reads the same way round, whether it answers the agent or
+the document. The band's whole claim is that the reader learns one shape. Button rank carries
+the affirmative act; colour does not, so Approve takes no green of its own. Approve leads the
+tab order too: the visual and keyboard orders agree.
+
+The context is offered, not spent. `Before this · 3` leads the band and opens the rail as a sheet
+over the document rather than pushing it — the document never reflows for a decision. The sheet
+overlaps content it is not part of, so the Overlap Test earns it the card lift. Escape closes it.
+Below 30rem of panel the control drops to a line of its own, because four controls do not fit
+one row on a phone.
 
 - **Waiting:** the top rule takes Alert Amber and the ground takes an 8% amber wash. The Quiet
   List Rule holds here as it does on a deck row: a docked band signals with a rule and a wash,
