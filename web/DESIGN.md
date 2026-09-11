@@ -550,6 +550,11 @@ the phase hue. Two channels, two edges, no conflict.
 - **Tab chip:** an 8px phase swatch at 2px radius beside a mono task id. The smallest possible
   restatement of "which agent is this".
 - **Count badge:** a 16px amber pill, 700 weight, on the sunken ground. Circular by construction.
+- **Split chip:** one pill in two halves, divided by a hairline — what is measured, then what it
+  reads. Sunken ground, so it sits _in_ the raised bar; mono tabular value, so the chip holds
+  its width as the number ticks. Only the value takes the tone. Both halves read at rest,
+  unlike the hue chip: a reading nobody hovers is a reading nobody has. A reading too old to
+  vouch for drops to faint and dashes its divider, and the chip itself gives up the tone.
 
 ### Shell command
 
