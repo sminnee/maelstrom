@@ -9,7 +9,7 @@ that take a client from the first to the second.
 
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 from .. import task as model
 from ..worktree_model import get_worktree_folder_name
@@ -178,7 +178,6 @@ def agent_entity(
     ``docs/dev/agent-daemon.md``, "A subagent's permission ask".
     """
     state, exit_code = parse_agent_state(row.get("state", ""))
-    cost = row.get("cost") or 0
     return {
         "id": row["id"],
         "parent": row.get("parent") or "",
@@ -191,14 +190,35 @@ def agent_entity(
         "waitingOn": row.get("waiting_on") or "",
         "lastMessage": row.get("last_message") or "",
         "lastMessageAt": row.get("last_message_at") or "",
-        "costUsd": float(cost),
-        "totalTokens": _tokens(row.get("tokens")),
+        **row_totals(row),
         "taskId": task_id,
         "project": project,
         "worktreeId": worktree_id,
         "exitCode": exit_code,
         "pendingRequestIds": list(pending_request_ids or []),
         "pid": _pid(row.get("pid")),
+    }
+
+
+class RowTotals(TypedDict):
+    """The three numbers a host row reports about an agent's spend and size."""
+
+    costUsd: float
+    totalTokens: int
+    contextTokens: int
+
+
+def row_totals(row: dict[str, Any]) -> RowTotals:
+    """What ``row`` says the session has spent, summed, and currently holds.
+
+    Split out of :func:`agent_entity` because the poll re-reads these three on
+    every pass, where the rest of the entity is settled at adoption. One reader,
+    so the two paths cannot disagree about how a row's numbers are coerced.
+    """
+    return {
+        "costUsd": float(row.get("cost") or 0),
+        "totalTokens": _tokens(row.get("tokens")),
+        "contextTokens": _tokens(row.get("context_tokens")),
     }
 
 

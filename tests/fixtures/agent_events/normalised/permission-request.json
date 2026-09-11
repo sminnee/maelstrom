@@ -18,6 +18,7 @@
         "lastMessageAt": "2026-09-01T01:47:55.699Z",
         "costUsd": 0.10332249999999998,
         "totalTokens": 55749,
+        "contextTokens": 18797,
         "taskId": "NORT-7",
         "project": "northwind",
         "worktreeId": "northwind-alpha",

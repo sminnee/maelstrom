@@ -56,6 +56,7 @@ def make_agent(**over) -> dict:
         "lastMessageAt": "",
         "costUsd": 0,
         "totalTokens": 0,
+        "contextTokens": 0,
         "taskId": "NORT-7",
         "project": "northwind",
         "worktreeId": "northwind-alpha",
@@ -333,6 +334,35 @@ def test_a_second_turn_adds_to_the_token_total_rather_than_replacing_it():
     )
     state.take(out.events)
     assert agent_of(state)["totalTokens"] == 24561 + 12
+
+
+def test_an_assistant_event_reports_what_the_prompt_held():
+    """The prompt's three counts, summed: 2 + 10121 + 14429 off the fixture.
+
+    The stream must land on the same number the daemon's own state does, or the
+    header would jump each time a poll overtook the stream.
+    """
+    state = replay("normal-turn.jsonl")
+    assert agent_of(state)["contextTokens"] == 24552
+
+
+def test_a_later_assistant_event_replaces_the_context_rather_than_adding():
+    """Occupancy is a level, not a total — unlike the running total above."""
+    state = replay("normal-turn.jsonl")
+    out = normalise_stream_event(
+        state.state,
+        state.ctx,
+        {
+            "type": "assistant",
+            "message": {
+                "content": [],
+                "usage": {"input_tokens": 3, "cache_read_input_tokens": 18159},
+            },
+        },
+        NOW,
+    )
+    state.take(out.events)
+    assert agent_of(state)["contextTokens"] == 18162
 
 
 def test_plan_review_with_a_plan_yields_a_document_and_one_attention_item():

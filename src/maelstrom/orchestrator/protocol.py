@@ -143,9 +143,15 @@ class Agent(TypedDict):
     lastMessage: str
     lastMessageAt: str
     costUsd: float
-    #: Tokens the session has consumed, summed over its turns. How large the
-    #: conversation has grown, which is what a reader deciding to compact wants.
+    #: Tokens the session has consumed, summed over its turns: how much work it
+    #: has done. Not how full its context is — a turn re-reads its prompt from
+    #: cache each request, so this counts the same context again and again and
+    #: runs past any window. :attr:`contextTokens` is the figure for that.
     totalTokens: int
+    #: What the agent's prompt last held, off the newest ``assistant`` event: a
+    #: level, not a total, so it falls when the agent compacts. This is what a
+    #: reader deciding whether to compact wants.
+    contextTokens: int
     taskId: str
     project: str
     worktreeId: str
