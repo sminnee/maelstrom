@@ -29,8 +29,7 @@ describe('the session header', () => {
     // The worktree carries the project, so the two are one field.
     expect(head()).toHaveTextContent('maelstrom-bravo');
     expect(head()).toHaveTextContent('feat/task-index');
-    // The agent reports the id Claude resolved its alias to; the header says
-    // the alias, as the node card does.
+    // The agent reports the resolved id; the header says the alias.
     expect(head()).toHaveTextContent('opus');
     expect(head()).not.toHaveTextContent('claude-opus-5');
   });

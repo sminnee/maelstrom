@@ -108,7 +108,11 @@ export function NodeCardBody({
             <span className={styles.id}>{task ? task.notebookId : node.id.slice(0, 8)}</span>
             {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
           </div>
-          {meta.length > 0 && <div className={styles.meta}>{meta.join(' · ')}</div>}
+          {meta.length > 0 && (
+            <div className={styles.meta} data-testid="node-meta">
+              {meta.join(' · ')}
+            </div>
+          )}
         </div>
         {closeControl}
       </header>

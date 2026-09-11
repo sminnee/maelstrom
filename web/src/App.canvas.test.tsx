@@ -128,6 +128,19 @@ describe('App', () => {
     });
   });
 
+  it('keeps every identity field on an expanded card, cost included', async () => {
+    await renderApp();
+    clickNode('NORT-12');
+    const card = screen.getByRole('dialog', { name: 'Rotate auth tokens' });
+
+    // jsdom applies no `text-overflow`, so this passes on the old CSS too: it
+    // guards that every field reaches the line, not that the line wraps. The
+    // browser check is in web/DESIGN.md, "Node Card".
+    expect(within(card).getByTestId('node-meta')).toHaveTextContent(
+      'feat/rotate-auth-tokens-for-every-service · delta · opus · normal · $0.66',
+    );
+  });
+
   it('draws a free agent once, named by the worktree it runs in', async () => {
     await renderApp();
     const node = document.querySelector('[data-task-id="f2c6a9d4"]');

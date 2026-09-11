@@ -515,10 +515,17 @@ and neither alone is load-bearing.
 
 The board unit opened in place: 440px wide, 10px radius, strong hairline, phase bar retained,
 lifted on `--shadow-card`, capped at 70vh with internal scroll. Title at 16px/600, then the
-identity block — id, phase, and a mono line of branch, worktree, model and cost — then a status
-line, the brief, the decision block, and a footer of panel links and commands. A hairline opens
-each band from the one above. The close button is a bare glyph that lifts from faint to full on
-hover.
+identity block — id, phase, and a mono line of branch, worktree, model, permission mode and
+cost — then a status line, the brief, the decision block, and a footer of panel links and
+commands. A hairline opens each band from the one above. The close button is a bare glyph that
+lifts from faint to full on hover.
+
+That mono line wraps rather than truncates. The card is content-sized, so it can spend the
+height a second line costs. An ellipsis cannot: it takes the end of the line, where the cost
+sits, and the cost is the reading the operator opened the card for. This is the opposite of the
+small node's rule above, because the small node holds a fixed height and the card does not. The
+model reads as its alias — `opus`, not the `claude-opus-5` a running agent reports — so the line
+needs a second one less often. Check the wrap in a browser — see "Seeing a change".
 
 The brief is the task's own content, rendered as markdown at card scale. It clamps to about four
 lines and fades out at the cut, with a More control that opens it in place. A brief of four lines
@@ -583,7 +590,8 @@ One mono line above the transcript, on a hairline, holding two groups. The live 
 first: the agent id, its state in words, the permission chip, and what it waits on — the state
 takes the accent, a wait takes Alert Amber. Standing context follows in faint text: worktree,
 branch, model, context size and cost, dot-joined, with a quiet Compact button at the right. An
-empty field drops out rather than showing a zero.
+empty field drops out rather than showing a zero. The model reads as its alias, as on the node
+card.
 
 The rank is the point, not the row count. A reader watches the live reading and consults the
 standing context, so the second group recedes a step in colour and never competes for the same
