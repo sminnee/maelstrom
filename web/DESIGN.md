@@ -264,7 +264,7 @@ a heading, `--leading-ui` (1.4) for an interface line, `--leading-prose` (1.5) f
 ### Measure
 
 Prose is capped, because the panel is resizable and an uncapped column grows without limit as
-the operator drags it wider. Two measures, because the panel's two surfaces read differently:
+the operator drags it wider. Two tokens, because the panel's two surfaces are styled separately:
 
 - `--measure-prose` — the document tab, read start to end.
 - `--measure-panel` — the transcript, scanned in blocks between tool rows, and already narrowed
@@ -274,8 +274,8 @@ Both are 72ch. One measure, because a document and a transcript message are the 
 reading and a reader moving between them should not meet two line lengths. 72ch rather than the
 conventional 80, because these documents are read start to finish: at 80ch the sweep back to the
 next line start is long enough to lose your place, and a line broken up by literals makes that
-worse. It was 66ch, which held the line too short — the transcript gives 3.5rem of its width to
-the time gutter, so a message there reads narrower than the number says.
+worse. Not shorter, because the transcript gives 3.5rem of its width to the time gutter, so a
+message there already reads narrower than the number says.
 
 ### Rhythm
 
@@ -576,15 +576,25 @@ task id and a close glyph.
 
 ### Session header
 
-Two mono lines above the transcript, on a hairline. The first is the live reading: the agent id,
-its state in words, the permission chip, and what it waits on — the state takes the accent, a
-wait takes Alert Amber. The second is standing context in faint text: worktree, branch, model,
-session size and cost, dot-joined, with a quiet Compact button at the right. An empty field drops
-out rather than showing a zero.
+One mono line above the transcript, on a hairline, holding two groups. The live reading comes
+first: the agent id, its state in words, the permission chip, and what it waits on — the state
+takes the accent, a wait takes Alert Amber. Standing context follows in faint text: worktree,
+branch, model, context size and cost, dot-joined, with a quiet Compact button at the right. An
+empty field drops out rather than showing a zero.
 
-The split is the point. A reader watches the first line and consults the second, so the second
-recedes a step in colour and never competes for the same glance. Both truncate rather than wrap:
-the panel narrows to 320px, and a wrapped head would push the transcript down.
+The rank is the point, not the row count. A reader watches the live reading and consults the
+standing context, so the second group recedes a step in colour and never competes for the same
+glance. Below 30rem the row breaks into two, live reading above: at the panel's 320px minimum one
+row would truncate both groups to nothing. 30rem is the Transcript's breakpoint, so the panel
+changes shape once rather than twice. Everything truncates rather than wraps: a wrapped head
+would push the transcript down.
+
+The size is the **context** — what the prompt last held — not the session's running token total,
+which cannot answer whether to compact. See `docs/dev/agent-daemon.md`, "A turn". The cost beside
+it is what says how much work the session has done.
+
+The break is a container query, so jsdom cannot compute it. Verify it by dragging the panel to
+its 320px minimum in a browser.
 
 ### Table (task list)
 

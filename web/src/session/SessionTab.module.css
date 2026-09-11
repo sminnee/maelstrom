@@ -11,19 +11,55 @@
   border-bottom: 1px solid var(--border);
   font-size: var(--text-xs);
   font-family: var(--mono);
+  /* Measures the head itself, so the head answers to the panel's width rather
+     than the window's. `inline-size` measures the content box — the 12px
+     padding either side is already off the number the query sees. */
+  container-type: inline-size;
 }
-/* Both rows of the head truncate rather than wrap — see web/DESIGN.md,
-   "Session header". */
+/* The head truncates rather than wraps — see web/DESIGN.md, "Session header". */
 .headLine {
   display: flex;
   gap: 8px;
   align-items: center;
   min-width: 0;
 }
-/* Where the agent runs and what it has spent. Quieter than the line above:
-   this is standing context, not the state the reader came for. */
+/* The two groups the row breaks into. The live reading takes the slack, because
+   the standing context beside it is a fixed set of short fields while a wait is
+   free text and has no length to rely on. */
+.live,
+.standing {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+.live {
+  flex: 1 1 auto;
+}
+.standing {
+  flex: 0 1 auto;
+}
+/* Narrow, the row becomes the two rows it reads as: the live reading above,
+   standing context below. 30rem is the Transcript's breakpoint too, so the
+   panel changes shape once rather than twice. jsdom computes no layout, so
+   this rule is verified in a browser, not in the suite. */
+@container (max-width: 30rem) {
+  .headLine {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+  }
+  .live,
+  .standing {
+    flex: none;
+  }
+}
+/* Where the agent runs and what it has spent. Quieter than the reading beside
+   it: this is standing context, not the state the reader came for. */
 .meta {
-  flex: 1;
+  /* Shrinks but does not grow: growing would push Compact off the right of a
+     wide row, away from the fields it belongs with. */
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
