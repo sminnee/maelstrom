@@ -158,9 +158,9 @@
   --prose-gap-tight: 12px;
   --prose-gap-loose: 48px;
 
-  /* One measure for both reading surfaces. 66ch, not 80 — see DESIGN.md § Measure. */
-  --measure-prose: 66ch;
-  --measure-panel: 66ch;
+  /* One measure for both reading surfaces. 72ch, not 80 — see DESIGN.md § Measure. */
+  --measure-prose: 72ch;
+  --measure-panel: 72ch;
 
   --weight-medium: 500;
   --weight-semibold: 600;
