@@ -15,7 +15,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from ..agent_model import PLAN_TOOL, QUESTION_TOOL, TS_KEY, from_wire_mode, tokens_of
+from ..agent_model import (
+    PLAN_TOOL,
+    QUESTION_TOOL,
+    TS_KEY,
+    context_of,
+    from_wire_mode,
+    tokens_of,
+)
 from ..attachments import markdown_ref
 from ..task import parse_draft
 from .document_tags import (
@@ -337,6 +344,13 @@ def normalise_stream_event(
                 continue
 
     elif kind == "assistant":
+        # Mirrors ``agent_model.apply_event``, so the live stream and the next
+        # world poll agree on the number. Set per event rather than per block:
+        # an event whose blocks are all tool calls still reports a prompt. A
+        # replayed event is as good as a live one here, because occupancy
+        # replaces rather than adds — unlike the running total below.
+        if context := context_of(raw):
+            out.agent({"contextTokens": context})
         for block in _blocks(raw):
             if block.get("type") == "text" and _str(block.get("text")):
                 # A subagent writes no document and shows no picture, so its

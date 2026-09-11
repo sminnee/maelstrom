@@ -120,6 +120,7 @@ def _blank_agent(agent_id: str) -> Agent:
         "lastMessageAt": "",
         "costUsd": 0.0,
         "totalTokens": 0,
+        "contextTokens": 0,
         "taskId": "",
         "project": "",
         "worktreeId": "",
