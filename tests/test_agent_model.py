@@ -42,6 +42,7 @@ from maelstrom.agent_model import (
     build_agent_detail,
     build_agent_env,
     build_agent_row,
+    build_plan_handover_prompt,
     build_start_payload,
     build_stopped_row,
     build_stopped_rows,
@@ -636,6 +637,18 @@ def test_detail_falls_back_to_the_last_message_when_the_request_is_bare():
 def test_detail_has_no_plan_when_the_wait_is_not_a_plan_review():
     state = replay("question-unanswered.jsonl", stop_before_control=True)
     assert build_agent_detail(state)["plan"] == ""
+
+
+def test_the_handover_prompt_sends_the_agent_to_the_plan_file():
+    """The file is the handover: the canonical copy, and no size limit.
+
+    The framing matters as much as the path. An agent that does not know its
+    context was cleared reads the plan as a reminder of a discussion it thinks
+    it still holds, and skips the reading the plan assumes it already did.
+    """
+    prompt = build_plan_handover_prompt("/p/plan.md")
+    assert "/p/plan.md" in prompt
+    assert "fresh conversation" in prompt
 
 
 def test_detail_shows_the_last_message_in_full():

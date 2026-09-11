@@ -40,6 +40,7 @@ from .agent_model import (
     AWAITING_PLAN_REVIEW,
     AWAITING_QUESTION,
     BACKLOG_END,
+    CLEAR_COMMAND,
     DEFAULT_RESUME_PROMPT,
     ENDED_REASON,
     EXITED,
@@ -49,6 +50,7 @@ from .agent_model import (
     LOST_ASK_RESUME_PROMPT,
     MESSAGE_CHARS,
     MODES,
+    NO_PLAN_FILE_REASON,
     SEQ_KEY,
     SPEC_EXITED,
     SPEC_RUNNING,
@@ -69,6 +71,7 @@ from .agent_model import (
     build_agent_env,
     build_agent_row,
     build_daemon_identity,
+    build_plan_handover_prompt,
     build_stopped_rows,
     build_subagent_detail,
     build_subagent_rows,
@@ -76,6 +79,7 @@ from .agent_model import (
     interrupt_request,
     mark_exited,
     open_asks,
+    plan_from_pending,
     reply_for_answer,
     reply_for_answers,
     reply_for_approval,
@@ -1336,21 +1340,75 @@ class AgentDaemon:
                 else:
                     return {"error": "no answer given"}
             elif command == "approve":
+                if pending.wait_kind == AWAITING_PLAN_REVIEW:
+                    return await self._approve_plan(agent, pending)
                 reply = reply_for_approval(pending)
             else:
                 reply = reply_for_denial(pending, payload.get("reason", ""))
             if not await agent.send(reply):
                 return _unreachable(agent)
             agent.record(reply)
-            # The allow goes first: the child is waiting on that reply.
-            if command == "approve" and pending.wait_kind == AWAITING_PLAN_REVIEW:
-                error = await self._set_mode(agent, AUTO)
-                if error is not None:
-                    return {"ok": True, "warning": error["error"]}
-                return {"ok": True, "mode": AUTO}
             return {"ok": True}
 
         return {"error": f"unknown command: {command}"}
+
+    async def _approve_plan(self, agent: Agent, pending: PendingRequest) -> dict:
+        """Accept ``pending``'s plan, then clear the context it was written in.
+
+        Six writes in a fixed order: the allow, the other asks denied, an
+        interrupt, ``/clear``, the mode, then the handover. The order is
+        load-bearing — see ``docs/dev/agent-daemon.md``, "The control socket".
+
+        A plan review that names no file is denied instead, leaving the agent
+        its context to write the plan down and retry.
+        """
+        _, plan_file = plan_from_pending(pending, agent.state.last_message)
+        if not plan_file:
+            reply = reply_for_denial(pending, NO_PLAN_FILE_REASON)
+            if not await agent.send(reply):
+                return _unreachable(agent)
+            agent.record(reply)
+            return {"ok": True, "cleared": False, "warning": NO_PLAN_FILE_REASON}
+
+        reply = reply_for_approval(pending)
+        if not await agent.send(reply):
+            return _unreachable(agent)
+        agent.record(reply)
+
+        # Every other ask goes back denied, as `interrupt` does: an interrupt
+        # answers none of them, and the clear that follows means nothing ever
+        # will. A subagent's ask is filed on the subagent, so it outlives the
+        # wait we just allowed and would block its caller for ever.
+        for open_ask in open_asks(agent.state).values():
+            if open_ask.request_id == pending.request_id:
+                continue
+            denial = reply_for_denial(open_ask, INTERRUPTED_REASON)
+            if not await agent.send(denial):
+                return _unreachable(agent)
+            agent.record(denial)
+
+        interrupt = interrupt_request(str(uuid.uuid4()))
+        if not await agent.send(interrupt):
+            return _unreachable(agent)
+        agent.record(interrupt)
+
+        if not await agent.send(user_message(CLEAR_COMMAND)):
+            return _unreachable(agent)
+        # No event reports a clear, so the level is reset here or it stands
+        # until the agent next speaks. The total is spend; it stays.
+        agent.state = replace(agent.state, context_tokens=0)
+
+        # A refused mode does not withhold the handover. The clear has already
+        # happened and cannot be undone, so an agent left without the plan is an
+        # agent with no context, no brief and nothing to do. It asks for each
+        # edit instead, which is a worse outcome than the mode it refused.
+        error = await self._set_mode(agent, AUTO)
+
+        if not await agent.send(user_message(build_plan_handover_prompt(plan_file))):
+            return _unreachable(agent)
+        if error is not None:
+            return {"ok": True, "cleared": True, "warning": error["error"]}
+        return {"ok": True, "mode": AUTO, "cleared": True}
 
     async def _set_mode(self, agent: Agent, mode: str) -> dict | None:
         """Move ``agent`` to ``mode``, returning an error reply or ``None``.
@@ -1675,7 +1733,7 @@ class AgentDaemon:
 
 
 def _stream_of(
-    state: AgentState, dotted: str
+    state: AgentState, dotted: str, spawn_session: str = ""
 ) -> tuple[dict[str, Any], tuple[dict[str, Any], ...], int, bool, int | None]:
     """What an attach to ``dotted`` (or the agent, for ``""``) replays.
 

@@ -628,7 +628,7 @@ all. See [agent-daemon.md](../dev/agent-daemon.md) for the protocol.
 | `mael agent say ID TEXT` | Send TEXT to an agent as a user message. |
 | `mael agent run ID COMMAND` | Run COMMAND in the agent's directory and give it the output. Killed after 30s; output is capped. |
 | `mael agent answer ID CHOICE` | Answer an agent's pending question. CHOICE answers every question the agent asked. `--request ID` names which wait, needed only when several are open. |
-| `mael agent approve ID` | Approve an agent's pending plan or tool call. Approving a plan also moves the agent to `auto`. `--request ID` names which wait, needed only when several are open. |
+| `mael agent approve ID` | Approve an agent's pending plan or tool call. Approving a plan also clears the agent's context and moves it to `auto`. A plan with no plan file is denied instead. `--request ID` names which wait, needed only when several are open. |
 | `mael agent deny ID` | Deny it. `--reason TEXT` reaches the agent as the tool result. `--request ID` names which wait, needed only when several are open. |
 | `mael agent attach ID` | Teleport into an agent as a terminal UI. Esc interrupts the turn; Shift-Tab changes the mode; Ctrl-C detaches. Needs a terminal. |
 | `mael agent interrupt ID` | Abandon the turn an agent is running, leaving the agent alive. Denies a pending wait first. |
