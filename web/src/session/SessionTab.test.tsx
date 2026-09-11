@@ -29,7 +29,10 @@ describe('the session header', () => {
     // The worktree carries the project, so the two are one field.
     expect(head()).toHaveTextContent('maelstrom-bravo');
     expect(head()).toHaveTextContent('feat/task-index');
-    expect(head()).toHaveTextContent('claude-opus-5');
+    // The agent reports the id Claude resolved its alias to; the header says
+    // the alias, as the node card does.
+    expect(head()).toHaveTextContent('opus');
+    expect(head()).not.toHaveTextContent('claude-opus-5');
   });
 
   it('puts the live reading and the standing context on one row', async () => {
@@ -105,7 +108,7 @@ describe('the session header', () => {
     await openFreeAgentSession(user);
 
     await waitFor(() => expect(head()).toHaveTextContent('maelstrom-bravo'));
-    expect(head()).toHaveTextContent('claude-opus-5');
+    expect(head()).toHaveTextContent('opus');
   });
 
   it('gives a subagent no metadata, because it has no session of its own', async () => {
