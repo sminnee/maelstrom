@@ -182,6 +182,72 @@ def test_a_result_without_usage_leaves_the_token_total_alone():
     assert state.total_tokens == 24561
 
 
+def test_an_assistant_event_records_what_the_prompt_holds():
+    """The prompt's three counts, summed: 2 + 10121 + 14429 off the fixture.
+
+    ``output_tokens`` is out. It is what the model wrote, not what the prompt
+    holds — it joins the context for the *next* request, which that request's
+    own ``assistant`` event then reports.
+    """
+    state = replay("normal-turn.jsonl")
+    assert state.context_tokens == 24552
+    assert build_agent_row(state)["context_tokens"] == 24552
+
+
+def test_a_smaller_later_reading_brings_the_context_down():
+    """Occupancy is a level, not a total, so it falls as well as climbs.
+
+    The fall is the point, not a side effect: a compact is what the number is
+    read for, and taking the larger of two readings — as the poll deliberately
+    does for spend and size, which only climb — would hide exactly that. The
+    second reading here is lower than the first for that reason.
+    """
+    state = replay("normal-turn.jsonl")
+    state = apply_event(
+        state,
+        {
+            "type": "assistant",
+            "message": {
+                "content": [],
+                "usage": {"input_tokens": 3, "cache_read_input_tokens": 18159},
+            },
+        },
+    )
+    assert state.context_tokens == 18162
+
+
+def test_an_assistant_event_without_usage_leaves_the_context_alone():
+    """A malformed or usage-free event must not read as an emptied context."""
+    state = replay("normal-turn.jsonl")
+    state = apply_event(state, {"type": "assistant", "message": {"content": []}})
+    assert state.context_tokens == 24552
+
+
+def test_a_result_event_does_not_move_the_context():
+    """A ``result`` sums the turn's requests, so its counts are not occupancy.
+
+    Its ``cache_read`` is every request's read added up. Taking it would report
+    a context larger than the one the agent actually holds, so the usage here
+    is deliberately unlike the assistant reading it must not displace.
+    """
+    state = replay("normal-turn.jsonl")
+    state = apply_event(state, {"type": "result", "usage": {"input_tokens": 999_999}})
+    assert state.context_tokens == 24552
+
+
+def test_a_blocked_agent_still_reports_the_context_it_holds():
+    """A wait does not empty the prompt, so the reading outlives the block.
+
+    This is why the level is set above the pending-wait guard. A refactor that
+    moved it below the early return would read 0 for every blocked agent —
+    which is the state a reader deciding to compact is most often looking at.
+    """
+    state = replay("permission-request.jsonl", stop_before_control=True)
+    assert state.status == "awaiting-permission"
+    # The last reading before the wait: 2 + 18123 + 441 off the fixture.
+    assert state.context_tokens == 18566
+
+
 def test_a_dead_agent_is_not_left_looking_like_it_waits():
     """A crashed agent must not keep advertising a wait nobody can answer."""
     state = replay("question-unanswered.jsonl", stop_before_control=True)
@@ -1302,9 +1368,10 @@ def test_subagent_rows_take_the_row_shape_under_the_parent():
         "waiting_on": "",
         "last_message_at": "",
         "cost": "",
-        # Both blank: a subagent has no session, so its spend and its size
-        # are counted in the parent's totals, not again here.
+        # All blank: a subagent has no session, so its spend, its size and its
+        # context are counted in the parent's totals, not again here.
         "tokens": 0,
+        "context_tokens": 0,
     }
     assert last_message.startswith("`docs/dev` exists")
     assert "\n" not in last_message
