@@ -115,22 +115,55 @@ def active_branches(
     ``worktreeId`` is set by matching an agent's ``cwd`` against the worktrees
     the world holds, and the agent poll relinks it. Between a worktree
     appearing and that relink the id is empty, so ``cwd`` answers instead.
+
+    A task is asked about under **both** the branch it names and the branch its
+    agent is really on. A task that recorded none is given a generated name, so
+    the notebook's answer is a guess; the node draws the worktree its agent
+    runs in. Where the two differ, asking only about the guess leaves the row
+    drawing a branch nobody looked up, and its pull request never appears.
     """
     branches: set[str] = set()
     by_path = {wt.get("path"): wt for wt in worktrees.values()}
+    # Agents are keyed by agent id, so a task reaches its own through
+    # ``taskId``. A subagent is skipped because it carries its parent's task
+    # and would otherwise displace the parent here; it runs in the parent's
+    # worktree, so the branch it gives is never news anyway.
+    #
+    # A live agent wins over one that exited, as `agentsByTask` decides it in
+    # the UI. An exited agent stays in the world and a second launch mints a
+    # new id, so a relaunched task carries two — and answering with the older
+    # one would ask about the worktree it ran in and miss the branch being
+    # worked on now, which is the very failure this rule exists to stop.
+    by_task: dict[str, Any] = {}
+    for agent in agents.values():
+        task_id = agent.get("taskId")
+        if not task_id or agent.get("parent"):
+            continue
+        seen = by_task.get(task_id)
+        if seen is None or (
+            seen.get("state") == "exited" and agent.get("state") != "exited"
+        ):
+            by_task[task_id] = agent
+
+    def _branch_of(agent: Mapping[str, Any] | None) -> str:
+        """The branch the worktree ``agent`` runs in is on, if any."""
+        worktree = worktrees.get((agent or {}).get("worktreeId") or "") or by_path.get(
+            (agent or {}).get("cwd") or ""
+        )
+        return (worktree or {}).get("branch") or ""
+
     for desk_id in table:
         if task_id := _task_of(desk_id):
             if branch := (tasks.get(task_id) or {}).get("branch"):
+                branches.add(branch)
+            # The agent's own worktree, for the case the notebook guessed.
+            if branch := _branch_of(by_task.get(task_id)):
                 branches.add(branch)
             continue
         agent_id = _agent_of(desk_id)
         if agent_id is None:
             continue
-        agent = agents.get(agent_id) or {}
-        worktree = worktrees.get(agent.get("worktreeId") or "") or by_path.get(
-            agent.get("cwd") or ""
-        )
-        if branch := (worktree or {}).get("branch"):
+        if branch := _branch_of(agents.get(agent_id)):
             branches.add(branch)
     return branches
 

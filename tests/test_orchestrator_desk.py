@@ -138,8 +138,31 @@ class TestActiveBranches:
     def _worktree(self, wt_id, branch, *, path="/p/alpha", pr_state="ready"):
         return {"id": wt_id, "path": path, "branch": branch, "prState": pr_state}
 
-    def _agent(self, agent_id, *, worktree_id="w1", cwd="/p/alpha"):
-        return {"id": agent_id, "worktreeId": worktree_id, "cwd": cwd}
+    def _agent(
+        self,
+        agent_id,
+        *,
+        worktree_id="w1",
+        cwd="/p/alpha",
+        task_id="",
+        parent="",
+        state="idle",
+    ):
+        """An agent row as the world holds it, keyed by agent id.
+
+        ``task_id`` is how a task reaches its own agent: the world keys agents
+        by their own id, and a launch pins the task it runs on the agent.
+        ``parent`` and ``state`` carry the two facts that decide which agent a
+        task with several of them resolves to.
+        """
+        return {
+            "id": agent_id,
+            "worktreeId": worktree_id,
+            "cwd": cwd,
+            "taskId": task_id,
+            "parent": parent,
+            "state": state,
+        }
 
     def test_a_desk_agents_branch_is_asked_about(self):
         table = add({}, desk_id_for_agent("a1"), NOW)
@@ -186,3 +209,83 @@ class TestActiveBranches:
             tasks={"a/1": {"id": "a/1", "branch": "feat/planned"}},
         )
         assert branches == {"feat/planned"}
+
+    def test_a_task_is_asked_about_where_its_agent_actually_works(self):
+        """A task that recorded no branch is given a generated one, so the name
+        in the notebook is a guess. The node draws the worktree its agent runs
+        in, so a guess that missed would leave the row asking about one branch
+        and drawing another — and the PR chip would never appear.
+
+        Both are asked about: the guess costs nothing when it was right.
+        """
+        table = add({}, desk_id_for_task("a/1"), NOW)
+        branches = active_branches(
+            table,
+            agents={"ag-7": self._agent("ag-7", worktree_id="w1", task_id="a/1")},
+            worktrees={"w1": self._worktree("w1", "fix/real-branch")},
+            tasks={"a/1": {"id": "a/1", "branch": "task/a.1"}},
+        )
+        assert branches == {"task/a.1", "fix/real-branch"}
+
+    def test_a_relaunched_task_asks_about_the_agent_running_now(self):
+        """An exited agent stays in the world, and a second launch mints a new
+        id rather than reusing it — so a task can carry two. Taking whichever
+        sorts last would ask about the worktree the old one ran in and miss the
+        branch being worked on now, which is this whole rule's failure mode."""
+        table = add({}, desk_id_for_task("a/1"), NOW)
+        old = self._agent("old", worktree_id="w1", task_id="a/1", state="exited")
+        new = self._agent("new", worktree_id="w2", task_id="a/1", state="processing")
+        worktrees = {
+            "w1": self._worktree("w1", "fix/abandoned"),
+            "w2": self._worktree("w2", "fix/live", path="/p/bravo"),
+        }
+        # Both orders: the live agent wins by the rule, never by dict order.
+        for agents in (
+            {"old": old, "new": new},
+            {"new": new, "old": old},
+        ):
+            branches = active_branches(
+                table,
+                agents=agents,
+                worktrees=worktrees,
+                tasks={"a/1": {"id": "a/1", "branch": "task/a.1"}},
+            )
+            assert "fix/live" in branches
+
+    def test_a_subagent_does_not_stand_in_for_its_parent(self):
+        """A subagent carries its parent's task, so it would otherwise displace
+        the parent as the task's agent. It runs in the parent's worktree, so
+        the branch it gives is never news."""
+        table = add({}, desk_id_for_task("a/1"), NOW)
+        branches = active_branches(
+            table,
+            agents={
+                "ag-7": self._agent("ag-7", worktree_id="w1", task_id="a/1"),
+                "ag-7.1": self._agent(
+                    "ag-7.1", worktree_id="w2", task_id="a/1", parent="ag-7"
+                ),
+            },
+            worktrees={
+                "w1": self._worktree("w1", "fix/real-branch"),
+                "w2": self._worktree("w2", "fix/not-a-branch", path="/p/bravo"),
+            },
+            tasks={"a/1": {"id": "a/1", "branch": "task/a.1"}},
+        )
+        assert branches == {"task/a.1", "fix/real-branch"}
+
+    def test_a_tasks_new_worktree_is_reached_through_its_cwd_too(self):
+        """The same gap as for a free agent: between a worktree appearing and
+        the agent poll relinking it, `worktreeId` is empty and only `cwd`
+        names the branch that just started work."""
+        table = add({}, desk_id_for_task("a/1"), NOW)
+        branches = active_branches(
+            table,
+            agents={
+                "ag-7": self._agent(
+                    "ag-7", worktree_id="", cwd="/p/bravo", task_id="a/1"
+                )
+            },
+            worktrees={"w2": self._worktree("w2", "feat/new", path="/p/bravo")},
+            tasks={"a/1": {"id": "a/1", "branch": "task/a.1"}},
+        )
+        assert branches == {"task/a.1", "feat/new"}
