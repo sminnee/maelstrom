@@ -196,6 +196,15 @@ parent reports every ask beneath it. `mael agent list` shows it under its parent
 `tail` take its id, and the orchestrator UI opens it from the parent's session tab.
 _Avoid_: Sidechain, child session, sub-agent
 
+**Usage window**:
+One rolling budget the Claude account spends against: the five-hour window and the seven-day
+window. Each carries a utilisation and the time it rolls over. The reading arrives on a driven
+agent's stream, so one account spans every agent on the machine and the freshest reading is the
+machine's. It only arrives while an agent takes a turn, so a quiet desk holds an ageing one —
+a reader that shows it must say how old it is.
+_Avoid_: Rate limit, quota, allowance. **Rate limit** in this codebase means GitHub's, which
+refuses a poll and is a different thing entirely.
+
 **Agent daemon**:
 The process that holds driven agents and serves the control socket `mael agent` talks to. A
 driven agent's live state dies with the daemon, but its spawn record does not, so a later daemon
