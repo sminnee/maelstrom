@@ -36,6 +36,7 @@ from maelstrom.agent_model import (
     AgentState,
     PendingRequest,
     TranscriptMeta,
+    UsageWindow,
     apply_event,
     build_agent_argv,
     build_agent_detail,
@@ -781,6 +782,84 @@ def test_set_mode_request_asks_the_child_to_change_mode():
         "request_id": "r1",
         "request": {"subtype": "set_permission_mode", "mode": "default"},
     }
+
+
+# --- the usage windows, read off the stream --------------------------------
+
+
+def test_a_rate_limit_event_records_both_windows():
+    """``rate_limit_event`` is how the account's budget reaches the daemon.
+
+    The percentages are the source's own: it quantises to whole percent, so
+    ``0.07`` is 7% and nothing finer is available to round.
+    """
+    state = replay("normal-turn.jsonl")
+    five_hour, seven_day = state.usage.five_hour, state.usage.seven_day
+    assert five_hour is not None and seven_day is not None
+    assert (five_hour.utilization, five_hour.resets_at) == (0.05, 1788241800)
+    assert (seven_day.utilization, seven_day.resets_at) == (0.24, 1788480000)
+
+
+def test_the_last_reading_wins():
+    """A stream carries several. The freshest is the one the account is at."""
+    state = replay("subagent-turn.jsonl")
+    assert state.usage.five_hour.utilization == 0.45
+
+
+def test_a_reading_is_stamped_with_when_it_was_seen():
+    """A reading with no clock is stale the moment no agent is running, so
+    the time it was taken travels with it rather than being inferred later."""
+    state = apply_event(
+        AgentState(agent_id="a1", cwd="/tmp/x"),
+        {
+            "type": "rate_limit_event",
+            "rate_limit_info": {
+                "unifiedWindows": {"five_hour": {"utilization": 0.5, "resetsAt": 1}}
+            },
+        },
+        now="2026-09-11T10:00:00Z",
+    )
+    assert state.usage.at == "2026-09-11T10:00:00Z"
+
+
+def test_an_event_without_windows_leaves_the_last_reading_standing():
+    """A partial event is not news that the budget is empty."""
+    state = replay("normal-turn.jsonl")
+    state = apply_event(state, {"type": "rate_limit_event", "rate_limit_info": {}})
+    assert state.usage.five_hour.utilization == 0.05
+
+
+def test_an_event_carrying_one_window_leaves_the_other_standing():
+    """The windows are reported together but need not be. A five-hour figure
+    on its own says nothing about the week, so replacing the whole reading
+    would blank a good seven-day one the moment the source sent one window."""
+    state = replay("normal-turn.jsonl")
+    state = apply_event(
+        state,
+        {
+            "type": "rate_limit_event",
+            "rate_limit_info": {
+                "unifiedWindows": {"five_hour": {"utilization": 0.6, "resetsAt": 9}}
+            },
+        },
+        now="2026-09-11T10:00:00Z",
+    )
+    assert state.usage.five_hour == UsageWindow(utilization=0.6, resets_at=9)
+    assert state.usage.seven_day == UsageWindow(utilization=0.24, resets_at=1788480000)
+    assert state.usage.at == "2026-09-11T10:00:00Z"
+
+
+def test_a_stream_with_no_reading_has_no_usage():
+    """Nothing to say is said as nothing, never as zero."""
+    state = replay("interrupt.jsonl")
+    assert state.usage.five_hour is None
+    assert state.usage.seven_day is None
+
+
+def test_a_rate_limit_event_does_not_disturb_the_status():
+    """It is a fact about the account, not about what this agent is doing."""
+    state = replay("normal-turn.jsonl")
+    assert state.status == IDLE
 
 
 # --- the stopped listing ----------------------------------------------------

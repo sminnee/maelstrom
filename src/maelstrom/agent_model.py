@@ -11,7 +11,7 @@ protocol; read it before changing a shape.
 """
 
 import base64
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -529,6 +529,39 @@ class SubagentState:
 
 
 @dataclass(frozen=True)
+class UsageWindow:
+    """One rolling budget the account is spending against.
+
+    The source quantises ``utilization`` to whole percent, so a reader that
+    renders a percentage shows what it was given and never a finer figure.
+    """
+
+    #: How much of the window is spent, 0.0 to 1.0.
+    utilization: float
+    #: When the window rolls over, unix seconds.
+    resets_at: int
+
+
+@dataclass(frozen=True)
+class Usage:
+    """The account's budget, as the stream last reported it.
+
+    One account spans every agent on the machine, so this is a fact about the
+    host rather than about the agent whose stream carried it. A window nobody
+    has reported is ``None``: nothing to say is said as nothing, never as zero.
+
+    ``at`` is when the daemon saw the reading. A reading only arrives while an
+    agent takes a turn, so one with no agent running goes stale, and a reader
+    needs the time to know whether to trust the number.
+    """
+
+    five_hour: UsageWindow | None = None
+    seven_day: UsageWindow | None = None
+    #: When this reading was seen, ISO 8601. Empty when no clock was stamped.
+    at: str = ""
+
+
+@dataclass(frozen=True)
 class AgentState:
     """Everything the daemon knows about one agent, derived from its events.
 
@@ -556,6 +589,10 @@ class AgentState:
     #: session drops the turns that made up most of its total. See
     #: ``docs/dev/agent-daemon.md``, "A turn".
     total_tokens: int = 0
+    #: The account's budget, as this agent's stream last reported it. Every
+    #: agent on the machine reports the same account, so a reader wanting the
+    #: machine's figure takes the freshest across agents rather than this one.
+    usage: Usage = field(default_factory=Usage)
     #: Exit code of the child, once it has gone. ``None`` while it is alive.
     exit_code: int | None = None
     #: The child's pid while it is alive; ``None`` before the spawn and after
@@ -694,6 +731,51 @@ def _mode_of(event: dict[str, Any]) -> str:
     return from_wire_mode(mode) if isinstance(mode, str) and mode else ""
 
 
+def _usage_window(window: Any) -> UsageWindow | None:
+    """One window off a ``rate_limit_event``, or ``None`` if it is not one.
+
+    A window missing its utilisation is not a window: a reader cannot draw a
+    budget without the figure, and a default would be a number nobody reported.
+    """
+    if not isinstance(window, dict) or "utilization" not in window:
+        return None
+    try:
+        return UsageWindow(
+            utilization=float(window["utilization"]),
+            resets_at=int(window.get("resetsAt") or 0),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _usage_of(event: dict[str, Any], last: Usage, now: str) -> Usage | None:
+    """The reading a ``rate_limit_event`` carries, or ``None`` if it carries none.
+
+    ``None`` rather than an empty :class:`Usage` so the caller can leave the
+    last good reading standing: a partial event is not news that the budget is
+    empty.
+
+    A window the event omits is carried over from ``last`` for the same reason,
+    one window down. The two windows are reported together in every recording,
+    but a five-hour figure on its own says nothing about the week — so
+    replacing the whole reading would blank a good seven-day one the moment the
+    source sent one window.
+    """
+    info = event.get("rate_limit_info")
+    windows = info.get("unifiedWindows") if isinstance(info, dict) else None
+    if not isinstance(windows, dict):
+        return None
+    five_hour = _usage_window(windows.get("five_hour"))
+    seven_day = _usage_window(windows.get("seven_day"))
+    if five_hour is None and seven_day is None:
+        return None
+    return Usage(
+        five_hour=five_hour or last.five_hour,
+        seven_day=seven_day or last.seven_day,
+        at=now,
+    )
+
+
 def apply_event(
     state: AgentState, event: dict[str, Any], *, now: str = ""
 ) -> AgentState:
@@ -708,8 +790,10 @@ def apply_event(
     (writing a reply, waking an attached client) is the caller's job.
 
     An unrecognised event only lands in ``recent`` — the stream carries plenty
-    the state machine has no opinion on (``rate_limit_event``, hook chatter),
-    and none of it should disturb the derived status.
+    the state machine has no opinion on (hook chatter), and none of it should
+    disturb the derived status. ``rate_limit_event`` is the one event read for
+    a fact about the account rather than about the agent: it moves ``usage``
+    and nothing else.
 
     ``recent`` holds a stamped copy of the event, never the caller's dict: the
     same dict is also written to the child, which must not see the stamp.
@@ -728,6 +812,12 @@ def apply_event(
     ]
     state = replace(state, recent=recent, seq=seq)
     kind = event.get("type")
+
+    if kind == "rate_limit_event":
+        # The account's budget, not this agent's business: it moves ``usage``
+        # and never ``status``. A partial event leaves the last reading up.
+        usage = _usage_of(event, state.usage, _stamp(event, now))
+        return state if usage is None else replace(state, usage=usage)
 
     if kind == "system" and event.get("subtype") == "task_started":
         if event.get("task_type") == AGENT_TASK_TYPE and event.get("tool_use_id"):
@@ -1118,6 +1208,29 @@ def mark_exited(state: AgentState, exit_code: int | None) -> AgentState:
     The subagents stay as they are: their rings are still worth reading.
     """
     return replace(state, status=EXITED, own_pending={}, exit_code=exit_code, pid=None)
+
+
+def freshest_usage(states: Iterable[AgentState]) -> dict[str, Any] | None:
+    """The account's budget as the most recent reading reports it, or ``None``.
+
+    Every agent on the machine spends one account, so their readings answer the
+    same question and the newest is the answer. An agent that has heard nothing
+    yet holds an empty :class:`Usage`, and must not outvote one that has heard
+    something — hence the sort by ``at`` over readings that carry a window.
+    """
+    readings = [
+        s.usage
+        for s in states
+        if s.usage.five_hour is not None or s.usage.seven_day is not None
+    ]
+    if not readings:
+        return None
+    newest = max(readings, key=lambda u: u.at)
+    return {
+        "five_hour": asdict(newest.five_hour) if newest.five_hour else None,
+        "seven_day": asdict(newest.seven_day) if newest.seven_day else None,
+        "at": newest.at,
+    }
 
 
 def build_agent_row(state: AgentState) -> dict[str, Any]:
