@@ -61,11 +61,6 @@ export function SessionTab({ agentId }: { agentId: string }) {
   // the session has cost so far. A free agent has no task to carry any of
   // this, so its transcript is the only place it can be said. Empty fields
   // drop out, as on the node card.
-  //
-  // The context, not the session's running token total: the total counts each
-  // turn's re-read prompt again and runs past any window, so it cannot answer
-  // the question this line is read for, which is whether to compact. The cost
-  // beside it is what says how much work the session has done.
   const where = world.worktrees[agent.worktreeId];
   const meta = [
     // The qualified folder id, where the node card shows the bare nato word:
@@ -92,39 +87,46 @@ export function SessionTab({ agentId }: { agentId: string }) {
   return (
     <div className={styles.session} data-testid="session-tab">
       <div className={styles.head} data-testid="session-head">
-        <div className={styles.headLine}>
-          <span className={styles.agent}>
-            {isChild ? `${agent.id} · ${agent.description}` : agent.id}
+        {/* One row, which a container query breaks into two when the panel is
+            dragged narrow. The groups are what it breaks on, so they are spans
+            rather than loose children. */}
+        <div className={styles.headLine} data-testid="session-head-row">
+          <span className={styles.live}>
+            <span className={styles.agent}>
+              {isChild ? `${agent.id} · ${agent.description}` : agent.id}
+            </span>
+            <span className={styles.state} data-state={agent.state}>
+              {progressOf(task, agent, Object.values(world.attention)).words}
+            </span>
+            {agent.permissionMode && !isChild && (
+              <AppButton
+                variant="quiet"
+                className={styles.mode}
+                title={`Permission mode: ${agent.permissionMode}. Click for ${nextMode(agent.permissionMode)}.`}
+                onClick={() =>
+                  setMode.mutateAsync({ agentId, mode: nextMode(agent.permissionMode) })
+                }
+              >
+                {agent.permissionMode}
+              </AppButton>
+            )}
+            {agent.waitingOn && <span className={styles.waiting}>{agent.waitingOn}</span>}
           </span>
-          <span className={styles.state} data-state={agent.state}>
-            {progressOf(task, agent, Object.values(world.attention)).words}
-          </span>
-          {agent.permissionMode && !isChild && (
-            <AppButton
-              variant="quiet"
-              className={styles.mode}
-              title={`Permission mode: ${agent.permissionMode}. Click for ${nextMode(agent.permissionMode)}.`}
-              onClick={() => setMode.mutateAsync({ agentId, mode: nextMode(agent.permissionMode) })}
-            >
-              {agent.permissionMode}
-            </AppButton>
+          {!isChild && (
+            <span className={styles.standing}>
+              <span className={styles.meta}>{meta.join(' · ')}</span>
+              <AppButton
+                variant="quiet"
+                className={styles.compact}
+                disabled={!canCompact}
+                title={compactTitle}
+                onClick={() => say.mutateAsync({ agentId, text: COMPACT_COMMAND })}
+              >
+                Compact
+              </AppButton>
+            </span>
           )}
-          {agent.waitingOn && <span className={styles.waiting}>{agent.waitingOn}</span>}
         </div>
-        {!isChild && (
-          <div className={styles.headLine}>
-            <span className={styles.meta}>{meta.join(' · ')}</span>
-            <AppButton
-              variant="quiet"
-              className={styles.compact}
-              disabled={!canCompact}
-              title={compactTitle}
-              onClick={() => say.mutateAsync({ agentId, text: COMPACT_COMMAND })}
-            >
-              Compact
-            </AppButton>
-          </div>
-        )}
       </div>
       <div className={styles.scroll}>
         {transcript.status === 'connecting' && count === 0 && (
