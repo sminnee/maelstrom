@@ -215,6 +215,48 @@ def test_handle_lists_every_agent():
     assert [row["id"] for row in reply["agents"]] == ["a1"]
 
 
+def test_the_listing_carries_the_accounts_usage():
+    """One account spans every agent, so the budget is the daemon's to report."""
+    daemon = AgentDaemon()
+    agent = _stub_agent()
+    agent.state = replay("normal-turn.jsonl")
+    daemon.agents["a1"] = agent
+    reply = asyncio.run(_handle(daemon, {"cmd": "list"}))
+    assert reply["usage"]["five_hour"]["utilization"] == 0.05
+    assert reply["usage"]["seven_day"]["utilization"] == 0.24
+
+
+def test_the_freshest_reading_is_the_accounts():
+    """Two agents report the same account. A just-spawned one that has heard
+    nothing must not blank a good reading, so the newest stamp wins."""
+    daemon = AgentDaemon()
+    stale, fresh, silent = _stub_agent("a1"), _stub_agent("a2"), _stub_agent("a3")
+    stale.state = apply_event(stale.state, _reading(0.10), now="2026-09-11T09:00:00Z")
+    fresh.state = apply_event(fresh.state, _reading(0.80), now="2026-09-11T10:00:00Z")
+    daemon.agents.update({"a1": stale, "a2": fresh, "a3": silent})
+    reply = asyncio.run(_handle(daemon, {"cmd": "list"}))
+    assert reply["usage"]["five_hour"]["utilization"] == 0.80
+
+
+def test_a_listing_with_no_reading_says_so():
+    """Nothing to report is reported as nothing, never as an empty budget."""
+    daemon = AgentDaemon()
+    daemon.agents["a1"] = _stub_agent()
+    assert asyncio.run(_handle(daemon, {"cmd": "list"}))["usage"] is None
+
+
+def _reading(utilization: float) -> dict:
+    """A ``rate_limit_event`` carrying one five-hour figure."""
+    return {
+        "type": "rate_limit_event",
+        "rate_limit_info": {
+            "unifiedWindows": {
+                "five_hour": {"utilization": utilization, "resetsAt": 1788241800}
+            }
+        },
+    }
+
+
 def test_show_returns_one_agents_detail():
     daemon = AgentDaemon()
     agent = _stub_agent()
