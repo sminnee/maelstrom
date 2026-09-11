@@ -12,6 +12,13 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **The Compact button shows the compaction start and finish.** It stays busy for the whole
+  compact rather than clearing when the relay is accepted. The session header's context figure
+  falls as soon as the compact ends, instead of waiting for the agent to speak again. The
+  transcript draws a rule where the boundary fell. A compact the agent refuses — too short a
+  conversation — reports an error rather than spinning. The summary the compact carries over
+  folds away under the rule instead of filling the transcript.
+
 - **Plan a Linear issue from the orchestrator's New panel.** Choose the Linear kind, pick an
   issue from the current cycle, and Save or Start writes the same planning task
   `mael linear plan` writes. The kind shows only for a project whose `.maelstrom.yaml` sets

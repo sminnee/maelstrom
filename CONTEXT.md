@@ -214,14 +214,24 @@ _Avoid_: Burn rate, pace percentage. Not **utilisation**, which is the raw spend
 reports; the quotient is what that spend means against the clock.
 
 **Context occupancy**:
-How full a driven agent's prompt is now, read off the newest `assistant` event on its stream. A
-level, not a total: each reading replaces the last, so it advances mid-turn and falls when the
-agent compacts. It is the number that answers whether to compact, and the session header and the
-TUI footer both report it. The **session total** is a different thing: it sums every turn,
-re-counting the cached prompt each time, so it runs past any window and says how much work the
-session has done.
+How full a driven agent's prompt is now, read off the newest `assistant` event on its stream, or
+off a **compact boundary**. A level, not a total: each reading replaces the last, so it advances
+mid-turn and falls when the agent compacts. It is the number that answers whether to compact, and
+the session header and the TUI footer both report it. The **session total** is a different thing:
+it sums every turn, re-counting the cached prompt each time, so it runs past any window and says
+how much work the session has done.
 _Avoid_: Token count, context window usage. Do not call the session total a context size — the
 two numbers differ by an order of magnitude on a long session.
+
+**Compact boundary**:
+Where a driven agent's context was compacted, and the only event that says a compact finished. It
+carries the occupancy either side of the fall and whether a person asked for it. A compact the
+agent refuses — too short a conversation — ends its turn like any other, so nothing else tells a
+refusal from a success. The agent may never speak again after compacting, so the boundary is also
+where the **context occupancy** falls. The session transcript holds one per compaction, and the
+orchestrator UI draws a rule there.
+_Avoid_: Compaction event, summary point. A `/clear` is a different thing: it drops the context
+and reports nothing.
 
 **Agent daemon**:
 The process that holds driven agents and serves the control socket `mael agent` talks to. A

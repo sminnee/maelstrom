@@ -105,6 +105,35 @@ can carry a row the host stamped before a turn the stream has already delivered,
 flat would walk them backwards between polls. Occupancy is taken as it stands, because it is a
 level and a compact is meant to drop it.
 
+### A compact
+
+A finished compaction emits `system`/`compact_boundary`. It is the only event that says a compact
+finished, and `tests/fixtures/agent_events/compact.jsonl` records one:
+
+```json
+{"type": "system", "subtype": "compact_boundary",
+ "session_id": "6c2d726e-…", "uuid": "5e2827bd-…",
+ "compact_metadata": {"trigger": "manual", "pre_tokens": 23238, "post_tokens": 3046,
+                      "cumulative_dropped_tokens": 20192, "duration_ms": 10915},
+ "logical_parent_uuid": "83b8fa43-…"}
+```
+
+**The stream spells these fields in snake_case where the session transcript spells them in
+camelCase.** Reading the transcript spelling off a stream event yields `None` from every field and
+fails silently. The wire is camelCase, so `normalise.py` converts them.
+
+`post_tokens` is the new occupancy. `apply_event` takes it there rather than waiting for the next
+`assistant` event, because an agent may never speak again after compacting. `0` is a real
+occupancy, so the guard is on the field being absent.
+
+`trigger` is `"manual"` or `"auto"`. Both take the same path: the field is recorded on the item,
+and nothing dispatches on it, so an autocompact nobody clicked for is reported like any other.
+
+**A refusal is shaped exactly like a success.** Too short a conversation is answered with ordinary
+assistant text, `"Not enough messages to compact."`, and then `result`/`success`. So nothing may
+read "the turn ended" as "the compact finished" — only the boundary tells the two apart. A real
+compact emits its boundary before that turn's `result`.
+
 ### The account's budget
 
 `rate_limit_event` carries how much of the account's budget is spent. It arrives on its own
@@ -733,8 +762,9 @@ Six writes, and the order is the design:
 A refused mode does not withhold the handover. The clear cannot be undone, so an agent left
 without the plan has no context, no brief and nothing to do.
 
-The context level is reset by hand at step 4. `context_tokens` only ever moves on an `assistant`
-event, and the clear is something the daemon did rather than something it read. Without the reset
+The context level is reset by hand at step 4. `context_tokens` moves on an `assistant` event or a
+`compact_boundary`, and the clear is neither: it is something the daemon did rather than something
+it read. A compact, by contrast, reports its own result — see "A compact". Without the reset
 a cleared agent keeps reporting its pre-clear size until it next speaks. The cumulative total is
 spend, so only the level moves.
 
