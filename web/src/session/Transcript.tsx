@@ -1,6 +1,7 @@
 import { Markdown } from '../markdown/Markdown';
 import type { TranscriptItem } from '../protocol/transcript';
 import { clockTime } from '../protocol/time';
+import { contextFigure, contextSize } from '../protocol/tokens';
 import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
 import { AgentMessage } from './cards/AgentMessage';
@@ -173,6 +174,24 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
     }
     case 'turn_result':
       return <ResultLine item={item} />;
+    case 'compact':
+      // A rule here where the tool row has none — see
+      // `docs/dev/orchestrator-ui.md` for why the two differ.
+      return (
+        <div className={styles.compact} data-testid="compact">
+          <span className={styles.compactLabel}>
+            compacted
+            {/* The unit lands once, on the figure it ends on. A boundary that
+                reported no counts says only that it happened. */}
+            {item.preTokens > 0 && (
+              <>
+                {' · '}
+                {contextFigure(item.preTokens)} → {contextSize(item.postTokens) || '0 ctx'}
+              </>
+            )}
+          </span>
+        </div>
+      );
     case 'system':
       return (
         <div className={styles.system}>
@@ -203,6 +222,18 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
           <summary className={styles.skillHead}>
             <span className={styles.skillLabel}>skill</span>
             <span className={styles.skillName}>{item.skill}</span>
+          </summary>
+          <Markdown source={item.markdown} />
+        </details>
+      );
+    case 'compact_summary':
+      // The same fold as a skill, and for the same reason: a long body the
+      // harness wrote, which would otherwise read as something the operator
+      // typed. It shares the chrome rather than restating it.
+      return (
+        <details className={styles.skill} data-testid="compact-summary">
+          <summary className={styles.skillHead}>
+            <span className={styles.skillLabel}>carried over</span>
           </summary>
           <Markdown source={item.markdown} />
         </details>

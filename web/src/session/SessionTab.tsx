@@ -13,6 +13,7 @@ import { answeredOnCanvas } from '../selectors/transcript';
 import { PanelLink } from '../shell/PanelLink';
 import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
+import { awaitCompact } from './awaitCompact';
 import { MessageInput } from './MessageInput';
 import { Transcript } from './Transcript';
 import styles from './SessionTab.module.css';
@@ -47,6 +48,14 @@ export function SessionTab({ agentId }: { agentId: string }) {
   const finished = finishedSubagentsOf(world, agentId);
   const transcript = useAgentStream(agentId);
   const bottom = useRef<HTMLDivElement>(null);
+  // The compact wait outlives the render that started it, and an exit never
+  // reaches the transcript store the wait subscribes to. So the wait hands
+  // back a way to end it, and the effect below calls that when the agent goes.
+  const abandonCompact = useRef<((reason: string) => void) | null>(null);
+  const exited = agent?.state === 'exited';
+  useEffect(() => {
+    if (exited) abandonCompact.current?.('The agent exited before it compacted.');
+  }, [exited]);
   const count = transcript.items.length;
   const expandedNodeId = useAppStore((s) => s.ui.expandedNodeId);
   // A free agent draws under its own id, a task node under its task's.
@@ -121,7 +130,16 @@ export function SessionTab({ agentId }: { agentId: string }) {
                 className={styles.compact}
                 disabled={!canCompact}
                 title={compactTitle}
-                onClick={() => say.mutateAsync({ agentId, text: COMPACT_COMMAND })}
+                processingChildren="Compacting…"
+                onClick={async () => {
+                  // `say` resolves when the server accepts the relay, which is
+                  // all the relay does. The compaction takes 10s–130s after
+                  // that, so the button holds until the boundary says it ended.
+                  await say.mutateAsync({ agentId, text: COMPACT_COMMAND });
+                  await awaitCompact(agentId, (abandon) => {
+                    abandonCompact.current = abandon;
+                  });
+                }}
               >
                 Compact
               </AppButton>
