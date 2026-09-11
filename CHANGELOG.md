@@ -31,6 +31,22 @@ release while that section is empty, and retitles it to the version it is releas
   commit whose decision it revises, or a `chore:`. Present runs once per task and never during
   Land. `/code-review` reads each commit's depth and judges the decision its body states.
 
+### Fixed
+
+- **`mael env start` repairs a half-started environment instead of refusing it.** It starts
+  what is declared and not running, and leaves running services alone, so a second start is
+  harmless and a service whose process died comes back. Starting a service that is already
+  running is no longer an error.
+
+  A shared service counts as running when it runs for any worktree. One the project's record
+  does not hold now starts on the next `mael env start`; before, it could never start, and
+  the only way out was to stop every worktree using the project's shared services. Starting
+  shared services one at a time wrote such a record, so this did not need a service declared
+  after the fact.
+
+  `mael env status` tags a declared shared service that never started `(shared)`, as it
+  already tags an optional one.
+
 ### Removed
 
 - **Session tracking is gone: the registry, its MCP channel, and its eleven hooks.** A Bun MCP
