@@ -1,8 +1,9 @@
-"""Whether the world can take a command. A port of ``web/src/protocol/validate.ts``.
+"""Whether the world can take a command.
 
 The codes mirror the agent host's own refusals, so a command is refused the
 same way whether the server or the fake backend answers it, and before the
-host is touched.
+host is touched. ``web/src/test/fakeServer.ts`` refuses the same commands for
+the web tests, so a rule added here belongs there too.
 """
 
 from typing import Any
@@ -37,11 +38,35 @@ DRIVING_COMMANDS = (
     "agent.resume",
 )
 
+#: Which kinds of wait each reply answers, by the transcript item that carries
+#: the request. Keyed on the item, not the agent's state: one state cannot
+#: describe several waits at once — see CONTEXT.md, "Wait kind".
 WAIT_FOR_COMMAND = {
-    "agent.approve": ("awaiting-permission", "awaiting-plan-review"),
-    "agent.deny": ("awaiting-permission", "awaiting-plan-review"),
-    "agent.answer": ("awaiting-question",),
+    "agent.approve": ("permission_request", "plan_review"),
+    "agent.deny": ("permission_request", "plan_review"),
+    "agent.answer": ("question",),
 }
+
+#: The item a waiting state implies. Only safe when the agent holds one wait:
+#: a state cannot name one of several. See :meth:`Orchestrator._wait_kind`.
+WAIT_ITEM_FOR_STATE: dict[str, str] = {
+    "awaiting-permission": "permission_request",
+    "awaiting-plan-review": "plan_review",
+    "awaiting-question": "question",
+}
+
+#: How to name each wait in a refusal, in the reader's words rather than the
+#: transcript's field names.
+WAIT_NAMES: dict[str, str] = {
+    "permission_request": "a permission",
+    "plan_review": "a plan review",
+    "question": "a question",
+}
+
+
+def _wait_name(*kinds: str) -> str:
+    """What to call ``kinds`` in a refusal a user reads."""
+    return " or ".join(WAIT_NAMES.get(kind, kind) for kind in kinds)
 
 
 def _err(code: str, message: str) -> dict[str, str]:
@@ -62,8 +87,18 @@ def check_linear_project(world: World, project: str) -> dict[str, str] | None:
     return None
 
 
-def validate_command(world: World, cmd: dict[str, Any]) -> dict[str, str] | None:
-    """The refusal for ``cmd`` against ``world``, or ``None`` when it may run."""
+def validate_command(
+    world: World, cmd: dict[str, Any], *, wait_kind: str | None = None
+) -> dict[str, str] | None:
+    """The refusal for ``cmd`` against ``world``, or ``None`` when it may run.
+
+    ``wait_kind`` is the transcript item type of the request a reply names —
+    the caller resolves it, because the world holds request ids without their
+    kinds. ``None`` means the item could not be found, and the reply is let
+    through: the transcript keeps ``TRANSCRIPT_ITEMS`` items, so a pending item
+    can be trimmed while its id is still pending, and refusing then would strand
+    a wait nobody can answer.
+    """
     kind = cmd.get("type")
 
     if kind in DRIVING_COMMANDS:
@@ -91,10 +126,11 @@ def validate_command(world: World, cmd: dict[str, Any]) -> dict[str, str] | None
                 "stale_request", f"Request {cmd.get('requestId')} is no longer pending"
             )
         allowed = WAIT_FOR_COMMAND[kind]
-        if agent["state"] not in allowed:
+        if wait_kind is not None and wait_kind not in allowed:
             return _err(
                 "wrong_wait_kind",
-                f"Agent {agent_id} is {agent['state']}, not {'/'.join(allowed)}",
+                f"Request {cmd.get('requestId')} is "
+                f"{_wait_name(wait_kind)}, not {_wait_name(*allowed)}",
             )
         if kind == "agent.deny" and not str(cmd.get("reason", "")).strip():
             return _err("invalid", "A reason is required")

@@ -1164,6 +1164,82 @@ def test_a_refused_command_answers_its_code_and_publishes_nothing(harness):
     assert host_calls(harness) == []
 
 
+def test_a_question_behind_a_newer_permission_is_answered(harness):
+    """An agent holding two kinds of wait can have either one answered.
+
+    One state cannot describe two waits: here it names the newer permission
+    while ``waitingOn`` still names the older question — see CONTEXT.md,
+    "Wait kind".
+    """
+    question, _ = split_at_control_response(read_fixture("question-unanswered.jsonl"))
+    permission, _ = split_at_control_response(read_fixture("permission-request.jsonl"))
+    # The permission's ask alone: its own handshake would replay a second init.
+    ask = [
+        e
+        for e in permission
+        if e["type"] == "control_request"
+        and (e.get("request") or {}).get("subtype") == "can_use_tool"
+    ]
+    harness.daemon.rows["ag1"] = agent_row(state="awaiting-permission")
+    harness.daemon.backlog["ag1"] = question + ask
+    # The backlog raises both waits; the fake holds one reply shape, and this
+    # test answers the question, so that is the one to build it from.
+    harness.daemon.pending["ag1"] = pending_from(question)
+
+    async def scenario():
+        async with harness.client() as api:
+            agent = await api.get_json("/api/agents/ag1")
+            reply = await api.post(
+                "/api/agents/ag1/answer",
+                {
+                    "requestId": "2ba1273d-d878-4923-ba21-31faa1067613",
+                    "answers": {"Which sort order?": "Newest first"},
+                },
+            )
+            return agent, reply
+
+    agent, reply = run(scenario())
+    # One state, two waits: it names the newer permission, not the question.
+    assert agent["state"] == "awaiting-permission"
+    assert agent["pendingRequestIds"] == [
+        "2ba1273d-d878-4923-ba21-31faa1067613",
+        "bf4483ca-f847-49c9-8ed5-ceaf97e7b9fa",
+    ]
+    assert reply.status == 200
+    assert [c for c in harness.daemon.calls if c.get("cmd") == "answer"] == [
+        {
+            "cmd": "answer",
+            "id": "ag1",
+            "request": "2ba1273d-d878-4923-ba21-31faa1067613",
+            "answers": {"Which sort order?": "Newest first"},
+        }
+    ]
+
+
+def test_approving_a_trimmed_question_is_refused_on_the_state_alone(harness):
+    """A lone wait lets the state stand in for the item the transcript dropped.
+
+    No other layer refuses this: the daemon guards an answer to a non-question
+    but not an approve of a question, which reaches the agent as an allow
+    carrying no answers — that is, as no answer at all.
+    """
+    waiting_on(harness, "question-unanswered.jsonl")
+
+    async def scenario():
+        async with harness.client() as api:
+            # The transcript keeps TRANSCRIPT_ITEMS items, so a pending item can
+            # be trimmed while its id is still pending.
+            harness.orch.transcript_log("ag1").items.clear()
+            return await api.post(
+                "/api/agents/ag1/approve",
+                {"requestId": "2ba1273d-d878-4923-ba21-31faa1067613"},
+            )
+
+    reply = run(scenario())
+    assert (reply.status, reply.body["error"]["code"]) == (409, "wrong_wait_kind")
+    assert host_calls(harness) == []
+
+
 @pytest.mark.parametrize(
     ("send", "status", "code"),
     [

@@ -388,6 +388,29 @@ function read(path: string, server: FakeServer): Reply {
 
 const NOT_IMPLEMENTED = [/^POST \/api\/documents\/[^/]+\/comments/, /^POST \/api\/shaping$/];
 
+/** The wait tables, mirroring `orchestrator/validate.py`. */
+const WAIT_FOR_ACTION: Record<string, readonly string[]> = {
+  approve: ['permission_request', 'plan_review'],
+  deny: ['permission_request', 'plan_review'],
+  answer: ['question'],
+};
+
+const WAIT_NAMES: Record<string, string> = {
+  permission_request: 'a permission',
+  plan_review: 'a plan review',
+  question: 'a question',
+};
+
+const waitName = (kind: string) => WAIT_NAMES[kind] ?? kind;
+
+/** How a wait reads in `waitingOn`, the way the normaliser summarises it. */
+function summaryOf(item: TranscriptItem): string {
+  if (item.type === 'question') return item.questions[0]?.question ?? '';
+  if (item.type === 'permission_request') return item.description || item.tool;
+  if (item.type === 'plan_review') return 'Plan awaiting review';
+  return '';
+}
+
 /**
  * A command route, with the consequences the real server's world would
  * show: the notices it raises, the agent it moves, the item it patches.
@@ -484,6 +507,17 @@ function command(
     const wait = server.transcripts[agentId]?.items.find(
       (i) => 'requestId' in i && i.requestId === requestId,
     );
+    // Mirrors `orchestrator/validate.py`: the named wait decides, and an
+    // unknown item is let through there for the same reason.
+    const answerable = WAIT_FOR_ACTION[action] ?? [];
+    if (wait && !answerable.includes(wait.type)) {
+      const want = answerable.map(waitName).join(' or ');
+      return error(
+        409,
+        'wrong_wait_kind',
+        `Request ${requestId} is ${waitName(wait.type)}, not ${want}`,
+      );
+    }
     if (wait) {
       const patch: Partial<TranscriptItem> =
         action === 'answer'
@@ -495,11 +529,21 @@ function command(
             : { decision: 'deny', reason: str('reason') };
       server.patch(agentId, wait.id, patch);
     }
+    // Only the answered ask ends; the others stand, as `normalise.end_wait` does
+    // it. `waitingOn` then names the oldest of those, and the state is left
+    // alone until the last wait goes — ending one ask says nothing about the
+    // kind of the next.
+    const held = agent.pendingRequestIds.filter((id) => id !== requestId);
+    // `held[0]`, not the first that resolves: the server reads its oldest off
+    // the pending map, which never holds an id without an item.
+    const oldest = server.transcripts[agentId]?.items.find(
+      (i) => 'requestId' in i && i.requestId === held[0],
+    );
     world.agents[agentId] = {
       ...agent,
-      state: 'processing',
-      pendingRequestIds: [],
-      waitingOn: '',
+      state: held.length > 0 ? agent.state : 'processing',
+      pendingRequestIds: held,
+      waitingOn: oldest ? summaryOf(oldest) : '',
     };
     const cleared: string[] = [];
     for (const item of Object.values(world.attention)) {

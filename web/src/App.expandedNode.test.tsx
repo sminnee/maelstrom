@@ -146,6 +146,43 @@ describe('the expanded node', () => {
     await waitFor(() => expect(nodeState('MAEL-52')).not.toBe('needs-attention'));
   });
 
+  it('answers a question that sits behind a newer permission, and approves the permission', async () => {
+    // The agent reports the newer permission while the question is still open,
+    // so each reply must be judged by the request it names — see CONTEXT.md,
+    // "Wait kind".
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.append('b7d2e4a0', {
+      id: 'b7d2e4a0-p',
+      ts: '',
+      type: 'permission_request',
+      requestId: 'req-mael52-p',
+      tool: 'Bash',
+      input: { command: 'pnpm test' },
+      description: 'Run the web suite',
+    });
+    server.change({ kind: 'agent', ids: ['b7d2e4a0'] }, (w) => {
+      w.agents['b7d2e4a0'] = {
+        ...w.agents['b7d2e4a0']!,
+        state: 'awaiting-permission',
+        pendingRequestIds: ['req-mael52-q', 'req-mael52-p'],
+      };
+    });
+    clickNode('MAEL-52');
+    const card = expanded();
+
+    // The permission is the one the agent's state names; the question is not.
+    const prompt = await within(card).findByTestId('question-prompt');
+    await user.click(within(prompt).getAllByRole('radio')[0]!);
+    await user.click(within(prompt).getByRole('button', { name: 'Answer' }));
+    await waitFor(() =>
+      expect(within(card).queryByTestId('question-prompt')).not.toBeInTheDocument(),
+    );
+
+    await user.click(await within(card).findByRole('button', { name: 'Approve' }));
+    await waitFor(() => expect(nodeState('MAEL-52')).not.toBe('needs-attention'));
+  });
+
   it("shows the task's notebook status", async () => {
     await renderApp();
     clickNode('NORT-9.1');
