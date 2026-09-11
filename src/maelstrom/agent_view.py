@@ -370,14 +370,20 @@ def footer_fields(view: AttachView, branch: str) -> dict[str, str]:
 
 
 def _tokens(usage: TokenUsage) -> str:
-    """Total tokens, short enough for a footer."""
+    """Total tokens, short enough for a footer.
+
+    Truncates rather than rounding, so "148k tok" means at least 148,000 and a
+    size never reads larger than the session is. ``sessionSize`` in
+    ``web/src/protocol/tokens.ts`` is this rule for the web UI, and
+    ``tests/test_agent_view.py`` holds the cases both must agree on.
+    """
     total = usage.total
     if not total:
         return ""
     if total >= 1_000_000:
-        return f"{total / 1_000_000:.1f}M tok"
+        return f"{total // 100_000 / 10:.1f}M tok"
     if total >= 1000:
-        return f"{total / 1000:.0f}k tok"
+        return f"{total // 1000}k tok"
     return f"{total} tok"
 
 
