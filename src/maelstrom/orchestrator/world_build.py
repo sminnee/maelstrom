@@ -15,11 +15,13 @@ from .. import task as model
 from ..worktree_model import get_worktree_folder_name
 from .protocol import (
     Agent,
+    HostUsage,
     Project,
     ServerEvent,
     Task,
     TaskLogEntry,
     TaskStep,
+    UsageWindow,
     Worktree,
 )
 
@@ -249,6 +251,40 @@ def link_agent(
         project=project,
         worktree_id=worktree["id"] if worktree else "",
     )
+
+
+def host_usage(raw: Any) -> HostUsage | None:
+    """The account's budget off a host listing, in the wire's own words.
+
+    The daemon speaks the model's ``resets_at``; the wire speaks ``resetsAt``.
+    A listing with no reading, or one whose windows are unreadable, gives
+    ``None`` — the caller leaves the last good reading standing rather than
+    publishing a budget nobody reported.
+    """
+    if not isinstance(raw, dict):
+        return None
+    five_hour = _usage_window(raw.get("five_hour"))
+    seven_day = _usage_window(raw.get("seven_day"))
+    if five_hour is None and seven_day is None:
+        return None
+    return {
+        "fiveHour": five_hour,
+        "sevenDay": seven_day,
+        "at": str(raw.get("at") or ""),
+    }
+
+
+def _usage_window(raw: Any) -> UsageWindow | None:
+    """One window, or ``None`` when it carries no utilisation to draw."""
+    if not isinstance(raw, dict) or raw.get("utilization") is None:
+        return None
+    try:
+        return {
+            "utilization": float(raw["utilization"]),
+            "resetsAt": int(raw.get("resets_at") or 0),
+        }
+    except (TypeError, ValueError):
+        return None
 
 
 def diff_kind(kind: str, old: dict[str, Any], new: dict[str, Any]) -> list[ServerEvent]:

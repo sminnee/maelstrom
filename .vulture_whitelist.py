@@ -53,6 +53,9 @@ clearedAt  # unused variable (src/maelstrom/orchestrator/protocol.py:167)
 anchor  # unused variable (src/maelstrom/orchestrator/protocol.py:226)
 createdAt  # unused variable (src/maelstrom/orchestrator/protocol.py:229)
 addedAt  # unused variable (src/maelstrom/orchestrator/protocol.py:236)
+resetsAt  # unused variable (src/maelstrom/orchestrator/protocol.py:252)
+fiveHour  # unused variable (src/maelstrom/orchestrator/protocol.py:264)
+sevenDay  # unused variable (src/maelstrom/orchestrator/protocol.py:265)
 
 # Fields on dataclasses and TypedDicts that something outside Python reads, or
 # that a constructor fills and only a caller reads back.

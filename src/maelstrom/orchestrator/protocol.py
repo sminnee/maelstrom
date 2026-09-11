@@ -240,12 +240,41 @@ class DeskEntry(TypedDict):
 HOST_ID = "agent-host"
 
 
+class UsageWindow(TypedDict):
+    """One rolling budget the account spends against.
+
+    ``utilization`` is quantised to whole percent by the source, so a reader
+    renders what it was given and never a finer figure.
+    """
+
+    utilization: float
+    #: When the window rolls over, unix seconds.
+    resetsAt: int
+
+
+class HostUsage(TypedDict):
+    """The account's budget, as the host last heard it.
+
+    A window nobody has reported is ``None``: nothing to say is said as
+    nothing, never as zero. ``at`` is when the reading was taken — a reading
+    only arrives while an agent takes a turn, so one taken long ago is stale
+    and a reader needs the time to know whether to trust it.
+    """
+
+    fiveHour: UsageWindow | None
+    sevenDay: UsageWindow | None
+    at: str
+
+
 class Host(TypedDict):
     """Whether the agent host answers, and since when it has not.
 
     The server never exits an agent because the host stopped answering — a
     daemon restart would otherwise flash every agent exited — so this is how a
     client learns that the agents it shows are the last known ones.
+
+    It also carries the account's budget, which is one figure for the machine
+    rather than one per agent: every agent spends the same account.
     """
 
     id: str
@@ -254,6 +283,8 @@ class Host(TypedDict):
     since: str
     #: The socket the server reaches the host on.
     socket: str
+    #: The account's budget, or ``None`` until a reading arrives.
+    usage: HostUsage | None
 
 
 class World(TypedDict):

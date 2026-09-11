@@ -20,6 +20,7 @@ from maelstrom.agent_model import PendingRequest, reply_for_approval
 from maelstrom.branch_name import TaskNames
 from maelstrom.orchestrator import linear_source, server
 from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
+from maelstrom.orchestrator.protocol import HostUsage
 from maelstrom.orchestrator.routes import SOCKETS, build_app, serving
 from maelstrom.orchestrator.server import Orchestrator
 from maelstrom.orchestrator.sources import (
@@ -1461,6 +1462,100 @@ def test_the_host_is_reported_unreachable_after_two_failed_polls_and_no_agent_ex
     assert agent_while_down["state"] != "exited"
     assert up["host"]["reachable"] is True
     assert calls == []
+
+
+def test_the_host_carries_the_accounts_usage(harness):
+    """The budget belongs to the account, so it rides the one host entity
+    rather than each agent: every agent would otherwise report the same
+    figure and the UI would have to pick between duplicates."""
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.usage = {
+        "five_hour": {"utilization": 0.07, "resets_at": 1788241800},
+        "seven_day": {"utilization": 0.24, "resets_at": 1788480000},
+        "at": NOW,
+    }
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await harness.orch.refresh_agents()
+                return await api.get_json("/api/host")
+
+    usage: HostUsage = run(scenario())["host"]["usage"]
+    five_hour, seven_day = usage["fiveHour"], usage["sevenDay"]
+    assert five_hour is not None and seven_day is not None
+    assert (five_hour["utilization"], five_hour["resetsAt"]) == (0.07, 1788241800)
+    assert (seven_day["utilization"], seven_day["resetsAt"]) == (0.24, 1788480000)
+    assert usage["at"] == NOW
+
+
+def test_a_new_reading_reaches_the_clients(harness):
+    """Reachability and the budget change for unrelated reasons, so a change
+    to the budget alone must still publish."""
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.usage = {
+        "five_hour": {"utilization": 0.07, "resets_at": 1},
+        "seven_day": None,
+        "at": "2026-09-11T09:00:00Z",
+    }
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await harness.orch.refresh_agents()
+                before = await api.get_json("/api/host")
+                harness.daemon.usage = {
+                    "five_hour": {"utilization": 0.80, "resets_at": 1},
+                    "seven_day": None,
+                    "at": "2026-09-11T10:00:00Z",
+                }
+                await stream.change("host", "agent-host")
+                return before, await api.get_json("/api/host")
+
+    before, host = run(scenario())
+    assert host["host"]["usage"]["fiveHour"]["utilization"] == 0.80
+    # The commit's reason for one writer over two: `since` is how long the
+    # host has been down, so a budget reading must not reset that clock.
+    assert host["host"]["since"] == before["host"]["since"]
+
+
+def test_an_unchanged_reading_publishes_nothing(harness):
+    """The poll runs every 2s. A reading that has not moved must not thrash
+    the clients, exactly as an unchanged reachability does not."""
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.usage = {
+        "five_hour": {"utilization": 0.07, "resets_at": 1},
+        "seven_day": None,
+        "at": NOW,
+    }
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await harness.orch.refresh_agents()
+                before = published(harness)
+                await harness.orch.refresh_agents()
+                return published(harness) - before
+
+    assert run(scenario()) == 0
+
+
+def test_a_host_with_no_reading_offers_no_usage(harness):
+    """Nothing to report is reported as nothing, so the bar draws no chip
+    rather than a confident zero."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await harness.orch.refresh_agents()
+                return await api.get_json("/api/host")
+
+    assert run(scenario())["host"]["usage"] is None
 
 
 def test_one_failed_poll_raises_no_host_notice(harness):

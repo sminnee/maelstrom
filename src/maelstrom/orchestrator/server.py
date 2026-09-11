@@ -49,6 +49,7 @@ from .protocol import (
     Agent,
     Document,
     Host,
+    HostUsage,
     ServerEvent,
     TranscriptItem,
     World,
@@ -66,6 +67,7 @@ from .world_build import (
     AgentLink,
     agent_entity,
     diff_kind,
+    host_usage,
     link_agent,
     parse_agent_state,
 )
@@ -597,6 +599,7 @@ class Orchestrator:
             return
         self._host_failures = 0
         self._set_host_reachable(True)
+        self._set_host_usage(host_usage(reply.get("usage")))
         rows = {row["id"]: row for row in reply.get("agents", [])}
         agents = self.world["agents"]
         for agent_id, row in rows.items():
@@ -632,15 +635,55 @@ class Orchestrator:
         clients keep their cursors through it. The host entity is what tells a
         client the agents it shows are the last known ones.
         """
+        self._set_host(reachable=reachable)
+
+    def _set_host_usage(self, usage: HostUsage | None) -> None:
+        """Record the account's budget, publishing only a change.
+
+        Separate from :meth:`_set_host_reachable` because the two change for
+        unrelated reasons: the budget moves as agents work, reachability only
+        when the daemon goes. A poll runs every couple of seconds, so a reading
+        that has not moved must publish nothing.
+        """
+        if usage is None:
+            # A poll that carried no reading is not news that the budget is
+            # gone — only that this listing had nothing to add.
+            return
+        self._set_host(usage=usage)
+
+    def _set_host(
+        self,
+        *,
+        reachable: bool | None = None,
+        usage: HostUsage | None = None,
+    ) -> None:
+        """Publish the host entity when a fact on it has changed.
+
+        One writer for both facts, so neither overwrites the other's field.
+        ``since`` tracks ``reachable`` alone: it is how long the host has been
+        down, and a budget reading arriving must not reset that clock.
+        """
         old = self.world["host"]
         current = old.get(HOST_ID)
-        if current is not None and current["reachable"] == reachable:
+        was_reachable = current["reachable"] if current else None
+        next_reachable = was_reachable if reachable is None else reachable
+        next_usage = (
+            (current.get("usage") if current else None) if usage is None else usage
+        )
+        if (
+            current is not None
+            and current["reachable"] == next_reachable
+            and current.get("usage") == next_usage
+        ):
             return
         entity: Host = {
             "id": HOST_ID,
-            "reachable": reachable,
-            "since": self.clock(),
+            "reachable": bool(next_reachable),
+            "since": current["since"]
+            if current is not None and was_reachable == next_reachable
+            else self.clock(),
             "socket": str(getattr(self.daemon, "socket_path", "")),
+            "usage": next_usage,
         }
         self._apply(diff_kind("host", old, {HOST_ID: entity}))
 
