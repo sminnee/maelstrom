@@ -72,6 +72,7 @@ from .agent_model import (
     build_stopped_rows,
     build_subagent_detail,
     build_subagent_rows,
+    freshest_usage,
     interrupt_request,
     mark_exited,
     open_asks,
@@ -1145,7 +1146,10 @@ class AgentDaemon:
                     rows += build_subagent_rows(a.state)
             if scope in (SCOPE_STOPPED, SCOPE_ALL):
                 rows += await self.stopped_rows(payload.get("cwd") or None)
-            return {"agents": rows}
+            # One account spans every agent, so the budget rides the listing
+            # once rather than on each row.
+            usage = freshest_usage(a.state for a in self.agents.values())
+            return {"agents": rows, "usage": usage}
 
         agent, dotted = self._resolve(payload.get("id", ""))
         if agent is not None and dotted:
