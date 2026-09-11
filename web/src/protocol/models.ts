@@ -18,3 +18,21 @@ export const UNSET_MODEL = '';
  * default it. A hand-kept mirror of `task.DEFAULT_MODEL`, like `MODES`.
  */
 export const DEFAULT_MODEL = 'opus';
+
+/**
+ * A model as the interface says it, from whatever the wire holds.
+ *
+ * The field is free-form: a task stores the alias it was launched with, and a
+ * running agent reports the id Claude resolved that alias to. Both name one
+ * model, so both read as the alias — `claude-opus-5` and `opus` alike.
+ *
+ * An id counts as an alias only when the alias ends it or a `-` follows, so
+ * `claude-opusine-9` stays whole rather than reading as `opus`. An id outside
+ * `MODELS` passes through whole.
+ */
+export function modelLabel(model: string): string {
+  const match = MODELS.find(
+    (m) => model === m || model === `claude-${m}` || model.startsWith(`claude-${m}-`),
+  );
+  return match ?? model;
+}

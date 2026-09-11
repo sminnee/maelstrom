@@ -3,6 +3,7 @@ import { useAnswer, useApprove, useDeny, useRun, useSay, useSetMode } from '../a
 import { useWorld } from '../api/useWorld';
 import { useAgentStream } from '../live/useAgentStream';
 import type { Agent } from '../protocol/entities';
+import { modelLabel } from '../protocol/models';
 import { nextMode } from '../protocol/modes';
 import { contextSize } from '../protocol/tokens';
 import { finishedSubagentsOf, subagentsOf } from '../selectors/agents';
@@ -68,7 +69,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
     // nothing, so `bravo` alone would not say which project's bravo.
     agent.worktreeId,
     where?.branch || task?.branch || '',
-    agent.model,
+    modelLabel(agent.model),
     contextSize(agent.contextTokens),
     agent.costUsd ? `$${agent.costUsd.toFixed(2)}` : '',
   ].filter(Boolean);

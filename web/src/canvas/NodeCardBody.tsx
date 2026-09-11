@@ -7,6 +7,7 @@ import { useAgentStream } from '../live/useAgentStream';
 import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
 import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
+import { modelLabel } from '../protocol/models';
 import { driftFixLabel, driftSentence } from '../protocol/progress';
 import type { GraphNode } from '../selectors/graph';
 import { isLive, nodeTitle } from '../selectors/graph';
@@ -77,7 +78,7 @@ export function NodeCardBody({
   const meta = [
     where?.branch || task?.branch || '',
     where?.nato || (agent ? agent.worktreeId : ''),
-    agent?.model || task?.model || '',
+    modelLabel(agent?.model || task?.model || ''),
     agent?.permissionMode || '',
     agent?.costUsd ? `$${agent.costUsd.toFixed(2)}` : '',
   ].filter(Boolean);
