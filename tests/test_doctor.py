@@ -635,3 +635,78 @@ class TestCheckPortAllocations:
         assert result.status == CheckStatus.FIXED
         assert "bravo" in result.message
         assert "bravo" not in remaining
+
+
+class TestCheckChecksReadable:
+    """Whether this repo's CI state can be read at all.
+
+    `statusCheckRollup` needs the `checks=read` token permission, which GitHub
+    no longer offers in the fine-grained PAT UI. The Actions API answers the
+    same question and can be granted, so a repo that refuses both is the only
+    one whose pull requests can never show a CI state — and it should say so
+    rather than leaving every chip reading "checks not readable" unexplained.
+    """
+
+    @staticmethod
+    def _run(
+        monkeypatch,
+        *,
+        returncode=0,
+        remote="https://github.com/acme/repo.git",
+        stderr="",
+        raises=None,
+    ):
+        from maelstrom import doctor
+
+        def _run_cmd(cmd, cwd=None, quiet=False, check=True, **kwargs):
+            if cmd[:2] == ["git", "remote"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout=remote, stderr="")
+            if raises is not None:
+                raise raises
+            return subprocess.CompletedProcess(
+                cmd, returncode, stdout="", stderr=stderr
+            )
+
+        monkeypatch.setattr(doctor, "run_cmd", _run_cmd)
+        return doctor._check_checks_readable(Path("/proj"))
+
+    def test_ok_when_the_runs_can_be_read(self, monkeypatch):
+        assert self._run(monkeypatch, returncode=0).status == CheckStatus.OK
+
+    def test_warns_when_neither_source_can_be_read(self, monkeypatch):
+        result = self._run(monkeypatch, returncode=1)
+        assert result.status == CheckStatus.WARNING
+        # Name the permission, so the reader can act without reading the source.
+        assert "Actions" in result.message
+
+    def test_says_nothing_about_a_repo_github_does_not_host(self, monkeypatch):
+        """A self-hosted or local repo has no checks to read here. Telling its
+        owner to fix a GitHub token would be advice about the wrong system."""
+        result = self._run(monkeypatch, returncode=1, remote="git@git.acme.internal:x")
+        assert result.status == CheckStatus.OK
+
+    def test_a_machine_without_gh_does_not_lose_the_rest_of_the_run(self, monkeypatch):
+        """`gh` is optional everywhere else. Raised from here it aborts the
+        whole command, so every check after this one is lost — and doctor is
+        what a user runs when something is already wrong."""
+        result = self._run(monkeypatch, raises=FileNotFoundError(2, "no gh", "gh"))
+        assert result.status == CheckStatus.OK
+        assert "gh" in result.message
+
+    def test_a_read_that_never_answers_does_not_hang_the_run(self, monkeypatch):
+        """Waiting forever on a captive portal leaves doctor printing nothing.
+        A timeout is not a refused permission, so it must not advise one."""
+        result = self._run(monkeypatch, raises=subprocess.TimeoutExpired(["gh"], 5.0))
+        assert result.status == CheckStatus.OK
+
+    def test_a_read_that_could_not_reach_github_does_not_blame_the_token(
+        self, monkeypatch
+    ):
+        """Offline is the case a diagnostic most needs to get right. Telling a
+        user to grant a permission they may already hold is worse than silence.
+        """
+        result = self._run(
+            monkeypatch, returncode=1, stderr="dial tcp: lookup api.github.com"
+        )
+        assert result.status == CheckStatus.OK
+        assert "reach" in result.message

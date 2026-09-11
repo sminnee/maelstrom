@@ -345,7 +345,7 @@ async def _get_run_states(cwd: Path) -> dict[str, PrState]:
     """
     try:
         result = await run_cmd_async(
-            _run_states_argv(), cwd=cwd, quiet=True, check=False
+            run_states_argv(), cwd=cwd, quiet=True, check=False
         )
     except (OSError, FileNotFoundError):
         return {}
@@ -354,7 +354,7 @@ async def _get_run_states(cwd: Path) -> dict[str, PrState]:
     return parse_run_states(result.stdout.strip())
 
 
-def _run_states_argv() -> list[str]:
+def run_states_argv() -> list[str]:
     """The ``gh api`` argv that lists this repo's recent pull-request runs."""
     return [
         "gh",
