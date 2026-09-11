@@ -160,11 +160,7 @@ def test_a_result_event_adds_its_tokens_to_the_running_total():
 
 
 def test_a_second_turn_adds_to_the_token_total_rather_than_replacing_it():
-    """A ``result`` reports the turn, not the session — unlike ``total_cost_usd``.
-
-    So two turns of the same size read as twice one turn, while the cost, which
-    the harness already reports for the session, stays as the last one said.
-    """
+    """A ``result`` reports the turn, not the session — unlike ``total_cost_usd``."""
     state = replay("normal-turn.jsonl")
     state = apply_event(
         state,

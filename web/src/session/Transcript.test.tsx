@@ -23,6 +23,17 @@ describe('Transcript', () => {
     );
   });
 
+  it('ends a turn with how it went and how long, and leaves the money to the header', () => {
+    // `costUsd` on a turn is the session's total, not the turn's. The header
+    // says it once; see `docs/dev/orchestrator-ui.md`.
+    const items = goldenItems('normal-turn.jsonl');
+    render(<Transcript items={items} truncatedBefore={false} />);
+    const [line] = screen
+      .getAllByTestId('transcript-card')
+      .filter((c) => c.getAttribute('data-item-type') === 'turn_result');
+    expect(line).toHaveTextContent('turn success · 3.4s');
+  });
+
   it('leaves no empty row where the call that raised a wait would have drawn', () => {
     const items = goldenItems('plan-review.jsonl');
     expect(items.some(raisesAWait)).toBe(true);

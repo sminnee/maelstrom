@@ -319,11 +319,7 @@ def test_a_completed_turn_adds_its_tokens_to_the_agents_running_total():
 
 
 def test_a_second_turn_adds_to_the_token_total_rather_than_replacing_it():
-    """The stream must move the number the same way the daemon's state does.
-
-    A ``result`` reports one turn, so the running total is what the header
-    shows. Replacing here would make a long session read as its last turn.
-    """
+    """The stream must move the number the same way the daemon's state does."""
     state = replay("normal-turn.jsonl")
     out = normalise_stream_event(
         state.state,
