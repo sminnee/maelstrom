@@ -122,11 +122,23 @@ export interface Agent {
   lastMessageAt: string;
   costUsd: number;
   /**
-   * Tokens the session has consumed, summed over its turns: how large the
-   * conversation has grown. `0` for a subagent, which has no session of its
-   * own — its size is counted in its parent's total.
+   * Tokens the session has consumed, summed over its turns: how much work it
+   * has done. Not how full its context is — a turn re-reads its prompt from
+   * cache each request, so this counts the same context again and again and
+   * runs past any window. `contextTokens` is the figure for that.
+   *
+   * `0` for a subagent, which has no session of its own — its size is counted
+   * in its parent's total.
    */
   totalTokens: number;
+  /**
+   * What the agent's prompt last held, off the newest `assistant` event: a
+   * level, not a total, so it falls when the agent compacts. This is what a
+   * reader deciding whether to compact wants.
+   *
+   * `0` for a subagent, whose context is the parent's prompt.
+   */
+  contextTokens: number;
   taskId: TaskId;
   project: ProjectId;
   worktreeId: WorktreeId;

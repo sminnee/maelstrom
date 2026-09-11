@@ -4,7 +4,7 @@ import { useWorld } from '../api/useWorld';
 import { useAgentStream } from '../live/useAgentStream';
 import type { Agent } from '../protocol/entities';
 import { nextMode } from '../protocol/modes';
-import { sessionSize } from '../protocol/tokens';
+import { contextSize } from '../protocol/tokens';
 import { finishedSubagentsOf, subagentsOf } from '../selectors/agents';
 import { progressOf } from '../protocol/progress';
 import { sessionTab } from '../selectors/tabs';
@@ -57,9 +57,15 @@ export function SessionTab({ agentId }: { agentId: string }) {
   }, [count]);
 
   if (!agent) return <div className={styles.empty}>Agent {agentId} is gone.</div>;
-  // Where the agent runs, what it runs on, and what the session has cost so
-  // far. A free agent has no task to carry any of this, so its transcript is
-  // the only place it can be said. Empty fields drop out, as on the node card.
+  // Where the agent runs, what it runs on, how full its context is and what
+  // the session has cost so far. A free agent has no task to carry any of
+  // this, so its transcript is the only place it can be said. Empty fields
+  // drop out, as on the node card.
+  //
+  // The context, not the session's running token total: the total counts each
+  // turn's re-read prompt again and runs past any window, so it cannot answer
+  // the question this line is read for, which is whether to compact. The cost
+  // beside it is what says how much work the session has done.
   const where = world.worktrees[agent.worktreeId];
   const meta = [
     // The qualified folder id, where the node card shows the bare nato word:
@@ -68,7 +74,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
     agent.worktreeId,
     where?.branch || task?.branch || '',
     agent.model,
-    sessionSize(agent.totalTokens),
+    contextSize(agent.contextTokens),
     agent.costUsd ? `$${agent.costUsd.toFixed(2)}` : '',
   ].filter(Boolean);
   // Compacting is a turn like any other, so the agent must be free to take

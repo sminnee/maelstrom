@@ -196,14 +196,18 @@ The session tab head carries a mode chip naming the agent's permission mode. A c
 agent to the next mode: plan, then auto, then normal. The chip shows the mode the child last
 announced, so a refused change leaves it where it was.
 
-A second line under it names the worktree, the branch, the model, the session's size in tokens
-and what it has cost. An empty field drops out. This line matters most for a free agent: it has
-no task, so its own transcript is the only place that says where it runs. The size comes from
-`totalTokens` on the agent row, which the daemon sums over the session's turns. The turn lines in
-the transcript carry no money: their `costUsd` is the session's running total rather than the
-turn's, so the header says it once instead.
+Beside it on the same row — under it once the panel is dragged below 30rem — the head names the
+worktree, the branch, the model, how full the context is and what the session has cost. An empty
+field drops out. This matters most for a free agent: it has no task, so its own transcript is the
+only place that says where it runs. The turn lines in the transcript carry no money: their
+`costUsd` is the session's running total rather than the turn's, so the header says it once
+instead.
 
-A Compact button at the right of that line sends `/compact` to the agent. This is a `say`, not a
+The size is `contextTokens`, what the prompt last held, not the cumulative `totalTokens` — see
+`docs/dev/agent-daemon.md`, "A turn", for why the cumulative figure cannot answer whether to
+compact. It falls when the agent compacts.
+
+A Compact button at the right of that group sends `/compact` to the agent. This is a `say`, not a
 command of maelstrom's own: a slash command reaches Claude Code as the text of a user turn. The
 button is disabled unless the agent is idle with nothing pending, because a compact sent mid-turn
 queues behind the work. A subagent gets neither the line nor the button: it has no session, no

@@ -58,6 +58,7 @@ function agent(over: Partial<Agent> = {}): Agent {
     lastMessageAt: '',
     costUsd: 4.2,
     totalTokens: 148_000,
+    contextTokens: 62_400,
     taskId: 'MAEL-40',
     project: 'maelstrom',
     worktreeId: 'maelstrom-kilo',

@@ -374,9 +374,10 @@ def _tokens(usage: TokenUsage) -> str:
     """Total tokens, short enough for a footer.
 
     Truncates rather than rounding, so "148k tok" means at least 148,000 and a
-    size never reads larger than the session is. ``sessionSize`` in
-    ``web/src/protocol/tokens.ts`` is this rule for the web UI, and
-    ``tests/test_agent_view.py`` holds the cases both must agree on.
+    size never reads larger than the session is. ``contextSize`` in
+    ``web/src/protocol/tokens.ts`` is the same rule, over a different figure:
+    this footer reports the session's cumulative total, where the web header
+    reports how full the context is.
     """
     total = usage.total
     if not total:

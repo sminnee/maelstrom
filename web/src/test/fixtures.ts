@@ -71,6 +71,7 @@ export function makeAgent(over: Partial<Agent> = {}): Agent {
     lastMessageAt: '',
     costUsd: 0,
     totalTokens: 0,
+    contextTokens: 0,
     taskId: 'NORT-7',
     project: 'northwind',
     worktreeId: 'northwind-alpha',
