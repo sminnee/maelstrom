@@ -332,7 +332,7 @@ async def get_open_prs(cwd: Path, branches: set[str]) -> dict[str, PrStatus] | N
 
 
 async def _get_run_states(cwd: Path) -> dict[str, PrState]:
-    """The CI state of each recent head commit, read from Actions.
+    """The state of each recent head commit's checks, read from Actions.
 
     The fallback for a repo whose ``statusCheckRollup`` the token may not read.
     One page per repo, not one read per branch: the endpoint is repo-scoped and
