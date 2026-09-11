@@ -338,4 +338,10 @@ def validate_command(
             return _err("invalid", f"No mode {mode}")
         return None
 
+    if kind == "worktree.refresh":
+        # Nothing to check: it names no entity and carries no body. The read it
+        # asks for is the whole world's, and the server decides whether it can
+        # afford one right now.
+        return None
+
     return _err("invalid", f"Unknown command: {kind}")

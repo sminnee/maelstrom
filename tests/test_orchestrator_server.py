@@ -4005,6 +4005,73 @@ def test_closing_a_worktree_asks_the_source_and_refreshes_the_world(harness):
     assert worktrees["worktrees"][0]["isClosed"] is True
 
 
+def test_posting_a_refresh_reads_the_worktrees_again(harness):
+    """`mael gh create-pr` posts here so the PR it opened reaches the canvas
+    at once. The route must not be swallowed by the `{id}/close` wildcard."""
+
+    async def scenario():
+        async with harness.client() as api:
+            settled = harness.worktrees.reads
+            reply = await api.post("/api/worktrees/refresh")
+            assert harness.orch._event_read is not None
+            await harness.orch._event_read
+            return reply, harness.worktrees.reads - settled
+
+    reply, reads = run(scenario())
+    assert reply.status == 200
+    assert reads == 1
+
+
+def test_a_refresh_answers_without_waiting_for_the_read(harness):
+    """The read shells out per worktree across every project and takes seconds.
+    The caller is a command holding the user's terminal open, so it hears that
+    the server got the message and leaves; the UI is told on its own notice
+    stream when the answer lands.
+
+    The reply carries no result, which is what says the caller was not waiting
+    on one. The read itself is a task, so it outlives the request — with the
+    in-memory source it finishes instantly, and only a slow source shows the
+    gap. Measured against the real server, an awaited read timed out a 2s
+    client while this answers at once.
+    """
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post("/api/worktrees/refresh")
+            read = harness.orch._event_read
+            if read is not None:
+                await read
+            return reply, read
+
+    reply, read = run(scenario())
+    assert reply.status == 200
+    assert reply.body == {}
+    assert read is not None
+
+
+def test_a_refresh_is_ok_even_when_the_read_is_refused(harness):
+    """The caller has already opened its pull request. A read the server could
+    not run is its own business, not a failure to report back."""
+    harness.worktrees.rate_limited = True
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post("/api/worktrees/refresh")  # sets the stand-off
+            if harness.orch._event_read is not None:
+                await harness.orch._event_read
+            settled = harness.worktrees.reads
+            reply = await api.post("/api/worktrees/refresh")
+            if harness.orch._event_read is not None:
+                await harness.orch._event_read
+            return reply, harness.worktrees.reads - settled
+
+    reply, reads = run(scenario())
+    assert reply.status == 200
+    # The stand-off holds against an event too: a spent budget is spent
+    # whoever asks, and GitHub has already refused.
+    assert reads == 0
+
+
 def test_a_refused_close_says_what_the_model_said_and_changes_nothing(harness):
     def close(project: str, nato: str, path: str) -> None:
         raise CloseBlocked("Worktree has 2 commit(s) not merged to origin/main")
@@ -4349,6 +4416,122 @@ def test_the_poll_reads_again_once_the_stand_off_passes(harness_factory):
         return harness.worktrees.reads - settled
 
     assert asyncio.run(scenario()) > 0
+
+
+def test_an_event_reads_though_the_interval_has_not_passed(harness_factory):
+    """A pull request that was just raised is news, not a poll tick.
+
+    The freshness floor exists to stop a flapping stream reading once per
+    reconnect. An event says the world has actually changed, so it must not be
+    held behind that floor — otherwise the chip waits up to a minute for a PR
+    the user is watching for right now.
+    """
+    harness = harness_factory(worktree_poll=30.0)
+
+    async def scenario():
+        await harness.orch.start()
+        # An arrival read, so the freshness floor is holding.
+        with harness.orch.notices.subscribe():
+            assert harness.orch._catch_up is not None
+            await harness.orch._catch_up
+        settled = harness.worktrees.reads
+        await harness.orch.refresh_now()
+        await harness.orch.stop()
+        return harness.worktrees.reads - settled
+
+    assert asyncio.run(scenario()) == 1
+
+
+def _use_slow_read(harness):
+    """Hold the source's read open until the test releases it.
+
+    The real read shells out per worktree and takes seconds; this one answers
+    at once, so a test about two reads overlapping has no window without this.
+    Swapped onto the source itself rather than onto the orchestrator, so the
+    server reaches it through the same attribute it always reads.
+    """
+    source = harness.worktrees
+    plain = source.read
+
+    async def read(active_branches=None):
+        if source.blocked_on is not None:
+            await source.blocked_on.wait()
+        return plain(active_branches)
+
+    source.read = read
+
+
+def test_an_event_waits_out_a_read_that_started_before_it(harness_factory):
+    """A read in flight chose its branches, and may have asked GitHub, before
+    the pull request existed. Letting the event return there would drop the
+    news it carries in exactly the case it exists for — a poll tick landing
+    while `create-pr` finishes."""
+    harness = harness_factory(worktree_poll=30.0)
+
+    async def scenario():
+        await harness.orch.start()
+        gate = asyncio.Event()
+        harness.worktrees.blocked_on = gate
+        _use_slow_read(harness)
+        # A read that is under way and cannot finish yet.
+        in_flight = asyncio.create_task(harness.orch.refresh_worktrees())
+        await asyncio.sleep(0)
+        settled = harness.worktrees.reads
+        event = asyncio.create_task(harness.orch.refresh_now())
+        await asyncio.sleep(0)
+        gate.set()
+        await in_flight
+        await event
+        await harness.orch.stop()
+        return harness.worktrees.reads - settled
+
+    # Two: the one already going, and the one the event asked for after it.
+    assert asyncio.run(scenario()) == 2
+
+
+def test_a_second_event_does_not_orphan_the_first_read(harness_factory):
+    """Replacing the task would drop the reference to the first, leaving a
+    coroutine `stop` cannot cancel. Two agents finishing a PR together is the
+    case this feature exists for, so the burst is the normal one."""
+    harness = harness_factory(worktree_poll=30.0)
+
+    async def scenario():
+        await harness.orch.start()
+        gate = asyncio.Event()
+        harness.worktrees.blocked_on = gate
+        _use_slow_read(harness)
+        first = await harness.orch.handle_command({"type": "worktree.refresh"})
+        held = harness.orch._event_read
+        second = await harness.orch.handle_command({"type": "worktree.refresh"})
+        same = harness.orch._event_read is held
+        gate.set()
+        if harness.orch._event_read is not None:
+            await harness.orch._event_read
+        await harness.orch.stop()
+        return first["ok"], second["ok"], same
+
+    first_ok, second_ok, same = asyncio.run(scenario())
+    assert first_ok and second_ok
+    # The second is absorbed by the first rather than replacing it.
+    assert same
+
+
+def test_an_event_still_honours_the_stand_off(harness_factory):
+    """A spent budget is spent whoever asks. An event may skip the freshness
+    floor, which is about cost, but not the cooldown, which is about a refusal
+    GitHub has already given."""
+    harness = harness_factory(rate_limit_cooldown=30.0)
+    harness.worktrees.rate_limited = True
+
+    async def scenario():
+        await harness.orch.start()
+        settled = harness.worktrees.reads
+        for _ in range(5):
+            await harness.orch.refresh_now()
+        await harness.orch.stop()
+        return harness.worktrees.reads - settled
+
+    assert asyncio.run(scenario()) == 0
 
 
 def test_the_poll_asks_only_about_the_branches_on_the_desk(harness):

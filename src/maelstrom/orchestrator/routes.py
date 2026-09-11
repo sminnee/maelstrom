@@ -106,6 +106,7 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/tasks/{project}/{id}/status", _set_status)
     app.router.add_patch("/api/tasks/{project}/{id}", _update_task)
     app.router.add_post("/api/agents", _start_free_agent)
+    app.router.add_post("/api/worktrees/refresh", _refresh_worktrees)
     app.router.add_post("/api/worktrees/{id}/close", _close_worktree)
     app.router.add_post("/api/tasks/infer", _infer_task)
     app.router.add_post("/api/tasks", _create_task)
@@ -500,6 +501,17 @@ async def _update_task(request: web.Request) -> web.StreamResponse:
 async def _start_free_agent(request: web.Request) -> web.StreamResponse:
     """Start an agent tied to no task. It may open a worktree, so it can be slow."""
     return await _command(request, lambda body: {**body, "type": "agent.start"})
+
+
+async def _refresh_worktrees(request: web.Request) -> web.StreamResponse:
+    """Re-read the worktrees now, because a caller changed something on GitHub.
+
+    ``mael gh create-pr`` posts here so the pull request it opened reaches the
+    canvas at once rather than at the next poll. It takes no body: the read is
+    the whole world's, because one GraphQL call already covers every branch the
+    desk names.
+    """
+    return await _command(request, lambda _body: {"type": "worktree.refresh"})
 
 
 async def _close_worktree(request: web.Request) -> web.StreamResponse:

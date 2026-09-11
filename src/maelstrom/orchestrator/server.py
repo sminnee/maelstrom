@@ -174,6 +174,10 @@ class Orchestrator:
         #: The catch-up read an arriving client triggers, kept so it can be
         #: cancelled at stop and awaited by a test.
         self._catch_up: asyncio.Task[None] | None = None
+        #: The read an event triggers, kept for the same two reasons. Separate
+        #: from the catch-up: an arriving client and a new pull request can
+        #: land together, and neither should drop the other's task.
+        self._event_read: asyncio.Task[None] | None = None
         #: Bumped on every task change published; the task list's ETag.
         self.task_revision = 0
         #: One transcript per agent seen, fed by the normaliser and served to
@@ -248,18 +252,21 @@ class Orchestrator:
     async def stop(self) -> None:
         watching = [w.task for w in self._watches.values() if w.task is not None]
         detaching = list(self._detaches.values())
-        catching_up = [self._catch_up] if self._catch_up is not None else []
-        for task in [*self._pollers, *watching, *detaching, *catching_up]:
+        reading = [
+            task for task in (self._catch_up, self._event_read) if task is not None
+        ]
+        for task in [*self._pollers, *watching, *detaching, *reading]:
             task.cancel()
         await asyncio.gather(
             *self._pollers,
             *watching,
             *detaching,
-            *catching_up,
+            *reading,
             return_exceptions=True,
         )
         self._pollers = []
         self._catch_up = None
+        self._event_read = None
         # Cleared so a subscriber arriving after the stop schedules no read.
         self._started.clear()
         self._detaches.clear()
@@ -327,6 +334,39 @@ class Orchestrator:
             # Stamped from the end, and stamped even on failure: a source that
             # refuses every read must not be asked once per reconnect.
             self._served_at = asyncio.get_running_loop().time()
+
+    async def refresh_now(self) -> None:
+        """Re-read the worktrees because something changed the world.
+
+        For an event rather than a tick: a pull request that was just raised is
+        news, and the row carrying it is what the user is watching for. So this
+        skips :meth:`_kept_fresh`, which exists to stop a flapping notice stream
+        reading once per reconnect — a cost guard, not a correctness one.
+
+        The stand-off is still honoured. A spent budget is spent whoever asks,
+        and GitHub has already refused.
+
+        A read already in flight is waited out rather than skipped.
+        :meth:`refresh_worktrees` returns at once when its lock is held, and
+        that read chose its branches — and may have asked GitHub — before this
+        event happened. Returning there would drop the news the event carries,
+        in exactly the case the event exists for: a poll tick landing while
+        ``create-pr`` finishes.
+
+        Failures are logged, never raised: the caller is an action that has
+        already succeeded, and a stale chip must not fail it.
+        """
+        if self._standing_off():
+            return
+        try:
+            # Wait out a read that started before this event, then read for it.
+            async with self._worktree_read:
+                pass
+            await self.refresh_worktrees()
+        except RateLimited:
+            log.warning("GitHub rate limit reached; serving the last known PR state")
+        except Exception:  # noqa: BLE001 — mirrors the poller's own guard
+            log.exception("event-triggered read failed")
 
     async def _poll(
         self,
@@ -1065,6 +1105,7 @@ class Orchestrator:
             "document.approve": self._approve_document,
             "document.requestChanges": self._request_changes,
             "worktree.close": self._close_worktree,
+            "worktree.refresh": self._refresh_worktrees_now,
         }
         handler = handlers.get(kind)
         if handler is None:
@@ -1577,6 +1618,29 @@ class Orchestrator:
             # ports, so the world is stale whichever way this ends.
             await self.refresh_worktrees()
             await self.refresh_agents()
+        return {"ok": True, "result": {}}
+
+    async def _refresh_worktrees_now(self, _command: dict[str, Any]) -> dict[str, Any]:
+        """Re-read the worktrees because a caller changed something on GitHub.
+
+        ``mael gh create-pr`` is the caller: the pull request it just opened is
+        not in any world until something looks it up, and the next poll is up to
+        ``WORKTREE_POLL_SECS`` away.
+
+        The read is scheduled, not awaited. It shells out per worktree across
+        every project and takes seconds, and the caller is a command holding the
+        user's terminal open — it wants to know the server heard, not to wait
+        for the answer. The UI hears the result on its own notice stream.
+
+        A read already scheduled absorbs this one, as an arriving client's does:
+        replacing the task would drop the reference to the first, leaving a
+        coroutine nothing can cancel at stop.
+
+        Always ``ok``. The caller's own work has already succeeded, and a read
+        that could not run is the server's business rather than its failure.
+        """
+        if self._event_read is None or self._event_read.done():
+            self._event_read = asyncio.create_task(self.refresh_now())
         return {"ok": True, "result": {}}
 
     async def _set_status(self, command: dict[str, Any]) -> dict[str, Any]:
