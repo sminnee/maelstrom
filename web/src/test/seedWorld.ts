@@ -215,7 +215,9 @@ export function seedWorld(): Seed {
     worktree('northwind', 'bravo', { branch: 'feat/db-migrate', dirtyFiles: 7, sessionCount: 1 }),
     worktree('northwind', 'charlie', { isClosed: true }),
     worktree('northwind', 'delta', {
-      branch: 'feat/auth-rotation',
+      // Long on purpose: App.canvas.test.tsx reads this branch on an expanded
+      // card, where a short one would not exercise the meta line.
+      branch: 'feat/rotate-auth-tokens-for-every-service',
       prNumber: 118,
       prUrl: 'https://github.com/acme/northwind/pull/118',
       prState: 'ci-running',
@@ -346,7 +348,7 @@ body rather than the query builder.
       title: 'Rotate auth tokens',
       status: 'in-progress',
       command: 'watch-pr',
-      branch: 'feat/auth-rotation',
+      branch: 'feat/rotate-auth-tokens-for-every-service',
       parent: 'linear.NORT-12',
       createdMinutesAgo: 300,
     }),
