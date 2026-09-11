@@ -679,6 +679,43 @@ describe('drift between the task file and the agent', () => {
   });
 });
 
+describe('the usage and agent chips', () => {
+  it('shows no usage chip until the host has a reading', async () => {
+    await renderApp();
+    // Anchor on a chip the same render does produce, or the two negatives
+    // below would pass equally on a bar that has not painted yet.
+    await screen.findByLabelText(/agents working/);
+    expect(screen.queryByLabelText(/5-hour limit/)).toBeNull();
+    expect(screen.queryByLabelText(/7-day limit/)).toBeNull();
+  });
+
+  it('reads both windows once the host reports them', async () => {
+    const { server } = await renderApp();
+    await act(async () => {
+      server.change({ kind: 'host', ids: ['agent-host'] }, (world) => {
+        world.host = {
+          ...world.host!,
+          usage: {
+            fiveHour: { utilization: 0.07, resetsAt: Math.floor(Date.now() / 1000) + 3600 },
+            sevenDay: { utilization: 0.24, resetsAt: Math.floor(Date.now() / 1000) + 86_400 },
+            at: new Date().toISOString(),
+          },
+        };
+      });
+    });
+    await waitFor(() => expect(screen.getByLabelText(/5-hour limit: 7% used/)).toBeInTheDocument());
+    expect(screen.getByLabelText(/7-day limit: 24% used/)).toBeInTheDocument();
+  });
+
+  it('counts the agents that are working over those that are open', async () => {
+    await renderApp();
+    // The seed is deterministic: six top-level agents, four of them mid-turn.
+    // The literal is what makes this catch a miscount -- a regex over the
+    // shape would pass on "0 of 0" and on any wrong arithmetic.
+    expect(await screen.findByLabelText('4 of 6 agents working, 2 idle')).toBeInTheDocument();
+  });
+});
+
 describe('the attention chip', () => {
   it('expands the next node that needs the user, cycling on each click', async () => {
     const user = userEvent.setup();
@@ -833,7 +870,10 @@ describe('the session tab', () => {
     const prompt = screen.getByTestId('question-prompt');
     await user.click(within(prompt).getAllByRole('radio')[0]!);
     await user.click(within(prompt).getByRole('button', { name: 'Answer' }));
-    expect(nodeState('MAEL-52')).not.toBe('needs-attention');
+    // The answer is a mutation: the node re-reads once the server has taken it
+    // and the change notice has landed. Asserting synchronously here passes
+    // only when that round trip happens to fit in the click's own act().
+    await waitFor(() => expect(nodeState('MAEL-52')).not.toBe('needs-attention'));
   });
 
   it('shows what a blocked subagent waits on, beside that subagent', async () => {
@@ -1578,6 +1618,7 @@ describe('the agent host', () => {
           reachable: false,
           since: '2026-06-11T09:05:00Z',
           socket: '/x/agent-daemon.sock',
+          usage: null,
         };
       });
     });
