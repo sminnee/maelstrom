@@ -46,18 +46,27 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 /** Every tone at once: the set only reads as a set side by side. */
 export const Tones: Story = () => (
   <Board>
-    <Row label="rising utilisation">
-      <SplitChip label="5h" title="5-hour limit: 7% used" tone="neutral">
+    {/* Pace, not the percentage: the tone rises and falls out of step with the numbers. */}
+    <Row label="rising pace">
+      <SplitChip label="5h" title="5-hour limit: 7% used, resets in 4h 30m" tone="neutral">
         7%
       </SplitChip>
-      <SplitChip label="5h" title="5-hour limit: 62% used" tone="neutral">
-        62%
-      </SplitChip>
-      <SplitChip label="5h" title="5-hour limit: 84% used" tone="busy">
+      <SplitChip label="5h" title="5-hour limit: 84% used, resets in 10m" tone="neutral">
         84%
       </SplitChip>
-      <SplitChip label="5h" title="5-hour limit: 96% used" tone="bad">
-        96%
+      <SplitChip
+        label="5h"
+        title="5-hour limit: 45% used, ahead of pace, resets in 3h 0m"
+        tone="busy"
+      >
+        45%
+      </SplitChip>
+      <SplitChip
+        label="5h"
+        title="5-hour limit: 65% used, ahead of pace, resets in 3h 0m"
+        tone="bad"
+      >
+        65%
       </SplitChip>
     </Row>
     <Row label="the other tones">
