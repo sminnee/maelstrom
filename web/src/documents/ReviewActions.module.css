@@ -19,7 +19,3 @@
   border-radius: var(--radius);
   padding: 3px 6px;
 }
-.approve {
-  border-color: var(--ok);
-  color: var(--ok);
-}
