@@ -4,6 +4,7 @@ import { useWorld } from '../api/useWorld';
 import { useAgentStream } from '../live/useAgentStream';
 import type { Agent } from '../protocol/entities';
 import { nextMode } from '../protocol/modes';
+import { sessionSize } from '../protocol/tokens';
 import { finishedSubagentsOf, subagentsOf } from '../selectors/agents';
 import { progressOf } from '../protocol/progress';
 import { sessionTab } from '../selectors/tabs';
@@ -14,6 +15,15 @@ import { AppButton } from '../ui/AppButton';
 import { MessageInput } from './MessageInput';
 import { Transcript } from './Transcript';
 import styles from './SessionTab.module.css';
+
+/**
+ * What `Compact` says to the agent.
+ *
+ * A slash command reaches Claude Code as the text of a user turn. That is the
+ * path `task.build_prompt` already uses, so this is an ordinary `say` rather
+ * than a command of maelstrom's own.
+ */
+const COMPACT_COMMAND = '/compact';
 
 /**
  * The rich transcript plus an input. VS-Code-extension-like, not a terminal.
@@ -47,26 +57,68 @@ export function SessionTab({ agentId }: { agentId: string }) {
   }, [count]);
 
   if (!agent) return <div className={styles.empty}>Agent {agentId} is gone.</div>;
+  // Where the agent runs, what it runs on, and what the session has cost so
+  // far. A free agent has no task to carry any of this, so its transcript is
+  // the only place it can be said. Empty fields drop out, as on the node card.
+  const where = world.worktrees[agent.worktreeId];
+  const meta = [
+    // The qualified folder id, where the node card shows the bare nato word:
+    // the card has a project above it to carry the prefix and this line has
+    // nothing, so `bravo` alone would not say which project's bravo.
+    agent.worktreeId,
+    where?.branch || task?.branch || '',
+    agent.model,
+    sessionSize(agent.totalTokens),
+    agent.costUsd ? `$${agent.costUsd.toFixed(2)}` : '',
+  ].filter(Boolean);
+  // Compacting is a turn like any other, so the agent must be free to take
+  // one: not mid-turn, not blocked on a person, not gone. The button owns the
+  // send itself, so an in-flight one is its business rather than this rule's.
+  const canCompact = agent.state === 'idle' && agent.pendingRequestIds.length === 0;
+  const compactTitle =
+    agent.state === 'exited'
+      ? 'The agent has exited.'
+      : agent.pendingRequestIds.length > 0
+        ? 'The agent is waiting on you. Answer it first.'
+        : agent.state !== 'idle'
+          ? 'The agent is working. Compacting waits for the turn to end.'
+          : 'Compact the conversation, so the session keeps room to work.';
   return (
     <div className={styles.session} data-testid="session-tab">
-      <div className={styles.head}>
-        <span className={styles.agent}>
-          {isChild ? `${agent.id} · ${agent.description}` : agent.id}
-        </span>
-        <span className={styles.state} data-state={agent.state}>
-          {progressOf(task, agent, Object.values(world.attention)).words}
-        </span>
-        {agent.permissionMode && !isChild && (
-          <AppButton
-            variant="quiet"
-            className={styles.mode}
-            title={`Permission mode: ${agent.permissionMode}. Click for ${nextMode(agent.permissionMode)}.`}
-            onClick={() => setMode.mutateAsync({ agentId, mode: nextMode(agent.permissionMode) })}
-          >
-            {agent.permissionMode}
-          </AppButton>
+      <div className={styles.head} data-testid="session-head">
+        <div className={styles.headLine}>
+          <span className={styles.agent}>
+            {isChild ? `${agent.id} · ${agent.description}` : agent.id}
+          </span>
+          <span className={styles.state} data-state={agent.state}>
+            {progressOf(task, agent, Object.values(world.attention)).words}
+          </span>
+          {agent.permissionMode && !isChild && (
+            <AppButton
+              variant="quiet"
+              className={styles.mode}
+              title={`Permission mode: ${agent.permissionMode}. Click for ${nextMode(agent.permissionMode)}.`}
+              onClick={() => setMode.mutateAsync({ agentId, mode: nextMode(agent.permissionMode) })}
+            >
+              {agent.permissionMode}
+            </AppButton>
+          )}
+          {agent.waitingOn && <span className={styles.waiting}>{agent.waitingOn}</span>}
+        </div>
+        {!isChild && (
+          <div className={styles.headLine}>
+            <span className={styles.meta}>{meta.join(' · ')}</span>
+            <AppButton
+              variant="quiet"
+              className={styles.compact}
+              disabled={!canCompact}
+              title={compactTitle}
+              onClick={() => say.mutateAsync({ agentId, text: COMPACT_COMMAND })}
+            >
+              Compact
+            </AppButton>
+          </div>
         )}
-        {agent.waitingOn && <span className={styles.waiting}>{agent.waitingOn}</span>}
       </div>
       <div className={styles.scroll}>
         {transcript.status === 'connecting' && count === 0 && (
