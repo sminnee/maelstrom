@@ -61,7 +61,7 @@ from .transcript_log import (
     TranscriptLog,
     TranscriptSnapshot,
 )
-from .validate import check_linear_project, validate_command
+from .validate import WAIT_ITEM_FOR_STATE, check_linear_project, validate_command
 from .world import WorldState
 from .world_build import (
     AgentLink,
@@ -1069,10 +1069,39 @@ class Orchestrator:
         handler = handlers.get(kind)
         if handler is None:
             return _refused("invalid", f"Unsupported command: {kind}")
-        error = validate_command(self.world, command)
+        error = validate_command(
+            self.world, command, wait_kind=self._wait_kind(command)
+        )
         if error:
             return {"ok": False, "error": error}
         return await handler(command)
+
+    def _wait_kind(self, command: dict[str, Any]) -> str | None:
+        """The item type of the request a reply names, or ``None`` if unknown.
+
+        The world holds request ids without their kinds, so the kind is read off
+        the transcript item the request opened. A reply is judged by that item,
+        never by the agent's state — see ``CONTEXT.md``, "Wait kind".
+
+        A trimmed transcript falls back to the kind the agent's state names, and
+        only when the agent holds one wait. The state is the oldest wait on the
+        daemon and the newest in the world, so it says nothing reliable about a
+        particular request while several are open. One wait makes it exact, and
+        it is the case worth covering: approving a question sends an allow with
+        no answers, which the agent reads as no answer at all, and no other
+        layer refuses that.
+        """
+        if command.get("type") not in ("agent.approve", "agent.deny", "agent.answer"):
+            return None
+        agent_id = str(command.get("agentId", ""))
+        request_id = command.get("requestId")
+        for item in self.pending_requests(agent_id):
+            if item.get("requestId") == request_id:
+                return str(item.get("type"))
+        agent = self.world["agents"].get(agent_id)
+        if agent is None or len(agent["pendingRequestIds"]) != 1:
+            return None
+        return WAIT_ITEM_FOR_STATE.get(agent["state"])
 
     async def _ask_host(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         """One host request; the mapped refusal, or ``None`` on success."""

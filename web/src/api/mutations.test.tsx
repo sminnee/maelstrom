@@ -6,6 +6,7 @@ import {
   makeAgent,
   makeDocument,
   makeProject,
+  makePermissionRequest,
   makeQuestionItem,
   makeTask,
   worldWith,
@@ -47,7 +48,11 @@ function harness() {
       projects: [makeProject({ hasLinear: true })],
       tasks: [makeTask({ id: 'northwind/NORT-7' })],
       agents: [
-        makeAgent({ id: 'ag1', state: 'awaiting-question', pendingRequestIds: ['r1'] }),
+        makeAgent({
+          id: 'ag1',
+          state: 'awaiting-question',
+          pendingRequestIds: ['r1', 'r2'],
+        }),
         makeAgent({ id: 'ag2', state: 'exited', exitCode: 1 }),
       ],
       desk: [{ id: 'task:northwind/NORT-7', addedAt: '' }],
@@ -65,7 +70,7 @@ function harness() {
     transcripts: {
       ag1: {
         agentId: 'ag1',
-        items: [makeQuestionItem({ requestId: 'r1' })],
+        items: [makeQuestionItem({ requestId: 'r1' }), makePermissionRequest({ requestId: 'r2' })],
         truncatedBefore: false,
       },
     },
@@ -89,19 +94,29 @@ type Case = [
   invalidates: unknown[],
 ];
 
+// r1 is the question and r2 the permission, so each reply names the wait it
+// suits: a reply is judged by the request it names, not the agent's state.
 const AG = { agentId: 'ag1', requestId: 'r1' };
+const AG_PERMISSION = { agentId: 'ag1', requestId: 'r2' };
 const agentKeys = [keys.agents.list(), keys.agents.detail('ag1'), keys.attention()];
 const taskKeys = [keys.tasks.list(), keys.tasks.detail('northwind/NORT-7')];
 
 describe('the mutation hooks', () => {
   it.each<Case>([
-    ['useApprove', useApprove, AG, 'POST /api/agents/ag1/approve', { requestId: 'r1' }, agentKeys],
+    [
+      'useApprove',
+      useApprove,
+      AG_PERMISSION,
+      'POST /api/agents/ag1/approve',
+      { requestId: 'r2' },
+      agentKeys,
+    ],
     [
       'useDeny',
       useDeny,
-      { ...AG, reason: 'no' },
+      { ...AG_PERMISSION, reason: 'no' },
       'POST /api/agents/ag1/deny',
-      { requestId: 'r1', reason: 'no' },
+      { requestId: 'r2', reason: 'no' },
       agentKeys,
     ],
     [

@@ -117,7 +117,46 @@ def test_wrong_wait_kind_when_answering_a_permission_request():
         "requestId": "req-2",
         "answers": {"Which?": "A"},
     }
-    assert code(validate_command(world, cmd)) == "wrong_wait_kind"
+    assert (
+        code(validate_command(world, cmd, wait_kind="permission_request"))
+        == "wrong_wait_kind"
+    )
+
+
+def test_wrong_wait_kind_when_approving_a_question():
+    # The daemon does not guard this one: approving a question sends an allow
+    # with no ``answers`` key, which the agent reads as no answer at all. This
+    # check is the only thing standing between a user and a silently lost
+    # answer, so it stays.
+    world = world_with(
+        agents=[make_agent(state="awaiting-question", pendingRequestIds=["req-2"])]
+    )
+    cmd = {"type": "agent.approve", "agentId": "agent-1", "requestId": "req-2"}
+    assert code(validate_command(world, cmd, wait_kind="question")) == "wrong_wait_kind"
+
+
+def test_a_reply_suiting_its_own_request_is_allowed_whatever_the_state_says():
+    # An agent holds several waits at once, and one state cannot describe them
+    # all — see CONTEXT.md, "Wait kind". The state here names neither request.
+    world = world_with(
+        agents=[
+            make_agent(
+                state="awaiting-question", pendingRequestIds=["question", "permission"]
+            )
+        ]
+    )
+    cmd = {"type": "agent.approve", "agentId": "agent-1", "requestId": "permission"}
+    assert validate_command(world, cmd, wait_kind="permission_request") is None
+
+
+def test_an_unknown_wait_kind_is_left_to_the_host():
+    # The caller could not name the request's kind, so there is nothing to check
+    # it against. Refusing would strand a wait nobody can answer.
+    world = world_with(
+        agents=[make_agent(state="awaiting-question", pendingRequestIds=["req-2"])]
+    )
+    cmd = {"type": "agent.approve", "agentId": "agent-1", "requestId": "req-2"}
+    assert validate_command(world, cmd) is None
 
 
 def test_stale_version_when_approving_an_older_document_version():

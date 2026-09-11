@@ -725,6 +725,11 @@ The world is validated before the host is asked.
 | `stale_version` | The document version is not current |
 | `invalid` | Anything else: an empty reason, a task that is not actionable, an out-of-scope command, or a driving command on a subagent (`X.1 is a subagent of X; drive X`) |
 
+`wrong_wait_kind` reads the kind off the request the reply names, never off the agent's state —
+see `CONTEXT.md`, "Wait kind". A question and a permission open together are each answerable. When
+the transcript no longer holds the item, the server sends the reply and lets the host judge it.
+The log is a bounded ring, so refusing would strand a wait nobody could answer.
+
 The host's own refusals map to the same codes: "no such agent" to `unknown_id`, "has exited" to
 `agent_exited`, "not waiting" to `not_waiting`, "not waiting on a question" to `wrong_wait_kind`,
 anything else to `invalid`.
