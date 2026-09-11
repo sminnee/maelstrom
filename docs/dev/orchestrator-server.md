@@ -255,12 +255,19 @@ nothing, so a poll that finds no change is silent.
 The worktree read asks GitHub for the pull request on each branch. GitHub charges GraphQL by the
 number of nodes a query asks for, not by the number of calls, and the budget is 5000 points an
 hour. The query asks for 20 pull requests per branch, so a wide project costs many times a narrow
-one. Three rules keep that cost inside the budget.
+one. Four rules keep that cost inside the budget, one spends a read where it is worth it, and a
+last one reads the PR state the query cannot.
 
 **The poll asks only about the branches on the desk.** `desk.active_branches` joins each desk
 entry to its branch: a `task:` entry through the notebook, an `agent:` entry through its
 worktree. `worktreeId` carries that join, and the agent poll relinks it; between a worktree
 appearing and that relink the id is empty, so the agent's `cwd` answers instead.
+
+A `task:` entry contributes two names: the branch the notebook records, and the branch its agent
+is really on. A task that recorded none is given a generated name, so the notebook's answer is a
+guess, while the node draws the worktree its agent runs in. Ask about the guess alone and a row
+draws a branch nobody looked up, so its pull request never appears. The agent is reached through
+`taskId`, because the world keys agents by their own id.
 
 A branch off the desk is *not asked about*, which is not the same as *having no pull request*.
 `ListAllWorktreeSource` keeps the last pull request it saw, by project and then by branch, and
@@ -284,6 +291,21 @@ once — `start` reads before it serves anyone, and the poll reads for whoever i
 The floor therefore bounds the cost of a flapping stream at one read per client turnover, not at
 one per interval.
 
+**An event reads straight away.** `POST /api/worktrees/refresh` is how a command says the world
+moved: `mael gh create-pr` posts to it, because the pull request it opened is in no world until
+something looks it up and the next poll is up to `WORKTREE_POLL_SECS` away. `refresh_now` skips
+the freshness floor above — that floor guards against a flapping stream, and an event is not a
+reconnect — but still honours the stand-off below, because a spent budget is spent whoever asks.
+
+The read is scheduled, not awaited, so the route answers at once. It shells out per worktree
+across every project and takes seconds; the caller is a command holding a terminal open, and the
+UI hears the result on its own notice stream. A read already scheduled absorbs a second event
+rather than replacing it, which would leave a task nothing can cancel at stop.
+
+A read already *in flight* is waited out rather than skipped. That read chose its branches, and
+may have asked GitHub, before the event happened, so returning there would drop the news — in
+exactly the case the event exists for, a poll tick landing while `create-pr` finishes.
+
 **A refused read stands off for 10 minutes.** GitHub reports a spent budget with HTTP 200 and an
 error in the body, so `parse_open_prs` reads the payload and raises `RateLimited`. Other read
 failures fall back to one lookup per branch; a rate limit must not, because that turns one
@@ -296,6 +318,32 @@ client retries a dropped notice stream every 30 seconds, and without the shared 
 retry would ask GitHub again. The cooldown is fixed rather than read from the reset header: `gh`
 does not pass that header back, and an exhausted hourly window has been seen reporting a reset 84
 seconds away.
+
+**A refused check rollup falls back to Actions.** `statusCheckRollup` needs the `checks=read`
+token permission, which GitHub no longer offers in the fine-grained PAT UI, so some repositories
+refuse it and answer `null` — the same answer a repository with no CI gives. `rollup_refused`
+tells the two apart from the per-field errors beside the data.
+
+Where the rollup was refused, `get_open_prs` spends one REST call on
+`GET /actions/runs?event=pull_request`, which the grantable `Actions` permission covers.
+`parse_run_states` reduces the runs to one state per head commit, and `_pr_state` matches on the
+pull request's own head: a run against an earlier push is no answer, or a replaced commit would
+draw a green tick. One page per repository covers every branch — 100 runs reached 30 branches over
+nine days on one repository here, and 50 over six days on another — and REST is metered apart from
+the GraphQL budget. A repository that grants the rollup never pays for this.
+
+A run that reached no verdict answers for nothing. `cancelled`, `skipped`, `neutral`,
+`action_required` and `stale` are skipped rather than ranked, so a sibling run that did reach one
+still answers and a commit whose every run ended that way stays absent. Calling those green would
+put a tick on a commit nothing finished checking — the false green the head-commit match exists to
+prevent, by another door. Cancelling is the common one: a push superseding the last, or a
+concurrency group, and 39 of 100 runs on one repository here ended that way.
+
+The page is also a window in time, not a set of branches. So four cases read `checks-unreadable`:
+a commit whose build has fallen off the end of the page, a commit nothing has run yet, a commit
+whose runs all reached no verdict, and a repository that grants neither permission. All four are
+the same honest answer — nothing looked these checks up — and `mael doctor` names the last, which
+is the one a user can fix.
 
 ### Agents
 
@@ -652,6 +700,7 @@ The size cap is 5 MB, and the bytes must sniff as PNG, JPEG, GIF or WEBP. Both r
 400 `invalid`.
 
 | `POST /api/worktrees/{id}/close` | | `worktree.close` | `{}` |
+| `POST /api/worktrees/refresh` | | `worktree.refresh` | `{}` |
 
 `agent.setMode` is a pure relay. The child announces its new mode in its own `system`/`status`
 event, so the world changes when that arrives, and a mode the child refuses never reaches the
