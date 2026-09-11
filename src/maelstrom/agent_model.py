@@ -1273,7 +1273,7 @@ def freshest_usage(states: Iterable[AgentState]) -> dict[str, Any] | None:
     }
 
 
-def build_agent_row(state: AgentState) -> dict[str, Any]:
+def build_agent_row(state: AgentState, spawn_session: str = "") -> dict[str, Any]:
     """Everything ``mael agent list`` shows about one agent, as a flat dict.
 
     Every key is always present; a field with nothing to report is an empty
@@ -1286,6 +1286,12 @@ def build_agent_row(state: AgentState) -> dict[str, Any]:
     ``parent`` and ``description`` are empty here: a top-level agent has no
     parent, and its prompt is not a description. :func:`build_subagent_rows`
     fills both.
+
+    ``spawn_session`` is the id the spawn record pinned, and the row prefers
+    it: the task link joins on the pinned id, and a ``/clear`` moves the one
+    the agent reports. See ``docs/reference/environment.md``. It falls back to
+    the reported id, because only the daemon writes a record and a row is worth
+    serving without one.
     """
     # An exited agent answers nothing, whoever was waiting under it: a reply
     # needs a live pipe. So the exit outranks any ask still on file.
@@ -1302,7 +1308,7 @@ def build_agent_row(state: AgentState) -> dict[str, Any]:
         "parent": "",
         "description": "",
         "state": status,
-        "session": state.session_id,
+        "session": spawn_session or state.session_id,
         "cwd": state.cwd,
         "pid": state.pid,
         "model": state.model,
@@ -1465,12 +1471,15 @@ def build_stopped_rows(
     return sorted(rows, key=lambda row: row["modified_at"], reverse=True)
 
 
-def build_agent_detail(state: AgentState) -> dict[str, Any]:
+def build_agent_detail(state: AgentState, spawn_session: str = "") -> dict[str, Any]:
     """Everything ``mael agent show`` reports about one agent.
 
     A superset of :func:`build_agent_row`: the row is spread in, so the two
     commands can never disagree about the same agent. Every key is always
-    present, on the same contract as the row.
+    present, on the same contract as the row. ``spawn_session`` is the row's,
+    and is forwarded for the same reason — a detail that reported the moved id
+    while the listing reported the pinned one would break that promise in the
+    one case it was written for.
 
     Four keys carry what a row cannot. ``message`` is the last thing the agent
     said in full, where the row holds one line of it. ``request_id`` is what a
@@ -1487,7 +1496,7 @@ def build_agent_detail(state: AgentState) -> dict[str, Any]:
     pending = _oldest(open_asks(state))
     plan, plan_file = _plan_details(pending, state.last_message)
     return {
-        **build_agent_row(state),
+        **build_agent_row(state, spawn_session),
         "message": state.last_message,
         "request_id": pending.request_id if pending else "",
         "waiting_kind": pending.wait_kind if pending else "",

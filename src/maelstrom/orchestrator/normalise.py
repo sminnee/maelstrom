@@ -265,9 +265,11 @@ def normalise_stream_event(
                     "model": model,
                 }
             )
+            # The session is deliberately not adopted: the task link joins on
+            # the pinned id, which a `/clear` would move. The item above keeps
+            # the live id, because it names the conversation it belongs to.
             out.agent(
                 {
-                    "session": session_id or agent["session"],
                     "model": model or agent["model"],
                     "permissionMode": mode or agent["permissionMode"],
                 }
@@ -435,7 +437,6 @@ def normalise_stream_event(
                 # Mirrors ``agent_model.apply_event``, so the live stream and
                 # the next world poll agree on the number.
                 "totalTokens": agent["totalTokens"] + (0 if replay else tokens_of(raw)),
-                "session": _str(raw.get("session_id")) or agent["session"],
             }
         )
 

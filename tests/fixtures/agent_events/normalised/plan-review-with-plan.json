@@ -9,7 +9,7 @@
         "parent": "",
         "description": "",
         "state": "awaiting-plan-review",
-        "session": "b41f2740-e156-4634-842f-b2211f3b005f",
+        "session": "sess-1",
         "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
         "model": "claude-opus-5",
         "permissionMode": "plan",
