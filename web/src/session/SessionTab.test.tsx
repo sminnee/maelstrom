@@ -121,6 +121,18 @@ describe('the session header', () => {
   });
 });
 
+/** The boundary NORT-9's agent emits when a compact finishes. */
+function compactBoundary(server: Awaited<ReturnType<typeof renderApp>>['server']) {
+  server.append('d9a4c7f1', {
+    id: 'd9a4c7f1-compact',
+    ts: '',
+    type: 'compact',
+    trigger: 'manual',
+    preTokens: 23238,
+    postTokens: 3046,
+  });
+}
+
 describe('the compact button', () => {
   it('asks the agent to compact, which is its own command and not a UI fold', async () => {
     const user = userEvent.setup();
@@ -140,6 +152,114 @@ describe('the compact button', () => {
       expect(said).toBeDefined();
       expect((said!.body as { text: string }).text).toBe('/compact');
     });
+  });
+
+  it('stays busy until the boundary arrives, because the relay returns long before', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
+      w.agents['d9a4c7f1'] = { ...w.agents['d9a4c7f1']!, state: 'idle' };
+    });
+    await openTaskSession(user);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Compact' })).toBeEnabled());
+
+    await user.click(screen.getByRole('button', { name: 'Compact' }));
+
+    // `say` resolves when the server accepts the relay, which is a pure
+    // relay — the compaction itself takes 10s–130s after that.
+    await waitFor(() => expect(screen.getByRole('button', { name: /Compacting/ })).toBeDisabled());
+
+    compactBoundary(server);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Compact' })).toBeEnabled());
+  });
+
+  it('gives up when the agent goes idle without compacting, which is the refusal', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
+      w.agents['d9a4c7f1'] = { ...w.agents['d9a4c7f1']!, state: 'idle' };
+    });
+    await openTaskSession(user);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Compact' })).toBeEnabled());
+
+    await user.click(screen.getByRole('button', { name: 'Compact' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Compacting/ })).toBeDisabled());
+
+    // "Not enough messages to compact." is ordinary assistant text followed by
+    // an ordinary successful result, so the turn ending is the only signal
+    // there is — and it must not be mistaken for a finished compact.
+    server.append('d9a4c7f1', {
+      id: 'd9a4c7f1-refused',
+      ts: '',
+      type: 'turn_result',
+      subtype: 'success',
+      costUsd: 0.01,
+      durationMs: 900,
+    });
+
+    // The title carries the error, so this pins the refusal rather than the
+    // mere presence of an alert — the backstop would also raise one.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Failed/ })).toHaveAttribute(
+        'title',
+        expect.stringContaining('did not compact'),
+      ),
+    );
+  });
+
+  it('gives up when the agent exits, which appends no transcript item at all', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
+      w.agents['d9a4c7f1'] = { ...w.agents['d9a4c7f1']!, state: 'idle' };
+    });
+    await openTaskSession(user);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Compact' })).toBeEnabled());
+
+    await user.click(screen.getByRole('button', { name: 'Compact' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Compacting/ })).toBeDisabled());
+
+    // `mark_exited` emits no transcript item, so without reading the agent's
+    // own state the button would spin out the whole five-minute backstop.
+    server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
+      w.agents['d9a4c7f1'] = { ...w.agents['d9a4c7f1']!, state: 'exited', exitCode: 1 };
+    });
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+  });
+
+  it('draws the boundary in the transcript, where the operator can see it fell', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await openTaskSession(user);
+
+    compactBoundary(server);
+
+    const rule = await screen.findByTestId('compact');
+    expect(rule).toHaveTextContent('compacted');
+    // The header's own rounding, so the rule and the header read together.
+    // The unit lands once, on the figure it ends on.
+    expect(rule).toHaveTextContent('23k → 3k ctx');
+  });
+
+  it('folds the summary the compact carried over, which the harness wrote', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await openTaskSession(user);
+
+    server.append('d9a4c7f1', {
+      id: 'd9a4c7f1-carried',
+      ts: '',
+      type: 'compact_summary',
+      markdown: 'This session is being continued from a previous conversation.\n\nSummary: …',
+    });
+
+    const folded = await screen.findByTestId('compact-summary');
+    // Folded, so the body does not bury the rule directly above it.
+    expect(folded.tagName).toBe('DETAILS');
+    expect(folded).not.toHaveAttribute('open');
+    expect(folded).toHaveTextContent('carried over');
   });
 
   it('is not offered while the agent owes a turn, which would queue it behind the work', async () => {

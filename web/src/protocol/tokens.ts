@@ -19,10 +19,21 @@ const MILLION = 1_000_000;
  * header field that is empty drops out, and a fresh agent holds no prompt.
  */
 export function contextSize(tokens: number): string {
+  const figure = contextFigure(tokens);
+  return figure && `${figure} ctx`;
+}
+
+/**
+ * The same figure without the unit, for a reader that says `ctx` once.
+ *
+ * The compact rule reads `23k → 3k ctx`: one unit, on the figure it lands on.
+ * Both come from here so the rounding cannot drift between them.
+ */
+export function contextFigure(tokens: number): string {
   if (!Number.isFinite(tokens) || tokens <= 0) return '';
   // Truncated to a tenth, not rounded: `toFixed` would round 1,299,999 up to
   // 1.3M and read larger than the context is.
-  if (tokens >= MILLION) return `${(Math.floor(tokens / 100_000) / 10).toFixed(1)}M ctx`;
-  if (tokens >= THOUSAND) return `${Math.floor(tokens / THOUSAND)}k ctx`;
-  return `${Math.floor(tokens)} ctx`;
+  if (tokens >= MILLION) return `${(Math.floor(tokens / 100_000) / 10).toFixed(1)}M`;
+  if (tokens >= THOUSAND) return `${Math.floor(tokens / THOUSAND)}k`;
+  return `${Math.floor(tokens)}`;
 }

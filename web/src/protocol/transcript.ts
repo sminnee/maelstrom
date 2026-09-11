@@ -84,6 +84,33 @@ export interface TurnResultItem extends Base {
   durationMs: number;
 }
 
+/**
+ * Where the agent's context was compacted — see `CONTEXT.md`, "Compact
+ * boundary". The one event that says a compact finished rather than was
+ * refused, so the Compact button waits on this item's arrival.
+ *
+ * Both figures are `0` when the boundary carried no counts.
+ */
+export interface CompactItem extends Base {
+  type: 'compact';
+  /** `manual` or `auto`; the normaliser defaults an unreadable one to `manual`. */
+  trigger: string;
+  preTokens: number;
+  postTokens: number;
+}
+
+/**
+ * The continuation prompt a compact injects to carry the conversation on.
+ *
+ * Written by the harness rather than the operator, and thousands of characters
+ * long, so it folds: read as an ordinary turn it buries the boundary it sits
+ * under. Same treatment as {@link SkillItem}, for the same reason.
+ */
+export interface CompactSummaryItem extends Base {
+  type: 'compact_summary';
+  markdown: string;
+}
+
 export interface SystemItem extends Base {
   type: 'system';
   subtype: 'init';
@@ -124,6 +151,8 @@ export type TranscriptItem =
   | PermissionRequestItem
   | PlanReviewItem
   | TurnResultItem
+  | CompactItem
+  | CompactSummaryItem
   | SystemItem
   | ErrorItem
   | GapItem

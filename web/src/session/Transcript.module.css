@@ -77,6 +77,26 @@
   color: var(--fg-faint);
   font-family: var(--mono);
 }
+/* A boundary, drawn as the one thing a rule is for: the line runs the full
+   width and the words sit in it. The `.note`/`.system` register, so it recedes
+   the way every other thing the session says about itself does. */
+.compact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+  font-family: var(--mono);
+}
+.compact::before,
+.compact::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+.compactLabel {
+  white-space: nowrap;
+}
 .plan {
   display: flex;
   flex-wrap: wrap;
