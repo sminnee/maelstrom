@@ -574,6 +574,10 @@ class Orchestrator:
 
         Saving first is what makes a restart show the desk the last client
         saw, rather than one change behind it.
+
+        The diff answers "what moved in the world", which is not what the
+        write's own rows answer: at a restart the rows are already stored, so
+        the write moves nothing while every one of them is new to the world.
         """
         old = self.world["desk"]
         if table == old:
