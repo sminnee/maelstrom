@@ -1,5 +1,6 @@
 """Tests for self-management CLI commands (focus: self-update dep sync)."""
 
+import asyncio
 import pathlib
 import subprocess
 from contextlib import ExitStack
@@ -8,8 +9,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from maelstrom.admin_cli import cmd_self_update, resolve_install_root
+from maelstrom import state_db
+from maelstrom.admin_cli import cmd_migrate, cmd_self_update, resolve_install_root
 from maelstrom.env import EnvState
+from maelstrom.state_db import Migration, StateDb
 
 
 def _ok(stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
@@ -349,3 +352,71 @@ class TestSelfUpdateWritesTheDaemonRootShim:
         ):
             CliRunner().invoke(cmd_self_update)
         assert entrypoint.read_text() == first
+
+
+class TestMigrate:
+    """Slice 22: `mael admin migrate` upgrades; an ordinary open refuses."""
+
+    def test_it_creates_the_state_database(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("maelstrom.state_db.get_maelstrom_dir", lambda: tmp_path)
+        result = CliRunner().invoke(cmd_migrate, [])
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "state.db").is_file()
+        assert str(tmp_path / "state.db") in result.output
+
+    def test_a_second_run_is_a_no_op(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("maelstrom.state_db.get_maelstrom_dir", lambda: tmp_path)
+        assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
+        result = CliRunner().invoke(cmd_migrate, [])
+        assert result.exit_code == 0, result.output
+
+    def test_it_imports_an_existing_desk(self, tmp_path, monkeypatch):
+        """A user's canvas survives the move to the state database."""
+        monkeypatch.setattr("maelstrom.state_db.get_maelstrom_dir", lambda: tmp_path)
+        monkeypatch.setattr("maelstrom.desk_store.get_maelstrom_dir", lambda: tmp_path)
+        (tmp_path / "desk.json").write_text(
+            '{"task:a/1": {"id": "task:a/1", "addedAt": "t"}}'
+        )
+        assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
+        assert (tmp_path / "desk.json").is_file(), "left as a fallback"
+
+        db = StateDb(tmp_path / "state.db")
+        try:
+            rows = asyncio.run(db.read_all("desk"))
+        finally:
+            db.close()
+        assert [row["id"] for row in rows] == ["task:a/1"]
+
+    def test_it_upgrades_a_database_in_place(self, tmp_path, monkeypatch):
+        """The branch the command exists for: rows survive a ladder step.
+
+        The ladder gains a step the way a real schema change does — appended —
+        so the second run takes it and the desk row written under version 1 is
+        still there afterwards.
+        """
+        monkeypatch.setattr("maelstrom.state_db.get_maelstrom_dir", lambda: tmp_path)
+        monkeypatch.setattr("maelstrom.desk_store.get_maelstrom_dir", lambda: tmp_path)
+        assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
+
+        db = StateDb(tmp_path / "state.db")
+        try:
+            asyncio.run(db.upsert("desk", "task:a/1", body='{"id": "x"}'))
+        finally:
+            db.close()
+
+        monkeypatch.setitem(
+            state_db.LADDERS,
+            "desk",
+            (
+                *state_db.DESK,
+                Migration(("ALTER TABLE desk ADD COLUMN note TEXT DEFAULT ''",)),
+            ),
+        )
+        assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
+
+        db = StateDb(tmp_path / "state.db")
+        try:
+            assert asyncio.run(db.schema_version("desk")) == 2
+            assert asyncio.run(db.read("desk", "task:a/1")) is not None
+        finally:
+            db.close()

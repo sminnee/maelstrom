@@ -1,4 +1,4 @@
-"""CLI commands for maelstrom self-management (install, self-update, self-env)."""
+"""CLI commands for maelstrom self-management (install, self-update, self-env, admin)."""
 
 import os
 import shutil
@@ -9,9 +9,12 @@ import click
 
 from .agent_transport import ROOT_ENV
 from .claude_integration import install_claude_integration
+from .cli_async import AsyncGroup
 from .context import get_maelstrom_dir, harden_global_config
+from .desk_store import SqliteDeskStore
 from .env_cli import env
 from .shell import mael_path
+from .state_db import StateDb, StateDbError, get_state_db_path
 from .util import sanitise_child_env
 from .worktree_model import MAIN_WORKTREE_FOLDER
 
@@ -266,3 +269,33 @@ class SelfEnvGroup(click.Group):
 @click.group("self-env", cls=SelfEnvGroup)
 def cmd_self_env():
     """Manage maelstrom's own fixed environment (its `_main` worktree)."""
+
+
+@click.group("admin", cls=AsyncGroup)
+def cmd_admin() -> None:
+    """Look after maelstrom's own state."""
+
+
+@cmd_admin.command("migrate")
+async def cmd_migrate() -> None:
+    """Bring the state database up to this build's schema.
+
+    The only thing that writes a schema, and the command every refusal names.
+    Runs the one-time ``desk.json`` import too, so a user's canvas survives the
+    move; the file is left on disk as a fallback.
+    """
+    path = get_state_db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = StateDb(path)
+    try:
+        await db.migrate()
+        # Runs the one-time import, which is the whole reason a load is called
+        # here rather than left to the server's first read.
+        await SqliteDeskStore(db).load()
+    except StateDbError as exc:
+        # A database from a newer build refuses here too, and the message
+        # already says what to do. A traceback would bury it.
+        raise click.ClickException(str(exc)) from exc
+    finally:
+        db.close()
+    click.echo(f"The state database at {path} is up to date.")
