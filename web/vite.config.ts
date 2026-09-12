@@ -50,6 +50,10 @@ export default defineConfig(({ command }) => {
       globals: false,
       setupFiles: ['./src/test/setup.ts'],
       css: false,
+      // A layout spy left standing leaks into whatever file runs next, and
+      // surfaces as an unrelated test failing in file order. Two suites had
+      // grown the same `afterEach(vi.restoreAllMocks())` to work around this.
+      restoreMocks: true,
       // A cold CI runner is far slower than a dev machine. This ceiling was
       // raised four times chasing flakes that splitting `App.test.tsx` and
       // setting `asyncUtilTimeout` (see src/test/setup.ts) turned out to

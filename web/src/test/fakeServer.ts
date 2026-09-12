@@ -107,6 +107,12 @@ export interface FakeServer {
   append(agentId: AgentId, item: TranscriptItem): void;
   /** Patch an item and send the frame. */
   patch(agentId: AgentId, itemId: string, patch: Partial<TranscriptItem>): void;
+  /**
+   * Replace an agent's transcript and send a snapshot, as a lagging reconnect
+   * does. `keep` is how many of the newest items survive; `dropFront` drops
+   * that many of the oldest first, the way the host's own cap does.
+   */
+  resnapshot(agentId: AgentId, keep: number, opts?: { dropFront?: number }): void;
   refuse(route: RegExp, error: Refusal): void;
   /** Forget every refusal. */
   allow(): void;
@@ -253,6 +259,20 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
         ),
       };
       emitTranscript({ type: 'transcript.update', agentId, itemId, patch });
+    },
+    resnapshot(agentId, keep, { dropFront = 0 } = {}) {
+      const transcript = transcriptOf(agentId);
+      // Front first, so `dropFront` models the host's cap and `keep` models
+      // the window the reconnect comes back with.
+      const kept = transcript.items.slice(dropFront).slice(-keep);
+      const truncatedBefore = transcript.truncatedBefore || kept.length < transcript.items.length;
+      server.transcripts[agentId] = { ...transcript, items: kept, truncatedBefore };
+      // A snapshot is not a frame: it carries no event and does not advance
+      // the seq, so a socket that reconnects after it still replays correctly.
+      const seq = seqs[agentId] ?? 0;
+      for (const socket of openSockets(agentId)) {
+        socket.receive({ type: 'transcript.snapshot', seq, items: kept, truncatedBefore });
+      }
     },
     refuse(route, error) {
       refusals.push({ route, error });
