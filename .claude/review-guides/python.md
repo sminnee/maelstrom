@@ -42,3 +42,15 @@ Python-specific criteria for maelstrom projects.
 ## Data
 
 - Use dataclasses for simple data containers
+
+## Packages
+
+- No real code in an `__init__.py` — a docstring only. Import time cannot be controlled, so code
+  there cannot be reasoned about for import order, and a re-export lets a test patch bind an
+  unused alias while the real name is still read.
+- Import from the module that defines a name, not from its package.
+
+## Protocols
+
+- Subclass a Protocol or ABC explicitly when implementing it. Duck typing hides which classes
+  claim the contract, and a reader cannot find them.

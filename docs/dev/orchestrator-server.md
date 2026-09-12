@@ -29,7 +29,7 @@ carries and nothing maps between a dataclass and the wire.
 | `sources.py` | storage | `TaskSource` and `WorktreeSource`, over the notebook and `list_all.build_list_all_data` |
 | `linear_source.py` | storage | `cycle_issues` and `plan_fields`: the server's one door onto Linear |
 | `daemon_bridge.py` | storage | `AsyncDaemonClient`: the agent-host protocol, its reply mapping, and a scripted fake. The socket client itself is `agent_transport.SocketAsyncDaemonClient` |
-| `../desk_store.py` | storage | `DeskStore`: the desk, as a canonical table in the state database, as one JSON file, or in memory. The server runs the first; see [data-architecture.md](data-architecture.md) |
+| `../desk_store.py` | storage | `DeskStore`: the desk, as a canonical table in the state database or in memory. Each backend subclasses it. The server runs the first; see [data-architecture.md](data-architecture.md) |
 | `server.py` | service | `Orchestrator`: the world, the pollers, one watch per agent, the transcript logs, the commands, and the hubs it tells |
 | `routes.py` | adapter | `build_app`: the aiohttp app that puts an `Orchestrator` on the network — every route, the error mapping — and `serving` / `serve_app` to run it |
 | `../orchestrator_cli.py` | CLI | `mael orchestrator serve`, and the logging the server runs under |
@@ -550,9 +550,8 @@ and a parent is often virtual, naming no real task.
 A desk id names what its entry stands for — see `CONTEXT.md`, "Desk". `desk_id_for_task`,
 `desk_id_for_agent` and `split_desk_id` build and split one, mirrored in
 `web/src/protocol/deskId.ts`. The task half carries the wire id, so two projects may each keep
-their own `2026-06-11.1`. A desk written before ids carried a kind held bare task ids;
-`JsonDeskStore.load` rewrites those to `task:` ids as it reads them, and the one-time import
-into the state database goes through it so the fix still applies.
+their own `2026-06-11.1`. A desk written before ids carried a kind held bare task ids; the
+desk ladder's import rung rewrites those to `task:` ids as it reads `desk.json`.
 
 ## Reading the world
 

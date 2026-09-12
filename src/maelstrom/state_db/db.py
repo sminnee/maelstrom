@@ -82,20 +82,6 @@ class Txn:
         """Remove ``id`` from ``table``, leaving a removal at this revision."""
         self._db._apply_delete(self._conn, self, table, id)
 
-    def set_meta(self, key: str, value: str) -> None:
-        """Record ``key`` in this transaction, so it lands with the rows.
-
-        A fact about the database rather than about an entity, so it raises no
-        notice and consumes no revision. It is offered here because a marker
-        recording that a write happened must commit with that write, or a
-        crash between the two leaves the two disagreeing.
-        """
-        self._conn.execute(
-            "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value)
-        )
-        # A transaction holding only a marker must still commit.
-        self.stamped = True
-
 
 class StateDb:
     """The state database: one SQLite file, one revision counter, one notice path.
@@ -684,18 +670,6 @@ class StateDb:
                 )
                 is not None
                 else None
-            )
-        )
-
-    async def set_meta(self, key: str, value: str) -> None:
-        """Record ``key``. Not a row, so it consumes no revision and is no notice.
-
-        For a fact about the database rather than about an entity — a one-time
-        import having run, say. ``revision`` itself lives here.
-        """
-        await self._call(
-            lambda conn: conn.execute(
-                "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value)
             )
         )
 

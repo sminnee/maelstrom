@@ -29,7 +29,6 @@ def state_db(tmp_path, monkeypatch):
     developer's live ``~/.maelstrom/state.db``.
     """
     monkeypatch.setattr("maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path)
-    monkeypatch.setattr("maelstrom.desk_store.get_maelstrom_dir", lambda: tmp_path)
     db = open_state_db()
     asyncio.run(db.migrate())
     db.close()

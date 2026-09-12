@@ -159,7 +159,7 @@ storage layer is sync for a stronger reason: `SqliteTaskIndex` binds its
 connection to one thread and `GitFileStore` holds a cross-process `flock`.
 Neither is a bottleneck, and both are hostile to being made async.
 
-**[`state_db.py`](../../src/maelstrom/state_db.py) is the exception, and the
+**[`state_db/`](../../src/maelstrom/state_db/) is the exception, and the
 reason is reversibility rather than I/O.** Its public surface is `async def`
 and its engine is sync `sqlite3` called inline, so an `await` there yields
 nothing today. The surface is async because the tables it holds may later move

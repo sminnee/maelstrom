@@ -63,6 +63,23 @@ def _isolate_agent_paths(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_state_db_paths(monkeypatch, tmp_path):
+    """Keep every test off the developer's live ``~/.maelstrom``.
+
+    The desk ladder's import rung reads ``desk.json`` from there, so any test
+    that migrates a database would otherwise pull the developer's real desk
+    into its own. That read is silent: the rows arrive looking like the test's
+    own, and the test fails somewhere else entirely.
+
+    Autouse rather than per-test, because a test author cannot be expected to
+    know that opening an in-memory database reaches a file at all.
+    """
+    monkeypatch.setattr(
+        "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path / "maelstrom"
+    )
+
+
+@pytest.fixture(autouse=True)
 def _pin_harness_env(monkeypatch):
     """Keep the outer shell's harness out of the tests.
 

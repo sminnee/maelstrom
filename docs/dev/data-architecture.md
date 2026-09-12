@@ -5,7 +5,7 @@ changed, and who decides when to refresh it.
 
 > **Status: the machinery is built; three subsystems are not on it.** The state database, the
 > revision counter, the notice path and the refresher contract exist, in
-> [`state_db.py`](../../src/maelstrom/state_db.py) and
+> [`state_db/`](../../src/maelstrom/state_db/) and
 > [`refresh.py`](../../src/maelstrom/refresh.py). The desk is canonical and on the database.
 > Tasks, worktrees and pull requests still work as "Why a common architecture" describes below,
 > and moving each one is its own task.
@@ -222,6 +222,10 @@ first figure to re-check when a table grows.
 | `write_all(writes)` | Several rows as one cut. The default. |
 | `async with transact()` | A later write depends on an earlier read in the same transaction. |
 
+A store exposes the same choice. `DeskStore` carries `add` and `remove` for one entry, beside
+the `save` that replaces the whole table: the store underneath is a database, so changing one
+entry should cost one row rather than a rewrite.
+
 `write_all` takes the whole batch at once, so the engine runs it start to finish with no
 suspension point inside. Nothing can interleave, and nothing can await back into the database
 mid-transaction. A `transact()` block holds a write lock across caller code, which is what makes
@@ -258,6 +262,13 @@ index plus one, so the number is derived rather than maintained.
 | Equal | Opens. |
 | Lower | Refuses, naming `mael admin migrate`. |
 | Higher | Refuses, naming both versions. |
+
+A rung usually runs SQL. It may instead run Python, for a step SQL cannot take — reading a
+file into rows is the case, and the desk's second rung imports `desk.json`. Such a rung is
+handed the raw connection rather than a transaction object, because **a migration must not bump
+the revision counter**: its rows name `revision = 0` themselves, so a client polling
+`changed_since` reads them as the state it started from rather than as a change. The rung runs
+inside the migration's own transaction, so a rung that raises rolls the whole run back with it.
 
 Lower refuses rather than upgrading because several processes share one `~/.maelstrom`, and a
 background process that rewrote the schema under a running server is worse than a stop with a
