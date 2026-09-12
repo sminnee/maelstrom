@@ -722,9 +722,9 @@ _Avoid_: Colour, status colour, variant
 
 ## Data patterns
 
-How a piece of state reaches the orchestrator. These name the **target** architecture, which is
-being built: no state database exists yet, and the terms below describe where each subsystem is
-going, not where it is. See [`docs/dev/data-architecture.md`](docs/dev/data-architecture.md).
+How a piece of state reaches the orchestrator. The state database and its machinery exist, and
+the desk is on them. Tasks, worktrees and pull requests are not yet: the terms below say where
+each is going. See [`docs/dev/data-architecture.md`](docs/dev/data-architecture.md).
 
 The entries above describe the system as it stands today. Where the two disagree — a task is a
 markdown file above and a canonical row here — the disagreement is the work outstanding.
@@ -732,7 +732,7 @@ markdown file above and a canonical row here — the disagreement is the work ou
 **Canonical**:
 State maelstrom itself authors, held in the state database. The write is the authoritative act,
 so the table is backed up, migrated, and never rebuilt from empty. A row carries its own prose
-rather than pointing at a file. Tasks and the desk are canonical.
+rather than pointing at a file. The desk is canonical today; tasks are to follow.
 _Avoid_: Source of truth, primary, master
 
 **Cached**:
@@ -764,8 +764,18 @@ _Avoid_: Async, background, deferred
 
 **State database**:
 The SQLite database at `~/.maelstrom/state.db` holding every canonical and cached table. One
-file, so one transaction and one revision counter cover them all.
+file, so one transaction and one revision counter cover them all. It holds the desk today.
+`mael admin migrate` creates and upgrades it; every other open refuses a schema it cannot read.
 _Avoid_: Cache, store, db
+
+**Revision**:
+One monotonic counter in the state database, bumped once per write transaction, and stamped on
+every row that transaction wrote. A reader asks what changed since a revision it holds, rather
+than re-reading a table. One counter across every table, because that is what lets one number
+name an atomic write of several. A transaction that moves no row consumes none, so an idle poll
+leaves it where it was. It is not an **Epoch**: an epoch names one life of a stream, and a
+revision orders writes within one database.
+_Avoid_: Version, sequence, generation, epoch
 
 **Task export**:
 The git-committed markdown tree at `~/.maelstrom/tasks`, once written from the task table by a

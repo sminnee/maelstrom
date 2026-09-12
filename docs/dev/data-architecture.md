@@ -3,10 +3,12 @@
 How the orchestrator server holds state: where a reader gets it, how a reader learns it
 changed, and who decides when to refresh it.
 
-> **Status: agreed, not built.** This document is the target. The state database does not
-> exist yet, and every subsystem still works as "Why a common architecture" describes below.
-> Sections written in the present tense describe the design, not the code. `CONTEXT.md` marks
-> the pattern names the same way.
+> **Status: the machinery is built; three subsystems are not on it.** The state database, the
+> revision counter, the notice path and the refresher contract exist, in
+> [`state_db.py`](../../src/maelstrom/state_db.py) and
+> [`refresh.py`](../../src/maelstrom/refresh.py). The desk is canonical and on the database.
+> Tasks, worktrees and pull requests still work as "Why a common architecture" describes below,
+> and moving each one is its own task.
 
 Every subsystem the server shows answers those three questions. Today each answers them its own
 way. This document defines five patterns that share one answer set, so adding a subsystem is
@@ -18,7 +20,8 @@ each pattern sits inside.
 
 ## Why a common architecture
 
-Four subsystems reach the server, and no two agree on how:
+Four subsystems reach the server, and no two agree on how. The desk is now a fifth column, on
+the database; the four below are what is left:
 
 | | Tasks | Worktrees | Pull requests | Agents |
 |---|---|---|---|---|
@@ -189,6 +192,80 @@ revision counter, which is what lets a notice name rows instead of tables.
 Writers run in several processes — the CLI, the server and the agents all write — so the
 database runs in WAL mode. WAL replaces the `fcntl` lock the task store holds today, and its
 60-second timeout, and extends the same guarantee to writers that have none.
+
+### Async surface, sync engine
+
+Every method on `StateDb` is `async def`, and the engine underneath is stdlib `sqlite3` called
+inline. Those are two decisions, not one. The async surface is bought for reversibility: it is
+every call site in four subsystems' stores, so it is the expensive thing to change later. The
+sync engine is kept because SQLite answers here in microseconds. One private helper, `_call`, is
+the seam between them, and moving its body to `aiosqlite` changes no caller.
+
+An `await` on a method that runs inline does not yield the loop, so the loop occupancy is the
+sync cost. Measured on a file-backed database:
+
+| Operation | Median |
+|---|---|
+| 96-row `write_all` | 0.67 ms |
+| 96-row `read_all` | 0.05 ms |
+| Single-row `upsert` | 0.01 ms |
+
+The write costs more than the rows alone because each one reads its stored row first, to decide
+whether anything a client draws moved. That is what buys the silent poll below, and it is the
+first figure to re-check when a table grows.
+
+### Writing several rows
+
+| Shape | Use it when |
+|---|---|
+| `upsert` / `delete` | One row. Each is its own transaction. |
+| `write_all(writes)` | Several rows as one cut. The default. |
+| `async with transact()` | A later write depends on an earlier read in the same transaction. |
+
+`write_all` takes the whole batch at once, so the engine runs it start to finish with no
+suspension point inside. Nothing can interleave, and nothing can await back into the database
+mid-transaction. A `transact()` block holds a write lock across caller code, which is what makes
+it the exception rather than the default; awaiting back into the same database from inside one
+raises `TransactionOpenError` rather than hanging.
+
+A multi-statement transaction blocks every other writer, in this process and at the file lock in
+every other one. If that contention ever becomes real rather than theoretical, it is the signal
+to reconsider the datastore — not to add machinery around SQLite.
+
+### Freshness
+
+A cached row carries `fetched_at`, stamped on every successful fetch even when nothing changed:
+"we asked and it said the same" is a different fact from "we have not asked". A write that moves
+only that stamp still commits, but **bumps no revision and raises no notice**, because nothing a
+reader draws has moved. A write that gives no stamp leaves the stored one alone, so a local edit
+to a cached row cannot erase a refresher's answer. That is what keeps a 60-second poll over 96 worktrees silent rather than a notice storm.
+
+A canonical table has no `fetched_at`, and passing one raises rather than being dropped quietly.
+Nobody else authors a canonical table, so there is nothing to be fresh with respect to.
+
+### Schema versions
+
+A `schema_version` table holds one row per subsystem, so one subsystem's schema moves without
+dragging the others. The spine — `meta`, `schema_version`, `removals`, `refresher_health` — is
+the one table set every subsystem depends on, so it carries its own version in `PRAGMA
+user_version` and is checked first. A refusal naming "the spine" means that check failed.
+
+Each subsystem declares an append-only ladder of migrations, and a migration's version is its
+index plus one, so the number is derived rather than maintained.
+
+| Found | What happens |
+|---|---|
+| Equal | Opens. |
+| Lower | Refuses, naming `mael admin migrate`. |
+| Higher | Refuses, naming both versions. |
+
+Lower refuses rather than upgrading because several processes share one `~/.maelstrom`, and a
+background process that rewrote the schema under a running server is worse than a stop with a
+one-line fix. Higher is the real hazard: every worktree shares that directory, so running an
+older branch after a newer one is ordinary, and writing rows that miss the newer migration's
+columns is unrecoverable. Migrations are forward-only, and the whole run is one transaction —
+SQLite's DDL is transactional, so a migration that fails halfway leaves the tables where they
+were.
 
 The difference between a canonical table and a cached one is **one property on the table**, not
 a separate database, a separate read path, or a separate design. Only a canonical table is
