@@ -304,6 +304,15 @@ the outcome is unknown, not that the answer was no: a tool approved in the cmux 
 and the orchestrator only knows it never saw the answer.
 _Avoid_: Abandoned, orphaned, expired
 
+**Interrupt**:
+Abandoning the turn an agent is running, and leaving the agent alive to take the next message.
+Three surfaces offer it to the user: `mael agent interrupt`, Esc in teleport, and the session
+tab's **Stop** button. An interrupt of a waiting agent denies the open ask first, with the
+reason `Interrupted by user`; answer or deny the ask instead. This is not **stop**, which ends
+the agent's process group and is terminal — the node card labels that button **Terminate**. The
+wire says what the daemon says; the UI says what the user means.
+_Avoid_: Cancel, abort, kill
+
 **Silent agent**:
 A working agent that has said nothing for ten minutes. The node card colours the age of its last
 message, because past that point the age is the signal and the message is not. An idle agent is

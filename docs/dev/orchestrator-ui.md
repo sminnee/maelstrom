@@ -207,11 +207,17 @@ The size is `contextTokens`, what the prompt last held, not the cumulative `tota
 `docs/dev/agent-daemon.md`, "A turn", for why the cumulative figure cannot answer whether to
 compact. It falls when the agent compacts.
 
+A Stop button at the right of that group sends `agent.interrupt` — see `CONTEXT.md`,
+"Interrupt". It is offered only while the agent is `processing` with no ask open. A waiting
+agent's button is disabled, and its title sends the user to the ask, because an interrupt would
+deny that ask and the route's reply would not say so. An exited agent's title says it has gone.
+The node card's Terminate button is the other act: it sends `agent.stop`.
+
 A Compact button at the right of that group sends `/compact` to the agent. This is a `say`, not a
 command of maelstrom's own: a slash command reaches Claude Code as the text of a user turn. The
 button is disabled unless the agent is idle with nothing pending, because a compact sent mid-turn
-queues behind the work. A subagent gets neither the line nor the button: it has no session, no
-worktree and no pipe of its own.
+queues behind the work. A subagent gets neither the line nor either button: it has no
+session, no worktree and no pipe of its own.
 
 The button stays busy until the compact ends, which `awaitCompact` decides. The `say` resolves
 when the server accepts the relay, and the relay is all that route does — a compact runs for

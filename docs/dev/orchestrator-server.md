@@ -650,6 +650,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/agents/{id}/answer` | `{requestId, answers}` | `agent.answer` | `{}` |
 | `POST /api/agents/{id}/say` | `{text, attachments?}` | `agent.say` | `{}` |
 | `POST /api/agents/{id}/set-mode` | `{mode}` | `agent.setMode` | `{}` |
+| `POST /api/agents/{id}/interrupt` | | `agent.interrupt` | `{}` |
 | `POST /api/agents/{id}/stop` | | `agent.stop` | `{}` |
 | `POST /api/agents/{id}/resume` | `{text?}` | `agent.resume` | `{}` |
 | `POST /api/tasks/{project}/{id}/launch` | `{model?}` | `agent.launch` | `{agentId}` |
