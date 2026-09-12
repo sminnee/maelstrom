@@ -824,7 +824,13 @@ function command(
   if (pathname === '/api/attachments' && method === 'POST') {
     const file = b.file as { name?: string } | undefined;
     const name = file?.name ?? 'image.png';
-    const bucket = String(b.bucket ?? 't1');
+    const bucket = String(b.bucket ?? '');
+    // The real route refuses an upload with no bucket -- see `routes.py`,
+    // "An upload needs a project and a bucket". Defaulting one here hid a
+    // surface that sent an empty bucket, so the fake holds the same line.
+    if (!bucket) {
+      return error(400, 'invalid', 'An upload needs a project and a bucket');
+    }
     return ok({
       markdown: `![${name}]({{MAEL_TASK_DIR}}/images/${bucket}/${name})`,
       url: `/api/attachments/${String(b.project ?? '')}/${bucket}/${name}`,

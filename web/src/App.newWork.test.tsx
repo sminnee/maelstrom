@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import type { Agent } from './protocol/entities';
 import type { FakeServer } from './test/fakeServer';
 import { renderApp } from './test/renderApp';
+import { retainedKey } from './ui/retained';
 
 describe('new work', () => {
   /** Open the form from the top bar and return its dialog. */
@@ -277,7 +278,7 @@ describe('new work', () => {
     expect(creates).toHaveLength(1);
   });
 
-  it('shows a refused start rather than closing on it', async () => {
+  it('shows a refused start rather than closing on it, and still holds it once closed', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     server.refuse(/api\/agents$/, { status: 400, code: 'invalid', message: 'No such branch' });
@@ -290,6 +291,131 @@ describe('new work', () => {
     expect(await within(form).findByTestId('new-work-error')).toHaveTextContent('No such branch');
     // The form stays, holding what was typed.
     expect(screen.getByRole('dialog', { name: 'New work' })).toBeVisible();
+
+    // A refusal is not a submit, so closing on one loses nothing either.
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+    const reopened = await openNewWork(user);
+    expect(within(reopened).getByLabelText('What needs doing?')).toHaveValue('Read the logs');
+  });
+
+  it('holds the prose across a close, so Escape is not a discard', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const form = await openNewWork(user);
+    await user.type(
+      within(form).getByLabelText('What needs doing?'),
+      'The CSV export drops the last row',
+    );
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+
+    const reopened = await openNewWork(user);
+    expect(within(reopened).getByLabelText('What needs doing?')).toHaveValue(
+      'The CSV export drops the last row',
+    );
+  });
+
+  it('holds an attachment with its bucket, so removing it still empties the text', async () => {
+    // The test that fails if `attached` or `bucket` is dropped from what is
+    // held. `withoutRef` matches on a ref that embeds the bucket, so a
+    // re-minted one makes Remove a silent no-op: the thumbnail goes and the ref
+    // stays, leaving the agent a link to an image it was never sent.
+    const user = userEvent.setup();
+    await renderApp();
+    const form = await openNewWork(user);
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', {
+      type: 'image/png',
+    });
+    await user.upload(within(form).getByLabelText('Attach image', { selector: 'input' }), png);
+    const draft = within(form).getByLabelText('What needs doing?') as HTMLTextAreaElement;
+    await waitFor(() => expect(draft.value).toContain('![shot.png]('));
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+    const reopened = await openNewWork(user);
+
+    // The strip still offers it, so the attachment came back and not just its text.
+    const remove = within(reopened).getByRole('button', { name: 'Remove shot.png' });
+    await user.click(remove);
+    expect(within(reopened).getByLabelText('What needs doing?')).toHaveValue('');
+  });
+
+  it('attaches an image on step 2 when step 1 attached none', async () => {
+    // The bucket groups the dialog's images, and the server refuses an upload
+    // without one. Step 1 is where a bucket is first wanted, but it is not where
+    // it must exist: a user who types prose, presses Next and attaches on step 2
+    // has to reach a server that takes the file.
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const form = await openNewWork(user);
+    await user.type(within(form).getByLabelText('What needs doing?'), 'Fix the header');
+    await user.click(within(form).getByRole('button', { name: 'Next' }));
+    await within(form).findByLabelText('Title');
+
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', {
+      type: 'image/png',
+    });
+    await user.upload(within(form).getByLabelText('Attach image', { selector: 'input' }), png);
+    const content = within(form).getByLabelText('Content') as HTMLTextAreaElement;
+    await waitFor(() => expect(content.value).toContain('![shot.png]('));
+
+    const upload = server.requests.find(
+      (r) => r.method === 'POST' && r.path === '/api/attachments',
+    );
+    expect((upload!.body as { bucket: string }).bucket).toBeTruthy();
+  });
+
+  it('holds nothing once the work is saved', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const form = await openNewWork(user);
+    await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
+    await user.click(within(form).getByRole('button', { name: 'Next' }));
+    await within(form).findByLabelText('Title');
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+
+    // Closed is not submitted, and submitted is not held: the prose became a
+    // task, so reopening starts clean.
+    const reopened = await openNewWork(user);
+    expect(within(reopened).getByLabelText('What needs doing?')).toHaveValue('');
+  });
+
+  it('empties the field on Clear, and holds nothing after it', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const form = await openNewWork(user);
+    await user.type(within(form).getByLabelText('What needs doing?'), 'Never mind');
+    await user.click(within(form).getByRole('button', { name: 'Clear' }));
+    expect(within(form).getByLabelText('What needs doing?')).toHaveValue('');
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+    const reopened = await openNewWork(user);
+    expect(within(reopened).getByLabelText('What needs doing?')).toHaveValue('');
+  });
+
+  it('drops a held project the world no longer has', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    // A project chosen under a world that offered it, held past its removal.
+    // Through the key table, so a version bump moves this with the code rather
+    // than leaving the test writing a key nothing reads and still passing.
+    localStorage.setItem(
+      retainedKey.newWork(),
+      JSON.stringify({ project: 'gone-away', draft: 'Fix the header' }),
+    );
+    const form = await openNewWork(user);
+    // The prose is held, but the dead project must not be: `chosen` falls back
+    // to the *first* project, so a stale name would silently write the work
+    // against whichever one that is.
+    expect(within(form).getByLabelText('What needs doing?')).toHaveValue('Fix the header');
+    const select = within(form).getByLabelText('Project') as HTMLSelectElement;
+    expect(select.value).not.toBe('gone-away');
+    expect(select.value).toBe(
+      (within(form).getByLabelText('Project') as HTMLSelectElement).options[0]!.value,
+    );
   });
 
   it('starts a free agent with an attached image in its prompt', async () => {
