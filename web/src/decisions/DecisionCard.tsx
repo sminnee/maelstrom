@@ -121,7 +121,8 @@ type Variant = 'block' | 'dock';
  * — see `web/DESIGN.md`, "Decision" and "Review Dock".
  *
  * Neither state is persisted, for the reason the panel's tabs and filters are
- * not — see `docs/dev/orchestrator-ui.md`.
+ * not: view state is not held. Unsent input is — see `docs/dev/orchestrator-ui.md`,
+ * "Holding what was typed".
  */
 function ContextRail({ items, variant }: { items: ContextItem[]; variant: Variant }) {
   return variant === 'dock' ? <DockedContext items={items} /> : <InlineContext items={items} />;

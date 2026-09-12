@@ -29,7 +29,8 @@ export interface UiState {
   /**
    * Whether the new-work form is open. Only the flag lives here: the draft
    * itself is component state, as the editor's is, so a keystroke does not
-   * publish to every subscriber of the store.
+   * publish to every subscriber of the store. It is also held text — closing
+   * the form does not lose it. See `ui/useRetained.ts`.
    */
   newWorkOpen: boolean;
   /** How wide the panel is, in px. Set by a drag; not persisted across a reload. */
