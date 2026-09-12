@@ -114,6 +114,41 @@ Object.defineProperty(globalThis, 'matchMedia', {
   },
 });
 
+// jsdom defers `localStorage` to Node, which refuses it unless started with
+// `--localstorage-file`, so the getter reads `undefined` rather than throwing.
+// Held text is read through it (see `ui/useRetained.ts`), and the hook falls
+// back to memory when storage is missing -- so without this every test would
+// silently exercise that fallback and prove nothing about storage itself.
+//
+// Map-backed rather than Node's own: it needs no flag, no temp file and no
+// experimental warning.
+//
+// The methods go on `Storage.prototype`, not on a class of their own. A test
+// makes storage hostile with `vi.spyOn(Storage.prototype, 'setItem')`, and a
+// stub that merely implemented the same shape would not be reached by that
+// spy -- the write would quietly succeed and the test would assert nothing.
+if (typeof window.localStorage === 'undefined') {
+  const items = new Map<string, string>();
+  Object.defineProperties(Storage.prototype, {
+    length: { configurable: true, get: () => items.size },
+    key: { configurable: true, value: (i: number) => [...items.keys()][i] ?? null },
+    getItem: { configurable: true, value: (k: string) => items.get(String(k)) ?? null },
+    // The spec stores strings, keys included, so a caller passing a number must
+    // read one back -- otherwise a test passes here and fails in a browser.
+    setItem: {
+      configurable: true,
+      value: (k: string, v: string) => void items.set(String(k), String(v)),
+    },
+    removeItem: { configurable: true, value: (k: string) => void items.delete(String(k)) },
+    clear: { configurable: true, value: () => items.clear() },
+  });
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    writable: true,
+    value: Object.create(Storage.prototype) as Storage,
+  });
+}
+
 // jsdom has no EventSource. The app injects one; this keeps an un-injected
 // import from throwing before the test can say what it wants.
 if (!('EventSource' in globalThis)) {
@@ -216,4 +251,8 @@ afterEach(() => {
   // the app's own state needs nothing here.
   viewportWidth = DEFAULT_VIEWPORT;
   mediaListeners.clear();
+  // Storage is a singleton, so held text one test left would reach the next one
+  // and open a field already filled in. Here rather than in `renderApp`,
+  // because a component test never calls it.
+  localStorage.clear();
 });
