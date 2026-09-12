@@ -41,10 +41,10 @@ export const LedgerRun: Story = () => (
   </Panel>
 );
 
-/** The truncation note must not sit flush against the first row. */
+/** The truncation note must not sit flush against the first row, or blur into the button below it. */
 export const Truncated: Story = () => (
   <Panel>
-    <Transcript items={mixedTranscript.slice(0, 4)} truncatedBefore />
+    <Transcript items={mixedTranscript.slice(0, 4)} truncatedBefore hiddenCount={120} />
   </Panel>
 );
 
