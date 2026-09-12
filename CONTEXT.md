@@ -713,13 +713,17 @@ _Avoid_: Colour, status colour, variant
 
 ## Data patterns
 
-How a piece of state reaches the orchestrator. See
-[`docs/dev/data-architecture.md`](docs/dev/data-architecture.md).
+How a piece of state reaches the orchestrator. These name the **target** architecture, which is
+being built: no state database exists yet, and the terms below describe where each subsystem is
+going, not where it is. See [`docs/dev/data-architecture.md`](docs/dev/data-architecture.md).
+
+The entries above describe the system as it stands today. Where the two disagree — a task is a
+markdown file above and a canonical row here — the disagreement is the work outstanding.
 
 **Canonical**:
 State maelstrom itself authors, held in the state database. The write is the authoritative act,
-so the table is backed up, migrated, and never rebuilt from empty. Tasks and the desk are
-canonical.
+so the table is backed up, migrated, and never rebuilt from empty. A row carries its own prose
+rather than pointing at a file. Tasks and the desk are canonical.
 _Avoid_: Source of truth, primary, master
 
 **Cached**:
@@ -734,8 +738,8 @@ upstream refuses. A reader never triggers one.
 _Avoid_: Poller, syncer, updater
 
 **Pass-through**:
-State read from its source on each request and stored nowhere, because a read is cheap or must
-be exact. A task's content is pass-through.
+State read from its source on each request and stored nowhere, because one route needs it
+rather than the whole world. The Linear issues route and attachment bytes are pass-through.
 _Avoid_: Uncached, direct, live
 
 **Pushed**:
@@ -753,6 +757,12 @@ _Avoid_: Async, background, deferred
 The SQLite database at `~/.maelstrom/state.db` holding every canonical and cached table. One
 file, so one transaction and one revision counter cover them all.
 _Avoid_: Cache, store, db
+
+**Task export**:
+The git-committed markdown tree at `~/.maelstrom/tasks`, once written from the task table by a
+queued worker. It will exist for audit and backup: nothing reads it on any code path, and it
+never runs on a write path. Today that tree is the task notebook itself.
+_Avoid_: Notebook, mirror, backup
 
 ## Knowledge stores
 

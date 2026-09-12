@@ -3,6 +3,11 @@
 How the orchestrator server holds state: where a reader gets it, how a reader learns it
 changed, and who decides when to refresh it.
 
+> **Status: agreed, not built.** This document is the target. The state database does not
+> exist yet, and every subsystem still works as "Why a common architecture" describes below.
+> Sections written in the present tense describe the design, not the code. `CONTEXT.md` marks
+> the pattern names the same way.
+
 Every subsystem the server shows answers those three questions. Today each answers them its own
 way. This document defines five patterns that share one answer set, so adding a subsystem is
 choosing a pattern rather than inventing a design.
@@ -54,8 +59,8 @@ the worktree table.
 │                  droppable: losing the table costs one slow read         │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ PASS-THROUGH     read: fetch it now. Stored nowhere.                     │
-│  task content         Cheap to read, or it must be exact.                │
-│  agent transcripts                                                       │
+│  Linear issues        One route needs it, not the world.                 │
+│  attachment bytes     Cheap to read, or it must be exact.                │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ PUSHED           the owner streams it; the database holds nothing live   │
 │  agents               The agent host already works this way.             │
@@ -79,7 +84,20 @@ A canonical table needs a backup story, a versioned migration, and no recovery s
 rebuilds it from nothing. That last rule is what separates it from a cached table, and it must
 be hard to break by accident.
 
-Tasks and the desk are canonical.
+Tasks and the desk are canonical. A task's row carries its prose, not a pointer to prose
+elsewhere: splitting a row across two stores is what makes a rollback partial.
+
+Tasks also keep a git-committed markdown export at `~/.maelstrom/tasks`. The export is for
+audit and backup only. Nothing reads it on any code path, so losing it costs history rather
+than data, and the reader that wants a task's prose queries the table.
+
+The export never runs on the write path. A commit enqueues it, and a worker drains the queue,
+so a slow `git commit` cannot slow a task write and a broken git repository cannot fail one.
+The application otherwise treats the database as an ordinary database-backed service would.
+
+Two rules keep an asynchronous export honest. The queue **drains on shutdown**, so a clean stop
+loses nothing. And falling behind is **visible** — a queue that stops draining is a backup
+nobody has, and silence is the failure mode to design against.
 
 ### Cached
 
@@ -98,13 +116,18 @@ Worktrees and pull requests are cached. Git and GitHub own them.
 
 Read it now, from its source, and store nothing.
 
-This suits data that is cheap to read, or that must be exact at the moment of reading, and that
-one route needs rather than the whole world. A task's `content` is the example: the task list
-carries every task, but only `GET /api/tasks/{project}/{id}` needs the prose, and it reads the
-one file it needs.
+This suits data one route needs rather than the whole world, and that is either cheap to read
+or must be exact at the moment of reading. `GET /api/linear/issues` is the example: it asks
+Linear for the project's current cycle on each request, and no issue ever enters the world.
+Attachment and registered-file bytes are served the same way.
 
 Pass-through is a real answer, not a compromise. Naming it stops a reviewer proposing a cache
 for data that does not want one.
+
+It is not a place to put data that is merely expensive to read today. A task's `content` looks
+like a candidate while tasks are markdown files, because the whole notebook must be parsed to
+answer for one task. Once tasks are rows, one task's prose is a single-row query, and it
+belongs in the canonical table with the rest of the task.
 
 ### Pushed
 
