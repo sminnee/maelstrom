@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -312,13 +312,57 @@ describe('the compact button', () => {
  * Settle the session tab on seeded content before moving the world.
  *
  * Scoped to the tab: the expanded node card behind the panel draws the same
- * last message, so an unscoped query matches twice. A wait on the first item
- * over a freshly-opened socket is what flaked a group out of the suite before.
+ * last message, so an unscoped query matches twice.
  */
 async function settleOnSeed() {
   const tab = screen.getByTestId('session-tab');
   await within(tab).findByText('Rewriting the migration for the new collation.');
   return tab;
+}
+
+/** The seeded transcript NORT-9's agent opens with. */
+const SEEDED_ITEMS = 4;
+
+/** The markdown of every drawn card, top to bottom. */
+function drawnRows() {
+  return screen.getAllByTestId('transcript-card').map((c) => c.textContent ?? '');
+}
+
+/**
+ * Watch the jump the transcript makes to follow the tail.
+ *
+ * jsdom implements no `scrollIntoView` — which is why the call site guards it
+ * with `?.` — and `vi.spyOn` cannot wrap a method that is not there, so the
+ * property is defined before the spy replaces it.
+ */
+function watchScroll() {
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    writable: true,
+    value: () => {},
+  });
+  return vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+}
+
+/**
+ * Scroll the transcript container to its tail, or away from it.
+ *
+ * The geometry is defined on the container node, not on `HTMLElement`'s
+ * prototype: `useClamped` measures every element it is given, so a prototype
+ * spy silently forces the node card behind the panel into its clamped state
+ * and the test asserts against a DOM whose layout is globally false.
+ */
+function scrollTranscriptTo(where: 'bottom' | 'up') {
+  const el = screen.getByTestId('transcript-scroll');
+  const geometry = { scrollHeight: 1000, clientHeight: 200 };
+  for (const [prop, value] of Object.entries(geometry)) {
+    Object.defineProperty(el, prop, { configurable: true, value });
+  }
+  Object.defineProperty(el, 'scrollTop', {
+    configurable: true,
+    value: where === 'bottom' ? 800 : 100,
+  });
+  fireEvent.scroll(el);
 }
 
 /** Append `count` assistant messages to NORT-9's agent, oldest first. */
@@ -345,13 +389,29 @@ describe('the transcript window', () => {
     await openTaskSession(user);
     await settleOnSeed();
 
-    appendMany(server, 60);
+    const appended = 60;
+    appendMany(server, appended);
 
-    // 64 items in all, so the oldest are held back rather than drawn.
-    await waitFor(() => expect(screen.getAllByTestId('transcript-card')).toHaveLength(50));
-    expect(screen.getByRole('button', { name: /earlier events/ })).toBeInTheDocument();
-    expect(screen.queryByText('event 0')).toBeNull();
-    expect(screen.getByText('event 59')).toBeInTheDocument();
+    // The window opens on the tail, so the newest 50 draw and everything
+    // older is held back — including the last of the seeded rows.
+    await waitFor(() => expect(drawnRows()).toHaveLength(50));
+    const held = SEEDED_ITEMS + appended - 50;
+    expect(screen.getByRole('button', { name: `Show ${held} earlier events` })).toBeVisible();
+    expect(drawnRows().at(0)).toContain(`event ${appended - 50}`);
+    expect(drawnRows().at(-1)).toContain(`event ${appended - 1}`);
+  });
+
+  it('offers nothing while the whole session fits in one window', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await openTaskSession(user);
+    await settleOnSeed();
+
+    // The clamp: fewer items than the window means no floor to hold and
+    // nothing to reveal, which is what every short session hits.
+    appendMany(server, 10);
+    await waitFor(() => expect(drawnRows()).toHaveLength(SEEDED_ITEMS + 10));
+    expect(screen.queryByRole('button', { name: /earlier events/ })).toBeNull();
   });
 
   it('keeps a revealed event on screen when the agent speaks again', async () => {
@@ -368,45 +428,95 @@ describe('the transcript window', () => {
     await user.click(screen.getByRole('button', { name: /earlier events/ }));
     expect(await screen.findByText('event 0')).toBeInTheDocument();
 
-    // The window holds an absolute floor, not a count: one more event extends
-    // the bottom rather than dropping the oldest revealed row off the top.
+    // The window anchors on the oldest revealed event, not on a count: one
+    // more event extends the bottom rather than dropping that row off the top.
     appendMany(server, 1, 'later');
     expect(await screen.findByText('later 0')).toBeInTheDocument();
     expect(screen.getByText('event 0')).toBeInTheDocument();
   });
+
+  it('holds the revealed events when a reconnect re-snapshots the transcript', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await openTaskSession(user);
+    await settleOnSeed();
+
+    // 124 items, so one reveal lands mid-transcript rather than at its head:
+    // the anchor is then an event a front-drop can shift without removing.
+    appendMany(server, 120);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /earlier events/ })).toBeVisible(),
+    );
+    await user.click(screen.getByRole('button', { name: /earlier events/ }));
+    expect(await screen.findByText('event 20')).toBeInTheDocument();
+    expect(drawnRows().at(0)).toContain('event 20');
+
+    // A lagging reconnect replaces `items` wholesale, and the host drops from
+    // the front of its own list past its cap. That moves every surviving index
+    // by three: an index-based floor would reopen three events further down,
+    // where the id the reader opened on still names theirs.
+    server.resnapshot('d9a4c7f1', 121, { dropFront: 3 });
+
+    await waitFor(() => expect(screen.queryByText('Migrate to Postgres 16.')).toBeNull());
+    expect(drawnRows().at(0)).toContain('event 20');
+  });
+
+  it('falls back to the tail when the revealed event is dropped from the front', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await openTaskSession(user);
+    await settleOnSeed();
+
+    appendMany(server, 60);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /earlier events/ })).toBeVisible(),
+    );
+    await user.click(screen.getByRole('button', { name: /earlier events/ }));
+    expect(await screen.findByText('event 0')).toBeInTheDocument();
+
+    // The anchor itself is gone from the new snapshot. The window has nothing
+    // to hold onto, so it reopens on the tail rather than on a wrong event.
+    server.resnapshot('d9a4c7f1', 20, { dropFront: 30 });
+
+    await waitFor(() => expect(screen.queryByText('event 0')).toBeNull());
+    expect(drawnRows().length).toBeLessThanOrEqual(50);
+  });
+});
+
+describe('opening another agent in the same tab', () => {
+  it('follows the new agent’s tail, whatever the last agent’s reader was doing', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await openTaskSession(user);
+    await settleOnSeed();
+
+    // The scroll position is what carries across an agent change, because the
+    // tab reads it from a ref rather than from the transcript. Leave the first
+    // agent scrolled up, which is the state that must not be inherited.
+    const scrolled = watchScroll();
+    scrollTranscriptTo('up');
+    appendMany(server, 1, 'parent');
+    await screen.findByText('parent 0');
+    expect(scrolled).not.toHaveBeenCalled();
+
+    // The subagent strip is the way into another agent's session.
+    await user.click(screen.getByRole('link', { name: /Find every collation-sensitive query/ }));
+    expect(await screen.findByText('Grep for ORDER BY name.')).toBeInTheDocument();
+
+    // A reader who has never scrolled this agent is at its tail, so it follows.
+    server.append('d9a4c7f1.1', {
+      id: 'd9a4c7f1.1-said',
+      ts: '',
+      type: 'message',
+      role: 'assistant',
+      markdown: 'child 0',
+    });
+    await screen.findByText('child 0');
+    expect(scrolled).toHaveBeenCalled();
+  });
 });
 
 describe('following the transcript', () => {
-  // The placement spies read layout off the prototype. `restoreMocks` is not
-  // set, so without this they leak into every test that follows.
-  afterEach(() => vi.restoreAllMocks());
-
-  /**
-   * Watch the jump the transcript makes to follow the tail.
-   *
-   * jsdom implements no `scrollIntoView` — which is why the call site guards it
-   * with `?.` — and `vi.spyOn` cannot wrap a method that is not there. So the
-   * property is defined first and the spy replaces it. `configurable`, or
-   * `restoreAllMocks` could not put it back.
-   */
-  function watchScroll() {
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
-      configurable: true,
-      writable: true,
-      value: () => {},
-    });
-    return vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
-  }
-
-  /** Report the scroll container as scrolled up, or sitting at the bottom. */
-  function placeViewport(where: 'bottom' | 'up') {
-    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(1000);
-    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(200);
-    vi.spyOn(HTMLElement.prototype, 'scrollTop', 'get').mockReturnValue(
-      where === 'bottom' ? 800 : 100,
-    );
-  }
-
   it('does not drag the reader down when they are reading history', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
@@ -414,13 +524,18 @@ describe('following the transcript', () => {
     await settleOnSeed();
 
     const scrolled = watchScroll();
-    placeViewport('up');
-    fireEvent.scroll(document.querySelector('[data-testid="transcript-scroll"]')!);
-
+    // Away from the tail first, then back to it: one scenario, so the two
+    // assertions differ only in where the reader sits. Without the second
+    // half, a guard that never followed at all would pass the first.
+    scrollTranscriptTo('up');
     appendMany(server, 1, 'interrupting');
     await screen.findByText('interrupting 0');
-    // The event arrives and is drawn; what must not happen is the jump.
     expect(scrolled).not.toHaveBeenCalled();
+
+    scrollTranscriptTo('bottom');
+    appendMany(server, 1, 'resumed');
+    await screen.findByText('resumed 0');
+    expect(scrolled).toHaveBeenCalled();
   });
 
   it('follows the tail again once the reader returns to the bottom', async () => {
@@ -430,8 +545,7 @@ describe('following the transcript', () => {
     await settleOnSeed();
 
     const scrolled = watchScroll();
-    placeViewport('bottom');
-    fireEvent.scroll(document.querySelector('[data-testid="transcript-scroll"]')!);
+    scrollTranscriptTo('bottom');
 
     appendMany(server, 1, 'following');
     await screen.findByText('following 0');

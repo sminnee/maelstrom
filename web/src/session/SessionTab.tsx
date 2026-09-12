@@ -38,10 +38,9 @@ const COMPACT_COMMAND = '/compact';
 /**
  * How many events the session tab draws, and how many a Show more adds.
  *
- * The server keeps thousands and sends them all, which is cheap; mounting them
- * is not — every message parses markdown and every tool call builds a
- * disclosure. Reading old events is occasional, so the tab draws the recent
- * ones and offers the rest. See `docs/dev/orchestrator-ui.md`.
+ * Mounting a whole long session is what made opening one sluggish: every
+ * message parses markdown and every tool call builds a disclosure. See
+ * `docs/dev/orchestrator-ui.md`.
  */
 const WINDOW = 50;
 
@@ -79,10 +78,9 @@ export function SessionTab({ agentId }: { agentId: string }) {
   const finished = finishedSubagentsOf(world, agentId);
   const transcript = useAgentStream(agentId);
   const bottom = useRef<HTMLDivElement>(null);
-  // Whether the reader sits at the tail. Held in a ref off the scroll event
-  // rather than measured on the render path: the effect below must know where
-  // the reader was *before* the new event landed, and a layout read during
-  // render would already include it.
+  // Whether the reader sits at the tail. Written by the scroll event rather
+  // than read during render, where the new event is already in the layout and
+  // every reader would measure as being at the bottom.
   const following = useRef(true);
   // The compact wait outlives the render that started it, and an exit never
   // reaches the transcript store the wait subscribes to. So the wait hands
@@ -93,32 +91,25 @@ export function SessionTab({ agentId }: { agentId: string }) {
     if (exited) abandonCompact.current?.('The agent exited before it compacted.');
   }, [exited]);
   const count = transcript.items.length;
-  // How far back the reader has opened the transcript. `null` tracks the tail.
+  // The oldest event the reader has revealed, by id. `null` tracks the tail.
   //
-  // An absolute floor, not a count of shown rows: a count would shrink the
-  // window from the top on every append, dropping the oldest revealed row the
-  // moment the agent spoke again. The floor makes that correct by construction.
+  // An id, not an index: the server drops from the front of its own list past
+  // 5000 and a lagging reconnect replaces the array outright, so an index
+  // silently comes to name a different event. An anchor that is no longer in
+  // the transcript has been dropped, so the window falls back to the tail.
   //
-  // The agent id rides along so the floor can be dropped during render when the
-  // tab opens another agent. An effect would reset it a paint too late, and
-  // would draw the new agent's transcript at the old one's index first.
-  const [opened, setOpened] = useState<{ agentId: string; from: number | null }>({
-    agentId,
-    from: null,
-  });
-  // React re-runs this render before it commits, so `opened` reads back fresh.
-  if (opened.agentId !== agentId) setOpened({ agentId, from: null });
-  const from = opened.agentId === agentId ? opened.from : null;
-  const start = from ?? Math.max(0, count - WINDOW);
+  // The component is keyed on `agentId`, so this needs no reset of its own.
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const anchored = anchor === null ? -1 : transcript.items.findIndex((i) => i.id === anchor);
+  const start = anchored >= 0 ? anchored : Math.max(0, count - WINDOW);
   const visible = transcript.items.slice(start);
   const expandedNodeId = useAppStore((s) => s.ui.expandedNodeId);
   // A free agent draws under its own id, a task node under its task's.
   const deferred =
     !!agent?.pendingRequestIds.length && answeredOnCanvas(expandedNodeId, agent.taskId || agent.id);
 
-  // Keyed on the whole transcript's length, never on the drawn slice's. Keying
-  // on the slice would scroll the reader to the bottom on every Show more,
-  // which is the opposite of what the click asked for.
+  // Keyed on the whole transcript's length, never on the drawn slice's: the
+  // slice would scroll the reader to the bottom on every Show more.
   useEffect(() => {
     if (!following.current) return;
     bottom.current?.scrollIntoView?.({ block: 'end' });
@@ -252,7 +243,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
           items={visible}
           hiddenCount={start}
           revealSize={WINDOW}
-          onShowMore={() => setOpened({ agentId, from: Math.max(0, start - WINDOW) })}
+          onShowMore={() => setAnchor(transcript.items[Math.max(0, start - WINDOW)]?.id ?? null)}
           truncatedBefore={transcript.truncatedBefore}
           deferredRequestIds={deferred ? agent.pendingRequestIds : []}
           handlers={
