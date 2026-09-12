@@ -6,11 +6,11 @@ import threading
 
 import pytest
 
-from maelstrom.state_db import (
+from maelstrom.state_db.migrate import open_state_db
+from maelstrom.state_db.types import (
     Migration,
     SchemaTooNewError,
     SchemaTooOldError,
-    StateDb,
     TableSpec,
     TransactionOpenError,
     UnknownColumnError,
@@ -23,7 +23,7 @@ from maelstrom.state_db import (
 @pytest.fixture
 async def db():
     """A migrated in-memory database, closed at the end of the test."""
-    state_db = StateDb(":memory:")
+    state_db = open_state_db(":memory:")
     await state_db.migrate()
     yield state_db
     state_db.close()
@@ -43,7 +43,7 @@ class TestOpenAndMigrate:
         await db.check()
 
     async def test_a_file_backed_db_journals_in_wal(self, tmp_path):
-        state_db = StateDb(tmp_path / "state.db")
+        state_db = open_state_db(tmp_path / "state.db")
         await state_db.migrate()
         assert await state_db.pragma("journal_mode") == "wal"
         state_db.close()
@@ -56,7 +56,7 @@ class TestSchemaVersion:
     """Slice 2: a version mismatch refuses rather than upgrading."""
 
     async def test_an_unmigrated_db_is_too_old(self, tmp_path):
-        state_db = StateDb(tmp_path / "state.db")
+        state_db = open_state_db(tmp_path / "state.db")
         with pytest.raises(SchemaTooOldError) as exc:
             await state_db.check()
         assert "mael admin migrate" in str(exc.value)
@@ -323,9 +323,9 @@ class TestReentrancy:
         connection sees its uncommitted rows whether or not they are committed.
         """
         path = tmp_path / "state.db"
-        writer = StateDb(path)
+        writer = open_state_db(path)
         await writer.migrate()
-        reader = StateDb(path)
+        reader = open_state_db(path)
         await reader.check()
         async with writer.transact() as outer:
             async with writer.transact() as inner:
@@ -339,7 +339,7 @@ class TestReentrancy:
 
     async def test_awaiting_back_in_from_another_task_is_named(self, db, monkeypatch):
         """A second task's write while a block is open is refused, not hung."""
-        monkeypatch.setattr("maelstrom.state_db._LOCK_TIMEOUT_SECS", 0.05)
+        monkeypatch.setattr("maelstrom.state_db.db._LOCK_TIMEOUT_SECS", 0.05)
 
         async def other():
             await db.write_all([Write("desk", "b", columns={"body": "two"})])
@@ -371,7 +371,7 @@ class TestContention:
 
     async def test_a_second_connection_waits_for_the_first(self, tmp_path):
         path = tmp_path / "state.db"
-        first = StateDb(path)
+        first = open_state_db(path)
         await first.migrate()
 
         async def release():

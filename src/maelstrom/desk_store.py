@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Protocol
 
 from .context import get_maelstrom_dir
-from .state_db import StateDb
+from .state_db.db import StateDb
 from .util import atomic_write_json
 
 log = logging.getLogger(__name__)

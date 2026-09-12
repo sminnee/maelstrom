@@ -17,7 +17,8 @@ from maelstrom.orchestrator_cli import (
     DEFAULT_PORT,
     run_server,
 )
-from maelstrom.state_db import SchemaTooOldError, StateDb
+from maelstrom.state_db.migrate import open_state_db
+from maelstrom.state_db.types import SchemaTooOldError
 
 
 @pytest.fixture
@@ -27,9 +28,9 @@ def state_db(tmp_path, monkeypatch):
     ``run_server`` opens one and checks it, which without this would read the
     developer's live ``~/.maelstrom/state.db``.
     """
-    monkeypatch.setattr("maelstrom.state_db.get_maelstrom_dir", lambda: tmp_path)
+    monkeypatch.setattr("maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path)
     monkeypatch.setattr("maelstrom.desk_store.get_maelstrom_dir", lambda: tmp_path)
-    db = StateDb()
+    db = open_state_db()
     asyncio.run(db.migrate())
     db.close()
 
@@ -215,7 +216,7 @@ def test_an_unmigrated_state_database_refuses_to_serve(tmp_path, monkeypatch):
     read is Tuesday. Refusing is the only non-destructive answer, and the
     message has to carry the command that clears it.
     """
-    monkeypatch.setattr("maelstrom.state_db.get_maelstrom_dir", lambda: tmp_path)
+    monkeypatch.setattr("maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path)
     with (
         patch("maelstrom.orchestrator_cli.build_orchestrator"),
         patch("maelstrom.orchestrator_cli.build_app"),
@@ -228,7 +229,7 @@ def test_an_unmigrated_state_database_refuses_to_serve(tmp_path, monkeypatch):
 
 def test_serve_reports_a_refused_state_database_as_an_error(tmp_path, monkeypatch):
     """The refusal reaches the user as one line, not as a traceback."""
-    monkeypatch.setattr("maelstrom.state_db.get_maelstrom_dir", lambda: tmp_path)
+    monkeypatch.setattr("maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path)
     with patch(
         "maelstrom.orchestrator_cli.run_server",
         side_effect=SchemaTooOldError("run `mael admin migrate`"),
@@ -246,7 +247,7 @@ def test_a_maelstrom_dir_that_does_not_exist_is_created(tmp_path, monkeypatch):
     user would see a traceback.
     """
     home = tmp_path / "never-used"
-    monkeypatch.setattr("maelstrom.state_db.get_maelstrom_dir", lambda: home)
+    monkeypatch.setattr("maelstrom.state_db.paths.get_maelstrom_dir", lambda: home)
     with (
         patch("maelstrom.orchestrator_cli.build_orchestrator"),
         patch("maelstrom.orchestrator_cli.build_app"),

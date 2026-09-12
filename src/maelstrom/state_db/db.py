@@ -1,9 +1,4 @@
-"""Storage layer for the state database.
-
-One SQLite file at ``~/.maelstrom/state.db`` holds every canonical and cached
-table. One file gives one transaction, so a canonical write and its derived
-rows commit or roll back together, and one revision counter names the cut.
-See ``docs/dev/data-architecture.md``.
+"""The engine: one SQLite file, one revision counter, one notice path.
 
 This is the only module that writes SQL against these tables. A subsystem's
 store maps its own rows; the model never learns SQL.
@@ -16,6 +11,11 @@ Reach for :meth:`StateDb.write_all` for several rows, :meth:`StateDb.upsert` or
 :meth:`StateDb.delete` for one, and :meth:`StateDb.transact` only when a later
 write depends on an earlier read. See ``docs/dev/data-architecture.md``,
 "Writing several rows".
+
+A :class:`StateDb` is given its ladders rather than reading them, so this layer
+never imports :mod:`maelstrom.state_db.migrate`. That edge would close a cycle
+the moment a ladder needed anything from a higher layer. Callers want
+:func:`maelstrom.state_db.migrate.open_state_db`, which supplies this build's.
 """
 
 import asyncio
@@ -24,9 +24,21 @@ import threading
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable, Sequence, TypeVar
+from typing import Any, AsyncIterator, Callable, Mapping, Sequence, TypeVar
 
-from .context import get_maelstrom_dir
+from .paths import get_state_db_path
+from .types import (
+    PythonMigration,
+    Rung,
+    SchemaTooNewError,
+    SchemaTooOldError,
+    TableSpec,
+    TransactionOpenError,
+    UnknownColumnError,
+    UnknownTableError,
+    Write,
+    WrongThreadError,
+)
 
 T = TypeVar("T")
 
@@ -38,95 +50,6 @@ _MIGRATE_COMMAND = "mael admin migrate"
 #: this long is not contention: it is a coroutine awaiting back into a database
 #: whose lock its own task already holds.
 _LOCK_TIMEOUT_SECS = 5.0
-
-
-class StateDbError(Exception):
-    """Anything the state database refuses."""
-
-
-class SchemaTooNewError(StateDbError):
-    """The database was written by a newer build than this one.
-
-    Proceeding would write rows missing every column the newer migration
-    added, unrecoverably. Refusing is the only non-destructive answer.
-    """
-
-
-class SchemaTooOldError(StateDbError):
-    """The database is behind this build, and names the command that fixes it.
-
-    Upgrading is a command a person runs, never a background rewrite — see
-    ``docs/dev/data-architecture.md``, "Schema versions".
-    """
-
-
-class UnknownTableError(StateDbError):
-    """A table name no migration declared.
-
-    Table names cannot be bound as parameters, so every one is checked against
-    the declared specs before it is interpolated. This check is the injection
-    guard, not a nicety — and it catches a typo besides.
-    """
-
-
-class UnknownColumnError(StateDbError):
-    """A column the table does not have.
-
-    Named rather than letting the mapping lookup raise ``IndexError`` from deep
-    inside the upsert, where nothing says which table or which column.
-    """
-
-
-class TransactionOpenError(StateDbError):
-    """A transaction is already open on this task.
-
-    Raised instead of hanging when a coroutine awaits back into the same
-    :class:`StateDb` from inside a :meth:`StateDb.transact` block. A hung
-    server is the worst failure mode here, so the wait has a timeout.
-    """
-
-
-class WrongThreadError(StateDbError):
-    """The connection was reached from a thread other than the one that opened it.
-
-    Every call runs inline on the event loop's thread, so this cannot happen by
-    design. It is checked rather than assumed, because the alternative is a
-    bare ``sqlite3.ProgrammingError`` at a random call site.
-    """
-
-
-@dataclass(frozen=True)
-class Migration:
-    """One step up a subsystem's ladder: the statements it runs.
-
-    A ladder is an append-only tuple, so a migration's version is its index
-    plus one. The number is derived and never hand-maintained.
-    """
-
-    statements: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class TableSpec:
-    """A table the database knows, and whether it carries freshness.
-
-    ``cached`` is the one property that separates a cached table from a
-    canonical one — not a separate database, a separate read path, or a
-    separate design.
-    """
-
-    name: str
-    cached: bool = False
-
-
-@dataclass(frozen=True)
-class Write:
-    """One row for :meth:`StateDb.write_all`. A delete when ``columns`` is ``None``."""
-
-    table: str
-    id: str
-    columns: dict[str, Any] | None = None
-    fetched_at: str | None = None
 
 
 @dataclass
@@ -174,62 +97,6 @@ class Txn:
         self.stamped = True
 
 
-#: The spine every subsystem depends on. Versioned through ``PRAGMA
-#: user_version``, because it is the one table set a global version legitimately
-#: describes.
-SPINE: tuple[Migration, ...] = (
-    Migration(
-        (
-            "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
-            "INSERT INTO meta (key, value) VALUES ('revision', '0')",
-            "CREATE TABLE schema_version ("
-            "name TEXT PRIMARY KEY, version INTEGER NOT NULL)",
-            "CREATE TABLE removals ("
-            "table_name TEXT NOT NULL, id TEXT NOT NULL, "
-            "revision INTEGER NOT NULL, PRIMARY KEY (table_name, id))",
-            "CREATE INDEX removals_revision ON removals (revision)",
-            "CREATE TABLE refresher_health ("
-            "name TEXT PRIMARY KEY, "
-            "reachable INTEGER NOT NULL DEFAULT 1, "
-            "since TEXT NOT NULL DEFAULT '', "
-            "last_attempt TEXT NOT NULL DEFAULT '', "
-            "last_success TEXT NOT NULL DEFAULT '', "
-            "stand_off_until TEXT NOT NULL DEFAULT '', "
-            "detail TEXT NOT NULL DEFAULT '')",
-        )
-    ),
-)
-
-#: The desk, the first subsystem on the database. Canonical, so no
-#: ``fetched_at``: nobody else authors a desk.
-DESK: tuple[Migration, ...] = (
-    Migration(
-        (
-            # The entry's own fields, `addedAt` among them, live inside
-            # `body`. A column beside it would be a second copy free to
-            # disagree, and nothing queries the desk by date.
-            "CREATE TABLE desk ("
-            "id TEXT PRIMARY KEY, revision INTEGER NOT NULL, "
-            "body TEXT NOT NULL DEFAULT '')",
-            "CREATE INDEX desk_revision ON desk (revision)",
-        )
-    ),
-)
-
-#: Every subsystem's ladder, by name. A subsystem's schema moves without
-#: dragging the others.
-LADDERS: dict[str, tuple[Migration, ...]] = {"desk": DESK}
-
-#: Every table a subsystem declares. The spine's own tables are not here: they
-#: are the machinery, not rows a caller writes.
-TABLES: dict[str, TableSpec] = {"desk": TableSpec("desk")}
-
-
-def get_state_db_path() -> Path:
-    """Where the state database is kept."""
-    return get_maelstrom_dir() / "state.db"
-
-
 class StateDb:
     """The state database: one SQLite file, one revision counter, one notice path.
 
@@ -238,9 +105,23 @@ class StateDb:
     The connection is held for the object's lifetime either way — each
     connection to ``":memory:"`` gets its own private database, so a
     per-call connection would lose every row.
+
+    ``ladders``, ``tables`` and ``spine`` are given rather than read from a
+    module, which is what keeps this layer below the ladders it runs. A
+    :class:`StateDb` built directly carries none of this build's schema; that
+    is :func:`maelstrom.state_db.migrate.open_state_db`'s job. Passing them in
+    also replaces the per-instance copy whose only purpose was letting a test
+    add a ladder.
     """
 
-    def __init__(self, path: Path | str | None = None) -> None:
+    def __init__(
+        self,
+        path: Path | str | None = None,
+        *,
+        ladders: Mapping[str, tuple[Rung, ...]] | None = None,
+        tables: Mapping[str, TableSpec] | None = None,
+        spine: tuple[Rung, ...] = (),
+    ) -> None:
         self._path = str(path) if path is not None else None
         self._conn: sqlite3.Connection | None = None
         self._thread: int | None = None
@@ -253,10 +134,9 @@ class StateDb:
         #: a *different* task's write must wait for the lock, or it would
         #: commit its rows under someone else's cut.
         self._holder: asyncio.Task[Any] | None = None
-        #: Per instance, so a test can add a ladder without reaching into the
-        #: module and changing what every other test sees.
-        self.ladders: dict[str, tuple[Migration, ...]] = dict(LADDERS)
-        self.tables: dict[str, TableSpec] = dict(TABLES)
+        self.ladders: dict[str, tuple[Rung, ...]] = dict(ladders or {})
+        self.tables: dict[str, TableSpec] = dict(tables or {})
+        self.spine: tuple[Rung, ...] = spine
         #: Each table's column names, read once. The schema only moves through
         #: a migration, and a migration reopens nothing mid-run.
         self._known_columns: dict[str, frozenset[str]] = {}
@@ -326,7 +206,9 @@ class StateDb:
 
         Forward-only, and the whole run is one SQLite transaction: SQLite has
         genuinely transactional DDL, so a migration that fails halfway leaves
-        the version rows and the tables where they were.
+        the version rows and the tables where they were. A
+        :class:`~maelstrom.state_db.types.PythonMigration` rung runs inside
+        that same transaction, so the guarantee covers it too.
 
         There is no ``down()``. A down-migration for a canonical table is a
         data-destroying operation written speculatively and first exercised on
@@ -342,9 +224,8 @@ class StateDb:
                 found = self._read_version(conn, name)
                 if found > len(ladder):
                     raise SchemaTooNewError(_too_new(name, found, len(ladder)))
-                for migration in ladder[found:]:
-                    for statement in migration.statements:
-                        conn.execute(statement)
+                for rung in ladder[found:]:
+                    self._run_rung(conn, rung)
                 if found != len(ladder):
                     conn.execute(
                         "INSERT OR REPLACE INTO schema_version (name, version) "
@@ -359,16 +240,29 @@ class StateDb:
         # read, and a stale cache would then refuse a write to it.
         self._known_columns.clear()
 
+    @staticmethod
+    def _run_rung(conn: sqlite3.Connection, rung: Rung) -> None:
+        """Take one step up a ladder, whichever form it takes.
+
+        A :class:`~maelstrom.state_db.types.PythonMigration` is handed the raw
+        connection rather than a :class:`Txn`, because a migration must not bump
+        the revision counter. Its rows name ``revision = 0`` themselves.
+        """
+        if isinstance(rung, PythonMigration):
+            rung.run(conn)
+            return
+        for statement in rung.statements:
+            conn.execute(statement)
+
     def _migrate_spine(self, conn: sqlite3.Connection) -> None:
         found = conn.execute("PRAGMA user_version").fetchone()[0]
-        if found > len(SPINE):
-            raise SchemaTooNewError(_too_new("the spine", found, len(SPINE)))
-        for migration in SPINE[found:]:
-            for statement in migration.statements:
-                conn.execute(statement)
-        if found != len(SPINE):
+        if found > len(self.spine):
+            raise SchemaTooNewError(_too_new("the spine", found, len(self.spine)))
+        for rung in self.spine[found:]:
+            self._run_rung(conn, rung)
+        if found != len(self.spine):
             # A pragma takes no parameter binding; the value is our own int.
-            conn.execute(f"PRAGMA user_version = {len(SPINE)}")
+            conn.execute(f"PRAGMA user_version = {len(self.spine)}")
 
     async def check(self) -> None:
         """Refuse unless every ladder is exactly at this build's version.
@@ -380,10 +274,10 @@ class StateDb:
 
     def _check(self, conn: sqlite3.Connection) -> None:
         spine = conn.execute("PRAGMA user_version").fetchone()[0]
-        if spine > len(SPINE):
-            raise SchemaTooNewError(_too_new("the spine", spine, len(SPINE)))
-        if spine < len(SPINE):
-            raise SchemaTooOldError(_too_old("the spine", spine, len(SPINE)))
+        if spine > len(self.spine):
+            raise SchemaTooNewError(_too_new("the spine", spine, len(self.spine)))
+        if spine < len(self.spine):
+            raise SchemaTooOldError(_too_old("the spine", spine, len(self.spine)))
         for name, ladder in self.ladders.items():
             found = self._read_version(conn, name)
             if found > len(ladder):
@@ -739,7 +633,7 @@ class StateDb:
     async def read_health(self, name: str) -> sqlite3.Row | None:
         """One refresher's stored health, or ``None`` when it has none.
 
-        Its own pair of methods rather than a table in :data:`TABLES`: the
+        Its own pair of methods rather than a table in ``TABLES``: the
         health row carries no ``revision`` and raises no notice, because it is
         a fact about the refresher rather than about anything a client draws.
         A refresher standing off must not make every client refetch.

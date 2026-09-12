@@ -9,10 +9,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from maelstrom import state_db
 from maelstrom.admin_cli import cmd_migrate, cmd_self_update, resolve_install_root
 from maelstrom.env import EnvState
-from maelstrom.state_db import Migration, StateDb
+from maelstrom.state_db import migrate as state_db_migrate
+from maelstrom.state_db.migrate import open_state_db
+from maelstrom.state_db.migrations.desk import DESK
+from maelstrom.state_db.types import Migration
 
 
 def _ok(stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
@@ -358,21 +360,27 @@ class TestMigrate:
     """Slice 22: `mael admin migrate` upgrades; an ordinary open refuses."""
 
     def test_it_creates_the_state_database(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("maelstrom.state_db.get_maelstrom_dir", lambda: tmp_path)
+        monkeypatch.setattr(
+            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
+        )
         result = CliRunner().invoke(cmd_migrate, [])
         assert result.exit_code == 0, result.output
         assert (tmp_path / "state.db").is_file()
         assert str(tmp_path / "state.db") in result.output
 
     def test_a_second_run_is_a_no_op(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("maelstrom.state_db.get_maelstrom_dir", lambda: tmp_path)
+        monkeypatch.setattr(
+            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
+        )
         assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
         result = CliRunner().invoke(cmd_migrate, [])
         assert result.exit_code == 0, result.output
 
     def test_it_imports_an_existing_desk(self, tmp_path, monkeypatch):
         """A user's canvas survives the move to the state database."""
-        monkeypatch.setattr("maelstrom.state_db.get_maelstrom_dir", lambda: tmp_path)
+        monkeypatch.setattr(
+            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
+        )
         monkeypatch.setattr("maelstrom.desk_store.get_maelstrom_dir", lambda: tmp_path)
         (tmp_path / "desk.json").write_text(
             '{"task:a/1": {"id": "task:a/1", "addedAt": "t"}}'
@@ -380,7 +388,7 @@ class TestMigrate:
         assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
         assert (tmp_path / "desk.json").is_file(), "left as a fallback"
 
-        db = StateDb(tmp_path / "state.db")
+        db = open_state_db(tmp_path / "state.db")
         try:
             rows = asyncio.run(db.read_all("desk"))
         finally:
@@ -394,27 +402,29 @@ class TestMigrate:
         so the second run takes it and the desk row written under version 1 is
         still there afterwards.
         """
-        monkeypatch.setattr("maelstrom.state_db.get_maelstrom_dir", lambda: tmp_path)
+        monkeypatch.setattr(
+            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
+        )
         monkeypatch.setattr("maelstrom.desk_store.get_maelstrom_dir", lambda: tmp_path)
         assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
 
-        db = StateDb(tmp_path / "state.db")
+        db = open_state_db(tmp_path / "state.db")
         try:
             asyncio.run(db.upsert("desk", "task:a/1", body='{"id": "x"}'))
         finally:
             db.close()
 
         monkeypatch.setitem(
-            state_db.LADDERS,
+            state_db_migrate.LADDERS,
             "desk",
             (
-                *state_db.DESK,
+                *DESK,
                 Migration(("ALTER TABLE desk ADD COLUMN note TEXT DEFAULT ''",)),
             ),
         )
         assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
 
-        db = StateDb(tmp_path / "state.db")
+        db = open_state_db(tmp_path / "state.db")
         try:
             assert asyncio.run(db.schema_version("desk")) == 2
             assert asyncio.run(db.read("desk", "task:a/1")) is not None

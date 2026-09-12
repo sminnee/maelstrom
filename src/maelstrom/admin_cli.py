@@ -14,7 +14,9 @@ from .context import get_maelstrom_dir, harden_global_config
 from .desk_store import SqliteDeskStore
 from .env_cli import env
 from .shell import mael_path
-from .state_db import StateDb, StateDbError, get_state_db_path
+from .state_db.migrate import open_state_db
+from .state_db.paths import get_state_db_path
+from .state_db.types import StateDbError
 from .util import sanitise_child_env
 from .worktree_model import MAIN_WORKTREE_FOLDER
 
@@ -286,7 +288,7 @@ async def cmd_migrate() -> None:
     """
     path = get_state_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    db = StateDb(path)
+    db = open_state_db(path)
     try:
         await db.migrate()
         # Runs the one-time import, which is the whole reason a load is called

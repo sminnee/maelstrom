@@ -16,7 +16,9 @@ from maelstrom.refresh import (
     refused,
     succeeded,
 )
-from maelstrom.state_db import Migration, StateDb, TableSpec, Write
+from maelstrom.state_db.db import StateDb
+from maelstrom.state_db.migrate import open_state_db
+from maelstrom.state_db.types import Migration, TableSpec, Write
 
 #: Wall time a test stamps a fact with, so a `since` is readable rather than now.
 AT = "2026-09-12T10:00:00Z"
@@ -68,7 +70,7 @@ class FakeRefresher:
 @pytest.fixture
 async def db():
     """A database with one cached table, for a refresher to keep current."""
-    state_db = StateDb(":memory:")
+    state_db = open_state_db(":memory:")
     state_db.ladders["thing"] = (
         Migration(
             (
