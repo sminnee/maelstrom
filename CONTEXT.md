@@ -711,6 +711,49 @@ map from its values onto the six. Two states may share a tone when they make the
 the reader; the icon parts them.
 _Avoid_: Colour, status colour, variant
 
+## Data patterns
+
+How a piece of state reaches the orchestrator. See
+[`docs/dev/data-architecture.md`](docs/dev/data-architecture.md).
+
+**Canonical**:
+State maelstrom itself authors, held in the state database. The write is the authoritative act,
+so the table is backed up, migrated, and never rebuilt from empty. Tasks and the desk are
+canonical.
+_Avoid_: Source of truth, primary, master
+
+**Cached**:
+State another system authors, held in the state database as the last answer seen. A reader
+takes what is there whatever its age, and a refresher keeps it current. Losing the table costs
+one slow read, never data. Worktrees and pull requests are cached.
+_Avoid_: Mirror, copy, snapshot
+
+**Refresher**:
+What keeps one cached table current. It owns its cadence, its budget and what it does when the
+upstream refuses. A reader never triggers one.
+_Avoid_: Poller, syncer, updater
+
+**Pass-through**:
+State read from its source on each request and stored nowhere, because a read is cheap or must
+be exact. A task's content is pass-through.
+_Avoid_: Uncached, direct, live
+
+**Pushed**:
+State whose owner streams it, so the state database holds nothing live. Agents are pushed: the
+agent host owns them.
+_Avoid_: Streamed, realtime, subscribed
+
+**Progressive**:
+A write too slow to answer on completion. It replies at once with an entity in a preparing
+state, then reports each step as a change. Worktree setup, worktree close and task inference
+are progressive.
+_Avoid_: Async, background, deferred
+
+**State database**:
+The SQLite database at `~/.maelstrom/state.db` holding every canonical and cached table. One
+file, so one transaction and one revision counter cover them all.
+_Avoid_: Cache, store, db
+
 ## Knowledge stores
 
 **Task notebook**:
