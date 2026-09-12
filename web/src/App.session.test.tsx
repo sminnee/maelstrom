@@ -264,6 +264,31 @@ describe('the session tab', () => {
     expect(screen.queryByTestId('subagent-strip')).toBeNull();
   });
 
+  it('holds an unsent reply per agent across a tab switch', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('NORT-9');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+    await user.type(
+      screen.getByRole('textbox', { name: 'Message to agent' }),
+      'Prefer the ICU collation.',
+    );
+
+    // A second session, which unmounts the first input.
+    clickNode('NORT-7');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+    // Keyed per agent, so this one opens empty rather than showing the reply
+    // meant for the other agent. Without this the feature would pass with one
+    // shared key.
+    expect(screen.getByRole('textbox', { name: 'Message to agent' })).toHaveValue('');
+
+    // Back to the first tab: the reply is where it was left.
+    await user.click(document.querySelector('[role="tab"][data-tab-key="session:d9a4c7f1"]')!);
+    expect(screen.getByRole('textbox', { name: 'Message to agent' })).toHaveValue(
+      'Prefer the ICU collation.',
+    );
+  });
+
   it('cycles the permission mode from the chip in the head', async () => {
     const user = userEvent.setup();
     await renderApp();

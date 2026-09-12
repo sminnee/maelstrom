@@ -267,6 +267,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
         <MessageInput
           project={agent.project}
           bucket={`agent-${agentId}`}
+          agentId={agentId}
           disabled={agent.state === 'exited'}
           onSend={(text, attachments) => say.mutateAsync({ agentId, text, attachments })}
           onRun={(command) => run.mutateAsync({ agentId, command })}

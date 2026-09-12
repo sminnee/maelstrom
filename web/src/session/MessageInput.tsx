@@ -1,13 +1,24 @@
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import { withoutRef, type Attachment } from '../api/attachments';
 import { useLayoutMode } from '../layout/useLayoutMode';
 import { AppButton } from '../ui/AppButton';
 import { AttachField } from '../ui/AttachField';
+import { retainedKey } from '../ui/retained';
+import { useRetained } from '../ui/useRetained';
 import styles from './MessageInput.module.css';
+
+/** An unsent reply, held so switching panel tabs does not lose it. */
+interface Held {
+  text: string;
+  attached: Attachment[];
+}
+
+const EMPTY: Held = { text: '', attached: [] };
 
 export function MessageInput({
   project,
   bucket,
+  agentId,
   onSend,
   onRun,
   disabled,
@@ -15,14 +26,35 @@ export function MessageInput({
   project: string;
   /** Groups this agent's images in the task repo. */
   bucket: string;
+  /**
+   * Whose input this is. Held text is keyed by it, so switching tabs and coming
+   * back finds this agent's reply and not another's. Unset holds nothing.
+   */
+  agentId?: string;
   /** Resolves once the agent took the message; a rejection keeps the text for a retry. */
   onSend: (text: string, attachments: Attachment[]) => void | Promise<unknown>;
   /** Resolves once the host ran the command of a `!` line. */
   onRun: (command: string) => void | Promise<unknown>;
   disabled?: boolean;
 }) {
-  const [text, setText] = useState('');
-  const [attached, setAttached] = useState<Attachment[]>([]);
+  // The text and its attachments move together: an image's ref lives in the
+  // text, so holding one without the other would restore a ref to an image the
+  // strip no longer offers to remove.
+  const [held, setHeld, release] = useRetained(
+    agentId ? retainedKey.message(agentId) : null,
+    EMPTY,
+  );
+  const { text, attached } = held;
+  const setText = (next: React.SetStateAction<string>) =>
+    setHeld((was) => ({
+      ...was,
+      text: typeof next === 'function' ? next(was.text) : next,
+    }));
+  const setAttached = (next: React.SetStateAction<Attachment[]>) =>
+    setHeld((was) => ({
+      ...was,
+      attached: typeof next === 'function' ? next(was.attached) : next,
+    }));
   const sendButton = useRef<HTMLButtonElement>(null);
   // A soft keyboard's Enter means a newline, so only the button sends there.
   // On a hardware keyboard Enter sends, which is what a power tool wants.
@@ -42,12 +74,16 @@ export function MessageInput({
       const command = trimmed.slice(1).trim();
       if (!command) return;
       await onRun(command);
-      setText('');
+      // The branch above guarantees nothing is attached, so releasing clears the
+      // same field a `setText('')` would -- and drops the stored key with it,
+      // rather than leaving one holding an empty message.
+      release();
       return;
     }
     await onSend(trimmed, attached);
-    setText('');
-    setAttached([]);
+    // Sent, so the held copy is spent. One call, because resetting the value
+    // and dropping the stored one have to happen together.
+    release();
   };
   return (
     <div className={styles.form}>
