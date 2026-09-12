@@ -71,6 +71,14 @@
     text-align: left;
   }
 }
+/* Sized and set like `.note`, because it says something about the transcript
+   rather than carrying an event. Only as wide as its words, so it reads as a
+   note that can be clicked rather than a bar across the panel. */
+.showMore {
+  align-self: flex-start;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
 .note,
 .system {
   font-size: var(--text-xs);

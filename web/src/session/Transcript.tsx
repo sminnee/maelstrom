@@ -12,6 +12,7 @@ import { ResultLine } from './cards/ResultLine';
 import { ToolCallCard } from './cards/ToolCallCard';
 import { classifyToolCall } from './toolCards';
 import cards from './cards/cards.module.css';
+import { AppButton } from '../ui/AppButton';
 import { useNow } from '../ui/useNow';
 import styles from './Transcript.module.css';
 
@@ -53,6 +54,9 @@ export function Transcript({
   truncatedBefore,
   handlers = {},
   deferredRequestIds = [],
+  hiddenCount = 0,
+  revealSize,
+  onShowMore,
 }: {
   items: TranscriptItem[];
   truncatedBefore: boolean;
@@ -60,12 +64,25 @@ export function Transcript({
   /** The wait the expanded card answers, echoed here without controls. */
   /** Asks whose prompt the canvas owns; the transcript echoes them read-only. */
   deferredRequestIds?: readonly string[];
+  /**
+   * Events above `items` that the session tab holds back, so the button can
+   * say how many a click reveals.
+   */
+  hiddenCount?: number;
+  /** How many a click reveals, so the button can promise only what it does. */
+  revealSize?: number;
+  onShowMore?: () => void;
 }) {
   const now = useNow();
   const marks = gutterMarks(items, now);
   return (
     <div className={styles.transcript}>
       {truncatedBefore && <div className={styles.note}>Earlier events were not kept.</div>}
+      {hiddenCount > 0 && (
+        <AppButton variant="quiet" className={styles.showMore} onClick={onShowMore}>
+          Show {Math.min(revealSize ?? hiddenCount, hiddenCount)} earlier events
+        </AppButton>
+      )}
       {items.map((item) => {
         if (drawsNothing(item)) return null;
         const deferred = 'requestId' in item && deferredRequestIds.includes(item.requestId);
@@ -98,6 +115,11 @@ export function Transcript({
  *
  * A mark only where time moved is what makes the column a timeline: printed on
  * every item it is wallpaper, and the eye stops reading it.
+ *
+ * Computed over the drawn window, not the whole session. The first visible item
+ * therefore takes a mark whenever it carries a readable time, where in the full
+ * list it might have repeated the one above it. That also keeps the pass
+ * O(window) on every 30s tick.
  */
 function gutterMarks(items: TranscriptItem[], now: number): Map<string, string> {
   const marks = new Map<string, string>();

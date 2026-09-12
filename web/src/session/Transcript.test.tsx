@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { Transcript } from './Transcript';
 import { classifyToolCall } from './toolCards';
@@ -265,6 +265,71 @@ describe('Transcript', () => {
     // No thumbnail button: the refused image reaches none of the lightbox path.
     expect(within(card).queryByRole('button')).not.toBeInTheDocument();
     expect(card.textContent).toContain('could not be shown');
+  });
+
+  it('draws only the window it was given, and offers the rest behind a button', () => {
+    const items = Array.from({ length: 120 }, (_, i) => said(`m${i}`, '2026-09-05T07:31:04Z'));
+    render(
+      <Transcript
+        items={items.slice(70)}
+        truncatedBefore={false}
+        hiddenCount={70}
+        revealSize={50}
+      />,
+    );
+    expect(screen.getAllByTestId('transcript-card')).toHaveLength(50);
+    // 70 are held back, but a click reveals one window of them. The button
+    // names the act, not the remainder.
+    expect(screen.getByRole('button', { name: 'Show 50 earlier events' })).toBeInTheDocument();
+  });
+
+  it('offers only what is left when fewer than a window remain above', () => {
+    const items = Array.from({ length: 30 }, (_, i) => said(`m${i}`, '2026-09-05T07:31:04Z'));
+    render(
+      <Transcript
+        items={items.slice(20)}
+        truncatedBefore={false}
+        hiddenCount={20}
+        revealSize={50}
+      />,
+    );
+    // The last click opens the rest, so here the two figures agree.
+    expect(screen.getByRole('button', { name: 'Show 20 earlier events' })).toBeInTheDocument();
+  });
+
+  it('offers nothing once the whole transcript is on screen', () => {
+    const items = Array.from({ length: 3 }, (_, i) => said(`m${i}`, '2026-09-05T07:31:04Z'));
+    render(<Transcript items={items} truncatedBefore={false} hiddenCount={0} />);
+    expect(screen.queryByRole('button', { name: /earlier events/ })).toBeNull();
+  });
+
+  it('keeps the two notes distinct, because they say different things', () => {
+    // `truncatedBefore` means events that exist nowhere; the button means events
+    // that exist and are one click away. Both can be true at once.
+    const items = Array.from({ length: 60 }, (_, i) => said(`m${i}`, '2026-09-05T07:31:04Z'));
+    render(<Transcript items={items.slice(10)} truncatedBefore hiddenCount={10} />);
+    const note = screen.getByText('Earlier events were not kept.');
+    const button = screen.getByRole('button', { name: 'Show 10 earlier events' });
+    expect(note).toBeInTheDocument();
+    // The lost events are older than the ones a click would reveal, so the note
+    // reads above the button. `compareDocumentPosition` is tree order, which
+    // jsdom does implement, where layout order is beyond it.
+    expect(note.compareDocumentPosition(button)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('asks for more when the button is clicked', () => {
+    const onShowMore = vi.fn();
+    const items = Array.from({ length: 60 }, (_, i) => said(`m${i}`, '2026-09-05T07:31:04Z'));
+    render(
+      <Transcript
+        items={items.slice(10)}
+        truncatedBefore={false}
+        hiddenCount={10}
+        onShowMore={onShowMore}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Show 10 earlier events' }));
+    expect(onShowMore).toHaveBeenCalled();
   });
 
   it('a denied permission shows its decision', () => {
