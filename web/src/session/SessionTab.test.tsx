@@ -308,6 +308,74 @@ describe('the compact button', () => {
   });
 });
 
+/**
+ * Settle the session tab on seeded content before moving the world.
+ *
+ * Scoped to the tab: the expanded node card behind the panel draws the same
+ * last message, so an unscoped query matches twice. A wait on the first item
+ * over a freshly-opened socket is what flaked a group out of the suite before.
+ */
+async function settleOnSeed() {
+  const tab = screen.getByTestId('session-tab');
+  await within(tab).findByText('Rewriting the migration for the new collation.');
+  return tab;
+}
+
+/** Append `count` assistant messages to NORT-9's agent, oldest first. */
+function appendMany(
+  server: Awaited<ReturnType<typeof renderApp>>['server'],
+  count: number,
+  label = 'event',
+) {
+  for (let i = 0; i < count; i += 1) {
+    server.append('d9a4c7f1', {
+      id: `d9a4c7f1-${label}-${i}`,
+      ts: '',
+      type: 'message',
+      role: 'assistant',
+      markdown: `${label} ${i}`,
+    });
+  }
+}
+
+describe('the transcript window', () => {
+  it('draws the recent events and offers the rest, so a long session opens promptly', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await openTaskSession(user);
+    await settleOnSeed();
+
+    appendMany(server, 60);
+
+    // 64 items in all, so the oldest are held back rather than drawn.
+    await waitFor(() => expect(screen.getAllByTestId('transcript-card')).toHaveLength(50));
+    expect(screen.getByRole('button', { name: /earlier events/ })).toBeInTheDocument();
+    expect(screen.queryByText('event 0')).toBeNull();
+    expect(screen.getByText('event 59')).toBeInTheDocument();
+  });
+
+  it('keeps a revealed event on screen when the agent speaks again', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await openTaskSession(user);
+    await settleOnSeed();
+
+    appendMany(server, 60);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /earlier events/ })).toBeVisible(),
+    );
+
+    await user.click(screen.getByRole('button', { name: /earlier events/ }));
+    expect(await screen.findByText('event 0')).toBeInTheDocument();
+
+    // The window holds an absolute floor, not a count: one more event extends
+    // the bottom rather than dropping the oldest revealed row off the top.
+    appendMany(server, 1, 'later');
+    expect(await screen.findByText('later 0')).toBeInTheDocument();
+    expect(screen.getByText('event 0')).toBeInTheDocument();
+  });
+});
+
 describe('the stop button', () => {
   it('abandons the turn the agent is running, and keeps the agent', async () => {
     const user = userEvent.setup();

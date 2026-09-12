@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   useAnswer,
   useApprove,
@@ -36,6 +36,16 @@ import styles from './SessionTab.module.css';
 const COMPACT_COMMAND = '/compact';
 
 /**
+ * How many events the session tab draws, and how many a Show more adds.
+ *
+ * The server keeps thousands and sends them all, which is cheap; mounting them
+ * is not — every message parses markdown and every tool call builds a
+ * disclosure. Reading old events is occasional, so the tab draws the recent
+ * ones and offers the rest. See `docs/dev/orchestrator-ui.md`.
+ */
+const WINDOW = 50;
+
+/**
  * The rich transcript plus an input. VS-Code-extension-like, not a terminal.
  *
  * A subagent opens in the same tab, read-only, and a parent lists its
@@ -66,11 +76,32 @@ export function SessionTab({ agentId }: { agentId: string }) {
     if (exited) abandonCompact.current?.('The agent exited before it compacted.');
   }, [exited]);
   const count = transcript.items.length;
+  // How far back the reader has opened the transcript. `null` tracks the tail.
+  //
+  // An absolute floor, not a count of shown rows: a count would shrink the
+  // window from the top on every append, dropping the oldest revealed row the
+  // moment the agent spoke again. The floor makes that correct by construction.
+  //
+  // The agent id rides along so the floor can be dropped during render when the
+  // tab opens another agent. An effect would reset it a paint too late, and
+  // would draw the new agent's transcript at the old one's index first.
+  const [opened, setOpened] = useState<{ agentId: string; from: number | null }>({
+    agentId,
+    from: null,
+  });
+  // React re-runs this render before it commits, so `opened` reads back fresh.
+  if (opened.agentId !== agentId) setOpened({ agentId, from: null });
+  const from = opened.agentId === agentId ? opened.from : null;
+  const start = from ?? Math.max(0, count - WINDOW);
+  const visible = transcript.items.slice(start);
   const expandedNodeId = useAppStore((s) => s.ui.expandedNodeId);
   // A free agent draws under its own id, a task node under its task's.
   const deferred =
     !!agent?.pendingRequestIds.length && answeredOnCanvas(expandedNodeId, agent.taskId || agent.id);
 
+  // Keyed on the whole transcript's length, never on the drawn slice's. Keying
+  // on the slice would scroll the reader to the bottom on every Show more,
+  // which is the opposite of what the click asked for.
   useEffect(() => {
     bottom.current?.scrollIntoView?.({ block: 'end' });
   }, [count]);
@@ -194,7 +225,10 @@ export function SessionTab({ agentId }: { agentId: string }) {
           </div>
         )}
         <Transcript
-          items={transcript.items}
+          items={visible}
+          hiddenCount={start}
+          revealSize={WINDOW}
+          onShowMore={() => setOpened({ agentId, from: Math.max(0, start - WINDOW) })}
           truncatedBefore={transcript.truncatedBefore}
           deferredRequestIds={deferred ? agent.pendingRequestIds : []}
           handlers={
