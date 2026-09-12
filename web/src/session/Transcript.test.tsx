@@ -9,6 +9,15 @@ import type { TranscriptItem } from '../protocol/transcript';
 const raisesAWait = (item: TranscriptItem) =>
   item.type === 'tool_call' && classifyToolCall(item) === 'wait';
 
+/** One assistant message, whose id is also its body, so a row names itself. */
+const said = (id: string, ts: string): TranscriptItem => ({
+  id,
+  ts,
+  type: 'message',
+  role: 'assistant',
+  markdown: id,
+});
+
 describe('Transcript', () => {
   it('renders one card per item of a normalised fixture, in order and typed by item', () => {
     const items = goldenItems('plan-review.jsonl');
@@ -45,21 +54,19 @@ describe('Transcript', () => {
   });
 
   it('marks the gutter only where the minute moved, so the column is a timeline', () => {
-    const said = (id: string, ts: string): TranscriptItem => ({
-      id,
-      ts,
-      type: 'message',
-      role: 'assistant',
-      markdown: id,
-    });
+    // Stamped against the real clock, because `Transcript` reads `useNow` itself
+    // and `clockTime` prints a bare date once a moment is a week old — which
+    // would collapse all three marks to one day and hide the minute rule.
+    //
+    // Floored to a minute boundary first: from an arbitrary instant, a +44s
+    // offset would cross into the next minute for most of every minute, and the
+    // test would fail on the clock rather than on the rule.
+    const base = Math.floor((Date.now() - 5 * 60_000) / 60_000) * 60_000;
+    const at = (offsetMs: number) => new Date(base + offsetMs).toISOString();
     render(
       <Transcript
         truncatedBefore={false}
-        items={[
-          said('m1', '2026-09-05T07:31:04Z'),
-          said('m2', '2026-09-05T07:31:48Z'),
-          said('m3', '2026-09-05T07:32:02Z'),
-        ]}
+        items={[said('m1', at(4_000)), said('m2', at(48_000)), said('m3', at(62_000))]}
       />,
     );
     const printed = screen
@@ -103,13 +110,6 @@ describe('Transcript', () => {
   });
 
   it('the item that draws nothing takes no mark and does not move the run', () => {
-    const said = (id: string, ts: string): TranscriptItem => ({
-      id,
-      ts,
-      type: 'message',
-      role: 'assistant',
-      markdown: id,
-    });
     const skipped: TranscriptItem = {
       id: 'w1',
       // An hour later, so a mark here would be unmistakable.
