@@ -110,7 +110,7 @@ def isolated_maelstrom(tmp_path, monkeypatch):
     monkeypatch.setattr("maelstrom.env_store.get_maelstrom_dir", fake_get_dir)
     # The state database and the desk resolve their own paths, so a test that
     # opens either would otherwise write into the developer's live directory.
-    monkeypatch.setattr("maelstrom.state_db.get_maelstrom_dir", fake_get_dir)
+    monkeypatch.setattr("maelstrom.state_db.paths.get_maelstrom_dir", fake_get_dir)
     monkeypatch.setattr("maelstrom.desk_store.get_maelstrom_dir", fake_get_dir)
 
     monkeypatch.setattr(
@@ -138,7 +138,7 @@ def isolated_maelstrom_module(tmp_path_factory):
     mp.setattr("maelstrom.context.get_maelstrom_dir", fake_get_dir)
     mp.setattr("maelstrom.env.get_maelstrom_dir", fake_get_dir)
     mp.setattr("maelstrom.env_store.get_maelstrom_dir", fake_get_dir)
-    mp.setattr("maelstrom.state_db.get_maelstrom_dir", fake_get_dir)
+    mp.setattr("maelstrom.state_db.paths.get_maelstrom_dir", fake_get_dir)
     mp.setattr("maelstrom.desk_store.get_maelstrom_dir", fake_get_dir)
     mp.setattr(
         "maelstrom.context.load_global_config",

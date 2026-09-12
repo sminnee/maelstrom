@@ -6,7 +6,7 @@ import json
 import pytest
 
 from maelstrom.desk_store import InMemoryDeskStore, JsonDeskStore, SqliteDeskStore
-from maelstrom.state_db import StateDb
+from maelstrom.state_db.migrate import open_state_db
 
 TABLE = {
     "task:askastro/2026-06-11.1": {
@@ -31,7 +31,7 @@ async def store(request, tmp_path):
     if request.param == "json":
         yield JsonDeskStore(path=tmp_path / "desk.json")
         return
-    db = StateDb(":memory:")
+    db = open_state_db(":memory:")
     await db.migrate()
     # A path inside tmp_path, so the one-time import cannot reach the
     # developer's real ~/.maelstrom/desk.json.
@@ -133,7 +133,7 @@ class TestJsonDeskStore:
 @pytest.fixture
 async def db():
     """A migrated in-memory database, for the SQLite backend's own tests."""
-    state_db = StateDb(":memory:")
+    state_db = open_state_db(":memory:")
     await state_db.migrate()
     yield state_db
     state_db.close()

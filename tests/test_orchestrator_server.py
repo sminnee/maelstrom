@@ -4587,9 +4587,9 @@ def test_the_poll_asks_only_about_the_branches_on_the_desk(harness):
 def test_the_desk_survives_a_restart_on_the_state_database(store, tmp_path):
     """The PoC, end to end: the desk is a table and a restart reads it back."""
     from maelstrom.desk_store import SqliteDeskStore
-    from maelstrom.state_db import StateDb
+    from maelstrom.state_db.migrate import open_state_db
 
-    db = StateDb(tmp_path / "state.db")
+    db = open_state_db(tmp_path / "state.db")
     run(db.migrate())
     desk = SqliteDeskStore(db, json_path=tmp_path / "desk.json")
 

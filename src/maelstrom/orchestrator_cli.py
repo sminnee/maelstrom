@@ -26,7 +26,10 @@ from .orchestrator.sources import (
     ListAllWorktreeSource,
     NotebookTaskSource,
 )
-from .state_db import StateDb, StateDbError, get_state_db_path
+from .state_db.db import StateDb
+from .state_db.migrate import open_state_db
+from .state_db.paths import get_state_db_path
+from .state_db.types import StateDbError
 from .task_cli import open_index
 from .task_launch import LaunchBlocked
 from .task_store import GitFileStore
@@ -97,7 +100,7 @@ def build_orchestrator(
         tasks,
         worktrees,
         daemon,
-        desk=SqliteDeskStore(db if db is not None else StateDb()),
+        desk=SqliteDeskStore(db if db is not None else open_state_db()),
         executor=executor,
     )
 
@@ -170,7 +173,7 @@ def run_server(host: str, port: int, log_level: str = DEFAULT_LOG_LEVEL) -> None
     # that is not a StateDbError, so `cmd_serve` would show a traceback.
     path = get_state_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    db = StateDb(path)
+    db = open_state_db(path)
     # One worker, not a pool: the SQLite index behind the notebook is bound to
     # the thread that opened it, so every blocking read must run on the same one.
     # The state database is bound the same way, but to the loop's own thread:
