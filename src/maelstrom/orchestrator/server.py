@@ -1091,6 +1091,7 @@ class Orchestrator:
             "agent.say": self._say,
             "agent.run": self._run_shell,
             "agent.stop": self._stop,
+            "agent.interrupt": self._interrupt,
             "agent.setMode": self._set_mode,
             "agent.resume": self._resume_agent,
             "agent.launch": self._launch,
@@ -1243,6 +1244,15 @@ class Orchestrator:
         # and the next list no longer names it: this is its clean exit.
         await self._exit(agent_id, 0)
         return {"ok": True, "result": {}}
+
+    async def _interrupt(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Abandon the turn the agent is running, and leave the agent alive.
+
+        No exit is synthesised, unlike :meth:`_stop`: the host keeps an
+        interrupted agent in its ``list``, and the agent's own stream carries
+        the turn ending.
+        """
+        return await self._relay({"cmd": "interrupt", "id": command["agentId"]})
 
     async def _resume_agent(self, command: dict[str, Any]) -> dict[str, Any]:
         """Ask the host to start an exited agent again, under its own id.

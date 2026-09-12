@@ -77,6 +77,30 @@ def test_a_set_mode_of_an_exited_agent_is_refused():
     assert code(validate_command(world, cmd)) == "agent_exited"
 
 
+def test_an_interrupt_of_a_running_agent_is_allowed():
+    cmd = {"type": "agent.interrupt", "agentId": "agent-1"}
+    world = world_with(agents=[make_agent(state="processing")])
+    assert validate_command(world, cmd) is None
+
+
+def test_an_interrupt_of_an_idle_agent_is_allowed():
+    """The host owns this refusal, not the world — see ``validate.py``."""
+    cmd = {"type": "agent.interrupt", "agentId": "agent-1"}
+    world = world_with(agents=[make_agent(state="idle")])
+    assert validate_command(world, cmd) is None
+
+
+def test_an_interrupt_of_an_exited_agent_is_refused():
+    world = world_with(agents=[make_agent(state="exited", exitCode=0)])
+    cmd = {"type": "agent.interrupt", "agentId": "agent-1"}
+    assert code(validate_command(world, cmd)) == "agent_exited"
+
+
+def test_an_interrupt_of_an_unknown_agent_is_unknown_id():
+    cmd = {"type": "agent.interrupt", "agentId": "ghost"}
+    assert code(validate_command(empty_world(), cmd)) == "unknown_id"
+
+
 def test_a_resume_of_an_exited_agent_is_allowed():
     agent = make_agent(state="exited", exitCode=1)
     cmd = {"type": "agent.resume", "agentId": "agent-1"}
@@ -363,6 +387,7 @@ SUBAGENT = make_agent(
     [
         {"type": "agent.say", "agentId": "agent-1.1", "text": "hi"},
         {"type": "agent.stop", "agentId": "agent-1.1"},
+        {"type": "agent.interrupt", "agentId": "agent-1.1"},
         {"type": "agent.setMode", "agentId": "agent-1.1", "mode": "auto"},
         {"type": "agent.approve", "agentId": "agent-1.1", "requestId": "req-1"},
         {
