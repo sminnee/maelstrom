@@ -159,6 +159,16 @@ storage layer is sync for a stronger reason: `SqliteTaskIndex` binds its
 connection to one thread and `GitFileStore` holds a cross-process `flock`.
 Neither is a bottleneck, and both are hostile to being made async.
 
+**[`state_db.py`](../../src/maelstrom/state_db.py) is the exception, and the
+reason is reversibility rather than I/O.** Its public surface is `async def`
+and its engine is sync `sqlite3` called inline, so an `await` there yields
+nothing today. The surface is async because the tables it holds may later move
+to a database reached over a network, and converting a store afterwards means
+converting every caller in every subsystem that reads it. One private helper,
+`_call`, is the whole seam: moving its body to `aiosqlite` changes no caller,
+no store and no test of a caller. Write a store async from the start when its
+backend may become a network database; keep it sync otherwise.
+
 Where the I/O actually is. Re-derive the counts with:
 
 ```bash

@@ -1029,12 +1029,14 @@ None of these take options beyond `--help`.
 
 | Command | Description |
 |---|---|
+| `mael admin migrate` | Bring the state database at `~/.maelstrom/state.db` up to this build's schema, creating it if it is absent. Also runs the one-time `desk.json` import. |
 | `mael doctor [PROJECT]` | Check project health and fix issues automatically. |
 | `mael install` | Install maelstrom's Claude Code skills and hooks into `~/.claude/`. |
 | `mael self-update` | Update maelstrom to the latest version from git. Always updates `_main`, whichever worktree you run it from — the install is shared by the whole machine. Also points the `mael` on your PATH at the everyday daemon's root, so a bare `mael agent …` reaches it. |
 | `mael self-env <VERB>` | `mael env <VERB>` aimed at maelstrom's own `_main`. `mael self-env start` runs the everyday agent daemon, which is a service of that environment. |
 
 ```bash
+mael admin migrate           # create or upgrade ~/.maelstrom/state.db
 mael install                 # skills and hooks into ~/.claude/
 mael doctor myproject        # check project health, and fix what it can
 mael self-update
@@ -1043,3 +1045,7 @@ mael self-env status
 mael self-env restart agent-daemon   # the everyday daemon picks up new code
 mael self-env stop
 ```
+
+`mael orchestrator serve` refuses a state database written by a different build, and the refusal
+names `mael admin migrate`. The command is forward-only and has no undo. See
+[data-architecture.md](../dev/data-architecture.md), "Schema versions".
