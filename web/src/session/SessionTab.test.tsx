@@ -307,3 +307,86 @@ describe('the compact button', () => {
     expect(screen.queryByRole('button', { name: 'Compact' })).not.toBeInTheDocument();
   });
 });
+
+describe('the stop button', () => {
+  it('abandons the turn the agent is running, and keeps the agent', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    // NORT-9's agent is processing in the seed, so this one needs no mutation.
+    await openTaskSession(user);
+    const stop = screen.getByRole('button', { name: 'Stop' });
+    expect(stop).toHaveAttribute(
+      'title',
+      'Abandon the turn the agent is running. The agent stays alive.',
+    );
+
+    await user.click(stop);
+
+    await waitFor(() =>
+      expect(server.requests.find((r) => r.path.endsWith('/interrupt'))).toBeDefined(),
+    );
+    // Alive, not exited: an exited agent leaves Compact disabled, so this is
+    // the assertion that separates Stop from the node card's Terminate.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Compact' })).toBeEnabled());
+    expect(screen.getByRole('button', { name: 'Stop' })).toHaveAttribute(
+      'title',
+      'The agent is not running a turn.',
+    );
+  });
+
+  it('is not offered once the agent is idle, which has no turn to abandon', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
+      w.agents['d9a4c7f1'] = { ...w.agents['d9a4c7f1']!, state: 'idle' };
+    });
+    await openTaskSession(user);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Stop' })).toBeDisabled());
+    expect(screen.getByRole('button', { name: 'Stop' })).toHaveAttribute(
+      'title',
+      'The agent is not running a turn.',
+    );
+  });
+
+  it('is not offered while the agent waits on a person, whose ask comes first', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    // MAEL-52's agent is blocked on a question in the seed.
+    clickNode('MAEL-52');
+    await user.click(within(screen.getByRole('dialog')).getByRole('link', { name: 'Session' }));
+
+    const stop = screen.getByRole('button', { name: 'Stop' });
+    expect(stop).toBeDisabled();
+    expect(stop).toHaveAttribute(
+      'title',
+      'The agent is waiting on you. Answer or deny the ask instead.',
+    );
+  });
+
+  it('is not offered once the agent has exited, which can take nothing', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
+      w.agents['d9a4c7f1'] = { ...w.agents['d9a4c7f1']!, state: 'exited', exitCode: 0 };
+    });
+    await openTaskSession(user);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Stop' })).toBeDisabled());
+    // Exited is tested before the state, so this title wins over "not running
+    // a turn" — an exited agent is both.
+    expect(screen.getByRole('button', { name: 'Stop' })).toHaveAttribute(
+      'title',
+      'The agent has exited.',
+    );
+  });
+
+  it('is not offered to a subagent, which has no pipe of its own', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await openTaskSession(user);
+    await user.click(screen.getByRole('link', { name: /Find every collation-sensitive query/ }));
+
+    expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
+  });
+});

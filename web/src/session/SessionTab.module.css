@@ -70,6 +70,10 @@
   flex: none;
   white-space: nowrap;
 }
+.stop {
+  flex: none;
+  white-space: nowrap;
+}
 .agent {
   /* A subagent's line is its id and its description, which is free text. */
   flex: 0 1 auto;
