@@ -1029,7 +1029,7 @@ None of these take options beyond `--help`.
 
 | Command | Description |
 |---|---|
-| `mael admin migrate` | Bring the state database at `~/.maelstrom/state.db` up to this build's schema, creating it if it is absent. Also runs the one-time `desk.json` import. |
+| `mael admin migrate` | Bring the state database at `~/.maelstrom/state.db` up to this build's schema, creating it if it is absent. A desk written before the database is brought in by the desk ladder's import rung, and the file is left on disk. |
 | `mael doctor [PROJECT]` | Check project health and fix issues automatically. |
 | `mael install` | Install maelstrom's Claude Code skills and hooks into `~/.claude/`. |
 | `mael self-update` | Update maelstrom to the latest version from git. Always updates `_main`, whichever worktree you run it from — the install is shared by the whole machine. Also points the `mael` on your PATH at the everyday daemon's root, so a bare `mael agent …` reaches it. |

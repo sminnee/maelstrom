@@ -26,6 +26,10 @@ explicit rather than incidental.
 from dataclasses import dataclass
 from typing import Any, Awaitable, Protocol
 
+from pydantic import ConfigDict, TypeAdapter
+from pydantic.alias_generators import to_camel
+from pydantic.dataclasses import dataclass as pydantic_dataclass
+
 #: A narrowed fetch's ids, or ``None`` to ask about everything.
 Scope = set[str] | None
 
@@ -89,7 +93,10 @@ class Refresher(Protocol):
         ...
 
 
-@dataclass(frozen=True)
+@pydantic_dataclass(
+    frozen=True,
+    config=ConfigDict(alias_generator=to_camel, populate_by_name=True),
+)
 class Health:
     """What is known about one refresher, as its row holds it.
 
@@ -105,6 +112,11 @@ class Health:
     and ``last_success`` hold ISO wall times. Both are stored as text, because a
     row column is text and the two clocks must not be confused for one another
     by sharing a number type.
+
+    One definition serves both forms this fact takes. :meth:`row` names the
+    columns in snake case, and :meth:`entity` names the wire's fields in camel,
+    through the alias generator. A hand-written mapper each way would be two
+    more places to update when a field lands.
     """
 
     name: str
@@ -114,6 +126,71 @@ class Health:
     last_success: str = ""
     stand_off_until: str = ""
     detail: str = ""
+
+    def row(self) -> dict[str, Any]:
+        """The columns ``refresher_health`` holds, without ``name``.
+
+        ``name`` is the key :meth:`StateDb.write_health` takes separately, so
+        it is not among the columns it sets. ``reachable`` stays a ``bool``
+        here and sqlite3 adapts it to the row's integer column;
+        :meth:`from_row` coerces it back.
+        """
+        return {
+            key: value
+            for key, value in _HEALTH.dump_python(self).items()
+            if key != "name"
+        }
+
+    @classmethod
+    def from_row(cls, name: str, row: Any) -> "Health":
+        """``row`` as a :class:`Health`, or an unknown one when there is no row.
+
+        A refresher with no row has never run, which :func:`due` reads as due —
+        so a first start asks, rather than waiting out a cadence it never served.
+
+        SQLite has no boolean, so ``reachable`` arrives as an integer and is
+        coerced on the way in.
+        """
+        if row is None:
+            return cls(name=name, reachable=True, since="")
+        return _HEALTH.validate_python(
+            {**{k: row[k] for k in _ROW_COLUMNS}, "name": name}
+        )
+
+    def entity(self) -> dict[str, Any]:
+        """This health as a wire entity.
+
+        A plain dict rather than a TypedDict: adding ``"refresher"`` to
+        ``ENTITY_KINDS`` is a wire change, and no refresher ships yet. The
+        TypedDict lands beside ``Host`` when the first one does.
+
+        ``id`` rather than ``name``, because every wire entity is keyed by
+        ``id``. Neither clock is published: both are loop-time or internal, and
+        a client that cannot read them would only be invited to ask.
+        """
+        wire = _HEALTH.dump_python(self, by_alias=True)
+        return {
+            "id": wire["name"],
+            "reachable": wire["reachable"],
+            "since": wire["since"],
+            "lastSuccess": wire["lastSuccess"],
+            "detail": wire["detail"],
+        }
+
+
+#: Built once: a TypeAdapter compiles its validator, so rebuilding it per call
+#: would pay that cost on every health write.
+_HEALTH: TypeAdapter[Health] = TypeAdapter(Health)
+
+#: The columns a stored health row carries, ``name`` aside.
+_ROW_COLUMNS = (
+    "reachable",
+    "since",
+    "last_attempt",
+    "last_success",
+    "stand_off_until",
+    "detail",
+)
 
 
 def due(health: Health, refresher: Refresher, now: float) -> bool:
@@ -191,54 +268,3 @@ def succeeded(health: Health, now: float, at: str) -> Health:
         stand_off_until="",
         detail="",
     )
-
-
-def health_row(health: Health) -> dict[str, Any]:
-    """``health`` as the columns ``refresher_health`` holds.
-
-    ``reachable`` becomes an integer, because SQLite has no boolean; the
-    reverse is :func:`health_from_row`.
-    """
-    return {
-        "reachable": int(health.reachable),
-        "since": health.since,
-        "last_attempt": health.last_attempt,
-        "last_success": health.last_success,
-        "stand_off_until": health.stand_off_until,
-        "detail": health.detail,
-    }
-
-
-def health_from_row(name: str, row: Any) -> Health:
-    """``row`` as a :class:`Health`, or an unknown one when there is no row.
-
-    A refresher with no row has never run, which :func:`due` reads as due —
-    so a first start asks, rather than waiting out a cadence it never served.
-    """
-    if row is None:
-        return Health(name=name, reachable=True, since="")
-    return Health(
-        name=name,
-        reachable=bool(row["reachable"]),
-        since=row["since"],
-        last_attempt=row["last_attempt"],
-        last_success=row["last_success"],
-        stand_off_until=row["stand_off_until"],
-        detail=row["detail"],
-    )
-
-
-def health_entity(health: Health) -> dict[str, Any]:
-    """``health`` as a wire entity.
-
-    A plain dict rather than a TypedDict: adding ``"refresher"`` to
-    ``ENTITY_KINDS`` is a wire change, and no refresher ships yet. The
-    TypedDict lands beside ``Host`` when the first one does.
-    """
-    return {
-        "id": health.name,
-        "reachable": health.reachable,
-        "since": health.since,
-        "lastSuccess": health.last_success,
-        "detail": health.detail,
-    }

@@ -381,7 +381,6 @@ class TestMigrate:
         monkeypatch.setattr(
             "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
         )
-        monkeypatch.setattr("maelstrom.desk_store.get_maelstrom_dir", lambda: tmp_path)
         (tmp_path / "desk.json").write_text(
             '{"task:a/1": {"id": "task:a/1", "addedAt": "t"}}'
         )
@@ -405,7 +404,6 @@ class TestMigrate:
         monkeypatch.setattr(
             "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
         )
-        monkeypatch.setattr("maelstrom.desk_store.get_maelstrom_dir", lambda: tmp_path)
         assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
 
         db = open_state_db(tmp_path / "state.db")
@@ -426,7 +424,9 @@ class TestMigrate:
 
         db = open_state_db(tmp_path / "state.db")
         try:
-            assert asyncio.run(db.schema_version("desk")) == 2
+            # Two rungs ship — the table, then the `desk.json` import — so the
+            # appended one is the third.
+            assert asyncio.run(db.schema_version("desk")) == 3
             assert asyncio.run(db.read("desk", "task:a/1")) is not None
         finally:
             db.close()

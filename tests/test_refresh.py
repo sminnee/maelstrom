@@ -10,9 +10,6 @@ from maelstrom.refresh import (
     RefreshRefused,
     Scope,
     due,
-    health_entity,
-    health_from_row,
-    health_row,
     refused,
     succeeded,
 )
@@ -270,16 +267,16 @@ class TestHealthEntity:
     """Slice 19: health matches Host where the two overlap, and no further."""
 
     def test_reachable_and_since_carry_host_s_meanings(self):
-        entity = health_entity(
-            Health(name="fake", reachable=False, since=AT, detail="rate limited")
-        )
+        entity = Health(
+            name="fake", reachable=False, since=AT, detail="rate limited"
+        ).entity()
         assert entity["id"] == "fake"
         assert entity["reachable"] is False
         assert entity["since"] == AT
 
     def test_it_carries_no_socket_or_usage(self):
         """Those belong to the agent host alone; a null here would invite a question."""
-        entity = health_entity(unknown())
+        entity = unknown().entity()
         assert "socket" not in entity
         assert "usage" not in entity
 
@@ -295,22 +292,22 @@ class TestHealthRoundTrip:
         refresher = FakeRefresher()
         refresher.refuse = RefreshRefused("rate limited", stand_off=300.0)
         health = await refresh(db, refresher, unknown(), AT)
-        await db.write_health(health.name, **health_row(health))
+        await db.write_health(health.name, **health.row())
 
-        read_back = health_from_row("fake", await db.read_health("fake"))
+        read_back = Health.from_row("fake", await db.read_health("fake"))
         assert read_back == health
         assert not due(read_back, refresher, now=NOW + 1)
         assert due(read_back, refresher, now=NOW + 301)
 
     async def test_a_refresher_with_no_row_has_never_run(self, db):
-        assert health_from_row("fake", await db.read_health("fake")) == unknown()
+        assert Health.from_row("fake", await db.read_health("fake")) == unknown()
 
     async def test_health_raises_no_notice_and_consumes_no_revision(self, db):
         """A refresher standing off must not make every client refetch."""
         await db.upsert("thing", "a", fetched_at=AT, body="one")
         cursor = await db.revision()
         health = refused(unknown(), RefreshRefused("no"), FakeRefresher(), NOW, AT)
-        await db.write_health(health.name, **health_row(health))
+        await db.write_health(health.name, **health.row())
         assert await db.notices_since(cursor) == ({}, cursor)
 
 

@@ -14,6 +14,7 @@ dependencies = [
     "markdown-to-mrkdwn>=0.3",
     "aiohttp>=3.13",
     "textual>=8.2.8,<9",
+    "pydantic>=2.13.5",
 ]
 
 # The one dev list. CI installs it with `uv sync --extra dev`, so anything a

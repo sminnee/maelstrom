@@ -2,31 +2,29 @@
 
 The desk is what the canvas draws: tasks, and agents with no task. It is one
 table keyed by desk id, so unlike :mod:`maelstrom.env_store` there is no key
-space: :meth:`load` and :meth:`save` move the whole table.
+space: :meth:`DeskStore.load` and :meth:`DeskStore.save` move the whole table.
 
-Three backends are provided:
+Two backends are provided:
 
 - :class:`InMemoryDeskStore` — a store with no filesystem, for tests.
-- :class:`JsonDeskStore` — one file, written atomically through
-  :func:`maelstrom.util.atomic_write_json`, so a crash mid-write can never
-  leave a truncated desk.
 - :class:`SqliteDeskStore` — the state database. The desk is canonical, so this
-  is where it belongs; the other two remain, one as the import path and both as
-  backends the contract tests cover.
+  is where it belongs.
 
-:class:`DeskStore` is typed to take either a table or an awaitable one, so the
-two sync backends and the async one all satisfy it — as ``WorktreeSource.read``
-already allows.
+Each one subclasses :class:`DeskStore`, so a reader sees which classes claim the
+contract rather than having to trust duck typing.
+
+A desk written before the state database is brought in by the desk ladder's
+second rung, not by a backend — see
+:mod:`maelstrom.state_db.migrations.desk_json`.
 """
 
 import json
 import logging
-from pathlib import Path
-from typing import Any, Awaitable, Protocol
+from abc import ABC, abstractmethod
+from typing import Any
 
-from .context import get_maelstrom_dir
 from .state_db.db import StateDb
-from .util import atomic_write_json
+from .state_db.migrations.desk_json import is_entry
 
 log = logging.getLogger(__name__)
 
@@ -34,33 +32,33 @@ log = logging.getLogger(__name__)
 #: which this layer neither reads nor names.
 DeskTable = dict[str, Any]
 
-#: The kinds a desk id can name, duplicated to keep this layer below the model.
-_KIND_PREFIXES = ("task:", "agent:")
 
+class DeskStore(ABC):
+    """The desk table, loaded and saved whole, or changed one entry at a time.
 
-def get_desk_path() -> Path:
-    """Where the desk is kept."""
-    return get_maelstrom_dir() / "desk.json"
-
-
-class DeskStore(Protocol):
-    """The desk table, loaded and saved whole.
-
-    Either sync or async. A backend reaching a database returns an awaitable;
-    one holding a dict returns the table. The server's ``_run`` already takes
-    either, which is the seam that let the desk move without changing a caller.
+    Async throughout, because the backend the server runs is a database. A
+    backend subclasses this rather than matching it by shape, so which classes
+    claim the contract is readable from the class statement.
     """
 
-    def load(self) -> "DeskTable | Awaitable[DeskTable]":
+    @abstractmethod
+    async def load(self) -> DeskTable:
         """The stored table. ``{}`` when there is none, or it cannot be read."""
-        ...
 
-    def save(self, table: DeskTable) -> "None | Awaitable[None]":
+    @abstractmethod
+    async def save(self, table: DeskTable) -> None:
         """Store ``table``, replacing whatever was there."""
-        ...
+
+    @abstractmethod
+    async def add(self, id: str, entry: Any) -> None:
+        """Put one entry on the desk, leaving every other entry alone."""
+
+    @abstractmethod
+    async def remove(self, id: str) -> None:
+        """Take one entry off the desk. Removing what is absent changes nothing."""
 
 
-class InMemoryDeskStore:
+class InMemoryDeskStore(DeskStore):
     """A :class:`DeskStore` with no filesystem.
 
     The table is copied on the way in and out through a JSON round trip, so a
@@ -71,83 +69,24 @@ class InMemoryDeskStore:
     def __init__(self) -> None:
         self._text = "{}"
 
-    def load(self) -> DeskTable:
+    async def load(self) -> DeskTable:
         return json.loads(self._text)
 
-    def save(self, table: DeskTable) -> None:
+    async def save(self, table: DeskTable) -> None:
+        self._text = json.dumps(table, sort_keys=True)
+
+    async def add(self, id: str, entry: Any) -> None:
+        table = json.loads(self._text)
+        table[id] = entry
+        self._text = json.dumps(table, sort_keys=True)
+
+    async def remove(self, id: str) -> None:
+        table = json.loads(self._text)
+        table.pop(id, None)
         self._text = json.dumps(table, sort_keys=True)
 
 
-class JsonDeskStore:
-    """A :class:`DeskStore` backed by one JSON file.
-
-    The path defaults to :func:`get_desk_path` and is resolved lazily, so a
-    test that redirects ``get_maelstrom_dir`` is honoured. A file that cannot
-    be read loads as an empty desk, logged: a desk is a convenience, and
-    refusing to start over a corrupt one would help nobody. The log is what
-    tells an unreadable desk apart from no desk at all, because the next save
-    writes over whatever could not be read.
-    """
-
-    def __init__(self, path: Path | None = None) -> None:
-        self._path = path
-
-    @property
-    def path(self) -> Path:
-        return self._path if self._path is not None else get_desk_path()
-
-    def load(self) -> DeskTable:
-        try:
-            with open(self.path) as f:
-                table = json.load(f)
-        except FileNotFoundError:
-            return {}
-        except (OSError, json.JSONDecodeError):
-            log.warning("desk at %s could not be read", self.path, exc_info=True)
-            return {}
-        if not isinstance(table, dict):
-            return {}
-        # The file is state a user can edit, so an entry the wire would refuse
-        # is dropped here rather than published to every client.
-        return {
-            k: v for k, v in (_migrated(k, v) for k, v in table.items()) if _is_entry(v)
-        }
-
-    def save(self, table: DeskTable) -> None:
-        atomic_write_json(self.path, table)
-
-
-def _migrated(key: str, value: Any) -> tuple[str, Any]:
-    """``key`` and its entry, with a desk written before ids carried a kind fixed.
-
-    A desk from that time held bare task ids. Left alone they would match no
-    task and the user would lose their canvas, so the key and the entry's own
-    id both gain the ``task:`` prefix. An id that already carries a kind is
-    left as it is, so the two shapes need no version field to tell apart.
-    """
-    if not isinstance(key, str) or key.startswith(_KIND_PREFIXES):
-        return key, value
-    migrated = f"task:{key}"
-    if isinstance(value, dict) and isinstance(value.get("id"), str):
-        return migrated, {**value, "id": migrated}
-    return migrated, value
-
-
-def _is_entry(value: Any) -> bool:
-    """Whether ``value`` is a desk entry the wire can carry."""
-    return (
-        isinstance(value, dict)
-        and isinstance(value.get("id"), str)
-        and isinstance(value.get("addedAt"), str)
-    )
-
-
-#: Marks the one-time ``desk.json`` import as done, so a desk a user then
-#: emptied does not spring back from the file on the next open.
-IMPORTED = "desk_imported"
-
-
-class SqliteDeskStore:
+class SqliteDeskStore(DeskStore):
     """A :class:`DeskStore` on the state database.
 
     The desk is canonical: maelstrom authors it, the write is the authoritative
@@ -159,31 +98,22 @@ class SqliteDeskStore:
     layer learning the model's business.
     """
 
-    def __init__(self, db: StateDb, json_path: Path | None = None) -> None:
+    def __init__(self, db: StateDb) -> None:
         self._db = db
-        #: The file a first open imports from. Resolved lazily, so a test that
-        #: redirects ``get_maelstrom_dir`` is honoured.
-        self._json_path = json_path
 
     async def load(self) -> DeskTable:
-        """The stored table, importing ``desk.json`` the first time.
-
-        A user with a desk from before the state database keeps their canvas.
-        The file is left on disk as a fallback rather than deleted, and the
-        import runs once: a desk the user then emptied must stay empty.
-        """
-        await self._import_once()
+        """The stored table. A pure read: it imports nothing and writes nothing."""
         table: DeskTable = {}
         for row in await self._db.read_all("desk"):
             try:
                 entry = json.loads(row["body"])
             except json.JSONDecodeError:
-                # Same contract as JsonDeskStore: a desk is a convenience, and
-                # refusing to start over one bad row would help nobody. The log
-                # is what tells a dropped entry from one never stored.
+                # A desk is a convenience, and refusing to start over one bad
+                # row would help nobody. The log is what tells a dropped entry
+                # from one never stored.
                 log.warning("desk entry %s could not be read", row["id"])
                 continue
-            if _is_entry(entry):
+            if is_entry(entry):
                 table[row["id"]] = entry
         return table
 
@@ -207,18 +137,10 @@ class SqliteDeskStore:
             for id in sorted(stored - set(table)):
                 txn.delete("desk", id)
 
-    async def _import_once(self) -> None:
-        """Bring an existing ``desk.json`` in, once and only once."""
-        if await self._db.meta(IMPORTED):
-            return
-        path = self._json_path if self._json_path is not None else get_desk_path()
-        # Through JsonDeskStore, so its bare-id fix and malformed-entry drop apply.
-        table = JsonDeskStore(path=path).load()
-        async with self._db.transact() as txn:
-            for id, entry in table.items():
-                txn.upsert("desk", id, body=json.dumps(entry, sort_keys=True))
-            # In the same transaction as the rows. Set afterwards, a crash
-            # between the two would re-import on the next open — and a desk
-            # the user had since emptied would come back, which is the one
-            # thing the marker exists to stop.
-            txn.set_meta(IMPORTED, "1")
+    async def add(self, id: str, entry: Any) -> None:
+        """Write one entry as its own revision, leaving the rest of the table alone."""
+        await self._db.upsert("desk", id, body=json.dumps(entry, sort_keys=True))
+
+    async def remove(self, id: str) -> None:
+        """Delete one entry as its own revision, raising one removal notice."""
+        await self._db.delete("desk", id)

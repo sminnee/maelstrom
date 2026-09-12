@@ -1796,11 +1796,16 @@ def test_a_free_agent_entry_the_host_has_forgotten_is_dropped_at_load(store):
     from maelstrom.desk_store import InMemoryDeskStore
 
     desk = InMemoryDeskStore()
-    desk.save(
-        {
-            "agent:gone": {"id": "agent:gone", "addedAt": NOW},
-            "task:northwind/NORT-7": {"id": "task:northwind/NORT-7", "addedAt": NOW},
-        }
+    run(
+        desk.save(
+            {
+                "agent:gone": {"id": "agent:gone", "addedAt": NOW},
+                "task:northwind/NORT-7": {
+                    "id": "task:northwind/NORT-7",
+                    "addedAt": NOW,
+                },
+            }
+        )
     )
     harness = Harness(store, desk=desk)
     harness.add_task("NORT-7")
@@ -1817,8 +1822,10 @@ def test_an_agent_adopted_at_start_keeps_its_entry_through_the_load(store):
     from maelstrom.desk_store import InMemoryDeskStore
 
     desk = InMemoryDeskStore()
-    desk.save(
-        {"task:northwind/NORT-7": {"id": "task:northwind/NORT-7", "addedAt": NOW}}
+    run(
+        desk.save(
+            {"task:northwind/NORT-7": {"id": "task:northwind/NORT-7", "addedAt": NOW}}
+        )
     )
     harness = Harness(store, desk=desk)
     harness.add_task("NORT-7")
@@ -1839,7 +1846,7 @@ def test_a_free_agent_entry_whose_agent_is_live_survives_the_load(store):
     from maelstrom.desk_store import InMemoryDeskStore
 
     desk = InMemoryDeskStore()
-    desk.save({"agent:ag1": {"id": "agent:ag1", "addedAt": NOW}})
+    run(desk.save({"agent:ag1": {"id": "agent:ag1", "addedAt": NOW}}))
     harness = Harness(store, desk=desk)
     harness.daemon.rows["ag1"] = agent_row()
 
@@ -4591,7 +4598,7 @@ def test_the_desk_survives_a_restart_on_the_state_database(store, tmp_path):
 
     db = open_state_db(tmp_path / "state.db")
     run(db.migrate())
-    desk = SqliteDeskStore(db, json_path=tmp_path / "desk.json")
+    desk = SqliteDeskStore(db)
 
     async def scenario(harness):
         async with harness.client() as api:

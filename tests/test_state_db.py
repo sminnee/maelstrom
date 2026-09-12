@@ -6,9 +6,11 @@ import threading
 
 import pytest
 
+from maelstrom.state_db.db import StateDb
 from maelstrom.state_db.migrate import open_state_db
 from maelstrom.state_db.types import (
     Migration,
+    PythonMigration,
     SchemaTooNewError,
     SchemaTooOldError,
     TableSpec,
@@ -94,6 +96,35 @@ class TestSchemaVersion:
         await db.check()
 
 
+class TestLadderInjection:
+    """A StateDb is given its ladders, so the engine stays below them.
+
+    `open_state_db` is what supplies this build's. A StateDb built directly
+    knows no schema, which is what keeps `db.py` from importing `migrate.py`.
+    """
+
+    async def test_a_bare_state_db_carries_no_ladders(self):
+        bare = StateDb(":memory:")
+        try:
+            assert bare.ladders == {}
+            assert bare.tables == {}
+            await bare.migrate()
+            # The spine is a ladder too, so an injected-nothing database has
+            # not even that: `check` cannot pass and no table exists.
+            assert not await bare.has_table("desk")
+        finally:
+            bare.close()
+
+    async def test_open_state_db_migrates_the_desk(self, tmp_path):
+        db = open_state_db(tmp_path / "state.db")
+        try:
+            await db.migrate()
+            assert await db.has_table("desk")
+            await db.check()
+        finally:
+            db.close()
+
+
 class TestFailedMigration:
     """Slice 3: a migration that raises leaves the schema where it was."""
 
@@ -115,6 +146,71 @@ class TestFailedMigration:
             await db.migrate()
         assert await db.schema_version("fake") == 1
         assert not await db.has_table("fake_two")
+
+
+class TestPythonRung:
+    """A rung may run Python, for a step SQL cannot take.
+
+    One use ships: the desk's `desk.json` import. These tests pin the two
+    guarantees that use depends on.
+    """
+
+    async def test_a_rung_runs_inside_the_migration_transaction(self, db):
+        """It shares the run's transaction, so a later failure unwrites its rows."""
+        db.ladders["fake"] = (
+            Migration(("CREATE TABLE fake (id TEXT PRIMARY KEY)",)),
+            PythonMigration(
+                run=lambda conn: conn.execute("INSERT INTO fake (id) VALUES ('a')")
+            ),
+        )
+        await db.migrate()
+        assert await db.schema_version("fake") == 2
+
+    async def test_a_rung_that_raises_leaves_the_version_unmoved(self, db):
+        """The transactional-DDL guarantee, extended to Python."""
+
+        def boom(conn):
+            conn.execute("INSERT INTO fake (id) VALUES ('a')")
+            raise RuntimeError("no")
+
+        db.ladders["fake"] = (
+            Migration(
+                (
+                    "CREATE TABLE fake (id TEXT PRIMARY KEY, "
+                    "revision INTEGER NOT NULL DEFAULT 0)",
+                )
+            ),
+        )
+        db.tables["fake"] = TableSpec("fake")
+        await db.migrate()
+        db.ladders["fake"] = (*db.ladders["fake"], PythonMigration(run=boom))
+        with pytest.raises(RuntimeError):
+            await db.migrate()
+        assert await db.schema_version("fake") == 1
+        # The row the rung wrote before it raised went back with the version.
+        assert await db.read_all("fake") == []
+
+    async def test_a_rung_s_rows_carry_revision_zero(self, db):
+        """A migration must not bump the counter: its rows are the starting state."""
+        db.ladders["fake"] = (
+            Migration(
+                (
+                    "CREATE TABLE fake (id TEXT PRIMARY KEY, "
+                    "revision INTEGER NOT NULL)",
+                    "CREATE INDEX fake_revision ON fake (revision)",
+                )
+            ),
+            PythonMigration(
+                run=lambda conn: conn.execute(
+                    "INSERT INTO fake (id, revision) VALUES ('a', 0)"
+                )
+            ),
+        )
+        db.tables["fake"] = TableSpec("fake")
+        await db.migrate()
+        assert await db.revision() == 0
+        assert [row["id"] for row in await db.read_all("fake")] == ["a"]
+        assert await db.changed_since("fake", 0) == []
 
 
 def _noop_migration() -> "Migration":
