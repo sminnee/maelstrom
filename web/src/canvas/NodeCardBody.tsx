@@ -263,8 +263,10 @@ export function NodeCardBody({
             </AppButton>
           )}
           {agent && isLive(agent) && (
+            /* Terminate ends the process; the session tab's Stop only abandons
+               the turn — see CONTEXT.md, "Interrupt". */
             <AppButton variant="quiet" onClick={() => stop.mutateAsync({ agentId: agent.id })}>
-              Stop
+              Terminate
             </AppButton>
           )}
         </div>

@@ -68,9 +68,9 @@ describe('App', () => {
     clickNode('NORT-9');
     const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
 
-    // Stop proves the footer rendered, so the absence below is the guard at
-    // work rather than a card that drew nothing.
-    expect(within(card).getByRole('button', { name: 'Stop' })).toBeInTheDocument();
+    // Terminate proves the footer rendered, so the absence below is the guard
+    // at work rather than a card that drew nothing.
+    expect(within(card).getByRole('button', { name: 'Terminate' })).toBeInTheDocument();
     expect(
       within(card).queryByRole('button', { name: 'Remove from desk' }),
     ).not.toBeInTheDocument();
