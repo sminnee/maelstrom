@@ -34,6 +34,9 @@ DRIVING_COMMANDS = (
     "agent.say",
     "agent.run",
     "agent.stop",
+    # No state check below: the world's state is a reconciled snapshot, the
+    # daemon's is the truth, so a check here would race the host.
+    "agent.interrupt",
     "agent.setMode",
     "agent.resume",
 )
@@ -138,7 +141,13 @@ def validate_command(
             return _err("invalid", "No answers given")
         return None
 
-    if kind in ("agent.say", "agent.run", "agent.stop", "agent.setMode"):
+    if kind in (
+        "agent.say",
+        "agent.run",
+        "agent.stop",
+        "agent.interrupt",
+        "agent.setMode",
+    ):
         agent_id = cmd.get("agentId", "")
         agent = world["agents"].get(agent_id)
         if agent is None:

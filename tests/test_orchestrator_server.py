@@ -1142,6 +1142,37 @@ def test_stop_reaches_the_host_and_marks_the_agent_exited_cleanly(harness):
     assert agent["exitCode"] == 0
 
 
+def test_interrupt_reaches_the_host_and_leaves_the_agent_alive(harness):
+    """The turn is abandoned; the agent is not."""
+    harness.daemon.rows["ag1"] = agent_row(state="processing")
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post("/api/agents/ag1/interrupt")
+            return reply, await api.get_json("/api/agents/ag1")
+
+    reply, agent = run(scenario())
+    assert reply.status == 200
+    assert {"cmd": "interrupt", "id": "ag1"} in harness.daemon.calls
+    assert agent["state"] != "exited"
+
+
+def test_a_host_refusal_of_an_interrupt_leaves_the_world_untouched(harness):
+    """The host owns the "is there a turn?" refusal, not ``validate.py``."""
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.replies["interrupt"] = [{"error": "agent ag1 is not running a turn"}]
+
+    async def scenario():
+        async with harness.client() as api:
+            before = await api.get_json("/api/agents/ag1")
+            reply = await api.post("/api/agents/ag1/interrupt")
+            return reply, before, await api.get_json("/api/agents/ag1")
+
+    reply, before, after = run(scenario())
+    assert (reply.status, reply.body["error"]["code"]) == (400, "invalid")
+    assert after == before
+
+
 def test_a_refused_command_answers_its_code_and_publishes_nothing(harness):
     waiting_on(harness, "question-unanswered.jsonl")
 
