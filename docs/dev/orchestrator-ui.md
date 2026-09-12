@@ -233,6 +233,47 @@ See `docs/dev/agent-daemon.md`, "A compact", for why the refusal cannot be read 
 The items already on the transcript are remembered by id, not by count. A re-snapshot, a dropped
 transcript and the host's own ring each renumber a positional marker.
 
+The tab takes the last 50 events. A button above them reads "Show 50 earlier events" and adds
+another 50, so the first render is capped at 50 cards and each reveal adds that many again. The
+server keeps 5000 (`TRANSCRIPT_ITEMS` in `transcript_log.py`) and sends them all, which is cheap.
+Drawing them is not: every message parses markdown, and every tool call builds a disclosure.
+Reading old events is occasional, so a long session opens on the recent ones.
+
+The button names what a click reveals, not what is left behind it. A button offering 3000 would
+promise a reveal it does not perform. It counts *events*, the word the two existing notes use.
+
+That button is not the truncation note above it. "Earlier events were not kept." means events the
+host dropped, which exist nowhere. The button means events that exist, one click away. A `gap`
+item's "N earlier events were dropped here." is the third: events the host dropped mid-stream,
+named where they fell. Both notes can show at once, and the lost ones read first because they are
+older.
+
+`gutterMarks` runs over the drawn window rather than the whole session, so the first visible row
+takes a time mark wherever it carries a readable stamp, even where the row above it in the full
+transcript held the same minute.
+
+The window anchors on the id of the oldest revealed event, not on its index. A count of drawn rows
+would shrink the window from the top on every append, and an index does not survive a re-snapshot:
+the server drops from the front of its own list past 5000, and a lagging reconnect replaces the
+array outright. An anchor that is no longer in the transcript falls back to the tail.
+
+The transcript follows the tail only when the reader already sits at it. The scroll event measures
+that into a ref, rather than the render path, where the new event is already in the layout and
+every reader would measure as being at the bottom. It allows a few pixels of slack: sub-pixel
+rounding leaves a fully scrolled container a fraction short, and an exact test stops the
+transcript following. A new event no longer drags a reader away from the history they are reading.
+
+The scroll effect keys on the whole transcript's length, never on the drawn slice's. Keying on
+the slice would scroll the reader to the bottom on every Show more, which is what the click asked
+to leave.
+
+Prepending a window of rows leaves the reading position to the browser's `overflow-anchor`,
+which is `auto` by default and made for this case.
+
+The tab is keyed on its agent id, as the document tab is. It holds a scroll position, a window
+anchor and a pending compact wait, and all three belong to one agent: a reused fiber opens the
+next agent at the last one's state.
+
 The transcript draws a full-width rule at the boundary, naming the fall: `compacted · 23k → 3k
 ctx`. The tool row deliberately carries no rule, because a run of them read as ruled paper. That
 holds where a rule falls on every call. A compact happens a handful of times in a session, and a
