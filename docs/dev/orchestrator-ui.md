@@ -17,7 +17,7 @@ unit that needs orders shows it on the canvas itself.
 | Protocol | `protocol/` | The entity and transcript types, `phase.ts`, `deskId.ts`, `time.ts` | Nothing |
 | Backends | `api/`, `live/` | `api/`: the REST client, its query keys, the query cache, one hook per read and per command. `live/`: the change stream that keeps the cache fresh, and the per-agent transcript streams | Protocol |
 | State | `store/`, `selectors/` | The query cache holds the fetched world; one zustand store holds UI state, the connection state and the open transcripts; `selectors/` are pure functions over a `WorldView` | Protocol |
-| UI | `canvas/`, `tasklist/`, `newwork/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, plus the `ui/`, `markdown/` and `styles/` they share, and `test/` for shared test helpers | React components and CSS | State, Protocol |
+| UI | `canvas/`, `tasklist/`, `newwork/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, plus the `ui/`, `markdown/` and `styles/` they share, and `test/` for shared test helpers. `ui/useRetained.ts` holds unsubmitted text in the browser | React components and CSS | State, Protocol |
 
 The protocol has no React and no I/O. `protocol/phase.ts` reads a task's phase from its
 `command` and decides whether a task is actionable. The phase is never sent on the wire, so this
@@ -508,6 +508,64 @@ Colour comes from `styles/tokens.css`, which holds both the primitive and the se
 and documents the rule: no file outside it names a hex colour. One `[data-phase]` rule in
 `styles/base.css` sets `--phase` from a phase attribute.
 
+## Holding what was typed
+
+The prose field is the one field a task needs, and the one a user spends minutes on. The dialog is
+mounted conditionally, so a backdrop click, Escape, the × or Cancel used to unmount it and destroy
+what was in it. The chat box goes the other way: the panel draws one `SessionTab` for whichever
+session is active, so a tab switch re-renders it rather than unmounting — the key change is what
+stands in for a close there. `ui/useRetained.ts` holds the text through both.
+
+The hook is `useState`'s tuple plus one verb: `[value, setValue, release]`. A caller swaps
+`useState` for `useRetained`, adds a key from `ui/retained.ts`, and calls `release()` once the work
+is submitted. Every key lives in that one table, the way `api/keys.ts` holds every query key.
+
+**What is held, and what clears it.** Closing is not submitting: the backdrop, Escape, the ×,
+Cancel and a refused submit all hold. A resolved submit clears, and so does the **Clear** control on
+step 1 of the dialog. Clear is an ordinary affordance, shown whether the text was restored or just
+typed, so a stale value has a one-click remedy; Cancel has never meant discard on this dialog, and
+giving it that meaning with no undo would be a separate decision. The chat box has no Clear: a `!`
+command line releases on running, which is the one clear that is not a submit.
+
+**Written, not on every keystroke.** A trailing 300 ms debounce, plus a flush on two events: the
+component unmounting, and its key changing. `setItem` serialises JSON on the thread the transcript
+socket needs, so a write per keystroke is wasteful; an interval would lose the word of a user who
+types and clicks the backdrop inside it. The unmount flush is what makes a close safe whatever is
+still in flight, and the key-change flush does the same for a tab switch, which never unmounts.
+
+**The prose, its attachments and their bucket are one value.** They cannot be three keys.
+`withoutRef` matches on a ref that embeds the bucket, so a re-minted bucket makes removing a
+thumbnail a silent no-op — the thumbnail goes, the ref stays, and the agent gets a link to an image
+it was never sent. A re-minted bucket also sends the next image to a directory the task's commit
+does not sweep. So the bucket is restored, never re-minted.
+
+A held project is checked against the world before it is used. `chosen` falls back to the *first*
+project, so a project that has since gone would otherwise write the work against another one
+silently.
+
+Step 2 is not held: the dialog reopens on step 1 and Next re-infers. That costs one inference call
+after a close from step 2, and it is the price of not restoring edits to fields that were inferred
+from prose the user may since have changed.
+
+**Two tabs.** Last write wins, and the hook does not listen for the `storage` event. Live-syncing
+two open dialogs would let one tab's keystrokes overwrite the other's textarea mid-sentence, which
+is worse than the problem. Each tab keeps its own value while open; a new mount reads whatever was
+written last.
+
+**Where there is no storage.** Safari's private mode throws from `setItem`, and some embedded views
+throw from the getter. The hook probes once at module scope and falls back to a module-level `Map`,
+the way `layout/useLayoutMode.ts` falls back to `NO_MEDIA`. Holding then works across a close and
+fails only across a reload — no error and no banner, which is how the app behaved before any of
+this existed. A quota refusal drops the key being written and carries on.
+
+The version sits in the key prefix, not in the stored value: bumping `v1` to `v2` makes every older
+key invisible at once, and the hook sweeps them on its first mount rather than migrating them.
+
+`localStorage`, not `sessionStorage`: both survive a reload, and this also survives closing the
+tab. Not zustand's `persist` middleware either — the draft is deliberately not store state (see
+`store/uiSlice.ts`), a `partialize` allow-list would put "do not persist view state" one spread
+away from persisting the canvas, and `reset()` would write initial state back to storage.
+
 ## Showing an image
 
 Images travel the other way too. An agent writes an `<image>` tag and the server turns it into a
@@ -635,7 +693,8 @@ desk, and writes a task's status, its fields and new tasks. It does nothing else
 notebook.
 
 The desk is the exception to persistence: it lives on the server and survives a restart. The
-open tabs, the filters and the expanded node do not.
+open tabs, the filters and the expanded node do not. The distinction is deliberate rather than
+incidental: view state is not kept, but unsubmitted text is — see "Holding what was typed".
 
 Also out of scope: an embedded terminal, auth, an elk layout, a global keyboard shortcut layer
 (Esc on the card and the question's digit keys are local to their components), syntax

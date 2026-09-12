@@ -525,6 +525,14 @@ ships.
 **Land**:
 Answering CI failures and review feedback on an open PR. Ends when it merges.
 
+**Held text**:
+What the user typed into a surface of the orchestrator UI and has not submitted, kept in the
+browser so that closing a dialog, switching a tab or reloading the page does not lose it. Held
+text is browser-local and per surface. It is cleared when the work is submitted, and where a
+surface offers a control to clear it — never when the surface closes. View state — the open tabs,
+the filters, the expanded node — is not held.
+_Avoid_: Draft (a task file in `.drafts/`), autosave, cache, unsaved changes
+
 **Document**:
 A versioned markdown artefact an agent puts in front of the user: a plan, a task set, a PR
 description, a review, a document bound for the repo. A document that stands at a checkpoint
