@@ -8,7 +8,7 @@ from pathlib import Path
 import click
 
 from . import __version__, session_discovery
-from .admin_cli import cmd_install, cmd_self_env, cmd_self_update
+from .admin_cli import cmd_admin, cmd_install, cmd_self_env, cmd_self_update
 from .agent_cli import agent as agent_cli
 from .agent_transport import RootUnset
 from .base_store import GitConfigBaseStore
@@ -1728,6 +1728,7 @@ cli.add_command(wiki_cli)
 cli.add_command(schedule_group)
 cli.add_command(project_cli)
 cli.add_command(cmd_mv_project)
+cli.add_command(cmd_admin)
 cli.add_command(cmd_install)
 cli.add_command(cmd_self_update)
 cli.add_command(cmd_self_env)
