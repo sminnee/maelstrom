@@ -16,6 +16,7 @@ import {
   useAnswer,
   useApprove,
   useDeny,
+  useInterrupt,
   useResume,
   useRun,
   useSay,
@@ -40,7 +41,8 @@ const ANCHOR = { quote: 'q', prefix: '', suffix: '', start: 0, end: 1 };
 
 function harness() {
   // ag1 waits on r1, so the three answers have something to answer; ag2 has
-  // exited, so a resume has something to bring back.
+  // exited, so a resume has something to bring back; ag3 runs a turn, so an
+  // interrupt has one to abandon.
   const server = createFakeServer({
     world: worldWith({
       // The create and start hooks name a project, so the world holds one.
@@ -54,6 +56,7 @@ function harness() {
           pendingRequestIds: ['r1', 'r2'],
         }),
         makeAgent({ id: 'ag2', state: 'exited', exitCode: 1 }),
+        makeAgent({ id: 'ag3', state: 'processing' }),
       ],
       desk: [{ id: 'task:northwind/NORT-7', addedAt: '' }],
       // d1 awaits review, so the two review hooks have a document to move. A
@@ -141,6 +144,24 @@ describe('the mutation hooks', () => {
       { agentId: 'ag1', command: 'git status' },
       'POST /api/agents/ag1/run',
       { command: 'git status' },
+      agentKeys,
+    ],
+    [
+      'useInterrupt',
+      useInterrupt,
+      { agentId: 'ag3' },
+      'POST /api/agents/ag3/interrupt',
+      {},
+      [keys.agents.list(), keys.agents.detail('ag3'), keys.attention()],
+    ],
+    // ag1 waits: the daemon interrupts a waiting agent too, denying its open
+    // asks first, so the fake accepts this and the *button* is what refuses it.
+    [
+      'useInterrupt on a waiting agent',
+      useInterrupt,
+      { agentId: 'ag1' },
+      'POST /api/agents/ag1/interrupt',
+      {},
       agentKeys,
     ],
     ['useStop', useStop, { agentId: 'ag1' }, 'POST /api/agents/ag1/stop', {}, agentKeys],

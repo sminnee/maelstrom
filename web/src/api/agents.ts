@@ -111,6 +111,17 @@ export function useSetMode() {
   );
 }
 
+/**
+ * Abandon the turn the agent is running, and leave the agent alive.
+ *
+ * The session tab's **Stop**; `useStop` below is the node card's **Terminate**.
+ */
+export function useInterrupt() {
+  return useAgentMutation((api, vars: { agentId: AgentId }) =>
+    api.post(`/api/agents/${vars.agentId}/interrupt`),
+  );
+}
+
 export function useStop() {
   return useAgentMutation((api, vars: { agentId: AgentId }) =>
     api.post(`/api/agents/${vars.agentId}/stop`),
