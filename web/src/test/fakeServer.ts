@@ -433,7 +433,7 @@ function command(
   const now = () => new Date().toISOString();
 
   let m = pathname.match(
-    /^\/api\/agents\/([^/]+)\/(approve|deny|answer|say|run|stop|resume|set-mode)$/,
+    /^\/api\/agents\/([^/]+)\/(approve|deny|answer|say|run|stop|interrupt|resume|set-mode)$/,
   );
   if (m && method === 'POST') {
     const agentId = m[1]!;
@@ -487,6 +487,27 @@ function command(
       // The real child announces the new mode itself; the fake does it here.
       world.agents[agentId] = { ...agent, permissionMode: mode };
       server.change({ kind: 'agent', ids: [agentId] });
+      return ok({});
+    }
+    if (action === 'interrupt') {
+      // This guard stands in for the *host*, not for `orchestrator/validate.py`,
+      // which has none: the world's state is a snapshot, so the real refusal is
+      // the daemon's. It matches the daemon's INTERRUPTIBLE set — a waiting
+      // agent is interruptible, and the daemon denies its open asks first.
+      if (agent.state === 'idle') {
+        return error(400, 'invalid', `Agent ${agentId} is not running a turn`);
+      }
+      const denied = agent.pendingRequestIds;
+      world.agents[agentId] = { ...agent, state: 'idle', pendingRequestIds: [], waitingOn: '' };
+      const retired: string[] = [];
+      for (const item of Object.values(world.attention)) {
+        if (item.requestId && denied.includes(item.requestId) && item.clearedAt === null) {
+          world.attention[item.id] = { ...item, clearedAt: now() };
+          retired.push(item.id);
+        }
+      }
+      server.change({ kind: 'agent', ids: [agentId] });
+      if (retired.length) server.change({ kind: 'attention', ids: retired });
       return ok({});
     }
     if (action === 'stop') {
