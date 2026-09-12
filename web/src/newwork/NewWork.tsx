@@ -18,6 +18,8 @@ import { ComboBox } from '../ui/ComboBox';
 import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
 import { LinearFields } from './LinearFields';
 import { Spinner } from '../ui/Spinner';
+import { retainedKey } from '../ui/retained';
+import { useRetained } from '../ui/useRetained';
 import dialog from '../ui/Dialog.module.css';
 import styles from './NewWork.module.css';
 
@@ -30,6 +32,52 @@ import styles from './NewWork.module.css';
  * notebook covers the same ground -- see `docs/dev/orchestrator-ui.md`.
  */
 type Kind = 'task' | 'agent' | 'linear';
+
+/**
+ * Everything step 1 captures, and the whole of what the dialog holds.
+ *
+ * One value rather than a key per field, because the prose, its attachments and
+ * their bucket only make sense together — see `useRetained`. Step 2 is not held:
+ * the dialog reopens on step 1 and re-infers.
+ */
+interface Step1 {
+  project: string;
+  kind: Kind;
+  issue: string;
+  draft: string;
+  branch: string;
+  mode: PermissionMode;
+  model: string;
+  attached: Attachment[];
+  /**
+   * Groups this dialog's images in the task repo. Minted once and then held: a
+   * re-minted bucket would send the next image to another directory, and would
+   * stop `withoutRef` matching the refs already in the prose.
+   */
+  bucket: string;
+}
+
+/**
+ * A dialog with nothing in it yet.
+ *
+ * A free agent's own mode and model default here. A task takes its mode from
+ * inference and leaves its model unset: `docs/guide/planning.md` asks for that
+ * on execute drafts, and step 2's Advanced section is where one is chosen.
+ */
+const initialStep1: Step1 = {
+  project: '',
+  kind: 'task',
+  issue: '',
+  draft: '',
+  branch: '',
+  mode: MODES[0],
+  model: DEFAULT_MODEL,
+  attached: [],
+  bucket: '',
+};
+
+/** A bucket for a dialog that has none held yet. */
+const mintBucket = () => `draft-${Math.random().toString(36).slice(2, 10)}`;
 
 /**
  * One form for every kind of new work — see `Kind`.
@@ -47,28 +95,36 @@ export function NewWork() {
   const plan = useCreateLinearTask();
 
   const names = projects.data?.projects.map((p) => p.name) ?? [];
-  const [project, setProject] = useState('');
+  // Everything step 1 captures, held as one value -- see `ui/useRetained.ts`.
+  // The prose, its attachments and their bucket cannot be held separately: an
+  // image's ref lives in the prose, and `withoutRef` matches on a ref that
+  // embeds the bucket, so a re-minted bucket would make removing a thumbnail a
+  // silent no-op and send the agent a link to an image it never got.
+  const [step1, setStep1, release] = useRetained(retainedKey.newWork(), initialStep1);
+  const { kind, issue, draft, branch, mode, model, attached } = step1;
+  // One bucket for the dialog's whole life, both steps included. State with a
+  // lazy initialiser, so it is settled once on mount: an expression like
+  // `held || mintBucket()` in the render yields a new directory every pass until
+  // one is committed, and the server refuses an upload with no bucket at all.
+  // `useRetained` reads storage in its own initialiser, so a held bucket is
+  // already here to be reused rather than replaced.
+  const [bucket] = useState(() => step1.bucket || mintBucket());
+  const patch = (fields: Partial<Step1>) => setStep1((was) => ({ ...was, ...fields }));
+  // A held project the world no longer has is dropped rather than carried: the
+  // fallback below picks the *first* project, so a stale name would silently
+  // write the work against a different one.
+  const project = step1.project && names.includes(step1.project) ? step1.project : '';
   const chosen = project || names[0] || '';
-  const [kind, setKind] = useState<Kind>('task');
-  const [issue, setIssue] = useState('');
   // Only a project that names a Linear team can plan a Linear issue.
   const hasLinear = projects.data?.projects.find((p) => p.name === chosen)?.hasLinear ?? false;
   // A project change can take the chosen kind off the board, so the form falls
   // back to the one every project has rather than sitting on a dead kind.
   const showing: Kind = kind === 'linear' && !hasLinear ? 'task' : kind;
-  const [draft, setDraft] = useState('');
-  const [branch, setBranch] = useState('');
-  // A free agent's own mode and model. A task takes its mode from inference,
-  // and leaves its model unset: `docs/guide/planning.md` asks for that on
-  // execute drafts, and step 2's Advanced section is where one is chosen.
-  const [mode, setMode] = useState<PermissionMode>(MODES[0]);
-  const [model, setModel] = useState<string>(DEFAULT_MODEL);
-  // New work has no id to group its images under, so the dialog mints one and
-  // keeps it for its whole life -- including across the step 1 to 2 move, so an
-  // image attached to the prose is the same bucket as one attached to the
-  // content. `git add -A` on the task's own commit sweeps the files in.
-  const [attached, setAttached] = useState<Attachment[]>([]);
-  const [bucket] = useState(() => `draft-${Math.random().toString(36).slice(2, 10)}`);
+  const setDraft = (next: string | ((was: string) => string)) =>
+    setStep1((was) => ({
+      ...was,
+      draft: typeof next === 'function' ? next(was.draft) : next,
+    }));
   /** The inferred task, once step 2 is reached. `null` means step 1. */
   const [task, setTask] = useState<TaskDraft | null>(null);
 
@@ -119,6 +175,9 @@ export function NewWork() {
       mode,
       model,
     });
+    // Submitted, so the held copy is spent. Before the close, which unmounts the
+    // dialog and would otherwise flush what is still in the field.
+    release();
     close(false);
   };
 
@@ -130,9 +189,15 @@ export function NewWork() {
       // As a task create: the task exists and only its launch failed, so the
       // dialog says so and never offers to write it again.
       const taskId = e instanceof ApiError ? e.detail.taskId : undefined;
-      if (typeof taskId === 'string') setWritten(taskId);
+      // The task was written, so the prose that became it is spent -- only the
+      // launch failed.
+      if (typeof taskId === 'string') {
+        setWritten(taskId);
+        release();
+      }
       throw e;
     }
+    release();
     close(false);
   };
 
@@ -144,9 +209,13 @@ export function NewWork() {
       // The task exists and is on the desk; only the launch failed. Keep the
       // dialog open to say so, but never offer to write it again.
       const taskId = e instanceof ApiError ? e.detail.taskId : undefined;
-      if (typeof taskId === 'string') setWritten(taskId);
+      if (typeof taskId === 'string') {
+        setWritten(taskId);
+        release();
+      }
       throw e;
     }
+    release();
     close(false);
   };
 
@@ -165,33 +234,39 @@ export function NewWork() {
         <Capture
           names={names}
           project={chosen}
-          setProject={(name) => {
-            setProject(name);
+          setProject={(name) =>
             // The issue belongs to the project it was picked under, so it does
             // not survive a move to another one.
-            setIssue('');
-          }}
+            patch({ project: name, issue: '' })
+          }
           kind={showing}
-          setKind={setKind}
+          setKind={(next) => patch({ kind: next })}
           hasLinear={hasLinear}
           issue={issue}
-          setIssue={setIssue}
+          setIssue={(next) => patch({ issue: next })}
           draft={draft}
           setDraft={setDraft}
           branch={branch}
-          setBranch={setBranch}
+          setBranch={(next) => patch({ branch: next })}
           branches={branches}
           model={model}
-          setModel={setModel}
+          setModel={(next) => patch({ model: next })}
           mode={mode}
-          setMode={setMode}
+          setMode={(next) => patch({ mode: next })}
           bucket={bucket}
           attached={attached}
-          onAttached={(a) => setAttached((was) => [...was, a])}
-          onRemoved={(image) => {
-            setAttached((was) => was.filter((w) => w.url !== image.url));
-            setDraft((was) => withoutRef(was, image));
-          }}
+          onAttached={(a, at) =>
+            // The bucket the image was actually uploaded under, so a first
+            // attach keeps the one its ref embeds.
+            setStep1((was) => ({ ...was, bucket: at, attached: [...was.attached, a] }))
+          }
+          onRemoved={(image) =>
+            setStep1((was) => ({
+              ...was,
+              attached: was.attached.filter((w) => w.url !== image.url),
+              draft: withoutRef(was.draft, image),
+            }))
+          }
         />
       )}
 
@@ -207,6 +282,14 @@ export function NewWork() {
         {task && (
           <button type="button" disabled={busy} onClick={() => setTask(null)}>
             Back
+          </button>
+        )}
+        {/* An ordinary affordance of the field, not a remedy for a restore, so
+            it is never conditional on one having happened. Cancel holds what was
+            typed -- this is the explicit discard. */}
+        {!task && (
+          <button type="button" onClick={() => release()}>
+            Clear
           </button>
         )}
         <button type="button" onClick={() => close(false)}>
@@ -307,7 +390,8 @@ function Capture({
   setMode: (mode: PermissionMode) => void;
   bucket: string;
   attached: Attachment[];
-  onAttached: (attachment: Attachment) => void;
+  /** The image, and the bucket it was stored under, which the dialog then keeps. */
+  onAttached: (attachment: Attachment, bucket: string) => void;
   onRemoved: (image: Attachment) => void;
 }) {
   // Document-global, so nothing else on the page may share them.
@@ -361,7 +445,7 @@ function Capture({
             bucket={bucket}
             attached={attached}
             onAttach={(a) => {
-              onAttached(a);
+              onAttached(a, bucket);
               setDraft(draft ? `${draft}\n\n${a.markdown}` : a.markdown);
             }}
             onRemove={onRemoved}
