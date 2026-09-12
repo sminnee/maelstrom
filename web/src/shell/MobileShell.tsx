@@ -55,7 +55,7 @@ function Screen({ screen }: { screen: MobileScreen }) {
         {screen.kind === 'detail' ? (
           <Detail nodeId={screen.nodeId} onDone={popScreen} />
         ) : screen.kind === 'session' ? (
-          <SessionTab agentId={screen.agentId} />
+          <SessionTab key={screen.agentId} agentId={screen.agentId} />
         ) : (
           <DocumentTab key={screen.documentId} documentId={screen.documentId} />
         )}

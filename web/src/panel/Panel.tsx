@@ -67,7 +67,10 @@ export function Panel() {
 function TabBody({ tab }: { tab: PanelTab }) {
   switch (tab.kind) {
     case 'session':
-      return <SessionTab agentId={tab.agentId} />;
+      // Keyed, as the document tab below is: the tab holds a scroll position,
+      // a window floor and a pending compact wait, all of which belong to one
+      // agent. A reused fiber opens the next agent at the last one's state.
+      return <SessionTab key={tab.agentId} agentId={tab.agentId} />;
     case 'document':
       // Keyed: the tab holds per-document mutation state, so a reused
       // fiber would show one document's created tasks under the next.

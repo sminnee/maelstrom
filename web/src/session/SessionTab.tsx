@@ -46,6 +46,18 @@ const COMPACT_COMMAND = '/compact';
 const WINDOW = 50;
 
 /**
+ * Whether the container sits at its tail.
+ *
+ * The slack is not optional: sub-pixel rounding and a fractional device pixel
+ * ratio leave a fully scrolled container a fraction short, so an exact test
+ * reads as "not at the bottom" and the transcript stops following.
+ */
+const SCROLL_SLACK = 4;
+function atBottom(el: HTMLElement): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_SLACK;
+}
+
+/**
  * The rich transcript plus an input. VS-Code-extension-like, not a terminal.
  *
  * A subagent opens in the same tab, read-only, and a parent lists its
@@ -67,6 +79,11 @@ export function SessionTab({ agentId }: { agentId: string }) {
   const finished = finishedSubagentsOf(world, agentId);
   const transcript = useAgentStream(agentId);
   const bottom = useRef<HTMLDivElement>(null);
+  // Whether the reader sits at the tail. Held in a ref off the scroll event
+  // rather than measured on the render path: the effect below must know where
+  // the reader was *before* the new event landed, and a layout read during
+  // render would already include it.
+  const following = useRef(true);
   // The compact wait outlives the render that started it, and an exit never
   // reaches the transcript store the wait subscribes to. So the wait hands
   // back a way to end it, and the effect below calls that when the agent goes.
@@ -103,6 +120,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
   // on the slice would scroll the reader to the bottom on every Show more,
   // which is the opposite of what the click asked for.
   useEffect(() => {
+    if (!following.current) return;
     bottom.current?.scrollIntoView?.({ block: 'end' });
   }, [count]);
 
@@ -210,7 +228,13 @@ export function SessionTab({ agentId }: { agentId: string }) {
           )}
         </div>
       </div>
-      <div className={styles.scroll}>
+      <div
+        className={styles.scroll}
+        data-testid="transcript-scroll"
+        onScroll={(e) => {
+          following.current = atBottom(e.currentTarget);
+        }}
+      >
         {transcript.status === 'connecting' && count === 0 && (
           <div className={styles.empty}>Loading the transcript…</div>
         )}

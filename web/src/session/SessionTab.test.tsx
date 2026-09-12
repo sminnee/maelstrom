@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { clickNode, renderApp } from '../test/renderApp';
@@ -373,6 +373,69 @@ describe('the transcript window', () => {
     appendMany(server, 1, 'later');
     expect(await screen.findByText('later 0')).toBeInTheDocument();
     expect(screen.getByText('event 0')).toBeInTheDocument();
+  });
+});
+
+describe('following the transcript', () => {
+  // The placement spies read layout off the prototype. `restoreMocks` is not
+  // set, so without this they leak into every test that follows.
+  afterEach(() => vi.restoreAllMocks());
+
+  /**
+   * Watch the jump the transcript makes to follow the tail.
+   *
+   * jsdom implements no `scrollIntoView` — which is why the call site guards it
+   * with `?.` — and `vi.spyOn` cannot wrap a method that is not there. So the
+   * property is defined first and the spy replaces it. `configurable`, or
+   * `restoreAllMocks` could not put it back.
+   */
+  function watchScroll() {
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      writable: true,
+      value: () => {},
+    });
+    return vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+  }
+
+  /** Report the scroll container as scrolled up, or sitting at the bottom. */
+  function placeViewport(where: 'bottom' | 'up') {
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(1000);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(200);
+    vi.spyOn(HTMLElement.prototype, 'scrollTop', 'get').mockReturnValue(
+      where === 'bottom' ? 800 : 100,
+    );
+  }
+
+  it('does not drag the reader down when they are reading history', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await openTaskSession(user);
+    await settleOnSeed();
+
+    const scrolled = watchScroll();
+    placeViewport('up');
+    fireEvent.scroll(document.querySelector('[data-testid="transcript-scroll"]')!);
+
+    appendMany(server, 1, 'interrupting');
+    await screen.findByText('interrupting 0');
+    // The event arrives and is drawn; what must not happen is the jump.
+    expect(scrolled).not.toHaveBeenCalled();
+  });
+
+  it('follows the tail again once the reader returns to the bottom', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await openTaskSession(user);
+    await settleOnSeed();
+
+    const scrolled = watchScroll();
+    placeViewport('bottom');
+    fireEvent.scroll(document.querySelector('[data-testid="transcript-scroll"]')!);
+
+    appendMany(server, 1, 'following');
+    await screen.findByText('following 0');
+    expect(scrolled).toHaveBeenCalled();
   });
 });
 
