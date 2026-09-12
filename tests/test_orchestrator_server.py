@@ -4582,3 +4582,31 @@ def test_the_poll_asks_only_about_the_branches_on_the_desk(harness):
         return harness.worktrees.asked
 
     assert asyncio.run(scenario()) == {"feat/orders"}
+
+
+def test_the_desk_survives_a_restart_on_the_state_database(store, tmp_path):
+    """The PoC, end to end: the desk is a table and a restart reads it back."""
+    from maelstrom.desk_store import SqliteDeskStore
+    from maelstrom.state_db import StateDb
+
+    db = StateDb(tmp_path / "state.db")
+    run(db.migrate())
+    desk = SqliteDeskStore(db, json_path=tmp_path / "desk.json")
+
+    async def scenario(harness):
+        async with harness.client() as api:
+            await api.post("/api/desk", {"id": "task:northwind/NORT-7"})
+
+    first = Harness(store, desk=desk)
+    first.add_task("NORT-7")
+    run(scenario(first))
+
+    # A restart reads the table, not the world it no longer has.
+    second = Harness(store, desk=desk)
+
+    async def read_back():
+        async with second.client() as api:
+            return await api.get_json("/api/desk")
+
+    assert [e["id"] for e in run(read_back())["desk"]] == ["task:northwind/NORT-7"]
+    db.close()

@@ -18,7 +18,7 @@ import click
 
 from .agent_transport import SocketAsyncDaemonClient, daemon_paths
 from .context import load_global_config
-from .desk_store import JsonDeskStore
+from .desk_store import SqliteDeskStore
 from .orchestrator.routes import build_app, serve_app
 from .orchestrator.server import Orchestrator
 from .orchestrator.sources import (
@@ -26,6 +26,7 @@ from .orchestrator.sources import (
     ListAllWorktreeSource,
     NotebookTaskSource,
 )
+from .state_db import StateDb, StateDbError, get_state_db_path
 from .task_cli import open_index
 from .task_launch import LaunchBlocked
 from .task_store import GitFileStore
@@ -37,7 +38,9 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 
 
-def build_orchestrator(*, executor: Executor | None = None) -> Orchestrator:
+def build_orchestrator(
+    *, executor: Executor | None = None, db: StateDb | None = None
+) -> Orchestrator:
     """An orchestrator over the real notebook, ``list-all`` and agent host.
 
     The agent host is the daemon this environment names in ``MAEL_AGENT_ROOT``,
@@ -45,6 +48,10 @@ def build_orchestrator(*, executor: Executor | None = None) -> Orchestrator:
     ``executor`` runs the blocking reads; :func:`run_server` passes a pool of
     one thread, because the SQLite index behind the notebook is bound to the
     thread that first opens it.
+
+    ``db`` is the state database the desk is kept in. It is never migrated
+    here: an ordinary open refuses a database behind this build and names
+    ``mael admin migrate``, which is the point of the refusal.
     """
     projects_dir = load_global_config().projects_dir
     store = GitFileStore()
@@ -87,7 +94,11 @@ def build_orchestrator(*, executor: Executor | None = None) -> Orchestrator:
     worktrees = ListAllWorktreeSource(projects_dir, close=close_worktree)
     daemon = SocketAsyncDaemonClient(str(daemon_paths().socket))
     return Orchestrator(
-        tasks, worktrees, daemon, desk=JsonDeskStore(), executor=executor
+        tasks,
+        worktrees,
+        daemon,
+        desk=SqliteDeskStore(db if db is not None else StateDb()),
+        executor=executor,
     )
 
 
@@ -139,6 +150,11 @@ def run_server(host: str, port: int, log_level: str = DEFAULT_LOG_LEVEL) -> None
     async def serve() -> None:
         loop = asyncio.get_running_loop()
         loop.set_exception_handler(_log_unhandled)
+        # An ordinary open refuses a database this build cannot read, rather
+        # than upgrading it under whatever else is using ~/.maelstrom. The
+        # check runs on the loop, because that is the thread the connection
+        # binds to and every later call has to come from the same one.
+        await db.check()
         serving = asyncio.ensure_future(serve_app(build_app(orchestrator), host, port))
         # A supervisor stops the server with SIGTERM. Without a handler the
         # default terminates the process outright, so the app never cleans up
@@ -149,11 +165,22 @@ def run_server(host: str, port: int, log_level: str = DEFAULT_LOG_LEVEL) -> None
         with suppress(asyncio.CancelledError):
             await serving
 
+    # The directory may not exist on a machine that has never run a mael
+    # command. sqlite3 raises OperationalError rather than creating it, and
+    # that is not a StateDbError, so `cmd_serve` would show a traceback.
+    path = get_state_db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = StateDb(path)
     # One worker, not a pool: the SQLite index behind the notebook is bound to
     # the thread that opened it, so every blocking read must run on the same one.
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        orchestrator = build_orchestrator(executor=executor)
-        asyncio.run(serve())
+    # The state database is bound the same way, but to the loop's own thread:
+    # the desk never goes through the executor.
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            orchestrator = build_orchestrator(executor=executor, db=db)
+            asyncio.run(serve())
+    finally:
+        db.close()
 
 
 @click.group()
@@ -182,6 +209,11 @@ def cmd_serve(host: str, port: int, log_level: str) -> None:
     click.echo(f"Serving on http://{host}:{port}", err=True)
     try:
         run_server(host, port, log_level)
+    except StateDbError as exc:
+        # The refusal already names the fix; repeating it as a traceback would
+        # bury it.
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
     except KeyboardInterrupt:
         # Only a Ctrl-C before the loop starts reaches here. Once it is
         # running, the SIGINT handler cancels the serve task instead.
