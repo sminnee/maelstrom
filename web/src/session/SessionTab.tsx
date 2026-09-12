@@ -1,5 +1,13 @@
 import { useEffect, useRef } from 'react';
-import { useAnswer, useApprove, useDeny, useRun, useSay, useSetMode } from '../api/agents';
+import {
+  useAnswer,
+  useApprove,
+  useDeny,
+  useInterrupt,
+  useRun,
+  useSay,
+  useSetMode,
+} from '../api/agents';
 import { useWorld } from '../api/useWorld';
 import { useAgentStream } from '../live/useAgentStream';
 import type { Agent } from '../protocol/entities';
@@ -40,6 +48,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
   const say = useSay();
   const run = useRun();
   const setMode = useSetMode();
+  const interrupt = useInterrupt();
   const { world } = useWorld();
   const agent = world.agents[agentId];
   const task = agent ? world.tasks[agent.taskId] : undefined;
@@ -94,6 +103,20 @@ export function SessionTab({ agentId }: { agentId: string }) {
         : agent.state !== 'idle'
           ? 'The agent is working. Compacting waits for the turn to end.'
           : 'Compact the conversation, so the session keeps room to work.';
+  // Only while the agent runs a turn. The daemon also interrupts a waiting
+  // agent, but that denies the open ask — see CONTEXT.md, "Interrupt".
+  const canInterrupt = agent.state === 'processing' && agent.pendingRequestIds.length === 0;
+  // Exited, then waiting, then the state: `awaiting-question` is not
+  // `processing`, so testing the state first would tell a waiting agent it is
+  // "not running a turn", which is wrong and unhelpful.
+  const interruptTitle =
+    agent.state === 'exited'
+      ? 'The agent has exited.'
+      : agent.pendingRequestIds.length > 0
+        ? 'The agent is waiting on you. Answer or deny the ask instead.'
+        : agent.state !== 'processing'
+          ? 'The agent is not running a turn.'
+          : 'Abandon the turn the agent is running. The agent stays alive.';
   return (
     <div className={styles.session} data-testid="session-tab">
       <div className={styles.head} data-testid="session-head">
@@ -125,6 +148,15 @@ export function SessionTab({ agentId }: { agentId: string }) {
           {!isChild && (
             <span className={styles.standing}>
               <span className={styles.meta}>{meta.join(' · ')}</span>
+              <AppButton
+                variant="quiet"
+                className={styles.stop}
+                disabled={!canInterrupt}
+                title={interruptTitle}
+                onClick={() => interrupt.mutateAsync({ agentId })}
+              >
+                Stop
+              </AppButton>
               <AppButton
                 variant="quiet"
                 className={styles.compact}

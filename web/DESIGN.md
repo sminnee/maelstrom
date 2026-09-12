@@ -589,8 +589,9 @@ task id and a close glyph.
 One mono line above the transcript, on a hairline, holding two groups. The live reading comes
 first: the agent id, its state in words, the permission chip, and what it waits on — the state
 takes the accent, a wait takes Alert Amber. Standing context follows in faint text: worktree,
-branch, model, context size and cost, dot-joined, with a quiet Compact button at the right. An
-empty field drops out rather than showing a zero. The model reads as its alias, as on the node
+branch, model, context size and cost, dot-joined, with quiet Stop and Compact buttons at the
+right, in that order — Stop is the more urgent act and reads first. An empty field drops out
+rather than showing a zero. The model reads as its alias, as on the node
 card.
 
 The rank is the point, not the row count. A reader watches the live reading and consults the
