@@ -56,6 +56,12 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Removed
 
+- **The `— stopped` marker in `mael list` and `mael list-all`.** The SESSION column now shows
+  the live session count or blank, and no longer tells a never-run worktree from one that ran
+  and stopped. Answering it parsed every task file in the project — 2.37s of a 4.10s
+  `mael list-all` — and only the two tables read the answer; the orchestrator discarded it.
+  Run `mael agent list --stopped` for the sessions you can resume.
+
 - **Session tracking is gone: the registry, its MCP channel, and its eleven hooks.** A Bun MCP
   server ran beside every session and wrote a file under `~/.maelstrom/sessions`, and eleven
   hooks in your global `settings.json` kept it current. Nothing load-bearing read it: liveness

@@ -71,10 +71,10 @@ This is real output from a project with seven open worktrees:
 WORKTREE  BRANCH                                 DIRTY FILES  LOCAL COMMITS  PR (COMMITS)  APP                    SESSION
 ---------------------------------------------------------------------------------------------------------------------------
 _main     main                                                                                                             
-alpha     feat/896-docx-custom-template                                      #1635 (2)     *3000                  — stopped
+alpha     feat/896-docx-custom-template                                      #1635 (2)     *3000
 bravo     task/2026-06-15.1                                                  #1594 (6)     *3020                  3
-charlie   feat/unified-relationship-declaration               76             #1766 (6)     *3030                  — stopped
-lima      fix/maint-fetcher-mcp-oom-2026-08-14                                             *3170                  — stopped
+charlie   feat/unified-relationship-declaration               76             #1766 (6)     *3030
+lima      fix/maint-fetcher-mcp-oom-2026-08-14                                             *3170
 mike      feat/pgsql-users                                                   #1543 (2)     *3120
 november  refactor/document-derivatives                                      #1837 (5)     http://localhost:3160  1
 
@@ -91,7 +91,7 @@ Read it row by row:
 - **`charlie`** has 76 commits that exist only on this machine. Its PR #1766 still shows the
   6 commits that were pushed before that work started.
 - **`lima`** has no pull request and nothing pushed, so `PR (COMMITS)` is blank.
-- **`mike`** has never run a session, so `SESSION` is blank rather than `— stopped`.
+- **`mike`** has no live session, so `SESSION` is blank.
 - **`november`** is the only worktree whose app is running: the APP column gives the full URL
   instead of `*3160`.
 
@@ -107,7 +107,7 @@ Closed worktrees are not rows. `mael list` names them on one line under the tabl
 | `LOCAL COMMITS` | Commits that exist only on this machine | Nothing unpushed |
 | `PR (COMMITS)` | `#1766 (6)` — the open pull request and its commit count. One that asks for something says so: `#1766 failed (6)`, `running`, `conflict`. A merged one reads `#1766 merged (2)`, where the count is what has been pushed since | No pull request and nothing pushed |
 | `APP` | The app URL when the app runs, `*3030` when it does not | The worktree has no port allocation, or the project has no `APP`/`FRONTEND` service |
-| `SESSION` | The number of live sessions, or `— stopped` | The worktree has never run a session |
+| `SESSION` | The number of live sessions | No `claude` process runs in the worktree |
 
 Every count renders blank at zero. So "clean", "nothing unpushed" and "not pushed at all" all
 look the same — an empty cell. Read a blank as "nothing to tell you here", not as a zero you
@@ -185,19 +185,18 @@ than a blank column.
 
 ### `SESSION`
 
-The column resolves in three steps:
+The column counts live sessions: `3` means 3 `claude` processes run in that worktree now.
+A worktree with none reads blank.
 
-1. A live session count wins. `3` means 3 `claude` processes run in that worktree now.
-2. Otherwise `— stopped`, when a task on that branch left a transcript on disk. The worktree
-   ran and stopped.
-3. Otherwise blank. The worktree has never run a session.
-
-The live count comes from the running processes, not from any file. So the column stays
+The count comes from the running processes, not from any file. So the column stays
 correct after a session dies unexpectedly.
+
+A stopped session is not a session here. Run `mael agent list --stopped` for the ones you
+can resume.
 
 ## Where each fact comes from
 
-The command builds each row from nine sources. Most run once for the whole project. Only the
+The command builds each row from eight sources. Most run once for the whole project. Only the
 per-worktree ones grow with the number of open worktrees.
 
 ```
@@ -209,7 +208,6 @@ one pgrep + lsof sweep ─────────────► SESSION (live 
 git status ─────────────────────────► DIRTY FILES                  once per worktree
 git rev-list ───────────────────────► LOCAL COMMITS                once per open worktree
 port allocation + port probe ───────► APP                          once per open worktree
-transcript file checks ─────────────► SESSION (— stopped)          once per task on the branch
 ```
 
 Five of those run once per project, however many worktrees it holds: the worktree list, the
@@ -217,9 +215,6 @@ base lookup, the closed check, the pull request lookup and the session sweep. A 
 worktree still costs one
 `git status`, because the closed check must know whether the worktree is clean. It costs nothing
 else.
-
-The `— stopped` marker is not part of the session sweep. It checks for a transcript file per
-task on the branch, so a branch with many tasks costs several file checks.
 
 The pull request lookup is one GraphQL query for every open pull request in the repository,
 rather than one `gh` call per branch. It is still the slowest single source, because it is the

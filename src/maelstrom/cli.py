@@ -49,11 +49,9 @@ from .integrations.sentry import sentry
 from .integrations.slack import slack
 from .integrations.uptimerobot import uptimerobot
 from .list_all import (
-    branch_session_ids,
     build_list_all_data,
     resolve_pr,
     session_display,
-    session_stopped,
 )
 from .mv_project_cli import cmd_mv_project
 from .orchestrator_cli import orchestrator as orchestrator_cli
@@ -669,9 +667,6 @@ async def cmd_list(project):
     # per-session worktree-list lookup so `git worktree list` runs once, not
     # once per (worktree row × session).
     live_sessions = await session_discovery.LiveSessionSet().sweep()
-    # Branch → task session ids, built once, so the SESSION column can show a
-    # stopped marker (transcript exists, no live session) vs blank (never run).
-    branch_sessions = branch_session_ids(project_name)
     # Every open PR in one call, rather than one `gh pr list` per row. The
     # per-branch call is ~0.8s, so this is most of the command's runtime.
     try:
@@ -711,12 +706,7 @@ async def cmd_list(project):
         )
         pr_cell = pr_display(pr, pushed)
 
-        # Live Claude session count, or a stopped marker when a transcript exists.
-        session_count = live_sessions.count_for(wt.path)
-        session_cell = session_display(
-            session_count,
-            not session_count and session_stopped(wt.path, wt.branch, branch_sessions),
-        )
+        session_cell = session_display(live_sessions.count_for(wt.path))
 
         # App URL with running status
         app_display = ""
@@ -763,7 +753,7 @@ def _list_all_row(project_name: str, wt: dict) -> dict:
     if wt["base"]:
         branch_display = f"{branch_display} \u2190 {wt['base']}"
     pr_cell = pr_display(pr_from_row(wt), wt["pushed_commits"] or 0)
-    session_cell = session_display(wt["session_count"], wt["session_stopped"])
+    session_cell = session_display(wt["session_count"])
     app_display = ""
     if wt["app_url"]:
         port = wt["app_url"].split(":")[-1]

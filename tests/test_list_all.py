@@ -14,11 +14,13 @@ from unittest.mock import patch
 
 import pytest
 
+import maelstrom.task
 from maelstrom.github_model import PrStatus, RateLimited
 from maelstrom.list_all import (
     build_list_all_data,
     project_repo_url,
     repo_url_from_remote,
+    session_display,
 )
 from maelstrom.worktree import WorktreeInfo, list_worktrees, run_git
 from tests.test_sync_flags import project_with_worktree  # noqa: F401  (fixture)
@@ -85,7 +87,6 @@ def test_build_list_all_data_reads_the_project_and_its_worktree(
     assert row["dirty_files"] == 0
     assert row["pr_number"] is None
     assert row["session_count"] == 0
-    assert row["session_stopped"] is False
 
 
 @pytest.mark.parametrize(
@@ -269,6 +270,47 @@ def test_a_projects_dir_with_no_projects_is_empty(tmp_path):
     assert asyncio.run(build_list_all_data(tmp_path)) == {"projects": []}
 
 
+@pytest.mark.parametrize("count,expected", [(3, "3"), (1, "1"), (0, "")])
+def test_session_display_shows_a_live_count_or_nothing(count, expected):
+    """The whole of the SESSION cell: a live count, else blank.
+
+    Both `mael list` and `mael list-all` render the cell through this, so it is
+    the one seam the behaviour is observable at.
+    """
+    assert session_display(count) == expected
+
+
+def test_building_the_rows_never_reads_the_task_notebook(tmp_path, monkeypatch):
+    """The rows must not parse the task notebook.
+
+    Parsing every task file to answer one cosmetic cell cost 2.4s of a 4.1s
+    worktree read, across 16 projects and 794 tasks. Patched at its definition
+    rather than at the `list_all` alias, so a future import spelled any way
+    still trips this.
+
+    The call is recorded rather than raised on: ``build_list_all_data`` drops a
+    project whose read raises, so a raise here would be swallowed into a missing
+    row and reported as an empty list.
+    """
+    reads: list[str] = []
+
+    def _record(*_args, **kwargs):
+        reads.append(kwargs.get("project", "?"))
+        return []
+
+    monkeypatch.setattr(maelstrom.task, "list_tasks", _record)
+    (tmp_path / "alpha" / ".mael").mkdir(parents=True)
+
+    async def one_worktree(project_path):
+        return _fake_worktrees(project_path, 1)
+
+    with _quiet_worktree_reads(list_worktrees_async=one_worktree):
+        data = asyncio.run(build_list_all_data(tmp_path))
+
+    assert reads == [], f"build_list_all_data read the task notebook: {reads}"
+    assert [row["name"] for row in data["projects"][0]["worktrees"]] == ["alpha-0"]
+
+
 def test_the_project_root_is_excluded_under_a_symlinked_projects_dir(
     project_with_worktree,  # noqa: F811
     tmp_path,
@@ -362,7 +404,6 @@ def _quiet_worktree_reads(**overrides):
         "get_local_only_commits_async": 0,
         "get_pushed_commit_count_async": 0,
         "get_app_url": None,
-        "branch_session_ids": {},
     }
     with ExitStack() as stack:
         stack.enter_context(
@@ -508,29 +549,6 @@ class _BlockingProbe:
         time.sleep(self.delay)
         with self.lock:
             self.running -= 1
-
-
-def test_the_task_scan_does_not_block_the_other_projects(tmp_path):
-    """``branch_session_ids`` parses every task file, so it must not run inline.
-
-    The scan passes ``no_index=True``, so it reads and parses each task file
-    rather than answering from the index: measured at 2.4s across 16 projects,
-    the largest single blocking call left on this path. Held on the event loop
-    it serialises every other project behind it.
-    """
-    for n in range(4):
-        (tmp_path / f"project-{n}" / ".mael").mkdir(parents=True)
-    probe = _BlockingProbe()
-
-    def slow_scan(_project_name):
-        probe.read()
-        return {}
-
-    with _quiet_worktree_reads(branch_session_ids=slow_scan):
-        data = asyncio.run(build_list_all_data(tmp_path))
-
-    assert len(data["projects"]) == 4
-    assert probe.peak > 1, "the task scans ran one after another"
 
 
 def test_the_project_store_reads_do_not_block_the_other_projects(tmp_path):
