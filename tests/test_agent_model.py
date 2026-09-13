@@ -23,6 +23,7 @@ from maelstrom.agent_model import (
     IDLE,
     MESSAGE_CHARS,
     MESSAGE_SUMMARY_CHARS,
+    NOTE_CHARS,
     PROCESSING,
     SEQ_KEY,
     SPEC_STOPPED,
@@ -573,6 +574,79 @@ def _say(state: AgentState, text: str) -> AgentState:
         state,
         {"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}},
     )
+
+
+# --- what the agent says it is doing -----------------------------------------
+
+
+def test_the_agent_keeps_the_note_it_wrote():
+    """`last_message` answers "what did it say"; this answers "what is it doing"."""
+    state = _say(AgentState(agent_id="a1", cwd="/tmp/x"), "<note>Rebasing</note>")
+    assert state.last_note == "Rebasing"
+
+
+def test_the_note_is_cut_from_what_the_agent_last_said():
+    """The daemon parses the tag itself, or the note shows twice in a row."""
+    state = _say(
+        AgentState(agent_id="a1", cwd="/tmp/x"), "Working.\n\n<note>Rebasing</note>"
+    )
+    assert state.last_message == "Working."
+    assert state.last_note == "Rebasing"
+
+
+def test_a_note_after_a_very_long_message_is_still_read():
+    """The note is parsed before the message is capped.
+
+    Capping first cuts the closing `</note>` off a long message, so the note
+    goes unread and its opening tag stays in `last_message` as raw syntax —
+    the leak the cut exists to prevent.
+    """
+    state = _say(
+        AgentState(agent_id="a1", cwd="/tmp/x"),
+        "x" * (MESSAGE_CHARS + 100) + "\n\n<note>Rebasing</note>",
+    )
+    assert state.last_note == "Rebasing"
+    assert "<note>" not in state.last_message
+    assert len(state.last_message) == MESSAGE_CHARS
+
+
+def test_a_note_replaces_the_one_before_it():
+    state = _say(AgentState(agent_id="a1", cwd="/tmp/x"), "<note>Reading</note>")
+    state = _say(state, "<note>Fixing</note>")
+    assert state.last_note == "Fixing"
+
+
+def test_a_message_with_no_note_leaves_the_note_standing():
+    """A note describes work in progress, so silence does not clear it."""
+    state = _say(AgentState(agent_id="a1", cwd="/tmp/x"), "<note>Rebasing</note>")
+    state = _say(state, "Still going.")
+    assert state.last_note == "Rebasing"
+
+
+def test_the_note_is_dated_when_it_was_written():
+    state = apply_event(
+        AgentState(agent_id="a1", cwd="/tmp/x"),
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "<note>Rebasing</note>"}]},
+            "timestamp": "2026-09-05T03:00:04.000Z",
+        },
+    )
+    assert state.last_note_at == "2026-09-05T03:00:04.000Z"
+
+
+def test_a_row_carries_the_note():
+    state = _say(AgentState(agent_id="a1", cwd="/tmp/x"), "<note>Rebasing</note>")
+    assert build_agent_row(state)["last_note"] == "Rebasing"
+
+
+def test_a_long_note_is_capped_but_not_cut_to_one_message_line():
+    """A note is authored to be read whole, unlike a row's one-line message."""
+    note = "word " * 200
+    state = _say(AgentState(agent_id="a1", cwd="/tmp/x"), f"<note>{note}</note>")
+    row = build_agent_row(state)
+    assert len(row["last_note"]) == NOTE_CHARS
+    assert len(row["last_note"]) > len(row["last_message"])
 
 
 def test_only_the_last_message_is_kept():
@@ -1415,6 +1489,9 @@ def test_subagent_rows_take_the_row_shape_under_the_parent():
         "mode": "auto",
         "waiting_on": "",
         "last_message_at": "",
+        # A subagent writes no note, for the reason it mints no document.
+        "last_note": "",
+        "last_note_at": "",
         "cost": "",
         # All blank: a subagent has no session, so its spend, its size and its
         # context are counted in the parent's totals, not again here.

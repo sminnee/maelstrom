@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .agent_transport import ROOT_ENV
+from .tags import read_note
 from .util import sanitise_child_env
 
 if TYPE_CHECKING:  # a runtime import would pull a module that shells out to `pgrep`
@@ -616,6 +617,12 @@ class AgentState:
     #: When the agent last said that, as an ISO 8601 string. Empty until it
     #: has said anything, or when the daemon stamped no clock.
     last_message_at: str = ""
+    #: What the agent said it is doing, from the ``<note>`` it wrote. Unlike
+    #: :attr:`last_message` this is the agent's own summary of the work, so a
+    #: message carrying no note leaves the standing one alone.
+    last_note: str = ""
+    #: When the agent wrote that note, as an ISO 8601 string.
+    last_note_at: str = ""
     #: The subagents this agent has spawned, by dotted id, oldest first. A
     #: nested one is ``X.1.1``. See :class:`SubagentState`.
     subagents: dict[str, SubagentState] = field(default_factory=dict)
@@ -639,6 +646,9 @@ SUBAGENT_LIMIT = 50
 MESSAGE_CHARS = 8000
 #: How much of the last message a table cell holds.
 MESSAGE_SUMMARY_CHARS = 60
+#: How much of a note a row carries. Longer than a message summary because a
+#: note is authored to be read whole, where a message is cut to a table cell.
+NOTE_CHARS = 240
 
 #: Event type the daemon writes once the replayed backlog has all been sent.
 #: ``mael agent tail`` without ``-f`` stops there. A marker rather than an idle
@@ -707,21 +717,49 @@ def _said(event: dict[str, Any], now: str) -> tuple[str, str] | None:
     the capture lives here rather than in either. Both fields move together or
     neither does: a row shows them as a pair, and a message dated by an earlier
     one is worse than no date at all.
+
+    The text comes back whole. A caller that stores it caps it at
+    :data:`MESSAGE_CHARS`, but a caller that parses a tag out of it must see the
+    tag's closing form, which a cap can cut in half.
     """
     texts = _message_texts(event)
     if not texts:
         return None
-    return texts[-1][:MESSAGE_CHARS], _stamp(event, now)
+    return texts[-1], _stamp(event, now)
 
 
 def _with_last_message(
     state: AgentState, event: dict[str, Any], now: str
 ) -> AgentState:
-    """``state`` with the last text in ``event`` as what the agent last said."""
+    """``state`` with the last text in ``event`` as what the agent last said.
+
+    A ``<note>`` in that text is the agent's own summary of its work, so it is
+    cut out and kept apart. The daemon parses the tag itself rather than
+    leaving it to the orchestrator: the note must not also stand as the last
+    message, or a row would show the same words twice.
+
+    A message carrying no note leaves the standing one alone. A note describes
+    work in progress, and silence is not the end of that work.
+
+    The note is read before the message is capped. A cap applied first would cut
+    a long message's closing ``</note>`` off, so the note would go unread and its
+    opening tag would stay in ``last_message`` as raw syntax.
+    """
     said = _said(event, now)
     if said is None:
         return state
-    return replace(state, last_message=said[0], last_message_at=said[1])
+    text, note = read_note(said[0])
+    if not note:
+        return replace(
+            state, last_message=text[:MESSAGE_CHARS], last_message_at=said[1]
+        )
+    return replace(
+        state,
+        last_message=text[:MESSAGE_CHARS],
+        last_message_at=said[1],
+        last_note=note[:NOTE_CHARS],
+        last_note_at=said[1],
+    )
 
 
 def _one_line(text: str, limit: int = MESSAGE_SUMMARY_CHARS) -> str:
@@ -1238,7 +1276,7 @@ def _apply_subagent_event(
     if event.get("type") == "assistant":
         said = _said(event, now)
         if said is not None:
-            last_message, last_message_at = said
+            last_message, last_message_at = said[0][:MESSAGE_CHARS], said[1]
     updated = replace(
         sub,
         recent=recent,
@@ -1327,6 +1365,10 @@ def build_agent_row(state: AgentState, spawn_session: str = "") -> dict[str, Any
         "waiting_on": oldest.summary if (oldest := _oldest(asks)) else "",
         "last_message": _one_line(state.last_message),
         "last_message_at": state.last_message_at,
+        # Not through `_one_line`: a note is authored to be read whole, where a
+        # message is cut to a table cell.
+        "last_note": state.last_note,
+        "last_note_at": state.last_note_at,
         "cost": f"{state.total_cost_usd:.4f}" if state.total_cost_usd else "",
         "tokens": state.total_tokens,
         "context_tokens": state.context_tokens,
@@ -1380,6 +1422,11 @@ def build_subagent_row(state: AgentState, dotted: str) -> dict[str, Any]:
         "waiting_on": oldest.summary if (oldest := _oldest(sub.pending)) else "",
         "last_message": _one_line(_subagent_message(sub)),
         "last_message_at": sub.last_message_at,
+        # A subagent writes no note, for the reason it mints no document: its
+        # tags stay as text. The keys are present so its row keeps the shape of
+        # an agent's, which is what lets one reader serve both.
+        "last_note": "",
+        "last_note_at": "",
         "cost": "",
         "tokens": 0,
         "context_tokens": 0,
