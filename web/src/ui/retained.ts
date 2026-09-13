@@ -13,7 +13,7 @@ export const RETAINED_PREFIX_ALL = 'mael.retained.';
 // Derived, not written out again: two literals holding the same segment could
 // drift, and a bump that moved only one would leave `isStaleRetainedKey` reading
 // every key as live -- silently retiring the sweep.
-const PREFIX = `${RETAINED_PREFIX_ALL}v1`;
+const PREFIX = `${RETAINED_PREFIX_ALL}v2`;
 
 export const retainedKey = {
   /** The new-work dialog is a singleton, so one constant key. */

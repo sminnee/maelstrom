@@ -6,17 +6,28 @@ import { ApiError } from '../api/http';
 import { useProjects } from '../api/projects';
 import { useCreateLinearTask } from '../api/linear';
 import { useCreateTask, useInferTask } from '../api/tasks';
+import { useWorld } from '../api/useWorld';
 import type { PermissionMode } from '../protocol/modes';
 import { MODES } from '../protocol/modes';
 import { DEFAULT_MODEL, UNSET_MODEL } from '../protocol/models';
+import { fieldsForLevel } from '../protocol/planningLevel';
+import { projectsInView } from '../selectors/projectsInView';
 import type { TaskDraft } from '../tasklist/TaskFields';
-import { ModeSelect, ModelSelect, TaskFields } from '../tasklist/TaskFields';
+import {
+  ModeSelect,
+  ModelSelect,
+  TaskAdvancedFields,
+  TaskTitleField,
+} from '../tasklist/TaskFields';
 import { useWorktrees } from '../api/worktrees';
 import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
 import { ComboBox } from '../ui/ComboBox';
 import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
 import { LinearFields } from './LinearFields';
+import { PlanningLevelField } from './PlanningLevelField';
+import { ProjectField } from './ProjectField';
+import { branchFromDraft, titleFromDraft } from '../protocol/branchFromDraft';
 import { Spinner } from '../ui/Spinner';
 import { retainedKey } from '../ui/retained';
 import { useRetained } from '../ui/useRetained';
@@ -34,13 +45,22 @@ import styles from './NewWork.module.css';
 type Kind = 'task' | 'agent' | 'linear';
 
 /**
- * Everything step 1 captures, and the whole of what the dialog holds.
+ * Where the planning radios start: `regular`, which runs the task itself under
+ * plan mode. The middle of the three, so the agent proposes before it edits
+ * without a planning session being asked for.
+ */
+const DEFAULT_LEVEL_FIELDS = fieldsForLevel('regular');
+
+/**
+ * Everything the dialog captures, and the whole of what it holds.
  *
  * One value rather than a key per field, because the prose, its attachments and
- * their bucket only make sense together — see `useRetained`. Step 2 is not held:
- * the dialog reopens on step 1 and re-infers.
+ * their bucket only make sense together — see `useRetained`.
+ *
+ * The task's own fields are held as well: a typed title lost on a close is the
+ * same loss the prose case guards against.
  */
-interface Step1 {
+interface Captured {
   project: string;
   kind: Kind;
   issue: string;
@@ -55,16 +75,22 @@ interface Step1 {
    * stop `withoutRef` matching the refs already in the prose.
    */
   bucket: string;
+  /** The task's own fields, as the one surface now shows them. */
+  title: string;
+  command: string;
+  priority: string;
+  taskMode: PermissionMode;
+  taskModel: string;
 }
 
 /**
  * A dialog with nothing in it yet.
  *
- * A free agent's own mode and model default here. A task takes its mode from
- * inference and leaves its model unset: `docs/guide/planning.md` asks for that
- * on execute drafts, and step 2's Advanced section is where one is chosen.
+ * A free agent's own mode and model default here. A task starts at the `regular`
+ * planning level and leaves its model unset: `docs/guide/planning.md` asks for
+ * that on execute drafts, and Advanced is where one is chosen.
  */
-const initialStep1: Step1 = {
+const initialCaptured: Captured = {
   project: '',
   kind: 'task',
   issue: '',
@@ -74,6 +100,11 @@ const initialStep1: Step1 = {
   model: DEFAULT_MODEL,
   attached: [],
   bucket: '',
+  title: '',
+  command: DEFAULT_LEVEL_FIELDS.command,
+  priority: 'medium',
+  taskMode: DEFAULT_LEVEL_FIELDS.mode,
+  taskModel: UNSET_MODEL,
 };
 
 /** A bucket for a dialog that has none held yet. */
@@ -82,8 +113,9 @@ const mintBucket = () => `draft-${Math.random().toString(36).slice(2, 10)}`;
 /**
  * One form for every kind of new work — see `Kind`.
  *
- * Two steps in one dialog — see `docs/dev/orchestrator-ui.md`. Only a task has
- * a step 2; a free agent and a Linear plan need nothing beyond step 1.
+ * One step: the prose and the task's own fields on the one surface, with a
+ * Suggest button that fills the named fields from inference rather than a step
+ * that gates on it. See `docs/dev/orchestrator-ui.md`.
  */
 export function NewWork() {
   const close = useAppStore((s) => s.setNewWorkOpen);
@@ -93,40 +125,72 @@ export function NewWork() {
   const create = useCreateTask();
   const start = useStartAgent();
   const plan = useCreateLinearTask();
+  // The canvas view, read the way every other view reads it, so the project
+  // radios follow the filter bar.
+  const { world } = useWorld();
+  const filters = useAppStore((s) => s.ui.filters);
+  const inView = useMemo(() => projectsInView(world, filters), [world, filters]);
 
   const names = projects.data?.projects.map((p) => p.name) ?? [];
-  // Everything step 1 captures, held as one value -- see `ui/useRetained.ts`.
+  // Everything the dialog captures, held as one value -- see `ui/useRetained.ts`.
   // The prose, its attachments and their bucket cannot be held separately: an
   // image's ref lives in the prose, and `withoutRef` matches on a ref that
   // embeds the bucket, so a re-minted bucket would make removing a thumbnail a
   // silent no-op and send the agent a link to an image it never got.
-  const [step1, setStep1, release] = useRetained(retainedKey.newWork(), initialStep1);
-  const { kind, issue, draft, branch, mode, model, attached } = step1;
-  // One bucket for the dialog's whole life, both steps included. State with a
+  const [captured, setCaptured, release] = useRetained(retainedKey.newWork(), initialCaptured);
+  const { kind, issue, draft, branch, mode, model, attached } = captured;
+  const { title, command, priority, taskMode, taskModel } = captured;
+  // One bucket for the dialog's whole life. State with a
   // lazy initialiser, so it is settled once on mount: an expression like
   // `held || mintBucket()` in the render yields a new directory every pass until
   // one is committed, and the server refuses an upload with no bucket at all.
   // `useRetained` reads storage in its own initialiser, so a held bucket is
   // already here to be reused rather than replaced.
-  const [bucket] = useState(() => step1.bucket || mintBucket());
-  const patch = (fields: Partial<Step1>) => setStep1((was) => ({ ...was, ...fields }));
+  const [bucket] = useState(() => captured.bucket || mintBucket());
+  const patch = (fields: Partial<Captured>) => setCaptured((was) => ({ ...was, ...fields }));
   // A held project the world no longer has is dropped rather than carried: the
   // fallback below picks the *first* project, so a stale name would silently
   // write the work against a different one.
-  const project = step1.project && names.includes(step1.project) ? step1.project : '';
-  const chosen = project || names[0] || '';
+  const project = captured.project && names.includes(captured.project) ? captured.project : '';
+  // Nothing chosen falls to the one project in view, else the first the world
+  // has -- so the radios open on something legal rather than on none.
+  const offered = inView.length > 0 ? inView : names;
+  const chosen = project || offered[0] || '';
   // Only a project that names a Linear team can plan a Linear issue.
   const hasLinear = projects.data?.projects.find((p) => p.name === chosen)?.hasLinear ?? false;
   // A project change can take the chosen kind off the board, so the form falls
   // back to the one every project has rather than sitting on a dead kind.
   const showing: Kind = kind === 'linear' && !hasLinear ? 'task' : kind;
   const setDraft = (next: string | ((was: string) => string)) =>
-    setStep1((was) => ({
+    setCaptured((was) => ({
       ...was,
       draft: typeof next === 'function' ? next(was.draft) : next,
     }));
-  /** The inferred task, once step 2 is reached. `null` means step 1. */
-  const [task, setTask] = useState<TaskDraft | null>(null);
+
+  /**
+   * The task as the fields hold it. The prose is the content: it is what the
+   * notebook stores and what `build_prompt` sends.
+   */
+  const task: TaskDraft = {
+    title,
+    content: draft,
+    branch,
+    command,
+    mode: taskMode,
+    priority,
+    model: taskModel,
+  };
+  const patchTask = (fields: Partial<TaskDraft>) =>
+    setCaptured((was) => ({
+      ...was,
+      ...(fields.title !== undefined ? { title: fields.title } : {}),
+      ...(fields.content !== undefined ? { draft: fields.content } : {}),
+      ...(fields.branch !== undefined ? { branch: fields.branch } : {}),
+      ...(fields.command !== undefined ? { command: fields.command } : {}),
+      ...(fields.mode !== undefined ? { taskMode: fields.mode } : {}),
+      ...(fields.priority !== undefined ? { priority: fields.priority } : {}),
+      ...(fields.model !== undefined ? { taskModel: fields.model } : {}),
+    }));
 
   // The branches on offer are those with a worktree already open in the
   // chosen project. Anything else typed is kept: a branch with no worktree
@@ -139,32 +203,39 @@ export function NewWork() {
     [worktrees.data, chosen],
   );
 
-  const busy = infer.isPending || create.isPending || start.isPending || plan.isPending;
-  // The error of the step that is showing. React Query holds a mutation's
+  // The submits, not inference: Suggest is an `AppButton` and shows its own wait.
+  const busy = create.isPending || start.isPending || plan.isPending;
+  // The error of the kind that is showing. React Query holds a mutation's
   // error until that same mutation runs again, so a fixed precedence would
-  // let a refused start outlive the step that raised it.
-  const failure = task
-    ? create.error
-    : showing === 'agent'
-      ? start.error
-      : showing === 'linear'
-        ? plan.error
-        : infer.error;
+  // let a refused start outlive the surface that raised it. A task's own
+  // surface can refuse twice — Suggest and the create — so the newer wins.
+  // The error of the kind that is showing. Inference is not here: the Suggest
+  // button catches its own rejection and says so on itself, so feeding it to
+  // this alert too would announce one refusal in two live regions -- and
+  // React Query holds an error until its own mutation runs again, so a spent
+  // create error would outrank the live inference one anyway.
+  const failure =
+    showing === 'agent' ? start.error : showing === 'linear' ? plan.error : create.error;
   // A create whose launch failed still wrote the task, and the refusal names
   // it. Remembering that is what stops a retry writing a second copy.
   const [written, setWritten] = useState<string | null>(null);
 
-  const next = async () => {
+  /**
+   * Name the task from its prose: title, branch, command and mode.
+   *
+   * A button rather than a gate. Inference shells out to a model and takes tens
+   * of seconds, so the form must reach Save without it — and the fields it fills
+   * stay editable after it, as every other field is.
+   */
+  const suggest = async () => {
     const inferred = await infer.mutateAsync({ project: chosen, draft });
-    setTask({
+    setCaptured((was) => ({
+      ...was,
       title: inferred.title,
-      content: draft,
       branch: inferred.branch,
       command: inferred.command,
-      mode: inferred.mode,
-      priority: 'medium',
-      model: UNSET_MODEL,
-    });
+      taskMode: inferred.mode,
+    }));
   };
 
   const startFreeAgent = async () => {
@@ -202,9 +273,18 @@ export function NewWork() {
   };
 
   const writeTask = async (launch: boolean) => {
-    if (!task || written) return;
+    if (written) return;
     try {
-      await create.mutateAsync({ project: chosen, ...task, ...(launch ? { launch } : {}) });
+      await create.mutateAsync({
+        project: chosen,
+        ...task,
+        // A save that never pressed Suggest still needs a title and a branch.
+        // Both come from the prose, by the same deterministic rule the notebook
+        // falls back to -- see `branchFromDraft`.
+        title: task.title.trim() || titleFromDraft(draft),
+        branch: task.branch.trim() || branchFromDraft(draft),
+        ...(launch ? { launch } : {}),
+      });
     } catch (e) {
       // The task exists and is on the desk; only the launch failed. Keep the
       // dialog open to say so, but never offer to write it again.
@@ -221,54 +301,50 @@ export function NewWork() {
 
   return (
     <Dialog label="New work" onClose={() => close(false)}>
-      <DialogHeader title={task ? 'Task details' : 'New work'} onClose={() => close(false)} />
+      <DialogHeader title="New work" onClose={() => close(false)} />
 
-      {task ? (
-        <TaskFields
-          draft={task}
-          onChange={(patch) => setTask({ ...task, ...patch })}
-          project={chosen}
-          bucket={bucket}
-        />
-      ) : (
-        <Capture
-          names={names}
-          project={chosen}
-          setProject={(name) =>
-            // The issue belongs to the project it was picked under, so it does
-            // not survive a move to another one.
-            patch({ project: name, issue: '' })
-          }
-          kind={showing}
-          setKind={(next) => patch({ kind: next })}
-          hasLinear={hasLinear}
-          issue={issue}
-          setIssue={(next) => patch({ issue: next })}
-          draft={draft}
-          setDraft={setDraft}
-          branch={branch}
-          setBranch={(next) => patch({ branch: next })}
-          branches={branches}
-          model={model}
-          setModel={(next) => patch({ model: next })}
-          mode={mode}
-          setMode={(next) => patch({ mode: next })}
-          bucket={bucket}
-          attached={attached}
-          onAttached={(a, at) =>
-            // The bucket the image was actually uploaded under, so a first
-            // attach keeps the one its ref embeds.
-            setStep1((was) => ({ ...was, bucket: at, attached: [...was.attached, a] }))
-          }
-          onRemoved={(image) =>
-            setStep1((was) => ({
-              ...was,
-              attached: was.attached.filter((w) => w.url !== image.url),
-              draft: withoutRef(was.draft, image),
-            }))
-          }
-        />
-      )}
+      <Capture
+        names={names}
+        inView={inView}
+        project={chosen}
+        setProject={(name) =>
+          // The issue belongs to the project it was picked under, so it does
+          // not survive a move to another one.
+          patch({ project: name, issue: '' })
+        }
+        kind={showing}
+        setKind={(next) => patch({ kind: next })}
+        hasLinear={hasLinear}
+        issue={issue}
+        setIssue={(next) => patch({ issue: next })}
+        draft={draft}
+        setDraft={setDraft}
+        branch={branch}
+        setBranch={(next) => patch({ branch: next })}
+        branches={branches}
+        model={model}
+        setModel={(next) => patch({ model: next })}
+        mode={mode}
+        setMode={(next) => patch({ mode: next })}
+        bucket={bucket}
+        attached={attached}
+        onAttached={(a, at) =>
+          // The bucket the image was actually uploaded under, so a first
+          // attach keeps the one its ref embeds.
+          setCaptured((was) => ({ ...was, bucket: at, attached: [...was.attached, a] }))
+        }
+        onRemoved={(image) =>
+          setCaptured((was) => ({
+            ...was,
+            attached: was.attached.filter((w) => w.url !== image.url),
+            draft: withoutRef(was.draft, image),
+          }))
+        }
+        task={task}
+        patchTask={patchTask}
+        onSuggest={suggest}
+        busy={busy}
+      />
 
       {failure && (
         <p className={styles.error} role="alert" data-testid="new-work-error">
@@ -279,36 +355,16 @@ export function NewWork() {
       )}
       <DialogFooter>
         {busy && <Spinner />}
-        {task && (
-          <button type="button" disabled={busy} onClick={() => setTask(null)}>
-            Back
-          </button>
-        )}
         {/* An ordinary affordance of the field, not a remedy for a restore, so
             it is never conditional on one having happened. Cancel holds what was
             typed -- this is the explicit discard. */}
-        {!task && (
-          <button type="button" onClick={() => release()}>
-            Clear
-          </button>
-        )}
+        <button type="button" onClick={() => release()}>
+          Clear
+        </button>
         <button type="button" onClick={() => close(false)}>
           Cancel
         </button>
-        {task ? (
-          <>
-            <AppButton disabled={busy || written !== null} onClick={() => writeTask(false)}>
-              Save
-            </AppButton>
-            <AppButton
-              variant="primary"
-              disabled={busy || written !== null}
-              onClick={() => writeTask(true)}
-            >
-              Start
-            </AppButton>
-          </>
-        ) : showing === 'agent' ? (
+        {showing === 'agent' ? (
           <AppButton
             variant="primary"
             disabled={busy || !chosen || !draft.trim() || !branch.trim()}
@@ -317,7 +373,7 @@ export function NewWork() {
             Start
           </AppButton>
         ) : showing === 'linear' ? (
-          // No step 2: `mael linear plan` takes the issue and nothing else.
+          // `mael linear plan` takes the issue and nothing else.
           <>
             <AppButton
               disabled={busy || !issue.trim() || written !== null}
@@ -334,22 +390,33 @@ export function NewWork() {
             </AppButton>
           </>
         ) : (
-          <AppButton
-            variant="primary"
-            disabled={busy || !chosen || !draft.trim()}
-            onClick={() => next()}
-          >
-            Next
-          </AppButton>
+          // The prose is the only field a task needs: inference no longer gates
+          // the submit, so both buttons sit on the one surface.
+          <>
+            <AppButton
+              disabled={busy || !chosen || !draft.trim() || written !== null}
+              onClick={() => writeTask(false)}
+            >
+              Save
+            </AppButton>
+            <AppButton
+              variant="primary"
+              disabled={busy || !chosen || !draft.trim() || written !== null}
+              onClick={() => writeTask(true)}
+            >
+              Start
+            </AppButton>
+          </>
         )}
       </DialogFooter>
     </Dialog>
   );
 }
 
-/** Step 1: what the work is, where it runs, and which kind it is. */
+/** The one surface: what the work is, where it runs, and the task's own fields. */
 function Capture({
   names,
+  inView,
   project,
   setProject,
   kind,
@@ -370,8 +437,14 @@ function Capture({
   attached,
   onAttached,
   onRemoved,
+  task,
+  patchTask,
+  onSuggest,
+  busy,
 }: {
   names: string[];
+  /** The projects the canvas is drawing, which the radios offer. */
+  inView: string[];
   project: string;
   setProject: (name: string) => void;
   kind: Kind;
@@ -393,6 +466,12 @@ function Capture({
   /** The image, and the bucket it was stored under, which the dialog then keeps. */
   onAttached: (attachment: Attachment, bucket: string) => void;
   onRemoved: (image: Attachment) => void;
+  /** The task the fields below write, for the `task` kind. */
+  task: TaskDraft;
+  patchTask: (fields: Partial<TaskDraft>) => void;
+  /** Returns its promise, so the button it sits on can show the wait. */
+  onSuggest: () => Promise<void>;
+  busy: boolean;
 }) {
   // Document-global, so nothing else on the page may share them.
   const kindName = useId();
@@ -400,16 +479,7 @@ function Capture({
   const branchOptions = useMemo(() => branches.map((value) => ({ value })), [branches]);
   return (
     <>
-      <label className={dialog.field}>
-        <span>Project</span>
-        <select value={project} onChange={(e) => setProject(e.target.value)}>
-          {names.map((name) => (
-            <option key={name} value={name}>
-              {name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <ProjectField names={names} inView={inView} project={project} setProject={setProject} />
 
       <fieldset className={styles.kinds}>
         <legend>Kind</legend>
@@ -462,7 +532,7 @@ function Capture({
       )}
 
       {/* A free agent has no task to derive a branch from, so it names one
-          itself. A task's branch is inferred at the next step instead. */}
+          itself. A task's branch is its own field below. */}
       {kind === 'agent' && (
         <>
           <label className={dialog.field}>
@@ -477,6 +547,36 @@ function Capture({
             <span>Model</span>
             <ModelSelect model={model} onChange={setModel} />
           </label>
+        </>
+      )}
+
+      {/* The task's own fields, on the same surface as the prose. Composed from
+          the editor's own parts, so the two cannot drift on what a task's
+          fields are -- see `tasklist/TaskFields.tsx`. */}
+      {kind === 'task' && (
+        <>
+          {/* The title alone: the prose field above already asks what needs
+              doing, and that prose is the task's content. */}
+          <TaskTitleField draft={task} onChange={patchTask} />
+          <div className={styles.branchRow}>
+            <label className={dialog.field}>
+              <span>Branch</span>
+              <input value={task.branch} onChange={(e) => patchTask({ branch: e.target.value })} />
+            </label>
+            {/* Inference is slow and optional, so it is a button beside the
+                field it fills rather than a step in the way. An `AppButton`,
+                which owns the life of its click: the returned promise is what
+                puts the wait on the control that started it. */}
+            <AppButton disabled={busy || !draft.trim()} onClick={onSuggest}>
+              Suggest
+            </AppButton>
+          </div>
+          <PlanningLevelField
+            command={task.command}
+            mode={task.mode}
+            onChange={(fields) => patchTask(fields)}
+          />
+          <TaskAdvancedFields draft={task} onChange={patchTask} />
         </>
       )}
     </>

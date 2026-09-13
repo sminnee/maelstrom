@@ -502,7 +502,9 @@ imperative of the work, which is what keeps it apart from the agent's state — 
 whether or not an agent runs on it now. Read from the task's `command`, and never stored: an
 agent shows the phase of its task. A command nobody recognises has no phase, and neither does an
 agent with no task.
-_Avoid_: Stage, step, shaping, planning, executing, finalising
+_Avoid_: Stage, step, executing, finalising. **Shape** and **plan** are the phases' own names, so
+they are used for those phases and not as loose synonyms: shaping creates the tasks that planning
+then plans, and `plan` belongs to the `plan-task` skill and to an agent's plan mode.
 
 **Shape**:
 Exploring a brief until a set of tasks is agreed and created. Ends at a user checkpoint. May be
@@ -657,6 +659,15 @@ The form that edits one task's fields: title, content and branch, with command, 
 and model folded away. It opens from the task list and writes through `task.update`. A status
 moves through the status picker instead, because status is folder-derived.
 _Avoid_: Task modal, edit form, task detail
+
+**Planning level**:
+How much planning a new task gets before it is built: high, regular or none. The level is a
+reading over the task's `command` and `mode`, never stored as a field of its own — high is
+`plan-task` under `normal`, regular is no command under `plan`, none is no command under `auto`.
+High and none mirror `mode_for_command`; regular has no equivalent in Python, where an empty
+command means `auto`. The new-work form offers the three as radios and reads them back off the
+two fields, so editing either field re-derives the level and a pair no level names reads as N/A.
+_Avoid_: Planning depth, plan mode (that is a permission mode), autonomy
 
 **Expanded node**:
 A node grown in place into a card that shows its status, the decision it waits on, and links
