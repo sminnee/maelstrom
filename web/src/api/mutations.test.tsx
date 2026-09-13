@@ -35,6 +35,7 @@ import {
 import { useCreateLinearTask } from './linear';
 import { ApiError } from './http';
 import { keys } from './keys';
+import type { TaskId } from '../protocol/ids';
 import { useCreateTask, useInferTask, useLaunch, useSetStatus, useUpdateTask } from './tasks';
 
 const ANCHOR = { quote: 'q', prefix: '', suffix: '', start: 0, end: 1 };
@@ -48,7 +49,9 @@ function harness() {
       // The create and start hooks name a project, so the world holds one.
       // It names a Linear team too, so the Linear hooks reach their routes.
       projects: [makeProject({ hasLinear: true })],
-      tasks: [makeTask({ id: 'northwind/NORT-7' })],
+      // NORT-9 is the one a rewire writes: it follows nothing, so a wire to
+      // NORT-7 is a real edit rather than a no-op.
+      tasks: [makeTask({ id: 'northwind/NORT-7' }), makeTask({ id: 'northwind/NORT-9' })],
       agents: [
         makeAgent({
           id: 'ag1',
@@ -206,6 +209,14 @@ describe('the mutation hooks', () => {
       taskKeys,
     ],
     [
+      'useUpdateTask writing follows',
+      useUpdateTask,
+      { taskId: 'northwind/NORT-9', fields: { follows: ['northwind/NORT-7'] } },
+      'PATCH /api/tasks/northwind/NORT-9',
+      { follows: ['northwind/NORT-7'] },
+      [keys.tasks.list(), keys.tasks.detail('northwind/NORT-9')],
+    ],
+    [
       'useInferTask',
       useInferTask,
       { project: 'northwind', draft: 'The export drops a row' },
@@ -323,6 +334,46 @@ describe('the mutation hooks', () => {
     const err = await result.current.mutateAsync(vars as never).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err).toMatchObject({ status: 501, code: 'not_implemented' });
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  // The fake refuses a rewire the way `validate.py` does, so a canvas test
+  // sees the same refusal the real server would send.
+  it.each([
+    ['a self-edge', ['northwind/NORT-7'], 400, 'invalid'],
+    ['a task it does not hold', ['northwind/NOPE'], 404, 'unknown_id'],
+    // Seeded below, so this reaches the cross-project rule rather than
+    // stopping at "no such task" the way an unseeded id would.
+    ['a task in another project', ['contoso/CONT-1'], 400, 'invalid'],
+  ])('refuses a follows naming %s', async (_name, follows, status, code) => {
+    const { server, invalidate, wrapper } = harness();
+    server.world.tasks['contoso/CONT-1'] = makeTask({
+      id: 'contoso/CONT-1',
+      project: 'contoso',
+    });
+    const { result } = renderHook(useUpdateTask, { wrapper });
+    const err = await result.current
+      .mutateAsync({ taskId: 'northwind/NORT-7' as TaskId, fields: { follows } })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status, code });
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it('refuses a rewire that would make a cycle', async () => {
+    const { server, invalidate, wrapper } = harness();
+    server.world.tasks['northwind/NORT-8'] = makeTask({
+      id: 'northwind/NORT-8',
+      follows: ['northwind/NORT-7'],
+    });
+    const { result } = renderHook(useUpdateTask, { wrapper });
+    const err = await result.current
+      .mutateAsync({
+        taskId: 'northwind/NORT-7' as TaskId,
+        fields: { follows: ['northwind/NORT-8' as TaskId] },
+      })
+      .catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 400, code: 'invalid' });
     expect(invalidate).not.toHaveBeenCalled();
   });
 

@@ -364,6 +364,84 @@ def test_invalid_for_a_priority_the_notebook_has_no_rank_for():
     assert code(validate_command(world, cmd)) == "invalid"
 
 
+def test_accepts_a_follows_edit_naming_a_task_in_the_world():
+    world = world_with(tasks=[make_task(), make_task(id="northwind/NORT-8")])
+    cmd = {
+        "type": "task.update",
+        "taskId": "northwind/NORT-8",
+        "fields": {"follows": ["northwind/NORT-7"]},
+    }
+    assert validate_command(world, cmd) is None
+
+
+def test_accepts_an_empty_follows_that_clears_every_wire():
+    world = world_with(tasks=[make_task()])
+    cmd = {
+        "type": "task.update",
+        "taskId": "northwind/NORT-7",
+        "fields": {"follows": []},
+    }
+    assert validate_command(world, cmd) is None
+
+
+def test_invalid_for_a_follows_that_is_not_a_list():
+    world = world_with(tasks=[make_task()])
+    cmd = {
+        "type": "task.update",
+        "taskId": "northwind/NORT-7",
+        "fields": {"follows": "northwind/NORT-8"},
+    }
+    assert code(validate_command(world, cmd)) == "invalid"
+
+
+def test_unknown_id_for_a_follows_naming_no_task():
+    world = world_with(tasks=[make_task()])
+    cmd = {
+        "type": "task.update",
+        "taskId": "northwind/NORT-7",
+        "fields": {"follows": ["northwind/NOPE"]},
+    }
+    assert code(validate_command(world, cmd)) == "unknown_id"
+
+
+def test_invalid_for_a_follows_crossing_projects():
+    world = world_with(
+        tasks=[make_task(), make_task(id="contoso/CONT-1", project="contoso")]
+    )
+    cmd = {
+        "type": "task.update",
+        "taskId": "northwind/NORT-7",
+        "fields": {"follows": ["contoso/CONT-1"]},
+    }
+    assert code(validate_command(world, cmd)) == "invalid"
+
+
+def test_invalid_for_a_task_that_follows_itself():
+    world = world_with(tasks=[make_task()])
+    cmd = {
+        "type": "task.update",
+        "taskId": "northwind/NORT-7",
+        "fields": {"follows": ["northwind/NORT-7"]},
+    }
+    assert code(validate_command(world, cmd)) == "invalid"
+
+
+def test_invalid_for_a_follows_that_closes_a_cycle():
+    """NORT-8 already follows NORT-7, so NORT-7 may not follow NORT-8 back."""
+    world = world_with(
+        tasks=[
+            make_task(),
+            make_task(id="northwind/NORT-8", follows=["northwind/NORT-7"]),
+        ]
+    )
+    cmd = {
+        "type": "task.update",
+        "taskId": "northwind/NORT-7",
+        "fields": {"follows": ["northwind/NORT-8"]},
+    }
+    assert code(validate_command(world, cmd)) == "invalid"
+
+
 def test_a_null_field_is_no_edit():
     world = world_with(tasks=[make_task()])
     cmd = {

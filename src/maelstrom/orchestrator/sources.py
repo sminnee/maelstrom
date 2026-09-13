@@ -31,7 +31,7 @@ from ..task_table import TaskTable
 from ..worktree import WorktreeSetup
 from ..worktree_model import has_claude_transcript
 from .protocol import Project, Task, Worktree
-from .validate import EDITABLE
+from .validate import CREATABLE, EDITABLE
 from .world_build import (
     project_entity,
     split_task_key,
@@ -276,6 +276,10 @@ class NotebookTaskSource:
         """
         project, notebook_id = split_task_key(task_id)
         wanted = {k: v for k, v in fields.items() if k in EDITABLE}
+        # The notebook stores a bare id; ``world_build`` qualifies it on the way
+        # out, so a wire id has to lose its project again here.
+        if "follows" in wanted:
+            wanted["follows"] = [split_task_key(f)[1] for f in wanted["follows"]]
         await model.update(self.table, project, notebook_id, **wanted)
 
     def infer(self, draft: str) -> TaskNames:
@@ -292,16 +296,18 @@ class NotebookTaskSource:
     ) -> str:
         """Write a new task and return its wire id.
 
-        Only the keys in :data:`~maelstrom.orchestrator.validate.EDITABLE` are
-        taken from ``fields``, as ``update`` does. ``branch`` is one of them, so
-        an explicit branch skips ``model.create``'s own generation.
+        Only the keys in :data:`~maelstrom.orchestrator.validate.CREATABLE` are
+        taken from ``fields``, which is ``EDITABLE`` without ``follows``: a new
+        task is wired after it exists, never by the create body. ``branch`` is
+        one of them, so an explicit branch skips ``model.create``'s own
+        generation.
 
         ``extra`` is written unfiltered, and is the server's own to set — a
         Linear plan's ``parent`` and ``post_action``, which no client may
         choose. It never carries request data, so the filter above stays the
         only door a client writes through.
         """
-        wanted = {k: v for k, v in fields.items() if k in EDITABLE}
+        wanted = {k: v for k, v in fields.items() if k in CREATABLE}
         wanted.update(extra or {})
         task = await model.create(self.table, project=project, **wanted)
         return task_key(project, task.id)

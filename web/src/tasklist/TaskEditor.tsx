@@ -123,7 +123,7 @@ function seed(task: Task): TaskDraft {
 /** Only what the user moved. */
 function changed(before: TaskDraft, after: TaskDraft): TaskEdit {
   const fields: TaskEdit = {};
-  for (const key of Object.keys(before) as (keyof TaskEdit)[]) {
+  for (const key of Object.keys(before) as (keyof TaskDraft)[]) {
     if (after[key] !== before[key]) Object.assign(fields, { [key]: after[key] });
   }
   return fields;

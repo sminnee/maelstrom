@@ -12,8 +12,12 @@ import styles from '../ui/Dialog.module.css';
 /** From `task.PRIORITIES`, highest first. */
 const PRIORITIES = ['critical', 'high', 'medium', 'low'];
 
-/** Every editable field of a task, as a form holds them. */
-export type TaskDraft = Required<TaskEdit>;
+/**
+ * Every editable field of a task, as a form holds them. `follows` is not one:
+ * a wire is drawn on the canvas, not typed into the editor, so leaving it out
+ * keeps it out of the form's own diff.
+ */
+export type TaskDraft = Required<Omit<TaskEdit, 'follows'>>;
 
 /** The known commands, plus the empty one that means "run the task itself". */
 const COMMAND_OPTIONS: readonly ComboOption[] = [

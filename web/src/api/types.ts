@@ -1,4 +1,5 @@
 import type { Task, TaskMode } from '../protocol/entities';
+import type { TaskId } from '../protocol/ids';
 
 /** A task as the list carries it: everything but the prose. */
 export type TaskRow = Omit<Task, 'content' | 'log'>;
@@ -16,6 +17,8 @@ export interface TaskEdit {
   mode?: TaskMode;
   priority?: string;
   model?: string;
+  /** Every id the task follows, in full: the write replaces the list. */
+  follows?: TaskId[];
 }
 
 /** What inference reads off a draft's prose: the fields a new task needs naming. */

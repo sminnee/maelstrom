@@ -12,12 +12,29 @@ from ..agent_model import MODES as AGENT_MODES
 from ..worktree_model import is_worktree_closable
 from .desk import split_desk_id
 from .protocol import World
+from .world_build import split_task_key
 
 #: The six folders a task can sit in. A move names one of these.
 TASK_STATUSES = ("todo", "in-progress", "blocked", "done", "cancelled", "template")
 
 #: The keys ``task.update`` writes. Anything else in ``fields`` is not an edit.
-EDITABLE = ("title", "content", "branch", "command", "mode", "priority", "model")
+EDITABLE = (
+    "title",
+    "content",
+    "branch",
+    "command",
+    "mode",
+    "priority",
+    "model",
+    "follows",
+)
+
+#: The keys ``task.create`` writes, which is :data:`EDITABLE` without
+#: ``follows``. A new task is wired by ``promote``, which resolves the chain
+#: itself, or by a drag once it is on the board — never by the create body.
+#: The notebook stores a bare id, and only ``update`` unqualifies one, so a
+#: ``follows`` written here would be a wire pointing at nothing.
+CREATABLE = tuple(key for key in EDITABLE if key != "follows")
 
 #: The three permission modes, shared with a live agent — see CONTEXT.md.
 MODES = AGENT_MODES
@@ -88,6 +105,55 @@ def check_linear_project(world: World, project: str) -> dict[str, str] | None:
     if not world["projects"][project].get("hasLinear"):
         return _err("invalid", f"{project} names no Linear team")
     return None
+
+
+def _check_follows(world: World, task_id: str, follows: Any) -> dict[str, str] | None:
+    """The refusal for rewiring ``task_id`` to follow ``follows``, or ``None``.
+
+    The write replaces the whole list, so every id is checked. A task only ever
+    follows a task beside it in its own notebook, and a cycle would strand both
+    ends: neither could ever become actionable.
+
+    The id's own shape is checked before the world is consulted, so one bad id
+    reports the same refusal whatever else the world happens to hold.
+    """
+    if not isinstance(follows, list):
+        return _err("invalid", "follows must be a list")
+    project, _ = split_task_key(task_id)
+    for followed in follows:
+        if followed == task_id:
+            return _err("invalid", "A task cannot follow itself")
+        try:
+            followed_project, _ = split_task_key(str(followed))
+        except ValueError:
+            return _err("invalid", f"Not a qualified task id: {followed}")
+        if followed_project != project:
+            return _err("invalid", f"{followed} is in another project")
+        if followed not in world["tasks"]:
+            return _err("unknown_id", f"No task {followed}")
+    if _reaches(world, follows, task_id):
+        return _err("invalid", "That would make a cycle")
+    return None
+
+
+def _reaches(world: World, starts: list[str], goal: str) -> bool:
+    """Whether ``goal`` is reachable by walking ``follows`` from ``starts``.
+
+    Walks the world's existing wires; ``seen`` ends a cycle in the data itself.
+    """
+    seen: set[str] = set()
+    queue = list(starts)
+    while queue:
+        current = queue.pop()
+        if current == goal:
+            return True
+        if current in seen:
+            continue
+        seen.add(current)
+        task = world["tasks"].get(current)
+        if task is not None:
+            queue.extend(task["follows"])
+    return False
 
 
 def validate_command(
@@ -295,6 +361,9 @@ def validate_command(
         priority = fields.get("priority")
         if priority is not None and priority not in PRIORITIES:
             return _err("invalid", f"No priority {priority}")
+        follows = fields.get("follows")
+        if follows is not None:
+            return _check_follows(world, task_id, follows)
         return None
 
     if kind in ("task.infer", "shaping.start"):
@@ -314,8 +383,10 @@ def validate_command(
         # new task carries. A field left out takes the notebook's own default,
         # so only what was sent is checked. A null is not "left out": it
         # reaches the notebook, which writes strings, and breaks the write.
-        if any(cmd.get(key, "") is None for key in EDITABLE):
+        if any(cmd.get(key, "") is None for key in CREATABLE):
             return _err("invalid", "A field is null")
+        if cmd.get("follows") is not None:
+            return _err("invalid", "A new task is wired after it is created")
         if not str(cmd.get("title", "")).strip():
             return _err("invalid", "A title is required")
         mode = cmd.get("mode")

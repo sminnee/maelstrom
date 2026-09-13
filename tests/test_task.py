@@ -1883,6 +1883,21 @@ class TestUpdate:
         await model.update(store, "p", t.id, branch="b", now=NOW2)
         assert (await model.load(store, "p", t.id)).priority == "high"
 
+    async def test_update_changes_follows(self, store):
+        t = await model.create(store, project="p", title="t", now=NOW)
+        await model.update(store, "p", t.id, follows=["a", "b"], now=NOW2)
+        assert (await model.load(store, "p", t.id)).follows == ["a", "b"]
+
+    async def test_update_clears_follows_with_an_empty_list(self, store):
+        t = await model.create(store, project="p", title="t", follows=["a"], now=NOW)
+        await model.update(store, "p", t.id, follows=[], now=NOW2)
+        assert (await model.load(store, "p", t.id)).follows == []
+
+    async def test_update_omitting_follows_leaves_it(self, store):
+        t = await model.create(store, project="p", title="t", follows=["a"], now=NOW)
+        await model.update(store, "p", t.id, branch="b", now=NOW2)
+        assert (await model.load(store, "p", t.id)).follows == ["a"]
+
     async def test_update_does_not_change_status(self, store):
         t = await model.create(store, project="p", title="t", now=NOW)
         await model.move(store, "p", t.id, model.STATUS_IN_PROGRESS, now=NOW)

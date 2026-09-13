@@ -333,6 +333,23 @@ function json(status: number, body: unknown): Response {
   });
 }
 
+/**
+ * Whether `goal` is reachable by walking `follows` from `starts`. Mirrors
+ * `_reaches` in `validate.py`, so the fake refuses a cycle the same way.
+ */
+function reaches(world: FakeWorld, starts: string[], goal: string): boolean {
+  const seen = new Set<string>();
+  const queue = [...starts];
+  while (queue.length > 0) {
+    const current = queue.pop()!;
+    if (current === goal) return true;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    queue.push(...(world.tasks[current]?.follows ?? []));
+  }
+  return false;
+}
+
 function omit<T extends object>(value: T, ...names: (keyof T)[]): Partial<T> {
   const copy: Partial<T> = { ...value };
   for (const name of names) delete copy[name];
@@ -717,6 +734,24 @@ function command(
   if (m && method === 'PATCH') {
     const task = world.tasks[m[1]!];
     if (!task) return notFound(`task ${m[1]}`);
+    // The same rules `validate.py` applies to a rewire, so a refused drag is
+    // refused here too rather than silently written.
+    if (b.follows !== undefined) {
+      if (!Array.isArray(b.follows)) return error(400, 'invalid', 'follows must be a list');
+      const project = task.id.split('/')[0]!;
+      for (const followed of b.follows as string[]) {
+        if (followed === task.id) {
+          return error(400, 'invalid', 'A task cannot follow itself');
+        }
+        if (!world.tasks[followed]) return notFound(`task ${followed}`);
+        if (!followed.startsWith(`${project}/`)) {
+          return error(400, 'invalid', `${followed} is in another project`);
+        }
+      }
+      if (reaches(world, b.follows as string[], task.id)) {
+        return error(400, 'invalid', 'That would make a cycle');
+      }
+    }
     world.tasks[task.id] = { ...task, ...(b as TaskEdit) };
     server.change({ kind: 'task', ids: [task.id] });
     return ok({});
