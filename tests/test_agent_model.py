@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from maelstrom import agent_model
 from maelstrom.agent_model import (
     AWAITING_PERMISSION,
     EXITED,
@@ -395,6 +396,25 @@ def test_argv_carries_the_flags_the_pipe_needs():
     # Without this the child echoes no stdin user turn, so a `say` never
     # reaches the transcript. Confirmed against v2.1.261.
     assert "--replay-user-messages" in argv
+
+
+def test_argv_teaches_the_child_the_markers_the_orchestrator_reads():
+    """Only a driven agent has an orchestrator, so the launch teaches them.
+
+    By file, not inline: the argv rides every ``ps`` line, and
+    ``session_discovery`` scans those strings for the session id.
+    """
+    argv = build_agent_argv()
+    named = argv[argv.index("--append-system-prompt-file") + 1]
+    assert (
+        Path(named).read_text().startswith("You run under the maelstrom agent daemon.")
+    )
+
+
+def test_argv_still_starts_an_agent_when_the_prompt_file_is_gone(monkeypatch):
+    """A missing prompt costs a note; a refused launch costs the session."""
+    monkeypatch.setattr(agent_model, "agent_prompt_file", lambda: None)
+    assert "--append-system-prompt-file" not in build_agent_argv()
 
 
 def test_argv_pins_a_session_id_when_given():

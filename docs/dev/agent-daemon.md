@@ -25,13 +25,14 @@ Each agent is a normal `claude` process with different I/O plumbing:
 ```
 claude -p --input-format stream-json --output-format stream-json --verbose \
        --permission-prompt-tool stdio --forward-subagent-text --replay-user-messages \
+       --append-system-prompt-file <shared>/agent-prompt.md \
        [--permission-mode auto]
 ```
 
 Because it is the same binary, skills, `CLAUDE.md`, settings, sub-agents, MCP servers, hooks and
 `--permission-mode auto` all behave as they do today.
 
-Six flags matter, and two of them are easy to miss:
+Seven flags matter, and two of them are easy to miss:
 
 | Flag | Why it is needed |
 |---|---|
@@ -41,6 +42,18 @@ Six flags matter, and two of them are easy to miss:
 | `--permission-prompt-tool stdio` | **Load-bearing.** Tells the CLI that permission prompts reach the host over the pipe. |
 | `--forward-subagent-text` | Puts a subagent's text and thinking blocks on the stream beside its tool calls. Without it a subagent's stream shows what it did and never what it said. |
 | `--replay-user-messages` | **Load-bearing.** Makes the child echo every `user` turn it reads from stdin back on stdout, marked `isReplay`. Without it a `say` never reaches the transcript. Confirmed against v2.1.261. |
+| `--append-system-prompt-file` | Teaches the child the markers the orchestrator reads: `<note>`, `<doc-content>`, `<doc-file>`, `<image>`. Omitted when the file is missing. |
+
+The markers are taught on the launch rather than in a general skill because only a driven agent
+has an orchestrator to read one. A skill that loads everywhere would teach the vocabulary to
+agents that cannot use it.
+
+The prompt is a pointer, not the documentation. It names the markers and sends the agent to the
+`agent-daemon` skill for the three that take attributes and path rules. `shared/agent-prompt.md`
+holds it, beside `claude-header.md`. It is named by path rather than inlined for two reasons: the
+argv appears in every `ps` line, and `session_discovery` scans those command strings for the
+session id and the driven-agent flags. A path costs a few characters; the prose would cost a
+paragraph.
 
 Without `--permission-prompt-tool stdio` a headless agent has nobody to ask. Every "ask" decision
 resolves itself, the agent never pauses, and no wait is ever observable. The flag does not appear

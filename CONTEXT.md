@@ -545,16 +545,26 @@ user. `<doc-content>` carries the markdown inline; `<doc-file>` names files in t
 worktree, comma-separated, resolved against that directory and nothing outside it. The tag names
 the document's `kind` and `title`, and is cut out of the message the transcript shows. A tag
 opens its document at `draft`; `review="true"` opens it awaiting review instead, which is what
-raises an attention item. The names carry nothing maelstrom-specific, so another frontend may
-render them its own way.
+raises an attention item. One of four markers, with the **Image tag** and the **Note**. The names
+carry nothing maelstrom-specific, so another frontend may render them its own way.
 _Avoid_: Directive, macro, shortcode
+
+**Note**:
+What an agent says it is doing now, written as `<note>Rebasing onto main</note>` in the text of an
+ordinary message. A field rather than a document: it is cut from the message, and the latest one
+replaces the one before it. The expanded card shows it in place of the agent's last message, which
+is whatever prose happened to end a turn. A message carrying no note leaves the standing one
+alone, and a subagent writes none. The card still dates its block from the last message, because
+silence means the agent said nothing, and a note is not speech.
+_Avoid_: Status, Progress (that is a node's state), Activity
 
 **Image tag**:
 The marker an agent writes in the text of an ordinary message to show the user a picture:
 `<image src="docs/shot.png" alt="The failing dialog">`. The tag becomes a picture where it was
 written, so an image is read in the flow of the message and is not a document. `src` names a file
 in the agent's worktree; `alt` describes the picture and defaults to the filename. A file the agent
-may not show, or one that is not there, leaves prose saying so, never a broken picture.
+may not show, or one that is not there, leaves prose saying so, never a broken picture. One of four
+markers, with the **Document tag** and the **Note**.
 _Avoid_: Screenshot tag, figure, embed
 
 **File registry**:

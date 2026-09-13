@@ -11,15 +11,11 @@ A draft is an inert task file in `.drafts/`. It becomes a task only through `mae
 mael task draft .drafts/<name>.md "<title>" --mode auto --pre-action linear.in-progress
 ```
 
-Use one file per future task. Put its execution plan in `## Content`; keep recipe fields in frontmatter. Show the complete chain, in order, as soon as drafts exist:
-
-```
-<doc-file kind="tasks" filename=".drafts/first.md, .drafts/next.md" title="Plan" review="true">
-```
+Use one file per future task. Put its execution plan in `## Content`; keep recipe fields in frontmatter. Present the complete chain to the user, in order, as soon as drafts exist, and present it for approval once it is ready. See the `agent-daemon` skill for how to show a set of files as one document.
 
 Edit drafts with the user. Planning changes drafts only; execute sessions own source changes.
 
-`promote` deletes a draft and echoes its id; wire later drafts from that id. Drafts have no follow flags because identities do not exist until promotion. The UI document needs `kind="tasks"`, files in chain order, and `review="true"` when it is ready for approval.
+`promote` deletes a draft and echoes its id; wire later drafts from that id. Drafts have no follow flags because identities do not exist until promotion.
 
 On chat approval, promote in dependency order. Capture each returned id:
 

@@ -22,8 +22,8 @@ format, in the worktree's `.drafts/` directory. A draft is not in the notebook. 
 promote it.
 
 The planning skills show the drafts in the orchestrator UI as soon as they write them, so you
-read the plan formatted. The agent does this by writing a `<doc-file>` tag in its message; the
-whole set opens as one document on the task's card. Later edits are shown the same way.
+read the plan formatted. The agent does this by writing a marker in its message; the whole set
+opens as one document on the task's card. Later edits are shown the same way.
 
 That document is also where you approve the plan — see [Approving in the orchestrator
 UI](#approving-in-the-orchestrator-ui).

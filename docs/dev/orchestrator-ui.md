@@ -171,6 +171,12 @@ agent linked to a task draws as that task's node, so nothing appears twice. Edge
 `task.follows`, so a free agent is never an endpoint. A subagent, an agent with a `parent`, is
 never a node's agent and never a node: it is reached through its parent's session tab.
 
+The expanded card's Now block shows the agent's note when it wrote one, and its last message
+otherwise: a note is the agent's own account of its work, where a last message is whatever prose
+ended a turn. The block is still dated from the last message, never the note, because the age
+drives the silent-agent colouring and silence means the agent said nothing. An agent that noted
+once would otherwise look alive for ever.
+
 The task list lists tasks only. A free agent has no row, and is dismissed from its own expanded
 card. That control is disabled while the agent runs, because a live agent is drawn whatever the
 desk says; a remove that arrives anyway is accepted and takes effect once the agent stops. A task
