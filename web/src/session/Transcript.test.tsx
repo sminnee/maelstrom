@@ -9,13 +9,17 @@ import type { TranscriptItem } from '../protocol/transcript';
 const raisesAWait = (item: TranscriptItem) =>
   item.type === 'tool_call' && classifyToolCall(item) === 'wait';
 
-/** One assistant message, whose id is also its body, so a row names itself. */
-const said = (id: string, ts: string): TranscriptItem => ({
+/** One message. The id doubles as the body, so a row names itself. */
+const said = (
+  id: string,
+  ts: string,
+  { role = 'assistant', markdown = id }: { role?: 'user' | 'assistant'; markdown?: string } = {},
+): TranscriptItem => ({
   id,
   ts,
   type: 'message',
-  role: 'assistant',
-  markdown: id,
+  role,
+  markdown,
 });
 
 describe('Transcript', () => {
@@ -330,6 +334,38 @@ describe('Transcript', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Show 10 earlier events' }));
     expect(onShowMore).toHaveBeenCalled();
+  });
+
+  it('keeps drawing the rest of the transcript when one card throws', () => {
+    // A transcript draws whatever an agent wrote. Without a boundary per card,
+    // one bad item unmounts the whole app and the operator loses the board.
+    const exploding = {
+      id: 'bad',
+      ts: '',
+      type: 'message',
+      role: 'assistant',
+      // `markdown` is a string everywhere else; a non-string reaches
+      // react-markdown and throws during render.
+      markdown: { not: 'a string' },
+    } as unknown as TranscriptItem;
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      render(
+        <Transcript
+          truncatedBefore={false}
+          items={[
+            said('m1', '', { markdown: 'before' }),
+            exploding,
+            said('m2', '', { markdown: 'after' }),
+          ]}
+        />,
+      );
+      expect(screen.getByTestId('card-error')).toBeInTheDocument();
+      expect(screen.getByText('before')).toBeInTheDocument();
+      expect(screen.getByText('after')).toBeInTheDocument();
+    } finally {
+      errors.mockRestore();
+    }
   });
 
   it('a denied permission shows its decision', () => {

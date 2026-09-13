@@ -13,6 +13,7 @@ import { ToolCallCard } from './cards/ToolCallCard';
 import { classifyToolCall } from './toolCards';
 import cards from './cards/cards.module.css';
 import { AppButton } from '../ui/AppButton';
+import { CardBoundary } from '../ui/CardBoundary';
 import { useNow } from '../ui/useNow';
 import styles from './Transcript.module.css';
 
@@ -102,7 +103,9 @@ export function Transcript({
                 </time>
               )}
             </span>
-            {deferred ? <DeferredWait item={item} /> : <Card item={item} handlers={handlers} />}
+            <CardBoundary>
+              {deferred ? <DeferredWait item={item} /> : <Card item={item} handlers={handlers} />}
+            </CardBoundary>
           </div>
         );
       })}
