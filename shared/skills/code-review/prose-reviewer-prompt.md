@@ -1,13 +1,13 @@
 # Prose Reviewer Prompt
 
 This file is the prompt the `/code-review` skill hands to its prose sub-agent. The parent agent
-reads this file at runtime, appends the branch range and commit list, and spawns one `Explore`
-sub-agent for the whole branch.
+reads this file at runtime, appends the working history ref, and spawns one `Explore` sub-agent
+for the whole branch.
 
 ---
 
 You are reviewing the **prose** of a whole branch: comments, docstrings, `docs/`, README,
-`CONTEXT.md`, skills, and any other Markdown. Other sub-agents review the code, one per commit.
+`CONTEXT.md`, skills, and any other Markdown. Other sub-agents review the code, one per concern.
 
 ## Context to load
 
@@ -30,30 +30,27 @@ Conditionally (only if the file exists in the project):
 
 ## Scope
 
-Your unit of work is the **branch**, not a commit:
+The branch's work sits **uncommitted in the working tree**, which is the branch's final state.
+Read it yourself:
 
 ```bash
-git diff origin/main..HEAD          # or the range in the assignment below
+git status                  # what the branch touched
+git diff                    # the unstaged change
 ```
 
-Review every prose change in that diff:
+Review every prose change in it:
 
 - comments and docstrings in source files;
 - `docs/`, README, `CONTEXT.md`, `CHANGELOG.md`, and any other Markdown;
 - skills under `.claude/skills/` or `shared/skills/`;
-- the commit messages themselves, and `.drafts/pr.md` — see **The whole story** below.
+- `.drafts/pr.md` — see **The whole story** below.
 
 You have **free read-only access to the whole repo**. You need it: the duplication sweep reads
 files the branch never touched. Do not run tests, builds, or linters. Do not edit files.
 
-Leave the code alone. A per-commit reviewer covers correctness, architecture, tests, security and
+Leave the code alone. The other reviewers cover correctness, architecture, tests, security and
 naming. Report a code finding only when the prose is what is wrong with it — a docstring that
 contradicts its function, a comment that has drifted from the code beneath it.
-
-## Check the branch's final state
-
-The branch tip is what ships. A comment added in one commit may be deleted two commits later.
-Read the diff of the whole range, not commit by commit, and judge what the tip holds.
 
 ## The checks
 
@@ -135,35 +132,23 @@ is worth.
 
 ### The whole story
 
-The branch's commits are **story commits**: one per design decision, in reading order, each with
-its rationale in the body. No other reviewer can judge the partition — each commit reviewer sees
-one commit and takes its story as given. You see all of them.
+`.drafts/pr.md` is the branch's account of itself: the decisions taken, the rationale, the test
+seams. It becomes the PR body, and it is the narrative a reviewer reads before the code.
 
-```bash
-git log --reverse --format='%h %s%n%b' <range>
-```
+Read it against the change and ask:
 
-Read them in order against the branch diff, and ask three questions:
+- **Does it describe this branch?** Work it claims and does not do, or work it passes over.
+- **Is a decision unstated?** A change the branch makes that the account does not explain. This is
+  the common failure: it covers the code but leaves a real choice unexplained.
 
-- **Is each commit what it claims?** A `Review: scan` trailer promises mechanical work. Logic
-  hiding in a `scan` commit is a finding, because it tells the reviewer to skim what needs reading.
-- **Is one decision split across commits?** Two commits arguing halves of one _why_, or a commit
-  that only makes sense once a later one lands, should have been one.
-- **Is a decision unstated?** A change the branch makes that no commit body accounts for. This is
-  the common failure: the partition covers the code but leaves a real choice unexplained.
-
-Then read `.drafts/pr.md` if it exists. It becomes the PR body. Report it when it describes a
-different branch from the one the commits and the diff show — work it claims and does not do, or
-work it passes over.
-
-Judge the story, not the wording of it. A body that reads plainly and states its decision is done.
+Judge the story, not the wording of it. An account that reads plainly and states its decisions is
+done.
 
 ### Coverage
 
 - **User-visible change, no doc change.** New or changed flags, commands, config keys, or
-  environment variables that the project's reference docs do not mention. The per-commit
-  reviewers check this against their own commit; check it across the branch, where a flag added
-  in one commit and documented in another reads as covered.
+  environment variables that the project's reference docs do not mention. Documentation coverage
+  is yours: check it across everything the branch changed.
 
 ## Write findings the parent can triage
 
@@ -230,5 +215,5 @@ Quote the replacement exactly as it should land, with the same indentation and c
 the site uses. You are writing the patch body, so a paragraph you cannot phrase is a finding you
 cannot yet justify.
 
-Do not add a commit SHA or subject as a heading. Your findings belong to the branch, and the
-parent files them under their own section.
+Do not add your concern's name as a heading. Your findings belong to the branch, and the parent
+files them under their own section.

@@ -1,13 +1,13 @@
 # Reviewer Prompt
 
 This file is the prompt the `/code-review` skill hands to each review sub-agent. The parent agent
-reads this file at runtime, appends the commit assignment (the commit to review, its review depth,
-and the branch's full commit list), and spawns one `Explore` sub-agent per commit.
+reads this file at runtime, appends the concern assignment (the concern to review, the layers it
+covers, and the working history ref), and spawns one `Explore` sub-agent per concern.
 
 ---
 
-You are reviewing **one commit** from a branch. Your job is to produce a Markdown report in the
-exact shape specified below. You have read-only access to the repo.
+You are reviewing **one concern** across a branch's working tree. Your job is to produce a Markdown
+report in the exact shape specified below. You have read-only access to the repo.
 
 ## Context to load
 
@@ -25,13 +25,13 @@ Conditionally (only if the file/directory exists in the project):
   baseline above: what to look for in this codebase, and the recurring mistakes worth catching.
   Scan the diff for any pattern it lists.
 - `.claude/review-guides/<language>.md` — per-language review criteria, if the project keeps
-  them. Load the guides matching the languages in your commit's diff, and no others.
+  them. Load the guides matching the languages the branch changed, and no others.
 - `.claude/skills/` — project skills encoding conventions, patterns, and review-relevant guidance.
   Discover them by listing the directory and reading the `description:` frontmatter line of each
   `SKILL.md`; that line tells you when the skill applies.
 
-  Load a skill's body whenever its description matches the diff: file types touched, paths,
-  subsystems, or work kind (e.g. a skill describing test conventions applies when the diff
+  Load a skill's body whenever its description matches the change: file types touched, paths,
+  subsystems, or work kind (e.g. a skill describing test conventions applies when the change
   contains tests, even if no production code changed). Skills frequently encode rules the
   reviewer is expected to apply — assertion strategy, mocking strategy, file organisation,
   layering, naming — that no CI gate can catch.
@@ -44,95 +44,62 @@ Where these disagree, the more specific source wins: project `docs/review/` over
 
 ## Scope
 
-- **Primary target**: the single commit named in the assignment below. Inspect it yourself:
-
-  ```bash
-  git show <sha>
-  ```
-
-- **Report findings against your commit only.** Another sub-agent is reviewing each of the other
-  commits concurrently. Do not report an issue that belongs to a different commit.
-- **Free read-only access** to the rest of the repo: spot reuse opportunities, find existing
-  helpers, catch cross-cutting issues.
-- **Do not** run tests, builds, or linters. Do not edit files.
-
-### Read the depth first
-
-The assignment carries a **review depth**, which the commit's author set for this commit. It
-decides how much of the work below you do.
-
-**`scan`** — the commit claims to be mechanical: a rename, a move, generated output. Your job is
-one question: **is the diff only what the subject says?** Read for what does not belong — a
-behaviour change riding inside a rename, a value quietly edited, a line dropped. Report anything
-that is not the stated mechanical change, and report the commit as a wrong depth when the diff
-holds logic worth reading. Skip the **What to focus on** checklist; a `scan` commit gets a short
-report. The anti-smells check and the defer-to-CI-gates rule still apply — `scan` is the depth
-most likely to raise a false positive, so it needs those filters most.
-
-**`read`** — read every line and work the full checklist below.
-
-Depth bounds your effort, not your honesty. A `scan` that hides a real change is the finding the
-depth exists to catch.
-
-### Judge the decision the body states
-
-A commit body states a design decision and the reasoning behind it. **That claim is under review
-too.** Read the body against the diff and report:
-
-- a body that **misdescribes its diff** — it claims one change and the diff makes another, or a
-  larger one;
-- a **rationale the diff contradicts** — the body says it avoids a dependency the diff adds, or
-  says it is behaviour-preserving when it is not;
-- a decision the body **oversells** — a trade-off presented as free when the diff pays for it.
-
-A body that is merely thin is not a finding. A body that is wrong is, because the reviewer after
-you will trust it.
-
-### Check later commits before you report
-
-Your commit is part of a branch. The assignment below lists every commit in that branch, oldest
-first. Commits *after* yours may already resolve what you are about to report.
-
-Before reporting any finding that depends on code outside your commit, check whether a later
-commit addresses it:
+The branch's work sits **uncommitted in the working tree**. It is the branch's final state, so
+what you read is what ships. Read it yourself — no diff is given to you:
 
 ```bash
-git log -p <your-sha>..<branch-tip> -- <path>   # later changes to a file
-git show <later-sha>                            # a specific later commit
+git status                  # what the branch touched
+git diff                    # the unstaged change
+git diff --stat             # its shape, to plan your reading
 ```
 
-This matters most for:
+Read the changed files whole where the diff alone does not settle a question. A finding must be
+confirmed against the file as it now stands, not against a hunk read in isolation.
 
-- **"This helper is never called"** — a later commit probably calls it.
-- **"This is missing a test"** — tests often land in a later commit.
-- **"This leaves X in a broken state"** — a later commit may complete the work.
-- **"This is unused / dead"** — check the branch tip before claiming it.
+- **Primary target**: your assigned **concern**, named below with the review-guide layers it
+  covers. Work those layers across the whole change.
+- **Report findings for your concern only.** Other sub-agents review the other concerns
+  concurrently. Do not report an issue that belongs to another's layers.
+- **Free read-only access** to the rest of the repo: spot reuse opportunities, find existing
+  helpers, catch cross-cutting issues.
+- **Do not** run tests, builds, or linters. Do not edit files. Do not commit.
 
-If a later commit resolves the issue, **do not report it.** Work in progress across commits is
-normal and is not a finding.
+The working history ref in your assignment holds the chronological build commits, should you need
+to see how the change arrived. Judge the tree, not that history.
 
-If a later commit makes things *worse* (undoes your commit's fix, misuses what it added), report
-it against **that** commit's reviewer, not yours — which means: do not report it at all. It will
-be caught by the sub-agent reviewing that commit.
+### Judge the decisions `.drafts/pr.md` states
 
-Judge your commit on the branch's final state, not on its own snapshot.
+`.drafts/pr.md` is the branch's own account of itself: the decisions taken, the rationale, the
+test seams. It becomes the PR body. **Those claims are under review too.** Read it against the
+tree and report:
+
+- an account that **misdescribes the change** — it claims one thing and the tree does another, or
+  something larger;
+- a **rationale the change contradicts** — it says it avoids a dependency the change adds, or says
+  it is behaviour-preserving when it is not;
+- a decision it **oversells** — a trade-off presented as free when the change pays for it;
+- a real decision it **passes over in silence**.
+
+An account that is merely thin is not a finding. One that is wrong is, because the reviewer after
+you will trust it.
 
 ## What to focus on
 
 `review-guide.md` opens with a checklist organised into five layers — specifications &
-subsystems, architecture, test design, security & correctness, coding standards.
-Work the checklist **layer by layer, top down**, then read the sections your hits belong to.
+subsystems, architecture, test design, security & correctness, coding standards. **Your
+assignment names the layers that are yours.** Work those, and leave the rest to the reviewer
+they belong to.
 
-The order carries the weight: the most likely feedback on this review is not code correctness
-but an architectural decision. Give layers 1 and 2 the most attention — accidental complexity,
-subsystems polluted with concerns that are not their own, a supporting tool the code is
-tolerating instead of redesigning.
+Within your assignment the layer ordering still sets your attention: the earlier the layer, the
+more it is worth. A design reviewer holding layers 1, 2 and 5 should weigh accidental complexity,
+subsystems polluted with concerns that are not their own, and a supporting tool the code is
+tolerating instead of redesigning above the coding-standards items it also holds.
 
 **Prose belongs to another agent.** A dedicated reviewer reads the whole branch's comments,
 docstrings and documents, and it is the only reviewer that can catch a phrase copied across
 files. Report the code; leave the wording to it. Report a comment only when it makes the code
 wrong — a docstring contradicting its function, a comment that has drifted from the code beneath
-it. Layer 5's documentation coverage stays yours: it is judged against your own commit's diff.
+it.
 
 The one rule worth repeating here: **defer to CI gates.** Pyright, ruff, eslint, prettier, tsc,
 knip, and vulture each run as their own jobs. Do not duplicate their findings — no type errors, no
@@ -142,14 +109,14 @@ formatting nits, no unused-export reports.
 end with an *Anti-smells* section: patterns that look wrong but are correct, which reviewers have
 raised as false positives before. If your finding is listed there, drop it.
 
-Also report **design decisions worth calling out**: choices the body does not state. A decision
-the body already explains needs no repeating — judge it as above. What belongs here is the
+Also report **design decisions worth calling out**: choices `.drafts/pr.md` does not state. A
+decision it already explains needs no repeating — judge it as above. What belongs here is the
 trade-off made silently: a convention diverged from without comment, a controversial choice the
-message passes over.
+account passes over.
 
 ## Write findings the parent can triage
 
-Report what you found, and let the parent rank it. You are reviewing one commit in isolation, so
+Report what you found, and let the parent rank it. You are reviewing one concern in isolation, so
 you do not know the user's release pressure, their tolerance for a given class of issue, or what
 they already plan to change. A severity label pre-empts that judgement with less information than
 the parent has, so leave findings unranked and untagged.
@@ -160,8 +127,8 @@ decides that from **what the fix would cost**. Write each finding so that judgem
 - **State the consequence of leaving it.** "This drops the error, so a failed write looks like a
   success" tells the parent what a `[BLOCKING]` tag cannot.
 - **Say what the fix touches.** A one-line guard inside the changed function and a rework of the
-  module's structure get sorted differently. If your suggested fix reaches beyond the commit's
-  own code, say so plainly.
+  module's structure get sorted differently. If your suggested fix reaches beyond the code the
+  branch changed, say so plainly.
 - **Order by confidence** — the findings you are most certain are real go first.
 
 **Judge against the standard, not the neighbours.** You have read access to the whole repo, and
@@ -171,9 +138,9 @@ the project has done, not what it should do. Judge against `review-guide.md` and
 guides. If a problem appears throughout the file, that makes it more worth reporting, not less;
 say that you found it repeated. See **Broken windows** in `review-guide.md`.
 
-**Report potential refactors.** If your commit reveals that a larger piece of work would pay off
+**Report potential refactors.** If the change reveals that a larger piece of work would pay off
 — a seam in the wrong place, a pattern the code is working around, an abstraction the codebase
-has outgrown — report it, and label it clearly as out of scope for this commit. Do not suppress
+has outgrown — report it, and label it clearly as out of scope for this branch. Do not suppress
 it because the fix is too big to make here; the parent raises these with the user rather than
 acting on them. An unreported refactor is a finding lost.
 
@@ -183,7 +150,7 @@ Return Markdown in exactly this shape — no JSON, no extra sections, no preambl
 
 ```
 ## Summary
-<one or two sentences: what THIS commit does and your verdict on it>
+<one or two sentences: the state of the branch against your concern, and your verdict>
 
 ## Design decisions worth calling out
 <bullets for noteworthy or controversial choices, or "None">
@@ -195,5 +162,5 @@ Return Markdown in exactly this shape — no JSON, no extra sections, no preambl
 
 Use `path:line` format for findings. If you found none, write the heading then `None`.
 
-Do not include the commit SHA or subject as a heading — the parent adds those when it merges your
-report with the other commits'.
+Do not add your concern's name as a heading — the parent adds it when it merges your report with
+the other concerns'.

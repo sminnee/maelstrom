@@ -73,10 +73,10 @@ before red.
 ## Finishing a task — run automatically, do not wait to be asked
 
 When implementation work is complete and gates (tests, lint, typecheck) pass, run the
-**task-completion flow in `/mael`**: commit, `/present`, `/code-review`, fixups, PR push, close
-the task, `/watch-pr`. Run it **without prompting the user**. This overrides the default "only
-commit when asked" rule for mael projects, and the whole sequence is unattended — the PR push, the
-task close, and the CI watch all run without confirmation.
+**task-completion flow in `/mael`**: commit, write `.drafts/pr.md`, `/code-review`, `/present`,
+PR push, close the task, `/watch-pr`. Run it **without prompting the user**.
+This overrides the default "only commit when asked" rule for mael projects, and the whole sequence
+is unattended — the PR push, the task close, and the CI watch all run without confirmation.
 
 **The PR is the completion signal.** Once it is raised the work is visible and gets chased, so
 close the task as soon as the PR is pushed: `mael task status done`. `/mael` carries the steps

@@ -13,6 +13,9 @@ most attention — the most likely feedback on a review is not code correctness 
 decision. We structure code so that the code, and changes to it, are easy for a reviewer (human or
 machine) to understand; layers 1–2 are where that is won or lost.
 
+**A reviewer may be assigned one layer, or a few.** The ordering still sets attention inside an
+assignment: work the earliest layer you hold first, and weigh what it finds highest.
+
 **No severity tags.** These entries are not ranked, and reviewers do not label findings blocking
 or advisory. Whether a finding must be fixed now depends on the user's context — release
 pressure, scope, what they already intend to change — which the review cannot see. The parent
@@ -254,8 +257,8 @@ conventions — load it where it exists and scan the diff against it. The univer
 - **Metadata-only log entries.** A log that exists only to carry telemetry — no message, only
   structured fields. Piggyback on an existing log line, or add one with meaningful content.
 - **User-visible change, no doc change.** New or changed flags, commands, config keys, or
-  environment variables that the project's reference docs do not mention. Judge it against your
-  own commit's diff.
+  environment variables that the project's reference docs do not mention. Judge it against the
+  whole change.
 
 ## Broken windows
 

@@ -21,7 +21,7 @@ Use `mode: auto` for execute tasks and `mode: normal` for planning. Keep execute
 
 Build test-first. Stop environments before heavy edits. Run the project gates from its instructions. Working commits may use `wip:`. Use `printf ... | git commit -F -` for commits. Final prefixes are `feat:`, `fix:`, `refactor:`, and `chore:`; include the Linear id when applicable.
 
-Use `--fixup=<sha>` for an earlier decision. Do not amend an earlier commit. Record test-shaping choices in a commit body.
+During Land, use `--fixup=<sha>` for an earlier decision. Do not amend an earlier commit. Record test-shaping choices in a commit body.
 
 Before a PR, use `mael gh show-code --uncommitted`; use `--committed` for the branch diff. A fixup must target a commit still in the branch range or it will remain an ordinary `fixup!` commit. During a rebase, resolve every hunk by intent because `ours` and `theirs` can reverse across replayed commits.
 
@@ -30,14 +30,14 @@ Before a PR, use `mael gh show-code --uncommitted`; use `--committed` for the br
 After green gates, run this unattended sequence:
 
 1. Commit the implementation.
-2. Run `/present`.
-3. Run `/code-review`.
-4. Apply correct, in-scope findings as one fixup per finding. Put deferred scope or refactor work in `.drafts/pr.md` under `## Raised by review, not actioned`.
+2. Write `.drafts/pr.md`: the decisions, the rationale, diagrams, and test seams. Review reads it.
+3. Run `/code-review`. It uncommits the branch, applies its fixes to the working tree, and commits them.
+4. Run `/present`.
 5. Push with `mael gh create-pr <ISSUE-ID> --squash`.
 6. Run `mael task status done`.
 7. Run `/watch-pr` until CI passes or times out.
 
-Write `.drafts/pr.md` before the push. Use `--progress` for a multi-session PR. Run waits in the background and read their body, not only exit status.
+Use `--progress` for a multi-session PR. Run waits in the background and read their body, not only exit status.
 
 `mael gh read-pr --wait` can report success before substantive CI starts, or hide its exit status through a pipe or background shell. Capture its output and confirm real jobs. `0/0 checks` can mean token permission failure; inspect Actions runs instead.
 
