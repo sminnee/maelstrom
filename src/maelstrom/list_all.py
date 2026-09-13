@@ -19,13 +19,11 @@ from pathlib import Path
 from typing import Any
 
 from . import session_discovery
-from . import task as task_model
 from .base_store import GitConfigBaseStore
 from .config import linear_team_id
 from .github import get_open_prs, get_pr_for_branch
 from .github_model import PrStatus, RateLimited, is_open_pr
 from .ports import get_app_url
-from .task_store import GitFileStore
 from .worktree import (
     WorktreeInfo,
     closed_worktrees_async,
@@ -36,35 +34,9 @@ from .worktree import (
     list_worktrees_async,
     run_git_async,
 )
-from .worktree_model import extract_worktree_name_from_folder, has_claude_transcript
+from .worktree_model import extract_worktree_name_from_folder
 
 log = logging.getLogger(__name__)
-
-
-def branch_session_ids(project_name: str) -> dict[str, list[str]]:
-    """Map ``branch -> [session_id, ...]`` for every task in ``project_name``.
-
-    Several tasks can share a branch/worktree (one PR per parent), so each branch
-    maps to the deterministic session ids of *all* its tasks. Used to detect a
-    stopped-but-not-live session for a worktree: any of a branch's task sessions
-    having an on-disk transcript means that worktree "ran before". Returns an empty
-    map when the task notebook is absent or unreadable — the SESSION column then
-    simply shows no stopped marker; this cosmetic feature must never break ``list``.
-    """
-    try:
-        store = GitFileStore()
-        result: dict[str, list[str]] = {}
-        for t in task_model.list_tasks(store, project=project_name, no_index=True):
-            branch = t.branch or task_model.default_branch(t.id, t.parent)
-            result.setdefault(branch, []).append(
-                task_model.session_id_for(project_name, t.id)
-            )
-        return result
-    except (OSError, ValueError, KeyError):
-        # An absent/unreadable notebook or a malformed task must degrade to "no
-        # marker", not crash `list`. Kept narrow: a logic bug (AttributeError etc.)
-        # still surfaces rather than being silently swallowed.
-        return {}
 
 
 async def resolve_pr(
@@ -99,26 +71,9 @@ async def resolve_pr(
     return await get_pr_for_branch(project_path, branch)
 
 
-def session_display(count: int, stopped: bool) -> str:
-    """Render the SESSION cell: live count wins, else a stopped marker, else blank.
-
-    ``stopped`` says a task on the row's branch left an on-disk transcript in
-    the worktree (ran and stopped), which tells it apart from a never-run
-    worktree, which stays blank.
-    """
-    if count:
-        return str(count)
-    return "— stopped" if stopped else ""
-
-
-def session_stopped(worktree_path, branch, branch_sessions) -> bool:
-    """Whether a task on ``branch`` ran in ``worktree_path`` and stopped."""
-    if not branch:
-        return False
-    return any(
-        has_claude_transcript(worktree_path, session_id)
-        for session_id in branch_sessions.get(branch, [])
-    )
+def session_display(count: int) -> str:
+    """Render the SESSION cell: the live session count, or blank at zero."""
+    return str(count) if count else ""
 
 
 def repo_url_from_remote(remote: str) -> str | None:
@@ -205,8 +160,7 @@ async def build_list_all_data(
     each project carrying ``name``, ``path``, ``stack_tip``, ``repo_url`` and
     ``worktrees``.
     A closed worktree is included with ``is_closed`` true and its counts
-    zeroed. ``session_stopped`` says a task on the row's branch ran here and
-    stopped; the table renders it as the stopped marker.
+    zeroed.
 
     ``concurrency`` caps how many reads run at once across both fan-out
     levels — see :data:`DEFAULT_CONCURRENCY`.
@@ -296,7 +250,6 @@ class _ProjectContext:
     #: What earlier polls learned, answering the branches that were not asked.
     pr_cache: dict[str, PrStatus]
     repo_url: str | None
-    branch_sessions: dict[str, list[str]]
     live_sessions: session_discovery.LiveSessionSet
     limit: asyncio.Semaphore
 
@@ -324,13 +277,6 @@ async def _project_data(
     # deadlock the read.
     async with limit:
         worktrees = await list_worktrees_async(project_path)
-    # Branch → task session ids for this project (stopped-marker detection).
-    # Off the loop: it parses every task file for the project, measured at 2.4s
-    # across 16 projects, and holding the loop for that gives back the
-    # concurrency the gather buys. A thread is safe because the scan passes
-    # ``no_index=True`` and so never touches the SQLite index, which is bound to
-    # the thread that opened it.
-    branch_sessions = await asyncio.to_thread(branch_session_ids, project_name)
     # One PR lookup per project, not per worktree. The batch is repo-scoped, so
     # it belongs here rather than in the worktree loop below. A project whose
     # worktrees are all detached has no branch to ask about, and `list-all`
@@ -390,7 +336,6 @@ async def _project_data(
         asked=asked,
         pr_cache=pr_cache or {},
         repo_url=repo_url,
-        branch_sessions=branch_sessions,
         live_sessions=live_sessions,
         limit=limit,
     )
@@ -447,7 +392,6 @@ async def _worktree_row(wt: WorktreeInfo, ctx: _ProjectContext) -> dict[str, Any
             "app_url": None,
             "app_running": False,
             "session_count": 0,
-            "session_stopped": False,
         }
 
     base = ctx.bases.get(wt.branch or "")
@@ -472,9 +416,6 @@ async def _worktree_row(wt: WorktreeInfo, ctx: _ProjectContext) -> dict[str, Any
             pushed_commits = await get_pushed_commit_count_async(wt.path, wt.branch)
 
     session_count = ctx.live_sessions.count_for(wt.path)
-    stopped = not session_count and session_stopped(
-        wt.path, wt.branch, ctx.branch_sessions
-    )
 
     app_url = None
     app_running = False
@@ -500,5 +441,4 @@ async def _worktree_row(wt: WorktreeInfo, ctx: _ProjectContext) -> dict[str, Any
         "app_url": app_url,
         "app_running": app_running,
         "session_count": session_count,
-        "session_stopped": stopped,
     }
