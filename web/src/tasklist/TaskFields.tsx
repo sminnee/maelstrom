@@ -32,8 +32,62 @@ const COMMAND_OPTIONS: readonly ComboOption[] = [
  * Advanced. Both surfaces that write a task render this same component — the
  * editor over an existing task, the new-work form over an inferred one — so
  * the two cannot drift apart on what a task's fields are or how they read.
+ *
+ * The three parts are exported separately as well, because new work interleaves
+ * its own controls between them: a Suggest button beside Branch, and the
+ * planning-level radios above Advanced. Composing the parts is what keeps one
+ * definition of a task's fields for both surfaces — see
+ * `docs/dev/orchestrator-ui.md`, "Starting new work".
  */
 export function TaskFields({
+  draft,
+  onChange,
+  project,
+  bucket,
+}: {
+  draft: TaskDraft;
+  onChange: (patch: Partial<TaskDraft>) => void;
+  project: string;
+  /** Groups this task's images in the task repo. */
+  bucket: string;
+}) {
+  return (
+    <>
+      <TaskTitleField draft={draft} onChange={onChange} />
+      <TaskContentField draft={draft} onChange={onChange} project={project} bucket={bucket} />
+      <label className={styles.field}>
+        <span>Branch</span>
+        <input value={draft.branch} onChange={(e) => onChange({ branch: e.target.value })} />
+      </label>
+      <TaskAdvancedFields draft={draft} onChange={onChange} />
+    </>
+  );
+}
+
+/**
+ * The task's title.
+ *
+ * Its own part, because new work shows a title without a content field: its
+ * prose field is the content, so rendering both would ask for the same text
+ * twice.
+ */
+export function TaskTitleField({
+  draft,
+  onChange,
+}: {
+  draft: TaskDraft;
+  onChange: (patch: Partial<TaskDraft>) => void;
+}) {
+  return (
+    <label className={styles.field}>
+      <span>Title</span>
+      <input value={draft.title} onChange={(e) => onChange({ title: e.target.value })} />
+    </label>
+  );
+}
+
+/** The task's content, with its own attach control. */
+export function TaskContentField({
   draft,
   onChange,
   project,
@@ -59,10 +113,6 @@ export function TaskFields({
 
   return (
     <>
-      <label className={styles.field}>
-        <span>Title</span>
-        <input value={draft.title} onChange={(e) => onChange({ title: e.target.value })} />
-      </label>
       {/* An explicit id, not a wrapping label: AttachField sits between the
           label and the field, so the implicit association is broken. */}
       <div className={styles.field}>
@@ -95,43 +145,55 @@ export function TaskFields({
           />
         </AttachField>
       </div>
-      <label className={styles.field}>
-        <span>Branch</span>
-        <input value={draft.branch} onChange={(e) => onChange({ branch: e.target.value })} />
-      </label>
-
-      <details className={styles.advanced}>
-        <summary>Advanced</summary>
-        <label className={styles.field}>
-          <span>Command</span>
-          {/* Free-form in the notebook, so this offers the known ones and
-              keeps anything else typed. Empty runs the task itself. */}
-          <ComboBox
-            value={draft.command}
-            options={COMMAND_OPTIONS}
-            onChange={(command) => onChange({ command })}
-          />
-        </label>
-        <label className={styles.field}>
-          <span>Mode</span>
-          <ModeSelect mode={draft.mode} onChange={(mode) => onChange({ mode })} />
-        </label>
-        <label className={styles.field}>
-          <span>Priority</span>
-          <select value={draft.priority} onChange={(e) => onChange({ priority: e.target.value })}>
-            {PRIORITIES.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className={styles.field}>
-          <span>Model</span>
-          <ModelSelect model={draft.model} onChange={(model) => onChange({ model })} />
-        </label>
-      </details>
     </>
+  );
+}
+
+/**
+ * The fields folded into Advanced: command, mode, priority and model.
+ *
+ * New work renders this below its planning-level radios, which read the same
+ * command and mode two ways — so editing either here re-derives the level.
+ */
+export function TaskAdvancedFields({
+  draft,
+  onChange,
+}: {
+  draft: TaskDraft;
+  onChange: (patch: Partial<TaskDraft>) => void;
+}) {
+  return (
+    <details className={styles.advanced}>
+      <summary>Advanced</summary>
+      <label className={styles.field}>
+        <span>Command</span>
+        {/* Free-form in the notebook, so this offers the known ones and
+            keeps anything else typed. Empty runs the task itself. */}
+        <ComboBox
+          value={draft.command}
+          options={COMMAND_OPTIONS}
+          onChange={(command) => onChange({ command })}
+        />
+      </label>
+      <label className={styles.field}>
+        <span>Mode</span>
+        <ModeSelect mode={draft.mode} onChange={(mode) => onChange({ mode })} />
+      </label>
+      <label className={styles.field}>
+        <span>Priority</span>
+        <select value={draft.priority} onChange={(e) => onChange({ priority: e.target.value })}>
+          {PRIORITIES.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className={styles.field}>
+        <span>Model</span>
+        <ModelSelect model={draft.model} onChange={(model) => onChange({ model })} />
+      </label>
+    </details>
   );
 }
 
