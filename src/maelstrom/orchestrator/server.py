@@ -25,6 +25,7 @@ from ..desk_store import DeskStore, InMemoryDeskStore
 from ..github_model import RateLimited
 from ..task import mode_for_command
 from ..task import permission_mode_for as model_permission_mode
+from ..task_export import TaskExporter
 from ..task_launch import LaunchBlocked
 from ..util import now_iso
 from . import desk as desk_model
@@ -77,6 +78,13 @@ log = logging.getLogger(__name__)
 
 #: How often the notebook's version is checked.
 TASK_POLL_SECS = 2.0
+#: How often the export queue is drained.
+#:
+#: Slower than the task poll on purpose. The export is read by nobody on any
+#: code path, so a file a few seconds behind its row costs nothing, and each
+#: drain commits to a git repo — batching several task writes into one commit
+#: is worth more than promptness here.
+EXPORT_POLL_SECS = 5.0
 #: How often ``list-all`` is re-read. It shells out per worktree, so not often.
 #:
 #: The read also asks GitHub about the branches on the desk, and GraphQL is
@@ -147,9 +155,11 @@ class Orchestrator:
         daemon: AsyncDaemonClient,
         *,
         desk: DeskStore | None = None,
+        exporter: TaskExporter | None = None,
         clock: Callable[[], str] = now_iso,
         executor: Executor | None = None,
         task_poll: float = TASK_POLL_SECS,
+        export_poll: float = EXPORT_POLL_SECS,
         worktree_poll: float = WORKTREE_POLL_SECS,
         agent_poll: float = AGENT_POLL_SECS,
         rate_limit_cooldown: float = RATE_LIMIT_COOLDOWN_SECS,
@@ -162,6 +172,10 @@ class Orchestrator:
         self.worktrees = worktrees
         self.daemon = daemon
         self.desk = desk if desk is not None else InMemoryDeskStore()
+        #: Writes the markdown export, or ``None`` when this server keeps none.
+        #: A task write queues its export whatever runs; the server is what
+        #: drains the queue, so a build without one simply lets it grow.
+        self.exporter = exporter
         self.clock = clock
         self.executor = executor
         self.state = WorldState()
@@ -190,6 +204,7 @@ class Orchestrator:
         #: Per subagent, the detach waiting for its grace to pass.
         self._detaches: dict[str, asyncio.Task[None]] = {}
         self._task_poll = task_poll
+        self._export_poll = export_poll
         self._worktree_poll = worktree_poll
         self._agent_poll = agent_poll
         self._rate_limit_cooldown = rate_limit_cooldown
@@ -253,6 +268,10 @@ class Orchestrator:
             ),
             asyncio.create_task(self._poll(self._agent_poll, self.refresh_agents)),
         ]
+        if self.exporter is not None:
+            self._pollers.append(
+                asyncio.create_task(self._poll(self._export_poll, self.drain_exports))
+            )
 
     async def stop(self) -> None:
         watching = [w.task for w in self._watches.values() if w.task is not None]
@@ -275,6 +294,19 @@ class Orchestrator:
         # Cleared so a subscriber arriving after the stop schedules no read.
         self._started.clear()
         self._detaches.clear()
+        # Last, after the pollers are cancelled and gathered: the drain writes
+        # files and commits, so it must not race the poller doing the same.
+        await self.drain_exports()
+
+    async def drain_exports(self) -> None:
+        """Write the markdown the notebook owes, if this server keeps an export.
+
+        A no-op without an exporter, so a build that keeps none still runs the
+        poll list without a branch at every tick.
+        """
+        if self.exporter is None:
+            return
+        await self.exporter.drain()
 
     def _standing_off(self) -> bool:
         """Whether GitHub refused the last read and the stand-off still holds.

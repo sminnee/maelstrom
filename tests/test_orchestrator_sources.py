@@ -319,6 +319,114 @@ async def test_a_forced_refresh_still_reads_the_whole_notebook(table, monkeypatc
     assert set(orch.world["tasks"]) == {f"{PROJECT}/NORT-7", f"{PROJECT}/NORT-8"}
 
 
+# --- the export drain ---
+#
+# The server is the one drainer: a CLI write queues its export and exits. The
+# ``Harness`` in ``test_orchestrator_server.py`` builds no exporter, so every
+# test there runs with ``exporter=None`` and never enters this branch at all.
+# It is driven here, over a real table and a real git-backed store.
+
+
+def an_exporting_orchestrator(table, root, **options):
+    """An orchestrator that drains its export queue to ``root``."""
+    from maelstrom.orchestrator.server import Orchestrator
+    from maelstrom.orchestrator.sources import InMemoryWorktreeSource
+    from maelstrom.task_export import SqliteExportQueue, TaskExporter
+    from maelstrom.task_store import GitFileStore
+
+    exporter = TaskExporter(
+        SqliteExportQueue(table._db), table, GitFileStore(root=root)
+    )
+    return Orchestrator(
+        a_source(table),
+        InMemoryWorktreeSource(),
+        _NoDaemon(),
+        exporter=exporter,
+        **options,
+    )
+
+
+async def test_the_poll_drains_the_export_queue(tmp_path):
+    """A queued export reaches the files without anyone asking for it.
+
+    The drain is a poller like the others, so a task written while the server
+    runs appears in the export tree on the next tick.
+    """
+    db = open_state_db(":memory:")
+    await db.migrate()
+    table = SqliteTaskTable(db)
+    try:
+        orch = an_exporting_orchestrator(
+            table, tmp_path, task_poll=0.01, export_poll=0.01, agent_poll=0.01
+        )
+        await model.create(table, project=PROJECT, title="Ship it", id="NORT-7")
+        await orch.start()
+        try:
+            await _until(lambda: (tmp_path / PROJECT / "todo" / "NORT-7.md").is_file())
+        finally:
+            await orch.stop()
+        assert (tmp_path / PROJECT / "todo" / "NORT-7.md").is_file()
+    finally:
+        db.close()
+
+
+async def test_stopping_drains_what_the_export_still_owes(tmp_path):
+    """A server going down writes out what it queued, or the file is lost.
+
+    Nothing else drains: the next start would, but a notebook whose server
+    never comes back would keep a task that exists in the table and nowhere on
+    disk. The drain runs after the pollers are cancelled, so it cannot race the
+    one that was doing the same work.
+    """
+    db = open_state_db(":memory:")
+    await db.migrate()
+    table = SqliteTaskTable(db)
+    try:
+        # A poll interval longer than the test, so only the stop can drain.
+        orch = an_exporting_orchestrator(
+            table, tmp_path, task_poll=0.01, export_poll=3600.0, agent_poll=0.01
+        )
+        await orch.start()
+        await model.create(table, project=PROJECT, title="Ship it", id="NORT-7")
+        assert not (tmp_path / PROJECT / "todo" / "NORT-7.md").exists()
+
+        await orch.stop()
+
+        assert (tmp_path / PROJECT / "todo" / "NORT-7.md").is_file()
+    finally:
+        db.close()
+
+
+async def test_a_server_with_no_exporter_stops_cleanly():
+    """``stop`` drains unconditionally, so a build with no export must not fail.
+
+    The assertion is that the drain is reached and returns: an orchestrator
+    built without an exporter has nowhere to write, and ``stop`` calls
+    ``drain_exports`` regardless.
+    """
+    db = open_state_db(":memory:")
+    await db.migrate()
+    table = SqliteTaskTable(db)
+    try:
+        orch = an_orchestrator(table)
+        assert orch.exporter is None
+        await orch.start()
+        await orch.stop()
+        await orch.drain_exports()
+    finally:
+        db.close()
+
+
+async def _until(ready, timeout: float = 5.0) -> None:
+    """Wait for ``ready()``, rather than sleeping a guessed interval."""
+    import asyncio
+
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not ready():
+        if asyncio.get_running_loop().time() >= deadline:
+            raise AssertionError("the drain did not run inside the timeout")
+        await asyncio.sleep(0.01)
+
 
 async def _refuse_whole_read():
     raise AssertionError("the poll read the whole notebook instead of what moved")
