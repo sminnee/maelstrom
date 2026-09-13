@@ -13,9 +13,14 @@
 /*
  * Hidden until the wire is hovered: a board of wires must not read as a board
  * of buttons. `pointer-events` is back on because its layer has none.
+ *
+ * React Flow puts the edge-label layer under the node layer and gives each
+ * node an inline `z-index`, so this button needs one to clear a node it
+ * crosses. A selected node elevates to 1000 and still wins.
  */
 .cut {
   position: absolute;
+  z-index: var(--z-card);
   pointer-events: all;
   display: grid;
   place-items: center;
