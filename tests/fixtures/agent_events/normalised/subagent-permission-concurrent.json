@@ -16,6 +16,8 @@
         "waitingOn": "https://example.com",
         "lastMessage": "I'll launch both agents concurrently in one message.",
         "lastMessageAt": "2026-09-06T21:55:52.660Z",
+        "lastNote": "",
+        "lastNoteAt": "",
         "costUsd": 0,
         "totalTokens": 0,
         "contextTokens": 25009,

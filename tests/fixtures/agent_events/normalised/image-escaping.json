@@ -16,6 +16,8 @@
         "waitingOn": "",
         "lastMessage": "Here is the file. _`../../../etc/passwd` could not be shown.",
         "lastMessageAt": "2026-09-05T05:00:04.000Z",
+        "lastNote": "",
+        "lastNoteAt": "",
         "costUsd": 0.0312,
         "totalTokens": 0,
         "contextTokens": 0,

@@ -16,6 +16,8 @@
         "waitingOn": "",
         "lastMessage": "The subagent fetched the page. The title is **Example Domain",
         "lastMessageAt": "2026-09-04T08:46:17.024Z",
+        "lastNote": "",
+        "lastNoteAt": "",
         "costUsd": 0.41344450000000005,
         "totalTokens": 51373,
         "contextTokens": 25776,
