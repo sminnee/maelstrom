@@ -1,0 +1,42 @@
+/*
+ * A wide invisible twin of the wire. The drawn line is 1.5px, which is far
+ * thinner than a pointer can reliably find, so this carries the hover.
+ */
+.hitArea {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+/*
+ * Hidden until the wire is hovered: a board of wires must not read as a board
+ * of buttons. `pointer-events` is back on because its layer has none.
+ */
+.cut {
+  position: absolute;
+  pointer-events: all;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--bg-raised);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+.cut[data-visible],
+.cut:focus-visible {
+  opacity: 1;
+}
+.cut:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}

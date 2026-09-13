@@ -29,6 +29,19 @@ describe('App', () => {
     expect(rendered).toEqual([...tasks, ...free].sort());
   });
 
+  // The wire itself never draws in jsdom, but a Handle does: this is what
+  // `nodesConnectable` buys, and flipping it back would pass unnoticed.
+  it('draws both wire anchors on a task node', async () => {
+    await renderApp();
+    const node = (await screen.findAllByTestId('task-node'))[0]!;
+    const handles = node.querySelectorAll('.react-flow__handle');
+    expect(handles).toHaveLength(2);
+    expect(node.querySelector('.react-flow__handle-left')).toBeInTheDocument();
+    expect(node.querySelector('.react-flow__handle-right')).toBeInTheDocument();
+    // React Flow marks a handle connectable only when the board allows it.
+    expect(handles[0]).toHaveClass('connectable');
+  });
+
   it('dismisses a free agent from its card, once the agent has stopped', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();

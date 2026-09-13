@@ -1,19 +1,32 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Background, ReactFlow, useReactFlow, type Edge, type Node } from '@xyflow/react';
+import {
+  Background,
+  ReactFlow,
+  useReactFlow,
+  type Connection,
+  type Edge,
+  type Node,
+} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { useUpdateTask } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
+import type { TaskId } from '../protocol/ids';
 import { AppButton } from '../ui/AppButton';
 import { deriveGraph, type GraphNode } from '../selectors/graph';
 import { focusedTaskId } from '../selectors/tabs';
 import { useAppStore } from '../store/store';
 import { layoutSwimlanes } from './layout';
 import { GroupNode, type GroupFlowNode } from './GroupNode';
+import { canConnect, followsAfterConnect } from './connect';
+import { FollowsEdge } from './FollowsEdge';
+import { reduceEdges } from './reduce';
 import { CARD_WIDTH, NodeCard } from './NodeCard';
 import { TaskNode, type TaskFlowNode } from './TaskNode';
 import { ZonesNode, type ZonesFlowNode } from './ZonesNode';
 import styles from './Canvas.module.css';
 
 const nodeTypes = { task: TaskNode, group: GroupNode, zones: ZonesNode };
+const edgeTypes = { follows: FollowsEdge };
 
 /** The strip of zone labels sits above the first lane. */
 const ZONES_HEIGHT = 20;
@@ -23,8 +36,16 @@ const LEGIBLE_ZOOM = 0.75;
 /** Roughly half a typical card's height: the card's real height is only known once it renders. */
 const CARD_CENTRE_Y = 140;
 
+/** What a refusal says, in the server's own words where it gave any. */
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export function Canvas() {
   const { world, status, errors, retry } = useWorld();
+  // A refused rewire has no wire to draw on, so the refusal says so over the
+  // board. Local state and `role="alert"`, as `StatusPicker` does it.
+  const [rewireError, setRewireError] = useState<string | null>(null);
   const groupBy = useAppStore((s) => s.ui.groupBy);
   const filters = useAppStore((s) => s.ui.filters);
   const tabs = useAppStore((s) => s.ui.tabs);
@@ -33,6 +54,7 @@ export function Canvas() {
   const expandNode = useAppStore((s) => s.expandNode);
   const collapseNode = useAppStore((s) => s.collapseNode);
   const { getZoom, setCenter } = useReactFlow();
+  const updateTask = useUpdateTask();
   const focused = focusedTaskId(world, tabs, activeTabKey);
 
   const { nodes, edges, byId, positions } = useMemo(() => {
@@ -83,11 +105,21 @@ export function Canvas() {
         data: { node, focused: node.id === focused, expanded: node.id === expandedNodeId },
       };
     });
-    const flowEdges: Edge[] = graph.edges.map((e) => ({
+    // Drawn edges only. `layoutSwimlanes` above took the full set, so hiding a
+    // redundant wire moves no column and changes nothing on disk.
+    const drawn = reduceEdges(
+      graph.edges,
+      graph.nodes.map((node) => ({ id: node.id, status: node.task?.status })),
+    );
+    // The edge carries the target's whole `follows`, so cutting one wire can
+    // rewrite the list without re-reading it: a stale read here would clear
+    // every other wire on that task.
+    const flowEdges: Edge[] = drawn.map((e) => ({
       id: e.id,
       source: e.source,
       target: e.target,
-      type: 'smoothstep',
+      type: 'follows',
+      data: { targetFollows: byId[e.target]?.task?.follows ?? [] },
     }));
     return {
       nodes: [zonesNode, ...groupNodes, ...taskNodes] as Node[],
@@ -122,6 +154,26 @@ export function Canvas() {
     [expandNode],
   );
 
+  // Direction is followed -> follower, the way `deriveGraph` builds an edge,
+  // so a drag writes the *target's* follows.
+  const onConnect = useCallback(
+    (connection: Connection) => {
+      if (!canConnect(connection)) return;
+      const target = byId[connection.target]?.task;
+      if (!target) return;
+      setRewireError(null);
+      updateTask
+        .mutateAsync({
+          taskId: target.id,
+          fields: { follows: followsAfterConnect(target.follows, connection.source as TaskId) },
+        })
+        // The refusal has nowhere to draw on a wire that never appeared, so it
+        // says so where a canvas error already goes rather than going unheard.
+        .catch((err: unknown) => setRewireError(errorText(err)));
+    },
+    [byId, updateTask],
+  );
+
   const shown = shownTaskId ? byId[shownTaskId] : undefined;
   const shownAt = shownTaskId ? positions[shownTaskId] : undefined;
 
@@ -144,13 +196,24 @@ export function Canvas() {
 
   return (
     <div className={styles.canvas} data-testid="canvas">
+      {rewireError && (
+        <div className={styles.rewireError} role="alert" data-testid="rewire-error">
+          {rewireError}
+          <AppButton variant="quiet" onClick={() => setRewireError(null)}>
+            Dismiss
+          </AppButton>
+        </div>
+      )}
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
         fitView
         minZoom={0.2}
-        nodesConnectable={false}
+        edgeTypes={edgeTypes}
+        nodesConnectable
+        onConnect={onConnect}
+        isValidConnection={canConnect}
         onNodeClick={onNodeClick}
         onPaneClick={collapseNode}
         elementsSelectable
