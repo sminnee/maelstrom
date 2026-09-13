@@ -1,6 +1,11 @@
 import type { Story } from '@ladle/react';
 import { Markdown } from '../markdown/Markdown';
-import { ledgerRun, markdownSample, mixedTranscript } from './transcript.fixture';
+import {
+  calloutTranscript,
+  ledgerRun,
+  markdownSample,
+  mixedTranscript,
+} from './transcript.fixture';
 import { Transcript } from './Transcript';
 
 export default { title: 'Session / Transcript' };
@@ -59,6 +64,24 @@ export const Narrow: Story = () => (
 export const Wide: Story = () => (
   <Panel width={900}>
     <Transcript items={mixedTranscript} truncatedBefore={false} />
+  </Panel>
+);
+
+/**
+ * The two ranks of prose. The question this story answers is whether the
+ * demoted run reads as quiet or as unreadable — check both schemes, and check
+ * the user's turn still holds full rank against its accent wash.
+ */
+export const Callouts: Story = () => (
+  <Panel>
+    <Transcript items={calloutTranscript} truncatedBefore={false} />
+  </Panel>
+);
+
+/** The demoted run at the narrow break, where 13px muted is hardest to read. */
+export const CalloutsNarrow: Story = () => (
+  <Panel width={360}>
+    <Transcript items={calloutTranscript} truncatedBefore={false} />
   </Panel>
 );
 

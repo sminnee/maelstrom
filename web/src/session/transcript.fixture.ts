@@ -80,6 +80,26 @@ export const ledgerRun: TranscriptItem[] = [
   say('Seven sites, all in one module. That makes this a single change rather than a sweep.', 21),
 ];
 
+/**
+ * Self-talk against a callout: the case the two ranks of prose are built for.
+ * Long enough to read start to finish, because a one-line message does not
+ * show whether 13px muted holds up.
+ */
+export const calloutTranscript: TranscriptItem[] = [
+  say('Checking whether the allocator can take another base before I start the service.', 30),
+  ran(
+    'Bash',
+    { description: 'List the bases in use', command: 'mael env list --ports' },
+    30,
+    'alpha 342  bravo 517',
+  ),
+  say(
+    'The allocator refuses a base already in use, and 342 is held by `alpha`. I can either free it or let the allocator pick the next one, which would move every service port in this worktree.\n\n```callout\nFree port 342 before you retry, or the allocator moves every port in this worktree.\n```\n\nI will wait for you rather than renumbering ports underneath a running service.',
+    31,
+  ),
+  say('Free it — nothing is attached to alpha any more.', 31, 'user'),
+];
+
 /** Every markdown element the agent actually emits, at panel width. */
 export const markdownSample = `# A plan document
 
@@ -103,6 +123,11 @@ transformed. Inline literals like \`--measure-prose\` sit inside prose.
 .markdown {
   font-size: var(--text-md);
 }
+\`\`\`
+
+\`\`\`callout
+A callout: the one line worth reading, at the reading rank. It holds
+\`--text-md\` and a [link](/docs) like any other prose.
 \`\`\`
 
 > A quote, for the rail it draws.
