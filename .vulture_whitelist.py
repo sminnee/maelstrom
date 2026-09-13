@@ -67,7 +67,7 @@ head_ref  # unused variable (src/maelstrom/github_model.py PullRequest)
 truncatedBefore  # unused variable (src/maelstrom/orchestrator/transcript_log.py)
 
 # sqlite3 reads this attribute off the connection to shape its rows.
-_.row_factory  # unused attribute (src/maelstrom/task_index.py)
+_.row_factory  # unused attribute (src/maelstrom/state_db/db.py)
 
 # unittest.mock reads these off a Mock. Assigning one is how a test arranges
 # behaviour, so the assignment is the use.
