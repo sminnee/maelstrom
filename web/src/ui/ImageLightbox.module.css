@@ -41,4 +41,23 @@
   max-width: 100%;
   /* The image is the only child, so the box may shrink to it. */
   padding: var(--space-2);
+  /* The close button is placed against this. */
+  position: relative;
+}
+
+/* Over the picture's top right, not above it: the box shrinks to the image, so
+   a row of its own would show as a band of chrome around every screenshot. */
+.close {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 1;
+  min-width: var(--touch);
+  min-height: var(--touch);
+  font-size: var(--text-md);
+  line-height: 1;
+  /* Legible over whatever the picture puts behind it. */
+  color: #fff;
+  background: rgb(0 0 0 / 55%);
+  border-color: rgb(255 255 255 / 40%);
 }
