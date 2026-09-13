@@ -281,16 +281,16 @@ describe('the expanded node', () => {
   });
 });
 
-describe('how long since the agent spoke', () => {
-  /** Put NORT-9's agent's last message `minutesAgo`, in whatever `state`. */
-  function spokeAt(server: FakeServer, minutesAgo: number, state: Agent['state']) {
-    server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
-      const agent = w.agents['d9a4c7f1']!;
-      agent.lastMessageAt = new Date(Date.now() - minutesAgo * 60_000).toISOString();
-      agent.state = state;
-    });
-  }
+/** Put NORT-9's agent's last message `minutesAgo`, in whatever `state`. */
+function spokeAt(server: FakeServer, minutesAgo: number, state: Agent['state']) {
+  server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
+    const agent = w.agents['d9a4c7f1']!;
+    agent.lastMessageAt = new Date(Date.now() - minutesAgo * 60_000).toISOString();
+    agent.state = state;
+  });
+}
 
+describe('how long since the agent spoke', () => {
   it('shows the age of the last message beside the heading', async () => {
     const { server } = await renderApp();
     spokeAt(server, 12, 'processing');
@@ -327,6 +327,77 @@ describe('how long since the agent spoke', () => {
       expect(age).toHaveTextContent('4h ago');
       expect(age.closest('[data-silent]')).toBeNull();
     });
+  });
+});
+
+describe('what the agent says it is doing', () => {
+  /** Give NORT-9's agent a note, written `minutesAgo`. */
+  function noted(server: FakeServer, note: string, minutesAgo = 0) {
+    server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
+      const agent = w.agents['d9a4c7f1']!;
+      agent.lastNote = note;
+      agent.lastNoteAt = new Date(Date.now() - minutesAgo * 60_000).toISOString();
+    });
+  }
+
+  it('shows the note in place of the last message', async () => {
+    const { server } = await renderApp();
+    noted(server, 'Rebasing onto main, then re-running the port test');
+    clickNode('NORT-9');
+    await waitFor(() => {
+      const card = expanded();
+      expect(card).toHaveTextContent('Rebasing onto main, then re-running the port test');
+      // The seed's last message for this agent, which the note displaces.
+      expect(card).not.toHaveTextContent('Rewriting the migration for the new collation.');
+    });
+  });
+
+  it('falls back to the last message once a note is cleared', async () => {
+    // Asserting the seed would pass with the fallback deleted: its `lastNote`
+    // is already empty. Setting a note and clearing it exercises the branch.
+    const { server } = await renderApp();
+    noted(server, 'Rebasing onto main');
+    clickNode('NORT-9');
+    await waitFor(() => expect(expanded()).toHaveTextContent('Rebasing onto main'));
+    noted(server, '');
+    await waitFor(() => {
+      const card = expanded();
+      expect(card).toHaveTextContent('Rewriting the migration for the new collation.');
+      expect(card).not.toHaveTextContent('Rebasing onto main');
+    });
+  });
+
+  it('still dates the block from the last message, not the note', async () => {
+    // A note is not speech. Dating the block from the note would make an agent
+    // that noted once look alive for ever, which is the failure this shows.
+    const { server } = await renderApp();
+    spokeAt(server, 40, 'processing');
+    noted(server, 'Waiting on the test run', 1);
+    clickNode('NORT-9');
+    await waitFor(() =>
+      expect(within(expanded()).getByTestId('now-age')).toHaveTextContent('40m ago'),
+    );
+  });
+
+  it('still marks a working agent silent when only its note is recent', async () => {
+    const { server } = await renderApp();
+    spokeAt(server, 30, 'processing');
+    noted(server, 'Still going', 0);
+    clickNode('NORT-9');
+    await waitFor(() =>
+      expect(within(expanded()).getByTestId('now-age').closest('[data-silent]')).not.toBeNull(),
+    );
+  });
+
+  it('marks the note as the agents own summary, apart from its last words', async () => {
+    const { server } = await renderApp();
+    noted(server, 'Reading the reducer');
+    clickNode('NORT-9');
+    await waitFor(() =>
+      expect(
+        within(expanded()).getByText('Reading the reducer').closest('[data-note]'),
+      ).not.toBeNull(),
+    );
   });
 });
 

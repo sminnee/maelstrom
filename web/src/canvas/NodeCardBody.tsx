@@ -89,7 +89,13 @@ export function NodeCardBody({
   const running = [...transcript.items]
     .reverse()
     .find((i) => i.type === 'tool_call' && i.status === 'running');
-  const now = agent?.lastMessage ?? '';
+  // The agent's own summary of the work when it wrote one, else whatever prose
+  // ended its last turn. An agent that never notes reads as it did before.
+  const note = agent?.lastNote ?? '';
+  const now = note || (agent?.lastMessage ?? '');
+  // Deliberately the message, not the note: silence means *said nothing*, and a
+  // note is not speech. Dating this from the note would make an agent that
+  // noted once look alive for ever — the failure this display exists to show.
   const spokeAt = agent?.lastMessageAt ?? '';
   const clock = useNow();
   const age = ago(spokeAt, clock);
@@ -202,7 +208,7 @@ export function NodeCardBody({
                 </time>
               )}
             </div>
-            <span className={styles.nowText}>
+            <span className={styles.nowText} data-note={now === note && note ? '' : undefined}>
               {now}
               {running && running.type === 'tool_call' && (
                 <span className={styles.running}>

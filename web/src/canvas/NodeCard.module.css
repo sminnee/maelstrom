@@ -281,6 +281,12 @@
   gap: 2px;
   min-width: 0;
 }
+/* A note is the agent's own account of its work, where the last message is
+   whatever prose ended a turn. Setting it in the foreground colour marks that
+   difference without adding a second label to the band. */
+.nowText[data-note] {
+  color: var(--fg);
+}
 .running {
   font-family: var(--mono);
   font-size: var(--text-xs);
