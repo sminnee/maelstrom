@@ -607,6 +607,10 @@ identical, because a state and a wait kind say only that both are busy. The row 
 `last_message_at`, which says when — not a column here, but read by `--json` and the
 orchestrator UI.
 
+`last_note` is what the agent said it is *doing*, from the `<note>` it wrote, and `last_note_at`
+says when. A note answers what a last message only hints at, so the column stands beside it. See
+`CONTEXT.md`, **Note**.
+
 ### Showing one agent
 
 `mael agent show <id>` prints one agent in full: what it last said, every option of a question with

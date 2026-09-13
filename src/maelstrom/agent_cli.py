@@ -78,13 +78,15 @@ LIST_COLUMNS = [
     "state",
     "mode",
     "waiting_on",
+    "last_note",
     "last_message",
     "cwd",
     "model",
     "cost",
 ]
 
-#: Columns ``mael agent show`` prints for a parent's subagents, in order.
+#: Columns ``mael agent show`` prints for a parent's subagents, in order. No
+#: ``last_note``: a subagent writes none, so the column would always be empty.
 SUBAGENT_COLUMNS = ["id", "state", "description", "last_message"]
 
 
