@@ -1,7 +1,11 @@
-"""Storage layer for the task notebook.
+"""A flat key->text store over a git repository.
 
-Tasks are stored as a flat key->text store where keys are POSIX-style relative
-paths of the form ``<project>/<status>/<id>.md``. The folder is the status.
+The task notebook's own storage is :mod:`maelstrom.task_table`; this serves the
+two things that still live as files under ``~/.maelstrom/tasks``: the wiki, and
+the markdown task export that :mod:`maelstrom.task_export` writes.
+
+Keys are POSIX-style relative paths. A task's is ``<project>/<status>/<id>.md``,
+which is the export's layout rather than any lookup path.
 
 Two backends are provided:
 
@@ -28,6 +32,16 @@ from pathlib import Path
 from typing import Protocol
 
 from .context import get_maelstrom_dir
+
+
+class GitCommandError(RuntimeError):
+    """A git command this store depends on failed.
+
+    Raised rather than swallowed so a caller that treats a write as durable —
+    the markdown export clears its queue entry on return — learns that it is
+    not. A full disk, an index lock held by another process, and a corrupt
+    repository all arrive here.
+    """
 
 
 def tasks_root() -> Path:
@@ -76,15 +90,6 @@ class TaskStore(Protocol):
         """Return whether ``key`` exists."""
         ...
 
-    def head(self) -> str | None:
-        """Return a version stamp for the store's current state, or ``None``.
-
-        For a versioned backend this is the git HEAD sha; the task-index cache
-        records it to detect staleness and fall back to a file scan. Non-versioned
-        backends have no version and return ``None``.
-        """
-        ...
-
     def transaction(self, *, message: str) -> AbstractContextManager[None]:
         """Batch all mutations in the ``with`` block into a single commit.
 
@@ -116,10 +121,6 @@ class InMemoryStore:
 
     def exists(self, key: str) -> bool:
         return key in self._data
-
-    def head(self) -> str | None:
-        """No version: an in-memory store has no git HEAD to stamp against."""
-        return None
 
     @contextmanager
     def transaction(self, *, message: str) -> Iterator[None]:
@@ -161,10 +162,14 @@ class GitFileStore:
         self._txn_message: str | None = None
         self._lock_fd: int | None = None
 
-    # --- private git helpers (quiet, non-raising) ---
+    # --- private git helpers ---
 
     def _git(self, *args: str) -> subprocess.CompletedProcess:
-        """Run a git command in ``root``, quietly, without raising on failure."""
+        """Run a git command in ``root``, quietly, without raising on failure.
+
+        The caller decides whether a failure matters: a probe reads the return
+        code, and a step that must not silently fail uses :meth:`_git_or_raise`.
+        """
         return subprocess.run(
             ["git", "-C", str(self.root), *args],
             check=False,
@@ -172,25 +177,44 @@ class GitFileStore:
             text=True,
         )
 
+    def _git_or_raise(self, *args: str) -> subprocess.CompletedProcess:
+        """Run a git command, raising :class:`GitCommandError` when it fails.
+
+        For the steps whose failure would otherwise be invisible. A write that
+        cannot commit must not report success: the export's caller clears its
+        queue entry on return, so a swallowed failure leaves the file
+        uncommitted with nothing left owing it.
+        """
+        done = self._git(*args)
+        if done.returncode != 0:
+            raise GitCommandError(
+                f"git {' '.join(args)} failed in {self.root}: "
+                f"{done.stderr.strip() or done.stdout.strip() or 'no output'}"
+            )
+        return done
+
     def _ensure_repo(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
         if not (self.root / ".git").exists():
-            self._git("init")
-            self._git("config", "user.name", "maelstrom")
-            self._git("config", "user.email", "maelstrom@localhost")
+            self._git_or_raise("init")
+            self._git_or_raise("config", "user.name", "maelstrom")
+            self._git_or_raise("config", "user.email", "maelstrom@localhost")
         self.ensure_excludes()
 
     def ensure_excludes(self) -> None:
         """Ensure the infrastructure files are in the repo-local exclude file.
 
-        Keep the cross-process lock handle and the rebuildable task-index cache out
+        Keep the cross-process lock handle and any leftover task-index cache out
         of every ``git add -A`` via ``.git/info/exclude`` rather than a tracked
         ``.gitignore`` — the working tree stays free of any infrastructure file
         (nothing for a rollback's ``git clean`` to special-case). ``index.db-wal`` /
         ``index.db-shm`` are SQLite's WAL sidecars. Idempotent, and a no-op on a
-        not-yet-initialised repo — safe to call before writing the index db so an
-        existing store that predates the index picks up the new exclusions without
-        a mutation.
+        not-yet-initialised repo.
+
+        ``index.db`` is excluded although nothing writes it: a notebook created
+        before the state database still has the file in its root, and this store
+        serves the wiki from that same root — so dropping the exclusion would
+        surface it as an untracked file in the next ``mael wiki update``.
         """
         exclude = self.root / ".git" / "info" / "exclude"
         if not exclude.parent.is_dir():
@@ -210,10 +234,12 @@ class GitFileStore:
             return ""
 
     def _commit(self, message: str) -> None:
-        self._git("add", "-A")
-        # Commit only if there is something staged; otherwise this is a no-op.
+        self._git_or_raise("add", "-A")
+        # A probe, so its return code is the answer rather than a failure:
+        # non-zero means something is staged. Commit only then; a commit with
+        # nothing staged is a no-op, not an error.
         if self._git("diff", "--cached", "--quiet").returncode != 0:
-            self._git("commit", "-m", message, "--no-verify")
+            self._git_or_raise("commit", "-m", message, "--no-verify")
 
     def _path(self, key: str) -> Path:
         return self.root / key
@@ -265,17 +291,6 @@ class GitFileStore:
         """Return the current HEAD sha, or ``None`` on a repo with no commits."""
         r = self._git("rev-parse", "--verify", "HEAD")
         return r.stdout.strip() if r.returncode == 0 else None
-
-    def head(self) -> str | None:
-        """Public HEAD stamp for the task-index staleness guard (see Protocol).
-
-        Returns ``None`` for a not-yet-initialised repo (no ``.git``) as well as a
-        repo with no commits, so a fresh store reads as "no version" rather than
-        forcing repo creation on a pure read.
-        """
-        if not (self.root / ".git").exists():
-            return None
-        return self._head()
 
     def _rollback(self, saved_head: str | None) -> None:
         """Restore the repo to ``saved_head`` (or empty), discarding all changes."""
