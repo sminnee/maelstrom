@@ -280,27 +280,20 @@ def cmd_admin() -> None:
     """Look after maelstrom's own state."""
 
 
-def all_state_db_paths() -> list[Path]:
-    """Every state database on this machine: the real one, then each playpen.
+@cmd_admin.command("migrate")
+async def cmd_migrate() -> None:
+    """Bring the state database up to this build's schema.
 
-    A playpen lives at ``<shared>/playpens/<worktree>``, which is where a
-    worktree's ``.env`` points it. A root set by hand elsewhere is unreachable,
-    the same limit the daemon's enumeration has.
+    The only thing that writes a schema, and the command every refusal names.
+    The desk ladder's second rung brings an existing ``desk.json`` in, so a
+    user's canvas survives the move; the file is left on disk as a fallback.
+
+    Migrates whichever database this process's root names, so a playpen is
+    brought up to schema by running this *in that worktree*. That is what the
+    project's ``install_cmd`` does on creation and on ``mael env start``, which
+    is how a schema bump on ``main`` reaches every playpen without a sweep.
     """
-    shared = get_maelstrom_dir()
-    paths = [shared / "state.db"]
-    playpens = shared / "playpens"
-    if playpens.is_dir():
-        paths += [
-            playpen / "state.db"
-            for playpen in sorted(playpens.iterdir())
-            if playpen.is_dir()
-        ]
-    return paths
-
-
-async def _migrate_one(path: Path) -> None:
-    """Bring the database at ``path`` up to this build's schema."""
+    path = get_state_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     db = open_state_db(path)
     try:
@@ -372,40 +365,3 @@ async def _rebuild_export_queue(db, queue: SqliteExportQueue) -> int:
     ]
     await queue.queue_all(entries)
     return len(entries)
-
-
-@cmd_admin.command("migrate")
-@click.option(
-    "--all",
-    "migrate_all",
-    is_flag=True,
-    help="Migrate every playpen too, not just the database this command reads.",
-)
-async def cmd_migrate(migrate_all: bool) -> None:
-    """Bring the state database up to this build's schema.
-
-    The only thing that writes a schema, and the command every refusal names.
-    The desk ladder's second rung brings an existing ``desk.json`` in, so a
-    user's canvas survives the move; the file is left on disk as a fallback.
-
-    ``--all`` is what a schema bump on ``main`` needs — see
-    ``docs/dev/data-architecture.md``, "Schema versions".
-    """
-    if migrate_all:
-        # One playpen that refuses must not strand the rest: a schema bump
-        # leaves every playpen behind at once, so a sweep that stops at the
-        # first failure is the case this flag exists for.
-        failed: list[str] = []
-        for path in all_state_db_paths():
-            try:
-                await _migrate_one(path)
-            except click.ClickException as exc:
-                failed.append(f"{path}: {exc.message}")
-                click.echo(f"Failed to migrate {path}: {exc.message}", err=True)
-        if failed:
-            raise click.ClickException(
-                f"{len(failed)} of {len(all_state_db_paths())} databases did not "
-                "migrate; each is named above."
-            )
-        return
-    await _migrate_one(get_state_db_path())

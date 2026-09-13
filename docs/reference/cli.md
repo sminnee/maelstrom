@@ -1033,7 +1033,7 @@ None of these take options beyond `--help`.
 
 | Command | Description |
 |---|---|
-| `mael admin migrate` | Bring the state database at `~/.maelstrom/state.db` up to this build's schema, creating it if it is absent. A desk written before the database is brought in by the desk ladder's import rung, and the file is left on disk. |
+| `mael admin migrate` | Bring the state database this command's root names up to this build's schema, creating it if it is absent — `~/.maelstrom/state.db`, or the playpen `MAEL_STATE_ROOT` names when run in a worktree. A desk written before the database is brought in by the desk ladder's import rung, and the file is left on disk. The project's `install_cmd` runs this, so creating a worktree or starting its environment migrates its playpen. |
 | `mael admin export-queue` | Report how many tasks the markdown export at `~/.maelstrom/tasks` still owes, and how long the oldest has waited. The orchestrator drains the queue, so a depth that does not fall means the server is not running. |
 | `mael admin export-queue --rebuild` | Queue every task for export. For a file that went missing without its row changing — deleted by hand, or lost to a git failure — which no ordinary write re-queues. |
 | `mael doctor [PROJECT]` | Check project health and fix issues automatically. |

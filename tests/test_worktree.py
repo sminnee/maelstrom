@@ -17,7 +17,6 @@ from maelstrom.ports import (
     get_port_allocation,
     record_port_allocation,
 )
-from maelstrom.state_db.migrate import open_state_db
 from maelstrom.worktree import (
     WorktreeInfo,
     _build_env_file,
@@ -44,7 +43,6 @@ from maelstrom.worktree import (
     list_worktrees,
     list_worktrees_async,
     managed_keys_in_env,
-    migrate_worktree_playpen,
     read_env_file,
     rebase_worktree,
     reclaim_or_allocate_ports,
@@ -372,61 +370,6 @@ class TestBuildEnvFileServices:
         shared_base = int(env["SHARED_PORT_BASE"])
         assert env["DB_PORT"] == str(shared_base * 10 + 0)
         assert shared_base != base
-
-
-class TestMigratingAWorktreesPlaypen:
-    """``mael env reset`` migrates, so the next command meets no refusal.
-
-    Creation does not migrate — that path is sync and this is not — so a freshly
-    created worktree still meets the refusal until someone resets it.
-    """
-
-    def _worktree(self, tmp_path, env_text):
-        worktree_path = tmp_path / "Projects" / "myproject" / "myproject-alpha"
-        worktree_path.mkdir(parents=True)
-        (worktree_path / ".env").write_text(env_text)
-        return worktree_path
-
-    async def test_it_migrates_the_root_the_env_names(self, tmp_path):
-        playpen = tmp_path / "playpens" / "alpha"
-        worktree_path = self._worktree(
-            tmp_path, f"MAEL_STATE_ROOT={playpen}\nOTHER=x\n"
-        )
-
-        migrated = await migrate_worktree_playpen(worktree_path)
-
-        assert migrated == playpen / "state.db"
-        assert migrated is not None and migrated.is_file()
-
-    async def test_the_migrated_database_opens_without_refusing(self, tmp_path):
-        """The whole point: the next command must not meet SchemaTooOldError."""
-        playpen = tmp_path / "playpens" / "alpha"
-        worktree_path = self._worktree(tmp_path, f"MAEL_STATE_ROOT={playpen}\n")
-
-        await migrate_worktree_playpen(worktree_path)
-
-        db = open_state_db(playpen / "state.db")
-        try:
-            await db.check()
-        finally:
-            db.close()
-
-    async def test_a_worktree_naming_no_playpen_migrates_nothing(self, tmp_path):
-        """``_main`` and any project whose template carries no line."""
-        worktree_path = self._worktree(tmp_path, "OTHER=x\n")
-
-        assert await migrate_worktree_playpen(worktree_path) is None
-
-    async def test_a_tilde_in_the_env_is_expanded(self, tmp_path, monkeypatch):
-        """The value is hand-written into the template, so ``~`` reaches here."""
-        monkeypatch.setenv("HOME", str(tmp_path))
-        worktree_path = self._worktree(
-            tmp_path, "MAEL_STATE_ROOT=~/.maelstrom/playpens/alpha\n"
-        )
-
-        migrated = await migrate_worktree_playpen(worktree_path)
-
-        assert migrated == tmp_path / ".maelstrom" / "playpens" / "alpha" / "state.db"
 
 
 class TestThePlaypenTemplateLine:

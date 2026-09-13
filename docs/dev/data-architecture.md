@@ -282,8 +282,10 @@ Migrations are forward-only, and the whole run is one transaction — SQLite's D
 transactional, so a migration that fails halfway leaves the tables where they were.
 
 A playpen is the exception to the sharing argument, not to the refusal. Each worktree that names
-one has a database of its own, so a schema bump on `main` leaves every playpen behind at once —
-which is what `mael admin migrate --all` is for, and why the refusal names the file that refused.
+one has a database of its own, so a schema bump on `main` leaves every playpen behind at once.
+The project's `install_cmd` runs `mael admin migrate` on creation and on `mael env start`, with
+that worktree as the working directory, so each playpen is brought up to schema where it lives —
+and the refusal names the file that refused, for the worktree nobody has restarted yet.
 
 The difference between a canonical table and a cached one is **one property on the table**, not
 a separate database, a separate read path, or a separate design. Only a canonical table is

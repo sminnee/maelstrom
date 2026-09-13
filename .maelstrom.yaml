@@ -5,6 +5,13 @@ linear:
   team_id: 3201e7ca-cceb-4079-b8ef-51ffbde14db7
   product_label: Maelstrom
 
+# Runs on worktree creation and on `mael env start`, with the worktree as cwd.
+# `uv run` reads that worktree's `.env` through UV_ENV_FILE, so the migrate
+# reaches the playpen MAEL_STATE_ROOT names — and `_main`, which names none,
+# migrates the real notebook. This is the only thing that brings a playpen up to
+# schema: nothing migrates in the background.
+install_cmd: uv sync && uv run mael admin migrate
+
 services:
   web:
     ports: [FRONTEND, FRONTEND_HMR]

@@ -32,7 +32,6 @@ from .ports import (
 from .rebase_repair import run_resolve_rebase_session
 from .session_discovery import LiveSessionSet
 from .shell import run_cmd, run_cmd_async
-from .state_db.migrate import open_state_db
 from .task import DRAFT_WRITE_RULES, DRAFTS_DIR
 from .util import locked_file
 from .worktree_model import (
@@ -2035,35 +2034,6 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
     (project_path / ".mael").touch()
 
     return project_path
-
-
-async def migrate_worktree_playpen(worktree_path: Path) -> Path | None:
-    """Migrate the playpen this worktree's ``.env`` names, if it names one.
-
-    ``mael env reset`` calls this, so a worktree that has just been given a
-    playpen does not meet the schema refusal on its next command. Worktree
-    *creation* does not: that path is sync and this is not, so a freshly created
-    worktree still meets the refusal until someone resets it.
-
-    Reads the value from the generated ``.env`` rather than from this process's
-    environment: the ``mael`` doing the resetting has its own root, which is
-    usually the real one.
-
-    Returns:
-        The database migrated, or ``None`` when the worktree names no playpen
-        (``_main``, or a project whose template carries no line).
-    """
-    root = read_env_file(worktree_path).get(STATE_ROOT_ENV)
-    if not root:
-        return None
-    path = Path(root).expanduser() / "state.db"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    db = open_state_db(path)
-    try:
-        await db.migrate()
-    finally:
-        db.close()
-    return path
 
 
 def _without_playpen_line(template_text: str | None) -> str | None:

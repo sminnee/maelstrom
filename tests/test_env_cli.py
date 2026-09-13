@@ -14,7 +14,6 @@ from maelstrom.env_cli import (
     print_service_status,
     resolve_service,
 )
-from maelstrom.state_db.types import StateDbError
 
 
 def _make_state(project="proj", worktree="bravo", pid=100):
@@ -820,78 +819,6 @@ class TestEnvRestart:
         result = runner.invoke(cli, ["env", "restart"])
         assert result.exit_code != 0
         assert "Worktree not found" in result.output
-
-
-class TestEnvResetMigratesThePlaypen:
-    """The one production path that migrates a playpen.
-
-    A reset is what gives a worktree its playpen for the first time, so it is
-    also what keeps the next command off the schema refusal.
-    """
-
-    @patch(
-        "maelstrom.env_cli.regenerate_and_restart_if_running", return_value=([], None)
-    )
-    @patch("maelstrom.env_cli.resolve_context")
-    def test_a_worktree_naming_a_playpen_gets_it_migrated(
-        self, mock_ctx, _mock_helper, tmp_path
-    ):
-        ctx = _mock_ctx_with_path(tmp_path)
-        mock_ctx.return_value = ctx
-        playpen = tmp_path / "playpens" / "bravo"
-        (ctx.worktree_path / ".env").write_text(f"MAEL_STATE_ROOT={playpen}\n")
-
-        result = CliRunner().invoke(cli, ["env", "reset"])
-
-        assert result.exit_code == 0, result.output
-        assert str(playpen / "state.db") in result.output
-        assert (playpen / "state.db").is_file()
-
-    @patch(
-        "maelstrom.env_cli.regenerate_and_restart_if_running", return_value=([], None)
-    )
-    @patch("maelstrom.env_cli.resolve_context")
-    def test_a_worktree_naming_none_says_nothing_about_a_database(
-        self, mock_ctx, _mock_helper, tmp_path
-    ):
-        """``_main``, and any project whose template carries no line."""
-        ctx = _mock_ctx_with_path(tmp_path)
-        mock_ctx.return_value = ctx
-        (ctx.worktree_path / ".env").write_text("OTHER=keep\n")
-
-        result = CliRunner().invoke(cli, ["env", "reset"])
-
-        assert result.exit_code == 0, result.output
-        assert "state database" not in result.output
-
-    @patch(
-        "maelstrom.env_cli.regenerate_and_restart_if_running", return_value=([], None)
-    )
-    @patch("maelstrom.env_cli.resolve_context")
-    def test_a_refused_migrate_is_a_warning_not_a_contradiction(
-        self, mock_ctx, _mock_helper, tmp_path, monkeypatch
-    ):
-        """The regenerate already happened and already said so.
-
-        Raising here would leave ``Regenerated .env`` on stdout above a
-        traceback, so the reset reads as both done and failed.
-        """
-        ctx = _mock_ctx_with_path(tmp_path)
-        mock_ctx.return_value = ctx
-        (ctx.worktree_path / ".env").write_text(
-            f"MAEL_STATE_ROOT={tmp_path / 'playpens' / 'bravo'}\n"
-        )
-
-        async def _refuse(_worktree_path):
-            raise StateDbError("the state database at /x refused")
-
-        monkeypatch.setattr("maelstrom.env_cli.migrate_worktree_playpen", _refuse)
-
-        result = CliRunner().invoke(cli, ["env", "reset"])
-
-        assert result.exit_code == 0, result.output
-        assert "Regenerated .env" in result.output
-        assert "mael admin migrate" in result.output
 
 
 class TestEnvReset:
