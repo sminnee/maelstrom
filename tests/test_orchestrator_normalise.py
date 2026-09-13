@@ -516,6 +516,130 @@ def test_an_echo_either_side_of_a_message_does_not_take_the_message_with_it():
     assert [i["markdown"] for i in items_of(state, "message")] == [text]
 
 
+def test_a_subagent_notification_folds_to_its_summary():
+    """The turn is plumbing wrapped around one fact: how the work went.
+
+    Read as a message it draws an opaque id as though the operator typed it.
+    Folded, the line keeps the fact and drops the addresses.
+    """
+    text = (
+        "<task-notification>\n<task-id>a9ed786c2916ddbb0</task-id>\n"
+        "<status>completed</status>\n"
+        '<summary>Agent "Review commit e24fa3a" finished</summary>\n'
+        "</task-notification>"
+    )
+    state = replay_turn(text)
+    assert items_of(state, "message") == []
+    [item] = items_of(state, "task_notification")
+    assert {k: v for k, v in item.items() if k not in ("id", "ts")} == {
+        "type": "task_notification",
+        "status": "completed",
+        "summary": 'Agent "Review commit e24fa3a" finished',
+    }
+
+
+def test_a_background_command_notification_folds_the_same_way():
+    """The reported shape: space-separated, with a temp path and two ids.
+
+    Neither id addresses anything the reader can open from the UI, and the
+    path names a file on the agent's host. The summary is the whole signal.
+    """
+    text = (
+        "<task-notification> <task-id>b7ypbbna6</task-id> "
+        "<tool-use-id>toolu_01TtNvwf</tool-use-id> "
+        "<output-file>/private/tmp/claude-501/tasks/b7ypbbna6.output</output-file> "
+        "<status>completed</status> "
+        '<summary>Background command "Run the Python gate" completed (exit code 0)'
+        "</summary> </task-notification>"
+    )
+    state = replay_turn(text)
+    assert items_of(state, "message") == []
+    [item] = items_of(state, "task_notification")
+    assert {k: v for k, v in item.items() if k not in ("id", "ts")} == {
+        "type": "task_notification",
+        "status": "completed",
+        "summary": 'Background command "Run the Python gate" completed (exit code 0)',
+    }
+    drawn = json.dumps(item)
+    for address in ("b7ypbbna6", "toolu_01TtNvwf", "/private/tmp/claude-501"):
+        assert address not in drawn
+
+
+def test_a_notification_asks_the_agent_for_something_so_it_starts_a_turn():
+    """The mirror of the echo rule above. An echo is the host talking to
+    itself, but the agent acts on a notification, so the turn has started."""
+    state = replay_turn(
+        "<task-notification>\n<status>completed</status>\n"
+        "<summary>Done</summary>\n</task-notification>"
+    )
+    assert agent_of(state)["state"] == "processing"
+
+
+def test_a_notification_either_side_of_a_message_does_not_take_the_message_with_it():
+    """The match must not span from the first tag to the last.
+
+    A greedy body swallows everything between two notifications, so an
+    operator's words vanish with no turn left to show anything was there.
+    """
+    text = (
+        "<task-notification><summary>one</summary></task-notification>\n\n"
+        "the operator's own words\n"
+        "<task-notification><summary>two</summary></task-notification>"
+    )
+    state = replay_turn(text)
+    assert [i["markdown"] for i in items_of(state, "message")] == [text]
+
+
+def test_a_turn_quoting_a_notification_is_not_swallowed():
+    """An operator asking about a notification writes prose around it. Folding
+    that away hides a real message behind a line they did not write."""
+    text = "why did I get <task-notification><summary>x</summary></task-notification> twice?"
+    state = replay_turn(text)
+    assert [i["markdown"] for i in items_of(state, "message")] == [text]
+    # The turn still reaches the upsert below the chain: it is a real message.
+    assert agent_of(state)["state"] == "processing"
+
+
+def test_a_notification_reads_its_own_summary_not_one_nested_in_another_child():
+    """`re.search` over the whole turn takes the first `<summary>` it meets.
+
+    A summary nested in another child would then win over the notification's
+    own, so the line would report the wrong result for finished work — and the
+    right one is unrecoverable, because the server keeps no transcript.
+    """
+    state = replay_turn(
+        "<task-notification><wrapper><summary>INNER</summary></wrapper>"
+        "<status>completed</status><summary>REAL</summary></task-notification>"
+    )
+    [item] = items_of(state, "task_notification")
+    assert item["summary"] == "REAL"
+
+
+def test_a_notification_naming_neither_field_is_not_worth_a_row():
+    """Folding it would draw an empty line, with a time printed beside it.
+
+    `drawsNothing` covers a waiting tool call and nothing else, so an item
+    with no text still claims a gutter mark. A turn the fold has nothing to
+    say about is better left as the message it is.
+    """
+    text = "<task-notification><task-id>b7ypbbna6</task-id></task-notification>"
+    state = replay_turn(text)
+    assert items_of(state, "task_notification") == []
+    assert [i["markdown"] for i in items_of(state, "message")] == [text]
+
+
+def test_a_notification_with_no_summary_still_folds():
+    """It is still plumbing. Falling back would put the raw tag in a bubble."""
+    state = replay_turn(
+        "<task-notification><task-id>b7ypbbna6</task-id>"
+        "<status>failed</status></task-notification>"
+    )
+    assert items_of(state, "message") == []
+    [item] = items_of(state, "task_notification")
+    assert item["status"] == "failed"
+    assert item["summary"] == ""
+
+
 def test_a_failed_local_command_keeps_its_output():
     """Only `stdout` is plumbing. A command that failed is the one whose
     output the operator is looking for, so `stderr` stays on the transcript."""

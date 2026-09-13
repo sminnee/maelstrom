@@ -329,7 +329,10 @@ Every tool card starts folded. The summary line names the tool, its title and it
 click opens the body. An agent that makes hundreds of calls is a list, not a wall of text. A
 loaded skill folds the same way, under the skill's name. A shell command draws with the same
 card a `Bash` tool call gets, because a `!` line and a `Bash` call are the same thing to the
-reader — see [orchestrator-server.md](orchestrator-server.md#a-shell-command).
+reader — see [orchestrator-server.md](orchestrator-server.md#a-shell-command). A task
+notification draws as a bare line instead of a fold, because the fold keeps only its status and
+summary and leaves no body to hide — see
+[orchestrator-server.md](orchestrator-server.md#a-task-notification).
 
 A decision shows the last three things the agent said or did, then the prompt. A question
 follows AskUserQuestion's shape; `session/cards/QuestionPrompt.tsx` says why every answer

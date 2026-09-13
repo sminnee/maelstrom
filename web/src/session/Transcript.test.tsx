@@ -211,6 +211,21 @@ describe('Transcript', () => {
     expect(card).toHaveTextContent('The conventions this file carries.');
   });
 
+  it('a task notification keeps its summary and drops the plumbing around it', () => {
+    // The reported shape, from the golden: the turn also carried a task id, a
+    // tool-use id and a path on the agent's host. None of them address
+    // anything the reader can open from here, so the line must not print them.
+    const items = goldenItems('string-content-turn.jsonl');
+    render(<Transcript items={items} truncatedBefore={false} />);
+    const [, background] = screen.getAllByTestId('task-notification');
+    expect(background).toHaveTextContent(
+      'Background command "Run the Python gate after doc edits" completed (exit code 0)',
+    );
+    for (const address of ['b7ypbbna6', 'toolu_', '/private/tmp']) {
+      expect(background).not.toHaveTextContent(address);
+    }
+  });
+
   it('a shell command renders as a command and its output', () => {
     render(
       <Transcript

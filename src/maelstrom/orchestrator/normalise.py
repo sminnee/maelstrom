@@ -344,7 +344,13 @@ def normalise_stream_event(
                     # Says nothing the transcript does not already say, and
                     # draws as though the operator typed a raw tag.
                     continue
-                if skill is not None:
+                notification = _task_notification(text)
+                if notification is not None:
+                    # Unlike the echo above, this is a background command's
+                    # only trace, so it folds rather than dropping. No
+                    # `continue`: the agent acts on it, so the turn started.
+                    out.append({"type": "task_notification", **notification})
+                elif skill is not None:
                     out.append({"type": "skill", "skill": skill, "markdown": text})
                 elif _compact_summary(text):
                     # Thousands of characters the harness wrote, landing right
@@ -963,6 +969,45 @@ _COMPACT_SUMMARY_OPENING = re.compile(
 _LOCAL_COMMAND_ECHO = re.compile(
     r"^<local-command-stdout>((?!</local-command-stdout>)[\s\S])*</local-command-stdout>\s*$"
 )
+
+
+#: The whole turn is one `<task-notification>` and nothing else. The children
+#: vary — a background shell carries `<tool-use-id>` and `<output-file>`, a
+#: subagent carries neither — so the anchor is the outer tag and the fields are
+#: read separately. The body may not run past its own closing tag: a greedy
+#: match would span two notifications either side of a real message and drop
+#: the message with them, the failure `_LOCAL_COMMAND_ECHO` guards against.
+_TASK_NOTIFICATION = re.compile(
+    r"^<task-notification>((?!</task-notification>)[\s\S])*</task-notification>$"
+)
+
+#: One child of a notification: its name, then everything up to the matching
+#: closing tag. Scanned across the body in order, so only direct children are
+#: seen — a `<summary>` nested inside another child would otherwise win over
+#: the real one, and the line would report the wrong result for finished work.
+#: Whitespace between tags is free: the harness writes them newline-separated
+#: in one place and space-separated in another, and neither is a promise.
+_NOTIFICATION_CHILD = re.compile(r"<([a-z-]+)>([\s\S]*?)</\1>")
+
+
+def _task_notification(text: str) -> dict[str, str] | None:
+    """The fields of a task notification worth showing, or ``None``.
+
+    Only ``status`` and ``summary``. A notification carrying neither is not
+    worth a row, so it falls back to a message rather than drawing an empty
+    line under a timestamp. See ``docs/dev/orchestrator-server.md``, "A task
+    notification".
+    """
+    match = _TASK_NOTIFICATION.match(text.strip())
+    if match is None:
+        return None
+    body = match.group(0)[len("<task-notification>") : -len("</task-notification>")]
+    fields = {"status": "", "summary": ""}
+    for child in _NOTIFICATION_CHILD.finditer(body):
+        name, value = child.group(1), child.group(2)
+        if name in fields and not fields[name]:
+            fields[name] = value.strip()
+    return fields if any(fields.values()) else None
 
 
 def _compact_summary(text: str) -> bool:

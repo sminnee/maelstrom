@@ -567,6 +567,14 @@ prose around it. Unlike the four markers it is not cut from the message: it is t
 It holds markdown, so a callout can carry a literal or a link. Nothing on the server parses it.
 _Avoid_: Highlight, Summary, Important
 
+**Task notification**:
+What the harness injects to say background work finished. A subagent's arrives as a `system` event
+and ends the subagent, drawing no transcript line of its own. A background command's arrives as a
+user turn, which is that command's only trace, so the transcript folds it to one line carrying its
+status and summary and drops the ids and the output path it also carries — addresses of files on
+the agent's host, which the reader cannot open.
+_Avoid_: Task update, background result, completion message
+
 **File registry**:
 The ids that stand for the files agents named, and the only route to a file's bytes. A `<doc-file>`
 or an `<image>` registers its file, and the URL carries the id and never a path, so a file nobody

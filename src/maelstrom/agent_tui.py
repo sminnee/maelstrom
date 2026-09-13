@@ -181,6 +181,13 @@ def _widget_for(item: TranscriptItem) -> Widget | None:
     if kind == "skill":
         # The body is a whole file, so the line names the skill and drops it.
         return Static(f"skill › {item['skill']}", classes="dim", markup=False)
+    if kind == "task_notification":
+        # A background command's only trace, so it draws rather than dropping.
+        summary = item.get("summary", "")
+        text = f"task › {item.get('status', '')}"
+        if summary:
+            text += f" · {summary}"
+        return Static(text, classes="dim", markup=False)
     if kind == "shell":
         output = item.get("output", "")
         text = f"! {item.get('command', '')}"
