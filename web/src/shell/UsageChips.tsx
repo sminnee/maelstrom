@@ -1,6 +1,7 @@
 import { useHost } from '../api/host';
+import { useLayoutMode } from '../layout/useLayoutMode';
 import type { UsageKey } from '../selectors/usage';
-import { usageChip } from '../selectors/usage';
+import { isNotable, usageChip } from '../selectors/usage';
 import { SplitChip } from '../ui/SplitChip';
 import { useNow } from '../ui/useNow';
 
@@ -19,6 +20,7 @@ const LABELS: Record<UsageKey, string> = { fiveHour: '5h', sevenDay: 'week' };
 export function UsageChips() {
   const { data } = useHost();
   const now = useNow();
+  const narrow = useLayoutMode() === 'narrow';
   const host = data?.host ?? undefined;
   return (
     <>
@@ -27,6 +29,9 @@ export function UsageChips() {
         // No chip rather than `0%`: a bar that shows nothing is honest about
         // knowing nothing.
         if (!chip) return null;
+        // A band on a phone is scarce, so the narrow bar spends one only on a
+        // reading the operator would act on.
+        if (narrow && !isNotable(chip)) return null;
         return (
           <SplitChip
             key={key}

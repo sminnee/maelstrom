@@ -50,10 +50,9 @@ export function TopBar() {
       {/* The readings sit between New and the attention chip, so the one
           action and the one alarm keep the edges they already had. */}
       <div className={styles.readings}>
-        {/* The bar has no spare width, and a phone has least of all. The
-            account's budget is the reading that keeps: it is the same figure
-            a minute later, so it is the one the narrow bar drops. */}
-        {!narrow && <UsageChips />}
+        {/* The chips decide what a phone has room for, so the bar never has
+            to know what a reading means. */}
+        <UsageChips />
         <AgentsChip />
       </div>
       <AttentionChip />
