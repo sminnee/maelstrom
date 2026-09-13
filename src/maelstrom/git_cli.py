@@ -339,8 +339,11 @@ def git_uncommit_branch(target):
 
     Rebases onto the branch's base, keeps the commits under a working-history
     ref, then resets. The changes are all still there, unstaged, ready to be
-    re-cut into story commits. The undo is ``git reset --hard`` onto the ref it
-    prints.
+    re-cut into story commits.
+
+    The undo is ``git reset --hard`` onto the ref it prints, which is safe only
+    while the tree is still clean. The ref holds the commits as they were at the
+    reset, so ``--hard`` discards every edit made since — commit them first.
     """
     try:
         context = resolve_context(target, require_project=True, require_worktree=True)
