@@ -9,12 +9,20 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from maelstrom.admin_cli import cmd_migrate, cmd_self_update, resolve_install_root
+from maelstrom import task as task_model
+from maelstrom.admin_cli import (
+    cmd_export_queue,
+    cmd_migrate,
+    cmd_self_update,
+    resolve_install_root,
+)
 from maelstrom.env import EnvState
 from maelstrom.state_db import migrate as state_db_migrate
 from maelstrom.state_db.migrate import open_state_db
 from maelstrom.state_db.migrations.desk import DESK
 from maelstrom.state_db.types import Migration
+from maelstrom.task_export import SqliteExportQueue
+from maelstrom.task_table import SqliteTaskTable
 
 
 def _ok(stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
@@ -354,6 +362,112 @@ class TestSelfUpdateWritesTheDaemonRootShim:
         ):
             CliRunner().invoke(cmd_self_update)
         assert entrypoint.read_text() == first
+
+
+class TestExportQueue:
+    """`mael admin export-queue` reports what the markdown export still owes."""
+
+    def test_a_caught_up_export_says_so(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
+        )
+        assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
+
+        result = CliRunner().invoke(cmd_export_queue, [])
+
+        assert result.exit_code == 0, result.output
+        assert "up to date" in result.output
+
+    def test_it_reports_the_depth_and_the_oldest_entry(self, tmp_path, monkeypatch):
+        """The two numbers that tell a stalled drain from a busy notebook."""
+        monkeypatch.setattr(
+            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
+        )
+        assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
+
+        db = open_state_db(tmp_path / "state.db")
+        try:
+            table = SqliteTaskTable(db)
+            asyncio.run(
+                task_model.create(
+                    table, project="northwind", title="Ship it", id="NORT-7"
+                )
+            )
+        finally:
+            db.close()
+
+        result = CliRunner().invoke(cmd_export_queue, [])
+
+        assert result.exit_code == 0, result.output
+        assert "owes 1 task(s)" in result.output
+        assert "oldest has waited since" in result.output
+
+    def test_rebuild_queues_every_task(self, tmp_path, monkeypatch):
+        """The recovery path: a file that went missing without its row moving.
+
+        A drained queue is the starting state, because that is when a lost
+        export file is unrecoverable — no later save re-queues it.
+        """
+        monkeypatch.setattr(
+            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
+        )
+        assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
+
+        db = open_state_db(tmp_path / "state.db")
+        try:
+            table = SqliteTaskTable(db)
+            for id in ("NORT-7", "NORT-8"):
+                asyncio.run(
+                    task_model.create(table, project="northwind", title=id, id=id)
+                )
+            asyncio.run(SqliteExportQueue(db).queue_all([]))
+            for id in ("NORT-7", "NORT-8"):
+                asyncio.run(SqliteExportQueue(db).clear(f"northwind/{id}"))
+            assert asyncio.run(SqliteExportQueue(db).depth()) == 0
+        finally:
+            db.close()
+
+        result = CliRunner().invoke(cmd_export_queue, ["--rebuild"])
+
+        assert result.exit_code == 0, result.output
+        assert "Queued 2 task(s)" in result.output
+
+        db = open_state_db(tmp_path / "state.db")
+        try:
+            queued = asyncio.run(SqliteExportQueue(db).pending())
+        finally:
+            db.close()
+        assert [entry.id for entry in queued] == [
+            "northwind/NORT-7",
+            "northwind/NORT-8",
+        ]
+        assert [entry.path for entry in queued] == [
+            "northwind/todo/NORT-7.md",
+            "northwind/todo/NORT-8.md",
+        ]
+
+    def test_rebuild_on_an_empty_notebook_queues_nothing(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
+        )
+        assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
+
+        result = CliRunner().invoke(cmd_export_queue, ["--rebuild"])
+
+        assert result.exit_code == 0, result.output
+        assert "Queued 0 task(s)" in result.output
+
+    def test_a_database_behind_this_build_is_refused(self, tmp_path, monkeypatch):
+        """An ordinary open never migrates, so the check names the command."""
+        monkeypatch.setattr(
+            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
+        )
+        open_state_db(tmp_path / "state.db").close()
+
+        result = CliRunner().invoke(cmd_export_queue, [])
+
+        assert result.exit_code != 0
+        assert "mael admin migrate" in result.output
 
 
 class TestMigrate:
