@@ -59,10 +59,12 @@ describe('new work', () => {
     const user = userEvent.setup();
     await renderApp();
     const form = await openNewWork(user);
-    await user.selectOptions(within(form).getByLabelText('Project'), 'maelstrom');
+    await user.click(within(form).getByRole('radio', { name: 'maelstrom' }));
     expect(within(form).getByRole('radio', { name: 'Linear' })).toBeInTheDocument();
-    // `riverbend` sets no team, so planning a Linear issue is not on offer.
-    await user.selectOptions(within(form).getByLabelText('Project'), 'riverbend');
+    // `riverbend` sets no team, so planning a Linear issue is not on offer. It
+    // has nothing on the canvas either, so it is reached behind Other.
+    await user.click(within(form).getByRole('radio', { name: 'Other' }));
+    await user.selectOptions(within(form).getByLabelText('Other project'), 'riverbend');
     expect(within(form).queryByRole('radio', { name: 'Linear' })).toBeNull();
   });
 
@@ -70,9 +72,10 @@ describe('new work', () => {
     const user = userEvent.setup();
     await renderApp();
     const form = await openNewWork(user);
-    await user.selectOptions(within(form).getByLabelText('Project'), 'maelstrom');
+    await user.click(within(form).getByRole('radio', { name: 'maelstrom' }));
     await user.click(within(form).getByRole('radio', { name: 'Linear' }));
-    await user.selectOptions(within(form).getByLabelText('Project'), 'riverbend');
+    await user.click(within(form).getByRole('radio', { name: 'Other' }));
+    await user.selectOptions(within(form).getByLabelText('Other project'), 'riverbend');
     // The kind it was on is gone, so the form must land somewhere legal.
     expect(within(form).getByRole('radio', { name: 'Task' })).toBeChecked();
   });
@@ -81,7 +84,7 @@ describe('new work', () => {
     const user = userEvent.setup();
     await renderApp();
     const form = await openNewWork(user);
-    await user.selectOptions(within(form).getByLabelText('Project'), 'maelstrom');
+    await user.click(within(form).getByRole('radio', { name: 'maelstrom' }));
     await user.click(within(form).getByRole('radio', { name: 'Linear' }));
 
     const issue = await within(form).findByLabelText('Issue');
@@ -97,7 +100,7 @@ describe('new work', () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     const form = await openNewWork(user);
-    await user.selectOptions(within(form).getByLabelText('Project'), 'maelstrom');
+    await user.click(within(form).getByRole('radio', { name: 'maelstrom' }));
     await user.click(within(form).getByRole('radio', { name: 'Linear' }));
     await user.click(await within(form).findByLabelText('Issue'));
     await user.click(await screen.findByRole('option', { name: /Add a Linear kind/ }));
@@ -116,7 +119,7 @@ describe('new work', () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     const form = await openNewWork(user);
-    await user.selectOptions(within(form).getByLabelText('Project'), 'maelstrom');
+    await user.click(within(form).getByRole('radio', { name: 'maelstrom' }));
     await user.click(within(form).getByRole('radio', { name: 'Linear' }));
     await user.click(await within(form).findByLabelText('Issue'));
     await user.click(await screen.findByRole('option', { name: /Add a Linear kind/ }));
@@ -135,13 +138,13 @@ describe('new work', () => {
     // and a stale issue would be submitted against a project it does not
     // belong to.
     const form = await openNewWork(user);
-    await user.selectOptions(within(form).getByLabelText('Project'), 'maelstrom');
+    await user.click(within(form).getByRole('radio', { name: 'maelstrom' }));
     await user.click(within(form).getByRole('radio', { name: 'Linear' }));
     await user.click(await within(form).findByLabelText('Issue'));
     await user.click(await screen.findByRole('option', { name: /Add a Linear kind/ }));
     expect(within(form).getByLabelText('Issue')).toHaveValue('MAEL-70');
 
-    await user.selectOptions(within(form).getByLabelText('Project'), 'northwind');
+    await user.click(within(form).getByRole('radio', { name: 'northwind' }));
     // MAEL-70 is not northwind's to plan, so the field must not carry it over.
     expect(within(form).getByLabelText('Issue')).toHaveValue('');
     expect(within(form).getByRole('button', { name: 'Save' })).toBeDisabled();
@@ -151,7 +154,7 @@ describe('new work', () => {
     const user = userEvent.setup();
     await renderApp();
     const form = await openNewWork(user);
-    await user.selectOptions(within(form).getByLabelText('Project'), 'maelstrom');
+    await user.click(within(form).getByRole('radio', { name: 'maelstrom' }));
     await user.click(within(form).getByRole('radio', { name: 'Linear' }));
     expect(within(form).getByRole('button', { name: 'Save' })).toBeDisabled();
     expect(within(form).getByRole('button', { name: 'Start' })).toBeDisabled();
@@ -159,43 +162,94 @@ describe('new work', () => {
     expect(within(form).queryByLabelText('What needs doing?')).toBeNull();
   });
 
-  it('holds Next back until the draft has something in it', async () => {
+  it('holds Save back until the draft has something in it', async () => {
     const user = userEvent.setup();
     await renderApp();
     const form = await openNewWork(user);
-    expect(within(form).getByRole('button', { name: 'Next' })).toBeDisabled();
+    // One step, so the prose gates the submit itself rather than a Next.
+    expect(within(form).queryByRole('button', { name: 'Next' })).toBeNull();
+    expect(within(form).getByRole('button', { name: 'Save' })).toBeDisabled();
     await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
-    expect(within(form).getByRole('button', { name: 'Next' })).toBeEnabled();
+    expect(within(form).getByRole('button', { name: 'Save' })).toBeEnabled();
   });
 
-  it('names the task from the draft, then saves it as todo onto the desk', async () => {
+  it('reaches Save on the prose alone, naming the task from it', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     const form = await openNewWork(user);
-    await user.selectOptions(within(form).getByLabelText('Project'), 'northwind');
+    await user.click(within(form).getByRole('radio', { name: 'northwind' }));
     await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
-    await user.click(within(form).getByRole('button', { name: 'Next' }));
+    // No Suggest pressed and nothing else typed: the prose is the whole input.
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
 
-    // Step 2 arrives with the fields the user never typed, filled in.
-    const title = await within(form).findByLabelText('Title');
-    expect(title).toHaveValue('The export drops a row');
-    // The value comes from the server, so the test pins that a branch was
-    // filled in without the user typing one — not the fake's own slug.
-    expect((within(form).getByLabelText('Branch') as HTMLInputElement).value).toMatch(/^feat\/.+/);
-    // The prose becomes the content verbatim; inference names it, never rewrites it.
-    expect(within(form).getByLabelText('Content')).toHaveValue('The export drops a row');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+    const created = createdTask(server);
+    // A task needs a title and a branch, and neither was typed, so the form
+    // answers for both rather than refusing the save.
+    expect(created.title).toBe('The export drops a row');
+    expect(created.branch).toBe('feat/export-drops-row');
+    // The prose becomes the content verbatim; naming never rewrites it.
+    expect(created.content).toBe('The export drops a row');
+    expect(created.status).toBe('todo');
+    // Saved work joins the desk, so what was just ordered is on the canvas.
+    expect(server.world.desk[`task:${created.id}`]).toBeDefined();
+  });
 
-    // Every inferred field stays editable.
+  it('fills the branch from the draft when Suggest is pressed, without the user typing one', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const form = await openNewWork(user);
+    await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
+    // Empty until asked: inference no longer gates the submit, so it runs only
+    // when the user wants a better name than the draft's own.
+    expect(within(form).getByLabelText('Branch')).toHaveValue('');
+    await user.click(within(form).getByRole('button', { name: 'Suggest' }));
+
+    // The value comes from the server, so this pins that a branch was filled in
+    // without the user typing one — not the fake's own slug.
+    await waitFor(() =>
+      expect((within(form).getByLabelText('Branch') as HTMLInputElement).value).toMatch(
+        /^feat\/.+/,
+      ),
+    );
+    expect(within(form).getByLabelText('Title')).toHaveValue('The export drops a row');
+  });
+
+  it('shows the wait on the Suggest button itself, not beside the footer buttons', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const form = await openNewWork(user);
+    await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
+    // Inference shells out to a model and takes tens of seconds, so the button
+    // that started it is where the wait belongs.
+    server.hold();
+    await user.click(within(form).getByRole('button', { name: 'Suggest' }));
+
+    const suggest = await waitFor(() => {
+      const button = within(form).getByRole('button', { name: /Suggest/ });
+      expect(button).toHaveAttribute('aria-busy', 'true');
+      return button;
+    });
+    expect(within(suggest).getByTestId('spinner')).toBeInTheDocument();
+    // One wait on screen, on the control that owns it.
+    expect(within(form).getAllByTestId('spinner')).toHaveLength(1);
+
+    server.release();
+    await waitFor(() => expect(suggest).not.toHaveAttribute('aria-busy'));
+  });
+
+  it('lets every field the form named stay editable', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const form = await openNewWork(user);
+    await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
+    const title = within(form).getByLabelText('Title');
     await user.clear(title);
     await user.type(title, 'Fix the export');
     await user.click(within(form).getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
-    const created = Object.values(server.world.tasks).find((t) => t.title === 'Fix the export');
-    expect(created).toBeDefined();
-    expect(created!.status).toBe('todo');
-    // Saved work joins the desk, so what was just ordered is on the canvas.
-    expect(server.world.desk[`task:${created!.id}`]).toBeDefined();
+    expect(createdTask(server).title).toBe('Fix the export');
   });
 
   it('starts the task it creates when Start is pressed instead', async () => {
@@ -203,8 +257,6 @@ describe('new work', () => {
     const { server } = await renderApp();
     const form = await openNewWork(user);
     await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
-    await user.click(within(form).getByRole('button', { name: 'Next' }));
-    await within(form).findByLabelText('Title');
     await user.click(within(form).getByRole('button', { name: 'Start' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
@@ -220,7 +272,7 @@ describe('new work', () => {
     const { server } = await renderApp();
     const before = Object.keys(server.world.tasks).length;
     const form = await openNewWork(user);
-    await user.selectOptions(within(form).getByLabelText('Project'), 'northwind');
+    await user.click(within(form).getByRole('radio', { name: 'northwind' }));
     await user.click(within(form).getByRole('radio', { name: 'Free agent' }));
     await user.type(within(form).getByLabelText('Branch'), 'feat/orders');
     await user.type(within(form).getByLabelText('What needs doing?'), 'Read the logs');
@@ -241,7 +293,7 @@ describe('new work', () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     const form = await openNewWork(user);
-    await user.selectOptions(within(form).getByLabelText('Project'), 'northwind');
+    await user.click(within(form).getByRole('radio', { name: 'northwind' }));
     await user.click(within(form).getByRole('radio', { name: 'Free agent' }));
     await user.type(within(form).getByLabelText('Branch'), 'feat/orders');
     await user.type(within(form).getByLabelText('What needs doing?'), 'Read the logs');
@@ -260,8 +312,6 @@ describe('new work', () => {
     const { server } = await renderApp();
     const form = await openNewWork(user);
     await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
-    await user.click(within(form).getByRole('button', { name: 'Next' }));
-    await within(form).findByLabelText('Title');
     // The task is written; the launch that follows it is refused.
     server.refuse(/api\/tasks$/, {
       status: 409,
@@ -341,38 +391,11 @@ describe('new work', () => {
     expect(within(reopened).getByLabelText('What needs doing?')).toHaveValue('');
   });
 
-  it('attaches an image on step 2 when step 1 attached none', async () => {
-    // The bucket groups the dialog's images, and the server refuses an upload
-    // without one. Step 1 is where a bucket is first wanted, but it is not where
-    // it must exist: a user who types prose, presses Next and attaches on step 2
-    // has to reach a server that takes the file.
-    const user = userEvent.setup();
-    const { server } = await renderApp();
-    const form = await openNewWork(user);
-    await user.type(within(form).getByLabelText('What needs doing?'), 'Fix the header');
-    await user.click(within(form).getByRole('button', { name: 'Next' }));
-    await within(form).findByLabelText('Title');
-
-    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', {
-      type: 'image/png',
-    });
-    await user.upload(within(form).getByLabelText('Attach image', { selector: 'input' }), png);
-    const content = within(form).getByLabelText('Content') as HTMLTextAreaElement;
-    await waitFor(() => expect(content.value).toContain('![shot.png]('));
-
-    const upload = server.requests.find(
-      (r) => r.method === 'POST' && r.path === '/api/attachments',
-    );
-    expect((upload!.body as { bucket: string }).bucket).toBeTruthy();
-  });
-
   it('holds nothing once the work is saved', async () => {
     const user = userEvent.setup();
     await renderApp();
     const form = await openNewWork(user);
     await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
-    await user.click(within(form).getByRole('button', { name: 'Next' }));
-    await within(form).findByLabelText('Title');
     await user.click(within(form).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
 
@@ -411,11 +434,204 @@ describe('new work', () => {
     // to the *first* project, so a stale name would silently write the work
     // against whichever one that is.
     expect(within(form).getByLabelText('What needs doing?')).toHaveValue('Fix the header');
-    const select = within(form).getByLabelText('Project') as HTMLSelectElement;
-    expect(select.value).not.toBe('gone-away');
-    expect(select.value).toBe(
-      (within(form).getByLabelText('Project') as HTMLSelectElement).options[0]!.value,
-    );
+    expect(within(form).queryByRole('radio', { name: 'gone-away' })).toBeNull();
+    // Something legal is chosen instead, rather than nothing at all.
+    const chosen = within(form)
+      .getAllByRole('radio')
+      .filter((r) => (r as HTMLInputElement).checked)
+      .map((r) => (r as HTMLInputElement).value);
+    expect(chosen).toContain('maelstrom');
+  });
+
+  describe('the project radios', () => {
+    it('offers a radio per project in the canvas view, and several when several are drawn', async () => {
+      const user = userEvent.setup();
+      await renderApp();
+      const form = await openNewWork(user);
+      // The seed draws work in two of its three projects, so both are offered
+      // and the one with nothing drawn is not.
+      expect(within(form).getByRole('radio', { name: 'maelstrom' })).toBeInTheDocument();
+      expect(within(form).getByRole('radio', { name: 'northwind' })).toBeInTheDocument();
+      expect(within(form).queryByRole('radio', { name: 'riverbend' })).toBeNull();
+    });
+
+    it('selects the one project in view, so the common case is no click at all', async () => {
+      const user = userEvent.setup();
+      await renderApp();
+      // Through the filter bar rather than a reseed: the radios follow the
+      // canvas, so narrowing it is what expresses "one project in view".
+      await user.selectOptions(screen.getByLabelText('Project'), 'maelstrom');
+      const form = await openNewWork(user);
+
+      expect(within(form).getByRole('radio', { name: 'maelstrom' })).toBeChecked();
+      expect(within(form).queryByRole('radio', { name: 'northwind' })).toBeNull();
+    });
+
+    it('reveals the remaining projects behind Other', async () => {
+      const user = userEvent.setup();
+      await renderApp();
+      await user.selectOptions(screen.getByLabelText('Project'), 'maelstrom');
+      const form = await openNewWork(user);
+      // Not on offer until asked: a project outside the view is the exception.
+      expect(within(form).queryByLabelText('Other project')).toBeNull();
+
+      await user.click(within(form).getByRole('radio', { name: 'Other' }));
+      const others = within(form).getByLabelText('Other project');
+      // Every project the radios do not already name.
+      expect([...(others as HTMLSelectElement).options].map((o) => o.value)).toEqual([
+        'northwind',
+        'riverbend',
+      ]);
+    });
+
+    it('writes the work against the project the chosen radio names', async () => {
+      const user = userEvent.setup();
+      const { server } = await renderApp();
+      const form = await openNewWork(user);
+      await user.click(within(form).getByRole('radio', { name: 'northwind' }));
+      await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
+      await user.click(within(form).getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+      expect(createdTask(server).project).toBe('northwind');
+    });
+
+    it('writes against a project chosen behind Other', async () => {
+      const user = userEvent.setup();
+      const { server } = await renderApp();
+      await user.selectOptions(screen.getByLabelText('Project'), 'maelstrom');
+      const form = await openNewWork(user);
+      await user.click(within(form).getByRole('radio', { name: 'Other' }));
+      await user.selectOptions(within(form).getByLabelText('Other project'), 'riverbend');
+      await user.type(within(form).getByLabelText('What needs doing?'), 'Fix the header');
+      await user.click(within(form).getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+      expect(createdTask(server).project).toBe('riverbend');
+    });
+
+    it('offers every project when the canvas draws none', async () => {
+      const user = userEvent.setup();
+      await renderApp();
+      // `riverbend` has no work on the desk, so filtering to it draws nothing.
+      // With no view to read a project off, every project is offered rather
+      // than an empty fieldset.
+      await user.selectOptions(screen.getByLabelText('Project'), 'riverbend');
+      const form = await openNewWork(user);
+      for (const name of ['maelstrom', 'northwind', 'riverbend']) {
+        expect(within(form).getByRole('radio', { name })).toBeInTheDocument();
+      }
+    });
+  });
+
+  describe('the planning level', () => {
+    it('opens on Regular, so the agent proposes before it edits', async () => {
+      const user = userEvent.setup();
+      await renderApp();
+      const form = await openNewWork(user);
+      // The middle of the three: no planning session is asked for, and nothing
+      // runs unattended. A level the user never chose is the one most tasks get,
+      // so the default is the whole of what this asserts.
+      expect(within(form).getByRole('radio', { name: 'Regular' })).toBeChecked();
+      expect(within(form).getByRole('radio', { name: 'High' })).not.toBeChecked();
+      expect(within(form).getByRole('radio', { name: 'None' })).not.toBeChecked();
+    });
+
+    it('reads the level a held command and mode name, not the default', async () => {
+      const user = userEvent.setup();
+      await renderApp();
+      // Why the key had to be versioned: a held value merges over the initial
+      // one, so a `command` held from a build whose default was High keeps
+      // showing High for as long as the key is readable. `useRetained.test.ts`
+      // covers the sweep that retires an older version's keys.
+      localStorage.setItem(
+        retainedKey.newWork(),
+        JSON.stringify({ command: 'plan-task', taskMode: 'normal' }),
+      );
+      const form = await openNewWork(user);
+      expect(within(form).getByRole('radio', { name: 'High' })).toBeChecked();
+      expect(within(form).getByRole('radio', { name: 'Regular' })).not.toBeChecked();
+    });
+
+    /** Save the prose under `level` and return the body the form posted. */
+    async function saveAtLevel(level: string) {
+      const user = userEvent.setup();
+      const { server } = await renderApp();
+      const form = await openNewWork(user);
+      await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
+      await user.click(within(form).getByRole('radio', { name: level }));
+      await user.click(within(form).getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+      const create = server.requests.find((r) => r.method === 'POST' && r.path === '/api/tasks');
+      return create!.body as { command: string; mode: string };
+    }
+
+    it('sends the chosen level as the pair it stands for', async () => {
+      // One case, not one per level: `protocol/planningLevel.test.ts` owns the
+      // table. What the form has to prove is that a chosen radio reaches the
+      // POST body as both fields, which is the wiring this layer can break.
+      expect(await saveAtLevel('High')).toMatchObject({ command: 'plan-task', mode: 'normal' });
+    });
+  });
+
+  describe('the advanced command and mode', () => {
+    /** Open the dialog with Advanced unfolded. */
+    async function openAdvanced(user: ReturnType<typeof userEvent.setup>) {
+      const form = await openNewWork(user);
+      await user.click(within(form).getByText('Advanced'));
+      return form;
+    }
+
+    it('says N/A when the two fields name a pair no level stands for', async () => {
+      const user = userEvent.setup();
+      await renderApp();
+      const form = await openAdvanced(user);
+      // An execute task under `normal`: legal in the notebook, and off the map.
+      await user.selectOptions(within(form).getByLabelText('Mode'), 'normal');
+
+      expect(within(form).getByRole('radio', { name: 'N/A' })).toBeChecked();
+      for (const level of ['High', 'Regular', 'None']) {
+        expect(within(form).getByRole('radio', { name: level })).not.toBeChecked();
+      }
+    });
+
+    it('hides N/A again once the fields name a level', async () => {
+      const user = userEvent.setup();
+      await renderApp();
+      const form = await openAdvanced(user);
+      await user.selectOptions(within(form).getByLabelText('Mode'), 'normal');
+      expect(within(form).getByRole('radio', { name: 'N/A' })).toBeInTheDocument();
+
+      // Back onto the map: the pair reads as a level, so N/A has nothing to say.
+      await user.selectOptions(within(form).getByLabelText('Mode'), 'auto');
+      expect(within(form).getByRole('radio', { name: 'None' })).toBeChecked();
+      expect(within(form).queryByRole('radio', { name: 'N/A' })).toBeNull();
+    });
+
+    it('re-reads the level when the command changes to one a level names', async () => {
+      const user = userEvent.setup();
+      await renderApp();
+      const form = await openAdvanced(user);
+      await user.selectOptions(within(form).getByLabelText('Mode'), 'normal');
+      // `plan-task` under `normal` is High, so editing the command alone lands
+      // the level: the radio and the two fields are one value, not two.
+      await user.type(within(form).getByLabelText('Command'), 'plan-task');
+
+      await waitFor(() => expect(within(form).getByRole('radio', { name: 'High' })).toBeChecked());
+    });
+
+    it('writes both fields when a level is chosen', async () => {
+      const user = userEvent.setup();
+      await renderApp();
+      const form = await openAdvanced(user);
+      await user.click(within(form).getByRole('radio', { name: 'High' }));
+
+      // Choosing a level is what sets the pair, so Advanced shows what will be
+      // written rather than a stale default.
+      expect(within(form).getByLabelText('Command')).toHaveValue('plan-task');
+      expect(within(form).getByLabelText('Mode')).toHaveValue('normal');
+    });
   });
 
   it('starts a free agent with an attached image in its prompt', async () => {
@@ -451,14 +667,15 @@ describe('new work', () => {
     const { server } = await renderApp();
     const form = await openNewWork(user);
     await user.type(within(form).getByLabelText('What needs doing?'), 'Fix the header');
-    await user.click(within(form).getByRole('button', { name: 'Next' }));
 
     const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', {
       type: 'image/png',
     });
+    // One attach control on this surface: the prose field *is* the task's
+    // content, so there is no second field to ask for the same text twice.
     await user.upload(within(form).getByLabelText('Attach image', { selector: 'input' }), png);
-    const content = within(form).getByLabelText('Content');
-    await waitFor(() => expect((content as HTMLTextAreaElement).value).toContain('![shot.png]('));
+    const prose = within(form).getByLabelText('What needs doing?');
+    await waitFor(() => expect((prose as HTMLTextAreaElement).value).toContain('![shot.png]('));
     await user.click(within(form).getByRole('button', { name: 'Save' }));
 
     const created = await waitFor(() => {

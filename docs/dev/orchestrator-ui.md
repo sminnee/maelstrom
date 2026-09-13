@@ -14,7 +14,7 @@ unit that needs orders shows it on the canvas itself.
 
 | Layer | Directory | Holds | Imports |
 |---|---|---|---|
-| Protocol | `protocol/` | The entity and transcript types, `phase.ts`, `deskId.ts`, `time.ts` | Nothing |
+| Protocol | `protocol/` | The entity and transcript types, `phase.ts`, `deskId.ts`, `time.ts`, and the hand-kept mirrors of Python rules — `planningLevel.ts`, `branchFromDraft.ts` | Nothing |
 | Backends | `api/`, `live/` | `api/`: the REST client, its query keys, the query cache, one hook per read and per command. `live/`: the change stream that keeps the cache fresh, and the per-agent transcript streams | Protocol |
 | State | `store/`, `selectors/` | The query cache holds the fetched world; one zustand store holds UI state, the connection state and the open transcripts; `selectors/` are pure functions over a `WorldView` | Protocol |
 | UI | `canvas/`, `tasklist/`, `newwork/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, plus the `ui/`, `markdown/` and `styles/` they share, and `test/` for shared test helpers. `ui/useRetained.ts` holds unsubmitted text in the browser | React components and CSS | State, Protocol |
@@ -445,32 +445,81 @@ none and the button says so.
 ## Starting new work
 
 The top bar's "New" control opens `newwork/NewWork.tsx`, in both views so the affordance never
-moves. The form is two steps in one dialog.
+moves. The form is one step: everything the work needs is on one surface.
 
-- **Step 1** takes a project, a kind — task, free agent or Linear — and the prose that says what
-  the work is. The prose is the only field a task needs. A free agent also names a branch, a mode
-  and a model.
-- **Step 2, tasks only.** "Next" calls `useInferTask`; the step shows the inferred title, branch
-  and command, every one editable. A task's model starts unset, so it launches on `opus` until
-  Advanced names one. The prose becomes the task's content unchanged. "Save" writes
-  the task as `todo`; "Start" writes it and launches it. Both put it on the desk. "Back" returns
-  to step 1 with the prose intact.
-- **Free agents skip step 2.** The branch combobox offers the branches of open worktrees in the
-  chosen project and keeps anything else typed, so a branch with no worktree gets one provisioned.
-  Mode and model are dropdowns, starting on `plan` — a new task's own default — and `opus`, the
-  UI's shortlist default. "Start" runs `useStartAgent`.
-- **The Linear kind skips step 2 too.** The kind shows only for a project whose `.maelstrom.yaml`
-  names a `linear.team_id`, which reaches the UI as `hasLinear` on the wire project. One combobox
-  offers the current cycle's issues, each row showing the issue id and its title; the field carries
-  the id. "Save" and "Start" both run `useCreateLinearTask`, which writes the same planning task
-  `mael linear plan` writes. There is nothing else to fill in: the brief, the branch, the command
-  and the mode all come from the issue.
+- **Every kind** takes a project, a kind — task, free agent or Linear — and the prose that says
+  what the work is. The prose is the only field a task needs.
+- **A task** also shows its title, its branch, its planning level, and Advanced. "Save" writes the
+  task as `todo`; "Start" writes it and launches it. Both put it on the desk. The prose becomes
+  the task's content unchanged, so the surface shows no second content field.
+- **"Suggest"**, beside Branch, calls `useInferTask` and fills the title, branch, command and mode
+  from the reply. It is a button rather than a gate: inference shells out to a model and takes tens
+  of seconds, and a task rarely needs a better name than its own prose gives it. It is an
+  `AppButton`, so those tens of seconds show on the control that started them — see "Commands are
+  mutations". A save that never presses it still writes a title and a branch — see "Naming a task
+  from its prose" below.
+- **A free agent** names a branch, a mode and a model instead. The branch combobox offers the
+  branches of open worktrees in the chosen project and keeps anything else typed, so a branch with
+  no worktree gets one provisioned. Mode and model start on `plan` — a new task's own default —
+  and `opus`, the UI's shortlist default. "Start" runs `useStartAgent`.
+- **The Linear kind** shows only for a project whose `.maelstrom.yaml` names a `linear.team_id`,
+  which reaches the UI as `hasLinear` on the wire project. One combobox offers the current cycle's
+  issues, each row showing the issue id and its title; the field carries the id. "Save" and "Start"
+  both run `useCreateLinearTask`, which writes the same planning task `mael linear plan` writes.
+  There is nothing else to fill in: the brief, the branch, the command and the mode all come from
+  the issue.
 
 The Linear kind is walled off in `newwork/LinearFields.tsx` and `api/linear.ts`, because the
 Linear integration is expected to go once the task notebook covers the same ground.
 
+### The project radios
+
+`newwork/ProjectField.tsx` offers a radio per project the canvas is drawing, plus "Other" for the
+rest. `selectors/projectsInView.ts` reads those projects by calling `deriveGraph`, the same call
+the canvas and the deck list make, so the radios follow the filter bar rather than holding an
+opinion of their own.
+
+One project in view is selected outright, so the common case is no click at all. A project outside
+the view sits behind "Other". A canvas drawing nothing offers every project instead.
+
+A held project the world no longer has is dropped before it is used, because the fallback picks the
+*first* offered project and a stale name would silently write the work against another one.
+
+### The planning level
+
+Three radios say how much planning the work gets before it is built. The level is a reading over
+the task's `command` and `mode`, never a field of its own:
+
+| Level | `command` | `mode` | What it means |
+|---|---|---|---|
+| High | `plan-task` | `normal` | A planning session, ending at its plan review. |
+| Regular | *(empty)* | `plan` | The task itself, proposing before it edits. |
+| None | *(empty)* | `auto` | The task itself, unattended. |
+
+The form opens on **Regular**, the middle of the three: no planning session is asked for, and
+nothing runs unattended. It is the level most tasks get, because it is the one nobody chose.
+
+`protocol/planningLevel.ts` holds the mapping both ways, and carries why the level is a UI-side
+reading rather than a wire field.
+
+Advanced keeps the Command combobox and the Mode select. The level and the two fields are one value
+read two ways, so choosing a level writes both fields and editing either re-derives the level. A
+pair no level stands for reads as N/A — see `newwork/PlanningLevelField.tsx`.
+
+### Naming a task from its prose
+
+A task needs a title and a branch, and the prose field is the only one the user must fill in. So a
+save that never pressed Suggest takes both from the prose: `protocol/branchFromDraft.ts` uses the
+draft's first non-empty line as the title, and slugs it into a `feat/<desc>` branch.
+
+It mirrors the deterministic half of `src/maelstrom/branch_name.py`, never the model's half, and
+carries why. One limit is worth knowing: `slugify` keeps `[a-z0-9]` only, so prose in a non-Latin
+script slugs to nothing and every such task falls back to `feat/task`. Python has the same limit.
+
 `ui/Dialog.tsx` and `tasklist/TaskFields.tsx` are shared with the task editor, so the two
-surfaces cannot drift on what a task's fields are.
+surfaces cannot drift on what a task's fields are. New work composes the parts rather than
+rendering the whole: it interleaves Suggest beside Branch and the planning radios above Advanced,
+and it shows a title without a content field.
 
 `ui/ComboBox.tsx` is the combobox the Branch, Command and Issue fields all use: a text field that
 offers a list and keeps anything else typed. A row can carry a label apart from its value, so the
@@ -531,9 +580,9 @@ The chat box sends the bytes as well, as an image block on the user turn, so the
 picture on the turn rather than after choosing to read a file. A task cannot: its prompt is a
 plain string. Either way the ref in the text is what renders in the transcript.
 
-New work has no id to group its images under, so the dialog mints a bucket and holds it across
-the step 1 to 2 move. An image attached to the prose lands beside one attached to the content,
-and the task's own commit sweeps both in.
+New work has no id to group its images under, so the dialog mints a bucket once and holds it for
+the dialog's whole life. Every image the form attaches lands in that one directory, and the task's
+own commit sweeps them in.
 
 Each label uses an explicit `htmlFor`. `AttachField` sits between the label and the field, so a
 wrapping label would leave the field with no accessible name.
@@ -556,7 +605,7 @@ is submitted. Every key lives in that one table, the way `api/keys.ts` holds eve
 
 **What is held, and what clears it.** Closing is not submitting: the backdrop, Escape, the ×,
 Cancel and a refused submit all hold. A resolved submit clears, and so does the **Clear** control on
-step 1 of the dialog. Clear is an ordinary affordance, shown whether the text was restored or just
+the dialog. Clear is an ordinary affordance, shown whether the text was restored or just
 typed, so a stale value has a one-click remedy; Cancel has never meant discard on this dialog, and
 giving it that meaning with no undo would be a separate decision. The chat box has no Clear: a `!`
 command line releases on running, which is the one clear that is not a submit.
@@ -564,7 +613,7 @@ command line releases on running, which is the one clear that is not a submit.
 **Written, not on every keystroke.** A trailing 300 ms debounce, plus a flush on two events: the
 component unmounting, and its key changing. `setItem` serialises JSON on the thread the transcript
 socket needs, so a write per keystroke is wasteful; an interval would lose the word of a user who
-types and clicks the backdrop inside it. The unmount flush is what makes a close safe whatever is
+types and clicks the backdrop within it. The unmount flush is what makes a close safe whatever is
 still in flight, and the key-change flush does the same for a tab switch, which never unmounts.
 
 **The prose, its attachments and their bucket are one value.** They cannot be three keys.
@@ -577,9 +626,10 @@ A held project is checked against the world before it is used. `chosen` falls ba
 project, so a project that has since gone would otherwise write the work against another one
 silently.
 
-Step 2 is not held: the dialog reopens on step 1 and Next re-infers. That costs one inference call
-after a close from step 2, and it is the price of not restoring edits to fields that were inferred
-from prose the user may since have changed.
+The task's own fields are held as well. They were not while the form had two steps: the dialog
+reopened on step 1 and Next re-inferred, so restoring them would have restored edits to fields
+inferred from prose the user may since have changed. One surface has no re-inference to fall back
+on, and a typed title lost on a close is the same loss the prose case guards against.
 
 **Two tabs.** Last write wins, and the hook does not listen for the `storage` event. Live-syncing
 two open dialogs would let one tab's keystrokes overwrite the other's textarea mid-sentence, which

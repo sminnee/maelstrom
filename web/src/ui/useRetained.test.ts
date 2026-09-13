@@ -2,7 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useRetained } from './useRetained';
 
-const KEY = 'mael.retained.v1.test';
+const KEY = 'mael.retained.v2.test';
 
 /** What storage holds under `key`, parsed. `undefined` where there is nothing. */
 const held = (key = KEY) => {
@@ -85,8 +85,8 @@ describe('useRetained', () => {
     // One component, two surfaces: the panel re-renders a single `SessionTab`
     // for whichever session is active rather than mounting a new one, so a key
     // change has to re-read rather than keep what is on screen.
-    const a = 'mael.retained.v1.message.a';
-    const b = 'mael.retained.v1.message.b';
+    const a = 'mael.retained.v2.message.a';
+    const b = 'mael.retained.v2.message.b';
     const { result, rerender } = renderHook(({ key }) => useRetained(key, ''), {
       initialProps: { key: a },
     });
@@ -107,8 +107,8 @@ describe('useRetained', () => {
     // A tab switch is a close as far as the text being left is concerned, and
     // the only chance to write it: the component is re-rendered, not unmounted,
     // so the unmount flush never runs.
-    const a = 'mael.retained.v1.message.a';
-    const b = 'mael.retained.v1.message.b';
+    const a = 'mael.retained.v2.message.a';
+    const b = 'mael.retained.v2.message.b';
     const { result, rerender } = renderHook(({ key }) => useRetained(key, ''), {
       initialProps: { key: a },
     });
@@ -182,10 +182,10 @@ describe('useRetained', () => {
   });
 
   it('sweeps a key left by an older version', async () => {
-    localStorage.setItem('mael.retained.v0.new-work', '"stale"');
+    localStorage.setItem('mael.retained.v1.new-work', '"stale"');
     // A key of the current version, held by another surface, to prove the sweep
     // takes only the old ones.
-    localStorage.setItem('mael.retained.v1.message.d9a4c7f1', '"live"');
+    localStorage.setItem('mael.retained.v2.message.d9a4c7f1', '"live"');
     // The sweep runs once per page, which a module-level flag models -- so this
     // test needs its own instance of the module. Reaching for the shared import
     // would have it sweep on whichever test mounted first, and pass or fail on
@@ -193,8 +193,8 @@ describe('useRetained', () => {
     vi.resetModules();
     const fresh = await import('./useRetained');
     renderHook(() => fresh.useRetained(KEY, ''));
-    expect(localStorage.getItem('mael.retained.v0.new-work')).toBeNull();
+    expect(localStorage.getItem('mael.retained.v1.new-work')).toBeNull();
     // Not collateral: another surface's current-version text stays.
-    expect(localStorage.getItem('mael.retained.v1.message.d9a4c7f1')).toBe('"live"');
+    expect(localStorage.getItem('mael.retained.v2.message.d9a4c7f1')).toBe('"live"');
   });
 });
