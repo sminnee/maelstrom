@@ -8,6 +8,20 @@
   stroke-width: 1.5;
 }
 /*
+ * A rewire re-runs the layout, so cards jump to new columns. React Flow writes
+ * the transform itself and ships no position tween, so this carries the move:
+ * the card slides to where the graph put it, and the eye keeps hold of it.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .canvas :global(.react-flow__node) {
+    transition: transform 220ms ease;
+  }
+  /* The node being dragged must track the pointer, not trail it. */
+  .canvas :global(.react-flow__node.dragging) {
+    transition: none;
+  }
+}
+/*
  * React Flow paints its own border and wash on a group node. The lane draws
  * its own, so the library's is a second rectangle carrying nothing.
  */
@@ -16,6 +30,23 @@
   z-index: -1 !important;
   border: none;
   background: transparent;
+}
+/* Over the board, clear of the top bar: the wire it refers to never drew. */
+.rewireError {
+  position: absolute;
+  z-index: var(--z-card);
+  top: var(--space-2);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--attention);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--attention);
+  font-size: var(--text-sm);
 }
 .frame {
   display: flex;

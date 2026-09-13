@@ -238,8 +238,29 @@
   color: var(--ok);
   font-size: var(--text-sm);
 }
+/*
+ * The two anchors a wire is dragged from. A dot clear of the phase bar, not a
+ * second border — see "The anchor is a dot, not an edge" in DESIGN.md.
+ */
 .handle {
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--bg-raised);
+  border-radius: 50%;
+  background: var(--border-strong);
   opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+.node:hover .handle,
+.handle:focus-visible {
+  opacity: 1;
+}
+.handle:hover {
+  background: var(--accent);
+}
+/* A wire being dragged needs every target lit, not just the one under it. */
+:global(.react-flow.connecting) .handle {
+  opacity: 1;
 }
 /* Without the pulse, a working node still reads as live. */
 @media (prefers-reduced-motion: reduce) {
