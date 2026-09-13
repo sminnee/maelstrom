@@ -16,6 +16,11 @@ An agent shows a picture with a third tag, which mints no document at all::
 
     <image src="docs/shot.png" alt="The failing dialog">
 
+A fourth says what the agent is doing now, and is a field rather than a
+document::
+
+    <note>Rebasing onto main, then re-running the failing port test</note>
+
 See ``docs/dev/orchestrator-server.md``, "A tagged document", for the design.
 """
 
@@ -23,6 +28,8 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+from ..tags import NOTE_TAG
 
 #: Turns one image tag into the markdown that replaces it, or ``None`` when the
 #: file may not be shown. The registry is what decides, so the decision is
@@ -85,10 +92,15 @@ class TaggedMessage:
 
     An image leaves no entry: ``show_image`` has already put it in the text,
     which is the only place an image goes.
+
+    ``note`` is what the agent said it is doing, and is empty when the message
+    carried none. A note replaces rather than accumulates, so this is the
+    latest one the message held.
     """
 
     text: str
     tags: tuple[DocumentTag, ...]
+    note: str = ""
 
 
 def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
@@ -146,6 +158,16 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         )
         spans.append(match.span())
 
+    note = ""
+    for match in NOTE_TAG.finditer(text):
+        # A `<note>` inside a `<doc-content>` body is that body's text.
+        if any(start <= match.start() < end for start, end in spans):
+            continue
+        # The last one wins: a note replaces rather than accumulates, and
+        # collapsing here gives that rule one home rather than one per sink.
+        note = match.group(2)
+        spans.append(match.span())
+
     replacements: list[tuple[int, int, str]] = []
     for match in _IMAGE_TAG.finditer(text):
         # An `<image>` inside a `<doc-content>` body is that body's text.
@@ -166,6 +188,7 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
     return TaggedMessage(
         text=_rewritten(text, spans, replacements),
         tags=tuple(tag for _, tag in tags),
+        note=note,
     )
 
 
