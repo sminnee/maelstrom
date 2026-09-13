@@ -1,0 +1,328 @@
+"""``NotebookTaskSource``: what the server reads tasks through.
+
+A new file rather than a section of ``test_orchestrator_server.py``, because
+that suite's ``Harness`` injects its own ``version`` counter and so cannot
+reach the revision path at all. The seam here is the source itself, over a real
+table.
+
+The partial read is the point. A poll that learns *that* something moved still
+has to read every task in every project; one that learns *which rows* moved
+reads those rows alone. Both backends answer it, so both are tested.
+"""
+
+import pytest
+
+from maelstrom import task as model
+from maelstrom.orchestrator.sources import NotebookTaskSource
+from maelstrom.state_db.migrate import open_state_db
+from maelstrom.task_table import InMemoryTaskTable, SqliteTaskTable
+
+PROJECT = "northwind"
+
+
+@pytest.fixture(params=["memory", "sqlite"])
+async def table(request):
+    """Run each test against every backend, as the contract suite does."""
+    if request.param == "memory":
+        yield InMemoryTaskTable()
+        return
+    db = open_state_db(":memory:")
+    await db.migrate()
+    yield SqliteTaskTable(db)
+    db.close()
+
+
+def a_source(table) -> NotebookTaskSource:
+    """A source over ``table``, reading one project and no worktrees."""
+    return NotebookTaskSource(table, lambda: [PROJECT])
+
+
+async def test_a_read_since_the_current_revision_finds_nothing(table):
+    """An idle poll does no work: nothing moved, so nothing is read."""
+    await model.create(table, project=PROJECT, title="Ship it", id="NORT-7")
+    source = a_source(table)
+    revision = await table.revision()
+
+    changed = await source.read_since(revision)
+
+    assert changed.tasks == []
+    assert changed.removed == []
+    assert changed.revision == revision
+
+
+async def test_only_the_task_that_moved_comes_back(table):
+    """The whole point: one row moves, one row is read.
+
+    The other task is untouched and must not appear, or the server is still
+    diffing whole tables with extra steps.
+    """
+    await model.create(table, project=PROJECT, title="Ship it", id="NORT-7")
+    await model.create(table, project=PROJECT, title="Leave it", id="NORT-8")
+    source = a_source(table)
+    before = await table.revision()
+
+    await model.move(table, PROJECT, "NORT-7", model.STATUS_IN_PROGRESS)
+    changed = await source.read_since(before)
+
+    assert [t["id"] for t in changed.tasks] == [f"{PROJECT}/NORT-7"]
+    assert changed.tasks[0]["status"] == model.STATUS_IN_PROGRESS
+    assert changed.revision > before
+
+
+async def test_a_deleted_task_comes_back_as_a_removal(table):
+    """Absence never means deletion; ``removed`` is the only authority.
+
+    A partial reading cannot infer a delete from a row it did not ask about —
+    that would remove every task the poll left out.
+    """
+    await model.create(table, project=PROJECT, title="Ship it", id="NORT-7")
+    await model.create(table, project=PROJECT, title="Leave it", id="NORT-8")
+    source = a_source(table)
+    before = await table.revision()
+
+    await model.delete(table, PROJECT, "NORT-7")
+    changed = await source.read_since(before)
+
+    assert changed.removed == [f"{PROJECT}/NORT-7"]
+    assert [t["id"] for t in changed.tasks] == []
+
+
+async def test_a_changed_task_carries_its_whole_entity(table):
+    """The row carries the prose, so a partial read is not a partial entity."""
+    await model.create(
+        table, project=PROJECT, title="Ship it", id="NORT-7", content="The plan."
+    )
+    source = a_source(table)
+    before = await table.revision()
+
+    await model.update(table, PROJECT, "NORT-7", title="Ship it now")
+    changed = await source.read_since(before)
+
+    entity = changed.tasks[0]
+    assert entity["title"] == "Ship it now"
+    assert entity["content"] == "The plan."
+    assert entity["notebookId"] == "NORT-7"
+
+
+async def test_actionability_is_decided_for_a_changed_task(table):
+    """``actionable`` is the notebook's rule, and a partial read still applies it.
+
+    ``NORT-8`` follows ``NORT-7``, so it is not actionable until that one is
+    done. Finishing ``NORT-7`` moves both rows, and the reading must say so.
+    """
+    await model.create(table, project=PROJECT, title="First", id="NORT-7")
+    await model.create(
+        table, project=PROJECT, title="Second", id="NORT-8", follows=["NORT-7"]
+    )
+    source = a_source(table)
+    before = await table.revision()
+
+    await model.move(table, PROJECT, "NORT-7", model.STATUS_DONE)
+    changed = await source.read_since(before)
+
+    by_id = {t["id"]: t for t in changed.tasks}
+    assert by_id[f"{PROJECT}/NORT-7"]["actionable"] is False, "a done task is terminal"
+
+
+async def test_a_task_outside_the_read_projects_is_left_out(table):
+    """The source reads the projects it was given, partial or not."""
+    await model.create(table, project=PROJECT, title="Mine", id="NORT-7")
+    await model.create(table, project="askastro", title="Theirs", id="ASK-1")
+    source = a_source(table)
+    before = await table.revision()
+
+    await model.move(table, "askastro", "ASK-1", model.STATUS_IN_PROGRESS)
+    changed = await source.read_since(before)
+
+    assert [t["id"] for t in changed.tasks] == []
+
+
+def test_a_row_id_is_already_the_wire_id_for_a_task():
+    """A task's row id and its wire id are the same string, and that is load-bearing.
+
+    ``task_table.row_id`` joins project and id with a slash, and
+    ``world_build.task_key`` does the same. The poll relies on it: the ids in
+    ``removed`` come straight off the database and are matched against the
+    world's own keys without translation. Pinned because nothing else would
+    notice if either one changed its separator — the removals would simply stop
+    matching, and deleted tasks would linger on the canvas.
+    """
+    from maelstrom.orchestrator.world_build import task_key
+    from maelstrom.task_table import row_id
+
+    assert row_id("northwind", "NORT-7") == task_key("northwind", "NORT-7")
+
+
+async def test_an_injected_version_is_not_a_revision(table):
+    """A source handed its own counter must not be read from a cursor.
+
+    The test harness injects one, so this is what keeps every existing
+    orchestrator test on the whole-notebook read rather than on a cursor its
+    counter cannot honour.
+    """
+    assert a_source(table).version_is_revision is True
+    injected = NotebookTaskSource(table, lambda: [PROJECT], version=lambda: "7")
+    assert injected.version_is_revision is False
+
+
+# --- the server's own poll ---
+#
+# The suite in ``test_orchestrator_server.py`` builds every source with an
+# injected version, so none of its 178 tests enters the partial path at all. A
+# green suite that never runs the branch proves nothing about it, so the poll
+# is driven here instead, over a real table.
+
+
+def an_orchestrator(table):
+    """An orchestrator whose task source reads ``table`` for real."""
+    from maelstrom.orchestrator.server import Orchestrator
+    from maelstrom.orchestrator.sources import InMemoryWorktreeSource
+
+    return Orchestrator(a_source(table), InMemoryWorktreeSource(), _NoDaemon())
+
+
+async def _nothing():
+    """An async iterator over nothing, for a stream with no events."""
+    for event in ():
+        yield event
+
+
+class _NoDaemon:
+    """An agent host that lists nothing. The poll under test never asks it."""
+
+    async def request(self, payload: dict) -> dict:
+        return {"agents": []}
+
+    def attach(self, agent_id: str, from_seq: int = 0, epoch: str = ""):
+        """No agent to attach to, so the stream is empty.
+
+        Built from an empty iterable rather than written as a generator with an
+        unreachable ``yield``, which the dead-code gate reads as dead code —
+        correctly, since that is exactly what it is.
+        """
+        return _nothing()
+
+
+async def test_the_poll_publishes_only_the_task_that_moved(table):
+    """The move this whole change exists for: one row moves, one event lands."""
+    await model.create(table, project=PROJECT, title="Ship it", id="NORT-7")
+    await model.create(table, project=PROJECT, title="Leave it", id="NORT-8")
+    orch = an_orchestrator(table)
+    await orch.refresh_tasks()
+
+    published: list[dict] = []
+    orch.notices.notify = lambda notices: published.append(notices)
+
+    await model.move(table, PROJECT, "NORT-7", model.STATUS_IN_PROGRESS)
+    await orch.refresh_tasks()
+
+    assert published == [{"task": {f"{PROJECT}/NORT-7"}}]
+    assert orch.world["tasks"][f"{PROJECT}/NORT-8"]["title"] == "Leave it"
+    assert (
+        orch.world["tasks"][f"{PROJECT}/NORT-7"]["status"] == model.STATUS_IN_PROGRESS
+    )
+
+
+async def test_the_poll_keeps_the_tasks_it_did_not_read(table):
+    """The ``diff_kind`` hazard, pinned: a partial read must delete nothing.
+
+    ``diff_kind`` removes any id absent from the reading it is given, so a poll
+    that fed it one tick's rows would drop the other tasks. Nothing about the
+    world says this went wrong except the tasks quietly vanishing.
+    """
+    for n in range(5):
+        await model.create(table, project=PROJECT, title=f"Task {n}", id=f"NORT-{n}")
+    orch = an_orchestrator(table)
+    await orch.refresh_tasks()
+    assert len(orch.world["tasks"]) == 5
+
+    await model.move(table, PROJECT, "NORT-0", model.STATUS_DONE)
+    await orch.refresh_tasks()
+
+    assert len(orch.world["tasks"]) == 5, "a partial read deleted what it did not read"
+
+
+async def test_the_poll_drops_a_deleted_task(table):
+    """A removal is published, so the client stops showing what is gone."""
+    await model.create(table, project=PROJECT, title="Ship it", id="NORT-7")
+    await model.create(table, project=PROJECT, title="Leave it", id="NORT-8")
+    orch = an_orchestrator(table)
+    await orch.refresh_tasks()
+
+    await model.delete(table, PROJECT, "NORT-7")
+    await orch.refresh_tasks()
+
+    assert set(orch.world["tasks"]) == {f"{PROJECT}/NORT-8"}
+
+
+async def test_an_idle_poll_publishes_nothing(table):
+    """Nothing moved, so no notice goes out and no client is woken."""
+    await model.create(table, project=PROJECT, title="Ship it", id="NORT-7")
+    orch = an_orchestrator(table)
+    await orch.refresh_tasks()
+
+    published: list[dict] = []
+    orch.notices.notify = lambda notices: published.append(notices)
+    await orch.refresh_tasks()
+
+    assert published == []
+
+
+async def test_the_poll_really_takes_the_partial_path(table, monkeypatch):
+    """The tests above would pass on the whole-notebook read too, so pin the path.
+
+    A two-task table read whole produces the same one upsert as a partial read
+    of the one row that moved, which is how a fallback passes for the feature.
+    This asserts the mechanism rather than the outcome: the cursor advances,
+    and the source is asked ``read_since`` rather than ``read``.
+    """
+    await model.create(table, project=PROJECT, title="Ship it", id="NORT-7")
+    orch = an_orchestrator(table)
+
+    await orch.refresh_tasks()
+    first = orch._task_cursor
+    assert first is not None, "the first read must leave a cursor to poll from"
+
+    asked: list[int] = []
+    real_read_since = orch.tasks.read_since
+
+    async def recording_read_since(since: int):
+        asked.append(since)
+        return await real_read_since(since)
+
+    # Restored by pytest: a poisoned ``read`` leaking into another test would
+    # surface there as an unrelated assertion failure.
+    monkeypatch.setattr(orch.tasks, "read_since", recording_read_since)
+    monkeypatch.setattr(orch.tasks, "read", _refuse_whole_read)
+
+    await model.move(table, PROJECT, "NORT-7", model.STATUS_IN_PROGRESS)
+    await orch.refresh_tasks()
+
+    assert asked == [first], "the poll read from the cursor it stored"
+    assert orch._task_cursor is not None and orch._task_cursor > first
+
+
+async def test_a_forced_refresh_still_reads_the_whole_notebook(table, monkeypatch):
+    """A command has just written the row a client waits for, so it reads it all.
+
+    The partial path is the poll's alone. Forcing is what every command does,
+    and it must not depend on a cursor that a first start has not set yet.
+    """
+    await model.create(table, project=PROJECT, title="Ship it", id="NORT-7")
+    orch = an_orchestrator(table)
+    await orch.refresh_tasks()
+
+    monkeypatch.setattr(orch.tasks, "read_since", _refuse_partial_read)
+    await model.create(table, project=PROJECT, title="Another", id="NORT-8")
+    await orch.refresh_tasks(force=True)
+
+    assert set(orch.world["tasks"]) == {f"{PROJECT}/NORT-7", f"{PROJECT}/NORT-8"}
+
+
+
+async def _refuse_whole_read():
+    raise AssertionError("the poll read the whole notebook instead of what moved")
+
+
+async def _refuse_partial_read(since: int):
+    raise AssertionError("a forced refresh took the partial path")

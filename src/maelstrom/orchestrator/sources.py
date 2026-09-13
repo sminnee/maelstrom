@@ -74,6 +74,27 @@ class LaunchRequest:
     payload: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class TaskReading:
+    """What moved in the notebook since some revision, as the wire holds it.
+
+    The wire-side counterpart of
+    :class:`~maelstrom.task_table.TaskChanges`: entities rather than model
+    tasks, and wire ids rather than row ids.
+
+    ``removed`` is carried in its own right because absence cannot be read as
+    deletion. A caller holding only the changed rows could not tell a deleted
+    task from an untouched one, and diffing that against the whole world would
+    drop every task the read left out.
+
+    ``revision`` is what the caller stores and asks from next time.
+    """
+
+    tasks: list[Task]
+    removed: list[str]
+    revision: int
+
+
 class TaskSource(Protocol):
     """The notebook, as tasks across every project."""
 
@@ -84,6 +105,25 @@ class TaskSource(Protocol):
     async def read(self) -> list[Task]:
         """Every task the server shows, with ``actionable`` decided by the notebook."""
         ...
+
+    async def read_since(self, since: int) -> TaskReading:
+        """What moved since ``since``: the tasks that changed, and the ids that went.
+
+        The poll's read. :meth:`read` answers for the whole notebook and is
+        what a forced refresh and a first start take; this answers for one
+        tick's worth of change.
+        """
+        ...
+
+    async def revision_now(self) -> int:
+        """The revision a later :meth:`read_since` should be asked from."""
+        ...
+
+    #: Whether :meth:`version` returns this source's own table revision. A
+    #: source with an injected version answers ``False``, because its counter
+    #: names no revision :meth:`read_since` could be asked from — so the server
+    #: reads the whole notebook rather than a cursor the source cannot honour.
+    version_is_revision: bool
 
     async def launch(self, task_id: str, model_name: str | None) -> LaunchRequest:
         """Open the task's worktree, move it in-progress, and say what to start.
@@ -216,6 +256,14 @@ class NotebookTaskSource:
         self.open_worktree = open_worktree
         self.live_sessions = live_sessions
         self.has_transcript = has_transcript
+        #: An injected version is some test's own counter, not the table's
+        #: revision, so it names nothing :meth:`read_since` can be asked from.
+        #: Such a source is read whole, which is what it was always doing.
+        self.version_is_revision = version is None
+
+    async def revision_now(self) -> int:
+        """The table's revision, for a caller about to start reading from it."""
+        return await self.table.revision()
 
     async def version(self) -> str | None:
         """The table's revision, as a stamp that moves when any task moves.
@@ -237,6 +285,28 @@ class NotebookTaskSource:
                 actionable = await model.is_actionable(task, self.table)
                 entities.append(task_entity(task, actionable=actionable))
         return entities
+
+    async def read_since(self, since: int) -> TaskReading:
+        """The tasks that moved after ``since``, and the ids that went.
+
+        What the poll reads instead of :meth:`read`. One query answers for the
+        whole notebook, so a tick costs the rows that changed rather than every
+        task in every project.
+
+        Removals are named, never inferred: a reading that held only the changed
+        rows could not tell a deleted task from an untouched one, and a caller
+        diffing it against the whole world would drop every task left out.
+        """
+        wanted = set(self.projects())
+        changed = await self.table.changed_since(since)
+        entities: list[Task] = []
+        for task in changed.tasks:
+            if task.project not in wanted:
+                continue
+            actionable = await model.is_actionable(task, self.table)
+            entities.append(task_entity(task, actionable=actionable))
+        removed = [key for key in changed.removed if split_task_key(key)[0] in wanted]
+        return TaskReading(tasks=entities, removed=removed, revision=changed.revision)
 
     async def launch(self, task_id: str, model_name: str | None) -> LaunchRequest:
         """``task_id`` is the wire id; the notebook is asked for the bare one."""
