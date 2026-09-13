@@ -363,6 +363,14 @@ Horizontal position is progress first and dependency second:
 - A zone no lane uses takes no columns and collapses, and draws no label.
 - When the two rules conflict — a done task that follows a running one — progress wins, and the
   follows edge draws backwards.
+- A wire another path already implies is not drawn. The board shows what gates what, not every
+  id on disk.
+
+**The anchor is a dot, not an edge.** A node's two wire anchors are 7px dots on its left and
+right centre lines, hidden until the node is hovered and lit while a wire is being dragged. The
+left one sits clear of the 4px phase bar rather than replacing it: by the Left Edge Rule that
+border carries phase and only phase, so an anchor that thickened or recoloured it would be a
+second channel on one edge. A dot reads as a fitting on the card, which is what it is.
 
 Spacing runs on a 4px base with four steps in use: 4, 8, 12, 16. Component padding uses the
 scale; the canvas uses its own constants because it positions in absolute pixels.

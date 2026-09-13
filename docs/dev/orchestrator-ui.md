@@ -171,6 +171,23 @@ agent linked to a task draws as that task's node, so nothing appears twice. Edge
 `task.follows`, so a free agent is never an endpoint. A subagent, an agent with a `parent`, is
 never a node's agent and never a node: it is reached through its parent's session tab.
 
+The canvas also rewires. Each node carries two anchors, hidden until the node is hovered or
+focused and lit on every node while a wire is dragged, and a drag between them writes the
+target's `follows` — the direction an edge is built in, followed to follower. A drag across projects or onto the node itself is declined before it lands, and the
+server refuses the same pair again along with a cycle. Nothing is optimistic: the wire appears
+when the refetched world carries it, so a refusal simply leaves the board as it was. `follows` is
+the one field the canvas writes that the task editor does not, so it is not part of the editor's
+draft. Hovering a wire offers the button that cuts it, which writes the target's `follows`
+without the id.
+
+The board draws fewer wires than the notebook holds. `canvas/reduce.ts` drops an edge that a path
+of unfinished work already implies: when C follows both A and B, and B follows A and has still to
+finish, B gates C on A's behalf and A→C says nothing new. Only `done` releases a follower, the
+rule `is_actionable` applies, so a cancelled intermediate still hides the edge and a done one
+brings it back. The reduction is display-only — `layoutSwimlanes` takes the full edge set, so no
+column moves, and `follows` on disk keeps every id. A hidden wire cannot be cut from the board,
+which is the accepted cost.
+
 The expanded card's Now block shows the agent's note when it wrote one, and its last message
 otherwise: a note is the agent's own account of its work, where a last message is whatever prose
 ended a turn. The block is still dated from the last message, never the note, because the age
@@ -687,6 +704,18 @@ feeds both suites.
 
 Colours, light mode, glow, the grow animation, pan and zoom, pixel positions and markdown
 fidelity are not tested.
+
+Neither is anything React Flow draws from a measurement. jsdom lays nothing out, so an edge
+never renders in a test — a bare mount and the whole app both draw their nodes and no edges —
+and a connection drag never resolves, because v12 hit-tests the pointer against
+`getBoundingClientRect`. So the drawn wire, its hover target and the drag gesture are checked in
+a browser, and `FollowsEdge` is reachable by no test: it renders only when an edge does.
+
+The anchors are not in that category. A `Handle` renders whatever the layout, so
+`App.canvas.test.tsx` asserts a task node draws its two, which is what `nodesConnectable` buys.
+The rest is tested away from the canvas: `canvas/reduce.ts` and `canvas/connect.ts` are pure and
+carry the rules a wire is drawn, refused and cut by, and the write itself is covered at
+`useUpdateTask` and at the PATCH route.
 
 Canvas nodes are clicked with `fireEvent.click`, not user-event — see `clickNode` in
 `src/test/renderApp.tsx` for why. Everything outside the canvas uses user-event.
