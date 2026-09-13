@@ -14,6 +14,33 @@
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--accent) 12%, var(--bg-raised));
 }
+/*
+ * The transcript's second rank of prose: an agent's own commentary, demoted so
+ * that the callout it wrote is what stands. See DESIGN.md, "The Two Ranks of
+ * Prose Rule". `color`, never `opacity`, which would fade a picture and a code
+ * block with the text.
+ */
+.demoted {
+  font-size: var(--text-ui);
+  color: var(--fg-muted);
+  /*
+   * A fixed 20px box, not `--leading-prose`: at 13px the ratio gives 19.5px, so
+   * every paragraph in a demoted run would sit on a half pixel and the gaps
+   * below would be multiples of nothing. A whole-pixel box is the same move
+   * Markdown.module.css makes for its headings, and for the same reason.
+   */
+  line-height: 20px;
+
+  --prose-gap: 20px;
+  --prose-gap-tight: 10px;
+  --prose-gap-loose: 40px;
+}
+/* Headings and bold text carry their own colour, so demotion must reach them
+   too or a demoted run reads as a page of highlights. */
+.demoted :is(h1, h2, h3, h4, h5, h6),
+.demoted strong {
+  color: inherit;
+}
 .role {
   font-size: var(--text-2xs);
   text-transform: uppercase;
