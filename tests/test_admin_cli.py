@@ -371,6 +371,7 @@ class TestExportQueue:
         monkeypatch.setattr(
             "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
         )
+        monkeypatch.setattr("maelstrom.state_db.paths.get_state_root", lambda: tmp_path)
         assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
 
         result = CliRunner().invoke(cmd_export_queue, [])
@@ -383,6 +384,7 @@ class TestExportQueue:
         monkeypatch.setattr(
             "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
         )
+        monkeypatch.setattr("maelstrom.state_db.paths.get_state_root", lambda: tmp_path)
         assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
 
         db = open_state_db(tmp_path / "state.db")
@@ -411,6 +413,7 @@ class TestExportQueue:
         monkeypatch.setattr(
             "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
         )
+        monkeypatch.setattr("maelstrom.state_db.paths.get_state_root", lambda: tmp_path)
         assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
 
         db = open_state_db(tmp_path / "state.db")
@@ -450,6 +453,7 @@ class TestExportQueue:
         monkeypatch.setattr(
             "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
         )
+        monkeypatch.setattr("maelstrom.state_db.paths.get_state_root", lambda: tmp_path)
         assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
 
         result = CliRunner().invoke(cmd_export_queue, ["--rebuild"])
@@ -462,6 +466,7 @@ class TestExportQueue:
         monkeypatch.setattr(
             "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
         )
+        monkeypatch.setattr("maelstrom.state_db.paths.get_state_root", lambda: tmp_path)
         open_state_db(tmp_path / "state.db").close()
 
         result = CliRunner().invoke(cmd_export_queue, [])

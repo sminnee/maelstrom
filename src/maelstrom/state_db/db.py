@@ -209,7 +209,9 @@ class StateDb:
             for name, ladder in self.ladders.items():
                 found = self._read_version(conn, name)
                 if found > len(ladder):
-                    raise SchemaTooNewError(_too_new(name, found, len(ladder)))
+                    raise SchemaTooNewError(
+                        _too_new(name, found, len(ladder), self.path)
+                    )
                 for rung in ladder[found:]:
                     self._run_rung(conn, rung)
                 if found != len(ladder):
@@ -243,7 +245,9 @@ class StateDb:
     def _migrate_spine(self, conn: sqlite3.Connection) -> None:
         found = conn.execute("PRAGMA user_version").fetchone()[0]
         if found > len(self.spine):
-            raise SchemaTooNewError(_too_new("the spine", found, len(self.spine)))
+            raise SchemaTooNewError(
+                _too_new("the spine", found, len(self.spine), self.path)
+            )
         for rung in self.spine[found:]:
             self._run_rung(conn, rung)
         if found != len(self.spine):
@@ -261,15 +265,19 @@ class StateDb:
     def _check(self, conn: sqlite3.Connection) -> None:
         spine = conn.execute("PRAGMA user_version").fetchone()[0]
         if spine > len(self.spine):
-            raise SchemaTooNewError(_too_new("the spine", spine, len(self.spine)))
+            raise SchemaTooNewError(
+                _too_new("the spine", spine, len(self.spine), self.path)
+            )
         if spine < len(self.spine):
-            raise SchemaTooOldError(_too_old("the spine", spine, len(self.spine)))
+            raise SchemaTooOldError(
+                _too_old("the spine", spine, len(self.spine), self.path)
+            )
         for name, ladder in self.ladders.items():
             found = self._read_version(conn, name)
             if found > len(ladder):
-                raise SchemaTooNewError(_too_new(name, found, len(ladder)))
+                raise SchemaTooNewError(_too_new(name, found, len(ladder), self.path))
             if found < len(ladder):
-                raise SchemaTooOldError(_too_old(name, found, len(ladder)))
+                raise SchemaTooOldError(_too_old(name, found, len(ladder), self.path))
 
     @staticmethod
     def _read_version(conn: sqlite3.Connection, name: str) -> int:
@@ -783,15 +791,17 @@ class StateDb:
         return out, revision
 
 
-def _too_new(name: str, found: int, build: int) -> str:
+def _too_new(name: str, found: int, build: int, path: Path | str) -> str:
     return (
-        f"the state database's {name} schema is at version {found}, and this "
-        f"build knows version {build}. Run the newer build, or update this one."
+        f"the state database at {path}: its {name} schema is at version {found}, "
+        f"and this build knows version {build}. Run the newer build, or update "
+        "this one."
     )
 
 
-def _too_old(name: str, found: int, build: int) -> str:
+def _too_old(name: str, found: int, build: int, path: Path | str) -> str:
+    """Names the file, because the same refusal arrives from two databases."""
     return (
-        f"the state database's {name} schema is at version {found}, and this "
-        f"build needs version {build}. Run `{_MIGRATE_COMMAND}`."
+        f"the state database at {path}: its {name} schema is at version {found}, "
+        f"and this build needs version {build}. Run `{_MIGRATE_COMMAND}`."
     )

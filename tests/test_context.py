@@ -8,11 +8,49 @@ from maelstrom.context import (
     GlobalConfig,
     ResolvedContext,
     detect_context_from_cwd,
+    get_state_root,
     load_global_config,
     parse_target_arg,
     resolve_context,
     validate_project_name,
 )
+
+
+class TestGetStateRoot:
+    """Which directory the state database resolves under.
+
+    ``_main`` is prod and a NATO worktree is a dev environment, so a worktree
+    names its own root in its ``.env`` and reaches a playpen.
+    """
+
+    def test_unset_falls_back_to_the_shared_root(self, monkeypatch):
+        """No override means the real notebook, so a bare ``mael`` reaches it."""
+        monkeypatch.delenv("MAEL_STATE_ROOT", raising=False)
+        assert get_state_root() == Path.home() / ".maelstrom"
+
+    def test_a_set_root_is_used(self, monkeypatch, tmp_path):
+        playpen = tmp_path / "playpens" / "bravo"
+        monkeypatch.setenv("MAEL_STATE_ROOT", str(playpen))
+        assert get_state_root() == playpen
+
+    def test_a_tilde_expands(self, monkeypatch):
+        """The value is written by hand into ``.env``, so ``~`` reaches here.
+
+        An unexpanded one makes a directory named ``~`` wherever the process
+        happens to be running.
+        """
+        monkeypatch.setenv("HOME", "/home/tester")
+        monkeypatch.setenv("MAEL_STATE_ROOT", "~/.maelstrom/playpens/bravo")
+        assert get_state_root() == Path("/home/tester/.maelstrom/playpens/bravo")
+
+    def test_an_empty_value_falls_back(self, monkeypatch):
+        """An empty assignment in ``.env`` is not a root.
+
+        ``MAEL_STATE_ROOT=`` with no value reads as unset rather than as the
+        current directory, which is what a bare ``Path("")`` would give.
+        """
+        monkeypatch.setenv("MAEL_STATE_ROOT", "")
+        assert get_state_root() == Path.home() / ".maelstrom"
 
 
 class TestGlobalConfig:

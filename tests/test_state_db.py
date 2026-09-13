@@ -3,11 +3,19 @@
 import asyncio
 import sqlite3
 import threading
+from pathlib import Path
 
 import pytest
 
+from maelstrom.context import get_state_root
+from maelstrom.state_db import paths
 from maelstrom.state_db.db import StateDb
 from maelstrom.state_db.migrate import open_state_db
+from maelstrom.state_db.paths import (
+    get_desk_json_path,
+    get_notebook_path,
+    get_state_db_path,
+)
 from maelstrom.state_db.types import (
     Migration,
     PythonMigration,
@@ -29,6 +37,82 @@ async def db():
     await state_db.migrate()
     yield state_db
     state_db.close()
+
+
+class TestWhereTheDatabaseLives:
+    """The database follows the state root; the import files do not.
+
+    A worktree names its own root, so ``uv run mael`` there reaches a playpen
+    and work on the data layer cannot touch the real notebook. The two
+    pre-database files stay on the shared root deliberately: pointing them at an
+    empty playpen is what makes a fresh playpen start empty, rather than
+    importing a stale snapshot of the real notebook.
+    """
+
+    def test_the_database_follows_the_state_root(self, monkeypatch, tmp_path):
+        playpen = tmp_path / "playpens" / "bravo"
+        monkeypatch.setattr(paths, "get_state_root", lambda: playpen)
+        assert get_state_db_path() == playpen / "state.db"
+
+    def test_the_state_root_reads_the_environment(self, monkeypatch, tmp_path):
+        """The binding the suite pins is the one the variable feeds.
+
+        Patched everywhere else in the suite, so this is the one test that walks
+        the whole chain: ``MAEL_STATE_ROOT`` -> ``get_state_root`` -> the file.
+        """
+        playpen = tmp_path / "playpens" / "bravo"
+        monkeypatch.setenv("MAEL_STATE_ROOT", str(playpen))
+        monkeypatch.setattr(paths, "get_state_root", get_state_root)
+        assert get_state_db_path() == playpen / "state.db"
+
+    def test_without_a_state_root_the_database_is_the_real_one(self, monkeypatch):
+        """No variable means the real notebook, which is what the PATH ``mael`` reads.
+
+        Compared against ``~/.maelstrom`` directly rather than against this
+        module's ``get_maelstrom_dir``, which the suite pins elsewhere: the two
+        resolve through different bindings on purpose.
+        """
+        monkeypatch.delenv("MAEL_STATE_ROOT", raising=False)
+        monkeypatch.setattr(paths, "get_state_root", get_state_root)
+        assert get_state_db_path() == Path.home() / ".maelstrom" / "state.db"
+
+    def test_the_desk_json_stays_off_the_state_root(self, monkeypatch, tmp_path):
+        """Read only by the desk ladder's import rung.
+
+        Asserted through the module's own ``get_maelstrom_dir`` binding, which
+        is what the suite patches to keep the rungs off a real desk.
+        """
+        playpen = tmp_path / "playpens" / "bravo"
+        monkeypatch.setattr(paths, "get_state_root", lambda: playpen)
+        assert get_desk_json_path() == paths.get_maelstrom_dir() / "desk.json"
+
+    def test_the_notebook_stays_off_the_state_root(self, monkeypatch, tmp_path):
+        """Read only by the tasks ladder's import rung."""
+        playpen = tmp_path / "playpens" / "bravo"
+        monkeypatch.setattr(paths, "get_state_root", lambda: playpen)
+        assert get_notebook_path() == paths.get_maelstrom_dir() / "tasks"
+
+
+class TestTheRefusalNamesTheDatabase:
+    """Which database refused is the question the message has to answer.
+
+    The same refusal arrives from two places now: a worktree's playpen and the
+    real notebook. A message naming neither is what let a user migrate a typo'd
+    root, meet the familiar instruction, run it, and end up with a plausible
+    database missing every recent task.
+    """
+
+    async def test_an_unmigrated_playpen_names_its_own_path(self, tmp_path):
+        playpen = tmp_path / "playpens" / "bravo"
+        playpen.mkdir(parents=True)
+        db = open_state_db(playpen / "state.db")
+        try:
+            with pytest.raises(SchemaTooOldError) as exc:
+                await db.check()
+        finally:
+            db.close()
+        assert str(playpen / "state.db") in str(exc.value)
+        assert "mael admin migrate" in str(exc.value)
 
 
 class TestOpenAndMigrate:

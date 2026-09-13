@@ -71,11 +71,20 @@ def _isolate_state_db_paths(monkeypatch, tmp_path):
     into its own. That read is silent: the rows arrive looking like the test's
     own, and the test fails somewhere else entirely.
 
+    Both of this module's resolvers are pinned: the database and the files the
+    rungs import resolve through different ones. See ``state_db/paths.py``.
+
+    Pinned here rather than through ``MAEL_STATE_ROOT``, so no command reads as
+    a playpen and prints the note.
+
     Autouse rather than per-test, because a test author cannot be expected to
     know that opening an in-memory database reaches a file at all.
     """
     monkeypatch.setattr(
         "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path / "maelstrom"
+    )
+    monkeypatch.setattr(
+        "maelstrom.state_db.paths.get_state_root", lambda: tmp_path / "maelstrom"
     )
 
 

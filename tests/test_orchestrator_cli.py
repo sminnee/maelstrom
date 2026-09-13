@@ -29,6 +29,7 @@ def state_db(tmp_path, monkeypatch):
     developer's live ``~/.maelstrom/state.db``.
     """
     monkeypatch.setattr("maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path)
+    monkeypatch.setattr("maelstrom.state_db.paths.get_state_root", lambda: tmp_path)
     db = open_state_db()
     asyncio.run(db.migrate())
     db.close()
@@ -216,6 +217,7 @@ def test_an_unmigrated_state_database_refuses_to_serve(tmp_path, monkeypatch):
     message has to carry the command that clears it.
     """
     monkeypatch.setattr("maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path)
+    monkeypatch.setattr("maelstrom.state_db.paths.get_state_root", lambda: tmp_path)
     with (
         patch("maelstrom.orchestrator_cli.build_orchestrator"),
         patch("maelstrom.orchestrator_cli.build_app"),
@@ -229,6 +231,7 @@ def test_an_unmigrated_state_database_refuses_to_serve(tmp_path, monkeypatch):
 def test_serve_reports_a_refused_state_database_as_an_error(tmp_path, monkeypatch):
     """The refusal reaches the user as one line, not as a traceback."""
     monkeypatch.setattr("maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path)
+    monkeypatch.setattr("maelstrom.state_db.paths.get_state_root", lambda: tmp_path)
     with patch(
         "maelstrom.orchestrator_cli.run_server",
         side_effect=SchemaTooOldError("run `mael admin migrate`"),
@@ -247,6 +250,7 @@ def test_a_maelstrom_dir_that_does_not_exist_is_created(tmp_path, monkeypatch):
     """
     home = tmp_path / "never-used"
     monkeypatch.setattr("maelstrom.state_db.paths.get_maelstrom_dir", lambda: home)
+    monkeypatch.setattr("maelstrom.state_db.paths.get_state_root", lambda: home)
     with (
         patch("maelstrom.orchestrator_cli.build_orchestrator"),
         patch("maelstrom.orchestrator_cli.build_app"),

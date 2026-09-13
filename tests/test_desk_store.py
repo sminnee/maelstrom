@@ -164,10 +164,18 @@ class TestTheDeskJsonImportRung:
 
     @pytest.fixture(autouse=True)
     def _home(self, tmp_path, monkeypatch):
-        """Keep the rung's read inside tmp_path, not the developer's ~/.maelstrom."""
+        """Keep the rung's read inside tmp_path, not the developer's ~/.maelstrom.
+
+        Both resolvers, because the database resolves through ``get_state_root``
+        while the ``desk.json`` the rung imports resolves through
+        ``get_maelstrom_dir``. Pinned here rather than through
+        ``MAEL_STATE_ROOT``: the suite pins the binding, so the variable would
+        not be read.
+        """
         monkeypatch.setattr(
             "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
         )
+        monkeypatch.setattr("maelstrom.state_db.paths.get_state_root", lambda: tmp_path)
 
     async def test_an_existing_desk_json_imports(self, tmp_path):
         path = tmp_path / "desk.json"

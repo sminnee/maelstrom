@@ -1,18 +1,27 @@
 """Where the state database is kept.
 
-Its own module because it is small and heavily patched: a test that redirects
-``get_maelstrom_dir`` patches it here, and a re-export elsewhere would let such
-a patch bind an unused alias while the real directory was still read.
+Its own module because it is small and heavily patched: the paths here call
+:func:`maelstrom.context.get_state_root` and
+:func:`maelstrom.context.get_maelstrom_dir` in a body, so a test that redirects
+either reaches this module's binding. A re-export elsewhere would let such a
+patch bind an unused alias while the real directory was still read.
+
+Only the database follows the state root. ``desk.json`` and the notebook stay on
+the shared root, which is what makes a fresh playpen start empty.
 """
 
 from pathlib import Path
 
-from ..context import get_maelstrom_dir
+from ..context import get_maelstrom_dir, get_state_root
 
 
 def get_state_db_path() -> Path:
-    """Where the state database is kept."""
-    return get_maelstrom_dir() / "state.db"
+    """Where the state database is kept.
+
+    Under the state root, so ``uv run mael`` in a worktree reaches that
+    worktree's playpen and the ``mael`` on the PATH reaches the real notebook.
+    """
+    return get_state_root() / "state.db"
 
 
 def get_desk_json_path() -> Path:

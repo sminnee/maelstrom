@@ -6,6 +6,7 @@ This module handles resolving project and worktree context from:
 - Global configuration (~/.maelstrom/config.yaml)
 """
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -17,10 +18,31 @@ GLOBAL_CONFIG_DIR = ".maelstrom"
 GLOBAL_CONFIG_FILENAME = "config.yaml"
 GLOBAL_CONFIG_FILENAME_LEGACY = ".maelstrom.yaml"
 
+#: Names the directory the state database is kept in. A worktree's ``.env``
+#: carries it, so ``uv run mael`` there reaches that worktree's playpen.
+STATE_ROOT_ENV = "MAEL_STATE_ROOT"
+
 
 def get_maelstrom_dir() -> Path:
     """Return the path to ~/.maelstrom/ directory."""
     return Path.home() / GLOBAL_CONFIG_DIR
+
+
+def get_state_root() -> Path:
+    """The directory the state database is kept in.
+
+    Defaults to :func:`get_maelstrom_dir`, unlike
+    :data:`maelstrom.agent_transport.ROOT_ENV`'s "no default, ever": the ``mael``
+    on the PATH is a console entrypoint that loads no ``.env``, so it must reach
+    the real notebook by doing nothing.
+
+    ``~`` is expanded, because the value is hand-written into a worktree's
+    ``.env``. An empty value reads as unset.
+    """
+    override = os.environ.get(STATE_ROOT_ENV)
+    if not override:
+        return get_maelstrom_dir()
+    return Path(override).expanduser()
 
 
 @dataclass

@@ -12,6 +12,7 @@ import pytest
 
 from maelstrom.state_db.migrate import open_state_db
 from maelstrom.state_db.migrations.notebook_md import _SESSION_NS
+from maelstrom.state_db.paths import get_state_db_path
 from maelstrom.task import Task, session_id_for
 from maelstrom.task_table import SqliteTaskTable
 
@@ -47,8 +48,14 @@ def _home(tmp_path, monkeypatch):
     The suite's own ``_isolate_state_db_paths`` already does this; it is repeated
     here because these tests are *about* the rung's read, so the isolation is
     load-bearing rather than incidental.
+
+    Both resolvers, because the database resolves through ``get_state_root``
+    while the notebook the rung imports resolves through ``get_maelstrom_dir``.
+    Pinned here rather than through ``MAEL_STATE_ROOT``: the suite pins the
+    binding, so the variable would not be read.
     """
     monkeypatch.setattr("maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path)
+    monkeypatch.setattr("maelstrom.state_db.paths.get_state_root", lambda: tmp_path)
 
 
 def write_task(tmp_path, task: Task) -> None:
@@ -63,6 +70,33 @@ async def migrated(tmp_path):
     db = open_state_db(tmp_path / "state.db")
     await db.migrate()
     return db
+
+
+class TestAFreshPlaypenStartsEmpty:
+    """A playpen imports nothing, however full the real notebook is.
+
+    The rung reads the notebook under ``get_maelstrom_dir``, not under the state
+    root, so a worktree's own database starts empty rather than with a stale
+    snapshot of the real one. A playpen that imported 800 real tasks would be
+    indistinguishable from prod at a glance, which is the failure this guards.
+    """
+
+    async def test_an_empty_playpen_imports_no_tasks(self, tmp_path, monkeypatch):
+        real = tmp_path / "real"
+        write_task(real, A_TASK)
+        monkeypatch.setattr(
+            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: real / "empty"
+        )
+        playpen = tmp_path / "playpens" / "bravo"
+        playpen.mkdir(parents=True)
+        monkeypatch.setattr("maelstrom.state_db.paths.get_state_root", lambda: playpen)
+
+        db = open_state_db(get_state_db_path())
+        try:
+            await db.migrate()
+            assert await db.read_all("tasks") == []
+        finally:
+            db.close()
 
 
 class TestTheNotebookImportRung:
