@@ -72,9 +72,20 @@ export function Dialog({
         onClose();
       }}
       // A modal dialog fills the viewport, so a press on the backdrop lands on
-      // the element itself. A press on the content lands on a child.
+      // the dialog element itself. The box is that same element, and it has
+      // padding and a column gap, so the target alone cannot tell the two
+      // apart: a press on a gap between fieldsets would read as a backdrop
+      // press and discard a form mid-edit. The pointer against the box's own
+      // rect is what distinguishes them.
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        const box = e.currentTarget.getBoundingClientRect();
+        // Inclusive, so the border and the rounded corners belong to the box.
+        const inside =
+          e.clientX >= box.left &&
+          e.clientX <= box.right &&
+          e.clientY >= box.top &&
+          e.clientY <= box.bottom;
+        if (!inside) onClose();
       }}
     >
       {children}
