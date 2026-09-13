@@ -203,6 +203,11 @@ class Orchestrator:
         #: interval is the arrival floor by design, so tuning one tunes both.
         self._served_at: float | None = None
         self._task_version: Any = _NEVER
+        #: The table revision the task poll last read up to, or ``None`` while
+        #: it has none. A source whose version is not a table revision never
+        #: sets it, which is what keeps such a source on the whole-notebook
+        #: read rather than on a cursor it cannot honour.
+        self._task_cursor: int | None = None
         self._worktree_read = asyncio.Lock()
         self._pollers: list[asyncio.Task[None]] = []
         self._started = asyncio.Event()
@@ -484,17 +489,63 @@ class Orchestrator:
         return [item for item in found if item is not None]
 
     async def refresh_tasks(self, *, force: bool = False) -> None:
-        """Re-read the notebook when its version moved, and publish the difference."""
+        """Re-read the notebook when its version moved, and publish the difference.
+
+        A forced refresh reads the whole notebook: every command path forces,
+        and a command has just written the row the client is waiting to see.
+        The poll reads only what moved — see :meth:`_refresh_changed_tasks`.
+        """
         version = await self._run(self.tasks.version)
         # An unknown version (a notebook with no commits yet) never matches,
         # so the poll degrades to a re-read rather than a permanent stale table.
         if not force and version is not None and version == self._task_version:
             return
         self._task_version = version
+        if not force and await self._refresh_changed_tasks():
+            return
         entities = await self._run(self.tasks.read)
         new = {task["id"]: task for task in entities}
         self._apply(diff_kind("task", self.world["tasks"], new))
+        self._task_cursor = await self._run(self.tasks.revision_now)
         await self._prune_desk()
+
+    async def _refresh_changed_tasks(self) -> bool:
+        """Publish just the tasks that moved. ``False`` when that cannot be done.
+
+        The poll's path. ``diff_kind`` is deliberately not used: it removes any
+        id absent from the reading it is given, so handing it one tick's worth
+        of rows would drop every task the tick left alone. The upserts come
+        from the changed rows and the removes from the source, which is the
+        only authority on what actually went.
+
+        Falls back by returning ``False`` when there is no cursor to read from
+        — a first read, or a source whose version is not a table revision.
+        """
+        read_since = getattr(self.tasks, "read_since", None)
+        if read_since is None or self._task_cursor is None:
+            return False
+        if not getattr(self.tasks, "version_is_revision", False):
+            # The version is some other counter, so it names no revision this
+            # source could be read from. Such a source only ever gets the
+            # whole-notebook read.
+            return False
+        changed = await self._run(read_since, self._task_cursor)
+        known = self.world["tasks"]
+        events: list[ServerEvent] = [
+            {"type": "upsert", "kind": "task", "entity": entity}
+            for entity in changed.tasks
+            if known.get(entity["id"]) != entity
+        ]
+        events += [
+            {"type": "remove", "kind": "task", "id": task_id}
+            for task_id in changed.removed
+            if task_id in known
+        ]
+        self._task_cursor = changed.revision
+        self._apply(events)
+        if events:
+            await self._prune_desk()
+        return True
 
     async def refresh_worktrees(self) -> None:
         """Re-read ``list-all``, one read in flight at a time.
