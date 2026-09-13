@@ -1980,11 +1980,6 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
     # wrote refs/heads/* only. Every object is local, so this is a ref exchange.
     run_git(["fetch", "origin"], cwd=project_path)
 
-    # Keep a git note on its commit through a rebase. /code-review tags a reviewed
-    # commit with a note; without this every rebase drops it. mael doctor repairs
-    # projects created before this line.
-    run_git(["config", "notes.rewriteRef", "refs/notes/*"], cwd=project_path)
-
     # Get the default branch
     result = run_git(["symbolic-ref", "--short", "HEAD"], cwd=project_path, quiet=True)
     default_branch = result.stdout.strip()
