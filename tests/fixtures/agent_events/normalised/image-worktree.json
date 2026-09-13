@@ -16,6 +16,8 @@
         "waitingOn": "",
         "lastMessage": "Here is the failing dialog. ![The failing dialog](/api/files",
         "lastMessageAt": "2026-09-05T04:00:04.000Z",
+        "lastNote": "",
+        "lastNoteAt": "",
         "costUsd": 0.0312,
         "totalTokens": 0,
         "contextTokens": 0,

@@ -16,6 +16,8 @@
         "waitingOn": "",
         "lastMessage": "I have drafted the tasks. Read it and tell me what to change",
         "lastMessageAt": "2026-09-05T03:00:04.000Z",
+        "lastNote": "",
+        "lastNoteAt": "",
         "costUsd": 0.0312,
         "totalTokens": 0,
         "contextTokens": 0,

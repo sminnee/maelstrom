@@ -16,6 +16,8 @@
         "waitingOn": "",
         "lastMessage": "The subagent found 8 files directly under `docs/dev` (`agent",
         "lastMessageAt": "2026-09-04T08:28:39.109Z",
+        "lastNote": "",
+        "lastNoteAt": "",
         "costUsd": 0.337547,
         "totalTokens": 52421,
         "contextTokens": 26610,

@@ -16,6 +16,8 @@
         "waitingOn": "",
         "lastMessage": "You chose **Green**.",
         "lastMessageAt": "2026-09-01T01:49:20.793Z",
+        "lastNote": "",
+        "lastNoteAt": "",
         "costUsd": 0.0606145,
         "totalTokens": 36747,
         "contextTokens": 18402,
