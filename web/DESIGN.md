@@ -417,8 +417,21 @@ state, and still the only interrupt.
 answer, set status, launch, add to and remove from the desk, edit, and start new work. The one
 thing dropped is the comment margin, which draws nothing today.
 
-Reachable is not the same as on screen. A command behind one tap counts; reading matter that
-costs a band does not. What the rule forbids is a command the narrow layout cannot reach at all.
+Reachable is not the same as on screen. A command behind one tap counts. What the rule forbids is
+a command the narrow layout cannot reach at all.
+
+Reading matter is held to a second test: it earns its band when it is notable. The usage chips are
+the worked case. The wide bar shows both windows always; the narrow bar shows a window only when
+its budget quotient has turned the tone amber or red, and withholds a stale reading whatever its
+tone.
+
+The staleness rule is a trade the narrow bar makes, not a correctness claim. A usage reading
+arrives only while an agent takes a turn, so a quiet desk holds an ageing one — which means the
+narrow bar stays quiet in the case the operator most often opens it. The wide bar is where a
+stale figure is read: `SplitChip` greys it and its title gives its age. The narrow bar buys a
+quiet row at that cost.
+
+The bar wraps rather than overflows below the break.
 
 ### Named Rules
 
