@@ -125,6 +125,21 @@ export function usageTone(quotient: number | null): ChipTone {
 }
 
 /**
+ * Whether a chip is worth a band on a bar that has few to spend.
+ *
+ * Notable means ahead of pace, which is what `usageTone` already reads. A
+ * window keeping up says nothing that changes whether to start more work.
+ *
+ * Stale disqualifies a reading whatever its tone. The narrow bar has room for
+ * one thing per band, so it spends its bands on figures it can vouch for; a
+ * reading that has aged out gets the wide bar, where `SplitChip` greys it and
+ * the title carries its age.
+ */
+export function isNotable(chip: UsageChip): boolean {
+  return !chip.stale && (chip.tone === 'busy' || chip.tone === 'bad');
+}
+
+/**
  * One window's chip, or `null` when there is no reading to show.
  *
  * `null` rather than a zero: a bar with no chip is honest about knowing
