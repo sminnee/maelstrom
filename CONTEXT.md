@@ -91,15 +91,17 @@ _Avoid_: Unpushed commit, commit ahead
 ## Task notebook
 
 **Task**:
-One unit of agent work, stored as a markdown file at `<project>/<status>/<id>.md`. A task
-carries a plan in its body and launches exactly one Claude session.
+One unit of agent work, stored as one row in the **State database**. A task carries a plan in
+its body and launches exactly one Claude session. The row carries the prose, so a task is read
+and written whole.
 _Avoid_: Ticket, issue, job
 
 **Status**:
-The folder a task sits in. Status is never written into the file — moving the file is the only
-way to change status. The six statuses are `todo`, `in-progress`, `blocked`, `done`,
-`cancelled` and `template`.
-_Avoid_: State
+A column on the task row. The six statuses are `todo`, `in-progress`, `blocked`, `done`,
+`cancelled` and `template`. Changing one is a single-column update, not a move. The **Task
+export** lays a task out under its status, which is a rendering of the column rather than the
+authority for it.
+_Avoid_: State, folder
 
 **Parent**:
 The grouping key that puts a task in a chain sharing one branch and one pull request — "one PR
@@ -790,7 +792,7 @@ _Avoid_: Async, background, deferred
 
 **State database**:
 The SQLite database at `~/.maelstrom/state.db` holding every canonical and cached table. One
-file, so one transaction and one revision counter cover them all. It holds the desk today.
+file, so one transaction and one revision counter cover them all. It holds the desk and the tasks.
 `mael admin migrate` creates and upgrades it; every other open refuses a schema it cannot read.
 _Avoid_: Cache, store, db
 
@@ -804,15 +806,18 @@ revision orders writes within one database.
 _Avoid_: Version, sequence, generation, epoch
 
 **Task export**:
-The git-committed markdown tree at `~/.maelstrom/tasks`, once written from the task table by a
-queued worker. It will exist for audit and backup: nothing reads it on any code path, and it
-never runs on a write path. Today that tree is the task notebook itself.
+The git-committed markdown tree at `~/.maelstrom/tasks`, written from the task table by a queued
+worker. It exists for audit and for reading a task in an editor: nothing reads it on any code
+path, and it never runs on a write path. A task write queues its export in the same transaction,
+and the orchestrator drains that queue — so a write that rolls back exports nothing, and a CLI
+process never writes the tree.
 _Avoid_: Notebook, mirror, backup
 
 ## Knowledge stores
 
 **Task notebook**:
-The git-backed store of task files at `~/.maelstrom/tasks`. Every change is committed.
+Every task maelstrom knows, as rows in the **State database**. The **Task export** renders it to
+markdown at `~/.maelstrom/tasks`, where the **Wiki** and task attachments also live.
 
 **Wiki**:
 Curated markdown pages for design patterns that apply to more than one project. The wiki fills

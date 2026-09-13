@@ -3,12 +3,12 @@
 How the orchestrator server holds state: where a reader gets it, how a reader learns it
 changed, and who decides when to refresh it.
 
-> **Status: the machinery is built; three subsystems are not on it.** The state database, the
+> **Status: the machinery is built; two subsystems are not on it.** The state database, the
 > revision counter, the notice path and the refresher contract exist, in
 > [`state_db/`](../../src/maelstrom/state_db/) and
-> [`refresh.py`](../../src/maelstrom/refresh.py). The desk is canonical and on the database.
-> Tasks, worktrees and pull requests still work as "Why a common architecture" describes below,
-> and moving each one is its own task.
+> [`refresh.py`](../../src/maelstrom/refresh.py). The desk and the tasks are canonical and on
+> the database. Worktrees and pull requests still work as "Why a common architecture" describes
+> below, and moving each one is its own task.
 
 Every subsystem the server shows answers those three questions. Today each answers them its own
 way. This document defines five patterns that share one answer set, so adding a subsystem is
@@ -20,32 +20,34 @@ each pattern sits inside.
 
 ## Why a common architecture
 
-Four subsystems reach the server, and no two agree on how. The desk is now a fifth column, on
-the database; the four below are what is left:
+Four subsystems reach the server, and no two agreed on how. The desk and the tasks are now on
+the database; the two below are what is left:
 
-| | Tasks | Worktrees | Pull requests | Agents |
-|---|---|---|---|---|
-| Where a reader gets it | Parse every file | Re-scan git | A dict on a source object | The world |
-| How a reader hears of a change | The notebook's git HEAD moved | It does not | It does not | The host pushes it |
-| Who decides to refresh | A 2 s poll | A 60 s poll | The same poll, behind four guards | The agent host |
-| What survives a restart | The files | Nothing | Nothing | Nothing |
+| | Worktrees | Pull requests | Agents |
+|---|---|---|---|
+| Where a reader gets it | Re-scan git | A dict on a source object | The world |
+| How a reader hears of a change | It does not | It does not | The host pushes it |
+| Who decides to refresh | A 60 s poll | The same poll, behind four guards | The agent host |
+| What survives a restart | Nothing | Nothing | Nothing |
 
-Four coherent columns and no shared row. Three bug classes follow.
+Three bug classes followed from the columns not sharing a row. Moving the tasks closed each one
+for them, and the two subsystems above still carry all three.
 
-**A cache outlives a rollback.** `store.transaction` rolls the notebook back, but not the
-SQLite index beside it, nor a file written next to it. `promote` works around this by passing
-`index=None` and deferring its draft deletion until the transaction commits.
+**A cache outlives a rollback.** A store transaction rolled the notebook back, but not a SQLite
+index beside it nor a file written next to it, so a failed multi-task write left a partial
+state. A task now carries its prose in its own row: one write, one transaction, nothing beside
+it to disagree.
 
-**Nothing says what changed.** No source reports which rows moved, so the server diffs whole
-tables against whole tables on every poll.
+**Nothing says what changed.** A source that reports no rows makes the server diff whole tables
+against whole tables on every poll. Tasks report what moved through `changed_since`, so a poll
+costs the rows that changed.
 
-**Every restart is cold.** Only the desk is persisted, so the first paint re-derives everything
-the slow way.
+**Every restart is cold.** State nobody persists is re-derived the slow way at first paint.
 
-The cost is measurable. On a machine with 16 projects, 96 worktrees and 794 tasks, a task read
-parses every task file in **2.8 s**, and a worktree read takes **4.1 s** — of which **2.4 s**
-is the task notebook being parsed a second time, by a different subsystem, for one column of
-the worktree table.
+The cost was measurable. On a machine with 16 projects, 96 worktrees and 794 tasks, a task read
+parsed every task file in **2.8 s**, and a worktree read took **4.1 s** — of which **2.4 s**
+was the task notebook being parsed a second time, by a different subsystem, for one column of
+the worktree table. A task read is now a query.
 
 ## The five patterns
 
@@ -90,17 +92,17 @@ be hard to break by accident.
 Tasks and the desk are canonical. A task's row carries its prose, not a pointer to prose
 elsewhere: splitting a row across two stores is what makes a rollback partial.
 
-Tasks also keep a git-committed markdown export at `~/.maelstrom/tasks`. The export is for
-audit and backup only. Nothing reads it on any code path, so losing it costs history rather
-than data, and the reader that wants a task's prose queries the table.
+Tasks also keep a git-committed markdown export at `~/.maelstrom/tasks`. Nothing reads it on
+any code path, so losing it costs history rather than data, and the reader that wants a task's
+prose queries the table.
 
-The export never runs on the write path. A commit enqueues it, and a worker drains the queue,
-so a slow `git commit` cannot slow a task write and a broken git repository cannot fail one.
-The application otherwise treats the database as an ordinary database-backed service would.
+The export never runs on the write path: a task write enqueues, and the orchestrator drains.
+See [`task_export.py`](../../src/maelstrom/task_export.py) for why the queue is a table in the
+same database.
 
-Two rules keep an asynchronous export honest. The queue **drains on shutdown**, so a clean stop
-loses nothing. And falling behind is **visible** — a queue that stops draining is a backup
-nobody has, and silence is the failure mode to design against.
+Two rules keep it honest. The queue **drains on shutdown**, so a clean stop loses nothing. And
+falling behind is **visible** — `mael admin export-queue` reports the depth and the oldest
+entry, because silence is the failure mode to design against.
 
 ### Cached
 
@@ -127,10 +129,10 @@ Attachment and registered-file bytes are served the same way.
 Pass-through is a real answer, not a compromise. Naming it stops a reviewer proposing a cache
 for data that does not want one.
 
-It is not a place to put data that is merely expensive to read today. A task's `content` looks
-like a candidate while tasks are markdown files, because the whole notebook must be parsed to
-answer for one task. Once tasks are rows, one task's prose is a single-row query, and it
-belongs in the canonical table with the rest of the task.
+It is not a place to put data that is merely expensive to read today. A task's `content` looked
+like a candidate while tasks were markdown files, because the whole notebook had to be parsed to
+answer for one task. Now that tasks are rows, one task's prose is a single-row query, and it sits
+in the canonical table with the rest of the task.
 
 ### Pushed
 
