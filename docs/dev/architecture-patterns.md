@@ -16,7 +16,7 @@ Each feature is split into three files with one responsibility each:
 
 | Layer | File | Responsibility | Reference |
 |-------|------|----------------|-----------|
-| **Storage** | `*_store.py` | A `Protocol` plus an in-memory and a persistent backend. Hides *where* data lives. | [`task_store.py`](../../src/maelstrom/task_store.py) |
+| **Storage** | `*_store.py`, `*_table.py` | An abstract base class plus an in-memory and a persistent backend. Hides *where* data lives. | [`task_table.py`](../../src/maelstrom/task_table.py) |
 | **Model** | `*.py` | Pure domain logic. The store is injected; no I/O, no printing. Raises typed domain errors. | [`task.py`](../../src/maelstrom/task.py) |
 | **CLI** | `*_cli.py` | Thin adapter: parse args → call one model function → render. The *only* layer that prints or converts errors to exit codes. | [`task_cli.py`](../../src/maelstrom/task_cli.py) |
 
@@ -30,10 +30,11 @@ the store never imports the model.
 Storage / pure model / thin CLI, as above. The task subsystem is the worked
 example:
 
-- [`task_store.py`](../../src/maelstrom/task_store.py) — storage. Defines the
-  [`TaskStore` Protocol](../../src/maelstrom/task_store.py#L33)
-  (`list_dir` / `read` / `write` / `delete` / `exists` / `transaction`), with
-  `InMemoryStore` and `GitFileStore` backends.
+- [`task_table.py`](../../src/maelstrom/task_table.py) — storage. Defines the
+  `TaskTable` abstract base class
+  (`load` / `list` / `save` / `delete` / `find_by_session_id` / `transact` /
+  `changed_since` / `revision`), with `InMemoryTaskTable` and `SqliteTaskTable`
+  backends.
 - [`task.py`](../../src/maelstrom/task.py) — the pure model.
 - [`task_cli.py`](../../src/maelstrom/task_cli.py) — the thin CLI.
 
@@ -120,10 +121,11 @@ module", and reaching across for it couples the two files.
 
 ### 5. All persistence goes through a store abstraction
 
-Persisted state goes through a store like [`TaskStore`](../../src/maelstrom/task_store.py#L33),
-not ad-hoc `json.dump`. A store gives you a swappable in-memory backend for tests,
-a single place for atomicity and locking, and (for `GitFileStore`) versioning and
-transactions for free.
+Persisted state goes through a store like
+[`TaskTable`](../../src/maelstrom/task_table.py), not ad-hoc `json.dump`. A store
+gives you a swappable in-memory backend for tests, a single place for atomicity
+and locking, and — on the state database — transactions and a revision counter
+for free.
 
 The env subsystem is the worked example of this convention beyond `task`.
 [`env_store.py`](../../src/maelstrom/env_store.py) defines the
@@ -152,12 +154,10 @@ The orchestrator server and the agent daemon run on an event loop. A call that
 blocks that loop stops every socket it serves, so anything doing I/O on their
 paths is a coroutine.
 
-That rule stops at the I/O. **The model layer is sync**, because convention 2
-already made it pure — and a pure function has no await point to yield at, so
-`async def` on it buys nothing and costs an `await` at every call site. The
-storage layer is sync for a stronger reason: `SqliteTaskIndex` binds its
-connection to one thread and `GitFileStore` holds a cross-process `flock`.
-Neither is a bottleneck, and both are hostile to being made async.
+That rule stops at the I/O. A pure function has no await point to yield at, so
+`async def` on one buys nothing and costs an `await` at every call site.
+`GitFileStore` stays sync for a stronger reason: it holds a cross-process
+`flock`, which is hostile to being made async, and it is not a bottleneck.
 
 **[`state_db/`](../../src/maelstrom/state_db/) is the exception, and the
 reason is reversibility rather than I/O.** Its public surface is `async def`

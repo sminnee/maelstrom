@@ -90,9 +90,9 @@ task's content *is* the plan, and the session implements that plan directly.
 
 ### The task notebook — what each agent is doing
 
-The notebook is a git-backed set of markdown files. Each task is one file, and **its status
-is the folder it sits in** — `todo/`, `in-progress/`, `blocked/`, `done/`, `cancelled/` or
-`template/`.
+The notebook is a database maelstrom keeps for itself. Each task is one record, and **its
+status is a field on it** — `todo`, `in-progress`, `blocked`, `done`, `cancelled` or
+`template`. See [Tasks](tasks.md) for the markdown export that mirrors it.
 
 Two of the six statuses park a task rather than track its progress. A `template/` task is a
 recipe to duplicate from. A `blocked/` task is one you parked by hand. Maelstrom never launches

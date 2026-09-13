@@ -4,20 +4,24 @@ The task notebook is how maelstrom knows what each agent is doing, and in what o
 
 ## What a task is
 
-A task is a markdown file with YAML frontmatter, stored in a git-backed notebook at
-`~/.maelstrom/tasks`. **Its status is the folder it sits in**:
+A task is a record in maelstrom's own database, with a plan in its body. **Its status is one
+of six**:
 
 ```
-<project>/
-├── todo/           actionable, or waiting on a dependency
-├── in-progress/    a session is running it
-├── done/
-├── blocked/        parked by hand; never actionable itself
-├── cancelled/
-└── template/       a reusable recipe; never actionable itself
+todo           actionable, or waiting on a dependency
+in-progress    a session is running it
+done
+blocked        parked by hand; never actionable itself
+cancelled
+template       a reusable recipe; never actionable itself
 ```
 
-Moving a task between statuses moves its file. The id is stable across the move.
+Changing a task's status changes one field. The id is stable across the change.
+
+Maelstrom also writes every task out as a markdown file at
+`~/.maelstrom/tasks/<project>/<status>/<id>.md`, and commits it. Read those files, or search
+them with `grep`; maelstrom never reads them back, so an edit there changes nothing. Use
+`mael task edit` to change a task.
 
 ```bash
 mael task add "Add a hello endpoint"
@@ -260,10 +264,6 @@ duplicate-launch guard uses, so the two always agree. Reconcile corrects three m
 | `in-progress`, no live session | A transcript persists — the task ran | `done` |
 | `in-progress`, no live session | No transcript — the task never ran | `todo` |
 | Not `in-progress` | A live session is working on it | `in-progress` |
-
-A task is a row in the state database. The markdown tree at `~/.maelstrom/tasks` is an export
-for audit and backup, so editing it by hand changes nothing a command reads — use
-`mael task update` or `mael task edit`.
 
 ## See also
 

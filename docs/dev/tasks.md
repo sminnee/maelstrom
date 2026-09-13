@@ -6,12 +6,16 @@ that assume it. For the layering view of the same subsystem see
 [`architecture-patterns.md`](architecture-patterns.md); for launchd scheduling
 mechanics see [`scheduled-tasks.md`](scheduled-tasks.md).
 
-## Tasks & status folders
+## Tasks & status
 
-A task is a markdown file at `<project>/<status>/<id>.md` — YAML frontmatter
-(`id`, `title`, `parent`, `follows`, `branch`, …) over a free-text body. **Status
-is the folder**: `todo/`, `in-progress/`, `done/`, `template/`, etc. Moving a task
-between statuses moves its file; the id is stable across the move.
+A task is one row in the state database, keyed by `<project>/<id>`. It carries the
+frontmatter fields (`id`, `title`, `parent`, `follows`, `branch`, …) and its prose
+in the same row, so a write is one transaction over the whole task.
+
+**Status is a column**: `todo`, `in-progress`, `done`, `template`, and the rest.
+Changing one updates a column; the id is stable across the change. The markdown
+export lays each task out at `<project>/<status>/<id>.md`, which is where the
+folder-per-status layout survives — as a rendering, not as the authority.
 
 ## `parent` groups a linear chain = one PR
 
