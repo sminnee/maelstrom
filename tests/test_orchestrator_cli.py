@@ -99,8 +99,8 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
             "maelstrom.orchestrator_cli.load_global_config",
             return_value=SimpleNamespace(projects_dir=projects_dir),
         ),
-        patch("maelstrom.orchestrator_cli.GitFileStore") as store,
-        patch("maelstrom.orchestrator_cli.open_index"),
+        patch("maelstrom.orchestrator_cli.SqliteTaskTable") as table,
+        patch("maelstrom.orchestrator_cli.open_state_db"),
         patch(
             "maelstrom.orchestrator_cli.setup_worktree_for_branch", return_value=setup
         ) as open_wt,
@@ -109,7 +109,7 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
         opened = orchestrator.tasks.open_worktree("northwind", "feat/x", "feat/base")
     assert isinstance(orchestrator.tasks, NotebookTaskSource)
     assert orchestrator.tasks.projects() == ["northwind"]
-    assert orchestrator.tasks.store is store.return_value
+    assert orchestrator.tasks.table is table.return_value
     assert isinstance(orchestrator.worktrees, ListAllWorktreeSource)
     assert isinstance(orchestrator.desk, SqliteDeskStore)
     assert orchestrator.worktrees.projects_dir == projects_dir

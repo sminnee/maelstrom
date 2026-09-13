@@ -6,7 +6,7 @@ import pytest
 
 from maelstrom import schedule as sched
 from maelstrom import task as model
-from maelstrom.task_store import InMemoryStore
+from maelstrom.task_table import InMemoryTaskTable
 
 
 def _dt(s: str) -> datetime:
@@ -88,8 +88,8 @@ class TestCronParseErrors:
 # --- due-template computation ---
 
 
-def _add_template(store, project, *, schedule="", last_run="", created):
-    return model.create(
+async def _add_template(store, project, *, schedule="", last_run="", created):
+    return await model.create(
         store,
         project=project,
         title="Maintenance",
@@ -103,75 +103,81 @@ def _add_template(store, project, *, schedule="", last_run="", created):
 
 
 class TestDueTemplates:
-    def test_no_schedule_never_due(self):
-        store = InMemoryStore()
-        _add_template(store, "p", created="2026-06-01T00:00:00+00:00")
-        assert sched.due_templates(store, "p", now=_dt("2026-06-18T12:00:00")) == []
+    async def test_no_schedule_never_due(self):
+        store = InMemoryTaskTable()
+        await _add_template(store, "p", created="2026-06-01T00:00:00+00:00")
+        assert (
+            await sched.due_templates(store, "p", now=_dt("2026-06-18T12:00:00")) == []
+        )
 
-    def test_due_when_boundary_after_watermark(self):
-        store = InMemoryStore()
-        _add_template(
+    async def test_due_when_boundary_after_watermark(self):
+        store = InMemoryTaskTable()
+        await _add_template(
             store,
             "p",
             schedule="0 9 * * *",
             last_run="2026-06-17T09:00:00+00:00",
             created="2026-06-01T00:00:00+00:00",
         )
-        due = sched.due_templates(store, "p", now=_dt("2026-06-18T10:00:00"))
+        due = await sched.due_templates(store, "p", now=_dt("2026-06-18T10:00:00"))
         assert len(due) == 1
         tmpl, date = due[0]
         assert tmpl.id == "maintenance"
         assert date == "2026-06-18"
 
-    def test_not_due_when_watermark_at_boundary(self):
-        store = InMemoryStore()
-        _add_template(
+    async def test_not_due_when_watermark_at_boundary(self):
+        store = InMemoryTaskTable()
+        await _add_template(
             store,
             "p",
             schedule="0 9 * * *",
             last_run="2026-06-18T09:00:00+00:00",
             created="2026-06-01T00:00:00+00:00",
         )
-        assert sched.due_templates(store, "p", now=_dt("2026-06-18T10:00:00")) == []
+        assert (
+            await sched.due_templates(store, "p", now=_dt("2026-06-18T10:00:00")) == []
+        )
 
-    def test_created_acts_as_watermark_when_no_last_run(self):
-        store = InMemoryStore()
+    async def test_created_acts_as_watermark_when_no_last_run(self):
+        store = InMemoryTaskTable()
         # Created after today's 09:00 boundary -> not yet due.
-        _add_template(
+        await _add_template(
             store, "p", schedule="0 9 * * *", created="2026-06-18T09:30:00+00:00"
         )
-        assert sched.due_templates(store, "p", now=_dt("2026-06-18T10:00:00")) == []
+        assert (
+            await sched.due_templates(store, "p", now=_dt("2026-06-18T10:00:00")) == []
+        )
         # Created before it -> due exactly once.
-        store2 = InMemoryStore()
-        _add_template(
+        store2 = InMemoryTaskTable()
+        await _add_template(
             store2, "p", schedule="0 9 * * *", created="2026-06-18T08:00:00+00:00"
         )
-        due = sched.due_templates(store2, "p", now=_dt("2026-06-18T10:00:00"))
+        due = await sched.due_templates(store2, "p", now=_dt("2026-06-18T10:00:00"))
         assert [d[1] for d in due] == ["2026-06-18"]
 
-    def test_catch_up_is_one_boundary(self):
+    async def test_catch_up_is_one_boundary(self):
         # A week-old watermark still yields a single boundary (today's), never 7.
-        store = InMemoryStore()
-        _add_template(
+        store = InMemoryTaskTable()
+        await _add_template(
             store,
             "p",
             schedule="0 9 * * *",
             last_run="2026-06-11T09:00:00+00:00",
             created="2026-06-01T00:00:00+00:00",
         )
-        due = sched.due_templates(store, "p", now=_dt("2026-06-18T10:00:00"))
+        due = await sched.due_templates(store, "p", now=_dt("2026-06-18T10:00:00"))
         assert len(due) == 1
         assert due[0][1] == "2026-06-18"
 
-    def test_due_matches_local_wall_clock_not_utc(self):
+    async def test_due_matches_local_wall_clock_not_utc(self):
         # A "0 9 * * *" template fires against the wall-clock fields of the
         # local-aware `now` the CLI passes in — 09:00 *local*, not 09:00 UTC.
         # Model a +12 zone (e.g. NZ): at 09:30 local it's still 21:30 the
         # previous day in UTC, so a UTC-based scheduler would consider the
         # 09:00 boundary un-reached. It must be due here.
-        store = InMemoryStore()
+        store = InMemoryTaskTable()
         tz = timezone(timedelta(hours=12))
-        _add_template(
+        await _add_template(
             store,
             "p",
             schedule="0 9 * * *",
@@ -179,7 +185,7 @@ class TestDueTemplates:
             created="2026-06-01T00:00:00+12:00",
         )
         now_local = datetime(2026, 6, 18, 9, 30, tzinfo=tz)
-        due = sched.due_templates(store, "p", now=now_local)
+        due = await sched.due_templates(store, "p", now=now_local)
         assert len(due) == 1
         # Boundary date is the local calendar day, keyed off local 09:00.
         assert due[0][1] == "2026-06-18"

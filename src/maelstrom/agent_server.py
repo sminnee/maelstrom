@@ -100,7 +100,7 @@ from .session_discovery import (
     ProcessTableUnavailable,
     list_claude_processes,
 )
-from .task_index import TaskLookup
+from .task_table import TaskTable
 from .transcript_store import ClaudeTranscriptStore, TranscriptStore
 from .util import now_iso
 from .worktree_model import has_claude_transcript
@@ -687,16 +687,15 @@ SCOPE_ALL = "all"
 SCOPES = (SCOPE_RUNNING, SCOPE_STOPPED, SCOPE_ALL)
 
 
-def _open_task_index() -> TaskLookup:
-    """The task index, opened once per listing.
+def _open_task_table() -> TaskTable:
+    """The task table, opened once per listing.
 
-    Imported where it is used: :func:`~maelstrom.task_cli.open_index` opens a
-    SQLite database, and a daemon never asked for a stopped listing must not.
+    Imported where it is used: :func:`~maelstrom.task_cli.open_task_table` opens
+    a SQLite database, and a daemon never asked for a stopped listing must not.
     """
-    from .task_cli import open_index
-    from .task_store import GitFileStore
+    from .task_cli import open_task_table
 
-    return open_index(GitFileStore())
+    return open_task_table()
 
 
 #: One shared instance: it is stateless, and every restored agent wants the same.
@@ -749,7 +748,7 @@ class AgentDaemon:
         has_transcript: Callable[[Path, str], bool] = has_claude_transcript,
         transcripts: TranscriptStore | None = None,
         live: LiveSessionSet | None = None,
-        open_task_index: Callable[[], TaskLookup] = _open_task_index,
+        open_task_table: Callable[[], TaskTable] = _open_task_table,
         clock: "Callable[[], str]" = now_iso,
         processes: Callable[[], Awaitable[list[ProcessInfo]]] = list_claude_processes,
         kill_group: Callable[[int, int], None] | None = None,
@@ -766,7 +765,7 @@ class AgentDaemon:
         self._kill_group = kill_group
         self._transcripts = transcripts
         self._live = live
-        self._open_task_index = open_task_index
+        self._open_task_table = open_task_table
         #: When an event was seen. Handed to every agent this daemon starts, so
         #: a test pins one clock rather than reaching into the agents it built.
         self.clock = clock
@@ -799,7 +798,7 @@ class AgentDaemon:
 
         The three sources are merged in the model layer: Claude's transcripts
         say which sessions exist, the spawn records say how the daemon ran the
-        ones it started, and the task index names what each ran for. A session
+        ones it started, and the task table names what each ran for. A session
         that is still live is subtracted, because ``resume`` refuses one.
         """
         cwds = [Path(cwd)] if cwd else None
@@ -808,29 +807,29 @@ class AgentDaemon:
         live = self._live if self._live is not None else LiveSessionSet()
         await live.sweep()
         return build_stopped_rows(
-            metas, specs, self._task_ids(metas), live, now=time.time()
+            metas, specs, await self._task_ids(metas), live, now=time.time()
         )
 
-    def _task_ids(self, metas: list[TranscriptMeta]) -> dict[str, str]:
+    async def _task_ids(self, metas: list[TranscriptMeta]) -> dict[str, str]:
         """The task each session ran for, keyed by session id.
 
-        The index is opened once for the whole listing, as
-        ``session_cli.session_list`` does — a per-session open would run
-        ``ensure_excludes`` and build a connection hundreds of times.
+        The table is opened once for the whole listing, as
+        ``session_cli.session_list`` does — a per-session open would build a
+        connection hundreds of times.
 
         A listing is worth more than its task column, so a failure blanks the
         column rather than failing the command. Logged once, because a silent
         blank column gives a user nothing to debug.
         """
         try:
-            index = self._open_task_index()
-            return {
-                meta.session_id: (found.id if found else "")
-                for meta in metas
-                for found in [index.find_by_session_id(meta.session_id)]
-            }
+            table = self._open_task_table()
+            rows: dict[str, str] = {}
+            for meta in metas:
+                found = await table.find_by_session_id(meta.session_id)
+                rows[meta.session_id] = found.id if found else ""
+            return rows
         except Exception:  # noqa: BLE001
-            log.exception("could not read the task index; task column left blank")
+            log.exception("could not read the task table; task column left blank")
             return {}
 
     # -- lifecycle --

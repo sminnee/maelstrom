@@ -30,9 +30,8 @@ from .state_db.db import StateDb
 from .state_db.migrate import open_state_db
 from .state_db.paths import get_state_db_path
 from .state_db.types import StateDbError
-from .task_cli import open_index
 from .task_launch import LaunchBlocked
-from .task_store import GitFileStore
+from .task_table import SqliteTaskTable
 from .worktree import WorktreeSetup, find_all_projects, setup_worktree_for_branch
 from .worktree_close import close_worktree_fully
 from .worktree_model import WorktreeError
@@ -48,16 +47,20 @@ def build_orchestrator(
 
     The agent host is the daemon this environment names in ``MAEL_AGENT_ROOT``,
     so the orchestrator a worktree runs talks to that worktree's daemon.
-    ``executor`` runs the blocking reads; :func:`run_server` passes a pool of
-    one thread, because the SQLite index behind the notebook is bound to the
-    thread that first opens it.
+    ``executor`` runs what still blocks; the task table does not, because it
+    is the state database and binds to the loop's own thread.
 
-    ``db`` is the state database the desk is kept in. It is never migrated
-    here: an ordinary open refuses a database behind this build and names
-    ``mael admin migrate``, which is the point of the refusal.
+    ``db`` is the state database, which now holds the tasks as well as the
+    desk. It is never migrated here: an ordinary open refuses a database behind
+    this build and names ``mael admin migrate``, which is the point of the
+    refusal.
     """
     projects_dir = load_global_config().projects_dir
-    store = GitFileStore()
+    # Resolved once: the tasks and the desk share one database, so opening a
+    # second here would give the two halves of the world separate connections
+    # and separate revision counters.
+    state_db = db if db is not None else open_state_db()
+    table = SqliteTaskTable(state_db)
 
     def open_worktree(project: str, branch: str, base: str) -> WorktreeSetup:
         # The launcher owns install; ``base`` seeds the branch's stored base
@@ -89,9 +92,8 @@ def build_orchestrator(
             raise CloseBlocked(outcome.close.message)
 
     tasks = NotebookTaskSource(
-        store,
+        table,
         lambda: [path.name for path in find_all_projects(projects_dir)],
-        index=open_index(store),
         open_worktree=open_worktree,
     )
     worktrees = ListAllWorktreeSource(projects_dir, close=close_worktree)
@@ -100,7 +102,7 @@ def build_orchestrator(
         tasks,
         worktrees,
         daemon,
-        desk=SqliteDeskStore(db if db is not None else open_state_db()),
+        desk=SqliteDeskStore(state_db),
         executor=executor,
     )
 

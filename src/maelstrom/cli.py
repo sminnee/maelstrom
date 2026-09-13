@@ -63,7 +63,6 @@ from .table import draw_table
 from .task_cli import _harness_options as _harness_flags
 from .task_cli import _selected_harness_shortcuts, add_task, resolve_harness_or_fail
 from .task_cli import task as task_cli
-from .task_index import StaleTaskIndexError
 from .util import error_text
 from .wiki_cli import wiki as wiki_cli
 from .worktree import (
@@ -1741,12 +1740,6 @@ def main(argv: list[str] | None = None) -> int:
         # is far below the command. Catching it here is what keeps a missing
         # root an error message rather than a traceback, whichever command
         # asked for it.
-        click.echo(f"Error: {e}", err=True)
-        return 1
-    except StaleTaskIndexError as e:
-        # Handled here rather than per-command: any task command can be the one
-        # that first touches a pre-schema-change index.db, and the remedy
-        # (`mael task reindex`) is the same for all of them.
         click.echo(f"Error: {e}", err=True)
         return 1
     except SystemExit as e:

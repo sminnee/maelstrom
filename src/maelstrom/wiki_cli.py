@@ -8,7 +8,6 @@ import click
 
 from . import wiki as model
 from .table import draw_table
-from .task_cli import open_index
 from .task_store import GitFileStore
 from .util import read_content_file
 
@@ -23,48 +22,6 @@ def _read_content_file(content_file: str) -> str:
         return read_content_file(content_file)
     except FileNotFoundError:
         raise click.ClickException(f"Content file not found: {content_file}")
-
-
-def _task_index_was_fresh(store: GitFileStore) -> bool:
-    """Return whether the task index is complete at the store's current HEAD.
-
-    Called *before* a wiki write, because the answer is unknowable afterwards: the
-    write moves ``store.head()``, at which point a fresh index and a stale one look
-    identical. Mirrors ``task_cli._mutate_index``.
-
-    Best-effort: a cache we cannot read is treated as not fresh, which costs a
-    scan rather than wrongly promoting a stale index.
-    """
-    try:
-        return open_index(store).head() == store.head()
-    except Exception:
-        return False
-
-
-def _carry_task_index_stamp(store: GitFileStore, *, was_fresh: bool) -> None:
-    """Move the task index's HEAD stamp past a wiki commit.
-
-    The wiki shares one git repo with the task notebook, so a wiki write advances
-    ``store.head()``. The task index tracks freshness by comparing its own stamp
-    to that HEAD, so without this a wiki write would leave a complete index
-    reading as stale, and every later ``mael task`` read would fall back to a full
-    filesystem scan until someone ran ``mael task reindex``.
-
-    A wiki write touches no task file, so an index that was complete before the
-    write is still complete after it — only the HEAD it is stamped against moved.
-    Re-stamping is sound for exactly that reason, and only when ``was_fresh``:
-    a stale index must stay stale rather than be promoted by a write that never
-    rebuilt it. This mirrors ``task_cli._restamp``.
-
-    Best-effort: the wiki must not fail because the cache could not be updated.
-    A missed stamp costs a scan, which is the behaviour without this call at all.
-    """
-    if not was_fresh:
-        return
-    try:
-        open_index(store).set_head(store.head())
-    except Exception:
-        pass
 
 
 @click.group("wiki")
@@ -113,11 +70,8 @@ def wiki_update(page: str, content_file: str) -> None:
     """
     text = _read_content_file(content_file)
     store = _store()
-    # Capture index freshness before the write moves the store's HEAD.
-    was_fresh = _task_index_was_fresh(store)
     try:
         path = model.write_page(store, page, text)
     except ValueError as exc:
         raise click.ClickException(str(exc))
-    _carry_task_index_stamp(store, was_fresh=was_fresh)
     click.echo(f"Wrote wiki page {path}.")

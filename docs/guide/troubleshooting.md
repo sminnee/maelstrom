@@ -149,11 +149,9 @@ removes the fallback, so it can legitimately return nothing.
 
 ### Task listings look wrong after a manual edit
 
-The metadata index is a rebuildable cache:
-
-```bash
-mael task reindex
-```
+A task is a row in the state database, so a listing shows what was last written through
+`mael task`. Editing the markdown export at `~/.maelstrom/tasks` changes nothing a listing
+reads — that tree is for audit and backup. Use `mael task update` or `mael task edit`.
 
 ---
 

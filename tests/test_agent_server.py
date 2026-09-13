@@ -50,7 +50,7 @@ from maelstrom.session_discovery import (
     ProcessInfo,
     ProcessTableUnavailable,
 )
-from maelstrom.task_index import TaskMeta
+from maelstrom.task import Task
 from maelstrom.transcript_store import InMemoryTranscriptStore
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
@@ -800,17 +800,19 @@ def _daemon_with_specs(*, has_transcript: bool = True):
     return daemon, specs
 
 
-class _FakeTaskIndex:
-    """A ``TaskLookup`` that counts how many times the listing opened it."""
+class _FakeTaskTable:
+    """A task table that counts how many times the listing opened it."""
 
     opened = 0
 
     def __init__(self, tasks: dict[str, str]):
         self._tasks = tasks
 
-    def find_by_session_id(self, session_id: str):
+    async def find_by_session_id(self, session_id: str):
         task_id = self._tasks.get(session_id)
-        return TaskMeta(project="p", id=task_id, status="done") if task_id else None
+        return (
+            Task(id=task_id, title="", project="p", status="done") if task_id else None
+        )
 
 
 def _stopped_daemon(metas, *, live=None, tasks=None, records=True):
@@ -834,16 +836,16 @@ def _stopped_daemon(metas, *, live=None, tasks=None, records=True):
             )
     opens = []
 
-    def open_index():
+    def open_table():
         opens.append(1)
-        return _FakeTaskIndex(tasks or {})
+        return _FakeTaskTable(tasks or {})
 
     daemon = AgentDaemon(
         specs=specs,
         has_transcript=lambda path, sid: True,
         transcripts=transcripts,
         live=LiveSessionSet(sessions=live or []),
-        open_task_index=open_index,
+        open_task_table=open_table,
     )
     daemon._test_opens = opens
     return daemon, specs
@@ -2723,12 +2725,11 @@ def test_the_record_fallback_refuses_to_resume_a_record_still_running():
     assert daemon.agents == {}
 
 
-def test_a_listing_opens_the_task_index_once_not_once_per_session():
+def test_a_listing_opens_the_task_table_once_not_once_per_session():
     """~800 transcripts must not mean ~800 SQLite connections.
 
-    Each open runs `ensure_excludes()`, a `PRAGMA journal_mode=WAL` and a
-    `CREATE TABLE IF NOT EXISTS` before its one-row SELECT, which is what
-    `session_cli` avoids by opening the index once for the whole listing.
+    Each open builds a connection before its one-row SELECT, which is what
+    `session_cli` avoids by opening the table once for the whole listing.
     """
     metas = [_meta(f"s{i}", cwd="/tmp/x") for i in range(20)]
     daemon, _ = _stopped_daemon(metas)

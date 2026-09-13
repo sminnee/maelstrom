@@ -14,8 +14,7 @@ takes either, so neither kind needs help from the caller.
 """
 
 import asyncio
-from collections.abc import Awaitable, Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -27,9 +26,8 @@ from ..branch_name import TaskNames, infer_task_names
 from ..github_model import PrStatus, RateLimited, pr_from_row
 from ..list_all import build_list_all_data
 from ..session_discovery import LiveSessionSet
-from ..task_index import TaskIndex
 from ..task_launch import LaunchBlocked, check_not_live, check_synced, plan_launch
-from ..task_store import TaskStore
+from ..task_table import TaskTable
 from ..worktree import WorktreeSetup
 from ..worktree_model import has_claude_transcript
 from .protocol import Project, Task, Worktree
@@ -79,15 +77,15 @@ class LaunchRequest:
 class TaskSource(Protocol):
     """The notebook, as tasks across every project."""
 
-    def version(self) -> str | None:
+    async def version(self) -> str | None:
         """A stamp that changes when any task changes. ``None`` when unknown."""
         ...
 
-    def read(self) -> list[Task]:
+    async def read(self) -> list[Task]:
         """Every task the server shows, with ``actionable`` decided by the notebook."""
         ...
 
-    def launch(self, task_id: str, model_name: str | None) -> LaunchRequest:
+    async def launch(self, task_id: str, model_name: str | None) -> LaunchRequest:
         """Open the task's worktree, move it in-progress, and say what to start.
 
         Raises:
@@ -96,11 +94,11 @@ class TaskSource(Protocol):
         """
         ...
 
-    def rollback(self, request: LaunchRequest) -> None:
+    async def rollback(self, request: LaunchRequest) -> None:
         """Move a task the host refused to start back to where it was."""
         ...
 
-    def set_status(self, task_id: str, status: str) -> None:
+    async def set_status(self, task_id: str, status: str) -> None:
         """Move a task to ``status``, running its status actions.
 
         Raises:
@@ -108,7 +106,7 @@ class TaskSource(Protocol):
         """
         ...
 
-    def update(self, task_id: str, fields: dict[str, Any]) -> None:
+    async def update(self, task_id: str, fields: dict[str, Any]) -> None:
         """Write the named fields of a task.
 
         Raises:
@@ -124,7 +122,7 @@ class TaskSource(Protocol):
         """
         ...
 
-    def create(
+    async def create(
         self, project: str, fields: dict[str, Any], extra: dict[str, Any] | None = None
     ) -> str:
         """Write a new ``todo`` task and return its wire id.
@@ -148,7 +146,7 @@ class TaskSource(Protocol):
         """
         ...
 
-    def promote(self, project: str, paths: list[Path], parent: str) -> list[str]:
+    async def promote(self, project: str, paths: list[Path], parent: str) -> list[str]:
         """Create one task per draft file, chained in the order given.
 
         The whole set is one notebook write: a draft that will not parse
@@ -204,49 +202,53 @@ class NotebookTaskSource:
 
     def __init__(
         self,
-        store: TaskStore,
+        table: TaskTable,
         projects: Callable[[], list[str]],
         *,
-        index: TaskIndex | None = None,
         version: Callable[[], str | None] | None = None,
         open_worktree: OpenWorktree | None = None,
         live_sessions: Callable[[], LiveSessionSet] = LiveSessionSet,
         has_transcript: Callable[[Path, str], bool] = has_claude_transcript,
     ) -> None:
-        self.store = store
+        self.table = table
         self.projects = projects
-        self.index = index
         self._version = version
         self.open_worktree = open_worktree
         self.live_sessions = live_sessions
         self.has_transcript = has_transcript
 
-    def version(self) -> str | None:
-        return self._version() if self._version is not None else self.store.head()
+    async def version(self) -> str | None:
+        """The table's revision, as a stamp that moves when any task moves.
 
-    def read(self) -> list[Task]:
-        head = self.store.head()
+        One number for the whole database, so a task write and a desk write
+        both advance it — which costs an occasional no-op re-read and saves
+        keeping a second counter honest.
+        """
+        if self._version is not None:
+            return self._version()
+        return str(await self.table.revision())
+
+    async def read(self) -> list[Task]:
         entities: list[Task] = []
         for project in self.projects():
-            # Full files, not index rows: the UI shows the task's content.
-            for task in model.list_tasks(self.store, project=project, no_index=True):
-                actionable = model.is_actionable(
-                    task, self.store, index=self.index, head=head
-                )
+            # Whole rows: the row carries the prose, so this is one query per
+            # project rather than a parse of every file.
+            for task in await model.list_tasks(self.table, project=project):
+                actionable = await model.is_actionable(task, self.table)
                 entities.append(task_entity(task, actionable=actionable))
         return entities
 
-    def launch(self, task_id: str, model_name: str | None) -> LaunchRequest:
+    async def launch(self, task_id: str, model_name: str | None) -> LaunchRequest:
         """``task_id`` is the wire id; the notebook is asked for the bare one."""
         if self.open_worktree is None:
             raise LaunchBlocked("This server cannot open worktrees")
         project, notebook_id = split_task_key(task_id)
-        task = model.load(self.store, project, notebook_id)
+        task = await model.load(self.table, project, notebook_id)
         plan = plan_launch(task.project, task)
         check_not_live(task.id, plan.session_id, self.live_sessions())
         setup = self.open_worktree(task.project, plan.branch, task.base or "")
         check_synced(task.id, plan.branch, setup)
-        self._move(task.project, task.id, model.STATUS_IN_PROGRESS)
+        await self._move(task.project, task.id, model.STATUS_IN_PROGRESS)
         payload = build_start_payload(
             setup.path,
             prompt=plan.prompt,
@@ -259,14 +261,14 @@ class NotebookTaskSource:
         )
         return LaunchRequest(task.project, task.id, task.status, payload)
 
-    def rollback(self, request: LaunchRequest) -> None:
-        self._move(request.project, request.task_id, request.previous_status)
+    async def rollback(self, request: LaunchRequest) -> None:
+        await self._move(request.project, request.task_id, request.previous_status)
 
-    def set_status(self, task_id: str, status: str) -> None:
+    async def set_status(self, task_id: str, status: str) -> None:
         project, notebook_id = split_task_key(task_id)
-        self._move(project, notebook_id, status)
+        await self._move(project, notebook_id, status)
 
-    def update(self, task_id: str, fields: dict[str, Any]) -> None:
+    async def update(self, task_id: str, fields: dict[str, Any]) -> None:
         """Write a task's fields.
 
         Only the keys in :data:`~maelstrom.orchestrator.validate.EDITABLE` are
@@ -274,8 +276,7 @@ class NotebookTaskSource:
         """
         project, notebook_id = split_task_key(task_id)
         wanted = {k: v for k, v in fields.items() if k in EDITABLE}
-        with self._stamped() as index:
-            model.update(self.store, project, notebook_id, index=index, **wanted)
+        await model.update(self.table, project, notebook_id, **wanted)
 
     def infer(self, draft: str) -> TaskNames:
         return infer_task_names(draft)
@@ -286,7 +287,7 @@ class NotebookTaskSource:
         # No base to seed: work with no task has no base to carry.
         return self.open_worktree(project, branch, "")
 
-    def create(
+    async def create(
         self, project: str, fields: dict[str, Any], extra: dict[str, Any] | None = None
     ) -> str:
         """Write a new task and return its wire id.
@@ -302,11 +303,10 @@ class NotebookTaskSource:
         """
         wanted = {k: v for k, v in fields.items() if k in EDITABLE}
         wanted.update(extra or {})
-        with self._stamped() as index:
-            task = model.create(self.store, project=project, index=index, **wanted)
+        task = await model.create(self.table, project=project, **wanted)
         return task_key(project, task.id)
 
-    def promote(self, project: str, paths: list[Path], parent: str) -> list[str]:
+    async def promote(self, project: str, paths: list[Path], parent: str) -> list[str]:
         """Promote every draft in one transaction, wiring the chain as it goes.
 
         The first task follows the end of its parent's child-chain, exactly as
@@ -315,59 +315,42 @@ class NotebookTaskSource:
         "Approving a task set".
         """
         created: list[str] = []
-        with self._stamped():
-            with self.store.transaction(message=f"task: promote {len(paths)} draft(s)"):
-                for path in paths:
-                    follows = (
-                        [created[-1]]
-                        if created
-                        else model._resolve_follow_end(self.store, project, "*", parent)
+        async with self.table.transact():
+            for path in paths:
+                follows = (
+                    [created[-1]]
+                    if created
+                    else await model._resolve_follow_end(
+                        self.table, project, "*", parent
                     )
-                    try:
-                        # The draft's own parent wins, as it does through the
-                        # CLI: a planning session that named one meant it.
-                        draft = model.read_draft(path)
-                        # A cache outside the transaction: a row here would
-                        # outlive a rollback.
-                        task = model.promote_draft(
-                            self.store,
-                            project=project,
-                            path=path,
-                            overrides={"parent": draft.parent or parent},
-                            draft=draft,
-                            follows=follows,
-                            index=None,
-                            # Deferred until the transaction commits; see
-                            # `consume_draft`.
-                            consume=False,
-                        )
-                    except (OSError, ValueError) as exc:
-                        raise ValueError(f"{path.name}: {exc}") from exc
-                    created.append(task.id)
-        # Committed: the drafts have moved into the notebook, so consume them.
+                )
+                try:
+                    # The draft's own parent wins, as it does through the
+                    # CLI: a planning session that named one meant it.
+                    draft = model.read_draft(path)
+                    # The files are consumed after the block, not here: a
+                    # rollback puts the rows back but cannot put a deleted
+                    # draft back, and a half-deleted set leaves the user with
+                    # no plan to fix.
+                    task = await model.promote_draft(
+                        self.table,
+                        project=project,
+                        path=path,
+                        overrides={"parent": draft.parent or parent},
+                        draft=draft,
+                        follows=follows,
+                        consume=False,
+                    )
+                except (OSError, ValueError) as exc:
+                    raise ValueError(f"{path.name}: {exc}") from exc
+                created.append(task.id)
+        # Committed: every draft is now a row, so the files can go.
         for path in paths:
             model.consume_draft(path)
         return [task_key(project, task_id) for task_id in created]
 
-    def _move(self, project: str, task_id: str, status: str) -> None:
-        with self._stamped() as index:
-            task_actions.move_with_actions(
-                self.store, project, task_id, status, index=index
-            )
-
-    @contextmanager
-    def _stamped(self) -> Iterator[TaskIndex | None]:
-        """Wrap a notebook write, keeping the index's head stamp honest.
-
-        The store's HEAD moves under the write, so the freshness has to be read
-        before it and the stamp written after. Every write here goes through
-        this, as the CLI's own writes do.
-        """
-        index = self.index
-        was_fresh = index is not None and task_actions.index_is_fresh(self.store, index)
-        yield index
-        if index is not None:
-            task_actions.restamp(self.store, index, was_fresh=was_fresh)
+    async def _move(self, project: str, task_id: str, status: str) -> None:
+        await task_actions.move_with_actions(self.table, project, task_id, status)
 
 
 class InMemoryWorktreeSource:

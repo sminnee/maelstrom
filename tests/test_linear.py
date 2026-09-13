@@ -1,11 +1,13 @@
 """Tests for Linear integration functions."""
 
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 import click
 import pytest
 from click.testing import CliRunner
 
+from maelstrom import task as model
 from maelstrom import task_cli
 from maelstrom.integrations import linear as linear_mod
 from maelstrom.integrations.linear import (
@@ -16,7 +18,23 @@ from maelstrom.integrations.linear import (
     linear,
     localize_description_images,
 )
-from maelstrom.task_store import InMemoryStore
+from maelstrom.task_table import InMemoryTaskTable
+
+
+class ThreadedCliRunner(CliRunner):
+    """A ``CliRunner`` that invokes the command on its own thread.
+
+    ``AsyncGroup`` opens one event loop per invocation with ``asyncio.run``,
+    which refuses to nest. These tests are coroutines, so a plain ``invoke``
+    would call it with a loop already running. A worker thread has no loop,
+    which is the state a real ``mael`` process starts in.
+    """
+
+    def invoke(self, *args, **kwargs):  # type: ignore[override]
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(
+                lambda: super(ThreadedCliRunner, self).invoke(*args, **kwargs)
+            ).result()
 
 
 class TestCmdPlan:
@@ -34,7 +52,7 @@ class TestCmdPlan:
             "title": "Do the thing",
             "description": "Some details.",
         }
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["plan", "ME-99"])
         assert result.exit_code == 0, result.output
 
@@ -60,7 +78,7 @@ class TestCmdPlan:
             "title": "T",
             "description": "",
         }
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["plan", "ME-99", "--run"])
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["run"] is True
@@ -74,7 +92,7 @@ class TestCmdPlan:
             "title": "T",
             "description": "",
         }
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["plan", "ME-99", "--no-run"])
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["run"] is False
@@ -90,7 +108,7 @@ class TestCmdPlan:
             "title": "T",
             "description": "",
         }
-        result = CliRunner().invoke(linear, ["plan", "ME-99"])
+        result = ThreadedCliRunner().invoke(linear, ["plan", "ME-99"])
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["model"] == "opus"
 
@@ -105,7 +123,7 @@ class TestCmdPlan:
             "title": "T",
             "description": "",
         }
-        result = CliRunner().invoke(linear, ["plan", "ME-99"])
+        result = ThreadedCliRunner().invoke(linear, ["plan", "ME-99"])
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["mode"] == "normal"
 
@@ -118,7 +136,7 @@ class TestCmdPlan:
             "title": "T",
             "description": "",
         }
-        result = CliRunner().invoke(linear, ["plan", "ME-99", "--mode", "plan"])
+        result = ThreadedCliRunner().invoke(linear, ["plan", "ME-99", "--mode", "plan"])
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["mode"] == "plan"
 
@@ -133,7 +151,7 @@ class TestCmdPlan:
             "title": "T",
             "description": "",
         }
-        result = CliRunner().invoke(
+        result = ThreadedCliRunner().invoke(
             linear,
             [
                 "plan",
@@ -169,7 +187,7 @@ class TestCmdPlan:
             "title": "T",
             "description": "",
         }
-        result = CliRunner().invoke(
+        result = ThreadedCliRunner().invoke(
             linear, ["plan", "ME-99", "--post-action", "", "--command", ""]
         )
         assert result.exit_code == 0, result.output
@@ -195,7 +213,7 @@ class TestCmdPlan:
             "maelstrom.branch_name.generate_branch_name",
             lambda *a, **k: calls.append(a) or "generated",
         )
-        result = CliRunner().invoke(
+        result = ThreadedCliRunner().invoke(
             linear, ["plan", "ME-99", "--branch", "mine/explicit"]
         )
         assert result.exit_code == 0, result.output
@@ -210,13 +228,13 @@ class TestCmdPlan:
             "title": "T",
             "description": "",
         }
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["plan", "ME-99", "--project", "myproj"])
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["project"] == "myproj"
 
     @patch("maelstrom.integrations.linear.get_issue")
-    def test_plan_creates_task_on_generated_branch(self, mock_get, monkeypatch):
+    async def test_plan_creates_task_on_generated_branch(self, mock_get, monkeypatch):
         """End-to-end: ``plan`` computes a descriptive branch from the issue
         title + bare number and persists it on the created task. With the model
         call forced to fail (autouse fixture) this is the deterministic fallback:
@@ -226,21 +244,21 @@ class TestCmdPlan:
             "title": "Do the thing",
             "description": "",
         }
-        store = InMemoryStore()
-        monkeypatch.setattr(task_cli, "_store", lambda: store)
-        # An InMemoryStore has no on-disk root for the SQLite index; point the CLI
-        # index seam at the model's default in-memory index (set by conftest).
-        monkeypatch.setattr(
-            task_cli, "open_index", lambda _store: task_cli.model._DEFAULT_INDEX
-        )
+        store = InMemoryTaskTable()
+
+        async def _table():
+            return store
+
+        monkeypatch.setattr(task_cli, "_table", _table)
+        monkeypatch.setattr(task_cli, "open_task_table", lambda: store)
         monkeypatch.setattr(
             task_cli, "_resolve_project", lambda project: project or "p"
         )
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["plan", "NORT-123", "--no-run"])
         assert result.exit_code == 0, result.output
 
-        created = task_cli.model.list_tasks(store, project="p")
+        created = await model.list_tasks(store, project="p")
         assert len(created) == 1
         assert created[0].parent == "linear.NORT-123"
         assert created[0].branch == "feat/123-do-thing"
@@ -540,7 +558,7 @@ class TestCmdCreateTask:
             "title": "New task",
         }
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["create-task", "New task"])
 
         assert result.exit_code == 0
@@ -570,7 +588,7 @@ class TestCmdCreateTask:
             "title": "Another task",
         }
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["create-task", "Another task"])
 
         assert result.exit_code == 0
@@ -588,7 +606,7 @@ class TestCmdCreateTask:
         """Test error when Backlog state is not found."""
         mock_states.return_value = {"Todo": "state-2", "Done": "state-3"}
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["create-task", "Some task"])
 
         assert result.exit_code != 0
@@ -609,7 +627,7 @@ class TestCmdSetStatus:
         }
         mock_states.return_value = {"Todo": "s-todo", "Planned": "s-planned"}
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["set-status", "PROJ-7", "planned"])
 
         assert result.exit_code == 0, result.output
@@ -635,7 +653,7 @@ class TestCmdSetStatus:
             "Done": "s-done",
         }
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["set-status", "PROJ-7", "done"])
 
         assert result.exit_code == 0, result.output
@@ -653,7 +671,7 @@ class TestCmdSetStatus:
         }
         mock_states.return_value = {"Todo": "s-todo", "Planned": "s-planned"}
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["set-status", "PROJ-7", "planned"])
 
         assert result.exit_code == 0, result.output
@@ -662,7 +680,7 @@ class TestCmdSetStatus:
 
     def test_set_status_invalid_choice_errors(self):
         # An unknown logical status is rejected by click before any API call.
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["set-status", "PROJ-7", "bogus"])
 
         assert result.exit_code != 0
@@ -678,7 +696,7 @@ class TestCmdSetStatus:
         }
         mock_states.return_value = {"Todo": "s-todo"}  # no Unreleased state
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["set-status", "PROJ-7", "done"])
 
         assert result.exit_code != 0
@@ -716,7 +734,7 @@ class TestCmdEditPlan:
             "description": SAMPLE_DESCRIPTION_WITH_PLAN,
         }
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(
             linear,
             [
@@ -753,7 +771,7 @@ class TestCmdEditPlan:
         )
         new_file.write_text("## Completed Iteration: Build the API\nDone.")
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(
             linear,
             ["edit-plan", "PROJ-10", str(old_file), str(new_file)],
@@ -774,7 +792,7 @@ class TestCmdEditPlan:
             "description": SAMPLE_DESCRIPTION_WITH_PLAN,
         }
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(
             linear,
             ["edit-plan", "PROJ-10", "-s", "nonexistent text", "replacement"],
@@ -794,7 +812,7 @@ class TestCmdEditPlan:
             "description": desc_with_dups,
         }
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(
             linear,
             ["edit-plan", "PROJ-10", "-s", "--", "- item", "- new item"],
@@ -813,7 +831,7 @@ class TestCmdEditPlan:
             "description": "Just a description, no plan.",
         }
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(
             linear,
             ["edit-plan", "PROJ-10", "-s", "old", "new"],
@@ -835,7 +853,7 @@ class TestCmdEditPlan:
 
         # "## First Iteration: Build the API" also appears in footer text,
         # but string mode should only match within plan section
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(
             linear,
             [
@@ -939,7 +957,7 @@ class TestCmdRelease:
             _page(page_two),
         ]
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["release"])
 
         assert result.exit_code == 0, result.output
@@ -963,7 +981,7 @@ class TestCmdRelease:
         mock_states.return_value = self.STATES
         mock_graphql.return_value = _page([])
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["release"])
 
         assert result.exit_code == 0, result.output
@@ -985,7 +1003,7 @@ class TestCmdRelease:
             [{"id": "i-1", "identifier": "PROJ-1", "title": "Task 1"}]
         )
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["release", "--dry-run"])
 
         assert result.exit_code == 0, result.output
@@ -1019,7 +1037,7 @@ class TestCmdRelease:
             None,
         ]
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["release"])
 
         assert result.exit_code != 0
@@ -1050,7 +1068,7 @@ class TestCmdRelease:
         )
         mock_update.side_effect = [OSError("connection reset"), None]
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["release"])
 
         assert result.exit_code != 0
@@ -1069,7 +1087,7 @@ class TestCmdRelease:
         mock_team.return_value = "team-1"
         mock_states.return_value = {"Done": "s-done"}  # no Unreleased
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["release"])
 
         assert result.exit_code != 0
@@ -1079,7 +1097,7 @@ class TestCmdRelease:
     def test_release_missing_product_label_errors(self, mock_label):
         mock_label.return_value = None
 
-        runner = CliRunner()
+        runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["release"])
 
         assert result.exit_code != 0

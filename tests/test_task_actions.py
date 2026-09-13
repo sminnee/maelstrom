@@ -103,54 +103,58 @@ class TestRunAction:
 
 
 class TestMoveWithActions:
-    def _seed(self, store, **kwargs):
-        return model.create(
+    async def _seed(self, store, **kwargs):
+        return await model.create(
             store, project="p", title="t", now=NOW, today="2026-06-08", **kwargs
         )
 
-    def test_move_to_done_fires_post_action(self, monkeypatch, store):
+    async def test_move_to_done_fires_post_action(self, monkeypatch, store):
         calls = []
         from maelstrom.integrations import linear
 
         monkeypatch.setattr(
             linear, "set_issue_status", lambda i, s: calls.append((i, s))
         )
-        t = self._seed(store, parent="linear.NORT-12", post_action="linear.done")
-        task_actions.move_with_actions(store, "p", t.id, model.STATUS_DONE)
+        t = await self._seed(store, parent="linear.NORT-12", post_action="linear.done")
+        await task_actions.move_with_actions(store, "p", t.id, model.STATUS_DONE)
         assert calls == [("NORT-12", "done")]
 
-    def test_move_to_in_progress_fires_pre_action(self, monkeypatch, store):
+    async def test_move_to_in_progress_fires_pre_action(self, monkeypatch, store):
         calls = []
         from maelstrom.integrations import linear
 
         monkeypatch.setattr(
             linear, "set_issue_status", lambda i, s: calls.append((i, s))
         )
-        t = self._seed(store, parent="linear.NORT-12", pre_action="linear.in-progress")
-        task_actions.move_with_actions(store, "p", t.id, model.STATUS_IN_PROGRESS)
+        t = await self._seed(
+            store, parent="linear.NORT-12", pre_action="linear.in-progress"
+        )
+        await task_actions.move_with_actions(store, "p", t.id, model.STATUS_IN_PROGRESS)
         assert calls == [("NORT-12", "in-progress")]
 
     @pytest.mark.parametrize(
         "status",
         [model.STATUS_TODO, model.STATUS_CANCELLED, model.STATUS_BLOCKED],
     )
-    def test_other_destinations_fire_nothing(self, monkeypatch, status, store):
+    async def test_other_destinations_fire_nothing(self, monkeypatch, status, store):
         from maelstrom.integrations import linear
 
         monkeypatch.setattr(linear, "set_issue_status", _fail("should not be called"))
         # Start in-progress so a move to todo/cancelled/blocked is a real move.
-        t = self._seed(
+        t = await self._seed(
             store,
             parent="linear.NORT-12",
             pre_action="linear.in-progress",
             post_action="linear.done",
         )
-        model.move(store, "p", t.id, model.STATUS_IN_PROGRESS, now=NOW)
-        task_actions.move_with_actions(store, "p", t.id, status)  # must not raise
+        await model.move(store, "p", t.id, model.STATUS_IN_PROGRESS, now=NOW)
+        await task_actions.move_with_actions(store, "p", t.id, status)  # must not raise
 
-    def test_returns_moved_task(self, monkeypatch, store):
-        t = self._seed(store)
-        moved = task_actions.move_with_actions(store, "p", t.id, model.STATUS_DONE)
+    async def test_returns_moved_task(self, monkeypatch, store):
+        t = await self._seed(store)
+        moved = await task_actions.move_with_actions(
+            store, "p", t.id, model.STATUS_DONE
+        )
         assert moved.status == model.STATUS_DONE
 
 

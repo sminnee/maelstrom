@@ -24,10 +24,13 @@ from .cli_async import AsyncGroup
 from .cmux.client import ensure_cmux_running
 from .context import resolve_context
 from .shell import exec_cmd
+from .state_db.db import StateDb
+from .state_db.migrate import open_state_db
+from .state_db.paths import get_state_db_path
+from .state_db.types import StateDbError
 from .table import draw_table
-from .task_index import SqliteTaskIndex
 from .task_launch import LaunchBlocked, check_not_live, check_synced, plan_launch
-from .task_store import GitFileStore
+from .task_table import SqliteTaskTable
 from .util import read_content_file
 from .worktree import (
     get_current_branch,
@@ -133,58 +136,55 @@ def _current_branch_or_none() -> str | None:
     return branch
 
 
-def _store() -> GitFileStore:
-    return GitFileStore()
+#: The open state database, and the table over it, for this invocation.
+#: ``AsyncGroup`` opens one loop around the whole command, so one connection
+#: serves every call under it and is closed when the process ends.
+_DB: StateDb | None = None
 
 
-def open_index(store: GitFileStore) -> "SqliteTaskIndex":
-    """Return the SQLite metadata index living alongside ``store`` in its root.
+def open_task_table() -> SqliteTaskTable:
+    """The task table, opened once per ``mael`` invocation.
 
-    Ensures the store excludes ``index.db*`` first (idempotent, and a no-op on a
-    not-yet-initialised repo), so even a task store that predates the index never
-    surfaces the cache as an untracked/staged change. It's a rebuildable cache of
-    the ``.md`` tree, never part of the notebook history.
+    Public so the other CLIs that read tasks — ``mael session list``, the agent
+    daemon's listing — reach the same table rather than opening a second
+    connection to it.
 
-    Public so other CLIs (e.g. ``session list``) open the *same* index the task
-    CLI keeps current, without duplicating the ``store.root / "index.db"`` path.
+    The database is *checked*, not migrated: upgrading is a command a person
+    runs (``mael admin migrate``), never a background rewrite. A database behind
+    this build refuses here with that instruction, which is the whole point of
+    the schema gate.
     """
-    store.ensure_excludes()
-    return SqliteTaskIndex(store.root / "index.db")
+    global _DB
+    if _DB is None:
+        # The directory may not exist on a machine that has never run a mael
+        # command. sqlite3 raises OperationalError rather than creating it,
+        # which would surface as a traceback rather than an empty notebook.
+        path = get_state_db_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _DB = open_state_db(path)
+    return SqliteTaskTable(_DB)
 
 
-def _read_index(store: GitFileStore) -> "tuple[SqliteTaskIndex, str | None]":
-    """Return ``(index, head)`` for a read command's model-call fast path.
+async def _table() -> SqliteTaskTable:
+    """The task table, with the schema gate checked on first use.
 
-    ``head`` is the store's current git HEAD; the model serves from the index only
-    when the index's own HEAD stamp matches it (else it falls back to a scan), so a
-    never-built or stale index degrades safely to the old behaviour.
+    Async because :meth:`StateDb.check` is, and because every caller is already
+    a coroutine — the loop is open at the top of the invocation.
     """
-    return open_index(store), store.head()
+    table = open_task_table()
+    global _CHECKED
+    if not _CHECKED:
+        try:
+            await _DB.check()  # type: ignore[union-attr]  # set by open_task_table
+        except StateDbError as exc:
+            raise click.ClickException(str(exc)) from exc
+        _CHECKED = True
+    return table
 
 
-def _mutate_index(store: GitFileStore) -> "tuple[SqliteTaskIndex, bool]":
-    """Return ``(index, was_fresh)`` for a mutating command.
-
-    Capture whether the index is complete at the current HEAD *before* the
-    mutation runs, so :func:`_restamp` can decide afterwards whether advancing the
-    stamp is sound (see its docstring).
-    """
-    index = open_index(store)
-    return index, task_actions.index_is_fresh(store, index)
-
-
-def _restamp(store: GitFileStore, index: "SqliteTaskIndex", *, was_fresh: bool) -> None:
-    """Advance the index HEAD stamp after a mutation — only if it was complete.
-
-    A mutating command upserts/removes the single affected row(s) beside the store
-    write, then calls this. We re-stamp to the post-commit HEAD *only* when the
-    index was already fresh (complete at the pre-mutation HEAD): an incremental
-    single-row update preserves completeness, so the cache stays trustworthy.
-    If the index was stale or never built, we leave the stamp behind so reads keep
-    scanning until ``task reindex`` rebuilds it — never claiming freshness for a
-    partial index.
-    """
-    task_actions.restamp(store, index, was_fresh=was_fresh)
+#: Whether this invocation has already checked the schema. One check per
+#: process: the schema cannot move under a running command.
+_CHECKED = False
 
 
 def _read_content_file(content_file: str | None) -> str:
@@ -200,7 +200,7 @@ def _read_content_file(content_file: str | None) -> str:
 
 
 async def _run_task(
-    store: GitFileStore,
+    table: SqliteTaskTable,
     project: str,
     task: "model.Task",
     *,
@@ -211,9 +211,8 @@ async def _run_task(
     """Mark a task in-progress and launch its Claude session.
 
     With ``here=True`` the session runs in the current shell via
-    ``exec_cmd`` — an ``execvp`` that never returns —
-    so every store write MUST complete before it, and the status move re-stamps
-    HEAD up-front. No worktree reconciliation, no new cmux workspace.
+    ``exec_cmd`` — an ``execvp`` that never returns — so every write MUST
+    complete before it. No worktree reconciliation, no new cmux workspace.
 
     Otherwise the session is placed **inside cmux** (cmux-or-fail): the task is
     moved in-progress before ``launch_claude_in_worktree`` runs; if placement
@@ -227,7 +226,6 @@ async def _run_task(
     relaunch callers (``task run`` / ``task next``) leave it ``False`` so they
     still resume a previously-stopped session.
     """
-    index, was_fresh = _mutate_index(store)
     # The plan settles the session id, env, permission mode and branch once,
     # the same way the orchestrator server does. Harnesses without task-session
     # support cannot pin, resume, or guard their own session ids.
@@ -237,7 +235,7 @@ async def _run_task(
     # One sweep answers both questions below: is this task already running, and
     # is anything running in the worktree the open is about to rebase.
     # Swept here, on the loop: the lazy property falls back to a thread when a
-    # loop is running, and the task index is bound to the thread that opened it.
+    # loop is running, and the state database is bound to the loop's thread.
     live = await session_discovery.LiveSessionSet().sweep()
     # Refuse a second parallel launch *of this task*. A finished session leaves
     # nothing running, so a finished task stays re-runnable.
@@ -269,10 +267,9 @@ async def _run_task(
         if has_session_id and not fresh:
             assert session_id is not None  # set above on the claude path
             resume = has_claude_transcript(Path.cwd(), session_id)
-        task_actions.move_with_actions(
-            store, project, task.id, model.STATUS_IN_PROGRESS, index=index
+        await task_actions.move_with_actions(
+            table, project, task.id, model.STATUS_IN_PROGRESS
         )  # write BEFORE launch; fires pre_action
-        _restamp(store, index, was_fresh=was_fresh)
         suffix = " (resuming)" if resume else ""
         click.echo(f"Running {task.id} here (current shell){suffix}")
         exec_cmd(
@@ -333,10 +330,9 @@ async def _run_task(
     if has_session_id and not fresh:
         assert session_id is not None  # set above on the claude path
         resume = has_claude_transcript(result.path, session_id)
-    task_actions.move_with_actions(
-        store, project, task.id, model.STATUS_IN_PROGRESS, index=index
+    await task_actions.move_with_actions(
+        table, project, task.id, model.STATUS_IN_PROGRESS
     )  # write BEFORE launch; fires pre_action
-    _restamp(store, index, was_fresh=was_fresh)
     suffix = " (resuming)" if resume else ""
     click.echo(f"Running {task.id} on {branch}{suffix}")
     click.echo(f"  → {project}/{result.name} ({result.action})")
@@ -361,10 +357,7 @@ async def _run_task(
         # store write itself raises, the run aborts loudly (leaving the task
         # in-progress) rather than silently — an acceptable failure mode, since
         # a raised store error is already fatal.
-        task_actions.move_with_actions(
-            store, project, task.id, model.STATUS_TODO, index=index
-        )
-        _restamp(store, index, was_fresh=was_fresh)
+        await task_actions.move_with_actions(table, project, task.id, model.STATUS_TODO)
         # The launcher already named the reason.
         click.echo(f"Left {task.id} TODO (re-fires next run)", err=True)
 
@@ -735,8 +728,7 @@ async def add_task(
     source's content); pass ``""`` to deliberately blank it.
     """
     proj = _resolve_project(project)
-    store = _store()
-    index, was_fresh = _mutate_index(store)
+    table = await _table()
     parent = _default_parent(parent)
 
     if from_id is None and not (title and title.strip()):
@@ -744,7 +736,9 @@ async def add_task(
 
     follow_list = list(follows)
     for end_id in follow_ends:
-        follow_list.extend(task_model._resolve_follow_end(store, proj, end_id, parent))
+        follow_list.extend(
+            await task_model._resolve_follow_end(table, proj, end_id, parent)
+        )
     # De-dupe while preserving first-seen order.
     deduped = list(dict.fromkeys(follow_list))
 
@@ -752,8 +746,8 @@ async def add_task(
 
     if from_id is not None:
         try:
-            new = task_model.duplicate(
-                store,
+            new = await task_model.duplicate(
+                table,
                 proj,
                 from_id,
                 title=title,
@@ -769,13 +763,12 @@ async def add_task(
                 follows=deduped,
                 schedule=schedule or "",
                 status=status,
-                index=index,
             )
         except KeyError:
             raise click.ClickException(f"Task not found: {from_id}")
     else:
-        new = task_model.create(
-            store,
+        new = await task_model.create(
+            table,
             project=proj,
             title=title or "",
             command=command,
@@ -791,19 +784,17 @@ async def add_task(
             content=content or "",
             schedule=schedule or "",
             status=status,
-            index=index,
         )
     click.echo(new.id)
     if edit:
         try:
-            task_model.edit_in_editor(store, proj, new.id, index=index)
+            await task_model.edit_in_editor(table, proj, new.id)
         except KeyError:
             raise click.ClickException(f"Task not found: {new.id}")
         except RuntimeError as e:
             raise click.ClickException(str(e))
-    _restamp(store, index, was_fresh=was_fresh)
     if run:
-        await _run_task(store, proj, new, here=here, fresh=True)
+        await _run_task(table, proj, new, here=here, fresh=True)
     return new
 
 
@@ -870,7 +861,7 @@ def task_draft(
 @click.argument("file")
 @click.option("-p", "--project", default=None, help="Project name (default: from cwd).")
 @block_task_options(distinguish_unset=True)
-def task_promote(
+async def task_promote(
     file: str,
     project: str | None,
     command: str | None,
@@ -905,17 +896,16 @@ def task_promote(
     except ValueError as e:
         raise click.ClickException(f"{file}: {e}")
     proj = _resolve_project(project)
-    store = _store()
-    index, was_fresh = _mutate_index(store)
+    table = await _table()
     effective_parent = _default_parent(parent if parent is not None else draft.parent)
     resolved = list(follows)
     for end_id in follow_ends:
         resolved.extend(
-            task_model._resolve_follow_end(store, proj, end_id, effective_parent)
+            await task_model._resolve_follow_end(table, proj, end_id, effective_parent)
         )
     try:
-        created = task_model.promote_draft(
-            store,
+        created = await task_model.promote_draft(
+            table,
             project=proj,
             path=path,
             overrides={
@@ -930,7 +920,6 @@ def task_promote(
                 "post_action": post_action,
             },
             follows=list(dict.fromkeys(resolved)),
-            index=index,
             draft=draft,
         )
     # The draft already parsed, so what reaches here is a flag the notebook
@@ -938,7 +927,6 @@ def task_promote(
     except ValueError as e:
         raise click.ClickException(str(e))
     click.echo(created.id)
-    _restamp(store, index, was_fresh=was_fresh)
 
 
 @task.command("load-many")
@@ -970,16 +958,13 @@ async def task_load_many(file: str, project: str | None, run: bool, here: bool) 
     for w in warnings:
         click.echo(f"warning: {w}", err=True)
     proj = _resolve_project(project)
-    store = _store()
-    index, was_fresh = _mutate_index(store)
-    created = model.load_many(
-        store,
+    table = await _table()
+    created = await model.load_many(
+        table,
         project=proj,
         blocks=blocks,
         default_parent=_default_parent(""),
-        index=index,
     )
-    _restamp(store, index, was_fresh=was_fresh)
     for t in created:
         click.echo(f"{t.id}\t{t.title}")
     if not (run and created):
@@ -992,7 +977,7 @@ async def task_load_many(file: str, project: str | None, run: bool, here: bool) 
         # _run_task — after the execvp nothing here reaches the terminal.
         head = created[0]
         click.echo(f"{head.id} starting in this shell.")
-        await _run_task(store, proj, head, here=True, fresh=True)
+        await _run_task(table, proj, head, here=True, fresh=True)
         return
 
     # Launch every task in the batch that isn't waiting on a follow — the same
@@ -1003,10 +988,7 @@ async def task_load_many(file: str, project: str | None, run: bool, here: bool) 
     # The set is computed once, before any launch: a launch only moves a task to
     # in-progress, never to done, so no blocked task in the batch can *become*
     # actionable partway through the loop.
-    head_sha = store.head()
-    launch = [
-        t for t in created if model.is_actionable(t, store, index=index, head=head_sha)
-    ]
+    launch = [t for t in created if await model.is_actionable(t, table)]
     if not launch:
         return
     # Start the cmux app once for the whole batch; each _run_task still guards
@@ -1027,7 +1009,7 @@ async def task_load_many(file: str, project: str | None, run: bool, here: bool) 
         # raised before the status move, so the task is still in todo/ and stays
         # re-runnable via `mael task next --run`.
         try:
-            await _run_task(store, proj, t, here=False, fresh=True)
+            await _run_task(table, proj, t, here=False, fresh=True)
         except click.ClickException as e:
             failed += 1
             click.echo(f"warning: {t.id} — {e.format_message()}", err=True)
@@ -1054,7 +1036,7 @@ def _scheduled_projects(project: str | None, all_projects: bool) -> list[str]:
 
 
 async def _fire_due_templates(
-    store: GitFileStore, project: str, *, now: datetime, run: bool, here: bool
+    table: SqliteTaskTable, project: str, *, now: datetime, run: bool, here: bool
 ) -> list["model.Task"]:
     """Create (and optionally launch) one run per due template in ``project``.
 
@@ -1071,33 +1053,27 @@ async def _fire_due_templates(
     """
     from . import schedule as sched
 
-    index, was_fresh = _mutate_index(store)
     created: list[model.Task] = []
-    for tmpl, date in sched.due_templates(store, project, now=now):
+    for tmpl, date in await sched.due_templates(table, project, now=now):
         run_id = model.allocate_run_id(tmpl.id, date)
-        if model.find_key(store, project, run_id, no_index=True) is not None:
+        if await table.load(project, run_id) is not None:
             continue  # already fired this boundary
         prev = sched.previous_fire(tmpl.schedule, now)
         assert prev is not None  # due_templates only yields when a boundary exists
-        # Buffer the index inside the store txn (index txn nested within) so a
-        # rollback discards both — the duplicate + template watermark update are
-        # a single unit.
-        with store.transaction(message=f"task: scheduled run {run_id}"):
-            with index.transaction():
-                new = model.duplicate(
-                    store,
-                    project,
-                    tmpl.id,
-                    parent="",  # parentless → run roots its own chain (see docstring)
-                    branch=tmpl.branch,
-                    id=run_id,
-                    index=index,
-                )
-                model.update(
-                    store, project, tmpl.id, last_run=prev.isoformat(), index=index
-                )
+        # One transaction: the duplicate and the template's watermark move
+        # together, so a rollback leaves the boundary unfired rather than
+        # half-fired.
+        async with table.transact():
+            new = await model.duplicate(
+                table,
+                project,
+                tmpl.id,
+                parent="",  # parentless → run roots its own chain (see docstring)
+                branch=tmpl.branch,
+                id=run_id,
+            )
+            await model.update(table, project, tmpl.id, last_run=prev.isoformat())
         created.append(new)
-    _restamp(store, index, was_fresh=was_fresh)
     if run and created and not here:
         # Start the cmux app once for the whole batch (N due runs share one app
         # start); each _run_task still guards liveness individually and rolls its
@@ -1106,7 +1082,7 @@ async def _fire_due_templates(
         ensure_cmux_running()
     if run:
         for t in created:
-            await _run_task(store, project, t, here=here, fresh=True)
+            await _run_task(table, project, t, here=here, fresh=True)
     return created
 
 
@@ -1139,10 +1115,10 @@ async def task_add_scheduled(
     # Stamp every run so schedule.log records when the agent fired, even when
     # nothing is due — the answer to "did the scheduler run?" at diagnosis time.
     click.echo(f"[{now.isoformat(timespec='seconds')}] add-scheduled")
-    store = _store()
+    table = await _table()
     total = 0
     for proj in _scheduled_projects(project, all_projects):
-        for t in await _fire_due_templates(store, proj, now=now, run=run, here=here):
+        for t in await _fire_due_templates(table, proj, now=now, run=run, here=here):
             click.echo(f"{proj}/{t.id}\t{t.title}")
             total += 1
     if total == 0:
@@ -1166,7 +1142,7 @@ async def task_add_scheduled(
     is_flag=True,
     help="Show everything, including done and cancelled. Takes precedence over --all-todo.",
 )
-def task_list(
+async def task_list(
     project: str | None,
     status: str | None,
     parent: str | None,
@@ -1182,11 +1158,8 @@ def task_list(
     naturally shows nothing.
     """
     proj = _resolve_project(project)
-    store = _store()
-    index, head = _read_index(store)
-    tasks = model.list_tasks(
-        store, project=proj, status=status, parent=parent, index=index, head=head
-    )
+    table = await _table()
+    tasks = await model.list_tasks(table, project=proj, status=status, parent=parent)
     if not tasks:
         click.echo("No tasks.")
         return
@@ -1202,7 +1175,7 @@ def task_list(
 
     rows = []
     for t in tasks:
-        actionable = model.is_actionable(t, store, index=index, head=head)
+        actionable = await model.is_actionable(t, table)
         terminal = model.is_terminal(t.status)
         blocked = not actionable and not terminal
         if all_ or show_all_in_folder:
@@ -1290,26 +1263,23 @@ async def task_next(
     fallback).
     """
     proj = _resolve_project(project)
-    store = _store()
-    index, head = _read_index(store)
+    table = await _table()
     if branch is not None:
         effective_branch, fallback = branch, False
     else:
         effective_branch, fallback = _current_branch_or_none(), True
-    nxt = model.next_task(
-        store,
+    nxt = await model.next_task(
+        table,
         proj,
         parent=parent,
         branch=effective_branch,
         fallback=fallback,
-        index=index,
-        head=head,
     )
     if nxt is None:
         raise click.ClickException("No actionable task.")
     if run:
         await _run_task(
-            store,
+            table,
             proj,
             nxt,
             here=here,
@@ -1337,16 +1307,16 @@ async def task_run(
     """Launch a task as a Claude session (ensures its worktree first)."""
     resolved = resolve_harness_or_fail(harness, here=here)
     proj = _resolve_project(project)
-    store = _store()
+    table = await _table()
     try:
-        t = model.load(store, proj, id)
+        t = await model.load(table, proj, id)
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
-    await _run_task(store, proj, t, here=here, harness=resolved)
+    await _run_task(table, proj, t, here=here, harness=resolved)
 
 
-def _live_sessions_by_task(
-    store: GitFileStore, project: str
+async def _live_sessions_by_task(
+    table: SqliteTaskTable, project: str
 ) -> dict[str, "session_discovery.LiveSession"]:
     """Map ``task_id -> live LiveSession`` for every task in ``project``.
 
@@ -1364,16 +1334,16 @@ def _live_sessions_by_task(
         return {}
 
     mapping: dict[str, session_discovery.LiveSession] = {}
-    # Reconcile wants a definitive store view (it pairs with model.reconcile, which
-    # also scans); no HEAD is threaded here, so read the .md tree directly.
-    for task in model.list_tasks(store, project=project, no_index=True):
+    for task in await model.list_tasks(table, project=project):
         session = live.for_session_id(model.session_id_for(project, task.id))
         if session is not None:
             mapping[task.id] = session
     return mapping
 
 
-def _ran_task_ids(store: GitFileStore, project: str, project_path: Path) -> set[str]:
+async def _ran_task_ids(
+    table: SqliteTaskTable, project: str, project_path: Path
+) -> set[str]:
     """In-progress task ids whose session left an on-disk transcript (it ran).
 
     A stale in-progress task (no live session) is either *finished* or *never
@@ -1390,8 +1360,8 @@ def _ran_task_ids(store: GitFileStore, project: str, project_path: Path) -> set[
     # dict never loses a distinct worktree to key collision.
     by_branch = {wt.branch: wt.path for wt in list_worktrees(project_path) if wt.branch}
     ran: set[str] = set()
-    for task in model.list_tasks(
-        store, project=project, status=model.STATUS_IN_PROGRESS, no_index=True
+    for task in await model.list_tasks(
+        table, project=project, status=model.STATUS_IN_PROGRESS
     ):
         branch = task.branch or model.default_branch(task.id, task.parent)
         worktree_path = by_branch.get(branch)
@@ -1410,7 +1380,7 @@ def _ran_task_ids(store: GitFileStore, project: str, project_path: Path) -> set[
     is_flag=True,
     help="Apply the suggested corrections (default: dry-run table only).",
 )
-def task_reconcile(project: str | None, fix: bool) -> None:
+async def task_reconcile(project: str | None, fix: bool) -> None:
     """Reconcile in-progress tasks against live Claude sessions.
 
     Liveness comes from live ``claude`` processes by cwd (via
@@ -1428,18 +1398,17 @@ def task_reconcile(project: str | None, fix: bool) -> None:
     every existing task's session is still reconciled.
     """
     proj = _resolve_project(project)
-    store = _store()
-    index, was_fresh = _mutate_index(store)
-    session_task_ids = _live_sessions_by_task(store, proj)
+    table = await _table()
+    session_task_ids = await _live_sessions_by_task(table, proj)
     # A stale in-progress task that left a transcript ran (stopped = finished →
     # done); one with no transcript never launched (→ todo). Transcript existence
     # is resolved here (per worktree) and injected so `reconcile` stays pure.
     ctx = resolve_context(proj, require_project=True, arg_is_project=True)
     ran_ids: set[str] = set()
     if ctx.project_path is not None and ctx.project_path.exists():
-        ran_ids = _ran_task_ids(store, proj, ctx.project_path)
-    rows = model.reconcile(
-        store,
+        ran_ids = await _ran_task_ids(table, proj, ctx.project_path)
+    rows = await model.reconcile(
+        table,
         proj,
         session_task_ids=session_task_ids,
         ran_ids=ran_ids,
@@ -1486,26 +1455,22 @@ def task_reconcile(project: str | None, fix: bool) -> None:
 
     for r in fixable:
         try:
-            task_actions.move_with_actions(
-                store, proj, r.task_id, r.fix_status, index=index
-            )
+            await task_actions.move_with_actions(table, proj, r.task_id, r.fix_status)
         except KeyError:
             click.echo(f"  skipped {r.task_id}: task no longer exists", err=True)
             continue
         click.echo(f"  {r.task_id}: {r.task_status} -> {r.fix_status}")
-    _restamp(store, index, was_fresh=was_fresh)
 
 
 @task.command("show")
 @click.argument("id")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
-def task_show(id: str, project: str | None) -> None:
+async def task_show(id: str, project: str | None) -> None:
     """Show a summary of a task."""
     proj = _resolve_project(project)
-    store = _store()
-    index, head = _read_index(store)
+    table = await _table()
     try:
-        t = model.load(store, proj, id)
+        t = await model.load(table, proj, id)
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
     click.echo(f"id:      {t.id}")
@@ -1530,9 +1495,8 @@ def task_show(id: str, project: str | None) -> None:
         click.echo(f"last-run: {t.last_run}")
     click.echo(f"created: {t.created}")
     click.echo(f"updated: {t.updated}")
-    click.echo(
-        f"actionable: {'yes' if model.is_actionable(t, store, index=index, head=head) else 'no'}"
-    )
+    actionable = await model.is_actionable(t, table)
+    click.echo(f"actionable: {'yes' if actionable else 'no'}")
     if t.content:
         click.echo("\n## Content\n")
         click.echo(t.content)
@@ -1541,7 +1505,7 @@ def task_show(id: str, project: str | None) -> None:
 @task.command("get-status")
 @click.argument("id", required=False)
 @click.option("--project", default=None, help="Project name (default: from cwd).")
-def task_get_status(id: str | None, project: str | None) -> None:
+async def task_get_status(id: str | None, project: str | None) -> None:
     """Print a task's status and nothing else.
 
     Sits outside the "task status" group, whose subcommands are the lifecycle
@@ -1550,9 +1514,9 @@ def task_get_status(id: str | None, project: str | None) -> None:
     """
     task_id = _resolve_task_id(id)
     proj = _resolve_project(project)
-    store = _store()
+    table = await _table()
     try:
-        t = model.load(store, proj, task_id)
+        t = await model.load(table, proj, task_id)
     except KeyError:
         raise click.ClickException(f"Task not found: {task_id}")
     click.echo(t.status)
@@ -1560,7 +1524,7 @@ def task_get_status(id: str | None, project: str | None) -> None:
 
 @task.command("current")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
-def task_current(project: str | None) -> None:
+async def task_current(project: str | None) -> None:
     """Print the session's task as "ID:STATUS", or nothing.
 
     Built for a shell prompt or status line, which redraws constantly and has
@@ -1572,7 +1536,8 @@ def task_current(project: str | None) -> None:
     status: str | None = None
     if task_id:
         try:
-            status = model.load(_store(), _resolve_project(project), task_id).status
+            found = await model.load(await _table(), _resolve_project(project), task_id)
+            status = found.status
         except Exception:
             # Every lookup failure is the same answer here: nothing to show. The
             # catch is broad on purpose — a cwd outside any project, an unsafe
@@ -1585,28 +1550,29 @@ def task_current(project: str | None) -> None:
 @task.command("read")
 @click.argument("id")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
-def task_read(id: str, project: str | None) -> None:
-    """Print the raw task file."""
+async def task_read(id: str, project: str | None) -> None:
+    """Print the task as markdown, rendered from its row.
+
+    The notebook is a table, so this re-renders rather than reading a file —
+    the same text ``mael task edit`` opens and the export writes.
+    """
     proj = _resolve_project(project)
-    store = _store()
-    index, head = _read_index(store)
-    key = model.find_key(store, proj, id, index=index, head=head)
-    if key is None:
+    table = await _table()
+    try:
+        t = await model.load(table, proj, id)
+    except KeyError:
         raise click.ClickException(f"Task not found: {id}")
-    text = store.read(key)
-    if text is None:
-        raise click.ClickException(f"Task not found: {id}")
-    click.echo(text, nl=False)
+    click.echo(t.to_markdown(), nl=False)
 
 
 @task.command("prompt")
 @click.argument("id")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
-def task_prompt(id: str, project: str | None) -> None:
+async def task_prompt(id: str, project: str | None) -> None:
     """Print the initial Claude prompt for a task (for ``... | claude``)."""
     proj = _resolve_project(project)
     try:
-        task = model.load(_store(), proj, id)  # raises if not found
+        task = await model.load(await _table(), proj, id)  # raises if not found
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
     click.echo(model.build_prompt(task), nl=False)
@@ -1616,16 +1582,14 @@ def task_prompt(id: str, project: str | None) -> None:
 @click.argument("id")
 @click.argument("msg")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
-def task_log(id: str, msg: str, project: str | None) -> None:
+async def task_log(id: str, msg: str, project: str | None) -> None:
     """Append a line to a task's log."""
     proj = _resolve_project(project)
-    store = _store()
-    index, was_fresh = _mutate_index(store)
+    table = await _table()
     try:
-        model.append_log(store, proj, id, msg, index=index)
+        await model.append_log(table, proj, id, msg)
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
-    _restamp(store, index, was_fresh=was_fresh)
     click.echo(f"Logged to {id}.")
 
 
@@ -1650,7 +1614,7 @@ def task_log(id: str, msg: str, project: str | None) -> None:
     default=None,
     help="File whose contents replace the Content section ('-' reads stdin).",
 )
-def task_update(
+async def task_update(
     id: str,
     title: str | None,
     project: str | None,
@@ -1674,8 +1638,7 @@ def task_update(
     that point at it), then the remaining field updates apply to the new id.
     """
     proj = _resolve_project(project)
-    store = _store()
-    index, was_fresh = _mutate_index(store)
+    table = await _table()
     content = _read_content_file(content_file) if content_file is not None else None
 
     target = id
@@ -1685,7 +1648,7 @@ def task_update(
         # worktree/branch are tied to the old id, so renaming would orphan a live
         # Claude session.
         try:
-            t = task_model.load(store, proj, id)
+            t = await task_model.load(table, proj, id)
         except KeyError:
             raise click.ClickException(f"Task not found: {id}")
         if t.status == task_model.STATUS_IN_PROGRESS:
@@ -1704,7 +1667,7 @@ def task_update(
                 f"close it before changing its id."
             )
         try:
-            task_model.rename(store, proj, id, new_id, index=index)
+            await task_model.rename(table, proj, id, new_id)
         except KeyError:
             raise click.ClickException(f"Task not found: {id}")
         except ValueError as e:
@@ -1713,8 +1676,8 @@ def task_update(
         renamed = True
 
     try:
-        task_model.update(
-            store,
+        await task_model.update(
+            table,
             proj,
             target,
             title=title,
@@ -1728,13 +1691,11 @@ def task_update(
             pre_action=pre_action,
             post_action=post_action,
             schedule=schedule,
-            index=index,
         )
     except KeyError:
         raise click.ClickException(f"Task not found: {target}")
     except ValueError as e:
         raise click.ClickException(str(e))
-    _restamp(store, index, was_fresh=was_fresh)
     if renamed:
         click.echo(f"Renamed {id} -> {target}.")
     click.echo(f"Updated {target}.")
@@ -1743,54 +1704,31 @@ def task_update(
 @task.command("edit")
 @click.argument("id")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
-def task_edit(id: str, project: str | None) -> None:
-    """Open the task file in $EDITOR (vi); commit if changed."""
+async def task_edit(id: str, project: str | None) -> None:
+    """Open the task in $EDITOR (vi); write it back if changed."""
     proj = _resolve_project(project)
-    store = _store()
-    index, was_fresh = _mutate_index(store)
+    table = await _table()
     try:
-        _task, changed = model.edit_in_editor(store, proj, id, index=index)
+        _task, changed = await model.edit_in_editor(table, proj, id)
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
     except RuntimeError as e:
         raise click.ClickException(str(e))
-    _restamp(store, index, was_fresh=was_fresh)
     click.echo(f"Updated {id}." if changed else f"No changes to {id}.")
 
 
 @task.command("rm")
 @click.argument("id")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
-def task_rm(id: str, project: str | None) -> None:
+async def task_rm(id: str, project: str | None) -> None:
     """Delete a task and strip it from any dependents' follows lists."""
     proj = _resolve_project(project)
-    store = _store()
-    index, was_fresh = _mutate_index(store)
+    table = await _table()
     try:
-        model.delete(store, proj, id, index=index)
+        await model.delete(table, proj, id)
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
-    _restamp(store, index, was_fresh=was_fresh)
     click.echo(f"Deleted {id}.")
-
-
-@task.command("reindex")
-def task_reindex() -> None:
-    """Rebuild the metadata index from the task notebook across all projects.
-
-    The index (``index.db`` in the task-store root) is a rebuildable cache of the
-    ``.md`` tree; this command drops it and re-derives every row, then stamps it to
-    the current store HEAD so the fast read paths trust it. Run it after deleting
-    ``index.db`` or when a manual/out-of-band edit may have diverged the cache.
-    """
-    from .context import load_global_config
-    from .worktree import find_all_projects
-
-    store = _store()
-    index = open_index(store)
-    projects = [p.name for p in find_all_projects(load_global_config().projects_dir)]
-    count = model.reindex(store, index, projects=projects, head=store.head())
-    click.echo(f"Reindexed {count} tasks across {len(projects)} projects.")
 
 
 @task.group("status")
@@ -1802,22 +1740,17 @@ def _status_command(name: str, status: str, help_text: str):
     @task_status.command(name, help=help_text)
     @click.argument("id", required=False)
     @click.option("--project", default=None, help="Project name (default: from cwd).")
-    def _cmd(id: str | None, project: str | None) -> None:
+    async def _cmd(id: str | None, project: str | None) -> None:
         task_id = _resolve_task_id(id)
         proj = _resolve_project(project)
-        store = _store()
-        index, was_fresh = _mutate_index(store)
+        table = await _table()
         try:
-            task_actions.move_with_actions(store, proj, task_id, status, index=index)
+            await task_actions.move_with_actions(table, proj, task_id, status)
         except KeyError:
             raise click.ClickException(f"Task not found: {task_id}")
-        _restamp(store, index, was_fresh=was_fresh)
         click.echo(f"{task_id} -> {status}")
         if status == model.STATUS_DONE:
-            head = store.head()
-            running = model.running_follower(
-                store, proj, task_id, index=index, head=head
-            )
+            running = await model.running_follower(table, proj, task_id)
             if running is not None:
                 title = f" - {running.title}" if running.title else ""
                 click.echo()
@@ -1825,7 +1758,7 @@ def _status_command(name: str, status: str, help_text: str):
                     f"The following task is already in-progress:\n  {running.id}{title}"
                 )
             else:
-                nxt = model.next_follower(store, proj, task_id, index=index, head=head)
+                nxt = await model.next_follower(table, proj, task_id)
                 if nxt is not None:
                     title = f" - {nxt.title}" if nxt.title else ""
                     click.echo()

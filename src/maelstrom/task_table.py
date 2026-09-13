@@ -64,6 +64,13 @@ def row_id(project: str, id: str) -> str:
     return f"{project}/{id}"
 
 
+#: The body columns, stored stripped. The markdown round trip used to strip
+#: them on every write — ``_split_sections`` trims each section — so a caller
+#: handing over a file's trailing newline got it back without one. Keeping that
+#: here means a reader comparing ``content`` need not know where it came from.
+_STRIPPED = ("content", "steps", "log")
+
+
 def columns_for(task: Task) -> dict[str, Any]:
     """``task`` as the columns a row carries.
 
@@ -79,7 +86,8 @@ def columns_for(task: Task) -> dict[str, Any]:
         "follows": json.dumps(list(task.follows)),
     }
     for name in _SCALARS:
-        columns[name] = getattr(task, name)
+        value = getattr(task, name)
+        columns[name] = value.strip() if name in _STRIPPED else value
     return columns
 
 
@@ -138,6 +146,16 @@ class TaskTable(ABC):
         partial row.
         """
 
+    @abstractmethod
+    async def revision(self) -> int:
+        """A number that moves when a task moves.
+
+        What a poller compares between reads. On the database this is the state
+        database's own revision counter, so it also moves for a write to another
+        table — which costs an occasional no-op re-read and saves keeping a
+        second counter honest.
+        """
+
 
 class InMemoryTaskTable(TaskTable):
     """A :class:`TaskTable` with no filesystem.
@@ -153,6 +171,9 @@ class InMemoryTaskTable(TaskTable):
         #: transaction is open.
         self._saved: dict[str, dict[str, Any]] | None = None
         self._depth = 0
+        #: Bumped by every write, so a poller sees the same shape it would on
+        #: the database.
+        self._revision = 0
 
     async def load(self, project: str, id: str) -> Task | None:
         row = self._rows.get(row_id(project, id))
@@ -172,10 +193,18 @@ class InMemoryTaskTable(TaskTable):
         return found
 
     async def save(self, task: Task) -> None:
-        self._rows[row_id(task.project, task.id)] = columns_for(task)
+        id = row_id(task.project, task.id)
+        columns = columns_for(task)
+        if self._rows.get(id) != columns:
+            self._rows[id] = columns
+            self._revision += 1
 
     async def delete(self, project: str, id: str) -> None:
-        self._rows.pop(row_id(project, id), None)
+        if self._rows.pop(row_id(project, id), None) is not None:
+            self._revision += 1
+
+    async def revision(self) -> int:
+        return self._revision
 
     async def find_by_session_id(self, session_id: str) -> Task | None:
         if not session_id:
@@ -275,6 +304,15 @@ class SqliteTaskTable(TaskTable):
     def transact(self) -> Any:
         """The database's own transaction, so every write inside is one cut."""
         return self._db.transact()
+
+    async def revision(self) -> int:
+        """The state database's revision counter.
+
+        One counter across every table, so this moves for a desk write too. A
+        poller comparing it re-reads occasionally for nothing, which is cheaper
+        than a second counter that could disagree with the first.
+        """
+        return await self._db.revision()
 
 
 #: Re-exported for a caller that opens a transaction and writes through the

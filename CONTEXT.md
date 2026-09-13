@@ -163,7 +163,7 @@ _Avoid_: Closed session (a closed worktree is a different thing), ended session,
 **Task session id**:
 The session id derived from the project name and the task id. The task session id exists before
 the session is launched and never changes, so it is what links a session back to its task. The
-task index keys on it, an agent row reports it, and it rides into the session as
+task table keys on it, an agent row reports it, and it rides into the session as
 `MAEL_TASK_SESSION_ID`. Use the task session id to answer "which task is this?".
 _Avoid_: Session id (for this concept)
 
