@@ -118,6 +118,8 @@ def _blank_agent(agent_id: str) -> Agent:
         "waitingOn": "",
         "lastMessage": "",
         "lastMessageAt": "",
+        "lastNote": "",
+        "lastNoteAt": "",
         "costUsd": 0.0,
         "totalTokens": 0,
         "contextTokens": 0,

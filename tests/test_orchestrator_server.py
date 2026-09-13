@@ -16,7 +16,12 @@ import click
 import pytest
 
 from maelstrom import task as model
-from maelstrom.agent_model import PendingRequest, reply_for_approval
+from maelstrom.agent_model import (
+    AgentState,
+    PendingRequest,
+    build_agent_row,
+    reply_for_approval,
+)
 from maelstrom.branch_name import TaskNames
 from maelstrom.orchestrator import linear_source, server
 from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
@@ -317,6 +322,28 @@ def run(coro):
 # --- agents ------------------------------------------------------------------
 
 
+def test_the_started_row_carries_every_key_the_real_builder_does():
+    """A hand-written row that drifts from the real one fails nothing.
+
+    ``world_build.agent_entity`` reads every field with ``.get(…) or ""``, so a
+    key the fake omits reads as empty rather than raising. The gap shows in the
+    UI, one layer from the fake that caused it, which is why the shapes are
+    compared here rather than trusted.
+    """
+    real = set(build_agent_row(AgentState(agent_id="ag1", cwd=WORKTREE_PATH)))
+    started = set(server._started_row("ag1", {"cwd": WORKTREE_PATH}))
+    assert started - real == set(), "the fake invents keys the real row lacks"
+    # What the fake leaves out, it leaves out because nothing knows it yet: the
+    # host fills each in on the next `list`. Named one by one so a new key
+    # cannot join them silently — that is the drift this test exists to catch.
+    assert real - started == {
+        "last_message_at",
+        "tokens",
+        "context_tokens",
+        "pid",
+    }
+
+
 def agent_row(agent_id: str = "ag1", **over) -> dict:
     """What ``mael agent list --json`` prints for one agent."""
     row = {
@@ -327,6 +354,8 @@ def agent_row(agent_id: str = "ag1", **over) -> dict:
         "model": "",
         "waiting_on": "",
         "last_message": "",
+        "last_note": "",
+        "last_note_at": "",
         "cost": "",
     }
     row.update(over)

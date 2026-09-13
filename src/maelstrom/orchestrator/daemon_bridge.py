@@ -127,6 +127,8 @@ class ScriptedAsyncDaemonClient:
                 "description": f"started in {payload['cwd']}",
                 "waiting_on": "",
                 "last_message": "",
+                "last_note": "",
+                "last_note_at": "",
                 "cost": "",
             }
             return {"ok": True, "id": agent_id}

@@ -56,6 +56,8 @@ function agent(over: Partial<Agent> = {}): Agent {
     waitingOn: '',
     lastMessage: '',
     lastMessageAt: '',
+    lastNote: '',
+    lastNoteAt: '',
     costUsd: 4.2,
     totalTokens: 148_000,
     contextTokens: 62_400,
