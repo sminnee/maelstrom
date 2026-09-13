@@ -341,6 +341,12 @@ size step. Where prose and machinery sit side by side — the transcript is the 
 takes the page's baseline with no container, and the machinery takes the chrome. A single step
 on the ramp is not enough to rank two things the eye must separate without reading.
 
+**The Two Ranks of Prose Rule.** An agent's prose has two ranks, and the agent chooses which.
+A ` ```callout ` fence reads at `--text-md` in `--fg`; everything else in that message drops to
+`--text-ui` in `--fg-muted`. The operator's own turn never demotes, because their words are not
+self-talk. The rank is carried by size and tone alone: no new hue, because the Reporting Rule
+keeps colour for state.
+
 ## Layout
 
 Two surfaces side by side under one bar. A 40px top bar holds the brand, the view switch and

@@ -560,6 +560,13 @@ may not show, or one that is not there, leaves prose saying so, never a broken p
 markers, with the **Document tag** and the **Note**.
 _Avoid_: Screenshot tag, figure, embed
 
+**Callout**:
+The prose an agent marks as the thing the user must read, written as a ` ```callout ` fenced block
+in an ordinary message. The transcript draws it at the reading rank and demotes the agent's other
+prose around it. Unlike the four markers it is not cut from the message: it is the message, ranked.
+It holds markdown, so a callout can carry a literal or a link. Nothing on the server parses it.
+_Avoid_: Highlight, Summary, Important
+
 **File registry**:
 The ids that stand for the files agents named, and the only route to a file's bytes. A `<doc-file>`
 or an `<image>` registers its file, and the URL carries the id and never a path, so a file nobody

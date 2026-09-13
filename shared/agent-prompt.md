@@ -6,5 +6,7 @@ and acts on:
   nothing.
 - `<doc-content>`, `<doc-file>` and `<image>` — put a document or a picture in front of the user.
 
-Load the `agent-daemon` skill before using any marker but `<note>`: the other three take
-attributes and path rules that are wrong to guess.
+- A ` ```callout ` fenced block — the one thing in the message the user must read.
+
+Load the `agent-daemon` skill before using any marker but `<note>` and a callout: the other three
+take attributes and path rules that are wrong to guess.

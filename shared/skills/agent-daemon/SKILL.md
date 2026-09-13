@@ -44,6 +44,23 @@ exist:
 A filename resolves inside your worktree. An absolute path, or one climbing out with `..`, is
 refused before anything is read. A file that cannot be read still opens a document, saying so.
 
+## The prose worth reading
+
+A callout is not one of the four markers. It stays in the message, and it ranks what it holds:
+
+````
+```callout
+The port allocator refuses a base already in use. Free 342 before you retry.
+```
+````
+
+The transcript draws a callout at full reading size and demotes your other prose to a quieter
+size and tone. Everything outside a callout now reads as self-talk, so mark the answer, the
+decision, or the thing the user must act on, and leave your working commentary unmarked.
+
+Write at most one or two a message. A message where everything is called out ranks nothing. The
+block holds markdown, so a literal or a link inside it still renders.
+
 ## A picture
 
 ```
