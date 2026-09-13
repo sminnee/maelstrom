@@ -1798,6 +1798,47 @@ class TestCreateProjectIntegration:
         assert (projects / "other" / "other-alpha").exists()
 
 
+class TestThePlaypenBanner:
+    """Whether this invocation reads a worktree's data or the real data.
+
+    ``uv run mael task list`` and ``mael task list`` share a name and mean
+    different things, and nothing in the output tells them apart. The note is
+    the only thing that does, so it rides the group rather than one command:
+    ``task next``'s failure mode is a plausible silence with nothing to annotate.
+    """
+
+    def _stderr(self, args):
+        return CliRunner().invoke(cli, args).stderr
+
+    def test_a_playpen_is_announced(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("MAEL_STATE_ROOT", str(tmp_path / "playpens" / "bravo"))
+        stderr = self._stderr(["list"])
+        assert "dev environment bravo" in stderr
+        assert "not real tasks" in stderr
+
+    def test_the_note_precedes_a_failing_command(self, monkeypatch, tmp_path):
+        """It rides the group callback, so it lands even when the command errors.
+
+        ``task next`` is the case this exists for, and it answers with an
+        exception rather than with output.
+        """
+        monkeypatch.setenv("MAEL_STATE_ROOT", str(tmp_path / "playpens" / "bravo"))
+        result = CliRunner().invoke(cli, ["list", "no-such-project"])
+        assert result.exit_code != 0
+        assert "dev environment bravo" in result.stderr
+
+    def test_the_real_notebook_is_not_announced(self, monkeypatch):
+        monkeypatch.delenv("MAEL_STATE_ROOT", raising=False)
+        assert "dev environment" not in self._stderr(["list"])
+
+    def test_a_root_equal_to_the_shared_one_is_not_announced(self, monkeypatch):
+        """Set but not a playpen: naming it would cry wolf on every command."""
+        from maelstrom.context import get_maelstrom_dir
+
+        monkeypatch.setenv("MAEL_STATE_ROOT", str(get_maelstrom_dir()))
+        assert "dev environment" not in self._stderr(["list"])
+
+
 class TestMvProjectIntegration:
     """`mael mv-project` against a real git repo, with only global state mocked."""
 
@@ -1919,8 +1960,12 @@ class TestMvProjectIntegration:
             patch("maelstrom.context.get_maelstrom_dir", return_value=mael_dir),
             patch("maelstrom.mv_project_cli.get_maelstrom_dir", return_value=mael_dir),
             patch("maelstrom.task_store.get_maelstrom_dir", return_value=mael_dir),
-            # The task table lives in the state database, whose path resolves
-            # through its own module — the one the suite isolates everywhere.
+            # The task table lives in the state database, which resolves through
+            # `get_state_root`; the files its migration rungs import resolve
+            # through `get_maelstrom_dir`. Both bindings have to name this
+            # directory, or the command reads a different database than the one
+            # migrated above.
+            patch("maelstrom.state_db.paths.get_state_root", return_value=mael_dir),
             patch("maelstrom.state_db.paths.get_maelstrom_dir", return_value=mael_dir),
             patch("pathlib.Path.home", return_value=home),
             patch("maelstrom.mv_project_cli.all_live_sessions", _async_none),

@@ -17,6 +17,7 @@ from maelstrom.ports import (
     get_port_allocation,
     record_port_allocation,
 )
+from maelstrom.state_db.migrate import open_state_db
 from maelstrom.worktree import (
     WorktreeInfo,
     _build_env_file,
@@ -43,6 +44,7 @@ from maelstrom.worktree import (
     list_worktrees,
     list_worktrees_async,
     managed_keys_in_env,
+    migrate_worktree_playpen,
     read_env_file,
     rebase_worktree,
     reclaim_or_allocate_ports,
@@ -370,6 +372,104 @@ class TestBuildEnvFileServices:
         shared_base = int(env["SHARED_PORT_BASE"])
         assert env["DB_PORT"] == str(shared_base * 10 + 0)
         assert shared_base != base
+
+
+class TestMigratingAWorktreesPlaypen:
+    """``mael env reset`` migrates, so the next command meets no refusal.
+
+    Creation does not migrate — that path is sync and this is not — so a freshly
+    created worktree still meets the refusal until someone resets it.
+    """
+
+    def _worktree(self, tmp_path, env_text):
+        worktree_path = tmp_path / "Projects" / "myproject" / "myproject-alpha"
+        worktree_path.mkdir(parents=True)
+        (worktree_path / ".env").write_text(env_text)
+        return worktree_path
+
+    async def test_it_migrates_the_root_the_env_names(self, tmp_path):
+        playpen = tmp_path / "playpens" / "alpha"
+        worktree_path = self._worktree(
+            tmp_path, f"MAEL_STATE_ROOT={playpen}\nOTHER=x\n"
+        )
+
+        migrated = await migrate_worktree_playpen(worktree_path)
+
+        assert migrated == playpen / "state.db"
+        assert migrated is not None and migrated.is_file()
+
+    async def test_the_migrated_database_opens_without_refusing(self, tmp_path):
+        """The whole point: the next command must not meet SchemaTooOldError."""
+        playpen = tmp_path / "playpens" / "alpha"
+        worktree_path = self._worktree(tmp_path, f"MAEL_STATE_ROOT={playpen}\n")
+
+        await migrate_worktree_playpen(worktree_path)
+
+        db = open_state_db(playpen / "state.db")
+        try:
+            await db.check()
+        finally:
+            db.close()
+
+    async def test_a_worktree_naming_no_playpen_migrates_nothing(self, tmp_path):
+        """``_main`` and any project whose template carries no line."""
+        worktree_path = self._worktree(tmp_path, "OTHER=x\n")
+
+        assert await migrate_worktree_playpen(worktree_path) is None
+
+    async def test_a_tilde_in_the_env_is_expanded(self, tmp_path, monkeypatch):
+        """The value is hand-written into the template, so ``~`` reaches here."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        worktree_path = self._worktree(
+            tmp_path, "MAEL_STATE_ROOT=~/.maelstrom/playpens/alpha\n"
+        )
+
+        migrated = await migrate_worktree_playpen(worktree_path)
+
+        assert migrated == tmp_path / ".maelstrom" / "playpens" / "alpha" / "state.db"
+
+
+class TestThePlaypenTemplateLine:
+    """`_main` is prod, so it takes no playpen.
+
+    The project template carries the line for every worktree, and ``${WORKTREE}``
+    makes each one its own. ``_main`` holds the main branch and is what the
+    everyday ``mael`` reads, so a playpen there would point the real notebook at
+    a directory that starts empty.
+    """
+
+    TEMPLATE = "MAEL_STATE_ROOT=~/.maelstrom/playpens/${WORKTREE}\nOTHER=keep\n"
+
+    def _project(self, tmp_path, monkeypatch, folder):
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        worktree_path = project_path / folder
+        worktree_path.mkdir(parents=True)
+        (project_path / ".env").write_text(self.TEMPLATE)
+        return project_path, worktree_path
+
+    def test_a_nato_worktree_gets_its_own_playpen(self, tmp_path, monkeypatch):
+        project_path, worktree_path = self._project(tmp_path, monkeypatch, "alpha")
+
+        _build_env_file(project_path, worktree_path, "alpha")
+
+        env = read_env_file(worktree_path)
+        assert env["MAEL_STATE_ROOT"] == "~/.maelstrom/playpens/alpha"
+
+    def test_main_gets_no_playpen(self, tmp_path, monkeypatch):
+        project_path, worktree_path = self._project(tmp_path, monkeypatch, "_main")
+
+        _build_env_file(project_path, worktree_path, "_main")
+
+        assert "MAEL_STATE_ROOT" not in read_env_file(worktree_path)
+
+    def test_mains_other_template_lines_survive(self, tmp_path, monkeypatch):
+        """Only the one line is dropped, not the rest of the template."""
+        project_path, worktree_path = self._project(tmp_path, monkeypatch, "_main")
+
+        _build_env_file(project_path, worktree_path, "_main")
+
+        assert read_env_file(worktree_path)["OTHER"] == "keep"
 
 
 class TestBuildEnvFileForMain:

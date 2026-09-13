@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from . import __version__, session_discovery
+from . import __version__, context, session_discovery
 from .admin_cli import cmd_admin, cmd_install, cmd_self_env, cmd_self_update
 from .agent_cli import agent as agent_cli
 from .agent_transport import RootUnset
@@ -177,6 +177,24 @@ def cli(ctx, output_json):
     """Maelstrom - Parallel development environment manager."""
     ctx.ensure_object(dict)
     ctx.obj["json"] = output_json
+    _warn_if_playpen()
+
+
+def _warn_if_playpen() -> None:
+    """Say so when this invocation reads a playpen rather than the real notebook.
+
+    On the group callback rather than on ``task list``, because ``task next``
+    has no output to annotate: its failure mode is a plausible silence.
+    """
+    # Through the module, so a test that redirects either resolver is honoured.
+    root = context.get_state_root()
+    if root == context.get_maelstrom_dir():
+        return
+    click.echo(
+        f"Note: running against the data of dev environment {root.name}. "
+        "These are not real tasks.",
+        err=True,
+    )
 
 
 # --- Core worktree commands ---

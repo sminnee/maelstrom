@@ -19,6 +19,7 @@ from .config import (
     service_port_names,
     shared_service_port_names,
 )
+from .context import STATE_ROOT_ENV
 from .ports import (
     allocate_port_base,
     generate_port_env_vars,
@@ -31,6 +32,7 @@ from .ports import (
 from .rebase_repair import run_resolve_rebase_session
 from .session_discovery import LiveSessionSet
 from .shell import run_cmd, run_cmd_async
+from .state_db.migrate import open_state_db
 from .task import DRAFT_WRITE_RULES, DRAFTS_DIR
 from .util import locked_file
 from .worktree_model import (
@@ -2035,6 +2037,59 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
     return project_path
 
 
+async def migrate_worktree_playpen(worktree_path: Path) -> Path | None:
+    """Migrate the playpen this worktree's ``.env`` names, if it names one.
+
+    ``mael env reset`` calls this, so a worktree that has just been given a
+    playpen does not meet the schema refusal on its next command. Worktree
+    *creation* does not: that path is sync and this is not, so a freshly created
+    worktree still meets the refusal until someone resets it.
+
+    Reads the value from the generated ``.env`` rather than from this process's
+    environment: the ``mael`` doing the resetting has its own root, which is
+    usually the real one.
+
+    Returns:
+        The database migrated, or ``None`` when the worktree names no playpen
+        (``_main``, or a project whose template carries no line).
+    """
+    root = read_env_file(worktree_path).get(STATE_ROOT_ENV)
+    if not root:
+        return None
+    path = Path(root).expanduser() / "state.db"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = open_state_db(path)
+    try:
+        await db.migrate()
+    finally:
+        db.close()
+    return path
+
+
+def _without_playpen_line(template_text: str | None) -> str | None:
+    """``template_text`` with any state-root assignment dropped.
+
+    The template carries the line for every worktree, so ``_main``'s is removed
+    here: a playpen there would point the real notebook at an empty directory.
+    """
+    if not template_text:
+        return template_text
+    kept = [
+        line for line in template_text.splitlines() if _env_key(line) != STATE_ROOT_ENV
+    ]
+    return "\n".join(kept)
+
+
+def _env_key(line: str) -> str:
+    """The variable a ``.env`` line assigns, or ``""`` when it assigns none.
+
+    ``export `` counts: dotenv readers honour the prefix, so a line carrying it
+    reaches the environment and must be matched like any other assignment.
+    """
+    key = line.split("=", 1)[0].strip()
+    return key.removeprefix("export ").strip() if key.startswith("export ") else key
+
+
 def _build_env_file(
     project_path: Path,
     worktree_path: Path,
@@ -2060,6 +2115,8 @@ def _build_env_file(
     # Read .env from project root as raw text if present (e.g., /Projects/myapp/.env)
     project_env_file = project_path / ".env"
     template_text = project_env_file.read_text() if project_env_file.exists() else None
+    if worktree_name == MAIN_WORKTREE_FOLDER:
+        template_text = _without_playpen_line(template_text)
 
     # Generate environment variables
     generated_vars = {

@@ -26,9 +26,11 @@ from .env import (
 )
 from .env_store import JsonEnvStore
 from .ports import get_app_url, wait_for_port
+from .state_db.types import StateDbError
 from .table import draw_table
 from .worktree import (
     copy_back_new_env_vars,
+    migrate_worktree_playpen,
     update_claude_local_md,
 )
 from .worktree_model import (
@@ -468,7 +470,7 @@ def env_restart(service, install, worktree_opt):
 
 @env.command("reset")
 @click.argument("target", required=False, default=None)
-def env_reset(target):
+async def env_reset(target):
     """Regenerate .env file (e.g., after updating .maelstrom.yaml ports)."""
     try:
         ctx = resolve_context(
@@ -509,6 +511,21 @@ def env_reset(target):
         click.echo(f"Environment stopped for {ctx.project}/{ctx.worktree}.")
 
     click.echo(f"Regenerated .env for {ctx.project}/{ctx.worktree}.")
+
+    # The regenerate may have just given this worktree its playpen for the first
+    # time. Migrating here is what keeps the next command off the schema refusal.
+    #
+    # A refusal is reported rather than raised: the regenerate above has already
+    # happened and already said so, so raising would leave the reset reading as
+    # both done and failed.
+    try:
+        playpen = await migrate_worktree_playpen(worktree_path)
+    except StateDbError as exc:
+        click.echo(f"Warning: {exc}", err=True)
+        click.echo("Run `mael admin migrate` in that worktree.", err=True)
+    else:
+        if playpen is not None:
+            click.echo(f"Migrated the state database at {playpen}.")
 
     update_claude_local_md(ctx.project_path, worktree_path, ctx.worktree)
 
