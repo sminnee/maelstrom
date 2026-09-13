@@ -22,3 +22,16 @@ def get_desk_json_path() -> Path:
     so one module knows every path the database machinery reaches.
     """
     return get_maelstrom_dir() / "desk.json"
+
+
+def get_notebook_path() -> Path:
+    """Where a task notebook written before the state database is kept.
+
+    Read by the tasks ladder's import rung, and by nothing else. It resolves the
+    same directory as :func:`maelstrom.task_store.tasks_root`, but through this
+    module rather than through it: a rung that reached the store's own accessor
+    would read the developer's real notebook in every test, because the suite
+    isolates ``~/.maelstrom`` by patching *this* module's
+    ``get_maelstrom_dir`` and nothing else.
+    """
+    return get_maelstrom_dir() / "tasks"
