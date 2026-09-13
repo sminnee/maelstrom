@@ -10,15 +10,16 @@ from pathlib import Path
 from .db import StateDb
 from .migrations.desk import DESK
 from .migrations.spine import SPINE
+from .migrations.tasks import TASKS
 from .types import Rung, TableSpec
 
 #: Every subsystem's ladder, by name. A subsystem's schema moves without
 #: dragging the others.
-LADDERS: dict[str, tuple[Rung, ...]] = {"desk": DESK}
+LADDERS: dict[str, tuple[Rung, ...]] = {"desk": DESK, "tasks": TASKS}
 
 #: Every table a subsystem declares. The spine's own tables are not here: they
 #: are the machinery, not rows a caller writes.
-TABLES: dict[str, TableSpec] = {"desk": TableSpec("desk")}
+TABLES: dict[str, TableSpec] = {"desk": TableSpec("desk"), "tasks": TableSpec("tasks")}
 
 
 def open_state_db(path: Path | str | None = None) -> StateDb:
