@@ -63,6 +63,7 @@ from maelstrom.agent_model import (
     spec_to_dict,
     user_message,
 )
+from maelstrom.orchestrator import document_tags
 from maelstrom.session_discovery import LiveSession, LiveSessionSet
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
@@ -628,6 +629,18 @@ def test_a_note_after_a_very_long_message_is_still_read():
     assert state.last_note == "Rebasing"
     assert "<note>" not in state.last_message
     assert len(state.last_message) == MESSAGE_CHARS
+
+
+def test_both_note_patterns_are_still_in_step():
+    """Each reader holds its own copy, so neither depends on the other.
+
+    The patterns only: what each reader *does* with a match differs on purpose.
+    `read_tags` skips a `<note>` inside a `<doc-content>` body, where this
+    module's `read_note` has no spans to skip and takes the last match. Only the
+    tag's spelling is shared, and duplicated text drifts silently.
+    """
+    assert agent_model._NOTE_TAG.pattern == document_tags._NOTE_TAG.pattern
+    assert agent_model._NOTE_TAG.flags == document_tags._NOTE_TAG.flags
 
 
 def test_a_note_replaces_the_one_before_it():

@@ -116,9 +116,12 @@ The note is what the agent says it is doing now, and it lands on the agent as `l
 than in the transcript. It replaces: the latest note wins, and a message carrying none leaves the
 standing one alone, because a note describes work in progress and silence is not the end of that
 work. It is cut like a document tag, being a field rather than prose. A subagent writes none, for
-the reason it mints no document. The daemon parses the tag a second time in `agent_model`, so the
-note never also stands as the agent's last message — `maelstrom.tags` holds the one rule both
-readers use.
+the reason it mints no document.
+
+Both readers cut the tag. The daemon cuts it in `agent_model` so the note never also stands as the
+agent's last message, and the orchestrator cuts it here so the transcript shows no raw syntax. Each
+holds its own copy of the pattern rather than sharing one: the daemon sits below the orchestrator,
+and a shared module would invert that. A test asserts the two patterns still agree.
 
 A `<doc-file>` resolves against the agent's own `cwd` — the worktree the agent row already
 carries — **and nothing outside it**. `document_tags.stays_within` refuses a path that escapes,
