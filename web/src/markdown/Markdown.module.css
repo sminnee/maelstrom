@@ -155,6 +155,33 @@
   border-left: 2px solid var(--border-strong);
   color: var(--fg-muted);
 }
+/*
+ * A callout is prose, not a listing, so it takes none of the `pre` chrome it
+ * replaces — no ground, no border, no box. The inner `.markdown` re-asserts the
+ * reading size and the gaps; its own `line-height` declaration already beats the
+ * flat box a demoted container would otherwise pass down.
+ */
+.callout {
+  margin: 0 0 var(--prose-gap);
+}
+/*
+ * A callout only *lifts* where something put the prose down. The rank is read
+ * from `data-prose-rank`, not from a class, because the demoted class lives in
+ * the surface's own stylesheet and its hashed name is not visible from here.
+ *
+ * On a surface that never demotes — the decision rail at 12px, a node's brief —
+ * the callout inherits that surface's scale. Lifting there would invert the
+ * rank those surfaces exist to hold.
+ */
+[data-prose-rank='demoted'] .callout .markdown {
+  font-size: var(--text-md);
+  color: var(--fg);
+
+  --prose-gap: 24px;
+  --prose-gap-tight: 12px;
+  --prose-gap-loose: 48px;
+}
+
 .markdown table {
   border-collapse: collapse;
   margin: 0 0 var(--prose-gap);
