@@ -16,7 +16,10 @@ from .shell import mael_path
 from .state_db.migrate import open_state_db
 from .state_db.paths import get_state_db_path
 from .state_db.types import StateDbError
-from .util import sanitise_child_env
+from .task import task_key
+from .task_export import Queued, SqliteExportQueue
+from .task_table import TABLE as TASKS_TABLE
+from .util import now_iso, sanitise_child_env
 from .worktree_model import MAIN_WORKTREE_FOLDER
 
 
@@ -297,3 +300,63 @@ async def cmd_migrate() -> None:
     finally:
         db.close()
     click.echo(f"The state database at {path} is up to date.")
+
+
+@cmd_admin.command("export-queue")
+@click.option(
+    "--rebuild",
+    is_flag=True,
+    help="Queue every task for export, whatever the queue holds now.",
+)
+async def cmd_export_queue(rebuild: bool) -> None:
+    """Report what the markdown export still owes the files.
+
+    The orchestrator drains the queue, so a depth that does not fall means the
+    server is down or its drain is failing. The oldest entry is the useful
+    number: a deep queue that is seconds old is a busy notebook, and a shallow
+    one that is hours old is a drain that stopped.
+
+    ``--rebuild`` queues every task in the notebook. A task write queues its own
+    export, so this is for the file that went missing without the row moving —
+    deleted by hand, or lost to a git failure. The queue is one row per task, so
+    rebuilding twice costs one export each.
+    """
+    db = open_state_db(get_state_db_path())
+    try:
+        await db.check()
+        queue = SqliteExportQueue(db)
+        if rebuild:
+            queued = await _rebuild_export_queue(db, queue)
+            click.echo(f"Queued {queued} task(s) for export.")
+            return
+        depth = await queue.depth()
+        oldest = await queue.oldest()
+    except StateDbError as exc:
+        raise click.ClickException(str(exc)) from exc
+    finally:
+        db.close()
+    if not depth:
+        click.echo("The markdown export is up to date.")
+        return
+    click.echo(f"The markdown export owes {depth} task(s).")
+    click.echo(f"The oldest has waited since {oldest}.")
+
+
+async def _rebuild_export_queue(db, queue: SqliteExportQueue) -> int:
+    """Queue every task row, and return how many were queued.
+
+    The path is each task's current one, so a rebuild writes each task where it
+    belongs now. A file at a status the task has since left is not this
+    command's to find: nothing records that it was ever written.
+    """
+    entries = [
+        Queued(
+            id=row["id"],
+            path=task_key(row["project"], row["status"], row["task_id"]),
+            deleted=False,
+            queued_at=now_iso(),
+        )
+        for row in await db.read_all(TASKS_TABLE)
+    ]
+    await queue.queue_all(entries)
+    return len(entries)

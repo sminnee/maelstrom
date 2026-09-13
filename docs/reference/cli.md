@@ -1034,6 +1034,8 @@ None of these take options beyond `--help`.
 | Command | Description |
 |---|---|
 | `mael admin migrate` | Bring the state database at `~/.maelstrom/state.db` up to this build's schema, creating it if it is absent. A desk written before the database is brought in by the desk ladder's import rung, and the file is left on disk. |
+| `mael admin export-queue` | Report how many tasks the markdown export at `~/.maelstrom/tasks` still owes, and how long the oldest has waited. The orchestrator drains the queue, so a depth that does not fall means the server is not running. |
+| `mael admin export-queue --rebuild` | Queue every task for export. For a file that went missing without its row changing — deleted by hand, or lost to a git failure — which no ordinary write re-queues. |
 | `mael doctor [PROJECT]` | Check project health and fix issues automatically. |
 | `mael install` | Install maelstrom's Claude Code skills and hooks into `~/.claude/`. |
 | `mael self-update` | Update maelstrom to the latest version from git. Always updates `_main`, whichever worktree you run it from — the install is shared by the whole machine. Also points the `mael` on your PATH at the everyday daemon's root, so a bare `mael agent …` reaches it. |
@@ -1041,6 +1043,7 @@ None of these take options beyond `--help`.
 
 ```bash
 mael admin migrate           # create or upgrade ~/.maelstrom/state.db
+mael admin export-queue      # what the markdown export still owes
 mael install                 # skills and hooks into ~/.claude/
 mael doctor myproject        # check project health, and fix what it can
 mael self-update
