@@ -69,6 +69,8 @@ export function FollowsEdge({
         <AppButton
           variant="quiet"
           className={`${styles.cut} nodrag nopan`}
+          // The default "Failed" overflows a 16px circle; `title` carries the message.
+          errorChildren="!"
           data-visible={hovered || undefined}
           style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
           aria-label={`Remove the wire from ${source} to ${target}`}

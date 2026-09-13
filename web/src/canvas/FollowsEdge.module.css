@@ -37,8 +37,13 @@
   opacity: 0;
   transition: opacity var(--duration-fast);
 }
+/*
+ * A refused cut removes no wire, so the board looks unchanged. The button has
+ * to stay up to carry the refusal, whatever the pointer does next.
+ */
 .cut[data-visible],
-.cut:focus-visible {
+.cut:focus-visible,
+.cut[data-state='error'] {
   opacity: 1;
 }
 .cut:hover {
