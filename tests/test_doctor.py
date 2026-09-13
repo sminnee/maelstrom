@@ -6,7 +6,12 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from maelstrom.doctor import CheckStatus, _check_port_allocations, run_doctor
+from maelstrom.doctor import (
+    CheckStatus,
+    _check_orphan_playpens,
+    _check_port_allocations,
+    run_doctor,
+)
 from maelstrom.ports import load_port_allocations, record_port_allocation
 from maelstrom.worktree import WorktreeInfo, update_local_main
 from tests.git_helpers import create_commit, run_git, setup_git_repo
@@ -164,6 +169,45 @@ class TestUpdateLocalMain:
 
             # Clean up
             run_git(project_path, "worktree", "remove", str(wt_path))
+
+
+class TestOrphanPlaypens:
+    """A playpen whose worktree is gone is reported, never deleted.
+
+    A playpen is a canonical store, so removing one automatically is the
+    "rebuilt from empty" hazard the data architecture forbids. Doctor names it
+    and leaves the decision to a person.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _isolate_home(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    def test_no_playpens_directory_is_ok(self):
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            result = _check_orphan_playpens(project_path)
+            assert result.status == CheckStatus.OK
+
+    def test_a_playpen_with_no_worktree_warns_and_names_it(self, tmp_path):
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            (tmp_path / ".maelstrom" / "playpens" / "zulu").mkdir(parents=True)
+
+            result = _check_orphan_playpens(project_path)
+
+            assert result.status == CheckStatus.WARNING
+            assert "zulu" in result.message
+
+    def test_a_directory_that_is_not_a_worktree_name_is_left_alone(self, tmp_path):
+        """Another project's root, or anything hand-made, is not ours to judge."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            (tmp_path / ".maelstrom" / "playpens" / "something-else").mkdir(
+                parents=True
+            )
+
+            assert _check_orphan_playpens(project_path).status == CheckStatus.OK
 
 
 class TestDoctor:

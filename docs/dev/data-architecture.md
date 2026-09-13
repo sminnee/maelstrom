@@ -185,7 +185,8 @@ see, not a question only the refresher can answer.
 
 ## One database
 
-All of it lives in one SQLite database at `~/.maelstrom/state.db`.
+All of it lives in one SQLite database per **state root** — `~/.maelstrom/state.db` by default,
+and a worktree's own playpen when its `.env` names one.
 
 One file gives one transaction, so a canonical write and its derived rows commit or roll back
 together. That alone removes the bug class `promote` works around today. It also gives one
@@ -272,13 +273,17 @@ the revision counter**: its rows name `revision = 0` themselves, so a client pol
 `changed_since` reads them as the state it started from rather than as a change. The rung runs
 inside the migration's own transaction, so a rung that raises rolls the whole run back with it.
 
-Lower refuses rather than upgrading because several processes share one `~/.maelstrom`, and a
+Lower refuses rather than upgrading because several processes share one state root, and a
 background process that rewrote the schema under a running server is worse than a stop with a
-one-line fix. Higher is the real hazard: every worktree shares that directory, so running an
-older branch after a newer one is ordinary, and writing rows that miss the newer migration's
-columns is unrecoverable. Migrations are forward-only, and the whole run is one transaction —
-SQLite's DDL is transactional, so a migration that fails halfway leaves the tables where they
-were.
+one-line fix. Higher is the real hazard: running an older branch after a newer one is ordinary,
+and writing rows that miss the newer migration's columns is unrecoverable.
+
+Migrations are forward-only, and the whole run is one transaction — SQLite's DDL is
+transactional, so a migration that fails halfway leaves the tables where they were.
+
+A playpen is the exception to the sharing argument, not to the refusal. Each worktree that names
+one has a database of its own, so a schema bump on `main` leaves every playpen behind at once —
+which is what `mael admin migrate --all` is for, and why the refusal names the file that refused.
 
 The difference between a canonical table and a cached one is **one property on the table**, not
 a separate database, a separate read path, or a separate design. Only a canonical table is

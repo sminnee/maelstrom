@@ -34,13 +34,15 @@ from pathlib import Path
 
 import click
 
+from .context import get_maelstrom_dir
 from .shell import mael_path
 
 LABEL = "nz.tangerinelabs.maelstrom.schedule"
 
 
 def _maelstrom_dir() -> Path:
-    return Path.home() / ".maelstrom"
+    """The shared root: a playpen runs no scheduler of its own."""
+    return get_maelstrom_dir()
 
 
 def marker_path() -> Path:

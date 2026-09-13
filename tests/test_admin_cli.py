@@ -11,6 +11,7 @@ from click.testing import CliRunner
 
 from maelstrom import task as task_model
 from maelstrom.admin_cli import (
+    all_state_db_paths,
     cmd_export_queue,
     cmd_migrate,
     cmd_self_update,
@@ -475,6 +476,52 @@ class TestExportQueue:
         assert "mael admin migrate" in result.output
 
 
+class TestMigrateAll:
+    """`--all` reaches every playpen, not just the one this command reads.
+
+    A schema bump on ``main`` goes stale in N worktrees at the same moment, and
+    visiting each one to run the migrate by hand is the step people skip.
+    """
+
+    def test_it_enumerates_the_shared_root_then_each_playpen(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr("maelstrom.admin_cli.get_maelstrom_dir", lambda: tmp_path)
+        (tmp_path / "playpens" / "bravo").mkdir(parents=True)
+        (tmp_path / "playpens" / "alpha").mkdir(parents=True)
+
+        assert all_state_db_paths() == [
+            tmp_path / "state.db",
+            tmp_path / "playpens" / "alpha" / "state.db",
+            tmp_path / "playpens" / "bravo" / "state.db",
+        ]
+
+    def test_it_migrates_every_playpen(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
+        )
+        monkeypatch.setattr("maelstrom.state_db.paths.get_state_root", lambda: tmp_path)
+        monkeypatch.setattr("maelstrom.admin_cli.get_maelstrom_dir", lambda: tmp_path)
+        (tmp_path / "playpens" / "bravo").mkdir(parents=True)
+
+        result = CliRunner().invoke(cmd_migrate, ["--all"])
+
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "state.db").is_file()
+        assert (tmp_path / "playpens" / "bravo" / "state.db").is_file()
+
+    def test_without_the_flag_only_one_database_is_touched(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
+        )
+        monkeypatch.setattr("maelstrom.state_db.paths.get_state_root", lambda: tmp_path)
+        monkeypatch.setattr("maelstrom.admin_cli.get_maelstrom_dir", lambda: tmp_path)
+        (tmp_path / "playpens" / "bravo").mkdir(parents=True)
+
+        assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
+        assert not (tmp_path / "playpens" / "bravo" / "state.db").exists()
+
+
 class TestMigrate:
     """Slice 22: `mael admin migrate` upgrades; an ordinary open refuses."""
 
@@ -482,6 +529,7 @@ class TestMigrate:
         monkeypatch.setattr(
             "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
         )
+        monkeypatch.setattr("maelstrom.state_db.paths.get_state_root", lambda: tmp_path)
         result = CliRunner().invoke(cmd_migrate, [])
         assert result.exit_code == 0, result.output
         assert (tmp_path / "state.db").is_file()
@@ -491,6 +539,7 @@ class TestMigrate:
         monkeypatch.setattr(
             "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
         )
+        monkeypatch.setattr("maelstrom.state_db.paths.get_state_root", lambda: tmp_path)
         assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
         result = CliRunner().invoke(cmd_migrate, [])
         assert result.exit_code == 0, result.output
@@ -500,6 +549,7 @@ class TestMigrate:
         monkeypatch.setattr(
             "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
         )
+        monkeypatch.setattr("maelstrom.state_db.paths.get_state_root", lambda: tmp_path)
         (tmp_path / "desk.json").write_text(
             '{"task:a/1": {"id": "task:a/1", "addedAt": "t"}}'
         )
@@ -523,6 +573,7 @@ class TestMigrate:
         monkeypatch.setattr(
             "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
         )
+        monkeypatch.setattr("maelstrom.state_db.paths.get_state_root", lambda: tmp_path)
         assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
 
         db = open_state_db(tmp_path / "state.db")

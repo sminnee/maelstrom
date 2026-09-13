@@ -1,8 +1,13 @@
 """Thin CLI for the task notebook: ``mael task ...``.
 
-Each command builds a :class:`~maelstrom.task_store.GitFileStore`, calls a single
-model function from :mod:`maelstrom.task`, and renders the result. All logic
-lives in the model; this layer only parses arguments and prints.
+Each command reaches the task table through :func:`open_task_table` — one
+:class:`~maelstrom.task_table.SqliteTaskTable` over the state database, opened
+once per invocation — calls a single model function from :mod:`maelstrom.task`,
+and renders the result. All logic lives in the model; this layer only parses
+arguments and prints.
+
+Which database that is depends on the state root — see
+:func:`maelstrom.context.get_state_root`.
 """
 
 import os

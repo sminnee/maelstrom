@@ -21,6 +21,8 @@ _Avoid_: Checkout, workdir, workspace
 **`_main`**:
 The one worktree that holds the main branch, so that every NATO worktree stays free for work.
 `_main` is the unclosable worktree, and it takes no project prefix in its folder name.
+The split is also a data boundary: `_main` is prod, and a NATO worktree is a dev environment.
+The `mael` on your PATH reads `_main`'s data; a worktree reads its own **Playpen**.
 _Avoid_: Reference checkout, main worktree
 
 **Unclosable worktree**:
@@ -802,10 +804,26 @@ are progressive.
 _Avoid_: Async, background, deferred
 
 **State database**:
-The SQLite database at `~/.maelstrom/state.db` holding every canonical and cached table. One
-file, so one transaction and one revision counter cover them all. It holds the desk and the tasks.
-`mael admin migrate` creates and upgrades it; every other open refuses a schema it cannot read.
+The SQLite database holding every canonical and cached table, one per **State root** —
+`~/.maelstrom/state.db` by default. One file, so one transaction and one revision counter cover
+them all. It holds the desk and the tasks today. `mael admin migrate` creates and upgrades the
+one its root names; every other open refuses a schema it cannot read, naming the file that
+refused.
 _Avoid_: Cache, store, db
+
+**State root**:
+The directory a state database lives in, named by `MAEL_STATE_ROOT` and defaulting to
+`~/.maelstrom`. The default is what lets the `mael` on your PATH reach the real notebook by
+doing nothing — it is a console entrypoint and loads no `.env`.
+_Avoid_: Data dir, home
+
+**Playpen**:
+A worktree's own **State database**, named by `MAEL_STATE_ROOT`, so work on the data layer
+cannot reach the real notebook. `_main` is prod; a NATO worktree is a dev environment. Only the
+state database splits — ports, logs, env state, config and the task export stay shared. `uv run
+mael` in a worktree reaches its playpen; the `mael` on your PATH reaches the real one. Every
+command run against one says so on stderr.
+_Avoid_: Sandbox, scratch, test db
 
 **Revision**:
 One monotonic counter in the state database, bumped once per write transaction, and stamped on

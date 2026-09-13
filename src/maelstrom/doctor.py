@@ -24,6 +24,7 @@ from .worktree_model import (
     ENV_SECTION_START,
     MAIN_BRANCH,
     MAIN_WORKTREE_FOLDER,
+    WORKTREE_NAMES,
     extract_worktree_name_from_folder,
 )
 
@@ -577,6 +578,38 @@ def _check_editable_install(project_path: Path) -> CheckResult:
     )
 
 
+def _check_orphan_playpens(project_path: Path) -> CheckResult:
+    """Report playpens whose worktree is gone.
+
+    Reported rather than deleted: a playpen is a canonical store. Only a
+    *removed* worktree leaves one behind — a closed worktree's folder is
+    recycled, so its playpen is reused.
+    """
+    playpens = get_maelstrom_dir() / "playpens"
+    if not playpens.is_dir():
+        return CheckResult(CheckStatus.OK, "No playpens to check")
+
+    project_name = project_path.name
+    live: set[str] = set()
+    for wt in list_worktrees(project_path):
+        name = extract_worktree_name_from_folder(project_name, wt.path.name)
+        if name:
+            live.add(name)
+
+    orphans = sorted(
+        path.name
+        for path in playpens.iterdir()
+        if path.is_dir() and path.name in WORKTREE_NAMES and path.name not in live
+    )
+    if not orphans:
+        return CheckResult(CheckStatus.OK, "Playpens match this project's worktrees")
+    return CheckResult(
+        CheckStatus.WARNING,
+        f"playpens with no worktree: {', '.join(orphans)} — each holds its own "
+        f"state database. Remove one with: rm -rf {playpens}/<name>",
+    )
+
+
 def run_doctor(project_path: Path) -> DoctorResult:
     """Run all health checks on a project.
 
@@ -604,6 +637,7 @@ def run_doctor(project_path: Path) -> DoctorResult:
         _check_env_markers,
         _check_secret_file_perms,
         _check_editable_install,
+        _check_orphan_playpens,
     ]
 
     for check in checks:

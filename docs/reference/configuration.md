@@ -191,6 +191,10 @@ uptimerobot:
 
 ## Global configuration — `~/.maelstrom/config.yaml`
 
+Read from the shared root always, even when `MAEL_STATE_ROOT` points a worktree at its own
+playpen — so a playpen shares your API keys rather than needing its own copy of them. Only the
+state database follows that variable; see [Environment](environment.md).
+
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `projects_dir` | path | `~/Projects` | Base directory for projects. `~` expands. |
