@@ -81,7 +81,7 @@ assistant message. The normaliser reads that marker and mints a document, exactl
 plan document from `ExitPlanMode`. **The agent host does not change**: it relays assistant
 messages untouched already, so it carries no document payload and learns nothing new.
 
-Two forms, both read by `document_tags.read_tags`:
+Two forms of document tag, both read by `document_tags.read_tags`:
 
 ```
 <doc-content kind="other" title="Changelog draft">
@@ -105,6 +105,20 @@ nothing in a tag name is maelstrom's. Only a `kind` value may be.
 
 Every tag is cut out of the message the transcript shows. The user reads a document in its own
 tab, so raw tag syntax on the transcript would only be noise.
+
+A fourth marker mints no document at all:
+
+```
+<note>Rebasing onto main, then re-running the failing port test</note>
+```
+
+The note is what the agent says it is doing now, and it lands on the agent as `lastNote` rather
+than in the transcript. It replaces: the latest note wins, and a message carrying none leaves the
+standing one alone, because a note describes work in progress and silence is not the end of that
+work. It is cut like a document tag, being a field rather than prose. A subagent writes none, for
+the reason it mints no document. The daemon parses the tag a second time in `agent_model`, so the
+note never also stands as the agent's last message — `maelstrom.tags` holds the one rule both
+readers use.
 
 A `<doc-file>` resolves against the agent's own `cwd` — the worktree the agent row already
 carries — **and nothing outside it**. `document_tags.stays_within` refuses a path that escapes,

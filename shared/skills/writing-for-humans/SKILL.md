@@ -15,6 +15,6 @@ Target fewer than 20 words per sentence and never exceed 30. Describe current be
 
 Prefer an example for usage and a table for three or more parallel facts. Comments earn their place only for a non-obvious constraint or decision; describe current code, not the change history.
 
-Before finishing, remove filler, check terms and sentence length, verify every command and claim against the source, and show substantial documents with a `<doc-file>` tag.
+Before finishing, remove filler, check terms and sentence length, verify every command and claim against the source, and present substantial documents to the user.
 
 Use the project’s existing section shape for the same document type. A comment should state a non-obvious constraint, rejected plausible alternative, or invisible consequence; never narrate the diff.

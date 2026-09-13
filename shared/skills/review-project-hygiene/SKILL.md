@@ -11,7 +11,7 @@ This audit is read-only. It writes only a follow-up plan after user approval. It
 2. Read [auditor-prompt.md](auditor-prompt.md) and [hygiene-checklist.md](hygiene-checklist.md). Spawn one read-only auditor for each applicable checklist category. Give each the project profile and its checklist section.
 3. Merge and deduplicate findings. Show a table grouped by category: Check, State, Recommendation, Effort. Include actionable and considered `n/a` rows; list passing checks in one line.
 4. Stop for the user to choose fix, defer, or reject each row. Do not write the plan first.
-5. Write a `load-many` plan for confirmed rows only. Use one auto-mode execute block per theme, chained with `follow-end: '*'` then `follow: <previous>`. Keep `branch:` unset. Add `linear.in-progress` only for a Linear-backed audit. Show the file with `<doc-file kind="other" ...>`.
+5. Write a `load-many` plan for confirmed rows only. Use one auto-mode execute block per theme, chained with `follow-end: '*'` then `follow: <previous>`. Keep `branch:` unset. Add `linear.in-progress` only for a Linear-backed audit. Present the file to the user.
 6. After approval, close this task, run `mael task load-many <actual-plan-path> --run`, then end the session.
 
 Do not add project-specific tool settings, code conventions, locales, layouts, or severity tiers to this universal skill or its checklist. Do not implement audit findings here.
