@@ -6,7 +6,7 @@ import subprocess
 import pytest
 
 import maelstrom.task_store as task_store
-from maelstrom.task_store import GitFileStore, InMemoryStore
+from maelstrom.task_store import GitFileStore
 
 
 def _git(root, *args) -> str:
@@ -189,31 +189,42 @@ class TestTransaction:
         assert "index.db-shm" not in keys
 
 
-class TestHead:
-    def test_head_none_on_empty_repo(self, tmp_path):
-        # A store whose repo has no commits yet (and one never initialised) both
-        # read as "no version".
-        store = GitFileStore(root=tmp_path / "tasks")
-        assert store.head() is None
+class TestGitFailuresAreNotSilent:
+    """A write that cannot commit must not report success.
 
-    def test_head_returns_sha_after_commit(self, tmp_path):
+    The export clears its queue entry when a write returns, so a swallowed git
+    failure leaves the file uncommitted with nothing left owing it — the one
+    way the export can lose history permanently.
+    """
+
+    def test_a_failed_commit_raises(self, tmp_path, monkeypatch):
         root = tmp_path / "tasks"
         store = GitFileStore(root=root)
         store.write("p/todo/x.md", "x", message="task: add x")
-        head = store.head()
-        assert head is not None
-        assert head == _git(root, "rev-parse", "HEAD").strip()
 
-    def test_head_advances_with_commits(self, tmp_path):
+        real = store._git
+
+        def fail_the_commit(*args):
+            if args and args[0] == "commit":
+                return subprocess.CompletedProcess(
+                    args=list(args), returncode=1, stdout="", stderr="index.lock exists"
+                )
+            return real(*args)
+
+        monkeypatch.setattr(store, "_git", fail_the_commit)
+
+        with pytest.raises(task_store.GitCommandError, match="index.lock"):
+            store.write("p/todo/y.md", "y", message="task: add y")
+
+    def test_a_commit_with_nothing_staged_is_still_no_error(self, tmp_path):
+        """The probe's non-zero return means "nothing staged", not a failure."""
         root = tmp_path / "tasks"
         store = GitFileStore(root=root)
         store.write("p/todo/x.md", "x", message="task: add x")
-        first = store.head()
-        store.write("p/todo/y.md", "y", message="task: add y")
-        assert store.head() != first
 
-    def test_inmemory_head_is_none(self):
-        assert InMemoryStore().head() is None
+        store.write("p/todo/x.md", "x", message="task: same again")
+
+        assert _commit_count(root) == 1
 
 
 def _writer_worker(root_str: str, prefix: str, count: int) -> None:

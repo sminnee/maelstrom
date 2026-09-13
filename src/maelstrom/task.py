@@ -216,15 +216,23 @@ def is_safe_id(id: str) -> bool:
 
 
 def task_key(project: str, status: str, id: str) -> str:
-    """Build the export path for a task. Raises ``ValueError`` on an unsafe id.
+    """Build the export path for a task. Raises ``ValueError`` on an unsafe part.
 
-    The markdown export still lays tasks out as ``<project>/<status>/<id>.md``,
-    so this survives for the exporter and for ``mael mv-project``. It is no
-    longer how a task is looked up: that is
-    :meth:`~maelstrom.task_table.TaskTable.load`.
+    The markdown export lays tasks out as ``<project>/<status>/<id>.md``, so this
+    survives for the exporter and for ``mael mv-project``. It is not how a task
+    is looked up: that is :meth:`~maelstrom.task_table.TaskTable.load`.
+
+    All three parts are checked, because all three are joined onto the export
+    root and written. ``project`` and ``status`` reach here from stored rows
+    rather than from the wire today, so this is the guard holding that true
+    rather than one catching a live attack.
     """
     if not is_safe_id(id):
         raise ValueError(f"Unsafe task id: {id!r}")
+    if not is_safe_id(project):
+        raise ValueError(f"Unsafe project name: {project!r}")
+    if status not in VALID_STATUSES:
+        raise ValueError(f"Unknown status: {status!r}")
     return f"{project}/{status}/{id}.md"
 
 
