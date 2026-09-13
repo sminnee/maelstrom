@@ -472,33 +472,26 @@ _Avoid_: PR description file, body file, draft PR (which is GitHub's own unready
 The ref `refs/mael/history/<branch>/<stamp>`, holding the chronological commits that
 `mael git uncommit-branch` collapsed. The working history is the order the work happened in, kept
 so `git log` can still show the journey and so the uncommit can be undone. One ref per run, stamped
-in UTC, so a second run keeps the first run's chronology.
+in UTC, so a second run keeps the first run's chronology. Review and present each write one.
 _Avoid_: Backup branch, history branch, archive ref
 
 **Uncommit**:
 To return a branch to unstaged changes at its base tip. `mael git uncommit-branch` rebases onto
 the base, saves the working history, then resets. Nothing is discarded — every change is in the
-working tree, ready to be committed again.
+working tree, ready to be committed again. Review runs it to put the branch's final state in the
+tree; present runs it again to re-cut that tree.
 _Avoid_: Reset, unwind, squash (which combines commits rather than removing them)
 
 **Story commit**:
-One commit per design decision, holding the decision's rationale in its body and its review depth
-in a `Review:` trailer. Story commits are the unit of review: a reviewer reads them in order on the
-PR's Commits tab. They replace the chronological commits of the build, so a story commit says
-*why*, never *when*.
+One commit per design decision, holding the decision's rationale in its body. A reviewer reads
+story commits in order on the PR's Commits tab. They replace the chronological commits of the
+build, so a story commit says *why*, never *when*.
 _Avoid_: Logical commit, atomic commit, curated commit
 
-**Review depth**:
-How closely a story commit must be read, set by its `Review:` trailer. `read` means read every
-line, because the logic is the risk. `scan` means confirm the diff is what the subject says and
-nothing else hides in it, which suits mechanical work. A commit with no trailer is `read`.
-_Avoid_: Severity, priority, review level
-
 **Present**:
-To squash a branch's chronological build commits into a working history, then re-cut the same
-final diff into story commits. Present runs once per task, at the end of build, before the
-branch's own review, and never during land. The tree is the invariant: a wrong partition gives a
-wrong story, never a wrong tree.
+To squash a branch's commits into a working history, then re-cut the same final diff into story
+commits. Present runs once per task, after the branch's own review, and never during land. The
+tree is the invariant: a wrong partition gives a wrong story, never a wrong tree.
 _Avoid_: Curate, reorganise, tidy
 
 ## Orchestrator UI
@@ -519,7 +512,7 @@ skipped.
 Producing an agreed plan for one task. Ends at the plan-review checkpoint.
 
 **Build**:
-Building the code, presenting it, running its own review, opening the PR. Ends when the PR first
+Building the code, running its own review, presenting it, opening the PR. Ends when the PR first
 ships.
 
 **Land**:

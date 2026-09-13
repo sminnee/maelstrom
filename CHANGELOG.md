@@ -25,18 +25,23 @@ release while that section is empty, and retitles it to the version it is releas
   `linear.team_id`.
 
 - **`/present` re-cuts a finished branch into story commits, and joins the finishing sequence.**
-  After the build is green the pass squashes the branch and partitions the final diff into one
-  commit per design decision, each explaining the decision in its body and carrying a `Review:`
-  trailer that tells the reviewer how deep to read it — `read` for logic, `scan` for mechanical
-  work. The reviewer then reads the change as a story on the PR's Commits tab. The chronological
-  commits are kept under `refs/mael/history/<branch>/<stamp>`, which is the undo, and the final
-  tree always equals the tree the branch already had.
+  Once the branch is reviewed, the pass squashes it and partitions the final diff into one commit
+  per design decision, each explaining the decision in its body. The reviewer then reads the
+  change as a story on the PR's Commits tab. The chronological commits are kept under
+  `refs/mael/history/<branch>/<stamp>`, which is the undo, and the final tree always equals the
+  tree the branch already had.
 
-  The flow becomes commit, `/present`, `/code-review`, fixups, PR push, close the task,
-  `/watch-pr`. Two rules follow. Build commits are now working history, so commit as often as you
-  like while building and `wip:` is fine. After present, every change is a `fixup!` on the story
-  commit whose decision it revises, or a `chore:`. Present runs once per task and never during
-  Land. `/code-review` reads each commit's depth and judges the decision its body states.
+  **`/code-review` now reviews the working tree, before present rather than after it.** It
+  uncommits the branch, splits the review by concern — design, tests, security, prose — and
+  applies each finding as a plain edit. Present then partitions reviewed code, so the story the
+  PR tells is the one whose review points are already addressed. Reviewing a tree needs no fixup
+  commits, no `reviewed` git notes and no eight-commit cap. All three are gone, with
+  `mael doctor`'s `notes.rewriteRef` check.
+
+  The flow becomes commit, write `.drafts/pr.md`, `/code-review`, commit the fixes, `/present`,
+  PR push, close the task, `/watch-pr`. Build commits are working history, so commit as often as
+  you like while building and `wip:` is fine. Present runs once per task and never during Land;
+  fixups belong to Land, on a branch that already carries story commits.
 
 ### Fixed
 
