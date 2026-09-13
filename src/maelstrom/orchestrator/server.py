@@ -1732,6 +1732,8 @@ def _started_row(agent_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         "mode": "",
         "waiting_on": "",
         "last_message": "",
+        "last_note": "",
+        "last_note_at": "",
         "cost": "",
     }
 

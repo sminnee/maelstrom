@@ -190,6 +190,8 @@ def agent_entity(
         "waitingOn": row.get("waiting_on") or "",
         "lastMessage": row.get("last_message") or "",
         "lastMessageAt": row.get("last_message_at") or "",
+        "lastNote": row.get("last_note") or "",
+        "lastNoteAt": row.get("last_note_at") or "",
         **row_totals(row),
         "taskId": task_id,
         "project": project,

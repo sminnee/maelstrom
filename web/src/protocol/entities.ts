@@ -121,6 +121,16 @@ export interface Agent {
   lastMessage: string;
   /** When the agent last said that, ISO 8601; `''` until it has said anything. */
   lastMessageAt: string;
+  /**
+   * What the agent said it is doing, from the `<note>` it wrote. Its own
+   * summary of the work, where `lastMessage` is whatever prose ended a turn.
+   *
+   * `''` for a subagent, which writes none, and for an agent that has not
+   * written one.
+   */
+  lastNote: string;
+  /** When the agent wrote that note, ISO 8601; `''` until it writes one. */
+  lastNoteAt: string;
   costUsd: number;
   /**
    * Tokens the session has consumed, summed over its turns: how much work it

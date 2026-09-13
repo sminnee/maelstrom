@@ -142,6 +142,11 @@ class Agent(TypedDict):
     waitingOn: str
     lastMessage: str
     lastMessageAt: str
+    #: What the agent said it is doing, from the ``<note>`` it wrote. Empty for
+    #: a subagent, which writes none, and for an agent that has written none.
+    lastNote: str
+    #: When the agent wrote that note, ISO 8601; ``""`` until it writes one.
+    lastNoteAt: str
     costUsd: float
     #: Tokens the session has consumed, summed over its turns: how much work it
     #: has done. Not how full its context is — a turn re-reads its prompt from
