@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { agentCounts, budgetQuotient, usageChip, usageTone } from './usage';
+import { agentCounts, budgetQuotient, isNotable, usageChip, usageTone } from './usage';
+import type { UsageChip } from './usage';
 import type { Agent, Host } from '../protocol/entities';
 import { makeAgent } from '../test/fixtures';
 
@@ -314,6 +315,43 @@ describe('usageChip', () => {
       },
     });
     expect(usageChip(h, 'fiveHour', NOW)?.title).toBe('5-hour limit: 10% used, as of 2h ago');
+  });
+});
+
+describe('isNotable', () => {
+  const chip = (over: Partial<UsageChip> = {}): UsageChip => ({
+    percent: '50%',
+    tone: 'neutral',
+    stale: false,
+    title: '',
+    ...over,
+  });
+
+  it('keeps a window that is ahead of pace', () => {
+    expect(isNotable(chip({ tone: 'busy' }))).toBe(true);
+    expect(isNotable(chip({ tone: 'bad' }))).toBe(true);
+  });
+
+  it('drops a window that is keeping up, which says nothing to act on', () => {
+    expect(isNotable(chip({ tone: 'neutral' }))).toBe(false);
+  });
+
+  it('drops a stale reading whatever its tone', () => {
+    // The clause that costs the narrow bar its alarm on a quiet desk: a
+    // reading arrives only while an agent takes a turn, so `bad` and `stale`
+    // together is the resting state rather than an edge case. The narrow bar
+    // trades that alarm for a quiet row; the wide bar still greys and shows it.
+    expect(isNotable(chip({ tone: 'bad', stale: true }))).toBe(false);
+    expect(isNotable(chip({ tone: 'busy', stale: true }))).toBe(false);
+  });
+
+  it('drops the tones no usage window earns today', () => {
+    // `usageTone` returns only neutral, busy and bad. The rule names the two
+    // it keeps rather than the ones it drops, so a tone added later is quiet
+    // until someone decides it is worth a band.
+    expect(isNotable(chip({ tone: 'good' }))).toBe(false);
+    expect(isNotable(chip({ tone: 'quiet' }))).toBe(false);
+    expect(isNotable(chip({ tone: 'special' }))).toBe(false);
   });
 });
 
