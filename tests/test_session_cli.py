@@ -1,5 +1,6 @@
 """Tests for maelstrom.session_cli module."""
 
+import asyncio
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -10,7 +11,8 @@ from click.testing import CliRunner
 from maelstrom import session_cli
 from maelstrom import task as model
 from maelstrom.cli import cli
-from maelstrom.task_index import SqliteTaskIndex, TaskMeta
+from maelstrom.task import Task
+from maelstrom.task_table import InMemoryTaskTable
 
 
 def _patch_live(sessions):
@@ -48,15 +50,25 @@ def _live(pid, cwd):
     return LiveSession(pid=pid, cwd=Path(cwd))
 
 
+def _table_holding(*tasks: Task) -> InMemoryTaskTable:
+    """A task table already holding ``tasks``.
+
+    ``session_id`` is derived from the project and id, so a task saved here
+    resolves through ``find_by_session_id`` exactly as a real one does.
+    """
+    table = InMemoryTaskTable()
+    for task in tasks:
+        asyncio.run(table.save(task))
+    return table
+
+
 class TestSessionList:
     @pytest.fixture(autouse=True)
-    def _fresh_index(self, monkeypatch):
-        # Default every session-list test to an empty in-memory index so none
-        # touches the real on-disk notebook. Tests that assert an index hit
-        # override this with their own populated index.
-        monkeypatch.setattr(
-            session_cli, "_task_index", lambda: SqliteTaskIndex(":memory:")
-        )
+    def _fresh_table(self, monkeypatch):
+        # Default every session-list test to an empty in-memory table so none
+        # touches the real notebook. Tests that assert a lookup hit override
+        # this with their own populated table.
+        monkeypatch.setattr(session_cli, "_task_table", InMemoryTaskTable)
 
     def test_empty_when_no_live_processes(self, tmp_path):
         with _patch_live([]):
@@ -76,20 +88,19 @@ class TestSessionList:
         assert "/w/alpha" in result.output
 
     def test_task_column_from_session_id_index_lookup(self, tmp_path, monkeypatch):
-        # A live session whose --session-id resolves via the task index shows TASK.
+        # A live session whose --session-id resolves via the task table shows TASK.
         sid = model.session_id_for("askastro", "daily.maintenance.2026-07-03.2")
         sess = _live(4242, "/w/delta")
         sess.session_id = sid
-        index = SqliteTaskIndex(":memory:")
-        index.upsert(
-            TaskMeta(
-                project="askastro",
+        table = _table_holding(
+            Task(
                 id="daily.maintenance.2026-07-03.2",
+                title="",
+                project="askastro",
                 status="in-progress",
-                session_id=sid,
             )
         )
-        monkeypatch.setattr(session_cli, "_task_index", lambda: index)
+        monkeypatch.setattr(session_cli, "_task_table", lambda: table)
         with _patch_live([sess]):
             runner = CliRunner()
             result = runner.invoke(cli, ["session", "list"])
@@ -140,10 +151,8 @@ class TestSessionInfo:
     _SID = "97894d02-f335-5ea3-9d9f-050330a4902b"
 
     @pytest.fixture(autouse=True)
-    def _fresh_index(self, monkeypatch):
-        monkeypatch.setattr(
-            session_cli, "_task_index", lambda: SqliteTaskIndex(":memory:")
-        )
+    def _fresh_table(self, monkeypatch):
+        monkeypatch.setattr(session_cli, "_task_table", InMemoryTaskTable)
         # A session command must never read the ambient session env of the
         # process running the tests.
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
@@ -270,16 +279,15 @@ class TestSessionInfo:
 
     def test_shows_the_task_when_the_index_resolves_it(self, tmp_path, monkeypatch):
         sid = model.session_id_for("askastro", "2026-07-03.7")
-        index = SqliteTaskIndex(":memory:")
-        index.upsert(
-            TaskMeta(
-                project="askastro",
+        table = _table_holding(
+            Task(
                 id="2026-07-03.7",
+                title="",
+                project="askastro",
                 status="in-progress",
-                session_id=sid,
             )
         )
-        monkeypatch.setattr(session_cli, "_task_index", lambda: index)
+        monkeypatch.setattr(session_cli, "_task_table", lambda: table)
         with _patch_live([self._sess(session_id=sid)]):
             result = CliRunner().invoke(cli, ["session", "info", sid])
         assert result.exit_code == 0, result.output

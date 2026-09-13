@@ -342,15 +342,14 @@ The task notebook. See [tasks.md](../guide/tasks.md).
 | `mael task show ID` | Show a summary of a task. |
 | `mael task get-status [ID]` | Print a task's status alone. Defaults to `$MAEL_TASK_ID`. |
 | `mael task current` | Print the session's task as `ID:STATUS`, for a shell prompt. Prints an empty line outside a task session. |
-| `mael task read ID` | Print the raw task file. |
-| `mael task edit ID` | Open the task file in `$EDITOR` (default `vi`). Commits if it changed. |
+| `mael task read ID` | Print the task as markdown, rendered from its row. |
+| `mael task edit ID` | Open the task in `$EDITOR` (default `vi`). Writes it back if it changed. |
 | `mael task update ID [TITLE]` | Update a task's fields. |
 | `mael task rm ID` | Delete a task and strip it from any dependents' `follows` lists. |
 | `mael task log ID MSG` | Append a line to a task's log. |
 | `mael task status <state> [ID]` | Move a task between lifecycle states. |
 | `mael task prompt ID` | Print the initial Claude prompt for a task. |
 | `mael task reconcile` | Reconcile in-progress tasks against live Claude sessions. |
-| `mael task reindex` | Rebuild the metadata index from the notebook across all projects. |
 | `mael task add-scheduled` | Fire every due template: duplicate it into a dated run and advance its watermark. |
 
 ```bash
@@ -367,9 +366,9 @@ Quote `'*'` — an unquoted `*` is expanded by the shell before `mael` sees it.
 appends to the chain only inside a launched session. Run from a plain shell with no parent set,
 it silently resolves to nothing and the task follows nothing at all.
 
-Every task command takes `--project TEXT` (default: from the current directory), except
-`reindex`, which spans all projects. Only `task add` and `task add-scheduled` accept the
-short form `-p`; every other task command takes `--project` in full.
+Every task command takes `--project TEXT` (default: from the current directory). Only
+`task add` and `task add-scheduled` accept the short form `-p`; every other task command takes
+`--project` in full.
 
 **`mael task add`**
 

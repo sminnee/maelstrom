@@ -82,17 +82,17 @@ def test_check_synced_refuses_a_failed_sync_and_passes_one_that_never_ran():
     check_synced("NORT-7", "b", WorktreeSetup(path=None, name="alpha", action="reused"))  # type: ignore[arg-type]
 
 
-def test_a_task_source_with_no_worktree_opener_refuses_to_open_one(store):
+async def test_a_task_source_with_no_worktree_opener_refuses_to_open_one(store):
     """Both ways in refuse: a task's launch, and a free agent's start."""
     from maelstrom.orchestrator.sources import NotebookTaskSource
 
-    model.create(store, project="p", title="x", id="T-1")
+    await model.create(store, project="p", title="x", id="T-1")
     source = NotebookTaskSource(store, lambda: ["p"])
     with pytest.raises(LaunchBlocked, match="cannot open worktrees"):
-        source.launch("T-1", None)
-    assert model.load(store, "p", "T-1").status == "todo"
+        await source.launch("T-1", None)
+    assert (await model.load(store, "p", "T-1")).status == "todo"
     with pytest.raises(LaunchBlocked, match="cannot open worktrees"):
-        source.worktree_for("p", "feat/x")
+        await source.worktree_for("p", "feat/x")
 
 
 def _source_that_launches(store, *, has_transcript):
@@ -111,24 +111,24 @@ def _source_that_launches(store, *, has_transcript):
     return source
 
 
-def test_launch_resumes_a_task_that_has_already_run(store):
+async def test_launch_resumes_a_task_that_has_already_run(store):
     """Relaunching a stopped task must continue its session, not claim its id."""
-    model.create(store, project="p", title="x", id="T-1")
+    await model.create(store, project="p", title="x", id="T-1")
     source = _source_that_launches(store, has_transcript=lambda path, sid: True)
-    request = source.launch("p/T-1", None)
+    request = await source.launch("p/T-1", None)
     assert request.payload["resume"] is True
 
 
-def test_launch_of_a_task_that_never_ran_claims_a_fresh_session(store):
-    model.create(store, project="p", title="x", id="T-1")
+async def test_launch_of_a_task_that_never_ran_claims_a_fresh_session(store):
+    await model.create(store, project="p", title="x", id="T-1")
     source = _source_that_launches(store, has_transcript=lambda path, sid: False)
-    request = source.launch("p/T-1", None)
+    request = await source.launch("p/T-1", None)
     assert request.payload["resume"] is False
 
 
-def test_launch_asks_about_the_worktree_the_session_will_run_in(store):
+async def test_launch_asks_about_the_worktree_the_session_will_run_in(store):
     """The transcript lives under the worktree path, so the check needs it."""
-    model.create(store, project="p", title="x", id="T-1")
+    await model.create(store, project="p", title="x", id="T-1")
     seen: list[tuple] = []
 
     def has_transcript(path, session_id):
@@ -136,5 +136,5 @@ def test_launch_asks_about_the_worktree_the_session_will_run_in(store):
         return False
 
     source = _source_that_launches(store, has_transcript=has_transcript)
-    request = source.launch("p/T-1", None)
+    request = await source.launch("p/T-1", None)
     assert seen == [(Path("/w/alpha"), request.payload["session"])]

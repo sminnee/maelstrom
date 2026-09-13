@@ -1899,6 +1899,19 @@ class TestMvProjectIntegration:
         mael_dir.mkdir(exist_ok=True)
         config = MagicMock(projects_dir=projects, open_command="code")
 
+        # The tasks live in the state database, so it has to exist before a
+        # command reads it — `mael admin migrate` is what does this for a real
+        # install, and an unmigrated database is its own (tested) refusal.
+        import asyncio
+
+        from maelstrom.state_db.migrate import open_state_db
+
+        db = open_state_db(mael_dir / "state.db")
+        try:
+            asyncio.run(db.migrate())
+        finally:
+            db.close()
+
         with (
             patch("maelstrom.mv_project_cli.load_global_config", return_value=config),
             patch("maelstrom.context.load_global_config", return_value=config),
@@ -1906,6 +1919,9 @@ class TestMvProjectIntegration:
             patch("maelstrom.context.get_maelstrom_dir", return_value=mael_dir),
             patch("maelstrom.mv_project_cli.get_maelstrom_dir", return_value=mael_dir),
             patch("maelstrom.task_store.get_maelstrom_dir", return_value=mael_dir),
+            # The task table lives in the state database, whose path resolves
+            # through its own module — the one the suite isolates everywhere.
+            patch("maelstrom.state_db.paths.get_maelstrom_dir", return_value=mael_dir),
             patch("pathlib.Path.home", return_value=home),
             patch("maelstrom.mv_project_cli.all_live_sessions", _async_none),
             patch("maelstrom.mv_project_cli.update_claude_local_md"),
@@ -1966,22 +1982,49 @@ class TestMvProjectIntegration:
         assert status.returncode == 0, status.stderr
 
     def test_a_task_moves_and_is_restamped(self, tmp_path):
+        """The row re-keys to the new project, and nothing is left under the old."""
+        import asyncio
+
+        from maelstrom.state_db.migrate import open_state_db
+        from maelstrom.task import Task
+        from maelstrom.task_table import SqliteTaskTable
+
         projects, _ = self._build(tmp_path)
         home = tmp_path / "home"
         home.mkdir(exist_ok=True)
-        tasks = home / ".maelstrom" / "tasks" / "old" / "todo"
-        tasks.mkdir(parents=True)
-        (tasks / "x.md").write_text(
-            "---\nid: x\nproject: old\ntitle: A task\n---\n\nBody\n"
-        )
+        (home / ".maelstrom").mkdir(exist_ok=True)
+
+        def with_table(work):
+            """Run ``work`` against the same database the command will open."""
+            db = open_state_db(home / ".maelstrom" / "state.db")
+            try:
+                return asyncio.run(work(SqliteTaskTable(db)))
+            finally:
+                db.close()
+
+        async def migrate_and_seed(_table):
+            db = open_state_db(home / ".maelstrom" / "state.db")
+            try:
+                await db.migrate()
+                await SqliteTaskTable(db).save(
+                    Task(id="x", title="A task", project="old", content="Body")
+                )
+            finally:
+                db.close()
+
+        asyncio.run(migrate_and_seed(None))
 
         result = self._run(tmp_path, projects, ["old", "new"], home=home)
         assert result.exit_code == 0, result.output
 
-        moved = home / ".maelstrom" / "tasks" / "new" / "todo" / "x.md"
-        assert moved.exists()
-        assert "project: new" in moved.read_text()
-        assert not (home / ".maelstrom" / "tasks" / "old" / "todo" / "x.md").exists()
+        async def read(table):
+            return await table.load("new", "x"), await table.load("old", "x")
+
+        moved, left_behind = with_table(read)
+        assert moved is not None
+        assert moved.project == "new"
+        assert moved.content == "Body"
+        assert left_behind is None
 
     def test_port_allocations_move_to_the_new_path_key(self, tmp_path):
         projects, project = self._build(tmp_path)

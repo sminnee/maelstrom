@@ -4,8 +4,8 @@ A *template* is an ordinary task parked in ``template/`` status (see
 :data:`maelstrom.task.STATUS_TEMPLATE`) carrying an optional ``schedule`` cron
 expression and a ``last_run`` watermark. This module owns the cron math and the
 "what's due" computation; it never touches git or launches anything — it only
-reads the injected store and returns plain data, so it is unit-testable against
-an :class:`~maelstrom.task_store.InMemoryStore` with a frozen ``now``.
+reads the injected table and returns plain data, so it is unit-testable against
+an :class:`~maelstrom.task_table.InMemoryTaskTable` with a frozen ``now``.
 
 The cron parser supports the needed 5-field subset (``m h dom mon dow``): ``*``,
 single integers, comma lists, and ``a-b`` ranges (and combinations like
@@ -18,7 +18,7 @@ from cron's OR-semantics does not bite.
 from datetime import datetime, timedelta
 
 from .task import STATUS_TEMPLATE, Task, list_tasks
-from .task_store import TaskStore
+from .task_table import TaskTable
 
 # --- cron field parsing ---
 
@@ -165,8 +165,8 @@ def date_of(dt: datetime) -> str:
     return dt.date().isoformat()
 
 
-def due_templates(
-    store: TaskStore, project: str, *, now: datetime
+async def due_templates(
+    table: TaskTable, project: str, *, now: datetime
 ) -> list[tuple[Task, str]]:
     """Return ``(template, boundary_date)`` for every template due at ``now``.
 
@@ -176,11 +176,7 @@ def due_templates(
     a week offline on a daily template yields exactly one run — never a backfill.
     """
     out: list[tuple[Task, str]] = []
-    # Scan the store: no HEAD is threaded here, and this drives the scheduled-run
-    # mutation loop where the index may be mid-transaction.
-    for tmpl in list_tasks(
-        store, project=project, status=STATUS_TEMPLATE, no_index=True
-    ):
+    for tmpl in await list_tasks(table, project=project, status=STATUS_TEMPLATE):
         if not tmpl.schedule:
             continue
         last = _parse_iso(tmpl.last_run) or _parse_iso(tmpl.created)

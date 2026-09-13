@@ -100,7 +100,7 @@ _ACTION_FOR_STATUS = {
 }
 
 
-def move_with_actions(store, project, id, new_status, *, now=None, index=None):
+async def move_with_actions(table, project, id, new_status, *, now=None):
     """``model.move``, then fire the task's pre/post action for this destination.
 
     The single chokepoint for status transitions that may fire lifecycle
@@ -109,31 +109,11 @@ def move_with_actions(store, project, id, new_status, *, now=None, index=None):
     path and the launch / session-end paths trigger actions — keyed off the
     destination status. Returns the moved Task; action failures never block the
     move (:func:`run_action` swallows + warns).
-
-    ``index`` (optional) is threaded straight through to :func:`model.move` so the
-    metadata index stays current across every transition path; ``None`` keeps the
-    model's null-object default (``model.move`` resolves ``index=None`` itself).
     """
     from maelstrom import task as model
 
-    moved = model.move(store, project, id, new_status, now=now, index=index)
+    moved = await model.move(table, project, id, new_status, now=now)
     field = _ACTION_FOR_STATUS.get(new_status)
     if field:
         run_action(moved, getattr(moved, field))
     return moved
-
-
-def index_is_fresh(store, index) -> bool:
-    """Whether ``index`` is complete at the store's current HEAD.
-
-    Capture this *before* a mutation: an incremental row update preserves
-    completeness, so a fresh index may be re-stamped afterwards, while a stale
-    one must keep scanning until ``task reindex`` rebuilds it.
-    """
-    return index.head() == store.head()
-
-
-def restamp(store, index, *, was_fresh: bool) -> None:
-    """Advance the index HEAD stamp after a mutation, only if it was complete."""
-    if was_fresh:
-        index.set_head(store.head())

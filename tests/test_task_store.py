@@ -216,34 +216,6 @@ class TestHead:
         assert InMemoryStore().head() is None
 
 
-class TestTransactionViaModel:
-    def test_move_via_model_is_single_commit(self, tmp_path):
-        import maelstrom.task as task
-
-        root = tmp_path / "tasks"
-        store = GitFileStore(root=root)
-        created = task.create(store, project="p", title="thing")
-        before = _commit_count(root)
-        task.move(store, "p", created.id, task.STATUS_DONE)
-        assert _commit_count(root) == before + 1
-        assert "task: move" in _git(root, "log", "-1", "--pretty=%s")
-        assert _git(root, "status", "--porcelain").strip() == ""
-
-    def test_delete_via_model_is_single_commit(self, tmp_path):
-        import maelstrom.task as task
-
-        root = tmp_path / "tasks"
-        store = GitFileStore(root=root)
-        a = task.create(store, project="p", title="dep")
-        task.create(store, project="p", title="needs A", follows=[a.id])
-        before = _commit_count(root)
-        # 1 delete + 1 dependent rewrite -> exactly one commit.
-        task.delete(store, "p", a.id)
-        assert _commit_count(root) == before + 1
-        assert f"task: rm {a.id}" in _git(root, "log", "-1", "--pretty=%s")
-        assert _git(root, "status", "--porcelain").strip() == ""
-
-
 def _writer_worker(root_str: str, prefix: str, count: int) -> None:
     """Module-level worker (picklable) that writes ``count`` files to the store."""
     from pathlib import Path

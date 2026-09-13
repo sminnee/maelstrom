@@ -87,7 +87,7 @@ class StateDb:
     """The state database: one SQLite file, one revision counter, one notice path.
 
     ``path`` may be ``":memory:"`` so a test gets a real-but-ephemeral
-    database, exactly as :class:`maelstrom.task_index.SqliteTaskIndex` does.
+    database.
     The connection is held for the object's lifetime either way — each
     connection to ``":memory:"`` gets its own private database, so a
     per-call connection would lose every row.

@@ -103,8 +103,23 @@ class Harness:
         )
 
     def add_task(self, task_id: str, *, project: str = PROJECT, **fields) -> None:
+        """Seed one task, from outside a running loop.
+
+        The model is async now, so the write is driven on its own loop — the
+        same way the tests drive the server itself through :func:`run`. A
+        scenario already inside a loop must use :meth:`add_task_async`, because
+        ``asyncio.run`` refuses to nest.
+        """
+        run(self.add_task_async(task_id, project=project, **fields))
+
+    async def add_task_async(
+        self, task_id: str, *, project: str = PROJECT, **fields
+    ) -> None:
+        """Seed one task from inside a running loop."""
         title = fields.pop("title", task_id)
-        model.create(self.store, project=project, title=title, id=task_id, **fields)
+        await model.create(
+            self.store, project=project, title=title, id=task_id, **fields
+        )
         self.version += 1
 
     def serving(self):
@@ -762,7 +777,7 @@ def test_a_revived_agent_links_to_the_task_that_arrived_while_it_was_gone(harnes
                 )
                 # The task appears only while the agent is gone, so the link it
                 # held at exit is stale by the time it comes back.
-                harness.add_task("NORT-7")
+                await harness.add_task_async("NORT-7")
                 await stream.change("task", "northwind/NORT-7")
                 harness.daemon.rows["ag1"]["state"] = "idle"
                 # Every agent frame from the moment it comes back. The revive
@@ -1382,7 +1397,7 @@ def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
         "MAEL_TASK_PARENT": "NORT-7",
         "MAEL_TASK_SESSION_ID": session,
     }
-    assert model.load(harness.store, PROJECT, "NORT-7").status == "in-progress"
+    assert run(model.load(harness.store, PROJECT, "NORT-7")).status == "in-progress"
     assert task["status"] == "in-progress"
     assert agent["taskId"] == "northwind/NORT-7"
     assert agent["worktreeId"] == "northwind-alpha"
@@ -1406,7 +1421,7 @@ def test_a_launch_the_host_refuses_rolls_the_task_back_to_todo(harness):
     assert reply.status == 400
     assert reply.body["error"]["code"] == "invalid"
     assert "no such file" in reply.body["error"]["message"]
-    assert model.load(harness.store, PROJECT, "NORT-7").status == "todo"
+    assert run(model.load(harness.store, PROJECT, "NORT-7")).status == "todo"
     assert task["status"] == "todo"
 
 
@@ -1429,7 +1444,7 @@ def test_a_launch_blocked_by_a_failed_sync_leaves_the_task_todo(store):
     reply = run(scenario())
     assert reply.status == 400
     assert "rebase conflict" in reply.body["error"]["message"]
-    assert model.load(harness.store, PROJECT, "NORT-7").status == "todo"
+    assert run(model.load(harness.store, PROJECT, "NORT-7")).status == "todo"
     assert not [c for c in harness.daemon.calls if c["cmd"] == "start"]
 
 
@@ -1491,7 +1506,7 @@ def test_set_status_moves_the_task_before_it_answers(harness):
     assert reply.body == {}
     assert task["status"] == "done"
     assert ids == ["northwind/NORT-7"]
-    assert model.load(harness.store, PROJECT, "NORT-7").status == "done"
+    assert run(model.load(harness.store, PROJECT, "NORT-7")).status == "done"
 
 
 def test_update_writes_only_the_fields_it_was_given(harness):
@@ -1508,7 +1523,7 @@ def test_update_writes_only_the_fields_it_was_given(harness):
     assert reply.status == 200
     assert reply.body == {}
     assert task["title"] == "Export the orders"
-    stored = model.load(harness.store, PROJECT, "NORT-7")
+    stored = run(model.load(harness.store, PROJECT, "NORT-7"))
     assert stored.title == "Export the orders"
     assert stored.branch == "feat/orders"
 
@@ -1519,7 +1534,7 @@ def test_a_write_to_a_task_the_notebook_lost_is_unknown_id(harness):
 
     async def scenario():
         async with harness.client() as api:
-            model.delete(harness.store, PROJECT, "NORT-7")
+            await model.delete(harness.store, PROJECT, "NORT-7")
             return await api.patch("/api/tasks/northwind/NORT-7", {"title": "Gone"})
 
     reply = run(scenario())
@@ -1577,7 +1592,7 @@ def test_a_task_deleted_from_the_notebook_leaves_the_desk(harness):
                 await stream.next("reset")
                 await api.post("/api/desk", {"id": "task:northwind/NORT-7"})
                 await stream.change("desk")
-                model.delete(harness.store, PROJECT, "NORT-7")
+                await model.delete(harness.store, PROJECT, "NORT-7")
                 harness.version += 1
                 await stream.change("desk", "task:northwind/NORT-7")
                 return await api.get_json("/api/desk")
@@ -2214,7 +2229,7 @@ def test_the_task_list_answers_304_until_a_task_changes(harness):
             first = await api.get("/api/tasks")
             etag = first.headers["ETag"]
             same = await api.get("/api/tasks", **{"If-None-Match": etag})
-            harness.add_task("NORT-8")
+            await harness.add_task_async("NORT-8")
             await harness.orch.refresh_tasks()
             moved = await api.get("/api/tasks", **{"If-None-Match": etag})
             return same, moved, etag
@@ -2321,7 +2336,7 @@ def test_a_task_change_arrives_as_a_notice_and_the_get_shows_it(harness):
         async with harness.client() as api:
             async with api.events() as stream:
                 await stream.next("reset")
-                harness.add_task("NORT-8")
+                await harness.add_task_async("NORT-8")
                 ids = await stream.change("task")
                 return ids, await api.get_json("/api/tasks/northwind/NORT-8")
 
@@ -2335,8 +2350,8 @@ def test_changes_inside_the_coalesce_window_land_as_one_notice_per_kind(harness)
         async with harness.client() as api:
             async with api.events() as stream:
                 await stream.next("reset")
-                harness.add_task("NORT-1")
-                harness.add_task("NORT-2")
+                await harness.add_task_async("NORT-1")
+                await harness.add_task_async("NORT-2")
                 harness.daemon.rows["ag1"] = agent_row()
                 # One poll of each source: two task upserts and one agent.
                 await harness.orch.refresh_tasks()
@@ -2359,7 +2374,7 @@ def test_a_removed_task_is_named_in_the_notice_and_gone_from_the_get(harness):
         async with harness.client() as api:
             async with api.events() as stream:
                 await stream.next("reset")
-                model.delete(harness.store, PROJECT, "NORT-7")
+                await model.delete(harness.store, PROJECT, "NORT-7")
                 harness.version += 1
                 ids = await stream.change("task", "northwind/NORT-7")
                 return ids, await api.get("/api/tasks/northwind/NORT-7")
@@ -3201,7 +3216,7 @@ def test_linear_plan_writes_the_planning_task_and_files_it(harness, linear):
     task_id = reply.body["taskId"]
     # Not launched, so no agent came back.
     assert "agentId" not in reply.body
-    stored = model.load(harness.store, PROJECT, task_id.split("/", 1)[1])
+    stored = run(model.load(harness.store, PROJECT, task_id.split("/", 1)[1]))
     # The same task `mael linear plan` writes.
     assert stored.title == "Plan ME-1"
     assert stored.command == "plan-task"
@@ -3250,7 +3265,7 @@ def test_linear_plan_refuses_a_project_with_no_linear_team(harness, linear):
     reply = run(scenario())
     assert reply.status == 400
     # Nothing was written: the refusal came before the notebook was touched.
-    assert model.list_tasks(harness.store, project=PROJECT) == []
+    assert run(model.list_tasks(harness.store, project=PROJECT)) == []
 
 
 def test_linear_plan_relays_why_linear_refused(harness, monkeypatch):
@@ -3297,7 +3312,7 @@ def test_create_writes_the_task_with_the_fields_it_was_given_and_files_it(harnes
     task_id = reply.body["taskId"]
     # Not launched, so no agent came back.
     assert "agentId" not in reply.body
-    stored = model.load(harness.store, PROJECT, task_id.split("/", 1)[1])
+    stored = run(model.load(harness.store, PROJECT, task_id.split("/", 1)[1]))
     assert stored.title == "Export the orders"
     assert stored.content == "The order export drops the last row."
     # The branch the user saw is the branch written.
@@ -3331,7 +3346,7 @@ def test_create_with_launch_starts_an_agent_and_moves_the_task_in_progress(harne
     assert reply.status == 200
     assert reply.body["agentId"] == "new1"
     task_id = reply.body["taskId"]
-    stored = model.load(harness.store, PROJECT, task_id.split("/", 1)[1])
+    stored = run(model.load(harness.store, PROJECT, task_id.split("/", 1)[1]))
     assert stored.status == "in-progress"
     assert [entry["id"] for entry in desk["desk"]] == [f"task:{task_id}"]
     assert host_calls(harness) == ["start"]
@@ -3365,7 +3380,10 @@ def test_a_create_whose_launch_fails_still_reports_the_task_it_wrote(harness):
     # not to write it again.
     task_id = reply.body["error"]["taskId"]
     assert [t["id"] for t in tasks["tasks"]] == [task_id]
-    assert model.load(harness.store, PROJECT, task_id.split("/", 1)[1]).status == "todo"
+    assert (
+        run(model.load(harness.store, PROJECT, task_id.split("/", 1)[1])).status
+        == "todo"
+    )
 
 
 def test_create_in_a_project_the_world_does_not_hold_is_unknown_id(harness):
@@ -3743,18 +3761,24 @@ def test_a_plan_document_is_not_reviewed_through_the_document_routes(harness):
 # --- approving a task set ----------------------------------------------------
 #
 # Approving a `tasks` document promotes its drafts into the notebook, so these
-# need a real notebook (`InMemoryStore.transaction` is a no-op and cannot roll
-# back) and a real directory to hold the draft files.
+# need a real directory to hold the draft files. The notebook itself can stay
+# in memory: `InMemoryTaskTable.transact` really rolls back, which is what
+# these tests turn on.
 
 
 @pytest.fixture
 def notebook_harness(tmp_path):
-    """A harness over a git-backed notebook, with the agent in a real worktree."""
-    from maelstrom.task_store import GitFileStore
+    """A harness with the agent in a real worktree, for the draft files.
+
+    The table is in memory: what these tests need from it is a transaction that
+    really rolls back, which :class:`InMemoryTaskTable` gives them. Only the
+    drafts have to be real files, because the approve reads them off disk.
+    """
+    from maelstrom.task_table import InMemoryTaskTable
 
     worktree = tmp_path / "northwind-alpha"
     worktree.mkdir()
-    harness = Harness(GitFileStore(tmp_path / "notebook"))
+    harness = Harness(InMemoryTaskTable())
     harness.worktrees.worktrees[0]["path"] = str(worktree)
     harness.daemon.rows["ag1"] = agent_row(cwd=str(worktree))
     harness.worktree = worktree
@@ -3790,13 +3814,10 @@ async def approve_tasks(api, stream, harness, *filenames: str, title="Iteration 
 def notebook_titles(harness) -> list[str]:
     """The titles in the notebook, read as the server reads it.
 
-    ``no_index=True`` so this is the store's own answer. The index is a cache
-    outside the store's transaction, and a rolled-back promote must not be
-    visible in either — the world is built from this same read.
+    One query against the table, which is the whole truth now: a rolled-back
+    promote leaves no row behind, and the world is built from this same read.
     """
-    return [
-        t.title for t in model.list_tasks(harness.store, project=PROJECT, no_index=True)
-    ]
+    return [t.title for t in run(model.list_tasks(harness.store, project=PROJECT))]
 
 
 def test_approving_a_task_set_creates_the_tasks_and_consumes_the_drafts(
@@ -3844,7 +3865,8 @@ def test_the_reply_carries_the_ids_it_created(notebook_harness):
     created = reply.body["taskIds"]
     assert len(created) == 2
     titles = [
-        model.load(harness.store, *split_task_key(task_id)).title for task_id in created
+        run(model.load(harness.store, *split_task_key(task_id))).title
+        for task_id in created
     ]
     assert titles == ["First step", "Second step"]
 
@@ -3914,13 +3936,13 @@ def test_the_chain_is_wired_in_document_order(notebook_harness):
                 )
 
     run(scenario())
-    tasks = {t.title: t for t in model.list_tasks(harness.store, project=PROJECT)}
+    tasks = {t.title: t for t in run(model.list_tasks(harness.store, project=PROJECT))}
     first, second = tasks["First step"], tasks["Second step"]
     assert second.follows == [first.id]
     assert first.follows == []
     # Asserted through the model's own listing, as `mael task next` reads it.
-    assert model.is_actionable(first, harness.store)
-    assert not model.is_actionable(second, harness.store)
+    assert run(model.is_actionable(first, harness.store))
+    assert not run(model.is_actionable(second, harness.store))
 
 
 def test_the_chain_joins_the_planning_task_s_parent(notebook_harness):
@@ -3943,7 +3965,7 @@ def test_the_chain_joins_the_planning_task_s_parent(notebook_harness):
     run(scenario())
     created = [
         t
-        for t in model.list_tasks(harness.store, project=PROJECT, no_index=True)
+        for t in run(model.list_tasks(harness.store, project=PROJECT))
         if t.title == "First step"
     ]
     assert [t.parent for t in created] == ["linear.NORT-9"]
@@ -3961,7 +3983,7 @@ def test_a_draft_that_names_its_own_parent_keeps_it(notebook_harness):
                 await approve_tasks(api, stream, harness, "draft-one.md")
 
     run(scenario())
-    [created] = model.list_tasks(harness.store, project=PROJECT, no_index=True)
+    [created] = run(model.list_tasks(harness.store, project=PROJECT))
     assert created.parent == "linear.NORT-42"
 
 

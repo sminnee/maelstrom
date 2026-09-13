@@ -1,7 +1,7 @@
 """Session CLI: `mael session list`, `mael session info`, `mael session end`.
 
 A session here is a running ``claude`` process. Everything shown comes from the
-process itself (via :mod:`maelstrom.session_discovery`) plus the task index's
+process itself (via :mod:`maelstrom.session_discovery`) plus the task table's
 reverse lookup on the session id. There is no registry file to consult: the
 session-tracking channel that wrote one is gone, and ``mael agent list`` is
 where a driven agent's state lives.
@@ -18,9 +18,8 @@ from .cli_async import AsyncGroup
 from .context import resolve_context
 from .env import stop_sessions
 from .table import draw_table
-from .task_cli import open_index
-from .task_index import SqliteTaskIndex
-from .task_store import GitFileStore
+from .task_cli import open_task_table
+from .task_table import SqliteTaskTable
 
 
 @click.group("session", cls=AsyncGroup)
@@ -43,22 +42,22 @@ def _derive_project_worktree(cwd: str | None) -> tuple[str | None, str | None]:
     return (ctx.project, ctx.worktree)
 
 
-def _task_index() -> SqliteTaskIndex:
-    """The on-disk task metadata index living beside the task store.
+def _task_table() -> SqliteTaskTable:
+    """The task table, for the reverse session-id → task lookup.
 
-    Opened via the task CLI's public :func:`~maelstrom.task_cli.open_index`, so
-    the reverse session-id → task lookup reads the exact cache the task CLI keeps
-    current — no duplicated ``index.db`` path literal.
+    Opened via the task CLI's public
+    :func:`~maelstrom.task_cli.open_task_table`, so this reads the same table
+    the task CLI writes rather than opening a second connection to it.
     """
-    return open_index(GitFileStore())
+    return open_task_table()
 
 
 ID_PREFIX_LEN = 8
 
 
-def build_session_row(
+async def build_session_row(
     sess: session_discovery.LiveSession,
-    index: SqliteTaskIndex,
+    table: SqliteTaskTable,
 ) -> dict:
     """Everything ``mael session`` knows about one live session, as a flat dict.
 
@@ -66,7 +65,7 @@ def build_session_row(
     ``mael --json session info`` emits it as-is.
 
     ``pid`` and ``cwd`` come from the process itself and are always right.
-    ``task`` is an indexed reverse lookup on the session id, blank for a bare
+    ``task`` is a single-row reverse lookup on the session id, blank for a bare
     ``claude`` that ``mael`` did not launch. Every key is always present; a field
     with nothing to report is an empty string.
     """
@@ -75,9 +74,9 @@ def build_session_row(
 
     task_id = ""
     if sess.session_id:
-        meta = index.find_by_session_id(sess.session_id)
-        if meta is not None:
-            task_id = meta.id
+        found = await table.find_by_session_id(sess.session_id)
+        if found is not None:
+            task_id = found.id
 
     return {
         "id": sess.session_id or "",
@@ -104,11 +103,11 @@ async def session_list() -> None:
     on.
     """
     sessions = await session_discovery.all_live_sessions()
-    index = _task_index()
+    table = _task_table()
 
     rows = []
     for sess in sessions:
-        row = build_session_row(sess, index)
+        row = await build_session_row(sess, table)
         pw = (
             f"{row['project']}/{row['worktree']}"
             if row["project"] and row["worktree"]
@@ -212,7 +211,7 @@ async def session_info(ctx, id: str | None) -> None:
     so a script can rely on the shape.
     """
     sess = await _find_session(id)
-    row = build_session_row(sess, _task_index())
+    row = await build_session_row(sess, _task_table())
 
     if ctx.obj.get("json", False) if ctx.obj else False:
         click.echo(json.dumps(row, indent=2))

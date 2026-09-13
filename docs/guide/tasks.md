@@ -261,11 +261,9 @@ duplicate-launch guard uses, so the two always agree. Reconcile corrects three m
 | `in-progress`, no live session | No transcript — the task never ran | `todo` |
 | Not `in-progress` | A live session is working on it | `in-progress` |
 
-The metadata index is a rebuildable cache. If a manual edit diverges it:
-
-```bash
-mael task reindex
-```
+A task is a row in the state database. The markdown tree at `~/.maelstrom/tasks` is an export
+for audit and backup, so editing it by hand changes nothing a command reads — use
+`mael task update` or `mael task edit`.
 
 ## See also
 

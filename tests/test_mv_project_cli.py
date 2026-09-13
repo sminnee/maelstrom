@@ -2,7 +2,7 @@
 
 from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from click.testing import CliRunner
 
@@ -98,16 +98,14 @@ class MvProjectHarness:
                 "maelstrom.mv_project_cli.rename_project_allocations",
                 side_effect=self.port_error,
             )
-            mock("maelstrom.mv_project_cli.GitFileStore")
-            mock("maelstrom.mv_project_cli.open_index")
+            mock("maelstrom.mv_project_cli.open_task_table")
             mock(
                 "maelstrom.mv_project_cli.task_model.list_tasks",
+                new_callable=AsyncMock,
                 return_value=self.tasks,
             )
-            mock("maelstrom.mv_project_cli.task_model.reindex", return_value=0)
             mock("maelstrom.mv_project_cli.setup_claude_memory_symlink")
             mock("maelstrom.mv_project_cli.update_claude_local_md")
-            mock("maelstrom.mv_project_cli.find_all_projects", return_value=[])
             # The trap this command exists to avoid: doctor prunes port
             # allocations keyed by a path that no longer exists.
             mock("maelstrom.doctor.run_doctor")
@@ -352,14 +350,6 @@ class TestMigration:
 
         assert "mael doctor new" in result.output
 
-    def test_rebuilds_the_task_index(self, tmp_path):
-        _make_project(tmp_path)
-        harness = MvProjectHarness(tmp_path)
-
-        harness.run(["old", "new"])
-
-        harness.mocks["reindex"].assert_called_once()
-
     def test_sets_the_git_remote_when_asked(self, tmp_path):
         _make_project(tmp_path)
         harness = MvProjectHarness(tmp_path)
@@ -390,7 +380,6 @@ class TestMigration:
         assert result.exit_code != 0
         assert str(tmp_path / "new") in result.output
         assert "mael doctor new" in result.output
-        assert "mael task reindex" in result.output
 
     def test_a_non_click_failure_after_the_move_still_names_the_recovery(
         self, tmp_path

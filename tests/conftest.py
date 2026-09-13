@@ -110,42 +110,42 @@ def _block_real_claude_branch_gen(monkeypatch):
     monkeypatch.setattr(branch_name, "_run_claude", _unavailable)
 
 
+@pytest.fixture(autouse=True)
+def _reset_task_db():
+    """Forget the task CLI's cached database between tests.
+
+    ``task_cli`` opens the state database once and keeps it in a module global,
+    which is right in production — one process is one invocation. In the suite
+    one process runs every test, so without this a test's temporary database
+    would serve the next one, and the leak is invisible: the reads succeed and
+    answer about the wrong notebook.
+    """
+    from maelstrom import task_cli
+
+    task_cli._DB = None
+    task_cli._CHECKED = False
+    yield
+    if task_cli._DB is not None:
+        task_cli._DB.close()
+    task_cli._DB = None
+    task_cli._CHECKED = False
+
+
 @pytest.fixture()
 def store():
-    """Shared task-store fixture for the model / CLI / actions test suites.
+    """Shared task-table fixture for the model / CLI / actions test suites.
 
-    Centralises store construction so the task-index cache can be wired in behind
-    the reads with a single fixture change (see ``docs/dev/architecture-patterns.md``
-    and the SQLite task-index work). Today it yields a bare
-    :class:`~maelstrom.task_store.InMemoryStore`; the index is layered on later via
-    :func:`_task_index` without touching any call site.
+    Named ``store`` because that is what several hundred tests already call it;
+    what it yields is an :class:`~maelstrom.task_table.InMemoryTaskTable`, the
+    model's one injected collaborator now that the notebook is a table.
+
+    The contract itself is exercised against both backends in
+    ``tests/test_task_table.py``; here the in-memory twin keeps the behaviour
+    suites fast and free of a database file.
     """
-    from maelstrom.task_store import InMemoryStore
+    from maelstrom.task_table import InMemoryTaskTable
 
-    return InMemoryStore()
-
-
-@pytest.fixture(autouse=True)
-def _task_index(monkeypatch):
-    """Give every test its own fresh in-memory task index.
-
-    ``store`` and ``index`` are the model's two injected collaborators. Production
-    wires a real on-disk :class:`~maelstrom.task_index.SqliteTaskIndex` from the CLI;
-    the model falls back to a module-level default (``task._DEFAULT_INDEX``) for any
-    call that omits ``index``. This fixture swaps that default for a *per-test* fresh
-    in-memory SQLite index, so every behaviour test exercises the real index
-    transparently without naming it, and no state leaks between tests. The ``store``
-    fixture stays a plain store — the index sits beside it, not behind it.
-
-    An in-memory store and this in-memory index both report ``head() is None`` and
-    nothing stamps the index HEAD, so the model's staleness guard treats the index as
-    fresh (``None == None``) and reads are served from it — the point of the exercise.
-    """
-    from maelstrom import task as model
-    from maelstrom.task_index import SqliteTaskIndex
-
-    monkeypatch.setattr(model, "_DEFAULT_INDEX", SqliteTaskIndex(":memory:"))
-    yield
+    return InMemoryTaskTable()
 
 
 @pytest.fixture()

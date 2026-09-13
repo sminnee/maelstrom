@@ -33,11 +33,9 @@ from .env_cli import make_store as make_env_store
 from .mv_project import DirMove, MovePlan, build_move_plan, rekey_claude_json
 from .ports import rename_project_allocations
 from .session_discovery import LiveSession, all_live_sessions
-from .task_cli import open_index
-from .task_store import GitFileStore
+from .task_cli import open_task_table
 from .util import abbreviate_home, locked_file
 from .worktree import (
-    find_all_projects,
     list_worktrees,
     run_git,
     setup_claude_memory_symlink,
@@ -200,7 +198,7 @@ def _worktree_folders(project_path: Path) -> list[str]:
     ]
 
 
-def gather_plan(old: str, new: str, projects_dir: Path, home: Path) -> MovePlan:
+async def gather_plan(old: str, new: str, projects_dir: Path, home: Path) -> MovePlan:
     """Collect the facts the model needs and build the plan.
 
     Every read here is inert: nothing is changed, so this is also what
@@ -209,8 +207,7 @@ def gather_plan(old: str, new: str, projects_dir: Path, home: Path) -> MovePlan:
     project_path = projects_dir / old
     folders = _worktree_folders(project_path)
 
-    store = GitFileStore()
-    tasks = task_model.list_tasks(store, project=old, no_index=True)
+    tasks = await task_model.list_tasks(open_task_table(), project=old)
     task_ids = [t.id for t in tasks]
     task_statuses = {t.id: t.status for t in tasks}
 
@@ -393,33 +390,26 @@ def migrate_logs(plan: MovePlan) -> None:
     old_dir.rename(new_dir)
 
 
-def migrate_tasks(plan: MovePlan) -> int:
-    """Re-key every task under the project and rebuild the index.
+async def migrate_tasks(plan: MovePlan) -> int:
+    """Re-key every task under the project, in one transaction.
 
-    Tasks are keyed by project name and also carry it in their frontmatter, so
-    each one is read, re-stamped and written under its new key inside a single
-    store transaction. The index is a rebuildable cache; it is dropped and
-    re-derived, which regenerates the ``session_id`` column for free.
+    A task's row id carries its project, and the task carries it again as a
+    column, so each one is written under the new key and the old row deleted.
+    One transaction covers the lot: a failure part-way would otherwise leave
+    the project's tasks split across two names.
+
+    ``session_id`` is derived from the project, so re-keying regenerates it —
+    which is why ``mael mv-project`` warns that the move orphans existing
+    sessions rather than migrating their transcripts.
     """
-    store = GitFileStore()
-    tasks = task_model.list_tasks(store, project=plan.old_name, no_index=True)
+    table = open_task_table()
+    tasks = await task_model.list_tasks(table, project=plan.old_name)
     if tasks:
-        with store.transaction(
-            message=f"mv-project: {plan.old_name} -> {plan.new_name}"
-        ):
+        async with table.transact():
             for task in tasks:
-                old_key = task_model.task_key(plan.old_name, task.status, task.id)
+                await table.delete(plan.old_name, task.id)
                 task.project = plan.new_name
-                new_key = task_model.task_key(plan.new_name, task.status, task.id)
-                store.write(new_key, task.to_markdown(), message="mv-project")
-                store.delete(old_key, message="mv-project")
-
-    # The index lives beside the store; its root may not exist yet on a machine
-    # that has never written a task, and SQLite will not create the directory.
-    store.root.mkdir(parents=True, exist_ok=True)
-    index = open_index(store)
-    projects = [p.name for p in find_all_projects(load_global_config().projects_dir)]
-    task_model.reindex(store, index, projects=projects, head=store.head())
+                await table.save(task)
     return len(tasks)
 
 
@@ -529,7 +519,7 @@ def _unfinished_message(plan: MovePlan, reason: str) -> str:
     return (
         f"The project directory moved to {plan.new_project_path}, but the "
         f"migration did not finish: {reason}\n"
-        f"Recover with: mael doctor {plan.new_name} && mael task reindex"
+        f"Recover with: mael doctor {plan.new_name}"
     )
 
 
@@ -616,7 +606,7 @@ async def cmd_mv_project(
     running_worktrees, live = await check_preconditions(
         old_project_path, new_project_path, force=force
     )
-    plan = gather_plan(old, new, projects_dir, home)
+    plan = await gather_plan(old, new, projects_dir, home)
 
     # Nothing above this line mutates, so --dry-run is inert even with --force.
     if dry_run:
@@ -635,7 +625,7 @@ async def cmd_mv_project(
         repair_git_worktrees(plan)
         migrate_env_state(plan)
         migrate_logs(plan)
-        task_count = migrate_tasks(plan)
+        task_count = await migrate_tasks(plan)
         claude_dirs = migrate_claude_dirs(plan)
         migrate_claude_json(plan, home)
         symlinks = repoint_global_symlinks(plan)

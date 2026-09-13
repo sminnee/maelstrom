@@ -9,6 +9,18 @@ import pytest
 from maelstrom import wiki
 from maelstrom.task_store import InMemoryStore
 
+
+@pytest.fixture
+def store() -> InMemoryStore:
+    """The wiki's own key→text store.
+
+    Built here rather than taken from ``conftest``: the shared ``store``
+    fixture is the task *table* now, and the wiki is the one subsystem still
+    on :class:`~maelstrom.task_store.GitFileStore`.
+    """
+    return InMemoryStore()
+
+
 PAGE = """---
 description: How to publish a package to PyPI
 ---

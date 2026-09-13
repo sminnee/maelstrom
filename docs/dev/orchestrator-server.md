@@ -171,18 +171,17 @@ what was created, so a session that planned the chain does not promote it a seco
 function `mael task promote` calls, so the CLI stays canonical and this is a second surface onto
 it, not a reimplementation. Three things make the failure path safe:
 
-- **One transaction.** Several drafts are several notebook writes, and a failure part-way would
-  leave some tasks created and some not. `store.transaction` gives the set a true rollback, so an
-  invalid draft leaves the notebook untouched and the document still `awaiting-review`. The
+- **One transaction.** Several drafts are several task writes, and a failure part-way would
+  leave some tasks created and some not. `TaskTable.transact` gives the set a true rollback, so
+  an invalid draft leaves the notebook untouched and the document still `awaiting-review`. The
   refusal names the file, since the user is looking at the document and needs to know which one
   to fix.
-- **No index.** The task index is a cache outside that transaction, so a row written during a
-  rolled-back promote would outlive the rollback and leave a task that exists only in the cache.
-  Promote passes `index=None`, and `_stamped` skips its restamp when the block raises, so reads
-  scan the store until the next complete build.
+- **One store.** A task's prose is in its row, so there is no second place a rolled-back write
+  can survive in. That is what the cache beside the notebook used to cost, and why promote had
+  to work around it.
 - **Deferred deletion.** `promote_draft(consume=False)` leaves each file, and the set is deleted
-  only once the transaction commits. Git can roll the notebook back but not a file beside it, so
-  deleting as it went would leave the user a half-deleted plan.
+  only once the transaction commits. A rollback restores the rows but cannot restore a deleted
+  file, so deleting as it went would leave the user a half-deleted plan.
 
 The task refresh is forced afterwards, as every other notebook write forces it: the poll is 2 s
 away, and the user who approved would otherwise see nothing until it came round.
