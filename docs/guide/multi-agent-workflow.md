@@ -182,17 +182,17 @@ gates are the project's automated checks — tests, lint and type check, as CLAU
 them:
 
 1. Commit the implementation.
-2. Run `/present` — re-cut the branch into story commits, one per design decision, so the
+2. Write `.drafts/pr.md` — the decisions and their rationale, which review reads first.
+3. Run `/code-review` — it uncommits the branch and reviews the working tree, applying findings
+   as plain edits and committing them.
+4. Run `/present` — re-cut the reviewed tree into story commits, one per design decision, so the
    reviewer reads the change as a story rather than as the order the work happened in.
-3. Run `/code-review`.
-4. Address blocking findings.
-5. Commit each fix as a `--fixup` commit targeting the story commit it revises.
-6. Push: `mael gh create-pr PROJ-123 --squash`. The `--squash` autosquashes the fixups into
+5. Push: `mael gh create-pr PROJ-123 --squash`. The `--squash` autosquashes any fixups into
    their targets while rebasing onto the branch's base, so the PR lands with clean history.
-7. Close the task: `mael task status done`.
-8. Run `/watch-pr` to take CI (continuous integration) to green.
+6. Close the task: `mael task status done`.
+7. Run `/watch-pr` to take CI (continuous integration) to green.
 
-### Why the task closes at step 7, not step 8
+### Why the task closes at step 6, not step 7
 
 **The pull request is the completion signal.** Once it is raised, the work cannot be
 forgotten — an open PR is visible and gets chased. The task is the fragile half: a task

@@ -9,17 +9,21 @@ sequence **without asking**. The gates are the project's automated checks — te
 type check, as CLAUDE.md defines them:
 
 1. Commit the implementation.
-2. Run `/present` to re-cut the branch into story commits.
-3. Run `/code-review`.
-4. Triage the findings: apply what is correct and in scope, discard what does not apply, and
-   write scope changes and potential refactors into `.drafts/pr.md` under
-   `## Raised by review, not actioned`.
-5. Commit each fix as a `--fixup` commit targeting the story commit it revises. Do not amend.
-6. Push: `mael gh create-pr <ISSUE-ID> --squash`.
-7. **Close the task:** `mael task status done`.
-8. Run `/watch-pr` to take CI (continuous integration) to green.
+2. Write `.drafts/pr.md` — the decisions, the rationale, diagrams and test seams. It is what
+   review reads first, and it becomes the PR body.
+3. Run `/code-review`. It uncommits the branch, reviews the working tree, and commits its fixes.
+4. Run `/present` to re-cut the reviewed tree into story commits.
+5. Push: `mael gh create-pr <ISSUE-ID> --squash`.
+6. **Close the task:** `mael task status done`.
+7. Run `/watch-pr` to take CI (continuous integration) to green.
 
-With nothing worth applying, steps 4 and 5 are skipped.
+Review triages its own findings: it applies what is correct and in scope, discards what does not
+apply, and writes scope changes and potential refactors into `.drafts/pr.md` under
+`## Raised by review, not actioned`.
+
+**Review comes before present.** Review's findings become plain edits to the working tree, so
+present partitions code whose review points are already addressed — and the story a reviewer
+reads on the PR is the final one, not the one told before the findings landed.
 
 This overrides the usual "only commit when asked" rule. In a maelstrom project it is
 always on, because an agent that stops to ask at each step cannot run unattended.
@@ -46,17 +50,13 @@ git add src/maelstrom/ports.py
 printf 'feat: widen the port range [PROJ-123]\n\nDetail.\n' | git commit -F -
 ```
 
-A story commit's body states the decision, and its `Review:` trailer says how deep to read it:
+A story commit's body states the decision:
 
 ```
 feat: store the base tip per branch [PROJ-12]
 
 Why this decision, what it replaces, what was rejected. Mermaid allowed.
-
-Review: read
 ```
-
-See [Presenting the change](#presenting-the-change) for what each depth means.
 
 Check where you are before pushing:
 
@@ -74,17 +74,18 @@ reviewer needs. `/present` re-cuts them:
 /present
 ```
 
-It squashes the branch, then partitions the final diff into three to eight story commits — one per
+It squashes the branch, then partitions the final diff into one to eight story commits — one per
 design decision, ordered so each reads on top of the last. The reviewer then reads them in order on
 the PR's Commits tab.
 
 **The invariant is the tree, not the story.** The final tree equals the tree the branch had before
 the pass, and the working history is the undo.
 
-**Present runs once per task**, at the end of the build, before `/code-review`. After it, every
-change is a `fixup!` on the story commit it revises, or a `chore:` when it revises none. A later
-task in a chain re-presents the whole branch from scratch; what present refuses is a branch that
-already carries fixups.
+**Present runs once per task**, after `/code-review`, so it partitions reviewed code. After the PR
+is pushed, every change is a `fixup!` on the story commit it revises, or a `chore:` when it revises
+none. A later task in a chain re-presents the whole branch from scratch. Present refuses a branch
+already carrying fixups, which means it is in Land, and it stops when `mael git uncommit-branch`
+refuses — on a dirty tree that means review's fixes were never committed.
 
 See the journey afterwards:
 
@@ -94,8 +95,9 @@ git log refs/mael/history/<branch>/<stamp>
 
 ### Uncommitting a branch
 
-`/present` runs this command for you. Run it yourself only before review has started, to re-cut a
-branch's commits by hand.
+`/code-review` and `/present` each run this command for you — review to get the branch into the
+working tree, present to re-cut it afterwards. Run it yourself only to re-cut a branch's commits
+by hand.
 
 ```bash
 mael git uncommit-branch
@@ -116,101 +118,83 @@ git log refs/mael/history/<branch>/<stamp>   # the journey, in the order it happ
 git reset --hard refs/mael/history/<branch>/<stamp>   # undo the uncommit
 ```
 
+**`--hard` is safe only while the tree is still clean.** The ref holds the commits as they stood
+at the reset, so it restores those and discards everything unstaged. Run it straight after an
+uncommit and you lose nothing; run it after review has edited the tree and you lose those edits,
+because no ref holds them. Commit first if in doubt.
+
 The command prints the ref it wrote. Each run writes a new one, so an earlier run's chronology
 survives. The refs are deleted with the branch.
 
 ## Code review
 
 ```bash
-/code-review              # origin/main..HEAD
-/code-review <sha>        # one commit
-/code-review <range>      # any git range
+/code-review
 ```
 
-Review **skips commits it has already reviewed**. A reviewed commit carries a `reviewed` git
-note, which `git log` shows with no flag. Name an explicit SHA or range to review a commit
-again. There is no resolved-thread tracking.
+Review's subject is the **working tree**. It starts by running `mael git uncommit-branch`, which
+returns every commit on the branch to unstaged changes at the base tip. The reviewers then read
+the branch's final state directly, and a finding becomes a plain edit rather than a commit to
+target.
 
-A note is local to your machine — sibling worktrees share it, but it is never pushed to
-origin. `mael doctor` sets `notes.rewriteRef`, which keeps a note on its commit through a
-rebase. A note also survives a change to the commit it sits on, so a commit that is modified
-after review is not reviewed again. The run reports each commit it skips, so you can see when
-that happens.
-
-A presented branch is reviewed fresh: its story commits are new objects, so they carry no
-`reviewed` note.
-
-**One run reviews at most 8 commits** — the oldest 8 that are not yet reviewed. A presented branch
-fits in one run by design, because present caps decisions at eight. A `chore:` or a fixup landing
-before the review can push it over, and the run then defers the overflow. It reports the
-rest as deferred. Run `/code-review` again to review them: the first run tags its commits
-`reviewed`, so the second run skips them and takes the next 8. The cap holds even when you name
-an explicit SHA or range. Run the same command again to take the next 8, or name a narrower
-range if you want different commits.
-
-It runs `mael sync --squash --no-push` first, so the review sees the commits as they will
-land instead of a history littered with fixups. Rebase conflicts stop the review; a dirty
-worktree does not, because the rebase autostashes. This step is skipped when you name an
-explicit SHA or range.
+That uncommit is also the sync: it fetches origin, fast-forwards local main, resolves the base
+and rebases, which is everything `mael sync --no-push` does. It refuses a dirty working tree, so
+the build must commit its work before review runs.
 
 Then it spawns **read-only sub-agents**, all running concurrently, so the diff never enters the
-parent's context. Two kinds run:
+parent's context. One runs per concern:
 
-- **One per story commit**, reviewing that decision. The reviewer is told the commit's review
-  depth, and it judges the decision the body states against the diff the commit makes. Each
-  reviewer may read *later* commits in the branch, so work finished by a follow-up commit is not
-  reported as a problem.
-- **One for the whole branch**, reviewing prose: comments, docstrings, and documents. It also
-  reads the story whole — whether the partition is honest, and whether `.drafts/pr.md` describes
-  the branch the commits actually make.
+- **Design and architecture** — the review guide's layers 1 and 2, plus naming and vocabulary. It
+  judges the decisions `.drafts/pr.md` states against what the tree actually does.
+- **Tests** — layer 3: what is tested, at which seam, and whether the assertions read.
+- **Security and correctness** — layer 4.
+- **Prose** — comments, docstrings, and documents.
 
-The prose reviewer exists because the commit reviewers cannot do its job. They weigh
-architecture above language, and each one sees a single commit — so a paragraph copied into
-four files is invisible to all of them. Its own agent gives prose its own budget and the
-whole-branch view. It is skipped on a branch that changes no prose.
+Splitting by concern rather than by commit gives each reviewer the whole change to judge, so a
+question that spans files is answerable. Each reads the worktree itself; no diff is dumped into
+its prompt.
+
+The prose reviewer exists because the code reviewers cannot do its job. They weigh architecture
+above language, and a paragraph copied into four files is invisible to them. Its own agent gives
+prose its own budget.
 
 Findings are merged into one report:
 
 1. Summary (the branch as a whole)
-2. Per commit: design decisions, then findings
+2. Per concern: design decisions, then findings
 3. Prose: design decisions, then findings
-
-Reviewing per commit means every code finding is already attributed to the commit that
-introduced it, which is what the fixup below targets. A prose finding often spans commits, so
-it lands as a fixup on `HEAD`, and those commits come back for review next run.
 
 The prose reviewer also sweeps the repo for duplicated explanations, which can name a file the
 branch never touched. Review never edits such a file on its own. It asks you first, with the
 copy it would keep and the words the cut would save.
 
-**Findings are not ranked blocking vs advisory.** A sub-agent reviewing one commit cannot know
+**Findings are not ranked blocking vs advisory.** A sub-agent reviewing one concern cannot know
 your release pressure, or what you already plan to change. It therefore reports what it found
 and what it costs to leave. The parent then sorts by what each fix would cost: apply the correct,
 in-scope ones; discard the ones that do not apply; raise anything that materially changes scope
 with you. Potential refactors always go in that last bucket — a review is the best place to
 notice them, and dropping them silently is how they get lost.
 
-Every commit reviewer loads `review-guide.md` from the skill directory — the cross-project
+Every code reviewer loads `review-guide.md` from the skill directory — the cross-project
 baseline, worked layer by layer: specifications & subsystems, architecture, test design,
 security & correctness, coding standards. The prose reviewer loads the `writing-for-humans` and
 `writing-for-agents` skills instead, plus `CONTEXT.md` as the glossary. If the project also
 supplies `docs/review/coding-standards.md` or its own `docs/review/review-guide.md`, those load
 too and take precedence.
 
+Review leaves its fixes uncommitted. Commit them, then run `/present`.
+
 ### Fixups, not amends
 
-Commit each fix as a `fixup!` commit aimed at the story commit whose decision it revises:
+Review needs no fixups — its edits sit in the working tree. Fixups belong to **Land**: a change
+made after the PR is pushed, when the branch already carries story commits.
 
 ```bash
 git commit --fixup <sha>
 ```
 
-One fixup per finding. Do not amend — amending rewrites commits the review already covered
-and makes the fix impossible to trace.
-
-Fixes are applied and committed **one commit at a time, oldest first**. Each commit's fixups are
-made and committed before the next commit's fixes are written, so a fixup carries only the changes
-for the commit it targets.
+Aim it at the story commit whose decision it revises, one fixup per change. Do not amend —
+amending rewrites commits the review already covered and makes the fix impossible to trace.
 
 `--squash` folds them into their targets at push time, so the PR still lands with clean
 history.
@@ -228,9 +212,8 @@ mael gh create-pr PROJ-123 --squash
 - **`--squash`** — autosquashes `fixup!` commits into their targets while rebasing onto
   `origin/main`, then force-pushes with `--force-with-lease`.
 
-**The PR body comes from `.drafts/pr.md`.** Write the overview, the diagrams and the test notes
-there, and `create-pr` puts them on the PR. A new PR gets the draft as its body; an open PR has its
-body replaced. The command deletes the draft once the PR has it, so a failed push keeps the draft
+**The PR body comes from `.drafts/pr.md`**, written at step 2. A new PR gets the draft as its
+body; an open PR has its body replaced. The command deletes the draft once the PR has it, so a failed push keeps the draft
 for the next attempt. With no draft file, a new PR gets an empty body and an open PR's body is left
 alone.
 
@@ -249,7 +232,7 @@ the issue "In Review" before the work is actually complete.
 
 ## Why the task closes before the CI watch
 
-Step 7 comes before step 8 deliberately.
+Step 6 comes before step 7 deliberately.
 
 **The pull request is the completion signal.** Once it is raised the work cannot be
 forgotten: an open PR is visible on GitHub and gets chased.

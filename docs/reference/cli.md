@@ -167,7 +167,7 @@ records those as stopped, not crashed, so a closed worktree leaves nothing in `m
 
 ```bash
 mael sync --autorepair             # let a headless session resolve the conflict
-mael sync --squash --no-push       # tidy fixup! commits, publish nothing
+mael sync --squash --no-push       # tidy Land's fixup! commits, publish nothing
 mael sync --base feat/parent       # stack this branch on feat/parent, then rebase
 mael sync --base main              # unstack it again
 ```
@@ -852,7 +852,8 @@ mael git merge --close       # merge, then close the worktree
 mael git uncommit-branch     # collapse the commits back into the working tree
 ```
 
-To autosquash `fixup!` commits without pushing, use `mael sync --squash --no-push`.
+To autosquash `fixup!` commits without pushing — during Land, where fixups are made — use
+`mael sync --squash --no-push`.
 
 **`mael git merge`**
 
@@ -865,6 +866,10 @@ To autosquash `fixup!` commits without pushing, use `mael sync --squash --no-pus
 
 Returns the branch to unstaged changes at its base tip, keeping a working history. See
 [the pull requests guide](../guide/pull-requests.md) for the workflow.
+
+`/code-review` runs it first, to put the branch's final state in the working tree for the
+reviewers; `/present` runs it again afterwards, to re-cut the reviewed tree into story commits.
+Because it rebases, it also does the work of `mael sync --no-push`.
 
 It takes no flags. The rebase is not optional: a base tip computed against a stale base would
 uncommit someone else's work into the tree.
