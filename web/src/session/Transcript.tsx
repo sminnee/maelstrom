@@ -263,5 +263,14 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
           <Markdown source={item.markdown} />
         </details>
       );
+    case 'task_notification':
+      // The `.note` register: the session reporting on itself rather than
+      // anything the operator said.
+      return (
+        <div className={styles.note} data-testid="task-notification">
+          {item.status}
+          {item.summary && ` · ${item.summary}`}
+        </div>
+      );
   }
 }

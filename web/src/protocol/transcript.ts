@@ -136,6 +136,14 @@ export interface SkillItem extends Base {
   markdown: string;
 }
 
+/** Background work the harness reported finishing, folded to its status and summary. */
+export interface TaskNotificationItem extends Base {
+  type: 'task_notification';
+  /** `completed`, `failed` or `stopped` — and `''` where the turn named none. */
+  status: string;
+  summary: string;
+}
+
 /** A shell command the host ran for a `!` line, and what it wrote. */
 export interface ShellItem extends Base {
   type: 'shell';
@@ -157,6 +165,7 @@ export type TranscriptItem =
   | ErrorItem
   | GapItem
   | SkillItem
+  | TaskNotificationItem
   | ShellItem;
 
 export interface Transcript {

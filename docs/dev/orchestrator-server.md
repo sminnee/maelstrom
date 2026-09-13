@@ -74,6 +74,25 @@ A shell command does not move the agent to `processing`: the two turns carry no 
 assistant event that follows moves the state on its own. See
 [agent-daemon.md](agent-daemon.md#running-a-shell-command) for the wire format.
 
+## A task notification
+
+Two wire shapes say background work finished, and they are deliberately not symmetric.
+
+A **subagent** reports through `system`/`task_notification`. `agent_model._end_subagent` consumes
+it to end the subagent, and its status and summary land on the subagent's own row, so the
+normaliser draws no transcript item for it — unrecognised `system` subtypes are dropped by
+omission.
+
+A **background `Bash`** reports through a `user` turn whose content is one `<task-notification>`
+tag. The lookup that ends a subagent cannot match it: its `tool_use_id` was never given a dotted
+id. That turn folds rather than dropping, because a normaliser drop is irreversible — the server
+keeps no transcript, so no UI toggle recovers it.
+
+The fold keeps `status` and `summary`, read from the notification's own body so that a `<summary>`
+nested in another child cannot win over the real one. Roughly one turn in fifteen names no
+`status`; one naming neither field is not worth a row, and falls back to a message. The turn still
+moves the agent to `processing`, unlike a shell pair — the agent acts on a notification.
+
 ## A tagged document
 
 An agent puts a document in front of the user by writing a marker in the text of an ordinary
